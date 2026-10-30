@@ -1,0 +1,29 @@
+[package]
+name = "aq-worker"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+aq-protocol.workspace = true
+aq-worker-protocol.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+fs2.workspace = true
+libc.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+rpassword.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+toml.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+chrono.workspace = true
+tempfile.workspace = true

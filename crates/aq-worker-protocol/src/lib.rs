@@ -1,0 +1,513 @@
+//! AQ execution protocol 2. Foundation enrollment/heartbeat/probe remain v1.
+//! Rust types are the schema source. `examples/schema.rs` emits the checked-in schema.
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
+
+pub const EXECUTION_PROTOCOL_VERSION: u32 = 2;
+pub const MAX_BATCH: usize = 64;
+pub const MAX_CAPABILITIES: usize = 32;
+pub const MAX_TEXT: usize = 4096;
+pub const MAX_GRANT_MS: u64 = 120_000;
+pub const FAKE_HARNESS_CAPABILITY: &str = "deterministic-agent-v1";
+
+macro_rules! wire {
+    ($($name:ident { $($field:ident : $ty:ty),* $(,)? })*) => {$ (
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(deny_unknown_fields)]
+        pub struct $name { $(pub $field: $ty),* }
+    )*};
+}
+wire! {
+    NodeIdentity { node_id: Uuid, boot_id: Uuid }
+    AttemptRef { attempt_id: Uuid, session_id: Uuid, generation: u64 }
+    Resources { slots: u32, cpu_millis: u64, memory_bytes: u64, disk_bytes: u64 }
+    RegisterRequest { identity: NodeIdentity, operation_id: Uuid, protocol_version: u32, worker_version: String, capabilities: Vec<String> }
+    RegisterResponse { identity: NodeIdentity, protocol_version: u32, capabilities: Vec<String> }
+    PollRequest { identity: NodeIdentity, operation_id: Uuid, inventory_sequence: u64, available: Resources, max_items: u32 }
+    PollResponse { server_time_ms: u64, offers: Vec<Offer>, directives: Vec<Directive> }
+    ExecutionSpec { project_id: Uuid, harness: String, resolved_spec_digest: String, fixture_output: String, resources: Resources, required_capabilities: Vec<String> }
+    Offer { offer_id: Uuid, identity: NodeIdentity, attempt: AttemptRef, spec: ExecutionSpec, offer_expires_at_ms: u64, reservation_ttl_ms: u64 }
+    AcceptRequest { identity: NodeIdentity, operation_id: Uuid, offer_id: Uuid, attempt: AttemptRef, resolved_spec_digest: String, reservation_id: Uuid, reservation_deadline_ms: u64, reservation_remaining_ms: u64 }
+    Grant { identity: NodeIdentity, attempt: AttemptRef, offer_id: Uuid, reservation_id: Uuid, resolved_spec_digest: String, grant_sequence: u64, valid_for_ms: u64, reservation_deadline_ms: u64 }
+    AcceptResponse { grant: Grant }
+    DeclineRequest { identity: NodeIdentity, operation_id: Uuid, offer_id: Uuid, reason: String }
+    RenewRequest { identity: NodeIdentity, operation_id: Uuid, attempt: AttemptRef, grant_sequence: u64 }
+    RenewResponse { grant: Grant }
+    Observation { identity: NodeIdentity, operation_id: Uuid, attempt: AttemptRef, sequence: u64, phase: Phase, stop_certainty: StopCertainty, detail: String }
+    Ack { operation_id: Uuid }
+    Directive { directive_id: Uuid, attempt: AttemptRef, kind: DirectiveKind }
+    DirectiveAck { identity: NodeIdentity, operation_id: Uuid, directive_id: Uuid, attempt: AttemptRef, disposition: DirectiveDisposition }
+    ArtifactRef { artifact_id: Uuid, digest: String, bytes: u64, central_receipt: Option<String> }
+    ArtifactHandoffRequest { identity: NodeIdentity, operation_id: Uuid, attempt: AttemptRef, artifact: ArtifactRef, offset: u64, complete: bool }
+    ArtifactHandoffResponse { operation_id: Uuid, acknowledged_offset: u64, central_receipt: Option<String> }
+    ResultReport { identity: NodeIdentity, report_id: Uuid, supersedes_report_id: Option<Uuid>, attempt: AttemptRef, resolved_spec_digest: String, outcome: ProcessOutcome, stop_certainty: StopCertainty, claimed_success: bool, output: String, artifacts: Vec<ArtifactRef>, pending_operation_ids: Vec<Uuid> }
+    ResultResponse { report_id: Uuid, disposition: ResultDisposition, retention_release: bool }
+    ReconcileRequest { identity: NodeIdentity, operation_id: Uuid, attempts: Vec<ReconcileAttempt>, cursor: Option<String>, max_items: u32 }
+    ReconcileAttempt { attempt: AttemptRef, previous_boot_id: Uuid, phase: Phase, launch_id: Option<Uuid>, stop_certainty: StopCertainty, report_id: Option<Uuid> }
+    ReconcileResponse { attempts: Vec<ReconcileDisposition>, next_cursor: Option<String> }
+    ReconcileDisposition { attempt: AttemptRef, action: ReconcileAction, grant: Option<Grant>, result: Option<ResultResponse> }
+    ProtocolError { code: ErrorCode, message: String, retryable: bool, operation_id: Option<Uuid> }
+}
+macro_rules! wire_enum {
+    ($($name:ident { $($variant:ident),* $(,)? })*) => {$ (
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(rename_all="snake_case")]
+        pub enum $name { $($variant),* }
+    )*};
+}
+wire_enum! {
+    Phase { Reserved, Authorized, Preparing, Running, Stopping, Collecting, Reporting, Acknowledged, Retired, LaunchUncertain }
+    StopCertainty { NotStarted, Running, ConfirmedStopped, StopUncertain }
+    ProcessOutcome { Success, Failed, Cancelled, Expired, Unknown }
+    DirectiveKind { Cancel, Drain }
+    DirectiveDisposition { Received, Stopped, StopUncertain }
+    ResultDisposition { Accepted, RetainedCancelled, RetainedStale, Rejected }
+    ReconcileAction { StopAndPreserve, AwaitReport, Acknowledged, Renewed, Unknown }
+    ErrorCode { UnsupportedProtocol, UnsupportedCapability, InvalidRequest, InvalidCredential, CredentialRevoked, StaleBoot, StaleGeneration, IdConflict, OfferExpired, ReservationExpired, GrantExpired, Cancelled, CapacityUnavailable, NotFound, Overloaded, Internal }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("invalid wire value: {0}")]
+pub struct ValidationError(pub &'static str);
+pub trait Validate {
+    fn validate(&self) -> Result<(), ValidationError>;
+}
+fn check(ok: bool, reason: &'static str) -> Result<(), ValidationError> {
+    if ok {
+        Ok(())
+    } else {
+        Err(ValidationError(reason))
+    }
+}
+fn text(value: &str, max: usize) -> bool {
+    !value.is_empty() && value.len() <= max
+}
+fn digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+impl Validate for NodeIdentity {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            !self.node_id.is_nil() && !self.boot_id.is_nil(),
+            "nil node/boot identity",
+        )
+    }
+}
+impl Validate for AttemptRef {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            !self.attempt_id.is_nil() && !self.session_id.is_nil() && self.generation > 0,
+            "invalid attempt identity",
+        )
+    }
+}
+impl Validate for Resources {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            self.slots > 0 && self.slots <= 1024,
+            "slots outside 1..1024",
+        )
+    }
+}
+fn capabilities(c: &[String]) -> bool {
+    c.len() <= MAX_CAPABILITIES
+        && c.iter().all(|x| text(x, 128))
+        && c.iter().enumerate().all(|(i, x)| !c[..i].contains(x))
+}
+impl Validate for RegisterRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        check(
+            !self.operation_id.is_nil()
+                && self.protocol_version == EXECUTION_PROTOCOL_VERSION
+                && text(&self.worker_version, 128)
+                && capabilities(&self.capabilities),
+            "invalid registration/version/capabilities",
+        )
+    }
+}
+impl Validate for PollRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        check(
+            !self.operation_id.is_nil()
+                && self.inventory_sequence > 0
+                && self.max_items > 0
+                && self.max_items as usize <= MAX_BATCH,
+            "invalid poll bounds",
+        )
+    }
+}
+impl Validate for ExecutionSpec {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.resources.validate()?;
+        check(
+            !self.project_id.is_nil()
+                && text(&self.harness, 128)
+                && digest(&self.resolved_spec_digest)
+                && self.fixture_output.len() <= MAX_TEXT
+                && capabilities(&self.required_capabilities),
+            "invalid execution spec",
+        )?;
+        self.verify_digest()
+    }
+}
+impl Validate for Offer {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        self.attempt.validate()?;
+        self.spec.validate()?;
+        check(
+            !self.offer_id.is_nil()
+                && self.reservation_ttl_ms > 0
+                && self.reservation_ttl_ms <= MAX_GRANT_MS,
+            "invalid offer deadline",
+        )
+    }
+}
+impl Validate for AcceptRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        self.attempt.validate()?;
+        check(
+            !self.operation_id.is_nil()
+                && !self.offer_id.is_nil()
+                && !self.reservation_id.is_nil()
+                && self.reservation_deadline_ms > 0
+                && self.reservation_remaining_ms > 0
+                && self.reservation_remaining_ms <= MAX_GRANT_MS
+                && digest(&self.resolved_spec_digest),
+            "invalid acceptance",
+        )
+    }
+}
+impl Validate for Grant {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        self.attempt.validate()?;
+        check(
+            !self.offer_id.is_nil()
+                && !self.reservation_id.is_nil()
+                && digest(&self.resolved_spec_digest)
+                && self.reservation_deadline_ms > 0
+                && self.grant_sequence > 0
+                && self.valid_for_ms > 0
+                && self.valid_for_ms <= MAX_GRANT_MS,
+            "invalid grant",
+        )
+    }
+}
+impl Validate for Observation {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        self.attempt.validate()?;
+        check(
+            !self.operation_id.is_nil() && self.sequence > 0 && self.detail.len() <= MAX_TEXT,
+            "invalid observation",
+        )
+    }
+}
+impl Validate for ResultReport {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        self.attempt.validate()?;
+        check(
+            !self.report_id.is_nil()
+                && digest(&self.resolved_spec_digest)
+                && self.output.len() <= MAX_TEXT
+                && self.artifacts.len() <= MAX_BATCH
+                && self.pending_operation_ids.len() <= MAX_BATCH,
+            "invalid report bounds",
+        )?;
+        for artifact in &self.artifacts {
+            artifact.validate()?;
+        }
+        Ok(())
+    }
+}
+impl Validate for ArtifactRef {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            !self.artifact_id.is_nil()
+                && digest(&self.digest)
+                && self.central_receipt.as_ref().is_none_or(|s| text(s, 256)),
+            "invalid artifact",
+        )
+    }
+}
+impl Validate for ReconcileRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        check(
+            !self.operation_id.is_nil()
+                && self.attempts.len() <= MAX_BATCH
+                && self.max_items > 0
+                && self.max_items as usize <= MAX_BATCH
+                && self.cursor.as_ref().is_none_or(|s| text(s, 256)),
+            "invalid reconcile bounds",
+        )?;
+        for a in &self.attempts {
+            a.attempt.validate()?;
+        }
+        Ok(())
+    }
+}
+impl Validate for RenewRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        self.attempt.validate()?;
+        check(
+            !self.operation_id.is_nil() && self.grant_sequence > 0,
+            "invalid renewal",
+        )
+    }
+}
+impl Validate for DirectiveAck {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        self.attempt.validate()?;
+        check(
+            !self.operation_id.is_nil() && !self.directive_id.is_nil(),
+            "invalid directive acknowledgement",
+        )
+    }
+}
+impl Validate for ArtifactHandoffRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        self.attempt.validate()?;
+        self.artifact.validate()?;
+        check(
+            !self.operation_id.is_nil() && self.offset <= self.artifact.bytes,
+            "invalid artifact offset",
+        )
+    }
+}
+impl Validate for DeclineRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        check(
+            !self.operation_id.is_nil() && !self.offer_id.is_nil() && text(&self.reason, MAX_TEXT),
+            "invalid decline",
+        )
+    }
+}
+
+/// Canonical wire digest: serialization of typed objects (ordered object keys).
+/// Arrays retain order. Operation replay compares these canonical bytes, not raw JSON whitespace.
+pub fn payload_digest<T: Serialize>(value: &T) -> String {
+    let value = serde_json::to_value(value).expect("wire value must serialize");
+    format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&value).expect("JSON must serialize"))
+    )
+}
+
+/// Root union makes every message available in the single generated JSON schema.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "message", content = "body", rename_all = "snake_case")]
+pub enum WireMessage {
+    RegisterRequest(RegisterRequest),
+    RegisterResponse(RegisterResponse),
+    PollRequest(PollRequest),
+    PollResponse(PollResponse),
+    AcceptRequest(AcceptRequest),
+    AcceptResponse(AcceptResponse),
+    DeclineRequest(DeclineRequest),
+    RenewRequest(RenewRequest),
+    RenewResponse(RenewResponse),
+    Observation(Observation),
+    Ack(Ack),
+    DirectiveAck(DirectiveAck),
+    ArtifactHandoffRequest(ArtifactHandoffRequest),
+    ArtifactHandoffResponse(ArtifactHandoffResponse),
+    ResultReport(ResultReport),
+    ResultResponse(ResultResponse),
+    ReconcileRequest(ReconcileRequest),
+    ReconcileResponse(ReconcileResponse),
+    ProtocolError(ProtocolError),
+}
+
+pub fn schema() -> String {
+    // The executable validator remains authoritative for byte-length, digest
+    // binding and cross-field rules. Add portable shape bounds to the schema.
+    let mut schema = serde_json::to_value(schemars::schema_for!(WireMessage)).unwrap();
+    for (name, definition) in schema["$defs"].as_object_mut().unwrap() {
+        let Some(properties) = definition
+            .get_mut("properties")
+            .and_then(|v| v.as_object_mut())
+        else {
+            continue;
+        };
+        for (field, value) in properties {
+            let object = value.as_object_mut().unwrap();
+            if field.ends_with("_id")
+                && field != "report_id"
+                && field != "launch_id"
+                && field != "supersedes_report_id"
+            {
+                object.insert(
+                    "not".into(),
+                    serde_json::json!({"const":"00000000-0000-0000-0000-000000000000"}),
+                );
+            }
+            match field.as_str() {
+                "resolved_spec_digest" | "digest" => {
+                    object.insert("pattern".into(), serde_json::json!("^[a-f0-9]{64}$"));
+                }
+                "generation" | "grant_sequence" | "sequence" | "inventory_sequence" => {
+                    object.insert("minimum".into(), serde_json::json!(1));
+                }
+                "valid_for_ms" | "reservation_ttl_ms" | "reservation_remaining_ms" => {
+                    object.insert("minimum".into(), serde_json::json!(1));
+                    object.insert("maximum".into(), serde_json::json!(MAX_GRANT_MS));
+                }
+                "max_items" => {
+                    object.insert("minimum".into(), serde_json::json!(1));
+                    object.insert("maximum".into(), serde_json::json!(MAX_BATCH));
+                }
+                "slots" if name == "Resources" => {
+                    object.insert("minimum".into(), serde_json::json!(0));
+                    object.insert("maximum".into(), serde_json::json!(1024));
+                }
+                "offers" | "directives" | "attempts" | "artifacts" | "pending_operation_ids" => {
+                    object.insert("maxItems".into(), serde_json::json!(MAX_BATCH));
+                }
+                "capabilities" | "required_capabilities" => {
+                    object.insert("maxItems".into(), serde_json::json!(MAX_CAPABILITIES));
+                    object.insert("uniqueItems".into(), serde_json::json!(true));
+                    object.insert(
+                        "items".into(),
+                        serde_json::json!({"type":"string","minLength":1,"maxLength":128}),
+                    );
+                }
+                "output" | "fixture_output" | "detail" | "reason" | "message" => {
+                    object.insert("maxLength".into(), serde_json::json!(MAX_TEXT));
+                }
+                "worker_version" | "harness" => {
+                    object.insert("minLength".into(), serde_json::json!(1));
+                    object.insert("maxLength".into(), serde_json::json!(128));
+                }
+                _ => {}
+            }
+        }
+    }
+    serde_json::to_string_pretty(&schema).unwrap() + "\n"
+}
+
+impl ExecutionSpec {
+    /// Digest of the entire typed spec except the digest field itself.
+    pub fn computed_digest(&self) -> String {
+        let mut value = serde_json::to_value(self).expect("spec serialization");
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("resolved_spec_digest");
+        payload_digest(&value)
+    }
+    pub fn seal(mut self) -> Self {
+        self.resolved_spec_digest = self.computed_digest();
+        self
+    }
+    pub fn verify_digest(&self) -> Result<(), ValidationError> {
+        check(
+            self.resolved_spec_digest == self.computed_digest(),
+            "execution spec digest mismatch",
+        )
+    }
+}
+impl Validate for RegisterResponse {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.identity.validate()?;
+        check(
+            self.protocol_version == EXECUTION_PROTOCOL_VERSION && capabilities(&self.capabilities),
+            "invalid negotiated response",
+        )
+    }
+}
+impl Validate for PollResponse {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            self.offers.len() <= MAX_BATCH && self.directives.len() <= MAX_BATCH,
+            "poll response too large",
+        )?;
+        for o in &self.offers {
+            o.validate()?;
+        }
+        for d in &self.directives {
+            d.validate()?;
+        }
+        Ok(())
+    }
+}
+impl Validate for AcceptResponse {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.grant.validate()
+    }
+}
+impl Validate for RenewResponse {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.grant.validate()
+    }
+}
+impl Validate for Directive {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.attempt.validate()?;
+        check(!self.directive_id.is_nil(), "nil directive ID")
+    }
+}
+impl Validate for Ack {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(!self.operation_id.is_nil(), "nil ack ID")
+    }
+}
+impl Validate for ResultResponse {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(!self.report_id.is_nil(), "nil report ID")
+    }
+}
+impl Validate for ArtifactHandoffResponse {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            !self.operation_id.is_nil()
+                && self.central_receipt.as_ref().is_none_or(|s| text(s, 256)),
+            "invalid artifact receipt",
+        )
+    }
+}
+impl Validate for ReconcileResponse {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            self.attempts.len() <= MAX_BATCH
+                && self.next_cursor.as_ref().is_none_or(|s| text(s, 256)),
+            "invalid reconcile response bounds",
+        )?;
+        for a in &self.attempts {
+            a.attempt.validate()?;
+            if let Some(g) = &a.grant {
+                g.validate()?;
+                check(g.attempt == a.attempt, "reconcile grant mismatch")?;
+            }
+            if let Some(r) = &a.result {
+                r.validate()?;
+            }
+        }
+        Ok(())
+    }
+}
+impl Validate for ProtocolError {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            text(&self.message, MAX_TEXT) && self.operation_id.is_none_or(|x| !x.is_nil()),
+            "invalid protocol error",
+        )
+    }
+}
+
+#[cfg(feature = "test-support")]
+pub mod testing;

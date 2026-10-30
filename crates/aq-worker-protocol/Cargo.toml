@@ -1,0 +1,17 @@
+[package]
+name = "aq-worker-protocol"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Implementation-independent AQ execution wire contract"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[features]
+test-support = []

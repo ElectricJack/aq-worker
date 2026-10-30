@@ -1,0 +1,36 @@
+[workspace]
+resolver = "3"
+members = ["crates/aq-protocol", "crates/aq-worker-protocol", "crates/aq-worker"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+aq-protocol = { path = "crates/aq-protocol", version = "=0.1.0" }
+aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.1.0" }
+anyhow = "1"
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+fs2 = "0.4"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rpassword = "7"
+schemars = { version = "1", features = ["uuid1"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+strip = true

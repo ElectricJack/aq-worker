@@ -1,0 +1,206 @@
+{
+  "fixture_format": 1,
+  "source_revision": "eed842362f29016ee508ca200f3bb3da2473dc08",
+  "scope": "Foundation v1 serialization examples and behavioral assertions. All credentials, images, timestamps and IDs are synthetic; this file does not authorize execution or select release artifacts.",
+  "protocol": {
+    "current": 1,
+    "supported_min": 1,
+    "supported_max": 1,
+    "capabilities": [
+      "enroll",
+      "heartbeat",
+      "probe"
+    ],
+    "execution_supported": false
+  },
+  "wire": [
+    {
+      "id": "enrollment",
+      "method": "POST",
+      "path": "/v1/worker/enroll",
+      "bearer_required": false,
+      "request": {
+        "code": "synthetic-enrollment-code",
+        "name": "fixture-node",
+        "worker_version": "0.1.0",
+        "protocol_version": 1
+      },
+      "response_status": 200,
+      "response": {
+        "node_id": "11111111-1111-4111-8111-111111111111",
+        "credential": "aqn_fixture-not-valid",
+        "heartbeat_interval_secs": 15
+      },
+      "assertions": [
+        "Code is single-use and expires after its configured lifetime (default 600 seconds).",
+        "Only a verifier is retained centrally."
+      ]
+    },
+    {
+      "id": "heartbeat",
+      "method": "POST",
+      "path": "/v1/worker/heartbeat",
+      "bearer_required": true,
+      "request": {
+        "worker_version": "0.1.0",
+        "protocol_version": 1
+      },
+      "response_status": 200,
+      "response": {
+        "server_version": "0.1.0",
+        "heartbeat_interval_secs": 15
+      },
+      "assertions": [
+        "Authenticated stable node ID remains unchanged across daemon/database restart.",
+        "last_seen_at advances; heartbeat conveys no execution authority."
+      ]
+    },
+    {
+      "id": "probe",
+      "method": "POST",
+      "path": "/v1/worker/probe",
+      "bearer_required": true,
+      "request": {
+        "nonce": "fixture-nonce"
+      },
+      "response_status": 200,
+      "response": {
+        "nonce": "fixture-nonce",
+        "server_time": "2026-10-30T12:00:00Z"
+      },
+      "assertions": [
+        "Nonce longer than 64 characters yields 400 bad_request."
+      ]
+    },
+    {
+      "id": "credential-revoked",
+      "method": "POST",
+      "path": "/v1/worker/heartbeat",
+      "bearer_required": true,
+      "request": {
+        "worker_version": "0.1.0",
+        "protocol_version": 1
+      },
+      "response_status": 401,
+      "response": {
+        "error": "credential_revoked",
+        "message": "this worker credential has been revoked; enroll the worker again"
+      },
+      "assertions": [
+        "Same error code applies to probe.",
+        "Does not update last_seen_at.",
+        "Worker run loop terminates instead of retrying.",
+        "Message text is informational; status and error code are compatibility assertions."
+      ]
+    },
+    {
+      "id": "unsupported-protocol",
+      "method": "POST",
+      "path": "/v1/worker/heartbeat",
+      "bearer_required": true,
+      "request": {
+        "worker_version": "0.1.0",
+        "protocol_version": 99
+      },
+      "response_status": 426,
+      "response": {
+        "error": "unsupported_protocol",
+        "message": "worker protocol 99 is not supported; this server accepts 1–1. Install a compatible aq-worker release.",
+        "supported_min": 1,
+        "supported_max": 1
+      },
+      "assertions": [
+        "Protocol rejection precedes credential validation.",
+        "Incompatible enrollment does not consume its code."
+      ]
+    }
+  ],
+  "identity": {
+    "default_path": "$XDG_CONFIG_HOME/agent-q/worker.toml (fallback $HOME/.config/agent-q/worker.toml)",
+    "required_mode": "0600",
+    "unknown_fields": "reject",
+    "worker_toml": "server_url = \"http://127.0.0.1:8081\"\nnode_id = \"11111111-1111-4111-8111-111111111111\"\ncredential = \"aqn_fixture-not-valid\"\n",
+    "optional_fields": [
+      "cf_client_id",
+      "cf_client_secret"
+    ],
+    "assertions": [
+      "Existing server_url, node_id and credential are reused after extraction.",
+      "Both CF fields are required to send CF-Access-Client-Id and CF-Access-Client-Secret headers."
+    ]
+  },
+  "updates": {
+    "manifest": {
+      "manifest_version": 1,
+      "version": "0.1.1",
+      "source_revision": "fixture-not-a-release",
+      "images": {
+        "server": "ghcr.io/example/server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "worker": "ghcr.io/example/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "protocol": {
+        "min": 1,
+        "max": 1
+      },
+      "state_format": 1,
+      "readable_state_formats": [
+        1
+      ],
+      "upgrade_from": ">=0.1.0",
+      "created_at": "2026-10-30T12:00:00Z"
+    },
+    "journal": {
+      "journal_format": 1,
+      "active": {
+        "manifest_version": 1,
+        "version": "0.1.1",
+        "source_revision": "fixture-not-a-release",
+        "images": {
+          "server": "ghcr.io/example/server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "worker": "ghcr.io/example/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "protocol": {
+          "min": 1,
+          "max": 1
+        },
+        "state_format": 1,
+        "readable_state_formats": [
+          1
+        ],
+        "upgrade_from": ">=0.1.0",
+        "created_at": "2026-10-30T12:00:00Z"
+      },
+      "previous": null,
+      "current": null,
+      "active_backup": null
+    },
+    "request": {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "version": "0.1.1",
+      "requested_by": "fixture@example.com",
+      "requested_at": "2026-10-30T12:00:00Z"
+    },
+    "status": {
+      "updater_version": "0.1.0",
+      "state": {
+        "kind": "idle"
+      },
+      "active": {
+        "version": "0.1.1",
+        "source_revision": "fixture-not-a-release",
+        "server_image": "ghcr.io/example/server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_format": 1
+      },
+      "previous": null,
+      "available": null,
+      "history": [],
+      "updated_at": "2026-10-30T12:00:00Z"
+    },
+    "assertions": [
+      "Manifest and journal reject unsupported formats and unknown fields.",
+      "Status read side tolerates unknown fields and maps newer enum variants to unknown.",
+      "Server image references in manifests are digest pinned.",
+      "Image rollback requires readable persistent state; incompatible manifests are refused before pull."
+    ]
+  }
+}

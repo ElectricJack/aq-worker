@@ -1,0 +1,6 @@
+/target/
+/.local/
+/state/
+/secrets/
+.env
+*.sock
