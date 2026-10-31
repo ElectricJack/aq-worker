@@ -1,10 +1,11 @@
 [package]
 name = "aq-worker"
-version = "0.3.1"
+version = "0.3.2"
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+aq-session-host.workspace = true
 aq-protocol.workspace = true
 aq-worker-protocol.workspace = true
 anyhow.workspace = true

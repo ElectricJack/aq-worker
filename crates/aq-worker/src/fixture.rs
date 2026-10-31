@@ -326,13 +326,5 @@ fn spawn_escaped_writer(directory: &Path) -> Result<()> {
     Ok(())
 }
 pub fn process_evidence(pid: u32) -> Result<ProcessEvidence> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
-    let fields: Vec<_> = stat
-        .rsplit_once(") ")
-        .context("malformed process stat")?
-        .1
-        .split_whitespace()
-        .collect();
-    let start_ticks = fields.get(19).context("missing starttime")?.parse()?;
-    Ok(ProcessEvidence { pid, start_ticks })
+    aq_session_host::ownership::process_evidence(pid)
 }

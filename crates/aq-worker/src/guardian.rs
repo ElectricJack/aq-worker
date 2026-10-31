@@ -249,32 +249,7 @@ fn peer_pid(stream: &UnixStream) -> Result<u32> {
     );
     Ok(value.pid as u32)
 }
-fn pidfd(pid: u32) -> Result<OwnedFd> {
-    // SAFETY: syscall accepts a PID and zero flags; successful descriptor is owned.
-    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as i32;
-    ensure!(
-        fd >= 0,
-        "pidfd_open unavailable: {}",
-        std::io::Error::last_os_error()
-    );
-    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
-}
-fn signal(fd: &OwnedFd, sig: i32) -> Result<()> {
-    // SAFETY: owned pidfd and null siginfo are the kernel-supported signal API.
-    let rc = unsafe {
-        libc::syscall(
-            libc::SYS_pidfd_send_signal,
-            fd.as_raw_fd(),
-            sig,
-            std::ptr::null::<libc::siginfo_t>(),
-            0,
-        )
-    };
-    if rc < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
-        bail!("pidfd signal: {}", std::io::Error::last_os_error());
-    }
-    Ok(())
-}
+use aq_session_host::ownership::{pidfd, signal};
 pub fn probe_profile() -> Result<()> {
     ensure!(
         cfg!(target_os = "linux"),
@@ -423,12 +398,6 @@ fn logical_now(binding: &LaunchBinding, previous: &mut u64) -> Result<u64> {
     *previous = now;
     Ok(now)
 }
-fn children() -> Result<Vec<u32>> {
-    std::fs::read_to_string(format!("/proc/self/task/{}/children", std::process::id()))?
-        .split_whitespace()
-        .map(|pid| Ok(pid.parse()?))
-        .collect()
-}
 fn reap(state: &mut GuardianState, root_pid: Option<u32>) -> Result<bool> {
     loop {
         let mut status = 0;
@@ -455,21 +424,7 @@ fn reap(state: &mut GuardianState, root_pid: Option<u32>) -> Result<bool> {
         return Err(error.into());
     }
 }
-fn signal_children(sig: i32) -> Result<()> {
-    // Reaping happens only outside this loop, so listed child PIDs cannot be
-    // reused before pidfd_open. Descendant adoption can add entries; repeat.
-    for child in children()? {
-        match pidfd(child) {
-            Ok(fd) => signal(&fd, sig)?,
-            Err(error) => {
-                if crate::fixture::process_evidence(child).is_ok() {
-                    return Err(error);
-                }
-            }
-        }
-    }
-    Ok(())
-}
+use aq_session_host::ownership::signal_children;
 
 struct EmergencyReaper;
 impl Drop for EmergencyReaper {

@@ -399,3 +399,21 @@ fn orderly_journal_release_does_not_wait_for_an_unrelated_fork_child() {
         reopened.err()
     );
 }
+
+#[test]
+fn profiled_tmux_launch_remains_refused_until_authority_integration() {
+    let temp = TempDir::new().unwrap();
+    let mut rt = runtime(temp.path(), 1);
+    let mut offer = sample_offer();
+    offer
+        .spec
+        .required_capabilities
+        .push("aq.profiled-launch".into());
+    offer
+        .spec
+        .required_capabilities
+        .push(aq_session_host::HOST_PROFILE.into());
+    offer.spec = offer.spec.seal();
+    assert!(rt.reserve(offer).is_err());
+    assert!(rt.journal.state().attempts.is_empty());
+}

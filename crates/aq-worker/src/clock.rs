@@ -9,19 +9,7 @@ pub trait Clock: Clone {
 #[derive(Clone, Copy)]
 pub struct BootClock;
 pub fn raw_boot_ms() -> u64 {
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: valid writable timespec; Linux CLOCK_BOOTTIME advances on suspend.
-    assert_eq!(
-        unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) },
-        0,
-        "CLOCK_BOOTTIME unavailable"
-    );
-    (ts.tv_sec as u64)
-        .saturating_mul(1000)
-        .saturating_add(ts.tv_nsec as u64 / 1_000_000)
+    aq_session_host::ownership::raw_boot_ms()
 }
 impl Clock for BootClock {
     fn now_ms(&self) -> u64 {

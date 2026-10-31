@@ -56,12 +56,7 @@ pub struct AttemptRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<crate::source::SourceState>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessEvidence {
-    pub pid: u32,
-    pub start_ticks: u64,
-}
+pub use aq_session_host::ownership::ProcessEvidence;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct State {
