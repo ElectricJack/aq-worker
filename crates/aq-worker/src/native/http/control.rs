@@ -14,10 +14,18 @@ pub struct PollObservation {
 }
 /// Opaque construction: a parsed plan cannot manufacture a delivery observation.
 pub struct Preparation {
+    sent_ns: u64,
+    received_ns: u64,
     message: wire::PreparationDelivery,
     deadline_ns: u64,
 }
 impl Preparation {
+    pub fn sent_ns(&self) -> u64 {
+        self.sent_ns
+    }
+    pub fn received_ns(&self) -> u64 {
+        self.received_ns
+    }
     pub fn message(&self) -> &wire::PreparationDelivery {
         &self.message
     }
@@ -178,6 +186,8 @@ impl NativeClient {
                 .client_deadline_ns(got.sent_ns, got.received_ns, Some(cap))?;
         live(deadline_ns)?;
         Ok(Preparation {
+            sent_ns: got.sent_ns,
+            received_ns: got.received_ns,
             message,
             deadline_ns,
         })
