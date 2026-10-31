@@ -1,0 +1,33 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-native-consumer/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.38s
+     Running tests/native_http.rs (/tmp/aq-native-consumer-target/debug/deps/native_http-d6f3af77ad3c3958)
+
+running 6 tests
+test incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo ... ok
+test artifact_headers_ranges_and_exact_assembly_are_checked ... FAILED
+test wrong_node_changed_receipt_unknown_fields_and_redirects_refuse ... ok
+test exact_native_started_stopped_result_receipts_and_stable_replay ... ok
+test material_digest_scope_and_full_network_interval_are_checked ... ok
+test two_stalled_downloads_do_not_consume_started_reporting_lane ... FAILED
+
+failures:
+
+---- artifact_headers_ranges_and_exact_assembly_are_checked stdout ----
+
+thread 'artifact_headers_ranges_and_exact_assembly_are_checked' (4019416) panicked at crates/aq-worker/tests/native_http.rs:246:49:
+called `Result::unwrap()` on an `Err` value: invalid admission contract: assigned node/boot scope
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- two_stalled_downloads_do_not_consume_started_reporting_lane stdout ----
+
+thread 'two_stalled_downloads_do_not_consume_started_reporting_lane' (4019420) panicked at crates/aq-worker/tests/native_http.rs:289:10:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+
+failures:
+    artifact_headers_ranges_and_exact_assembly_are_checked
+    two_stalled_downloads_do_not_consume_started_reporting_lane
+
+test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.01s
+
+error: test failed, to rerun pass `-p aq-worker --test native_http`

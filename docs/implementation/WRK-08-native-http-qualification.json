@@ -1,0 +1,32 @@
+{
+  "source_revision": "7b729d3b4fb1f502e4beba654334c6e903f9ccea",
+  "qualification": {
+    "native_http_tests": 6,
+    "native_startup_tests": 6,
+    "strict_worker_all_targets_all_features_clippy": "passed",
+    "format": "passed"
+  },
+  "source_sha256": {
+    "Cargo.toml": "4b04c52c2d2a25b5b497f50e9db448459e2133c37945ca6b712fb046c2ea49de",
+    "Cargo.lock": "7f0a57156c5ad17a2c9140d0055a442d9e457e719bc80fd5013061be45c7603e",
+    "crates/aq-worker/Cargo.toml": "b3663e85bc1a242e20579b48c0011ec04c082079c06332ad9931c644bb4b72a7",
+    "crates/aq-worker/src/native.rs": "88c5267950b5bba60aef8bbf6f2579b33080602c9a122c9ae520262a8c085d78",
+    "crates/aq-worker/src/native/http.rs": "3abb9af7bc56b6e53eff28ac451b14d0b23840a1421d786e6cfda6a399a43ec0",
+    "crates/aq-worker/tests/native_startup.rs": "d8935a04c07dad8670f0f918c2cbd6b3bdbcc5394a5105bb31b49a9e0222b92f",
+    "crates/aq-worker/tests/native_http.rs": "d6a441c938e8f7b830ca390668d3f31c7b4b1f18a6c80ba4382cf34e728d9a4d",
+    "vendor/aq-admission-source.json": "9eb1749c1394cb3c67806a3097690e7332b6884f464c05ea6789f472c140a952"
+  },
+  "evidence": {
+    "docs/implementation/evidence/wrk08-native-http-7b729d3/initial-test-fixture-failure.log": "2e1551e426ed3b0f721671f336e7ec62d0f2995f91a3a2ca3e399e1e6f165b3d",
+    "docs/implementation/evidence/wrk08-native-http-7b729d3/tests.log": "54723fa5fa4cb29150b5498db324ed92d7405fc76ab3c06bf883658ba0ef6825",
+    "docs/implementation/evidence/wrk08-native-http-7b729d3/clippy.log": "13a6b5bba73fa76dff1a64f16e5d3be10d4ba860128a54501be41a685d0718e9",
+    "docs/implementation/evidence/wrk08-native-http-7b729d3/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "limits": [
+    "Actual loopback HTTP with synthetic public-contract fixtures; not an assembled daemon/native-worker/provider run.",
+    "Initial test run failed two artifact cases because published startup fixture node identity differed from Started fixture identity. Corrected fixture request scope; production scope checks unchanged.",
+    "Native poll/accept/prepare/renew/reconcile wait for frozen0.1.7; this client cannot issue or infer runnable authority.",
+    "Durable native journal, installation, Git hydration and actual harness integration remain open.",
+    "Zeroizing protects owned private Vec buffers only; kernel/TLS/HTTP stack memory erasure is not claimed."
+  ]
+}
