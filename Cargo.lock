@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "aq-session-host"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "aq-session-protocol",
@@ -236,6 +236,7 @@ dependencies = [
  "rand 0.8.8",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "uuid",
  "zeroize",

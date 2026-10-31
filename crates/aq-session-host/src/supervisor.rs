@@ -94,6 +94,9 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
     let config: SealedLaunch = read_json(&dir.join("launch.json"))?;
     config.manifest.validate()?;
     config.command.validate()?;
+    if let Some(spec) = &config.observed {
+        spec.validate(&config)?;
+    }
     let intent = config.intent()?;
     config
         .permit
@@ -122,6 +125,11 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
         root_status: None,
         stop_reason: None,
     };
+    let mut observed_owner = if config.observed.is_some() {
+        Some(observed::gate::Owner::new(dir)?)
+    } else {
+        None
+    };
     save(dir, &state)?;
     durable_new(&dir.join("identity.json"), &serde_json::to_vec(&identity)?)?;
     let _reaper = EmergencyReaper;
@@ -133,11 +141,7 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
     let mut terminal_failed = false;
     let mut terminal_revision_highwater = 0;
     let mut last_time = raw_boot_ms();
-    let wall_deadline = config
-        .permit
-        .issued_boot_ms
-        .checked_add(config.manifest.resources.wall_time_ms)
-        .context("wall deadline overflow")?;
+    let wall_deadline = config.wall_deadline()?;
     loop {
         let now = raw_boot_ms();
         if now < last_time {
@@ -232,7 +236,10 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     root = Some(child);
                     durable_new(&dir.join("server.json"), &serde_json::to_vec(&server)?)?;
                 }
-                if state.phase == HostPhase::Starting && dir.join("tmux.sock").exists() {
+                if state.phase == HostPhase::Starting
+                    && state.pane.is_none()
+                    && dir.join("tmux.sock").exists()
+                {
                     fault_point(dir, "socket-created")?;
                     ensure!(
                         raw_boot_ms() < state.permit_deadline_boot_ms
@@ -250,22 +257,21 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                             && !dir.join("stop.request").exists(),
                         "authority expired/cancelled immediately before pane creation"
                     );
-                    tmux(
-                        &config,
-                        dir,
-                        &[
-                            "new-session",
-                            "-d",
-                            "-s",
-                            "aq",
-                            "-c",
-                            workspace,
-                            "--",
-                            helper,
-                            "pane",
-                            launch_dir,
-                        ],
-                    )?;
+                    if config.observed.is_some() {
+                        tmux(&config, dir, &["set-option", "-g", "status", "off"])?;
+                    }
+                    let columns = config
+                        .observed
+                        .as_ref()
+                        .map_or(80, |s| s.columns)
+                        .to_string();
+                    let rows = config.observed.as_ref().map_or(24, |s| s.rows).to_string();
+                    let mut arguments = vec!["new-session", "-d", "-s", "aq", "-c", workspace];
+                    if config.observed.is_some() {
+                        arguments.extend(["-x", &columns, "-y", &rows]);
+                    }
+                    arguments.extend(["--", helper, "pane", launch_dir]);
+                    tmux(&config, dir, &arguments)?;
                     fault_point(dir, "pane-created")?;
                     let (server_pid, pane_pid, dead, pane_id) = pane_status(&config, dir)?;
                     ensure!(
@@ -285,7 +291,9 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     };
                     pane_fd = Some(verified_pidfd(&pane.pane)?);
                     state.pane = Some(pane);
-                    state.phase = HostPhase::Running;
+                    if config.observed.is_none() {
+                        state.phase = HostPhase::Running;
+                    }
                     save(dir, &state)?;
                 }
                 Ok(())
@@ -350,13 +358,39 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                 }
             }
         }
+        if let Some(owner) = &mut observed_owner
+            && matches!(state.phase, HostPhase::Waiting | HostPhase::Starting)
+        {
+            match owner.tick(&config, &state, dir, &reader_owner, &directory_guard) {
+                Ok(true) => {
+                    state.phase = HostPhase::Running;
+                    state.observed_boot_ms = raw_boot_ms();
+                    save(dir, &state)?;
+                }
+                Ok(false) => {}
+                Err(_) => {
+                    state.phase = HostPhase::Stopping;
+                    state.stop_reason = Some(
+                        "observed gate failed closed; post-grant exec evidence may be unknown"
+                            .into(),
+                    );
+                    save(dir, &state)?;
+                }
+            }
+        }
         reader_owner.tick(
             dir,
             &config,
             &state,
             wall_deadline,
             &directory_guard,
-            &mut terminal_revision_highwater,
+            reader_lease::Gate {
+                highwater: &mut terminal_revision_highwater,
+                pending_observation: observed_owner
+                    .as_ref()
+                    .and_then(|o| o.closed_ready())
+                    .is_some(),
+            },
         );
         let _ = &root;
         std::thread::sleep(Duration::from_millis(5));
@@ -382,18 +416,15 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
         raw_boot_ms(),
     )?;
     ensure!(
-        !dir.join("stop.request").exists()
-            && raw_boot_ms()
-                < config
-                    .permit
-                    .issued_boot_ms
-                    .checked_add(config.manifest.resources.wall_time_ms)
-                    .context("pane wall deadline")?,
+        !dir.join("stop.request").exists() && raw_boot_ms() < config.wall_deadline()?,
         "pane cancelled/wall limit expired"
     );
     if let Some(rendered) = &config.rendered_startup {
         let bytes = read_bytes(&dir.join("context-0.bin"), 1_048_576)?;
         rendered.verify(&config.manifest, &bytes)?;
+    }
+    if config.observed.is_some() {
+        return observed::gate::wait_closed(dir, &config, &identity);
     }
     durable_new(
         &dir.join("pane-exec.claim"),
@@ -414,13 +445,7 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
         raw_boot_ms(),
     )?;
     ensure!(
-        raw_boot_ms()
-            < config
-                .permit
-                .issued_boot_ms
-                .checked_add(config.manifest.resources.wall_time_ms)
-                .context("exec wall deadline")?
-            && !dir.join("stop.request").exists(),
+        raw_boot_ms() < config.wall_deadline()? && !dir.join("stop.request").exists(),
         "authority expired/cancelled immediately before native exec"
     );
     let error = command.exec();
@@ -558,7 +583,7 @@ pub(crate) fn fixture(dir: &Path, mode: &str) -> Result<()> {
     Ok(())
 }
 
-fn fault_point(_dir: &Path, _stage: &str) -> Result<()> {
+pub(crate) fn fault_point(_dir: &Path, _stage: &str) -> Result<()> {
     #[cfg(feature = "test-support")]
     if std::env::var("AQ_SESSION_HOST_FAULT_STAGE").ok().as_deref() == Some(_stage) {
         durable_new(&_dir.join("guardian-fault.json"), _stage.as_bytes())?;
