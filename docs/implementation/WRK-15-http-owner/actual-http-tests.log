@@ -1,0 +1,10 @@
+   Compiling aq-server v0.1.0 (/tmp/aq-wrk15-http-server/crates/aq-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.97s
+     Running tests/observation_owner_peer.rs (/tmp/wrk15-http-server-target/debug/deps/observation_owner_peer-2ad1b57708e718d7)
+
+running 2 tests
+test actual_http_lost_prepare_activate_reply_restart_and_missing_active_store_never_reseed ... ok
+test actual_http_boot_advance_lost_reply_exact_recovery_and_revocation ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+

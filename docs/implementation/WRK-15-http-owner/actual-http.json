@@ -1,0 +1,11 @@
+{
+  "server_revision": "e189615168d02bfa28b2d0cf03b9715ab571f29b",
+  "server_base_revision": "597693bcdf7ae3d72026d5ecc34ffd3933f81e46",
+  "server_test_path": "crates/aq-server/tests/observation_owner_peer.rs",
+  "server_test_sha256": "fd6c48ecc924c7dadc7bed968bfa282a0f59273aedcdf304c3de3d7929b17f6e",
+  "worker_source_revision": "ab2921022bf1193a411448b019380dcbcab1c025",
+  "worker_archive_sha256": "09d1b057698ac2563ad9a3d86bd9b1cebc757c19ea0d1bb21d1379c0c8a82f37",
+  "peer_binary_sha256": "518014de89060fefc42b4b1bf7013f205f409c00e9301f01e97a3e18bca3f84b",
+  "qualification": "2 actual loopback HTTP/TcpListener/child-process tests with scripts/test-db disposable Postgres; targeted strict lint and fmt passed",
+  "server_clean_status": ""
+}

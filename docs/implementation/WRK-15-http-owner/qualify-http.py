@@ -1,0 +1,10 @@
+import pathlib,json,hashlib,subprocess,os
+q=json.loads(pathlib.Path('/tmp/wrk15-http-clean-qualification.json').read_text())
+binary=pathlib.Path(q['binary']);assert hashlib.sha256(binary.read_bytes()).hexdigest()==q['binary_sha256']
+root=pathlib.Path('/tmp/aq-wrk15-http-server');revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip();assert revision=='e189615168d02bfa28b2d0cf03b9715ab571f29b'
+assert subprocess.check_output(['git','status','--porcelain=v1'],cwd=root,text=True)==''
+env=dict(os.environ,DATABASE_URL='postgres://postgres:test@127.0.0.1:55432/postgres',CARGO_TARGET_DIR='/tmp/wrk15-http-server-target',CARGO_INCREMENTAL='0',AQ_OBSERVATION_OWNER_PEER=str(binary),AQ_OBSERVATION_OWNER_PEER_SHA256=q['binary_sha256'])
+for command,name in [(['cargo','test','-p','aq-server','--test','observation_owner_peer','--locked','--offline','--','--ignored','--nocapture'],'tests'),(['cargo','clippy','-p','aq-server','--test','observation_owner_peer','--locked','--offline','--','-D','warnings'],'clippy'),(['cargo','fmt','--package','aq-server','--check'],'fmt')]:
+ with open('/tmp/wrk15-http-server-qualified-'+name+'.log','w')as output:subprocess.run(command,cwd=root,env=env,stdout=output,stderr=subprocess.STDOUT,check=True)
+result={'server_revision':revision,'server_base_revision':subprocess.check_output(['git','rev-parse','597693b'],cwd=root,text=True).strip(),'server_test_path':'crates/aq-server/tests/observation_owner_peer.rs','server_test_sha256':hashlib.sha256((root/'crates/aq-server/tests/observation_owner_peer.rs').read_bytes()).hexdigest(),'worker_source_revision':q['source_revision'],'worker_archive_sha256':q['archive_sha256'],'peer_binary_sha256':q['binary_sha256'],'qualification':'2 actual loopback HTTP/TcpListener/child-process tests with scripts/test-db disposable Postgres; targeted strict lint and fmt passed','server_clean_status':subprocess.check_output(['git','status','--porcelain=v1'],cwd=root,text=True)}
+pathlib.Path('/tmp/wrk15-http-server-qualified.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
