@@ -382,6 +382,10 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
                     .context("pane wall deadline")?,
         "pane cancelled/wall limit expired"
     );
+    if let Some(rendered) = &config.rendered_startup {
+        let bytes = read_bytes(&dir.join("context-0.bin"), 1_048_576)?;
+        rendered.verify(&config.manifest, &bytes)?;
+    }
     durable_new(
         &dir.join("pane-exec.claim"),
         b"one native harness exec; no fallback shell\n",
@@ -421,6 +425,10 @@ pub(crate) fn fixture(dir: &Path, mode: &str) -> Result<()> {
         &dir.join("fixture-process.json"),
         &serde_json::to_vec(&process_evidence(std::process::id())?)?,
     )?;
+    if mode == "rendered" {
+        let bytes = read_bytes(&dir.join("context-0.bin"), 1_048_576)?;
+        durable_new(&dir.join("rendered-received.bin"), &bytes)?;
+    }
     if mode == "fork-flood" {
         let producer = unsafe { libc::fork() };
         ensure!(producer >= 0, "producer fork");

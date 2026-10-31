@@ -124,6 +124,78 @@ pub struct ContextMaterial {
     pub artifact: ArtifactRef,
     pub path: PathBuf,
 }
+/// Exact final payload supplied by a trusted runtime after validating its full
+/// published startup descriptor. The host checks the pin and literal bytes; it
+/// does not independently qualify renderer/tokenizer semantics or issue authority.
+#[derive(Clone, Debug)]
+pub struct RenderedStartup {
+    manifest: LaunchManifest,
+    binding: RenderedBinding,
+    bytes: Vec<u8>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenderedBinding {
+    descriptor: ArtifactRef,
+    payload: ArtifactRef,
+    bytes: u64,
+}
+impl RenderedStartup {
+    pub fn new(
+        manifest: LaunchManifest,
+        descriptor: ArtifactRef,
+        payload: ArtifactRef,
+        bytes: Vec<u8>,
+    ) -> Result<Self> {
+        let binding = RenderedBinding {
+            descriptor,
+            payload,
+            bytes: bytes.len() as u64,
+        };
+        binding.verify(&manifest, &bytes)?;
+        Ok(Self {
+            manifest,
+            binding,
+            bytes,
+        })
+    }
+}
+impl RenderedBinding {
+    fn verify(&self, manifest: &LaunchManifest, bytes: &[u8]) -> Result<()> {
+        manifest.validate()?;
+        for reference in [&self.descriptor, &self.payload] {
+            reference.id.validate()?;
+            reference.version.validate()?;
+        }
+        ensure!(
+            self.descriptor.version.as_str() == "1"
+                && self.descriptor.id.as_str()
+                    == format!("aq.startup-delivery/{}", self.descriptor.digest.as_str())
+                && manifest
+                    .modules
+                    .iter()
+                    .filter(|r| r.id.as_str().starts_with("aq.startup-delivery/"))
+                    .count()
+                    == 1
+                && manifest.modules.contains(&self.descriptor),
+            "exact startup descriptor module required"
+        );
+        ensure!(
+            self.bytes > 0
+                && self.bytes <= 1_048_576
+                && self.bytes <= manifest.context.startup_byte_budget
+                && bytes.len() as u64 == self.bytes
+                && Digest::of(bytes) == self.payload.digest
+                && std::str::from_utf8(bytes).is_ok(),
+            "final startup payload bytes/budget mismatch"
+        );
+        Ok(())
+    }
+}
+enum StartupInput<'a> {
+    Constituents(&'a LaunchManifest),
+    Rendered(&'a RenderedStartup),
+}
 /// Memory/CPU/process limits are enforced by the qualified environment, not by
 /// this tmux host. Callers must choose admission-only or supply exact evidence.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -224,6 +296,8 @@ struct SealedLaunch {
     command: LocalCommand,
     resource_policy: ResourcePolicy,
     resource_qualification: Option<ArtifactRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rendered_startup: Option<RenderedBinding>,
 }
 impl SealedLaunch {
     fn intent(&self) -> Result<LaunchIntent> {
@@ -312,6 +386,50 @@ impl SessionHost {
         adapter: &impl HarnessAdapter,
         authority: &mut impl LaunchAuthority,
     ) -> Result<SessionHandle> {
+        Self::launch_inner(
+            root,
+            launch_id,
+            StartupInput::Constituents(manifest),
+            permit,
+            local,
+            adapter,
+            authority,
+        )
+    }
+    /// Stage one already-rendered payload unchanged. The caller must validate
+    /// the complete descriptor and retained inputs before constructing startup.
+    pub fn launch_rendered(
+        root: &Path,
+        launch_id: Uuid,
+        startup: &RenderedStartup,
+        permit: ExecutionPermit,
+        local: &LocalEnvironment,
+        adapter: &impl HarnessAdapter,
+        authority: &mut impl LaunchAuthority,
+    ) -> Result<SessionHandle> {
+        Self::launch_inner(
+            root,
+            launch_id,
+            StartupInput::Rendered(startup),
+            permit,
+            local,
+            adapter,
+            authority,
+        )
+    }
+    fn launch_inner(
+        root: &Path,
+        launch_id: Uuid,
+        startup: StartupInput<'_>,
+        permit: ExecutionPermit,
+        local: &LocalEnvironment,
+        adapter: &impl HarnessAdapter,
+        authority: &mut impl LaunchAuthority,
+    ) -> Result<SessionHandle> {
+        let manifest = match &startup {
+            StartupInput::Constituents(m) => *m,
+            StartupInput::Rendered(r) => &r.manifest,
+        };
         let reaper_slot = reaper::Slot::reserve()?;
         manifest.validate()?;
         ensure!(!launch_id.is_nil(), "nil launch ID");
@@ -374,23 +492,33 @@ impl SessionHost {
             local.context_material.len() <= 128,
             "context material bounds"
         );
-        let mut context = Vec::new();
-        for reference in &manifest.context.references {
-            if reference.delivery == aq_session_protocol::ContextDelivery::Startup {
-                let material = local
-                    .context_material
-                    .iter()
-                    .find(|c| c.artifact == reference.artifact)
-                    .context("startup context material unavailable")?;
-                let bytes = read_bytes(&material.path, 1048576)?;
-                ensure!(
-                    bytes.len() as u64 == reference.bytes
-                        && Digest::of(&bytes) == reference.artifact.digest,
-                    "startup context digest/size mismatch"
-                );
-                context.push(bytes);
+        let (context, rendered_startup) = if let StartupInput::Rendered(rendered) = startup {
+            ensure!(
+                local.context_material.is_empty(),
+                "rendered startup cannot append constituent material"
+            );
+            rendered.binding.verify(manifest, &rendered.bytes)?;
+            (vec![rendered.bytes.clone()], Some(rendered.binding.clone()))
+        } else {
+            let mut context = Vec::new();
+            for reference in &manifest.context.references {
+                if reference.delivery == aq_session_protocol::ContextDelivery::Startup {
+                    let material = local
+                        .context_material
+                        .iter()
+                        .find(|c| c.artifact == reference.artifact)
+                        .context("startup context material unavailable")?;
+                    let bytes = read_bytes(&material.path, 1048576)?;
+                    ensure!(
+                        bytes.len() as u64 == reference.bytes
+                            && Digest::of(&bytes) == reference.artifact.digest,
+                        "startup context digest/size mismatch"
+                    );
+                    context.push(bytes);
+                }
             }
-        }
+            (context, None)
+        };
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -427,6 +555,7 @@ impl SessionHost {
             command: prepared.command,
             resource_policy: local.resource_policy.clone(),
             resource_qualification: prepared.resource_qualification,
+            rendered_startup,
         };
         let intent = config.intent()?;
         durable_new(
@@ -1039,5 +1168,98 @@ mod io_tests {
         let c = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
         assert!(read_bytes(&fifo, 100).is_err());
+    }
+}
+
+#[cfg(test)]
+mod rendered_tests {
+    use super::*;
+    fn fixture(bytes: &[u8]) -> (LaunchManifest, ArtifactRef, ArtifactRef) {
+        let mut manifest: LaunchManifest =
+            serde_json::from_str(include_str!("../tests/fixtures/manifest.json")).unwrap();
+        let digest =
+            Digest::of(b"synthetic descriptor; full descriptor validation belongs to runtime");
+        let descriptor = ArtifactRef {
+            id: aq_session_protocol::Text::new(format!("aq.startup-delivery/{}", digest.as_str()))
+                .unwrap(),
+            version: aq_session_protocol::Text::new("1").unwrap(),
+            digest,
+        };
+        manifest.modules.push(descriptor.clone());
+        let payload = ArtifactRef {
+            id: aq_session_protocol::Text::new("final-startup").unwrap(),
+            version: aq_session_protocol::Text::new("1").unwrap(),
+            digest: Digest::of(bytes),
+        };
+        (manifest, descriptor, payload)
+    }
+    #[test]
+    fn final_payload_is_literal_and_bound_to_exact_single_descriptor() {
+        let bytes = "framing\nfixture\n雪\0literal".as_bytes();
+        let (m, d, p) = fixture(bytes);
+        let prepared =
+            RenderedStartup::new(m.clone(), d.clone(), p.clone(), bytes.to_vec()).unwrap();
+        assert_eq!(prepared.bytes, bytes);
+        let mut missing = m.clone();
+        missing.modules.retain(|r| r != &d);
+        assert!(RenderedStartup::new(missing, d.clone(), p.clone(), bytes.to_vec()).is_err());
+        let mut multiple = m.clone();
+        let mut other = d.clone();
+        other.digest = Digest::of(b"other");
+        other.id = aq_session_protocol::Text::new(format!(
+            "aq.startup-delivery/{}",
+            other.digest.as_str()
+        ))
+        .unwrap();
+        multiple.modules.push(other);
+        assert!(RenderedStartup::new(multiple, d.clone(), p.clone(), bytes.to_vec()).is_err());
+        assert!(
+            RenderedStartup::new(m.clone(), d.clone(), p.clone(), b"changed".to_vec()).is_err()
+        );
+        let mut bounded = m.clone();
+        bounded.context.startup_byte_budget = 7;
+        assert!(RenderedStartup::new(bounded, d.clone(), p.clone(), bytes.to_vec()).is_err());
+        let (m, d, p) = fixture(&[0xff]);
+        assert!(RenderedStartup::new(m, d, p, vec![0xff]).is_err());
+        let (m, d, p) = fixture(&[]);
+        assert!(RenderedStartup::new(m, d, p, vec![]).is_err());
+    }
+    #[test]
+    fn legacy_sealed_configuration_omits_new_optional_field() {
+        let (manifest, _, _) = fixture(b"payload");
+        let permit = ExecutionPermit {
+            session: manifest.bindings.session.clone(),
+            manifest_digest: canonical_digest(&manifest).unwrap(),
+            sequence: 1,
+            issued_boot_ms: 1,
+            expires_boot_ms: 100,
+        };
+        let sealed = SealedLaunch {
+            launch_id: Uuid::from_u128(1),
+            manifest,
+            permit,
+            workspace: "/tmp/work".into(),
+            helper: "/tmp/helper".into(),
+            tmux: "/usr/bin/tmux".into(),
+            tmux_version: "tmux 3.4".into(),
+            command: LocalCommand {
+                executable: "/bin/true".into(),
+                arguments: vec![],
+                environment: Default::default(),
+            },
+            resource_policy: ResourcePolicy::CallerAdmission(ArtifactRef {
+                id: aq_session_protocol::Text::new("fixture").unwrap(),
+                version: aq_session_protocol::Text::new("1").unwrap(),
+                digest: Digest::of(b"fixture"),
+            }),
+            resource_qualification: None,
+            rendered_startup: None,
+        };
+        let bytes = serde_json::to_vec(&sealed).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(value.get("rendered_startup").is_none());
+        let read: SealedLaunch = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(serde_json::to_vec(&read).unwrap(), bytes);
+        assert_eq!(read.intent().unwrap(), sealed.intent().unwrap());
     }
 }
