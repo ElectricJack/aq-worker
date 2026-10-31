@@ -1,0 +1,32 @@
+   Compiling sha1_smol v1.0.1
+   Compiling uuid v1.29.0
+   Compiling schemars v1.2.3
+   Compiling aq-protocol v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-protocol)
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-session-protocol)
+   Compiling aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-worker/crates/aq-worker-protocol)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-worker/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-lifecycle-protocol)
+   Compiling aq-session-host v0.1.3 (/home/jkern/dev/aq-worker/crates/aq-session-host)
+   Compiling aq-admission v0.1.6 (/home/jkern/dev/aq-worker/vendor/aq-admission-0.1.6)
+   Compiling aq-worker v0.3.3 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.86s
+     Running tests/native_http.rs (target/debug/deps/native_http-d6f3af77ad3c3958)
+
+running 1 test
+test exact_native_started_stopped_result_receipts_and_stable_replay ... FAILED
+
+failures:
+
+---- exact_native_started_stopped_result_receipts_and_stable_replay stdout ----
+
+thread 'exact_native_started_stopped_result_receipts_and_stable_replay' (4063371) panicked at crates/aq-worker/tests/native_http.rs:165:40:
+called `Result::unwrap()` on an `Err` value: native request transport failed; disposition unknown
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    exact_native_started_stopped_result_receipts_and_stable_replay
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p aq-worker --test native_http`
