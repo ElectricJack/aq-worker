@@ -98,3 +98,7 @@ They cover exact request replay after restart and failed journal commit, corrupt
 and changed bytes, receipt mismatches, storage pressure, proven non-start cleanup,
 first-report sealing, migration refusal, response bounds and separation of bulk
 HTTP from control. Explicit pinned aq-git qualification is a separate check.
+
+The independent [WRK-07 qualification record](implementation/WRK-07.md) covers
+actual public Git import through a local HTTP handoff peer, lost finalize/report
+responses, journal restart, exact replay and deletion only after release. It also covers actual CLI cold-base download and cancellation while a download response is held. Its limits distinguish local fake-peer qualification from live daemon authorization and immediate inline canceled-result convergence. Restart qualification proves explicit non-start release and partial-input cleanup, including a lost release response.

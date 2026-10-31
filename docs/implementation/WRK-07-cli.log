@@ -1,0 +1,9 @@
+   Compiling aq-worker v0.3.3 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.48s
+     Running tests/source.rs (target/debug/deps/source-650356ba574b21e3)
+
+running 1 test
+test source_cli::pinned_git_cli_cold_download_handoff_and_held_download_cancel ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 3.49s
+

@@ -1373,3 +1373,9 @@ fn shared_cache_is_charged_once_for_multiple_projects_and_growth_stays_protected
             .all(|r| r["operation"] != "workspace.checkpoint")
     );
 }
+
+#[path = "support/source_http.rs"]
+mod source_http;
+
+#[path = "support/source_cli.rs"]
+mod source_cli;

@@ -1,0 +1,9 @@
+   Compiling aq-worker v0.3.3 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.17s
+     Running tests/execution.rs (target/debug/deps/execution-7914a894c6ff6611)
+
+running 1 test
+test nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.07s
+

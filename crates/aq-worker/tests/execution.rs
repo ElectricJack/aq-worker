@@ -417,3 +417,39 @@ fn profiled_tmux_launch_remains_refused_until_authority_integration() {
     assert!(rt.reserve(offer).is_err());
     assert!(rt.journal.state().attempts.is_empty());
 }
+
+#[test]
+fn nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired() {
+    for cancelled in [false, true] {
+        let temp = TempDir::new().unwrap();
+        let mut rt = runtime(temp.path(), 1);
+        let (request, _) = authorize(&mut rt, sample_offer());
+        if cancelled {
+            rt.receive_directive(&Directive {
+                directive_id: Uuid::new_v4(),
+                attempt: request.attempt.clone(),
+                kind: DirectiveKind::Cancel,
+            })
+            .unwrap();
+        }
+        drop(rt);
+        let mut recovered = runtime(temp.path(), 1);
+        assert!(recovered.recover_owned_launches().unwrap().is_empty());
+        let record = &recovered.journal.state().attempts[&request.attempt.attempt_id];
+        assert_eq!(record.stop_certainty, StopCertainty::NotStarted);
+        assert!(record.launch_id.is_none() && !record.start_intent);
+        assert_eq!(
+            record.report.as_ref().unwrap().outcome,
+            if cancelled {
+                ProcessOutcome::Cancelled
+            } else {
+                ProcessOutcome::Expired
+            }
+        );
+        assert!(!record.report.as_ref().unwrap().claimed_success);
+        assert!(
+            record.result.is_none(),
+            "local stop reason is not retention release"
+        );
+    }
+}

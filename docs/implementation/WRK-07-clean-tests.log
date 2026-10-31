@@ -1,0 +1,358 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling libc v0.2.191
+   Compiling cfg-if v1.0.5
+   Compiling serde_core v1.0.229
+   Compiling itoa v1.0.18
+   Compiling smallvec v1.16.4
+   Compiling serde v1.0.229
+   Compiling stable_deref_trait v1.2.1
+   Compiling pin-project-lite v0.2.17
+   Compiling once_cell v1.21.4
+   Compiling bytes v1.12.1
+   Compiling futures-core v0.3.34
+   Compiling parking_lot_core v0.9.12
+   Compiling scopeguard v1.2.0
+   Compiling log v0.4.35
+   Compiling version_check v0.9.5
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling writeable v0.6.4
+   Compiling zmij v1.0.23
+   Compiling getrandom v0.4.3
+   Compiling utf_types v1.0.0
+   Compiling litemap v0.8.3
+   Compiling serde_json v1.0.154
+   Compiling lock_api v0.4.14
+   Compiling typenum v1.20.1
+   Compiling percent-encoding v2.3.2
+   Compiling tracing-core v0.1.36
+   Compiling cc v1.10.0
+   Compiling icu_properties_data v2.4.0
+   Compiling icu_normalizer_data v2.4.0
+   Compiling httparse v1.10.1
+   Compiling memchr v2.8.3
+   Compiling futures-task v0.3.34
+   Compiling slab v0.4.12
+   Compiling zeroize v1.9.1
+   Compiling utf8_iter v1.1.0
+   Compiling tower-service v0.3.3
+   Compiling untrusted v0.9.0
+   Compiling ref-cast v1.0.27
+   Compiling try-lock v0.2.5
+   Compiling form_urlencoded v1.2.2
+   Compiling sync_wrapper v1.0.2
+   Compiling tower-layer v0.3.3
+   Compiling autocfg v1.5.1
+   Compiling generic-array v0.14.7
+   Compiling zerocopy v0.8.63
+   Compiling want v0.3.2
+   Compiling atomic-waker v1.1.2
+   Compiling rustls-pki-types v1.15.1
+   Compiling futures-util v0.3.34
+   Compiling httpdate v1.0.3
+   Compiling rustls v0.23.46
+   Compiling thiserror v2.0.21
+   Compiling futures-channel v0.3.34
+   Compiling cpufeatures v0.2.17
+   Compiling dyn-clone v1.0.20
+   Compiling utf8parse v0.2.2
+   Compiling bitflags v2.13.2
+   Compiling base64 v0.23.1
+   Compiling http v1.5.0
+   Compiling ipnet v2.12.2
+   Compiling subtle v2.6.1
+   Compiling anstyle-parse v1.0.0
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling ryu v1.0.23
+   Compiling hashbrown v0.17.1
+   Compiling anstyle v1.0.14
+   Compiling anyhow v1.0.104
+   Compiling equivalent v1.0.3
+   Compiling num-traits v0.2.19
+   Compiling colorchoice v1.0.5
+   Compiling regex-syntax v0.8.11
+   Compiling webpki-roots v1.0.11
+   Compiling heck v0.5.0
+   Compiling iana-time-zone v0.1.65
+   Compiling strsim v0.11.1
+   Compiling clap_lex v1.1.1
+   Compiling toml_write v0.1.2
+   Compiling anstream v1.0.0
+   Compiling lazy_static v1.5.1
+   Compiling winnow v0.7.15
+   Compiling tracing-log v0.2.0
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling sharded-slab v0.1.7
+   Compiling thread_local v1.1.10
+   Compiling nu-ansi-term v0.50.3
+   Compiling base64 v0.22.1
+   Compiling clap_builder v4.6.7
+   Compiling rustix v1.1.6
+   Compiling mime v0.3.17
+   Compiling linux-raw-sys v0.12.1
+   Compiling matchit v0.8.4
+   Compiling indexmap v2.14.2
+   Compiling fastrand v2.5.0
+   Compiling http-body v1.1.0
+   Compiling http-body-util v0.1.5
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling ring v0.17.14
+   Compiling digest v0.10.7
+   Compiling errno v0.3.14
+   Compiling getrandom v0.2.17
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling rtoolbox v0.0.6
+   Compiling fs2 v0.4.3
+   Compiling sha2 v0.10.9
+   Compiling signal-hook-registry v1.4.8
+   Compiling rpassword v7.5.4
+   Compiling rand_core v0.6.4
+   Compiling parking_lot v0.12.5
+   Compiling regex-automata v0.4.18
+   Compiling uuid v1.29.0
+   Compiling serde_path_to_error v0.1.20
+   Compiling tempfile v3.27.0
+   Compiling matchers v0.2.0
+   Compiling synstructure v0.14.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling tracing-attributes v0.1.31
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_chacha v0.3.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling serde_derive v1.0.229
+   Compiling zerovec-derive v0.11.7
+   Compiling displaydoc v0.2.7
+   Compiling tokio-macros v2.7.2
+   Compiling ref-cast-impl v1.0.27
+   Compiling thiserror-impl v2.0.21
+   Compiling clap_derive v4.6.7
+   Compiling schemars_derive v1.2.3
+   Compiling rand v0.8.8
+   Compiling rustls-webpki v0.103.16
+   Compiling tracing v0.1.44
+   Compiling tokio v1.54.1
+   Compiling tracing-subscriber v0.3.23
+   Compiling axum-core v0.5.6
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.4
+   Compiling zerovec v0.11.9
+   Compiling zerotrie v0.2.5
+   Compiling clap v4.6.7
+   Compiling tinystr v0.8.5
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.4.0
+   Compiling icu_locale_core v2.4.0
+   Compiling icu_provider v2.4.0
+   Compiling icu_properties v2.4.0
+   Compiling icu_normalizer v2.4.0
+   Compiling schemars v1.2.3
+   Compiling serde_urlencoded v0.7.1
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling chrono v0.4.45
+   Compiling toml_edit v0.22.27
+   Compiling aq-session-protocol v0.1.0 (/tmp/wrk07-clean/crates/aq-session-protocol)
+   Compiling aq-worker-protocol v0.2.0 (/tmp/wrk07-clean/crates/aq-worker-protocol)
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling aq-protocol v0.1.0 (/tmp/wrk07-clean/crates/aq-protocol)
+   Compiling url v2.5.8
+   Compiling toml v0.8.23
+   Compiling aq-session-host v0.1.0 (/tmp/wrk07-clean/crates/aq-session-host)
+   Compiling hyper v1.12.0
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.6
+   Compiling tower-http v0.6.11
+   Compiling hyper-util v0.1.21
+   Compiling hyper-rustls v0.27.10
+   Compiling axum v0.8.9
+   Compiling reqwest v0.12.28
+   Compiling aq-worker v0.3.3 (/tmp/wrk07-clean/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.81s
+     Running unittests src/lib.rs (/tmp/wrk07-clean-target/debug/deps/aq_worker-5c6121b17041fd06)
+
+running 1 test
+test journal::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-fixture-agent.rs (/tmp/wrk07-clean-target/debug/deps/aq_fixture_agent-8623d14ee59feac9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/tmp/wrk07-clean-target/debug/deps/aq_worker-3f045a36c39bddc1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-worker-test-host.rs (/tmp/wrk07-clean-target/debug/deps/aq_worker_test_host-fa53844106e3cdb9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backoff.rs (/tmp/wrk07-clean-target/debug/deps/backoff-b94f6dc6e47feaf8)
+
+running 2 tests
+test attempt_zero_has_one_second_ceiling ... ok
+test backoff_is_bounded_and_jittered ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (/tmp/wrk07-clean-target/debug/deps/client-4c1445c3f94a5581)
+
+running 14 tests
+test malformed_server_urls_are_rejected ... ok
+test connection_refused_error_includes_the_cause ... ok
+test server_down_is_transient ... ok
+test non_json_401_is_access_rejected ... ok
+test revoked_is_fatal ... ok
+test unexpected_401_code_is_other ... ok
+test redirect_classified_as_access_rejected ... ok
+test unknown_credential_is_invalid ... ok
+test sends_bearer_and_cf_headers ... ok
+test server_error_is_transient ... ok
+test upgrade_required_is_incompatible ... ok
+test not_found_hints_at_the_worker_port ... ok
+test html_login_page_classified_as_access_rejected ... ok
+test html_429_and_408_and_502_are_transient ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/config.rs (/tmp/wrk07-clean-target/debug/deps/config-426645d101a2f622)
+
+running 3 tests
+test debug_redacts_secrets ... ok
+test load_refuses_world_readable_config ... ok
+test config_saved_with_0600 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/driver.rs (/tmp/wrk07-clean-target/debug/deps/driver-98fe593f02d474d9)
+
+running 5 tests
+test stopped_report_recovers_before_new_boot_registration_without_relaunch ... ok
+test binary_executes_real_child_against_fake_http_peer_with_lost_responses ... ok
+test blocked_fixture_is_killed_and_reaped_on_cancellation ... ok
+test post_stop_observation_outage_preserves_and_replays_before_report ... ok
+test blocked_fixture_is_killed_and_reaped_on_grant_expiry ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+     Running tests/execution.rs (/tmp/wrk07-clean-target/debug/deps/execution-2df3b0d8ab1142d7)
+
+running 17 tests
+test profiled_tmux_launch_remains_refused_until_authority_integration ... ok
+test oversized_journal_is_refused_before_deserialization ... ok
+test exclusive_owner_and_unknown_state_format_fail_closed ... ok
+test admission_replay_and_changed_bytes_are_distinct ... ok
+test unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test competing_projects_share_one_durable_capacity_budget ... ok
+test lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test orderly_journal_release_does_not_wait_for_an_unrelated_fork_child ... ok
+test uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test request_send_time_includes_network_delay_and_suspend ... ok
+test launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test write_failures_never_acknowledge_unpersisted_admission ... ok
+test observations_and_directive_receipts_cross_durable_boundary ... ok
+test nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired ... ok
+test stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/foundation_fixtures.rs (/tmp/wrk07-clean-target/debug/deps/foundation_fixtures-27093aa6e17e5a60)
+
+running 2 tests
+test retained_wire_fixtures_parse_against_foundation_types ... ok
+test retained_worker_identity_survives_save_reload ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/foundation_lifecycle.rs (/tmp/wrk07-clean-target/debug/deps/foundation_lifecycle-c6d6eac3ac1c8021)
+
+running 1 test
+test enroll_saved_identity_reconnect_and_revocation_need_no_sibling ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/guardian.rs (/tmp/wrk07-clean-target/debug/deps/guardian-8685bfcef4969b21)
+
+running 11 tests
+test unavailable_profile_refuses_before_runtime_state ... ok
+test stalled_control_cannot_start_after_expiry_and_stale_identity_is_refused ... ok
+test guardian_does_not_inherit_runtime_lock_or_publish_token ... ok
+test guardian_loss_holds_resources_even_after_known_pids_disappear ... ok
+test exited_root_is_not_stop_proof_for_escaped_descendant ... ok
+test guardian_independently_expires_while_runtime_is_dead ... ok
+test stalled_renew_cannot_revive_expired_guardian_authority ... ok
+test surviving_double_fork_setsid_writer_stops_by_live_guardian_and_not_pid_scan ... ok
+test clock_failure_uses_raw_clock_to_escalate_ignored_term ... ok
+test slow_drip_control_has_total_deadline_and_cannot_starve_expiry ... ok
+test spawn_boundary_crashes_never_duplicate_and_recover_owned_writers ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+
+     Running tests/journal_migration.rs (/tmp/wrk07-clean-target/debug/deps/journal_migration-cc03f52f70032487)
+
+running 5 tests
+test frozen_v1_reader_refuses_current_format_without_modifying_new_state ... ok
+test legacy_active_launch_without_guardian_stays_uncertain_even_with_missing_pid ... ok
+test drain_survives_restart_and_does_not_restore_launch_authority ... ok
+test v1_retired_and_stopped_reports_upgrade_without_reinterpreting_evidence ... ok
+test v2_guardian_report_upgrades_exactly_and_old_reader_refuses_v3_unchanged ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/source.rs (/tmp/wrk07-clean-target/debug/deps/source-844e6b373bfe28ef)
+
+running 16 tests
+test pinned_git_real_workspace_checkpoint_export_and_feature_refusal ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; no sibling checkout
+test source_cli::pinned_git_cli_cold_download_handoff_and_held_download_cancel ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; actual CLI HTTP integration
+test source_http::pinned_git_http_retention_lost_finalize_and_report_restart ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; local HTTP qualification
+test legacy_v3::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+test binding_conflicts_and_pending_disk_pressure_refuse_new_work ... ok
+test download_reservation_pressure_preserves_existing_source_and_allocates_no_files ... ok
+test source_admission_is_demand_only_and_socket_loss_replays_after_restart ... ok
+test download_refuses_changed_assignment_or_corrupt_complete_bytes ... ok
+test download_restart_replays_only_unacknowledged_tail_and_cannot_grant_import ... ok
+test shared_cache_is_charged_once_for_multiple_projects_and_growth_stays_protected ... ok
+test download_nonstart_cleanup_requires_release_and_preserves_unknown_git_effects ... ok
+test guardian_stopped_writers_gate_checkpoint_and_replay ... ok
+test upload_local_commit_failure_keeps_same_pending_chunk_on_reopen ... ok
+test source_v3_upgrade_preserves_retained_work_without_inventing_transfer_progress ... ok
+test upload_changed_retained_bytes_or_symlink_never_replays_changed_payload ... ok
+test upload_restart_preserves_intent_chunk_and_finalize_ids_until_exact_retention ... ok
+
+test result: ok. 13 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/transfer_client.rs (/tmp/wrk07-clean-target/debug/deps/transfer_client-8139d85653a334ab)
+
+running 7 tests
+test credentials_in_urls_partial_access_credentials_and_unbounded_lanes_refuse ... ok
+test invalid_local_input_cannot_reach_remote_transport ... ok
+test redirects_never_forward_credentials_and_remote_secrets_are_not_errors ... ok
+test bounded_responses_and_ranges_reject_large_short_or_untrusted_bodies ... ok
+test mismatched_peer_identity_offsets_or_unconfirmed_retention_refuse ... ok
+test blocked_bulk_does_not_queue_or_block_status_and_execution_control ... ok
+test finite_authenticated_routes_preserve_exact_ids_bytes_and_ranges ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_worker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
