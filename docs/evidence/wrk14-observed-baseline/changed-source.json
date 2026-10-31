@@ -1,0 +1,87 @@
+{
+  "revision": "6cd0c1516a6b7b5dec0616640dfd3e954c7f73ef",
+  "base": "7d2dcd0",
+  "design_revision": "67e53bd",
+  "files": [
+    {
+      "path": "Cargo.lock",
+      "bytes": 61365,
+      "sha256": "f992996ebb580ad148fd2d60933d582c331c7a54ef15661da3f5b86969581807"
+    },
+    {
+      "path": "Cargo.toml",
+      "bytes": 1957,
+      "sha256": "ab94a646e1a9224b1c83769812d9e10d26ae5c5ecaa8a4e9d77322cc2036af9b"
+    },
+    {
+      "path": "crates/aq-session-host/Cargo.toml",
+      "bytes": 647,
+      "sha256": "1a5270a89b99186ec478e5b9e5ed3fe1cb89ade79b1f14ea365421b150fc5adc"
+    },
+    {
+      "path": "crates/aq-session-host/README.md",
+      "bytes": 16393,
+      "sha256": "52130706ddd8b4e717cdc4aebcbda9034c10618cc6645a1c092240932f1f32f8"
+    },
+    {
+      "path": "crates/aq-session-host/src/lib.rs",
+      "bytes": 49522,
+      "sha256": "c49fce25c760fe3fbabd9432aecd7beedaa37c0861f7bec1c8e136eea6030107"
+    },
+    {
+      "path": "crates/aq-session-host/src/local_ipc.rs",
+      "bytes": 7697,
+      "sha256": "a3841a1d7fd233fa7326f663a4fd292de6b849cfafb818ece6683c8eeec6e4dc"
+    },
+    {
+      "path": "crates/aq-session-host/src/observed/exec.rs",
+      "bytes": 4393,
+      "sha256": "8bbe7a3e2ec1f9e4b40acaff5443883a55783dd7dba38573e4e1d08dd908385a"
+    },
+    {
+      "path": "crates/aq-session-host/src/observed/executable.rs",
+      "bytes": 11472,
+      "sha256": "c3a70899c35f7f62ccd4825e1488f311257eae521985f8aec81f0582d52fffc6"
+    },
+    {
+      "path": "crates/aq-session-host/src/observed/gate.rs",
+      "bytes": 20147,
+      "sha256": "c0c0d6748276cccfe77975cd7c3687cb4e5381c195140de0a24e96f5eed58d51"
+    },
+    {
+      "path": "crates/aq-session-host/src/observed/mod.rs",
+      "bytes": 13741,
+      "sha256": "bdd66bc6fa3dadb40dfce5891682e3cec3152c977e53a74fe9755976e2426511"
+    },
+    {
+      "path": "crates/aq-session-host/src/reader_lease.rs",
+      "bytes": 17433,
+      "sha256": "c7a8dc2fdc247d9fae17c38a57b2da2734fbc8495f0b7e3c76444f84273c7b83"
+    },
+    {
+      "path": "crates/aq-session-host/src/supervisor.rs",
+      "bytes": 23769,
+      "sha256": "7ec68119c8b5ea3ccf46f118047b1d42b37b2265905e6eb5fdec24752701322b"
+    },
+    {
+      "path": "crates/aq-session-host/src/terminal_io.rs",
+      "bytes": 42101,
+      "sha256": "53b3a562c2327ba58c3647f92061735cbd45d4cb78d5b273146d3780aaebdaac"
+    },
+    {
+      "path": "crates/aq-session-host/src/terminal_output.rs",
+      "bytes": 17847,
+      "sha256": "48ee34258a256c6f04d6ae15ee6317e1270773fc06c9901f78b2300cdcf582a4"
+    },
+    {
+      "path": "crates/aq-session-host/tests/local_tmux.rs",
+      "bytes": 90073,
+      "sha256": "eb934f20bc4b69996622ddb5eda73e58377b64fbf76b56289f8429f303717916"
+    },
+    {
+      "path": "crates/aq-terminal-bridge/Cargo.toml",
+      "bytes": 1124,
+      "sha256": "cead8301d225b9c66bedadea4ccf90cae03e792ca59eff4189a7a211dbd5046b"
+    }
+  ]
+}

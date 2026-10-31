@@ -1,0 +1,15 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.74s
+     Running tests/local_tmux.rs (/tmp/wrk14-baseline-target/debug/deps/local_tmux-92ff75169bcbe83b)
+
+running 1 test
+
+running 1 test
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.46s
+
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.46s
+

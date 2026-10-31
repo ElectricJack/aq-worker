@@ -1,0 +1,211 @@
+    Checking libc v0.2.191
+    Checking cfg-if v1.0.5
+    Checking typenum v1.20.1
+    Checking cpufeatures v0.2.17
+    Checking memchr v2.8.3
+    Checking itoa v1.0.18
+    Checking dyn-clone v1.0.20
+    Checking subtle v2.6.1
+    Checking zeroize v1.9.1
+    Checking opaque-debug v0.3.1
+    Checking bitflags v2.13.2
+    Checking serde_core v1.0.229
+    Checking zmij v1.0.23
+    Checking zerocopy v0.8.63
+    Checking anyhow v1.0.104
+    Checking linux-raw-sys v0.12.1
+    Checking once_cell v1.21.4
+    Checking fastrand v2.5.0
+    Checking ref-cast v1.0.27
+    Checking thiserror v2.0.21
+    Checking rustix v1.1.6
+    Checking generic-array v0.14.7
+    Checking getrandom v0.2.17
+    Checking getrandom v0.4.3
+    Checking block-buffer v0.10.4
+    Checking inout v0.1.4
+    Checking rand_core v0.6.4
+    Checking crypto-common v0.1.7
+    Checking digest v0.10.7
+    Checking cipher v0.4.4
+    Checking universal-hash v0.5.1
+    Checking aead v0.5.2
+    Checking poly1305 v0.8.0
+    Checking sha2 v0.10.9
+    Checking chacha20 v0.9.1
+    Checking chacha20poly1305 v0.10.1
+    Checking tempfile v3.27.0
+    Checking serde_json v1.0.154
+    Checking serde v1.0.229
+    Checking uuid v1.29.0
+    Checking schemars v1.2.3
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-protocol)
+    Checking ppv-lite86 v0.2.21
+    Checking rand_chacha v0.3.1
+    Checking rand v0.8.8
+    Checking aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+error: this `if` statement can be collapsed
+   --> crates/aq-session-host/src/observed/gate.rs:154:9
+    |
+154 | /         if let Some(socket) = self.pending.as_ref() {
+155 | |             if let Some(packet) = socket.receive()? {
+156 | |                 let peer = socket.credentials()?;
+157 | |                 match serde_json::from_slice::<Request>(&packet.bytes)? {
+...   |
+211 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+154 ~         if let Some(socket) = self.pending.as_ref()
+155 ~             && let Some(packet) = socket.receive()? {
+156 |                 let peer = socket.credentials()?;
+...
+209 |                 }
+210 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-session-host/src/observed/gate.rs:212:9
+    |
+212 | /         if let Some(socket) = self.control.as_ref() {
+213 | |             if let Some(packet) = socket.receive()? {
+214 | |                 ensure!(
+215 | |                     packet.fd.is_none(),
+...   |
+303 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+212 ~         if let Some(socket) = self.control.as_ref()
+213 ~             && let Some(packet) = socket.receive()? {
+214 |                 ensure!(
+...
+301 |                 }
+302 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-session-host/src/observed/gate.rs:306:9
+    |
+306 | /         if !self.released {
+307 | |             if let Some(helper) = self.helper.as_ref() {
+308 | |                 ensure!(
+309 | |                     helper.receive()?.is_none(),
+...   |
+313 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+306 ~         if !self.released
+307 ~             && let Some(helper) = self.helper.as_ref() {
+308 |                 ensure!(
+...
+311 |                 );
+312 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-session-host/src/observed/mod.rs:275:13
+    |
+275 | /             if observer.drained_after(ready.helper_ready_boot_ms) {
+276 | |                 if let Some(baseline) = self.client.confirm(self.spec.baseline_id, deadline)? {
+277 | |                     return Ok((observer, baseline));
+278 | |                 }
+279 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+275 ~             if observer.drained_after(ready.helper_ready_boot_ms)
+276 ~                 && let Some(baseline) = self.client.confirm(self.spec.baseline_id, deadline)? {
+277 |                     return Ok((observer, baseline));
+278 ~                 }
+    |
+
+error: this function has too many arguments (8/7)
+   --> crates/aq-session-host/src/reader_lease.rs:113:5
+    |
+113 | /     pub(crate) fn tick(
+114 | |         &mut self,
+115 | |         dir: &Path,
+116 | |         config: &SealedLaunch,
+...   |
+121 | |         pending_observation: bool,
+122 | |     ) {
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#too_many_arguments
+    = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: this function has too many arguments (8/7)
+   --> crates/aq-session-host/src/reader_lease.rs:143:5
+    |
+143 | /     fn try_tick(
+144 | |         &mut self,
+145 | |         dir: &Path,
+146 | |         config: &SealedLaunch,
+...   |
+151 | |         pending_observation: bool,
+152 | |     ) -> Result<()> {
+    | |___________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#too_many_arguments
+
+error: this `if` statement can be collapsed
+   --> crates/aq-session-host/src/supervisor.rs:361:9
+    |
+361 | /         if let Some(owner) = &mut observed_owner {
+362 | |             if matches!(state.phase, HostPhase::Waiting | HostPhase::Starting) {
+363 | |                 match owner.tick(&config, &state, dir, &reader_owner, &directory_guard) {
+364 | |                     Ok(true) => {
+...   |
+380 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+361 ~         if let Some(owner) = &mut observed_owner
+362 ~             && matches!(state.phase, HostPhase::Waiting | HostPhase::Starting) {
+363 |                 match owner.tick(&config, &state, dir, &reader_owner, &directory_guard) {
+...
+378 |                 }
+379 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-session-host/src/lib.rs:661:13
+    |
+661 | /             if let (Some(client), Some(spec)) = (&observed_client, &config.observed) {
+662 | |                 if client
+663 | |                     .closed(
+664 | |                         spec.baseline_id,
+...   |
+676 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+661 ~             if let (Some(client), Some(spec)) = (&observed_client, &config.observed)
+662 ~                 && client
+663 |                     .closed(
+...
+674 |                     return Ok((handle, observed_client));
+675 ~                 }
+    |
+
+error: could not compile `aq-session-host` (lib) due to 8 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aq-session-host` (lib test) due to 8 previous errors
