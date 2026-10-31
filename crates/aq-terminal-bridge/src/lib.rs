@@ -3,6 +3,7 @@
 //! host's encrypted mailbox. Recovery never resubmits a received input.
 pub mod http;
 mod journal;
+pub mod output;
 use anyhow::{Result, bail, ensure};
 use aq_session_host::terminal_io::{QualifiedClock, Receipt, TerminalBinding, TerminalHandle};
 use aq_session_protocol::{Capability, Digest, InputDisposition, TerminalIdentity, Text};

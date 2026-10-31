@@ -186,6 +186,7 @@ struct Record {
 #[serde(deny_unknown_fields)]
 struct State {
     revision: u64,
+    output_claim: Option<Uuid>,
     binding: TerminalBinding,
     fence: Option<Fence>,
     controller_deadline_boot_ms: u64,
@@ -310,6 +311,7 @@ impl SessionHandle {
             let _ = key(&self.directory)?;
             let mut state = State {
                 revision: 0,
+                output_claim: None,
                 binding: binding.clone(),
                 fence: None,
                 controller_deadline_boot_ms: 0,
@@ -340,6 +342,44 @@ impl SessionHandle {
     }
 }
 impl TerminalHandle {
+    pub(crate) fn output_settings(
+        &self,
+    ) -> Result<(PathBuf, PathBuf, aq_session_protocol::TerminalPolicy)> {
+        self.directory_guard.verify()?;
+        let root = self.directory.parent().context("output host root")?;
+        let host = SessionHost::observe_existing(root, &self.binding.guardian)?;
+        ensure!(
+            host.observe()?.pane.as_ref() == Some(&self.binding.pane),
+            "output pane identity changed"
+        );
+        let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
+        ensure!(
+            config.intent()? == self.binding.guardian.intent,
+            "output sealed configuration changed"
+        );
+        self.directory_guard.verify()?;
+        Ok((
+            self.directory.clone(),
+            config.tmux,
+            config.manifest.terminal,
+        ))
+    }
+    pub(crate) fn claim_output(&self) -> Result<()> {
+        let _lock = RenewalLock::acquire(&self.directory.join("terminal.lock"))?;
+        self.output_settings()?;
+        let mut state = load(&self.directory, &self.binding)?;
+        ensure!(
+            state.output_claim.is_none(),
+            "output producer already claimed; no implicit restart"
+        );
+        state.output_claim = Some(Uuid::new_v4());
+        state.save(&self.directory)?;
+        durable_new(
+            &self.directory.join("terminal-output.claim"),
+            &serde_json::to_vec(&self.binding)?,
+        )?;
+        self.directory_guard.verify()
+    }
     pub fn binding(&self) -> &TerminalBinding {
         &self.binding
     }
@@ -568,6 +608,7 @@ fn load(dir: &Path, binding: &TerminalBinding) -> Result<State> {
         .map_err(|_| anyhow::anyhow!("invalid terminal ledger"))?;
     ensure!(
         state.revision > 0
+            && state.output_claim.is_none_or(|id| !id.is_nil())
             && state.binding == *binding
             && state.input.len() <= MAX_INPUT_RECORDS
             && state.control.len() <= MAX_CONTROL_RECORDS,

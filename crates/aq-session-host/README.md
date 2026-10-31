@@ -163,3 +163,24 @@ controller deadlines, retained directory identity and guardian revision highwate
 `observe_existing` verifies an exact physical host without starting/resuming or
 renewing it; legacy `recover` remains stop-and-preserve. This does not qualify a
 renderer, snapshot barrier or worker scheduler adoption. See WRK-14 stage1.
+
+Candidate0.1.2 adds a bounded read-only control-mode output observer and a durable
+one-shot claim. It preserves literal bytes and reports pause/exit/loss; it cannot
+produce renderer snapshots or recreate a lost producer. Its reader client is
+outside the writer guardian and cannot establish stopped-writer proof. Encrypted
+IO metadata adds a required output-claim field; older IO state is refused, not
+implicitly rewritten. Stop-and-preserve remains available; this is not qualified
+hot upgrade of a running0.1.1 terminal. Launch, GuardianIdentity, HostObservation
+and StoppedProof serialization are unchanged.
+
+
+### Output candidate: qualification failed
+
+The0.1.2 host/0.1.1 bridge output candidate is experimental and must not be
+adopted by a producer. Actual tmux3.4 tests reproduced a stopped sole observer
+blocking the harness in a PTY write for more than5seconds despite
+`pause-after=1`. Guarded execution expiry still stops the writers, but continued
+harness progress is not qualified. Passing individual runs do not remove this
+failure. The control-only checkpoint remains distinct; no output capability is
+advertised. An independently enforceable observer strategy is required before
+output acceptance, followed by the separate baseline/renderer gates.

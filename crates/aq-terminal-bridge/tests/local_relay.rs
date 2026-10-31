@@ -28,6 +28,7 @@ use uuid::Uuid;
 
 struct Adapter {
     directory: PathBuf,
+    mode: String,
 }
 impl HarnessAdapter for Adapter {
     fn prepare(&self, manifest: &LaunchManifest, _: &Path) -> Result<AdapterLaunch> {
@@ -43,7 +44,7 @@ impl HarnessAdapter for Adapter {
                 arguments: vec![
                     "fixture".into(),
                     self.directory.to_str().unwrap().into(),
-                    "terminal-journal".into(),
+                    self.mode.clone(),
                 ],
                 environment: Default::default(),
             },
@@ -83,6 +84,9 @@ fn now() -> u64 {
         .as_millis() as u64
 }
 fn launch(root: &Path) -> (LaunchManifest, SessionHandle) {
+    launch_mode(root, "terminal-journal")
+}
+fn launch_mode(root: &Path, mode: &str) -> (LaunchManifest, SessionHandle) {
     let manifest: LaunchManifest =
         serde_json::from_str(include_str!("fixtures/manifest.json")).unwrap();
     let context = root.join("context");
@@ -90,6 +94,7 @@ fn launch(root: &Path) -> (LaunchManifest, SessionHandle) {
     let id = Uuid::new_v4();
     let adapter = Adapter {
         directory: root.join(id.to_string()),
+        mode: mode.into(),
     };
     let local = LocalEnvironment {
         resource_policy: ResourcePolicy::CallerAdmission(manifest.harness.environment.clone()),
@@ -528,4 +533,84 @@ async fn stalled_receipt_network_does_not_hold_guardian_renewal_or_stop() {
     assert!(!network.is_finished());
     network.abort();
     server.abort();
+}
+
+#[tokio::test]
+#[ignore = "explicit local tmux 3.4 bounded tail qualification"]
+async fn full_tail_queue_keeps_draining_without_a_network_consumer() {
+    use aq_session_host::terminal_output::OutputObserver;
+    use aq_terminal_bridge::output::{OutputTail, TailState};
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (manifest, mut host) = launch_mode(temp.path(), "output-flood");
+    let terminal = TerminalIdentity {
+        session: manifest.bindings.session.clone(),
+        terminal_id: Uuid::new_v4(),
+        epoch: 1,
+    };
+    let io = host.bind_terminal(&terminal).unwrap();
+    let mut observer = OutputObserver::open(&io).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !observer.is_attached() {
+        observer.poll().unwrap();
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let time = now();
+    let lease = ControllerLease {
+        terminal: terminal.clone(),
+        principal_id: Text::new("synthetic-owner").unwrap(),
+        lease_id: Uuid::new_v4(),
+        generation: 1,
+        issued_at_ms: time,
+        expires_at_ms: time + 6000,
+        execution_expires_at_ms: time + 8000,
+    };
+    let fence = Fence {
+        terminal: terminal.clone(),
+        fence_id: Uuid::new_v4(),
+        generation: 1,
+        controller: Some(lease.clone()),
+    };
+    let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
+    io.submit(&Effect::Fence(fence.clone()), clock).unwrap();
+    while io.receipt(fence.fence_id).ok().flatten().is_none() {
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        assert!(Instant::now() < deadline);
+    }
+    let mut policy = manifest.terminal;
+    policy.max_frame_bytes = 1024;
+    policy.replay_bytes = 8192;
+    let mut tail = OutputTail::new(terminal, &policy).unwrap();
+    let time = now();
+    io.submit(
+        &Effect::Input(InputCommand {
+            operation_id: Uuid::new_v4(),
+            lease,
+            issued_at_ms: time,
+            deadline_ms: time + 1500,
+            bytes: b"flood\n".to_vec(),
+        }),
+        clock,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut drained = 0usize;
+    while drained < 256 * 1024 {
+        for event in observer.poll().unwrap() {
+            if let aq_session_host::terminal_output::ControlEvent::Bytes(bytes) = &event {
+                drained += bytes.len();
+            }
+            tail.accept(&event).unwrap();
+        }
+        assert!(tail.retained_bytes() <= 8192);
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert!(tail.gaps().next().is_some());
+    assert_eq!(tail.state(), TailState::InitialIncomplete);
+    assert!(tail.frames().all(|f| f.terminal.epoch == 1));
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(3)).unwrap();
 }

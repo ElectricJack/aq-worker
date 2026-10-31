@@ -252,3 +252,66 @@ async fn redirects_and_wrong_scope_acknowledgements_are_refused() {
     assert!(client(&origin).control_upload(&upload()).await.is_err());
     server.abort();
 }
+
+#[tokio::test]
+async fn saturated_output_lane_keeps_metadata_control_available() {
+    let state = Arc::new(Lanes::default());
+    let output_state = state.clone();
+    let (origin, server) = serve(
+        Router::new()
+            .route(
+                "/v1/terminal-relay/upload",
+                post(move |h: HeaderMap, Json(r): Json<PeerUpload>| {
+                    let state = output_state.clone();
+                    async move {
+                        authorize(&h);
+                        assert_eq!(r.frames.len(), 1);
+                        assert!(r.receipts.is_empty());
+                        state.polls.fetch_add(1, Ordering::SeqCst);
+                        state.poll_started.notify_one();
+                        state.release_poll.notified().await;
+                        Json(ack(&r))
+                    }
+                }),
+            )
+            .route("/v1/terminal-relay/control-upload", post(control))
+            .with_state(state.clone()),
+    )
+    .await;
+    let http = client(&origin);
+    let mut data = upload();
+    let terminal = TerminalIdentity {
+        session: SessionIdentity::Remote {
+            node_id: Uuid::from_u128(1),
+            boot_id: Uuid::from_u128(2),
+            attempt_id: Uuid::from_u128(4),
+            assignment_generation: 1,
+            session_id: Uuid::from_u128(5),
+        },
+        terminal_id: Uuid::from_u128(6),
+        epoch: 1,
+    };
+    data.frames.push(OutputFrame {
+        terminal,
+        sequence: 1,
+        bytes: vec![0xe9, 0x9b],
+        byte_length: 2,
+        digest: Digest::of(&[0xe9, 0x9b]),
+    });
+    let task_http = http.clone();
+    let request = data.clone();
+    let held = tokio::spawn(async move { task_http.output_upload(&request).await });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        state.poll_started.notified(),
+    )
+    .await
+    .unwrap();
+    assert!(http.output_upload(&data).await.is_err());
+    http.control_upload(&upload()).await.unwrap();
+    assert_eq!(state.uploads.load(Ordering::SeqCst), 1);
+    assert_eq!(state.polls.load(Ordering::SeqCst), 1);
+    state.release_poll.notify_one();
+    held.await.unwrap().unwrap();
+    server.abort();
+}

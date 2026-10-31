@@ -34,6 +34,7 @@ pub struct RelayHttp {
     authorization: header::HeaderValue,
     poll: Arc<Semaphore>,
     control: Arc<Semaphore>,
+    output: Arc<Semaphore>,
 }
 impl RelayHttp {
     pub fn new(origin: &str, credential: &NodeCredential) -> Result<Self> {
@@ -74,7 +75,7 @@ impl RelayHttp {
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(2))
             .timeout(Duration::from_secs(22))
-            .pool_max_idle_per_host(2)
+            .pool_max_idle_per_host(3)
             .build()
             .map_err(|_| anyhow::anyhow!("terminal relay HTTP configuration failed"))?;
         Ok(Self {
@@ -83,6 +84,7 @@ impl RelayHttp {
             authorization,
             poll: Arc::new(Semaphore::new(1)),
             control: Arc::new(Semaphore::new(1)),
+            output: Arc::new(Semaphore::new(1)),
         })
     }
     /// Caller owns the immutable registration operation ID and expected sealed
@@ -204,6 +206,54 @@ impl RelayHttp {
                 && reply.retirements.is_empty()
                 && reply.dropped_output.is_empty(),
             "terminal upload reply binding mismatch"
+        );
+        Ok(reply)
+    }
+    /// Volatile output only, on its own lane. No snapshot is accepted before a
+    /// renderer/baseline profile is qualified, and receipts stay on control.
+    pub async fn output_upload(&self, request: &PeerUpload) -> Result<UploadAck> {
+        request.validate()?;
+        ensure!(
+            matches!(request.peer, Peer::Remote { .. })
+                && request.capability.as_str() == wire::CAPABILITY
+                && request.receipts.is_empty()
+                && request.epoch_receipts.is_empty()
+                && request.resize_receipts.is_empty()
+                && request.fence_acks.is_empty()
+                && request.snapshots.is_empty()
+                && (!request.frames.is_empty() || !request.gaps.is_empty()),
+            "tail upload contains unsupported content"
+        );
+        let _slot = self
+            .output
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| anyhow::anyhow!("terminal relay output lane busy"))?;
+        let bytes = self
+            .post(
+                "/v1/terminal-relay/upload",
+                request,
+                256 * 1024,
+                Duration::from_secs(4),
+            )
+            .await?;
+        let reply: UploadAck = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow::anyhow!("invalid output upload reply"))?;
+        reply.validate()?;
+        ensure!(
+            reply.peer == request.peer
+                && reply.exchange_id == request.exchange_id
+                && reply.cursor == request.cursor
+                && reply.capability == request.capability
+                && reply.retirements.is_empty(),
+            "output upload reply binding mismatch"
+        );
+        ensure!(
+            reply.dropped_output.iter().all(|gap| request
+                .frames
+                .iter()
+                .any(|frame| frame.terminal == gap.terminal)),
+            "foreign output drop acknowledgement"
         );
         Ok(reply)
     }

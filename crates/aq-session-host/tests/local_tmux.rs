@@ -10,13 +10,16 @@ use std::{
 };
 use tempfile::TempDir;
 use uuid::Uuid;
-fn wait<T>(mut f: impl FnMut() -> Option<T>) -> T {
+fn wait<T>(f: impl FnMut() -> Option<T>) -> T {
+    wait_named("local process predicate", f)
+}
+fn wait_named<T>(label: &str, mut f: impl FnMut() -> Option<T>) -> T {
     let end = Instant::now() + Duration::from_secs(5);
     loop {
         if let Some(v) = f() {
             return v;
         }
-        assert!(Instant::now() < end, "local process predicate timeout");
+        assert!(Instant::now() < end, "{label} timeout");
         std::thread::sleep(Duration::from_millis(2));
     }
 }
@@ -203,9 +206,19 @@ fn io_setup() -> (
     terminal_io::TerminalHandle,
     aq_session_protocol::ControllerLease,
 ) {
+    io_setup_mode("terminal-journal")
+}
+fn io_setup_mode(
+    mode: &str,
+) -> (
+    Case,
+    SessionHandle,
+    terminal_io::TerminalHandle,
+    aq_session_protocol::ControllerLease,
+) {
     use aq_session_protocol::*;
     use aq_terminal_relay_protocol::{Effect, Fence};
-    let mut case = Case::new("terminal-journal", false);
+    let mut case = Case::new(mode, false);
     let host = case.launch(8000).unwrap();
     wait(|| {
         case.adapter
@@ -681,6 +694,249 @@ fn copied_launch_directory_and_old_mailbox_cannot_reset_physical_input_history()
     assert_eq!(previous.lines().count(), 1);
     host.stop().unwrap();
     host.wait_stopped(Duration::from_secs(5)).unwrap();
+}
+
+#[test]
+#[ignore = "explicit local tmux 3.4 bounded output qualification"]
+fn read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart() {
+    use aq_session_host::terminal_output::{ControlEvent, OutputObserver};
+    use aq_terminal_relay_protocol::Effect;
+    let (case, mut host, io, lease) = io_setup_mode("output-pattern");
+    let before = tmux(
+        &host,
+        &[
+            "display-message",
+            "-p",
+            "-t",
+            "aq:0.0",
+            "#{window_width}x#{window_height}",
+        ],
+    )
+    .stdout;
+    let mut observer = OutputObserver::open(&io).unwrap();
+    wait(|| {
+        observer.poll().unwrap();
+        observer.is_attached().then_some(())
+    });
+    assert_eq!(
+        before,
+        tmux(
+            &host,
+            &[
+                "display-message",
+                "-p",
+                "-t",
+                "aq:0.0",
+                "#{window_width}x#{window_height}"
+            ]
+        )
+        .stdout
+    );
+    let input = io_input(&lease, b"emit\n");
+    io.submit(
+        &Effect::Input(input),
+        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
+    )
+    .unwrap();
+    let mut output = vec![];
+    let expected = "\x1b[?1049h\x1b[2J\x1b[3;4H雪🙂e\u{301}\x1b[?1049l\r\n".as_bytes();
+    wait(|| {
+        for event in observer.poll().unwrap() {
+            if let ControlEvent::Bytes(bytes) = event {
+                output.extend(bytes);
+            }
+        }
+        output
+            .windows(expected.len())
+            .any(|w| w == expected)
+            .then_some(())
+    });
+    assert!(OutputObserver::open(&io).is_err());
+    let process = observer.process().clone();
+    drop(observer);
+    wait(|| {
+        (!ownership::verified_pidfd(&process)
+            .is_ok_and(|fd| ownership::pidfd_is_live(&fd).unwrap_or(false)))
+        .then_some(())
+    });
+    assert!(OutputObserver::open(&io).is_err());
+    std::fs::remove_file(host.directory().join("terminal-output.claim")).unwrap();
+    assert!(
+        OutputObserver::open(&io).is_err(),
+        "encrypted one-shot claim survives missing marker"
+    );
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(5)).unwrap();
+    if let Some(root) = std::env::var_os("AQ_HOST_COMPAT_EVIDENCE_DIR") {
+        use std::os::unix::fs::MetadataExt;
+        let root = PathBuf::from(root);
+        let metadata = std::fs::symlink_metadata(&root).unwrap();
+        assert!(
+            root.is_absolute()
+                && metadata.is_dir()
+                && metadata.uid() == unsafe { libc::geteuid() }
+                && metadata.mode() & 0o777 == 0o700
+        );
+        let running: HostObservation = serde_json::from_slice(
+            &std::fs::read(case.temp.path().join("caller-started.json")).unwrap(),
+        )
+        .unwrap();
+        let proof = host.stopped_proof().unwrap();
+        assert_eq!(running.phase, HostPhase::Running);
+        assert_eq!(&running.guardian, proof.guardian());
+        assert_eq!(running.pane, proof.observation().pane);
+        assert!(
+            proof.observation().kernel_wait_echild
+                && proof.observation().root_status.is_some()
+                && proof.observation().reaped_count > 0
+        );
+        durable_new(&root.join("host-proof-pair.json"), &serde_json::to_vec_pretty(&serde_json::json!({
+            "running":running,"stopped_proof":proof,"synthetic":true,"host_version":env!("CARGO_PKG_VERSION")
+        })).unwrap()).unwrap();
+    }
+}
+
+#[test]
+#[ignore = "explicit local tmux 3.4 bounded output qualification"]
+fn sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control() {
+    use aq_session_host::terminal_output::{ControlEvent, OutputObserver};
+    use aq_terminal_relay_protocol::Effect;
+    let (_case, mut host, io, lease) = io_setup_mode("output-flood");
+    let mut observer = OutputObserver::open(&io).unwrap();
+    wait_named("output observer attachment", || {
+        observer.poll().unwrap();
+        observer.is_attached().then_some(())
+    });
+    let client = ownership::verified_pidfd(observer.process()).unwrap();
+    ownership::signal(&client, libc::SIGSTOP).unwrap();
+    wait_named("observer SIGSTOP state", || {
+        std::fs::read_to_string(format!("/proc/{}/status", observer.process().pid))
+            .ok()
+            .is_some_and(|s| {
+                s.lines()
+                    .any(|line| line.starts_with("State:") && line.contains('T'))
+            })
+            .then_some(())
+    });
+    let input = io_input(&lease, b"flood\n");
+    let operation_id = input.operation_id;
+    io.submit(
+        &Effect::Input(input),
+        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
+    )
+    .unwrap();
+    let stopped = Instant::now();
+    let mut progress: u64;
+    let progress_deadline = stopped + Duration::from_secs(5);
+    loop {
+        progress = std::fs::read_to_string(host.directory().join("fixture-output-progress"))
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if progress >= 4 * 1024 * 1024 && stopped.elapsed() >= Duration::from_millis(1300) {
+            break;
+        }
+        if Instant::now() >= progress_deadline {
+            eprintln!(
+                "stopped-observer diagnostic receipt={:?} host={:?} root={}",
+                io.receipt(operation_id),
+                host.observe(),
+                host.directory().display()
+            );
+            if let Some(pane) = host.observe().ok().and_then(|o| o.pane) {
+                eprintln!(
+                    "synthetic start={:?} syscall={:?}",
+                    std::fs::read(host.directory().join("fixture-output-start")),
+                    std::fs::read_to_string(format!("/proc/{}/syscall", pane.pane.pid))
+                );
+                eprintln!(
+                    "synthetic pane wchan={:?} status={:?}",
+                    std::fs::read_to_string(format!("/proc/{}/wchan", pane.pane.pid)),
+                    std::fs::read_to_string(format!("/proc/{}/status", pane.pane.pid))
+                );
+            }
+            std::mem::forget(_case);
+            panic!(
+                "stopped observer PTY progress timeout: {progress} bytes after {:?}",
+                stopped.elapsed()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(ownership::pidfd_is_live(&client).unwrap());
+    let boot = ownership::raw_boot_ms();
+    host.renew(&ExecutionPermit {
+        session: lease.terminal.session.clone(),
+        manifest_digest: host.identity().intent.manifest_digest.clone(),
+        sequence: 2,
+        issued_boot_ms: boot,
+        expires_boot_ms: boot + 6000,
+    })
+    .unwrap();
+    wait_named("guardian applied independent renewal", || {
+        (host.observe().unwrap().permit_sequence == 2).then_some(())
+    });
+    ownership::signal(&client, libc::SIGCONT).unwrap();
+    let mut paused = false;
+    wait_named("actual tmux pause-after notification", || {
+        for event in observer.poll().unwrap() {
+            if matches!(event, ControlEvent::Paused) {
+                paused = true;
+            }
+        }
+        paused.then_some(())
+    });
+    assert!(paused, "actual tmux pause-after must be observed");
+    assert!(observer.poll().is_err());
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(5)).unwrap();
+    eprintln!("synthetic output progress with stopped sole observer: {progress} bytes");
+}
+
+#[test]
+#[ignore = "explicit local tmux 3.4 bounded output qualification"]
+fn execution_expiry_stops_writers_even_while_observer_client_remains_sigstopped() {
+    use aq_session_host::terminal_output::OutputObserver;
+    let (_case, mut host, io, lease) = io_setup_mode("output-flood");
+    let mut observer = OutputObserver::open(&io).unwrap();
+    wait(|| {
+        observer.poll().unwrap();
+        observer.is_attached().then_some(())
+    });
+    let client = ownership::verified_pidfd(observer.process()).unwrap();
+    ownership::signal(&client, libc::SIGSTOP).unwrap();
+    wait(|| {
+        std::fs::read_to_string(format!("/proc/{}/status", observer.process().pid))
+            .ok()
+            .is_some_and(|s| {
+                s.lines()
+                    .any(|line| line.starts_with("State:") && line.contains('T'))
+            })
+            .then_some(())
+    });
+    let boot = ownership::raw_boot_ms();
+    host.renew(&ExecutionPermit {
+        session: lease.terminal.session,
+        manifest_digest: host.identity().intent.manifest_digest.clone(),
+        sequence: 2,
+        issued_boot_ms: boot,
+        expires_boot_ms: boot + 500,
+    })
+    .unwrap();
+    let stopped = host.wait_stopped(Duration::from_secs(3)).unwrap();
+    assert_eq!(stopped.phase, HostPhase::Stopped);
+    assert!(stopped.kernel_wait_echild);
+    assert!(
+        ownership::pidfd_is_live(&client).unwrap(),
+        "reader is outside the writer proof and still stopped"
+    );
+    let process = observer.process().clone();
+    drop(observer);
+    wait(|| {
+        (!ownership::verified_pidfd(&process)
+            .is_ok_and(|fd| ownership::pidfd_is_live(&fd).unwrap_or(false)))
+        .then_some(())
+    });
 }
 #[test]
 #[ignore = "requires explicit local tmux 3.4 qualification"]
