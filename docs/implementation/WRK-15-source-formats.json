@@ -1,0 +1,180 @@
+{
+  "task": "WRK-15",
+  "schema_version": 1,
+  "worker_baseline_revision": "d2150c1",
+  "runtime_migration": "not authorized before root schema/source fixture review",
+  "published_dependency": {
+    "package": "aq-lifecycle-protocol",
+    "version": "=0.1.0",
+    "producer_revision": "88c11d273bc710c9d55a1322cf05735ef4ad982c"
+  },
+  "source_formats": [
+    {
+      "harness": "codex",
+      "format_id": "codex-rollout-jsonl-67f0994",
+      "source_repository": "https://github.com/openai/codex",
+      "source_revision": "67f0994b532b8740f14b5b738af7b7b2a915b1d6",
+      "source_files": [
+        {
+          "path": "codex-rs/protocol/src/items.rs",
+          "sha256": "866fe86a01fe893aea653d07e10b8a20e04de6880ef57b6056f3e1259173a6d0",
+          "url": "https://github.com/openai/codex/blob/67f0994b532b8740f14b5b738af7b7b2a915b1d6/codex-rs/protocol/src/items.rs"
+        },
+        {
+          "path": "codex-rs/protocol/src/protocol.rs",
+          "sha256": "c7d307454bf2d8131ea35b6e02b2d834d12d6373a143d207af9e45cce0cb1d5e",
+          "url": "https://github.com/openai/codex/blob/67f0994b532b8740f14b5b738af7b7b2a915b1d6/codex-rs/protocol/src/protocol.rs"
+        }
+      ],
+      "selected_released_cli_qualification": "pending; immutable source format reference only",
+      "fixture_provenance": "sanitized synthetic; no user transcripts",
+      "native_usage": [
+        "input",
+        "output",
+        "cache_read",
+        "cache_write",
+        "reasoning"
+      ],
+      "unavailable": [
+        "invoice cost; no provider charge receipt"
+      ],
+      "semantics": "Codex native cumulative total basis; unchanged totals suppressed; mixed-model cumulative attribution unknown",
+      "boundaries": "source fields absent => unknown; no fabricated zero or token/cost inference from text"
+    },
+    {
+      "harness": "gemini",
+      "format_id": "gemini-recording-jsonl-6814e00",
+      "source_repository": "https://github.com/google-gemini/gemini-cli",
+      "source_revision": "6814e00d6b148c3a1d57244d5d7040f7c541009d",
+      "source_files": [
+        {
+          "path": "packages/core/src/services/chatRecordingService.ts",
+          "sha256": "0286c8c0a915ba4d193ed1e6ff41575fe699344032db76c2a5fe982641c1d3ee",
+          "url": "https://github.com/google-gemini/gemini-cli/blob/6814e00d6b148c3a1d57244d5d7040f7c541009d/packages/core/src/services/chatRecordingService.ts"
+        },
+        {
+          "path": "packages/core/src/services/chatRecordingTypes.ts",
+          "sha256": "11c616786bb22d18a07cac35b2ae6225b670bd8d7596bb7fb93ceb7e14378313",
+          "url": "https://github.com/google-gemini/gemini-cli/blob/6814e00d6b148c3a1d57244d5d7040f7c541009d/packages/core/src/services/chatRecordingTypes.ts"
+        }
+      ],
+      "selected_released_cli_qualification": "pending; immutable source format reference only",
+      "fixture_provenance": "sanitized synthetic; no user transcripts",
+      "native_usage": [
+        "input",
+        "output",
+        "cache_read",
+        "reasoning"
+      ],
+      "unavailable": [
+        "invoice cost; no provider charge receipt"
+      ],
+      "semantics": "message-native identity; replay suppressed and changed usage produces correction reference; never claim provider API call dedupe without qualified precedence",
+      "boundaries": "source fields absent => unknown; no fabricated zero or token/cost inference from text"
+    },
+    {
+      "harness": "opencode",
+      "format_id": "opencode-public-session-dto-6c24ec9",
+      "source_repository": "https://github.com/anomalyco/opencode",
+      "source_revision": "6c24ec953200c59f4b044ca70f9c549da35c6608",
+      "source_files": [
+        {
+          "path": "packages/cli/src/commands/handlers/session/export.ts",
+          "sha256": "2089d07f1e476919c95c81070d698cef53a20d70ae3152e3236f0d12b4b2db02",
+          "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/cli/src/commands/handlers/session/export.ts"
+        },
+        {
+          "path": "packages/core/src/session/message.ts",
+          "sha256": "67cffbc5963ea2fc7c8f77b64cea661597a4258ecdf6a6185ef4910cb888e8b9",
+          "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/core/src/session/message.ts"
+        },
+        {
+          "path": "packages/protocol/src/groups/message.ts",
+          "sha256": "7c61ce6321ab54ff216061445204374d2f9f7d4c72c5f066e924c014f1e8843c",
+          "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/protocol/src/groups/message.ts"
+        },
+        {
+          "path": "packages/schema/src/session-message.ts",
+          "sha256": "15ed05f87a9ae88ee54157cf3eb50dba70557ad086f0df1f0d66f0fa1f2ba128",
+          "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/schema/src/session-message.ts"
+        },
+        {
+          "path": "packages/schema/src/token-usage.ts",
+          "sha256": "37f23386677d5f6e067fbe47ce7a459ab29b8e7486981cea8057e4a964760a5f",
+          "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/schema/src/token-usage.ts"
+        }
+      ],
+      "selected_released_cli_qualification": "pending; immutable source format reference only",
+      "fixture_provenance": "sanitized synthetic; no user transcripts",
+      "native_usage": [
+        "input",
+        "output",
+        "cache_read",
+        "cache_write",
+        "reasoning"
+      ],
+      "unavailable": [
+        "invoice cost; no provider charge receipt"
+      ],
+      "semantics": "message-native identity; replay suppressed and changed usage produces correction reference; never claim provider API call dedupe without qualified precedence",
+      "boundaries": "source fields absent => unknown; no fabricated zero or token/cost inference from text"
+    },
+    {
+      "harness": "claude",
+      "format_id": "claude-jsonl-v1-reference-9a9b8e8",
+      "source_repository": "agent-queue2",
+      "source_revision": "9a9b8e8ef992d1ff699755a9383ed3c91e2844ea",
+      "source_files": [
+        {
+          "path": "src/sessions/transcripts/claude.py",
+          "sha256": "47db46634ec0afd4de2c207aa972c206fcf638b6261406e9433057a31c8d4df1"
+        }
+      ],
+      "selected_released_cli_qualification": "pending; closed product native schema not qualified by v1 parser evidence",
+      "fixture_provenance": "sanitized synthetic from v1 reader/test obligations; no user transcripts",
+      "native_usage": [
+        "input",
+        "output",
+        "cache_read",
+        "cache_write"
+      ],
+      "unavailable": [
+        "reasoning unless explicitly present in a qualified native source",
+        "invoice cost; no provider charge receipt"
+      ],
+      "semantics": "message.id usage identity; duplicated assistant chunks do not multiply usage; changed facts correct prior event; historical facts retain native identity",
+      "boundaries": "unsupported fields/categories explicit unknown; v1 fallback path scanning and missing=>zero are not preserved"
+    }
+  ],
+  "v1_reference_inventory": {
+    "source_revision": "9a9b8e8ef992d1ff699755a9383ed3c91e2844ea",
+    "files": [
+      {
+        "path": "src/sessions/transcripts/claude.py",
+        "sha256": "47db46634ec0afd4de2c207aa972c206fcf638b6261406e9433057a31c8d4df1"
+      },
+      {
+        "path": "src/sessions/transcripts/codex.py",
+        "sha256": "a0457f21f55df897160cd2a3884546c13825946e81371718c5896b05f612f6fc"
+      },
+      {
+        "path": "src/sessions/transcripts/watcher.py",
+        "sha256": "675f721ecdc771266f3fd954859eb63c15d9604d92d0bc1622533ae1827b02fc"
+      },
+      {
+        "path": "tests/test_transcript_codex.py",
+        "sha256": "461b459910a24bcd20fe1e73be80800b5444a03f721319cd4668140663c41a54"
+      },
+      {
+        "path": "tests/test_transcript_checkpoints.py",
+        "sha256": "0deaaef6b01262db5a69d62f02b9754812dbefa6d315782a2a07d988ff9451f1"
+      },
+      {
+        "path": "tests/test_transcript_identity.py",
+        "sha256": "18b359e4367e5e7c6aef489408d242939bf77fec8fe8e48340f18ce255097dc7"
+      }
+    ]
+  },
+  "accounting_scope": "normalization facts/provenance and replay suppression only; central AQ22 owns append-only ledger, cross-source precedence, corrected aggregates and invoices",
+  "network": "only public primary source reads for format research; no provider calls or production services"
+}
