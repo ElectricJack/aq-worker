@@ -1,0 +1,26 @@
+    Checking futures-sink v0.3.34
+    Checking futures-task v0.3.34
+    Checking slab v0.4.12
+    Checking futures-io v0.3.34
+    Checking aq-session-protocol v0.1.0 (/tmp/aq-wrk15-integration/crates/aq-session-protocol)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-wrk15-integration/crates/aq-worker-protocol)
+    Checking redb v4.4.0
+    Checking aq-protocol v0.1.0 (/tmp/aq-wrk15-integration/crates/aq-protocol)
+    Checking aq-agent-api v0.1.0 (/tmp/aq-wrk15-integration/vendor/aq-agent-api-0.1.0)
+    Checking futures-channel v0.3.34
+    Checking futures-util v0.3.34
+    Checking aq-lifecycle-protocol v0.1.0 (/tmp/aq-wrk15-integration/crates/aq-lifecycle-protocol)
+    Checking aq-session-host v0.1.0 (/tmp/aq-wrk15-integration/crates/aq-session-host)
+    Checking tower v0.5.3
+    Checking hyper-util v0.1.21
+    Checking tower-http v0.6.11
+    Checking hyper-rustls v0.27.10
+    Checking axum v0.8.9
+    Checking reqwest v0.12.28
+    Checking aq-observation v0.1.0 (/tmp/aq-wrk15-integration/crates/aq-observation)
+    Checking aq-observation-engine v0.0.1 (/tmp/aq-wrk15-integration/crates/aq-observation-engine)
+    Checking aq-observation-admission v0.1.0 (/tmp/aq-wrk15-integration/vendor/aq-observation-admission-0.1.0)
+    Checking aq-worker v0.3.3 (/tmp/aq-wrk15-integration/crates/aq-worker)
+    Checking aq-agent-client v0.1.0 (/tmp/aq-wrk15-integration/crates/aq-agent-client)
+    Checking aq-observation-redb-prototype v0.0.4 (/tmp/aq-wrk15-integration/crates/aq-observation-redb-prototype)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.48s
