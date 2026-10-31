@@ -34,6 +34,7 @@ pub async fn run_execution(
     executable: &Path,
     mut options: DriverOptions,
 ) -> Result<()> {
+    crate::guardian::probe_profile()?;
     let existing_journal = state_dir.join("journal.json").exists();
     let identity = NodeIdentity {
         node_id: config.node_id,
@@ -62,11 +63,15 @@ pub async fn run_execution(
         operation_id: Uuid::new_v4(),
         protocol_version: EXECUTION_PROTOCOL_VERSION,
         worker_version: env!("CARGO_PKG_VERSION").into(),
-        capabilities: vec![FAKE_HARNESS_CAPABILITY.into()],
+        capabilities: vec![
+            FAKE_HARNESS_CAPABILITY.into(),
+            crate::guardian::PROFILE.into(),
+        ],
     };
     // Node recovery does not acquire new execution authority. It must be usable
     // before the old boot's registration has been explicitly replaced.
     if existing_journal {
+        let _uncertain = runtime.recover_owned_launches()?;
         let response = match client.reconcile(&runtime.reconcile_request()).await {
             Ok(response) => response,
             Err(error)
@@ -105,7 +110,10 @@ pub async fn run_execution(
             .values()
             .filter_map(|r| {
                 if r.phase == Phase::Reporting
-                    && r.stop_certainty == StopCertainty::ConfirmedStopped
+                    && matches!(
+                        r.stop_certainty,
+                        StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
+                    )
                 {
                     r.report.clone()
                 } else {
@@ -115,10 +123,11 @@ pub async fn run_execution(
             .collect();
         let mut recovered = 0;
         for report in reports {
-            let response = client.report(&report).await?;
-            runtime.acknowledge_result(response.clone())?;
-            if response.retention_release {
-                runtime.retire(report.attempt.attempt_id)?;
+            if let Some(response) = submit_report(&client, &mut runtime, &report).await? {
+                runtime.acknowledge_result(response.clone())?;
+                if response.retention_release {
+                    runtime.retire(report.attempt.attempt_id)?;
+                }
             }
             recovered += 1;
         }
@@ -137,12 +146,16 @@ pub async fn run_execution(
             runtime.retire(id)?;
         }
         let uncertain = runtime.journal.state().attempts.values().any(|r| {
-            r.phase != Phase::Retired && r.stop_certainty != StopCertainty::ConfirmedStopped
+            r.phase != Phase::Retired
+                && !matches!(
+                    r.stop_certainty,
+                    StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
+                )
         });
         if uncertain {
             println!(
                 "{}",
-                serde_json::json!({"event":"incarnation_replacement_required","registration":registration})
+                serde_json::json!({"event":"recovery_hold","registration":registration,"protected_usage":runtime.journal.protected_usage()?,"available":runtime.journal.available()?})
             );
             bail!(
                 "prior writers/reservations require process reconciliation; preserved without relaunch"
@@ -248,25 +261,47 @@ pub async fn run_execution(
                     continue;
                 }
             };
-            loop {
+            let authorized = loop {
                 let sent = runtime.clock.now_ms();
-                ensure!(
-                    sent < acceptance.reservation_deadline_ms,
-                    "reservation expired while acceptance uncertain"
-                );
+                if sent >= acceptance.reservation_deadline_ms {
+                    break false;
+                }
                 match client.accept(&acceptance).await {
-                    Ok(_grant) if options.drop_acceptance_response_once => {
+                    Ok(_) if options.drop_acceptance_response_once => {
                         options.drop_acceptance_response_once = false;
                         continue;
                     }
-                    Ok(grant) => {
-                        runtime.authorize(grant.grant, sent)?;
-                        break;
-                    }
-                    Err(e) if retryable(&e) => retry_delay().await,
-                    Err(e) => return Err(e),
+                    Ok(response) => match runtime.authorize(response.grant, sent) {
+                        Ok(()) => break true,
+                        Err(error) => {
+                            if runtime.clock.now_ms() >= acceptance.reservation_deadline_ms {
+                                break false;
+                            }
+                            return Err(error);
+                        }
+                    },
+                    Err(error) if retryable(&error) => retry_delay().await,
+                    Err(error) => return Err(error),
                 }
+            };
+            if !authorized {
+                let report = runtime.report_not_started(attempt_id, ProcessOutcome::Expired)?;
+                if let Some(response) = submit_report(&client, &mut runtime, &report).await? {
+                    runtime.acknowledge_result(response.clone())?;
+                    if response.retention_release {
+                        runtime.retire(attempt_id)?;
+                    }
+                }
+                println!(
+                    "{}",
+                    serde_json::json!({"event":"reservation_expired_not_started","attempt_id":attempt_id})
+                );
+                if options.exit_after_result {
+                    return Ok(());
+                }
+                continue;
             }
+            crate::fault::checkpoint(runtime.journal.root(), "grant-durable", None)?;
             let observation =
                 runtime.observation(attempt_id, "authorized synthetic fixture".into())?;
             let ack = client.observe(&observation).await?;
@@ -296,12 +331,12 @@ pub async fn run_execution(
                     runtime.clock.now_ms() < report_retry_deadline,
                     "report remains durable and unacknowledged after retry timeout"
                 );
-                match client.report(&report).await {
+                match submit_report(&client, &mut runtime, &report).await {
                     Ok(_) if options.drop_report_response_once => {
                         options.drop_report_response_once = false;
                         continue;
                     }
-                    Ok(result) => {
+                    Ok(Some(result)) => {
                         runtime.acknowledge_result(result.clone())?;
                         println!(
                             "{}",
@@ -312,6 +347,7 @@ pub async fn run_execution(
                         }
                         break;
                     }
+                    Ok(None) => break,
                     Err(e) if retryable(&e) => retry_delay().await,
                     Err(e) => return Err(e),
                 }
@@ -320,7 +356,7 @@ pub async fn run_execution(
                 .clock
                 .now_ms()
                 .saturating_add(options.idle_timeout_secs.saturating_mul(1000));
-            if options.exit_after_result {
+            if options.exit_after_result || runtime.journal.state().local_drain {
                 return Ok(());
             }
         }
@@ -354,7 +390,7 @@ async fn control_fixture(
         let record = &runtime.journal.state().attempts[&attempt_id];
         if record.phase == Phase::Stopping {
             if !kill_sent {
-                handle.kill()?;
+                handle.stop(record.stop_reason.unwrap_or(ProcessOutcome::Cancelled))?;
                 kill_sent = true;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -432,6 +468,11 @@ async fn control_fixture(
             {
                 Ok(Ok(response)) => {
                     runtime.renew(response.grant, sent)?;
+                    let record = &runtime.journal.state().attempts[&attempt_id];
+                    handle.renew(
+                        record.grant.as_ref().unwrap().grant_sequence,
+                        record.grant_deadline_ms.unwrap(),
+                    )?;
                     renewal = None;
                     let record = &runtime.journal.state().attempts[&attempt_id];
                     next_renew = runtime
@@ -449,4 +490,27 @@ async fn control_fixture(
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+async fn submit_report(
+    client: &ExecutionClient,
+    runtime: &mut Runtime<BootClock>,
+    report: &ResultReport,
+) -> Result<Option<ResultResponse>> {
+    let record = &runtime.journal.state().attempts[&report.attempt.attempt_id];
+    if report.stop_certainty == StopCertainty::NotStarted && record.grant.is_none() {
+        let request = runtime.unstarted_decline(report.attempt.attempt_id)?;
+        match client.decline(&request).await {
+            Ok(ack) => {
+                runtime.acknowledge_unstarted_decline(report.attempt.attempt_id, ack)?;
+                return Ok(None);
+            }
+            Err(error)
+                if error
+                    .downcast_ref::<RemoteError>()
+                    .is_some_and(|e| e.error.code == ErrorCode::IdConflict) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(Some(client.report(report).await?))
 }

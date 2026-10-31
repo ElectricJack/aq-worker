@@ -51,6 +51,11 @@ enum Cmd {
         /// Fault injection for the deterministic integration fixture.
         #[arg(long)]
         drop_report_response_once: bool,
+        /// Explicit deterministic local recovery test injection.
+        #[arg(long)]
+        fault_checkpoint: Option<String>,
+        #[arg(long, default_value = "crash")]
+        fault_action: String,
     },
     /// Print the node id and server (never the credential).
     Status,
@@ -144,8 +149,13 @@ async fn main() -> ExitCode {
             exit_after_result,
             drop_acceptance_response_once,
             drop_report_response_once,
+            fault_checkpoint,
+            fault_action,
         } => {
             let result = async {
+                if let Some(name) = fault_checkpoint {
+                    aq_worker::fault::configure(name, fault_action)?;
+                }
                 let cfg = WorkerConfig::load(&path)?;
                 aq_worker::driver::run_execution(
                     &cfg,

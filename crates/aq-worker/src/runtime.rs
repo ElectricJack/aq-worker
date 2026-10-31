@@ -19,6 +19,7 @@ impl<C: Clock> Runtime<C> {
         Self { journal, clock }
     }
     pub fn reserve(&mut self, offer: Offer) -> Result<AcceptRequest> {
+        ensure!(!self.journal.state().local_drain, "node drain is active");
         offer.validate()?;
         offer.spec.verify_digest()?;
         ensure!(
@@ -35,7 +36,7 @@ impl<C: Clock> Runtime<C> {
                     .spec
                     .required_capabilities
                     .iter()
-                    .all(|c| c == FAKE_HARNESS_CAPABILITY),
+                    .all(|c| c == FAKE_HARNESS_CAPABILITY || c == crate::guardian::PROFILE),
             "unsupported harness/capability"
         );
         if let Some(record) = self.journal.state().attempts.get(&offer.attempt.attempt_id) {
@@ -120,6 +121,11 @@ impl<C: Clock> Runtime<C> {
         let record = AttemptRecord {
             pending_bytes: offer.spec.fixture_output.len() as u64,
             stop_reason: None,
+            ownership_profile: None,
+            guardian: None,
+            start_intent: false,
+            stopped_proof: None,
+            unstarted_decline: None,
             offer,
             acceptance: acceptance.clone(),
             acceptance_sent_at_ms: now,
@@ -249,28 +255,80 @@ impl<C: Clock> Runtime<C> {
             );
             let launch_id = Uuid::new_v4();
             r.launch_id = Some(launch_id);
+            r.ownership_profile = Some(crate::guardian::PROFILE.into());
             r.phase = Phase::LaunchUncertain;
             r.stop_certainty = StopCertainty::StopUncertain;
             Ok(launch_id)
         })
     }
     pub fn launch_fixture(&mut self, attempt_id: Uuid, executable: &Path) -> Result<FixtureHandle> {
+        crate::guardian::probe_profile()?;
         let launch_id = self.begin_launch(attempt_id)?;
-        let r = self.journal.state().attempts.get(&attempt_id).unwrap();
-        let handle = FixtureHandle::spawn(
-            executable,
+        crate::fault::checkpoint(
             self.journal.root(),
-            launch_id,
-            &r.offer.spec.fixture_output,
+            "launch-intent-durable",
+            Some(launch_id),
         )?;
-        let evidence = handle.evidence()?;
+        let r = &self.journal.state().attempts[&attempt_id];
+        let system_origin_ms = crate::clock::raw_boot_ms();
+        let logical_origin_ms = self.clock.now_ms();
+        let binding = crate::guardian::LaunchBinding {
+            launch_id,
+            identity: r.offer.identity.clone(),
+            attempt: r.offer.attempt.clone(),
+            spec_digest: r.offer.spec.resolved_spec_digest.clone(),
+            executable: std::fs::canonicalize(executable)?,
+            initial_grant_sequence: r.grant.as_ref().unwrap().grant_sequence,
+            initial_deadline_ms: r.grant_deadline_ms.unwrap(),
+            logical_origin_ms,
+            system_origin_ms,
+            clock_offset_file: std::env::var_os("AQ_GUARDIAN_CLOCK_OFFSET_FILE").map(Into::into),
+            clock_offset_origin: match std::env::var_os("AQ_GUARDIAN_CLOCK_OFFSET_FILE") {
+                Some(p) => std::fs::read_to_string(p)?.trim().parse()?,
+                None => 0,
+            },
+        };
+        let handle =
+            FixtureHandle::spawn(self.journal.root(), binding, &r.offer.spec.fixture_output)?;
+        let identity = handle.identity().clone();
+        ensure!(
+            identity.node_identity == r.offer.identity
+                && identity.attempt == r.offer.attempt
+                && identity.spec_digest == r.offer.spec.resolved_spec_digest,
+            "guardian assignment binding mismatch"
+        );
+        self.journal.transaction(|s| {
+            s.attempts.get_mut(&attempt_id).unwrap().guardian = Some(identity);
+            Ok(())
+        })?;
+        crate::fault::checkpoint(
+            self.journal.root(),
+            "guardian-identity-durable",
+            Some(launch_id),
+        )?;
+        self.journal.transaction(|s| {
+            s.attempts.get_mut(&attempt_id).unwrap().start_intent = true;
+            Ok(())
+        })?;
+        crate::fault::checkpoint(self.journal.root(), "start-intent-durable", Some(launch_id))?;
+        let r = &self.journal.state().attempts[&attempt_id];
+        let receipt = handle.start(
+            self.journal.root(),
+            r.grant.as_ref().unwrap().grant_sequence,
+            r.grant_deadline_ms.unwrap(),
+        )?;
         self.journal.transaction(|s| {
             let r = s.attempts.get_mut(&attempt_id).unwrap();
-            r.process = Some(evidence);
+            r.process = receipt.root_process;
             r.phase = Phase::Running;
             r.stop_certainty = StopCertainty::Running;
             Ok(())
         })?;
+        crate::fault::checkpoint(
+            self.journal.root(),
+            "start-receipt-durable",
+            Some(launch_id),
+        )?;
         Ok(handle)
     }
     /// Only the owned Child handle can prove this fixture's writers stopped.
@@ -289,8 +347,9 @@ impl<C: Clock> Runtime<C> {
             r.launch_id == Some(handle.launch_id()),
             "child ownership mismatch"
         );
-        let (status, output) = handle.wait()?;
-        let outcome = if let Some(reason) = r.stop_reason {
+        let handle_launch_id = handle.launch_id();
+        let (status, output, proof) = handle.wait()?;
+        let outcome = if let Some(reason) = proof.stop_reason.or(r.stop_reason) {
             reason
         } else if self.clock.now_ms() >= r.grant_deadline_ms.unwrap_or(0) {
             ProcessOutcome::Expired
@@ -299,13 +358,32 @@ impl<C: Clock> Runtime<C> {
         } else {
             ProcessOutcome::Failed
         };
-        self.record_stopped(attempt_id, outcome, output)
+        self.journal.transaction(|s| {
+            s.attempts.get_mut(&attempt_id).unwrap().stopped_proof = Some(proof);
+            Ok(())
+        })?;
+        let report = self.record_stopped(attempt_id, outcome, output)?;
+        crate::fault::checkpoint(
+            self.journal.root(),
+            "report-durable",
+            Some(handle_launch_id),
+        )?;
+        Ok(report)
     }
     fn record_stopped(
         &mut self,
         attempt_id: Uuid,
         outcome: ProcessOutcome,
         output: String,
+    ) -> Result<ResultReport> {
+        self.record_terminal(attempt_id, outcome, output, StopCertainty::ConfirmedStopped)
+    }
+    fn record_terminal(
+        &mut self,
+        attempt_id: Uuid,
+        outcome: ProcessOutcome,
+        output: String,
+        certainty: StopCertainty,
     ) -> Result<ResultReport> {
         ensure!(
             output.len() <= MAX_TEXT,
@@ -314,7 +392,7 @@ impl<C: Clock> Runtime<C> {
         self.journal.transaction(|s| {
             let r = s.attempts.get_mut(&attempt_id).context("unknown attempt")?;
             r.phase = Phase::Collecting;
-            r.stop_certainty = StopCertainty::ConfirmedStopped;
+            r.stop_certainty = certainty;
             let report = ResultReport {
                 identity: r.offer.identity.clone(),
                 report_id: Uuid::new_v4(),
@@ -331,6 +409,131 @@ impl<C: Clock> Runtime<C> {
             r.report = Some(report.clone());
             r.phase = Phase::Reporting;
             Ok(report)
+        })
+    }
+    pub fn recover_owned_launches(&mut self) -> Result<Vec<Uuid>> {
+        let records: Vec<_> = self
+            .journal
+            .state()
+            .attempts
+            .iter()
+            .filter(|(_, r)| r.phase != Phase::Retired && r.report.is_none())
+            .map(|(id, r)| (*id, r.clone()))
+            .collect();
+        let mut uncertain = vec![];
+        for (id, record) in records {
+            if record.launch_id.is_none() && record.stop_certainty == StopCertainty::NotStarted {
+                self.report_not_started(id, ProcessOutcome::Expired)?;
+                continue;
+            }
+            if record.ownership_profile.as_deref() != Some(crate::guardian::PROFILE) {
+                uncertain.push(id);
+                continue;
+            }
+            let launch_id = record
+                .launch_id
+                .context("guardian attempt missing launch identity")?;
+            let directory = self
+                .journal
+                .root()
+                .join("launches")
+                .join(launch_id.to_string());
+            if !record.start_intent && !directory.join("guardian-identity.json").exists() {
+                // This profile cannot send Start before a durable start intent.
+                // Missing PID/receipt is not the proof; ordered journal protocol is.
+                self.report_not_started(id, ProcessOutcome::Cancelled)?;
+                continue;
+            }
+            let recovered = (|| -> Result<()> {
+                let handle = FixtureHandle::recover(
+                    self.journal.root(),
+                    launch_id,
+                    record.guardian.as_ref(),
+                )?;
+                let identity = handle.identity();
+                ensure!(
+                    identity.node_identity == record.offer.identity
+                        && identity.attempt == record.offer.attempt
+                        && identity.spec_digest == record.offer.spec.resolved_spec_digest,
+                    "recovery assignment binding mismatch"
+                );
+                handle.stop(ProcessOutcome::Cancelled)?;
+                self.finish_fixture(id, handle)?;
+                Ok(())
+            })();
+            if let Err(error) = recovered {
+                eprintln!("launch {launch_id} remains stop_uncertain: {error:#}");
+                self.journal.transaction(|s| {
+                    let r = s.attempts.get_mut(&id).unwrap();
+                    r.phase = Phase::LaunchUncertain;
+                    r.stop_certainty = StopCertainty::StopUncertain;
+                    Ok(())
+                })?;
+                uncertain.push(id);
+            }
+        }
+        Ok(uncertain)
+    }
+    pub fn report_not_started(
+        &mut self,
+        attempt_id: Uuid,
+        outcome: ProcessOutcome,
+    ) -> Result<ResultReport> {
+        let r = self
+            .journal
+            .state()
+            .attempts
+            .get(&attempt_id)
+            .context("unknown attempt")?;
+        ensure!(
+            r.launch_id.is_none()
+                || (r.ownership_profile.as_deref() == Some(crate::guardian::PROFILE)
+                    && !r.start_intent),
+            "absence of writer Start not proven"
+        );
+        if let Some(report) = &r.report {
+            return Ok(report.clone());
+        }
+        self.record_terminal(
+            attempt_id,
+            outcome,
+            "not started: durable writer Start boundary was never crossed".into(),
+            StopCertainty::NotStarted,
+        )
+    }
+    pub fn unstarted_decline(&mut self, attempt_id: Uuid) -> Result<DeclineRequest> {
+        self.journal.transaction(|s| {
+            let r = s.attempts.get_mut(&attempt_id).context("unknown attempt")?;
+            ensure!(
+                r.stop_certainty == StopCertainty::NotStarted && !r.start_intent,
+                "nonstart not proven"
+            );
+            if let Some(request) = &r.unstarted_decline {
+                return Ok(request.clone());
+            }
+            let request = DeclineRequest {
+                identity: r.offer.identity.clone(),
+                operation_id: Uuid::new_v4(),
+                offer_id: r.offer.offer_id,
+                reason: "proven nonstart after reservation/restart recovery".into(),
+            };
+            r.unstarted_decline = Some(request.clone());
+            Ok(request)
+        })
+    }
+    pub fn acknowledge_unstarted_decline(&mut self, attempt_id: Uuid, ack: Ack) -> Result<()> {
+        self.journal.transaction(|s| {
+            let r = s.attempts.get_mut(&attempt_id).context("unknown attempt")?;
+            ensure!(
+                r.stop_certainty == StopCertainty::NotStarted
+                    && !r.start_intent
+                    && r.unstarted_decline
+                        .as_ref()
+                        .is_some_and(|d| d.operation_id == ack.operation_id),
+                "decline acknowledgement mismatch"
+            );
+            r.phase = Phase::Retired;
+            Ok(())
         })
     }
     pub fn acknowledge_result(&mut self, response: ResultResponse) -> Result<()> {
@@ -350,7 +553,10 @@ impl<C: Clock> Runtime<C> {
                 return Ok(());
             }
             ensure!(
-                record.stop_certainty == StopCertainty::ConfirmedStopped,
+                matches!(
+                    record.stop_certainty,
+                    StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
+                ),
                 "writers not proven stopped"
             );
             record.phase = Phase::Acknowledged;
@@ -367,7 +573,10 @@ impl<C: Clock> Runtime<C> {
             .context("unknown attempt")?;
         ensure!(
             record.phase == Phase::Acknowledged
-                && record.stop_certainty == StopCertainty::ConfirmedStopped
+                && matches!(
+                    record.stop_certainty,
+                    StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
+                )
                 && record.result.as_ref().is_some_and(|x| x.retention_release),
             "retention release required"
         );
@@ -388,7 +597,10 @@ impl<C: Clock> Runtime<C> {
             let r = s.attempts.get_mut(&attempt_id).context("unknown attempt")?;
             ensure!(
                 r.phase == Phase::Acknowledged
-                    && r.stop_certainty == StopCertainty::ConfirmedStopped
+                    && matches!(
+                        r.stop_certainty,
+                        StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
+                    )
                     && r.result.as_ref().is_some_and(|x| x.retention_release),
                 "retention release required"
             );
@@ -414,6 +626,9 @@ impl<C: Clock> Runtime<C> {
                     < crate::journal::MAX_DIRECTIVES_PER_ATTEMPT,
                 "directive receipt bound reached"
             );
+            if directive.kind == DirectiveKind::Drain {
+                s.local_drain = true;
+            }
             let r = s
                 .attempts
                 .get_mut(&directive.attempt.attempt_id)

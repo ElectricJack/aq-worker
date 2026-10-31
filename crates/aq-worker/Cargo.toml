@@ -1,6 +1,6 @@
 [package]
 name = "aq-worker"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 publish.workspace = true
 

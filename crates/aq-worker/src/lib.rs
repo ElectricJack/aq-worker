@@ -10,3 +10,6 @@ pub mod journal;
 pub mod runtime;
 
 pub mod driver;
+
+pub mod fault;
+pub mod guardian;

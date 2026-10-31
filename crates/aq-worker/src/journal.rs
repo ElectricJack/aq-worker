@@ -13,7 +13,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub const STATE_FORMAT: u32 = 1;
+pub const STATE_FORMAT: u32 = 2;
 pub const MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 pub const MAX_DIRECTIVES_PER_ATTEMPT: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +43,16 @@ pub struct AttemptRecord {
     pub result: Option<ResultResponse>,
     pub pending_bytes: u64,
     pub stop_reason: Option<ProcessOutcome>,
+    #[serde(default)]
+    pub ownership_profile: Option<String>,
+    #[serde(default)]
+    pub guardian: Option<crate::guardian::GuardianIdentity>,
+    #[serde(default)]
+    pub start_intent: bool,
+    #[serde(default)]
+    pub stopped_proof: Option<crate::guardian::GuardianState>,
+    #[serde(default)]
+    pub unstarted_decline: Option<DeclineRequest>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,6 +70,8 @@ pub struct State {
     pub directive_receipts: BTreeMap<Uuid, DirectiveAck>,
     pub directive_contents: BTreeMap<Uuid, Directive>,
     pub reconciliation_required: bool,
+    #[serde(default)]
+    pub local_drain: bool,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteFault {
@@ -105,6 +117,13 @@ impl Journal {
         owner
             .try_lock_exclusive()
             .context("another runtime owns journal")?;
+        // Rust opens Files CLOEXEC; verify rather than relying on an implicit
+        // inheritance assumption for the guardian's exec boundary.
+        use std::os::fd::AsRawFd;
+        ensure!(
+            unsafe { libc::fcntl(owner.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC != 0,
+            "journal lock must not survive exec"
+        );
         let parent = root
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -116,13 +135,16 @@ impl Journal {
                 std::fs::metadata(&file)?.len() <= MAX_JOURNAL_BYTES,
                 "journal exceeds bounded state size"
             );
-            let s: State = serde_json::from_slice(&std::fs::read(&file)?)
+            let mut s: State = serde_json::from_slice(&std::fs::read(&file)?)
                 .context("parse journal; refusing to advertise capacity")?;
             ensure!(
-                s.format_version == STATE_FORMAT,
+                matches!(s.format_version, 1 | STATE_FORMAT),
                 "unsupported state format {}",
                 s.format_version
             );
+            // Version 1 has no guardian handshake. Missing new fields never
+            // establish that a legacy launch was unstarted or stopped.
+            s.format_version = STATE_FORMAT;
             ensure!(
                 s.identity.node_id == identity.node_id,
                 "journal belongs to another node"
@@ -148,6 +170,7 @@ impl Journal {
                 directive_receipts: BTreeMap::new(),
                 directive_contents: BTreeMap::new(),
                 reconciliation_required: false,
+                local_drain: false,
             }
         };
         let mut journal = Self {
