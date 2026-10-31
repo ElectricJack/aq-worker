@@ -1,0 +1,510 @@
+//! Synthetic managed-owner capacity experiment. Never deletes retained Seen or
+//! event-ID history, changes limits, compacts, or contacts a provider/service.
+#[allow(dead_code)]
+#[path = "/tmp/wrk15-http-extracted-6lrdvixw/aq-observation-redb-prototype-0.0.4/tests/support/mod.rs"]
+mod support;
+use anyhow::{Context, Result, ensure};
+use aq_lifecycle_protocol::*;
+use aq_observation::{source::SourceFile, spool::OverflowPolicy};
+use aq_observation_admission::{self as admission, Owner, Reply, Request, Status};
+use aq_observation_engine as engine;
+use aq_observation_redb_prototype::{AuthenticatedOwnerPeer, Limits, LocalIntent};
+use serde_json::{Value, json};
+use std::{
+    collections::BTreeMap,
+    io::Write,
+    os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt},
+    path::{Path, PathBuf},
+    time::Instant,
+};
+use uuid::Uuid;
+#[derive(Default)]
+struct Coordinator {
+    owner: Option<Owner>,
+    ownership: BTreeMap<Uuid, admission::Receipt>,
+    receipts: BTreeMap<Uuid, Receipt>,
+    through: u64,
+    node_boot:u128,
+}
+impl AuthenticatedOwnerPeer for Coordinator {
+    fn mutate(&mut self, r: &Request) -> Result<Reply> {
+        let change = admission::apply(
+            self.owner.as_ref(),
+            self.ownership.get(&r.operation_id),
+            r,
+            &admission::Access {
+                node_id: Uuid::from_u128(5),
+                boot_id: Uuid::from_u128(if self.node_boot==0{6}else{self.node_boot}),
+                accepted_through: self.through,
+                max_pending_distance: admission::MAX_PENDING_DISTANCE,
+                new_boot_previously_owned: false,
+            },
+            Some(Uuid::from_u128(400)),
+        )?;
+        self.owner = Some(change.reply.current_owner.clone());
+        self.ownership
+            .insert(r.operation_id, change.reply.receipt.clone());
+        Ok(change.reply)
+    }
+    fn status(&mut self, node: Uuid) -> Result<Status> {
+        Ok(Status {
+            version: 1,
+            node_id: node,
+            admitted_node_boot_id: Uuid::from_u128(if self.node_boot==0{6}else{self.node_boot}),
+            owner: self.owner.clone(),
+            accepted_through: self.through,
+        })
+    }
+}
+impl Coordinator {
+    fn receive(&mut self, p: &Packet) -> Result<Receipt> {
+        p.validate()?;
+        if let Some(r) = self.receipts.get(&p.body.message_id) {
+            r.validate_against(p)?;
+            return Ok(r.clone());
+        }
+        let Message::Batch(b) = &p.body.message else {
+            anyhow::bail!("batch required")
+        };
+        ensure!(
+            b.first_sequence == self.through + 1
+                && b.last_sequence <= 65536
+                && self.receipts.len() < 4096,
+            "bounded fake coordinator prefix"
+        );
+        let r = support::receipt(p);
+        self.through = b.last_sequence;
+        self.receipts.insert(p.body.message_id, r.clone());
+        Ok(r)
+    }
+}
+struct Input {
+    id: Uuid,
+    file: SourceFile,
+    path: PathBuf,
+    key: String,
+}
+struct Pending {
+    packet: Packet,
+    receipt: Receipt,
+}
+fn disk(path: &Path) -> Value {
+    let m = std::fs::metadata(path).unwrap();
+    json!({"file_bytes":m.len(),"allocated_bytes":m.blocks()*512})
+}
+fn append(path: &Path, b: &[u8]) {
+    let mut f = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+    f.write_all(b).unwrap();
+    f.sync_all().unwrap();
+}
+fn bytes(input: &Input, call: u64, fat: bool) -> Vec<u8> {
+    let mut b = vec![];
+    for n in 0..32 {
+        let mut v: Value =
+            serde_json::from_slice(&support::row(if fat { call } else { call + n })).unwrap();
+        v["sessionId"] = json!(input.key);
+        if fat {
+            v["synthetic_capture_hint"] = json!(n);
+        }
+        b.extend(serde_json::to_vec(&v).unwrap());
+        b.push(b'\n');
+    }
+    b
+}
+fn source(i: u128) -> engine::Source {
+    let mut v = serde_json::to_value(support::source(8 + i)).unwrap();
+    v["native_session_key"] = json!(format!("native-fixture-{i}"));
+    v["binding"]["task_id"] = json!(Uuid::from_u128(2000 + i));
+    v["binding"]["attempt_id"] = json!(Uuid::from_u128(4000 + i));
+    v["binding"]["session"]["attempt_id"] = json!(Uuid::from_u128(4000 + i));
+    v["binding"]["session"]["session_id"] = json!(Uuid::from_u128(7000 + i));
+    serde_json::from_value(v).unwrap()
+}
+fn fingerprint(owner:&LocalIntent)->Result<String>{
+ use sha2::{Sha256,Digest as _};
+ let value=owner.with_active(|s|{let sources=(8..24).map(|i|s.source(Uuid::from_u128(i))).collect::<Result<Vec<_>>>()?;Ok(json!({"snapshot":s.snapshot()?,"sources":sources}))})?;
+ Ok(format!("{:x}",Sha256::digest(serde_json::to_vec(&value)?)))
+}
+
+fn sample<T>(
+    owner: &LocalIntent,
+    db: &Path,
+    stage: &str,
+    rows: &mut Vec<Value>,
+    f: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let monitor = owner.store_monitor()?;
+    monitor.reset();
+    let before = disk(db);
+    let now = Instant::now();
+    let result = f();
+    let after = disk(db);
+    rows.push(json!({"stage":stage,"ms":now.elapsed().as_secs_f64()*1000.,"io":monitor.stats(),"before":before,"after":after,"error":result.as_ref().err().map(|e|format!("{e:#}"))}));
+    ensure!(rows.len() <= 50000, "bounded measurement samples");
+    result
+}
+fn arm(
+    owner: &LocalIntent,
+    peer: &mut Coordinator,
+    pending: &mut Option<Pending>,
+    time: &mut u64,
+    db: &Path,
+    rows: &mut Vec<Value>,
+) -> Result<()> {
+    if pending.is_some() {
+        return Ok(());
+    }
+    let packet = sample(owner, db, "prepare", rows, || {
+        owner.with_active(|s| s.prepare())
+    })?;
+    if let Some(packet) = packet {
+        *time += 1000;
+        let sent = sample(owner, db, "send", rows, || {
+            owner.with_active(|s| s.begin_send(*time))
+        })?
+        .context("pending send absent")?;
+        ensure!(sent == packet, "send changed frozen packet");
+        let receipt = peer.receive(&sent)?;
+        *pending = Some(Pending { packet, receipt });
+    }
+    Ok(())
+}
+fn ack(
+    owner: &LocalIntent,
+    pending: &mut Option<Pending>,
+    db: &Path,
+    rows: &mut Vec<Value>,
+) -> Result<()> {
+    if let Some(p) = pending {
+        sample(owner, db, "ack", rows, || {
+            owner.with_active(|s| s.acknowledge(&p.receipt))
+        })?;
+        *pending = None;
+    }
+    Ok(())
+}
+fn reopen(owner: &mut Option<LocalIntent>, root: &Path, peer: &mut Coordinator) -> Result<()> {
+    drop(owner.take());
+    let mut next = LocalIntent::open(root, Uuid::from_u128(6))?;
+    next.resume(peer)?;
+    *owner = Some(next);
+    Ok(())
+}
+fn recover_pending(
+    owner: &LocalIntent,
+    peer: &mut Coordinator,
+    pending: &mut Option<Pending>,
+    time: &mut u64,
+) -> Result<Value> {
+    let before = owner.with_active(|s| s.snapshot())?;
+    let mut replayed = false;
+    let mut already = false;
+    if let Some(p) = pending {
+        if before.acked >= p.receipt.through_sequence.context("batch receipt cursor")? {
+            ensure!(
+                before.receipt.as_ref() == Some(&p.receipt),
+                "uncertain ACK lacks exact retained receipt"
+            );
+            owner.with_active(|s| s.acknowledge(&p.receipt))?;
+            already = true;
+        } else {
+            let frozen = owner
+                .with_active(|s| s.prepare())?
+                .context("frozen packet lost")?;
+            ensure!(frozen == p.packet, "reopen changed packet bytes");
+            *time += 1000;
+            let packet = owner
+                .with_active(|s| s.begin_send(*time))?
+                .context("replay absent")?;
+            ensure!(
+                packet == p.packet && peer.receive(&packet)? == p.receipt,
+                "exact replay/receipt changed"
+            );
+            owner.with_active(|s| s.acknowledge(&p.receipt))?;
+            replayed = true;
+        }
+        *pending = None;
+    } else if before.delivery.is_some() {
+        let packet = owner.with_active(|s| s.prepare())?.unwrap();
+        *time += 1000;
+        let sent = owner
+            .with_active(|s| s.begin_send(*time))?
+            .context("unknown send replay absent")?;
+        ensure!(packet == sent, "unknown frozen packet changed");
+        let r = peer.receive(&sent)?;
+        owner.with_active(|s| s.acknowledge(&r))?;
+        replayed = true;
+    }
+    Ok(
+        json!({"replayed_exact_packet_and_receipt":replayed,"already_committed_ack":already,"after":owner.with_active(|s|s.snapshot())?}),
+    )
+}
+#[allow(clippy::too_many_arguments)] // Explicit fault-harness state, not a runtime API.
+fn failure_recovery(
+    owner: &mut Option<LocalIntent>,
+    root: &Path,
+    db: &Path,
+    peer: &mut Coordinator,
+    pending: &mut Option<Pending>,
+    time: &mut u64,
+    error: &anyhow::Error,
+    phase: &str,
+    before: Option<&str>,
+) -> Value {
+    let prior = disk(db);
+    match reopen(owner, root, peer) {
+        Err(e) => {
+            json!({"phase":phase,"error":format!("{error:#}"),"reopen_error":format!("{e:#}"),"disk_before_reopen":prior,"disk_after_reopen":disk(db)})
+        }
+        Ok(()) => {
+            let fp = fingerprint(owner.as_ref().unwrap());
+            let recovered = recover_pending(owner.as_ref().unwrap(), peer, pending, time);
+            json!({"phase":phase,"error":format!("{error:#}"),"before_failure_projection":before,"after_reopen_projection":fp.as_ref().ok(),"fingerprint_error":fp.as_ref().err().map(|e|format!("{e:#}")),"unchanged_projection":before.and_then(|b|fp.as_ref().ok().map(|f|b==f)),"disk_before_reopen":prior,"disk_after_reopen":disk(db),"pending_recovery":recovered.as_ref().ok(),"pending_recovery_error":recovered.err().map(|e|format!("{e:#}"))})
+        }
+    }
+}
+fn run(fat: bool) -> Result<Value> {
+    let temp = tempfile::tempdir()?;
+    std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o700))?;
+    let root = temp.path().join("owner");
+    let db = root.join("store/store.redb");
+    let mut peer = Coordinator::default();
+    let mut local = LocalIntent::create(
+        &root,
+        Limits::fixture(),
+        Uuid::from_u128(401),
+        Uuid::from_u128(402),
+    )?;
+    local.prepare(&mut peer)?;
+    local.create_store(&mut peer)?;
+    local.activate(&mut peer, Uuid::from_u128(403))?;
+    let mut owner = Some(local);
+    let mut inputs = vec![];
+    for i in 0..16 {
+        let s = source(i);
+        let raw = temp.path().join(format!("raw-{i}"));
+        std::fs::DirBuilder::new().mode(0o700).create(&raw)?;
+        let path = raw.join("native.jsonl");
+        std::fs::write(&path, [])?;
+        let permit = SourceFile::inspect(
+            s.source_id,
+            &raw,
+            "native.jsonl",
+            s.native_session_key.clone(),
+        )?;
+        let file = SourceFile::open(permit.clone())?;
+        owner
+            .as_ref()
+            .unwrap()
+            .with_active(|store| store.attach_file_engine(s.clone(), 4096, permit))?;
+        inputs.push(Input {
+            id: s.source_id,
+            file,
+            path,
+            key: s.native_session_key.as_str().into(),
+        });
+    }
+    let initial = owner.as_ref().unwrap().with_active(|s| s.snapshot())?;
+    let mut rows = vec![];
+    let mut pending = None;
+    let mut time = 0;
+    let mut cycle = 0u64;
+    let mut current = 0usize;
+    let mut raw_pending = false;
+    let mut near = None;
+    let mut refusals = vec![];
+    let mut recovery = None;
+    let mut status = "bounded_work_limit_without_refusal";
+    let mut error_recovery = None;
+    macro_rules! capacity_try {
+        ($label:lifetime,$value:expr,$phase:expr) => {
+            match $value {
+                Ok(value) => value,
+                Err(error) => {
+                    status = "operation_error";
+                    error_recovery = Some(failure_recovery(
+                        &mut owner,
+                        &root,
+                        &db,
+                        &mut peer,
+                        &mut pending,
+                        &mut time,
+                        &error,
+                        $phase,
+                        None,
+                    ));
+                    break $label;
+                }
+            }
+        };
+    }
+    'work: while cycle < if fat { 8192 } else { 2048 } {
+        let o = owner.as_ref().unwrap();
+        let view = o.with_active(|s| s.snapshot())?;
+        let near_capacity = view.logical_bytes >= 15 * 1024 * 1024
+            || std::fs::metadata(&db)?.len() >= 44 * 1024 * 1024;
+        let before_fingerprint = if near_capacity {
+            Some(fingerprint(o)?)
+        } else {
+            None
+        };
+        if near.is_none() && near_capacity {
+            let fp = before_fingerprint.clone().unwrap();
+            let disk_before = disk(&db);
+            capacity_try!('work,reopen(&mut owner,&root,&mut peer),"near/refusal reopen");
+            ensure!(
+                fingerprint(owner.as_ref().unwrap())? == fp,
+                "near-capacity reopen changed full projection"
+            );
+            near = Some(
+                json!({"snapshot":view,"projection_sha256":fp,"before":disk_before,"after_reopen":disk(&db)}),
+            );
+        }
+        if !raw_pending {
+            current = if fat {
+                (cycle / 1024) as usize
+            } else {
+                (cycle * 32 / 4096) as usize
+            };
+            let call = if fat { cycle % 1024 } else { cycle * 32 % 4096 };
+            append(
+                &inputs[current].path,
+                &bytes(&inputs[current], current as u64 * 1_000_000 + call, fat),
+            );
+            cycle += 1;
+        }
+        let input = &inputs[current];
+        let o = owner.as_ref().unwrap();
+        let before = o.with_active(|s| s.source(input.id))?;
+        let collected = sample(o, &db, "collect32", &mut rows, || {
+            o.with_active(|s| s.collect_file(input.id, &input.file, time + 1, OverflowPolicy::Hold))
+        });
+        let result = match collected {
+            Ok(r) => r,
+            Err(e) => {
+                status = "physical_or_transaction_error";
+                error_recovery = Some(failure_recovery(
+                    &mut owner,
+                    &root,
+                    &db,
+                    &mut peer,
+                    &mut pending,
+                    &mut time,
+                    &e,
+                    "collect32",
+                    before_fingerprint.as_deref(),
+                ));
+                break;
+            }
+        };
+        let after = owner
+            .as_ref()
+            .unwrap()
+            .with_active(|s| s.source(input.id))?;
+        ensure!(
+            after.cursor == before.cursor + result.consumed_bytes,
+            "cursor not matching committed prefix"
+        );
+        raw_pending = after.cursor < std::fs::metadata(&input.path)?.len();
+        let view = owner.as_ref().unwrap().with_active(|s| s.snapshot())?;
+        if result.blocked {
+            refusals.push(json!({"cycle":cycle,"source_id":input.id,"consumed_bytes":result.consumed_bytes,"facts_added":result.facts_added,"snapshot":view,"disk":disk(&db)}));
+            if recovery.is_none() {
+                let fp = fingerprint(owner.as_ref().unwrap())?;
+                capacity_try!('work,reopen(&mut owner,&root,&mut peer),"near/refusal reopen");
+                ensure!(
+                    fingerprint(owner.as_ref().unwrap())? == fp,
+                    "logical-refusal reopen changed projection"
+                );
+                let p = capacity_try!('work,
+                    recover_pending(owner.as_ref().unwrap(), &mut peer, &mut pending, &mut time),
+                    "logical-refusal replay/ACK"
+                );
+                recovery = Some(json!({"projection_sha256":fp,"replay":p,"disk_after":disk(&db)}));
+            }
+            while owner
+                .as_ref()
+                .unwrap()
+                .with_active(|s| Ok(s.snapshot()?.queued))?
+                > 0
+            {
+                capacity_try!('work,
+                    arm(
+                        owner.as_ref().unwrap(),
+                        &mut peer,
+                        &mut pending,
+                        &mut time,
+                        &db,
+                        &mut rows,
+                    ),
+                    "arm"
+                );
+                capacity_try!('work,
+                    ack(owner.as_ref().unwrap(), &mut pending, &db, &mut rows),
+                    "ack"
+                );
+            }
+            if result.consumed_bytes == 0 {
+                let o = owner.as_ref().unwrap();
+                let fp = fingerprint(o)?;
+                let retry = capacity_try!('work, sample(o, &db, "stable-refusal-retry", &mut rows, || {
+                    o.with_active(|s| {
+                        s.collect_file(input.id, &input.file, time + 1, OverflowPolicy::Hold)
+                    })
+                }),"stable-refusal-retry");
+                if retry.blocked && retry.consumed_bytes == 0 {
+                    ensure!(
+                        fingerprint(o)? == fp,
+                        "stable refusal modified retained history"
+                    );
+                    status = "logical_refusal_reopened_replayed_and_drained";
+                    break;
+                }
+            }
+        } else {
+            let queued = view.queued;
+            if queued >= 32 {
+                capacity_try!('work,
+                    arm(
+                        owner.as_ref().unwrap(),
+                        &mut peer,
+                        &mut pending,
+                        &mut time,
+                        &db,
+                        &mut rows,
+                    ),
+                    "arm"
+                );
+            }
+            if queued >= 64 {
+                capacity_try!('work,
+                    ack(owner.as_ref().unwrap(), &mut pending, &db, &mut rows),
+                    "ack"
+                );
+                capacity_try!('work,
+                    arm(
+                        owner.as_ref().unwrap(),
+                        &mut peer,
+                        &mut pending,
+                        &mut time,
+                        &db,
+                        &mut rows,
+                    ),
+                    "arm"
+                );
+            }
+        }
+    }
+    let before_control=owner.as_ref().unwrap().with_active(|s|Ok(json!({"snapshot":s.snapshot()?,"source":s.source(inputs[current].id)?})))?;
+    let gap=owner.as_ref().unwrap().with_active(|s|s.collect_file(inputs[current].id,&inputs[current].file,time+1,OverflowPolicy::GapAndHold));
+    let after_gap=owner.as_ref().unwrap().with_active(|s|Ok(json!({"snapshot":s.snapshot()?,"source":s.source(inputs[current].id)?})))?;
+    let gap_report=json!({"ok":gap.is_ok(),"result":gap.as_ref().ok().map(|r|json!({"facts_added":r.facts_added,"consumed_bytes":r.consumed_bytes,"blocked":r.blocked})),"error":gap.as_ref().err().map(|e|format!("{e:#}")),"before":before_control,"after":after_gap,"visible_projection_unchanged":before_control==after_gap});
+    peer.node_boot=66;drop(owner.take());let mut next=LocalIntent::open(&root,Uuid::from_u128(66))?;
+    let boot=next.advance_boot(&mut peer,Uuid::from_u128(404),Uuid::from_u128(66),time+1);
+    let stage=next.stage();drop(next);
+    let mut reopened=LocalIntent::open(&root,Uuid::from_u128(66))?;let replay=reopened.recover_boot(&mut peer,time+1);
+    let retained_fixture_root=temp.keep();
+    return Ok(json!({"retained_fixture_root":retained_fixture_root,"frozen_worker_source":"ab2921022bf1193a411448b019380dcbcab1c025","archive_sha256":"09d1b057698ac2563ad9a3d86bd9b1cebc757c19ea0d1bb21d1379c0c8a82f37","limits":Limits::fixture(),"ordinary_capacity_status":status,"mode":"32_fingerprints_per_call","gap_probe":gap_report,"boot_probe":{"ok":boot.is_ok(),"error":boot.err().map(|e|format!("{e:#}")),"durable_stage":stage,"central_owner":peer.owner,"replay_ok":replay.is_ok(),"replay_error":replay.err().map(|e|format!("{e:#}"))},"disk":disk(&db),"native_format_qualified":false,"source_admission_qualified":false,"compaction_called":false,"history_deleted":false}));
+}
+
+fn main(){match run(true){Ok(v)=>println!("{}",serde_json::to_string_pretty(&v).unwrap()),Err(e)=>{eprintln!("old control probe failed: {e:#}");std::process::exit(1)}}}

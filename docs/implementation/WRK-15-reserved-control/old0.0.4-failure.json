@@ -1,0 +1,329 @@
+{
+  "archive_sha256": "09d1b057698ac2563ad9a3d86bd9b1cebc757c19ea0d1bb21d1379c0c8a82f37",
+  "boot_probe": {
+    "central_owner": {
+      "boot_transitions": 1,
+      "current_boot_id": "00000000-0000-0000-0000-000000000042",
+      "marker": {
+        "initial_boot_id": "00000000-0000-0000-0000-000000000006",
+        "node_id": "00000000-0000-0000-0000-000000000005",
+        "owner_id": "00000000-0000-0000-0000-000000000190",
+        "prepare_digest": "7737d5037e9c8aa1488d9fde51f2ad24ed40884e818aae5de1e96e54e6ca9096",
+        "prepare_operation_id": "00000000-0000-0000-0000-000000000191",
+        "store_id": "00000000-0000-0000-0000-000000000192",
+        "version": 1
+      },
+      "phase": "active",
+      "revision": 3
+    },
+    "durable_stage": "boot_pending",
+    "error": "reserved boot gap quota; retain old ownership",
+    "ok": false,
+    "replay_error": "reserved boot gap quota; retain old ownership",
+    "replay_ok": false
+  },
+  "compaction_called": false,
+  "disk": {
+    "allocated_bytes": 29528064,
+    "file_bytes": 30306304
+  },
+  "frozen_worker_source": "ab2921022bf1193a411448b019380dcbcab1c025",
+  "gap_probe": {
+    "after": {
+      "snapshot": {
+        "acked": 6704,
+        "active_boot": "00000000-0000-0000-0000-000000000006",
+        "delivery": null,
+        "logical_bytes": 16777090,
+        "next": 6705,
+        "persistence_uncertain": false,
+        "queued": 0,
+        "receipt": {
+          "body_digest": "4c62cc943a03ec22a1cca0c076b529901210083166df3160933e4cf9aa2aaf45",
+          "disposition": "observation_recorded",
+          "message_id": "ace88fb7-eb59-85b9-a947-17b4b7abdaf6",
+          "schema_version": 1,
+          "through_sequence": 6704
+        },
+        "seen": 6704
+      },
+      "source": {
+        "cursor": 4832800,
+        "engine": {
+          "completed_replays": [],
+          "context": {
+            "active_turn": null,
+            "context_gap": false,
+            "counter_generation": 1,
+            "history_replay": false,
+            "last_cumulative": null,
+            "maximum_tracked": 4096,
+            "mixed_models": false,
+            "model": null,
+            "next_display_ordinal": 0,
+            "next_sequence": 6705,
+            "observed_native_identity": true,
+            "parser": {
+              "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+              "id": "claude-v1-9a9b8e8",
+              "version": "0.0.1-engine"
+            },
+            "reparse": null,
+            "source": {
+              "account_reference": "logical-account",
+              "binding": {
+                "attempt_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000fa6",
+                "lineage_id": "00000000-0000-0000-0000-000000000003",
+                "project_id": "00000000-0000-0000-0000-000000000001",
+                "session": {
+                  "assignment_generation": 1,
+                  "attempt_id": "00000000-0000-0000-0000-000000000fa6",
+                  "boot_id": "00000000-0000-0000-0000-000000000006",
+                  "kind": "remote",
+                  "node_id": "00000000-0000-0000-0000-000000000005",
+                  "session_id": "00000000-0000-0000-0000-000000001b5e"
+                },
+                "task_id": "00000000-0000-0000-0000-0000000007d6"
+              },
+              "format": "claude_v1_jsonl9a9b8e8",
+              "generation": 1,
+              "native_session_key": "native-fixture-6",
+              "provider": "fixture-provider",
+              "source_id": "00000000-0000-0000-0000-00000000000e"
+            }
+          },
+          "counts": {
+            "Seen": 560
+          },
+          "native_epoch": 0,
+          "replay": null,
+          "retired_epochs": [],
+          "revision": 563
+        },
+        "generations": [
+          1
+        ],
+        "hold": null,
+        "parsers": [
+          {
+            "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+            "id": "claude-v1-9a9b8e8",
+            "version": "0.0.1-engine"
+          }
+        ],
+        "reader": {
+          "cursor": {
+            "anchor": {
+              "bytes": 64,
+              "digest": "e84c89bb9c5cdd3506a47a6c0d994e11ffef8eccbe68ccb300b500fcd293db06",
+              "end": 4832800
+            },
+            "offset": 4832800
+          },
+          "discarding": false,
+          "history_checkpoint": null,
+          "last_change": null,
+          "permit": {
+            "expected": {
+              "device": 2096,
+              "inode": 3269982
+            },
+            "member": "native.jsonl",
+            "native_session_key": "native-fixture-6",
+            "root": "/tmp/.tmpad7OgO/raw-6",
+            "source_id": "00000000-0000-0000-0000-00000000000e"
+          },
+          "root_identity": {
+            "device": 2096,
+            "inode": 3269981
+          }
+        },
+        "record_cursor": null,
+        "source": {
+          "account_reference": "logical-account",
+          "binding": {
+            "attempt_generation": 1,
+            "attempt_id": "00000000-0000-0000-0000-000000000fa6",
+            "lineage_id": "00000000-0000-0000-0000-000000000003",
+            "project_id": "00000000-0000-0000-0000-000000000001",
+            "session": {
+              "assignment_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000fa6",
+              "boot_id": "00000000-0000-0000-0000-000000000006",
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000005",
+              "session_id": "00000000-0000-0000-0000-000000001b5e"
+            },
+            "task_id": "00000000-0000-0000-0000-0000000007d6"
+          },
+          "format": "claude_v1_jsonl9a9b8e8",
+          "generation": 1,
+          "native_session_key": "native-fixture-6",
+          "provider": "fixture-provider",
+          "source_id": "00000000-0000-0000-0000-00000000000e"
+        },
+        "source_operations": []
+      }
+    },
+    "before": {
+      "snapshot": {
+        "acked": 6704,
+        "active_boot": "00000000-0000-0000-0000-000000000006",
+        "delivery": null,
+        "logical_bytes": 16777090,
+        "next": 6705,
+        "persistence_uncertain": false,
+        "queued": 0,
+        "receipt": {
+          "body_digest": "4c62cc943a03ec22a1cca0c076b529901210083166df3160933e4cf9aa2aaf45",
+          "disposition": "observation_recorded",
+          "message_id": "ace88fb7-eb59-85b9-a947-17b4b7abdaf6",
+          "schema_version": 1,
+          "through_sequence": 6704
+        },
+        "seen": 6704
+      },
+      "source": {
+        "cursor": 4832800,
+        "engine": {
+          "completed_replays": [],
+          "context": {
+            "active_turn": null,
+            "context_gap": false,
+            "counter_generation": 1,
+            "history_replay": false,
+            "last_cumulative": null,
+            "maximum_tracked": 4096,
+            "mixed_models": false,
+            "model": null,
+            "next_display_ordinal": 0,
+            "next_sequence": 6705,
+            "observed_native_identity": true,
+            "parser": {
+              "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+              "id": "claude-v1-9a9b8e8",
+              "version": "0.0.1-engine"
+            },
+            "reparse": null,
+            "source": {
+              "account_reference": "logical-account",
+              "binding": {
+                "attempt_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000fa6",
+                "lineage_id": "00000000-0000-0000-0000-000000000003",
+                "project_id": "00000000-0000-0000-0000-000000000001",
+                "session": {
+                  "assignment_generation": 1,
+                  "attempt_id": "00000000-0000-0000-0000-000000000fa6",
+                  "boot_id": "00000000-0000-0000-0000-000000000006",
+                  "kind": "remote",
+                  "node_id": "00000000-0000-0000-0000-000000000005",
+                  "session_id": "00000000-0000-0000-0000-000000001b5e"
+                },
+                "task_id": "00000000-0000-0000-0000-0000000007d6"
+              },
+              "format": "claude_v1_jsonl9a9b8e8",
+              "generation": 1,
+              "native_session_key": "native-fixture-6",
+              "provider": "fixture-provider",
+              "source_id": "00000000-0000-0000-0000-00000000000e"
+            }
+          },
+          "counts": {
+            "Seen": 560
+          },
+          "native_epoch": 0,
+          "replay": null,
+          "retired_epochs": [],
+          "revision": 563
+        },
+        "generations": [
+          1
+        ],
+        "hold": null,
+        "parsers": [
+          {
+            "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+            "id": "claude-v1-9a9b8e8",
+            "version": "0.0.1-engine"
+          }
+        ],
+        "reader": {
+          "cursor": {
+            "anchor": {
+              "bytes": 64,
+              "digest": "e84c89bb9c5cdd3506a47a6c0d994e11ffef8eccbe68ccb300b500fcd293db06",
+              "end": 4832800
+            },
+            "offset": 4832800
+          },
+          "discarding": false,
+          "history_checkpoint": null,
+          "last_change": null,
+          "permit": {
+            "expected": {
+              "device": 2096,
+              "inode": 3269982
+            },
+            "member": "native.jsonl",
+            "native_session_key": "native-fixture-6",
+            "root": "/tmp/.tmpad7OgO/raw-6",
+            "source_id": "00000000-0000-0000-0000-00000000000e"
+          },
+          "root_identity": {
+            "device": 2096,
+            "inode": 3269981
+          }
+        },
+        "record_cursor": null,
+        "source": {
+          "account_reference": "logical-account",
+          "binding": {
+            "attempt_generation": 1,
+            "attempt_id": "00000000-0000-0000-0000-000000000fa6",
+            "lineage_id": "00000000-0000-0000-0000-000000000003",
+            "project_id": "00000000-0000-0000-0000-000000000001",
+            "session": {
+              "assignment_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000fa6",
+              "boot_id": "00000000-0000-0000-0000-000000000006",
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000005",
+              "session_id": "00000000-0000-0000-0000-000000001b5e"
+            },
+            "task_id": "00000000-0000-0000-0000-0000000007d6"
+          },
+          "format": "claude_v1_jsonl9a9b8e8",
+          "generation": 1,
+          "native_session_key": "native-fixture-6",
+          "provider": "fixture-provider",
+          "source_id": "00000000-0000-0000-0000-00000000000e"
+        },
+        "source_operations": []
+      }
+    },
+    "error": null,
+    "ok": true,
+    "result": {
+      "blocked": true,
+      "consumed_bytes": 0,
+      "facts_added": 0
+    },
+    "visible_projection_unchanged": true
+  },
+  "history_deleted": false,
+  "limits": {
+    "boot_id": "00000000-0000-0000-0000-000000000006",
+    "cache_bytes": 4194304,
+    "logical_bytes": 16777216,
+    "node_id": "00000000-0000-0000-0000-000000000005",
+    "physical_bytes": 67108864,
+    "quick_repair": false
+  },
+  "mode": "32_fingerprints_per_call",
+  "native_format_qualified": false,
+  "ordinary_capacity_status": "logical_refusal_reopened_replayed_and_drained",
+  "retained_fixture_root": "/tmp/.tmpad7OgO",
+  "source_admission_qualified": false
+}
