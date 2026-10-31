@@ -1,0 +1,20 @@
+   Compiling aq-terminal-renderer v0.1.0 (/tmp/wrk14-renderer-capacity-negative/crates/aq-terminal-renderer)
+warning: variable does not need to be mutable
+   --> crates/aq-terminal-renderer/src/model.rs:154:32
+    |
+154 |     fn push_history(&mut self, mut row: Row) {
+    |                                ----^^^
+    |                                |
+    |                                help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aq-terminal-renderer` (lib test) generated 1 warning (run `cargo fix --lib -p aq-terminal-renderer --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_renderer-8c816d6891b50342)
+
+running 1 test
+test model::tests::resized_rows_cannot_accumulate_hidden_spare_capacity_in_history ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+

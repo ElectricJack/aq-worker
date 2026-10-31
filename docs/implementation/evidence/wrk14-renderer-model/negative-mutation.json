@@ -1,0 +1,5 @@
+{
+  "scope": "Isolated negative fault variant removes all row-capacity compaction; same regression test, not a published historical revision",
+  "variant_model_sha256": "87fa71db43bacb1be0a2c347504888f5f0fc0d691283c1f156fec8546c7abd6d",
+  "working_model_sha256": "1d0026c6d29eeb0e0345a9ce24e4f58cfc45ce1217d37bef166053e206ba6673"
+}

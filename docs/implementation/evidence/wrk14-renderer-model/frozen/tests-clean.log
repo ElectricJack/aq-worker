@@ -1,0 +1,67 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.229
+   Compiling typenum v1.20.1
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.154
+   Compiling ref-cast v1.0.27
+   Compiling serde v1.0.229
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling thiserror v2.0.21
+   Compiling cpufeatures v0.2.17
+   Compiling cfg-if v1.0.5
+   Compiling dyn-clone v1.0.20
+   Compiling unicode-width v0.2.2
+   Compiling generic-array v0.14.7
+   Compiling syn v3.0.9
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling serde_derive_internals v0.30.0
+   Compiling uuid v1.29.0
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling schemars_derive v1.2.3
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-session-protocol)
+   Compiling aq-terminal-renderer v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-renderer)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.06s
+     Running unittests src/lib.rs (/tmp/wrk14-renderer-clean-target/debug/deps/aq_terminal_renderer-0318220056f95cc3)
+
+running 1 test
+test model::tests::resized_rows_cannot_accumulate_hidden_spare_capacity_in_history ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/model.rs (/tmp/wrk14-renderer-clean-target/debug/deps/model-8414e0f586eace1b)
+
+running 15 tests
+test cursor_attributes_tabs_margins_and_cell_editing_have_independent_expected_states ... ok
+test identity_order_digest_and_gap_are_permanent_refusals_not_resets ... ok
+test frozen_binary_vector_preserves_both_screens_and_partial_colour_parser ... ok
+test overlapping_mouse_and_underline_modes_preserve_fallback_state ... ok
+test resize_is_explicit_ordered_clip_profile_not_inferred_reflow ... ok
+test retained_vector_hashes_drift_only_with_an_explicit_fixture_update ... ok
+test recorded_synthetic_cli_repertoire_is_supported_without_blanket_fallback ... ok
+test unsupported_compound_unicode_and_controls_never_silently_drop_state ... ok
+test utf8_and_control_bounds_fail_before_unbounded_work_or_replacement ... ok
+test configured_history_retention_is_finite_and_explicit ... ok
+test title_icon_and_partial_utf8_osc_state_survive_codec_without_control_effects ... ok
+test malformed_or_cross_terminal_images_are_bounded_and_cannot_continue ... ok
+test large_valid_owned_state_refuses_image_instead_of_truncating_cells ... ok
+test reset_and_alternate_reallocation_are_charged_before_work_expansion ... ok
+test every_stream_prefix_image_restores_hidden_buffers_modes_and_partial_parser ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+   Doc-tests aq_terminal_renderer
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

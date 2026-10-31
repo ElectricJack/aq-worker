@@ -1,0 +1,33 @@
+   Compiling aq-terminal-renderer v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-renderer)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_renderer-8c816d6891b50342)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/model.rs (target/debug/deps/model-64dab445619f043c)
+
+running 13 tests
+test cursor_attributes_tabs_margins_and_cell_editing_have_independent_expected_states ... ok
+test identity_order_digest_and_gap_are_permanent_refusals_not_resets ... ok
+test overlapping_mouse_and_underline_modes_preserve_fallback_state ... ok
+test frozen_binary_vector_preserves_both_screens_and_partial_colour_parser ... ok
+test recorded_synthetic_cli_repertoire_is_supported_without_blanket_fallback ... ok
+test unsupported_compound_unicode_and_controls_never_silently_drop_state ... ok
+test resize_is_explicit_ordered_clip_profile_not_inferred_reflow ... ok
+test utf8_and_control_bounds_fail_before_unbounded_work_or_replacement ... ok
+test configured_history_retention_is_finite_and_explicit ... ok
+test malformed_or_cross_terminal_images_are_bounded_and_cannot_continue ... ok
+test large_valid_owned_state_refuses_image_instead_of_truncating_cells ... ok
+test reset_and_alternate_reallocation_are_charged_before_work_expansion ... ok
+test every_stream_prefix_image_restores_hidden_buffers_modes_and_partial_parser ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+   Doc-tests aq_terminal_renderer
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

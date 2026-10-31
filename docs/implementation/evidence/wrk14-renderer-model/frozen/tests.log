@@ -1,0 +1,38 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling aq-terminal-renderer v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-renderer)
+warning: variable does not need to be mutable
+   --> crates/aq-terminal-renderer/src/model.rs:154:32
+    |
+154 |     fn push_history(&mut self, mut row: Row) {
+    |                                ----^^^
+    |                                |
+    |                                help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aq-terminal-renderer` (lib test) generated 1 warning (run `cargo fix --lib -p aq-terminal-renderer --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_renderer-8c816d6891b50342)
+
+running 1 test
+test model::tests::resized_rows_cannot_accumulate_hidden_spare_capacity_in_history ... FAILED
+
+failures:
+
+---- model::tests::resized_rows_cannot_accumulate_hidden_spare_capacity_in_history stdout ----
+
+thread 'model::tests::resized_rows_cannot_accumulate_hidden_spare_capacity_in_history' (4026875) panicked at crates/aq-terminal-renderer/src/model.rs:586:9:
+assertion `left == right` failed
+  left: 772480
+ right: 7680
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    model::tests::resized_rows_cannot_accumulate_hidden_spare_capacity_in_history
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p aq-terminal-renderer --lib`
