@@ -38,3 +38,13 @@ identical-request replay. They discard one received acknowledgement, preserving
 the committed server action. The synthetic process's `AQ_FIXTURE_HOLD=1`
 injection waits for a `release` file inside its launch directory; cancellation
 and grant-expiry tests prove that control continues while it is blocked.
+
+Execution worker 0.2.0 uses the `linux-subreaper-guardian-v1` ownership profile.
+A per-launch guardian survives a runtime process crash in the same PID namespace
+and independently enforces its grant. It stops and reaps adopted descendants,
+including double-forked processes that call `setsid`. Restart stops and preserves
+old execution; live-session reattachment is explicitly unsupported. If the
+guardian or its proof is lost, reservations remain held. See the
+[profile, recovery and qualification limits](docs/implementation/worker-recovery.md).
+For a container running worker processes as children, use Docker `--init` or
+Compose `init: true` so exited orphan guardians can be reaped.

@@ -76,6 +76,8 @@ pub struct GuardianState {
     pub reaped_count: u64,
     pub kernel_wait_echild: bool,
     pub stopped_at_ms: Option<u64>,
+    pub observed_at_ms: u64,
+    pub clock_uncertain: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
@@ -136,10 +138,91 @@ pub fn durable_new(path: &Path, bytes: &[u8]) -> Result<()> {
     File::open(path.parent().unwrap())?.sync_all()?;
     Ok(())
 }
+fn socket_name(id: Uuid) -> String {
+    format!("aq-worker-guardian-{}-{id}", unsafe { libc::geteuid() })
+}
 fn socket_address(id: Uuid) -> Result<SocketAddr> {
-    Ok(SocketAddr::from_abstract_name(
-        format!("aq-worker-guardian-{}-{id}", unsafe { libc::geteuid() }).as_bytes(),
-    )?)
+    Ok(SocketAddr::from_abstract_name(socket_name(id).as_bytes())?)
+}
+fn connect_control(id: Uuid) -> Result<UnixStream> {
+    // Nonblocking connect refuses a full local backlog instead of blocking the
+    // controller. Subsequent reads/writes have absolute exchange deadlines.
+    let fd = unsafe {
+        libc::socket(
+            libc::AF_UNIX,
+            libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+            0,
+        )
+    };
+    ensure!(
+        fd >= 0,
+        "guardian socket: {}",
+        std::io::Error::last_os_error()
+    );
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    address.sun_family = libc::AF_UNIX as _;
+    let name = socket_name(id);
+    ensure!(
+        name.len() < address.sun_path.len(),
+        "guardian socket name too long"
+    );
+    for (target, source) in address.sun_path[1..].iter_mut().zip(name.bytes()) {
+        *target = source as _;
+    }
+    let length =
+        (std::mem::offset_of!(libc::sockaddr_un, sun_path) + 1 + name.len()) as libc::socklen_t;
+    ensure!(
+        unsafe {
+            libc::connect(
+                fd.as_raw_fd(),
+                (&address as *const libc::sockaddr_un).cast(),
+                length,
+            )
+        } == 0,
+        "guardian connect refused/busy: {}",
+        std::io::Error::last_os_error()
+    );
+    let stream = UnixStream::from(fd);
+    stream.set_nonblocking(false)?;
+    Ok(stream)
+}
+fn read_bounded(stream: &mut UnixStream, budget: Duration) -> Result<Vec<u8>> {
+    let end = std::time::Instant::now() + budget;
+    let mut bytes = vec![];
+    let mut chunk = [0u8; 1024];
+    loop {
+        let remaining = end
+            .checked_duration_since(std::time::Instant::now())
+            .context("guardian total read deadline")?;
+        stream.set_read_timeout(Some(remaining))?;
+        match stream.read(&mut chunk) {
+            Ok(0) => return Ok(bytes),
+            Ok(n) => {
+                ensure!(bytes.len() + n <= MAX_CONTROL, "oversized guardian control");
+                bytes.extend_from_slice(&chunk[..n]);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+fn write_bounded(stream: &mut UnixStream, bytes: &[u8], budget: Duration) -> Result<()> {
+    let end = std::time::Instant::now() + budget;
+    let mut remaining_bytes = bytes;
+    while !remaining_bytes.is_empty() {
+        let remaining = end
+            .checked_duration_since(std::time::Instant::now())
+            .context("guardian total write deadline")?;
+        stream.set_write_timeout(Some(remaining))?;
+        match stream.write(remaining_bytes) {
+            Ok(0) => bail!("guardian control short write"),
+            Ok(n) => remaining_bytes = &remaining_bytes[n..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 fn peer_pid(stream: &UnixStream) -> Result<u32> {
     let mut value = libc::ucred {
@@ -199,7 +282,15 @@ pub fn probe_profile() -> Result<()> {
     signal(&self_fd, 0)?;
     std::fs::read_to_string(format!("/proc/self/task/{}/children", std::process::id()))
         .context("procfs child discovery unavailable")?;
-    let _ = socket_address(Uuid::new_v4())?;
+    let endpoint = Uuid::new_v4();
+    let listener = UnixListener::bind_addr(&socket_address(endpoint)?)?;
+    listener.set_nonblocking(true)?;
+    let client = connect_control(endpoint)?;
+    let (server, _) = listener.accept()?;
+    ensure!(
+        peer_pid(&client)? == std::process::id() && peer_pid(&server)? == std::process::id(),
+        "Unix peer credential probe failed"
+    );
     ensure!(
         std::env::var_os("AQ_WORKER_DISABLE_GUARDIAN").is_none(),
         "unsupported ownership profile: guardian disabled locally"
@@ -214,6 +305,12 @@ pub fn probe_profile() -> Result<()> {
                 && libc::prctl(libc::PR_GET_CHILD_SUBREAPER, &mut enabled, 0, 0, 0) == 0
                 && enabled == 1
         };
+        let mut status = 0;
+        let wall_ok = unsafe {
+            libc::waitpid(-1, &mut status, libc::WNOHANG | libc::__WALL) == -1
+                && *libc::__errno_location() == libc::ECHILD
+        };
+        let ok = ok && wall_ok;
         unsafe { libc::_exit(if ok { 0 } else { 41 }) }
     }
     let mut status = 0;
@@ -276,26 +373,21 @@ pub fn control(
     after_send: impl FnOnce() -> Result<()>,
 ) -> Result<GuardianState> {
     let _live = validate_identity(identity)?;
-    let mut stream = UnixStream::connect_addr(&socket_address(identity.launch_id)?)?;
+    let mut stream = connect_control(identity.launch_id)?;
     ensure!(
         peer_pid(&stream)? == identity.process.pid,
         "guardian endpoint peer changed"
     );
-    stream.set_read_timeout(Some(Duration::from_millis(250)))?;
-    stream.set_write_timeout(Some(Duration::from_millis(100)))?;
     let token = std::fs::read_to_string(directory.join("control.token"))?;
-    stream.write_all(&serde_json::to_vec(&Control {
+    let bytes = serde_json::to_vec(&Control {
         token,
         identity: identity.clone(),
         operation,
-    })?)?;
+    })?;
+    write_bounded(&mut stream, &bytes, Duration::from_millis(100))?;
     stream.shutdown(std::net::Shutdown::Write)?;
     after_send()?;
-    let mut bytes = vec![];
-    stream
-        .take(MAX_CONTROL as u64 + 1)
-        .read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= MAX_CONTROL, "oversized guardian response");
+    let bytes = read_bounded(&mut stream, Duration::from_millis(250))?;
     let reply: Reply = serde_json::from_slice(&bytes)?;
     ensure!(
         reply.state.identity == *identity,
@@ -400,6 +492,10 @@ impl Drop for EmergencyReaper {
 }
 pub fn run(directory: &Path) -> Result<()> {
     probe_profile()?;
+    ensure!(
+        std::process::id() != 1,
+        "guardian cannot be PID-namespace init"
+    );
     // SAFETY: changes this dedicated, single-threaded process before any fork.
     ensure!(
         unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } == 0,
@@ -444,6 +540,8 @@ pub fn run(directory: &Path) -> Result<()> {
         reaped_count: 0,
         kernel_wait_echild: false,
         stopped_at_ms: None,
+        observed_at_ms: binding.logical_origin_ms,
+        clock_uncertain: false,
     };
     save(directory, &state)?;
     durable_new(
@@ -461,9 +559,11 @@ pub fn run(directory: &Path) -> Result<()> {
             Err(_) => {
                 state.stop_reason = Some(ProcessOutcome::Expired);
                 state.phase = GuardianPhase::Stopping;
+                state.clock_uncertain = true;
                 last_now
             }
         };
+        state.observed_at_ms = now;
         if now >= state.deadline_ms
             && !matches!(
                 state.phase,
@@ -506,6 +606,9 @@ pub fn run(directory: &Path) -> Result<()> {
             }
         }
         for _ in 0..8 {
+            if state.phase == GuardianPhase::Stopping {
+                break;
+            }
             let fresh = logical_now(&binding, &mut last_now);
             if fresh.as_ref().map_or(true, |now| *now >= state.deadline_ms) {
                 state.phase = GuardianPhase::Stopping;
@@ -518,14 +621,27 @@ pub fn run(directory: &Path) -> Result<()> {
             }
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    stream.set_read_timeout(Some(Duration::from_millis(20)))?;
+                    let read_ms = 20;
+                    #[cfg(feature = "test-support")]
+                    let read_ms = std::env::var("AQ_GUARDIAN_TEST_READ_MS")
+                        .ok()
+                        .map(|v| v.parse::<u64>().unwrap().clamp(1, 500))
+                        .unwrap_or(read_ms);
+                    stream.set_read_timeout(Some(Duration::from_millis(read_ms)))?;
+                    #[cfg(feature = "test-support")]
+                    if let Some(path) = std::env::var_os("AQ_GUARDIAN_TEST_READ_MARKER") {
+                        durable_replace(
+                            Path::new(&path),
+                            b"reading control body
+",
+                        )?;
+                    }
                     stream.set_write_timeout(Some(Duration::from_millis(20)))?;
-                    let mut bytes = vec![];
-                    let received = (&mut stream)
-                        .take(MAX_CONTROL as u64 + 1)
-                        .read_to_end(&mut bytes);
-                    if received.is_err() || bytes.len() > MAX_CONTROL || peer_pid(&stream).is_err()
-                    {
+                    let received = read_bounded(&mut stream, Duration::from_millis(read_ms));
+                    let Ok(bytes) = received else {
+                        continue;
+                    };
+                    if peer_pid(&stream).is_err() {
                         continue;
                     }
                     let Ok(request) = serde_json::from_slice::<Control>(&bytes) else {
@@ -538,6 +654,7 @@ pub fn run(directory: &Path) -> Result<()> {
                         // A read may stall. Never validate Start/Renew against
                         // the stale timestamp from before receiving its bytes.
                         let now = logical_now(&binding, &mut last_now)?;
+                        state.observed_at_ms = now;
                         match request.operation {
                             Operation::Status => {}
                             Operation::Stop { reason } => {
@@ -613,7 +730,11 @@ pub fn run(directory: &Path) -> Result<()> {
                         state: state.clone(),
                         error: result.err().map(|e| e.to_string()),
                     };
-                    let _ = stream.write_all(&serde_json::to_vec(&reply)?);
+                    let _ = write_bounded(
+                        &mut stream,
+                        &serde_json::to_vec(&reply)?,
+                        Duration::from_millis(20),
+                    );
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(error) => return Err(error.into()),

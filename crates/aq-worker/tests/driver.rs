@@ -18,6 +18,7 @@ struct Peer {
     polls: usize,
     cancellation: bool,
     expiry: bool,
+    expiry_offset: Option<std::path::PathBuf>,
     renewals: usize,
     last_grant: Option<Grant>,
     last_report: Option<ResultReport>,
@@ -37,7 +38,7 @@ async fn register(
     let mut s = shared.lock().unwrap();
     s.register_calls += 1;
     if s.expiry {
-        offer.reservation_ttl_ms = 300;
+        offer.reservation_ttl_ms = 3_000;
     }
     s.coordinator = Some(FakeCoordinator::new(offer, 100));
     Json(RegisterResponse {
@@ -192,6 +193,11 @@ async fn renew(
     let mut s = shared.lock().unwrap();
     s.renewals += 1;
     if s.expiry {
+        // Semantic barrier: only the observed failed renewal advances both
+        // fixture clocks through expiry; startup timing cannot skip coverage.
+        if let Some(path) = &s.expiry_offset {
+            aq_worker::guardian::durable_replace(path, b"100000").unwrap();
+        }
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ProtocolError {
@@ -246,6 +252,11 @@ async fn blocked_fixture(cancellation: bool) {
     }
     .save(&path)
     .unwrap();
+    let offset = temp.path().join("clock-offset");
+    std::fs::write(&offset, "0").unwrap();
+    if !cancellation {
+        shared.lock().unwrap().expiry_offset = Some(offset.clone());
+    }
     let command = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
         .arg("--config")
         .arg(&path)
@@ -256,9 +267,11 @@ async fn blocked_fixture(cancellation: bool) {
         .arg(env!("CARGO_BIN_EXE_aq-fixture-agent"))
         .args(["--exit-after-result", "--idle-timeout-secs", "5"])
         .env("AQ_FIXTURE_HOLD", "1")
+        .env("AQ_WORKER_CLOCK_OFFSET_FILE", &offset)
+        .env("AQ_GUARDIAN_CLOCK_OFFSET_FILE", &offset)
         .kill_on_drop(true)
         .output();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(3), command)
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), command)
         .await
         .expect("control failed to stop blocked fixture")
         .unwrap();

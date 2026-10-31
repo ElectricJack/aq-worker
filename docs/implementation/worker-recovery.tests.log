@@ -1,0 +1,184 @@
+   Compiling aq-worker v0.2.0 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.10s
+     Running unittests src/lib.rs (target/debug/deps/aq_protocol-04fbb2930c97de51)
+
+running 1 test
+test tests::api_error_round_trips ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-3161b0bd9179b666)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-fixture-agent.rs (target/debug/deps/aq_fixture_agent-f58e50b52dcdf508)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/aq_worker-dc2451a0e241c724)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-worker-test-host.rs (target/debug/deps/aq_worker_test_host-5369090f3ecd457f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backoff.rs (target/debug/deps/backoff-64d0b98756a68395)
+
+running 2 tests
+test attempt_zero_has_one_second_ceiling ... ok
+test backoff_is_bounded_and_jittered ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (target/debug/deps/client-b17d981ff9a20918)
+
+running 14 tests
+test server_down_is_transient ... ok
+test redirect_classified_as_access_rejected ... ok
+test sends_bearer_and_cf_headers ... ok
+test non_json_401_is_access_rejected ... ok
+test connection_refused_error_includes_the_cause ... ok
+test unexpected_401_code_is_other ... ok
+test server_error_is_transient ... ok
+test malformed_server_urls_are_rejected ... ok
+test revoked_is_fatal ... ok
+test unknown_credential_is_invalid ... ok
+test upgrade_required_is_incompatible ... ok
+test html_login_page_classified_as_access_rejected ... ok
+test not_found_hints_at_the_worker_port ... ok
+test html_429_and_408_and_502_are_transient ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/config.rs (target/debug/deps/config-c0ecb8889b51e178)
+
+running 3 tests
+test debug_redacts_secrets ... ok
+test config_saved_with_0600 ... ok
+test load_refuses_world_readable_config ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/driver.rs (target/debug/deps/driver-498841f316cad809)
+
+running 4 tests
+test stopped_report_recovers_before_new_boot_registration_without_relaunch ... ok
+test binary_executes_real_child_against_fake_http_peer_with_lost_responses ... ok
+test blocked_fixture_is_killed_and_reaped_on_cancellation ... ok
+test blocked_fixture_is_killed_and_reaped_on_grant_expiry ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running tests/execution.rs (target/debug/deps/execution-cb1d4e78ed586bbb)
+
+running 14 tests
+test oversized_journal_is_refused_before_deserialization ... ok
+test unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test exclusive_owner_and_unknown_state_format_fail_closed ... ok
+test competing_projects_share_one_durable_capacity_budget ... ok
+test admission_replay_and_changed_bytes_are_distinct ... ok
+test lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test request_send_time_includes_network_delay_and_suspend ... ok
+test launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test write_failures_never_acknowledge_unpersisted_admission ... ok
+test observations_and_directive_receipts_cross_durable_boundary ... ok
+test stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/foundation_fixtures.rs (target/debug/deps/foundation_fixtures-b5f61d5137ef13c4)
+
+running 2 tests
+test retained_wire_fixtures_parse_against_foundation_types ... ok
+test retained_worker_identity_survives_save_reload ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/foundation_lifecycle.rs (target/debug/deps/foundation_lifecycle-b36a34fbf48789c8)
+
+running 1 test
+test enroll_saved_identity_reconnect_and_revocation_need_no_sibling ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/guardian.rs (target/debug/deps/guardian-0b29c776c860ec01)
+
+running 11 tests
+test unavailable_profile_refuses_before_runtime_state ... ok
+test stalled_control_cannot_start_after_expiry_and_stale_identity_is_refused ... ok
+test guardian_does_not_inherit_runtime_lock_or_publish_token ... ok
+test guardian_loss_holds_resources_even_after_known_pids_disappear ... ok
+test exited_root_is_not_stop_proof_for_escaped_descendant ... ok
+test guardian_independently_expires_while_runtime_is_dead ... ok
+test stalled_renew_cannot_revive_expired_guardian_authority ... ok
+test surviving_double_fork_setsid_writer_stops_by_live_guardian_and_not_pid_scan ... ok
+test clock_failure_uses_raw_clock_to_escalate_ignored_term ... ok
+test slow_drip_control_has_total_deadline_and_cannot_starve_expiry ... ok
+test spawn_boundary_crashes_never_duplicate_and_recover_owned_writers ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+     Running tests/journal_migration.rs (target/debug/deps/journal_migration-1a0a6915170382b3)
+
+running 4 tests
+test frozen_v1_reader_refuses_v2_without_modifying_new_state ... ok
+test legacy_active_launch_without_guardian_stays_uncertain_even_with_missing_pid ... ok
+test drain_survives_restart_and_does_not_restore_launch_authority ... ok
+test v1_retired_and_stopped_reports_upgrade_without_reinterpreting_evidence ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker_protocol-9eb4d2739b90a34b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-4f9419975cd7989b)
+
+running 10 tests
+test nil_optional_recovery_and_duplicate_pending_ids_are_refused ... ok
+test wire_is_strict_and_payload_digest_is_canonical ... ok
+test scenarios::lost_acceptance_replay_reduces_ttl_and_changed_bytes_conflict ... ok
+test scenarios::cancellation_race_and_late_generation_retain_evidence ... ok
+test scenarios::spec_tampering_and_response_overflow_are_invalid ... ok
+test published_valid_and_invalid_vectors_execute ... ok
+test scenarios::observation_sequences_and_report_replays_are_immutable ... ok
+test scenarios::expiry_stale_incarnation_and_generation_are_refused ... ok
+test scenarios::result_requires_grant_binding_and_pending_operations_block_release ... ok
+test generated_schema_has_no_drift ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_worker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_worker_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking aq-worker v0.2.0 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.56s

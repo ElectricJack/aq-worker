@@ -174,6 +174,13 @@ pub async fn run_execution(
             client.reconcile(&runtime.reconcile_request()).await?;
         }
     }
+    if runtime.journal.state().local_drain {
+        println!(
+            "{}",
+            serde_json::json!({"event":"drained","protected_usage":runtime.journal.protected_usage()?,"available":runtime.journal.available()?})
+        );
+        return Ok(());
+    }
     let registered = match client.register(&registration).await {
         Ok(r) => r,
         Err(error) => {
@@ -371,12 +378,12 @@ async fn control_fixture(
     handle: &mut crate::fixture::FixtureHandle,
 ) -> Result<()> {
     let mut next_poll = runtime.clock.now_ms();
-    let mut next_renew = runtime.clock.now_ms().saturating_add(
+    let now = runtime.clock.now_ms();
+    let mut next_renew = now.saturating_add(
         runtime.journal.state().attempts[&attempt_id]
-            .grant
-            .as_ref()
+            .grant_deadline_ms
             .unwrap()
-            .valid_for_ms
+            .saturating_sub(now)
             / 3,
     );
     let mut renewal: Option<RenewRequest> = None;
@@ -475,10 +482,9 @@ async fn control_fixture(
                     )?;
                     renewal = None;
                     let record = &runtime.journal.state().attempts[&attempt_id];
-                    next_renew = runtime
-                        .clock
-                        .now_ms()
-                        .saturating_add(record.grant.as_ref().unwrap().valid_for_ms / 3);
+                    let now = runtime.clock.now_ms();
+                    next_renew = now
+                        .saturating_add(record.grant_deadline_ms.unwrap().saturating_sub(now) / 3);
                 }
                 Ok(Err(error)) if !retryable(&error) => {
                     runtime.request_stop(attempt_id, ProcessOutcome::Expired)?;

@@ -1,6 +1,7 @@
 # Local worker implementation evidence
 
-Current corrected candidate: [worker-candidate.md](worker-candidate.md).
+Current guardian candidate: [worker-recovery.md](worker-recovery.md).
+Prior M2 corrected candidate: [worker-candidate.md](worker-candidate.md).
 The retained test log records 51 passing component checks.
 
 The foundation source was copied from Agent Q revision

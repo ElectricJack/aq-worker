@@ -167,15 +167,29 @@ impl FixtureHandle {
             .context("writer process not started")
     }
     pub fn stop(&self, reason: aq_worker_protocol::ProcessOutcome) -> Result<()> {
-        if self.query()?.phase != GuardianPhase::Stopped {
-            guardian::control(
-                &self.directory,
-                &self.identity,
-                Operation::Stop { reason },
-                || Ok(()),
-            )?;
+        let state = self.query()?;
+        if matches!(
+            state.phase,
+            GuardianPhase::Stopped | GuardianPhase::Stopping
+        ) {
+            return Ok(());
         }
-        Ok(())
+        match guardian::control(
+            &self.directory,
+            &self.identity,
+            Operation::Stop { reason },
+            || Ok(()),
+        ) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                let final_state = guardian::read_state(&self.directory, &self.identity)?;
+                if final_state.phase == GuardianPhase::Stopped {
+                    Ok(())
+                } else {
+                    Err(error)
+                }
+            }
+        }
     }
     pub fn kill(&mut self) -> Result<()> {
         self.stop(aq_worker_protocol::ProcessOutcome::Cancelled)

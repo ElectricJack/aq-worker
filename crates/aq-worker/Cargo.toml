@@ -28,3 +28,11 @@ aq-worker-protocol = { workspace = true, features = ["test-support"] }
 axum.workspace = true
 chrono.workspace = true
 tempfile.workspace = true
+
+[features]
+test-support = ["aq-worker-protocol/test-support"]
+
+[[bin]]
+name = "aq-worker-test-host"
+path = "src/bin/aq-worker-test-host.rs"
+required-features = ["test-support"]
