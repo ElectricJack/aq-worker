@@ -1,0 +1,63 @@
+{
+  "archives": {
+    "aq-session-api": {
+      "path": "/tmp/wrk14-session-api-package-target/package/aq-session-api-0.1.0.crate",
+      "sha256": "a00bfa8a48d76b7c924b5c31ace5474e597792907d91b4d6eb8813c12a9c4c11"
+    },
+    "aq-terminal-relay": {
+      "path": "/home/jkern/dev/agent-q-aq21/target/package/aq-terminal-relay-0.1.0.crate",
+      "sha256": "56b7e3655ea302c73351527fa24590102e0a44040a743b9880e544d22f6156c5"
+    },
+    "aq-terminal-relay-protocol": {
+      "path": "/home/jkern/dev/agent-q-aq21/target/package/aq-terminal-relay-protocol-0.1.0.crate",
+      "sha256": "866a2c287e6bcb265e572caf7c4f6c6733caddc6481afc748b5fbba51f1c1de7"
+    },
+    "aq-session-protocol": {
+      "path": "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate",
+      "sha256": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+    }
+  },
+  "session_api_original_revision": "80e66ec8edc6d83f0ec2077cd301afe14a65ecb6",
+  "session_api_source_unchanged_through": "c8b7e2452db7a7b1c3106e59c22d5ac5ae916042",
+  "companion_fixture_source_revision": "80e66ec8edc6d83f0ec2077cd301afe14a65ecb6",
+  "companion_fixture_hashes": {
+    "protocol/agent-access/v1/validate.py": "c4f875705052abc9cbfbdb47711c42242957ebc4dbec137b4bb7b37cff1e46f9",
+    "protocol/agent-access/v1/openapi.json": "603cc7ebb0655af34bff18a963a0a581b3f617b17b7532073f521c82c5df1999",
+    "protocol/agent-access/v1/capture_graph_fixture.py": "ca5d34d196e955c525b4311d519ba4f446e20ed2fdf7f30d317f006a1088b40b",
+    "protocol/agent-access/v1/client_types.py": "d572bd66247428baeccfb949dae3379c568c3159ced7e4fb2e874a97543d8152",
+    "protocol/agent-access/v1/conformance_model.py": "2ecf3d0f3b1ddf8f9ad979214a051fc8830159bcc898c95a91bc27748ecf4211",
+    "protocol/agent-access/v1/requirements-dev.txt": "e5d8aad6444e49bf2726aa35af230a27c9e754aa5e539bbd85f96aae54b4a878",
+    "protocol/agent-access/v1/README.md": "54ca5ee435392be24c91d55b327a1e574d2333bd0b432331a9946588201f4530",
+    "protocol/agent-access/v1/schema.json": "46002a4b7b91a83c6658653938309eec08776e24290e4be47f5fa034f068204e",
+    "protocol/agent-access/v1/cli-contract.json": "75087bf8ee96918ba12266b96cc3b3dfc064c8d4187673eb2428af3e7d840e52",
+    "protocol/agent-access/v1/build_fixtures.py": "ecbb223536e72904124288879d0b0dc747206ca6b5893b32c79fdab4a5b6a902",
+    "protocol/agent-access/v1/test_conformance.py": "54ac2378fbd22ff1f279cbc70813e47f8dbdbb7b69e87645b351b48a2b99787a",
+    "protocol/agent-access/v1/generate.py": "933e668b6f831c139108c04046ed9d2587752e8c332e47dfbb69d7f155a3d807",
+    "protocol/agent-access/v1/MANIFEST.json": "0d02dcf01b0929b5764b3e0de42456a63b4964be4a18aa0c49333ba9d079b5e0",
+    "protocol/agent-access/v1/upstream/aq-graph-openapi.json": "a06393e0557fe06bfcaf9820c073f6e3e585441282561b1e53638e80600b46bc",
+    "protocol/agent-access/v1/upstream/manifest.json": "cd3a73a4fbc4003afb4dc0c58de9947dfd63b1059ecbebc9594b9943468cc1e5",
+    "protocol/agent-access/v1/upstream/aq-graph-api.md": "64f916198677872f732599e3dcd51beffb889165240687b3a2f25e3ee687c59e",
+    "protocol/agent-access/v1/fixtures/messages.json": "0d862801912ac2230e14d10a106ac4fcb810b41fc83ee9855cad40949c2b856d",
+    "protocol/agent-access/v1/fixtures/base.json": "e3deade737992bad2800b8e5d6e0e89282f8c3078b484896e9b8c81fc2af78e5",
+    "protocol/agent-access/v1/fixtures/qualified-graph.json": "5339a187b153636afdc28e66971ccd02f8846b68080fa8b17c80cdf42d8622f0",
+    "protocol/agent-access/v1/fixtures/scope-cases.json": "29880559715363bd3c718b9752ed8236c1c972ded33232ca0960b1d5794a4dae",
+    "protocol/session-api/v1/README.md": "ca5c29e40424895c1700371752ca615a35f71506aa2ff117e8fc457f7c5aba9e",
+    "protocol/session-api/v1/schema.json": "df0f351cc93e0605d2ee8e0d7b94ee94b6ad1ee1212c9eb558585bf8bfcb02c2",
+    "protocol/session-api/v1/examples/remote-acquire_control.json": "5bf47bcb86be0e6b5b5d1fff488d9829ade0c08ca02b4e4ff181c668c63910ce",
+    "protocol/session-api/v1/examples/remote-input.json": "82cd0d09782b53b21afaed85f27c2b5ef1a4cad54d1034b97e0f3144e45bd466",
+    "protocol/session-api/v1/examples/profile-validate.json": "0ae260ca146adfcd0284f377cd39f9b2e427ac3eaa90061f351e9699b6d882ae",
+    "protocol/session-api/v1/examples/central-watch_view.json": "4df00d1c0def957ab9e0862471e91483ab64e525118bba6eeccd9e996fca0a59",
+    "protocol/session-api/v1/examples/remote-input_receipt.json": "e6dc5f162d52f971b89f12b702bc01e407be771db5df12b7a1a579aac0a53f40",
+    "protocol/session-api/v1/examples/central-input.json": "2aee198cf95174fe58be633d12a0f3ad3d302e8ad385cb51b99fb70fb4d46c81",
+    "protocol/session-api/v1/examples/remote-watch.json": "105703210b2914fbf96d87734c86266a9091bd271294ba92a63f34ad6caab7e8",
+    "protocol/session-api/v1/examples/profile-explanation.json": "12306e1d316cc341283ddcb3981df9af47dcc8756d3467dae8427014953db7f1",
+    "protocol/session-api/v1/examples/central-watch.json": "7ed884894e0a87edc1146469682886f8017e1f42f39e424a892d7ff09deb7f7e",
+    "protocol/session-api/v1/examples/central-resolve_input.json": "88724cad7cefc35b879edb57bbf75fbc40ed34008146c06aea9abaae34b843e8",
+    "protocol/session-api/v1/examples/central-input_receipt.json": "e973faf493f526e1526adff7542db64cd3fd7b7a2a0aa9ab80db4e66ac48b73a",
+    "protocol/session-api/v1/examples/central-acquire_control.json": "c690515f72fdd02951cd15d3fe21246d44e9539e4439d7ee99568cb7238f7f32"
+  },
+  "limitation": "session-api original publication tests require separately published companion fixtures and shared protocol archive; crate alone lacks these test fixtures. Initial bare-extraction failure retained.",
+  "qualification": "38 tests pass, strictalltarget workspaceClippy, fmt; only4frozenarchives plus originalpublished companion fixtures, no daemon/runtime source.",
+  "discarded_vcs_repackage_sha256": "232e0df7bbb32e1609094eb28158ec4047e3ff82e8b9ae3e836d2411d5a6a67b",
+  "published_source_unchanged": true
+}

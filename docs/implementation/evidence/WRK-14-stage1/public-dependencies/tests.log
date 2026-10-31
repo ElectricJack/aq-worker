@@ -1,0 +1,143 @@
+     Locking 43 packages to latest Rust 1.96.1 compatible versions
+warning: output filename collision at /tmp/wrk14-public-archives/target/debug/examples/publish
+  |
+  = note: the example target `publish` in package `aq-terminal-relay v0.1.0 (/tmp/wrk14-public-archives/crates/aq-terminal-relay-0.1.0)` has the same output filename as the example target `publish` in package `aq-session-api v0.1.0 (/tmp/wrk14-public-archives/crates/aq-session-api-0.1.0)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /tmp/wrk14-public-archives/target/debug/examples/publish.dwp
+  |
+  = note: the example target `publish` in package `aq-terminal-relay v0.1.0 (/tmp/wrk14-public-archives/crates/aq-terminal-relay-0.1.0)` has the same output filename as the example target `publish` in package `aq-session-api v0.1.0 (/tmp/wrk14-public-archives/crates/aq-session-api-0.1.0)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.229
+   Compiling typenum v1.20.1
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling ref-cast v1.0.27
+   Compiling serde_json v1.0.154
+   Compiling thiserror v2.0.21
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling dyn-clone v1.0.20
+   Compiling cpufeatures v0.2.17
+   Compiling cfg-if v1.0.5
+   Compiling generic-array v0.14.7
+   Compiling syn v3.0.9
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling serde_derive_internals v0.30.0
+   Compiling uuid v1.29.0
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling thiserror-impl v2.0.21
+   Compiling schemars_derive v1.2.3
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/tmp/wrk14-public-archives/vendor/aq-session-protocol-0.1.0)
+   Compiling aq-session-api v0.1.0 (/tmp/wrk14-public-archives/crates/aq-session-api-0.1.0)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/wrk14-public-archives/crates/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-terminal-relay v0.1.0 (/tmp/wrk14-public-archives/crates/aq-terminal-relay-0.1.0)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.32s
+     Running unittests src/lib.rs (target/debug/deps/aq_session_api-61c2d46fbbd1031c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/publication.rs (target/debug/deps/publication-b4debaaf6ff98832)
+
+running 12 tests
+test duplicate_known_json_fields_refuse_before_canonicalization ... ok
+test nil_ids_zero_revisions_and_controller_fences_are_rejected ... ok
+test identical_operation_replay_has_same_digest_changed_payload_conflicts ... ok
+test watch_and_acquire_are_requests_not_controller_permits ... ok
+test mutations_reject_principal_and_unknown_fields_and_oversize_input ... ok
+test explanation_provenance_and_relations_are_checked ... ok
+test published_examples_round_trip_shared_identity_and_unknown_input ... ok
+test watch_coverage_and_resolution_capture_fields_are_validated ... ok
+test requests_have_no_selected_principal_or_cross_scope_authority ... ok
+test pinned_worker_publication_is_consumed_by_human_endpoint ... ok
+test schema_is_published_without_drift ... ok
+test pinned_graph_access_profile_is_a_distinct_namespace ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_relay-6069dbeaa8cea219)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fake_peers.rs (target/debug/deps/fake_peers-68b50a6bc55822fe)
+
+running 24 tests
+test draft_negotiation_and_peer_binding_are_exact_and_old_documents_are_unchanged ... ok
+test epoch_uuid_derivation_has_frozen_independently_computed_vectors ... ok
+test terminal_saturation_cannot_consume_reserved_execution_capacity ... ok
+test snapshot_barrier_retires_old_frames_before_output_quota_charging ... ok
+test replay_eviction_missing_ranges_barriers_and_epoch_fences_are_explicit ... ok
+test conservative_expiry_requires_explicit_clock_margin_and_never_renews_execution ... ok
+test exact_sealed_policy_is_durable_and_lower_input_pending_ceilings_are_enforced ... ok
+test viewers_are_scoped_independent_and_bounded ... ok
+test remote_and_central_share_scope_and_exact_identity_checks ... ok
+test duplicate_noop_revisions_and_authority_rebind_do_not_replay_or_extend_execution ... ok
+test resize_id_history_is_immutable_after_intervening_operations ... ok
+test replayable_effects_recheck_fresh_scope_execution_and_never_replay_input ... ok
+test commit_failure_and_lost_ack_never_expose_dispatch_effects ... ok
+test takeover_needs_exact_fence_ack_and_revocation_denies_new_input ... ok
+test exact_duplicate_readback_does_not_reinject_or_accept_changed_bytes ... ok
+test composed_plans_commit_once_fifo_uses_admission_order_and_revoke_preserves_unknown ... ok
+test trusted_scope_refusal_rejects_only_never_dispatched_and_keeps_all_replay_fences ... ok
+test epoch_unknown_survives_restart_and_takeover_without_retirement_or_replay ... ok
+test unknown_survives_new_controller_and_requires_post_unknown_capture ... ok
+test restart_expires_undispatched_input_and_never_replays_received_or_injecting ... ok
+test many_tiny_frames_and_many_gaps_do_not_create_unbounded_metadata ... ok
+test pending_bytes_deadlines_and_receipt_identity_are_bounded ... ok
+test epoch_lost_admission_ack_cannot_replay_retired_or_undispatched_input_after_restart ... ok
+test epoch_receipt_window_retires_prefix_without_accepting_old_uuid_at_new_sequence ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+
+     Running tests/publication.rs (target/debug/deps/publication-3cbbb75d7d9d6ef9)
+
+running 1 test
+test deterministic_schema_and_valid_invalid_fixtures_have_no_drift ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_relay_protocol-42545af9b44e032e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/artifacts.rs (target/debug/deps/artifacts-58c21aa708e5918d)
+
+running 1 test
+test packaged_portable_schema_fixtures_and_uuid_vectors_conform_without_daemon_dependencies ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_session_api
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_terminal_relay
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_terminal_relay_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

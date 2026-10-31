@@ -1,0 +1,8 @@
+{
+  "source_commit": "b446a51e7fee97bbc05b01a26bb534cb42b9cd03",
+  "source_inventory_sha256": "fbc4f92b62a1906978db2639f17f096a943e4956c5c5c4450f2be3e92d14d0ba",
+  "original_evidence_manifest_sha256": "1f143222f3b96048a996b3d4a841a3304afcddd4331db00e442532a8f4f8eaa8",
+  "report_sha256": "633888f00f20d4ef43f670159dbc31df2fc262f4097238fdb4a6154c8dd4a55e",
+  "scope": "Qualified finite control-only component; no runtime adoption/snapshot/PTY-drain/provider acknowledgement qualification; WRK14 incomplete",
+  "merge_qualification_required_against": "dcb2a55"
+}

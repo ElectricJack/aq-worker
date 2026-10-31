@@ -1,0 +1,5 @@
+warning: manifest has no description, license, license-file, documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+   Packaging aq-session-api v0.1.0 (/tmp/aq-session-api-original-80e66ec/crates/aq-session-api)
+    Packaged 6 files, 32.0KiB (7.5KiB compressed)

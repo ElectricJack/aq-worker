@@ -1,0 +1,54 @@
+    Checking tracing-core v0.1.36
+    Checking log v0.4.35
+    Checking num-traits v0.2.19
+    Checking utf8parse v0.2.2
+    Checking iana-time-zone v0.1.65
+    Checking anstyle-parse v1.0.0
+    Checking tracing v0.1.44
+    Checking colorchoice v1.0.5
+    Checking hyper-util v0.1.21
+    Checking tower v0.5.3
+    Checking chrono v0.4.45
+    Checking tower-http v0.6.11
+    Checking is_terminal_polyfill v1.70.2
+    Checking anstyle v1.0.14
+    Checking anstyle-query v1.1.5
+    Checking anstream v1.0.0
+    Checking strsim v0.11.1
+    Checking clap_lex v1.1.1
+    Checking axum-core v0.5.6
+    Checking clap_builder v4.6.7
+    Checking hyper-rustls v0.27.10
+    Checking reqwest v0.12.28
+    Checking aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-worker-protocol)
+    Checking axum v0.8.9
+    Checking clap v4.6.7
+    Checking regex-syntax v0.8.11
+    Checking hashbrown v0.17.1
+    Checking equivalent v1.0.3
+    Checking indexmap v2.14.2
+    Checking regex-automata v0.4.18
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking winnow v0.7.15
+    Checking toml_write v0.1.2
+    Checking lazy_static v1.5.1
+    Checking matchers v0.2.0
+    Checking sharded-slab v0.1.7
+    Checking tracing-log v0.2.0
+    Checking rtoolbox v0.0.6
+    Checking thread_local v1.1.10
+    Checking nu-ansi-term v0.50.3
+    Checking rpassword v7.5.4
+    Checking tracing-subscriber v0.3.23
+    Checking toml_edit v0.22.27
+    Checking aq-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-protocol)
+    Checking aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-lifecycle-protocol)
+    Checking aq-agent-api v0.1.0 (/home/jkern/dev/aq-worker-wrk14/vendor/aq-agent-api-0.1.0)
+    Checking aq-agent-client v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-agent-client)
+    Checking toml v0.8.23
+    Checking aq-worker v0.3.3 (/home/jkern/dev/aq-worker-wrk14/crates/aq-worker)
+    Checking aq-terminal-bridge v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-terminal-bridge)
+    Checking aq-observation v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-observation)
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-session-protocol)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.74s

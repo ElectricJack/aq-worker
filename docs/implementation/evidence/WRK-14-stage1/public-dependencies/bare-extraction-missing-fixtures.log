@@ -1,0 +1,111 @@
+warning: output filename collision at /tmp/wrk14-relay-contract/target/debug/examples/publish
+  |
+  = note: the example target `publish` in package `aq-terminal-relay v0.1.0 (/tmp/wrk14-relay-contract/aq-terminal-relay-0.1.0)` has the same output filename as the example target `publish` in package `aq-session-api v0.1.0 (/tmp/wrk14-relay-contract/aq-session-api-0.1.0)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /tmp/wrk14-relay-contract/target/debug/examples/publish.dwp
+  |
+  = note: the example target `publish` in package `aq-terminal-relay v0.1.0 (/tmp/wrk14-relay-contract/aq-terminal-relay-0.1.0)` has the same output filename as the example target `publish` in package `aq-session-api v0.1.0 (/tmp/wrk14-relay-contract/aq-session-api-0.1.0)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling aq-session-protocol v0.1.0 (/tmp/wrk14-relay-contract/aq-session-protocol-0.1.0)
+   Compiling aq-session-api v0.1.0 (/tmp/wrk14-relay-contract/aq-session-api-0.1.0)
+   Compiling aq-terminal-relay v0.1.0 (/tmp/wrk14-relay-contract/aq-terminal-relay-0.1.0)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.64s
+     Running unittests src/lib.rs (target/debug/deps/aq_session_api-0704963a9cbf4c0a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/publication.rs (target/debug/deps/publication-449966748fc14cc4)
+
+running 12 tests
+test duplicate_known_json_fields_refuse_before_canonicalization ... FAILED
+test explanation_provenance_and_relations_are_checked ... FAILED
+test identical_operation_replay_has_same_digest_changed_payload_conflicts ... FAILED
+test mutations_reject_principal_and_unknown_fields_and_oversize_input ... FAILED
+test nil_ids_zero_revisions_and_controller_fences_are_rejected ... FAILED
+test pinned_graph_access_profile_is_a_distinct_namespace ... FAILED
+test pinned_worker_publication_is_consumed_by_human_endpoint ... FAILED
+test published_examples_round_trip_shared_identity_and_unknown_input ... FAILED
+test watch_and_acquire_are_requests_not_controller_permits ... FAILED
+test schema_is_published_without_drift ... FAILED
+test watch_coverage_and_resolution_capture_fields_are_validated ... FAILED
+test requests_have_no_selected_principal_or_cross_scope_authority ... ok
+
+failures:
+
+---- duplicate_known_json_fields_refuse_before_canonicalization stdout ----
+
+thread 'duplicate_known_json_fields_refuse_before_canonicalization' (3584293) panicked at aq-session-api-0.1.0/tests/publication.rs:81:81:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- explanation_provenance_and_relations_are_checked stdout ----
+
+thread 'explanation_provenance_and_relations_are_checked' (3584294) panicked at aq-session-api-0.1.0/tests/publication.rs:81:81:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- identical_operation_replay_has_same_digest_changed_payload_conflicts stdout ----
+
+thread 'identical_operation_replay_has_same_digest_changed_payload_conflicts' (3584295) panicked at aq-session-api-0.1.0/tests/publication.rs:66:79:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- mutations_reject_principal_and_unknown_fields_and_oversize_input stdout ----
+
+thread 'mutations_reject_principal_and_unknown_fields_and_oversize_input' (3584296) panicked at aq-session-api-0.1.0/tests/publication.rs:35:69:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- nil_ids_zero_revisions_and_controller_fences_are_rejected stdout ----
+
+thread 'nil_ids_zero_revisions_and_controller_fences_are_rejected' (3584297) panicked at aq-session-api-0.1.0/tests/publication.rs:81:81:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- pinned_graph_access_profile_is_a_distinct_namespace stdout ----
+
+thread 'pinned_graph_access_profile_is_a_distinct_namespace' (3584298) panicked at aq-session-api-0.1.0/tests/publication.rs:230:76:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- pinned_worker_publication_is_consumed_by_human_endpoint stdout ----
+
+thread 'pinned_worker_publication_is_consumed_by_human_endpoint' (3584299) panicked at aq-session-api-0.1.0/tests/publication.rs:202:71:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- published_examples_round_trip_shared_identity_and_unknown_input stdout ----
+
+thread 'published_examples_round_trip_shared_identity_and_unknown_input' (3584300) panicked at aq-session-api-0.1.0/tests/publication.rs:14:62:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- watch_and_acquire_are_requests_not_controller_permits stdout ----
+
+thread 'watch_and_acquire_are_requests_not_controller_permits' (3584303) panicked at aq-session-api-0.1.0/tests/publication.rs:81:81:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- schema_is_published_without_drift stdout ----
+
+thread 'schema_is_published_without_drift' (3584302) panicked at aq-session-api-0.1.0/tests/publication.rs:9:77:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- watch_coverage_and_resolution_capture_fields_are_validated stdout ----
+
+thread 'watch_coverage_and_resolution_capture_fields_are_validated' (3584304) panicked at aq-session-api-0.1.0/tests/publication.rs:81:81:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+
+failures:
+    duplicate_known_json_fields_refuse_before_canonicalization
+    explanation_provenance_and_relations_are_checked
+    identical_operation_replay_has_same_digest_changed_payload_conflicts
+    mutations_reject_principal_and_unknown_fields_and_oversize_input
+    nil_ids_zero_revisions_and_controller_fences_are_rejected
+    pinned_graph_access_profile_is_a_distinct_namespace
+    pinned_worker_publication_is_consumed_by_human_endpoint
+    published_examples_round_trip_shared_identity_and_unknown_input
+    schema_is_published_without_drift
+    watch_and_acquire_are_requests_not_controller_permits
+    watch_coverage_and_resolution_capture_fields_are_validated
+
+test result: FAILED. 1 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p aq-session-api --test publication`

@@ -1,0 +1,653 @@
+warning: output filename collision at /home/jkern/dev/aq-worker-wrk14/target/debug/examples/export
+  |
+  = note: the example target `export` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-observation)` has the same output filename as the example target `export` in package `aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-lifecycle-protocol)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-worker-wrk14/target/debug/examples/export.dwp
+  |
+  = note: the example target `export` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-observation)` has the same output filename as the example target `export` in package `aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-lifecycle-protocol)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-worker-wrk14/target/debug/examples/export
+  |
+  = note: the example target `export` in package `aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-session-protocol)` has the same output filename as the example target `export` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-observation)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-worker-wrk14/target/debug/examples/export.dwp
+  |
+  = note: the example target `export` in package `aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-session-protocol)` has the same output filename as the example target `export` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-observation)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling tracing-core v0.1.36
+   Compiling syn v2.0.119
+   Compiling log v0.4.35
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling iana-time-zone v0.1.65
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling aq-session-host v0.1.1 (/home/jkern/dev/aq-worker-wrk14/crates/aq-session-host)
+   Compiling chrono v0.4.45
+   Compiling anstyle v1.0.14
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling anstream v1.0.0
+   Compiling heck v0.5.0
+   Compiling clap_lex v1.1.1
+   Compiling strsim v0.11.1
+   Compiling clap_builder v4.6.7
+   Compiling tracing-attributes v0.1.31
+   Compiling clap_derive v4.6.7
+   Compiling tracing v0.1.44
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling tower-http v0.6.11
+   Compiling hyper-rustls v0.27.10
+   Compiling axum-core v0.5.6
+   Compiling reqwest v0.12.28
+   Compiling clap v4.6.7
+   Compiling aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-worker-protocol)
+   Compiling axum v0.8.9
+   Compiling hashbrown v0.17.1
+   Compiling regex-syntax v0.8.11
+   Compiling equivalent v1.0.3
+   Compiling indexmap v2.14.2
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling regex-automata v0.4.18
+   Compiling lazy_static v1.5.1
+   Compiling winnow v0.7.15
+   Compiling toml_write v0.1.2
+   Compiling sharded-slab v0.1.7
+   Compiling aq-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-protocol)
+   Compiling tracing-log v0.2.0
+   Compiling toml_edit v0.22.27
+   Compiling matchers v0.2.0
+   Compiling rtoolbox v0.0.6
+   Compiling thread_local v1.1.10
+   Compiling nu-ansi-term v0.50.3
+   Compiling tracing-subscriber v0.3.23
+   Compiling rpassword v7.5.4
+   Compiling aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-lifecycle-protocol)
+   Compiling toml v0.8.23
+   Compiling aq-worker v0.3.3 (/home/jkern/dev/aq-worker-wrk14/crates/aq-worker)
+   Compiling aq-agent-api v0.1.0 (/home/jkern/dev/aq-worker-wrk14/vendor/aq-agent-api-0.1.0)
+   Compiling aq-observation v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-observation)
+   Compiling aq-agent-client v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-agent-client)
+   Compiling aq-terminal-bridge v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-terminal-bridge)
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-session-protocol)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 00s
+     Running unittests src/lib.rs (target/debug/deps/aq_agent_client-e77a1eaaa6791097)
+
+running 3 tests
+test journal::tests::restart_cannot_reset_delay_attempts_or_clock_fences ... ok
+test journal::tests::retained_retry_policy_cannot_widen_the_resolved_profile ... ok
+test journal::tests::concurrent_clients_and_full_intent_retention_refuse_without_eviction ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.09s
+
+     Running unittests src/main.rs (target/debug/deps/aq_agent-5d0f01408aab4274)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (target/debug/deps/client-d4eb468294d2c8db)
+
+running 7 tests
+test lost_response_survives_process_reopen_with_exact_id_bytes_and_receipt ... ok
+test actual_cli_preserves_operation_states_and_safe_error_output ... ok
+test node_credential_symlink_permissions_and_expiry_are_refused_before_network ... ok
+test required_context_and_access_profile_binding_cannot_be_silently_changed ... ok
+test published_read_shapes_and_live_context_use_only_session_authority ... ok
+test status_lookup_without_local_intent_still_validates_receipt_scope ... ok
+test response_version_binding_and_offline_state_never_become_applied ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+     Running tests/contract_artifact.rs (target/debug/deps/contract_artifact-f1650de7489b8639)
+
+running 1 test
+test published_archive_and_extracted_dependency_match_the_frozen_inventory ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/provisioning.rs (target/debug/deps/provisioning-94c135b2bbac7b0c)
+
+running 12 tests
+test allocation_quota_and_binding_survive_restart_without_implicit_reclaim ... ok
+test changed_startup_bytes_and_impossible_disk_reservation_refuse ... ok
+test exact_retained_response_recovers_local_install_without_http ... ok
+test explicit_agent_egress_never_copies_node_cf_identity ... ok
+test explicit_new_intent_can_recover_loss_before_server_commit_at_same_cas_version ... ok
+test explicit_refresh_atomically_replaces_credential_while_agent_journal_is_open ... ok
+test context_bundle_bound_is_distinct_from_one_megabyte_wire_bound ... ok
+test lost_reply_never_reissues_plaintext_and_explicit_cas_rotation_recovers ... ok
+test node_owner_lock_and_conservative_minimum_are_enforced ... ok
+test mismatched_real_response_stays_unknown_and_never_publishes_config ... ok
+test symlink_permissions_and_unexpected_temp_refuse_before_http ... ok
+test private_atomic_install_has_real_context_and_no_node_credential ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
+
+     Running tests/recovery.rs (target/debug/deps/recovery-4b6005afbe4294d5)
+
+running 5 tests
+test bounded_paginated_list_returns_server_cursor_without_new_authority ... ok
+test client_refuses_new_payload_list_retry_and_foreign_request_before_http ... ok
+test foreign_response_bindings_ids_status_and_malformed_body_refuse ... ok
+test foreign_workspace_duplicate_ids_limit_overrun_and_lookup_cursor_refuse ... ok
+test known_lookup_and_retry_use_only_retained_ids_and_node_credential ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_lifecycle_protocol-df72eef4dd4e1406)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-b6af7b0295f6e83e)
+
+running 14 tests
+test available_raw_bytes_must_agree_with_the_declared_source_span ... ok
+test central_binding_needs_no_fake_worker_identity ... ok
+test checkpoint_is_a_claim_not_stop_proof_or_task_settlement ... ok
+test compute_release_disk_release_and_retained_suspension_are_independent ... ok
+test acknowledgment_schema_and_exact_cursor_pairing_are_independent_of_task_outcome ... ok
+test finite_utf8_batches_strict_fields_and_integer_units_refuse ... ok
+test fresh_cross_node_continuation_and_exact_bootstrap_ack_are_fenced ... ok
+test missing_raw_source_is_a_gap_and_never_a_fabricated_digest ... ok
+test mismatched_node_boot_attempt_generation_and_atomic_batch_failure_refuse ... ok
+test old_session_capabilities_and_unknown_required_versions_refuse ... ok
+test packet_and_source_event_digest_conflicts_are_not_accepted_as_retries ... ok
+test schema_publishes_finite_batch_and_reference_bounds ... ok
+test unknown_zero_cumulative_generations_corrections_and_non_invoice_cost_remain_distinct ... ok
+test public_artifacts_drift_and_all_packets_roundtrip ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation-e9f6ee85c2b8c565)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/artifacts.rs (target/debug/deps/artifacts-6333a23c2e8e2c20)
+
+running 2 tests
+test source_formats_are_exact_and_native_release_or_complete_accounting_is_not_implied ... ok
+test generated_source_reparse_capability_and_normalized_goldens_do_not_drift ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/boots.rs (target/debug/deps/boots-82cd74dac351bf03)
+
+running 2 tests
+test missing_or_corrupt_spool_never_silently_reseeds_and_boot_admission_is_not_a_label ... ok
+test admitted_boot_preserves_global_sequence_old_facts_and_same_boot_batch_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/crash.rs (target/debug/deps/crash-86bfc79e52fa1fb2)
+
+running 2 tests
+test durable_temp_child ... ok
+
+running 1 test
+test retained_fsynced_temp_survives_process_exit_and_reopen_refuses_without_deletion ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/discovery.rs (target/debug/deps/discovery-0d843fef08596e82)
+
+running 3 tests
+test codex_discovery_refuses_ambiguous_or_exhausted_scan_instead_of_guessing ... ok
+test exact_known_key_never_falls_back_to_newer_or_unrelated_session ... ok
+test gemini_short_filename_prefix_is_never_sufficient_without_full_metadata_key ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/normalizers.rs (target/debug/deps/normalizers-42c64c28d8f3d682)
+
+running 10 tests
+test codex_cumulative_native_counts_unknown_zero_and_repeated_last_are_distinct ... ok
+test claude_call_chunks_dedupe_and_corrections_reference_known_prior_fact ... ok
+test codex_structured_questions_and_lost_context_do_not_become_task_or_model_authority ... ok
+test framing_partial_budget_and_oversized_records_remain_explicit ... ok
+test cumulative_reset_and_mixed_model_attribution_never_invent_delta_or_invoice ... ok
+test gemini_patch_rewind_and_replay_keep_mutation_provenance_without_raw_content ... ok
+test malformed_duplicate_negative_and_identity_mismatch_are_not_empty_success ... ok
+test historical_changed_usage_is_gap_not_new_charge_or_budget_reset ... ok
+test opencode_public_dto_preserves_all_native_usage_but_cost_has_no_invoice_receipt ... ok
+test state_restart_replays_exact_native_records_and_parser_drift_refuses ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/reparse.rs (target/debug/deps/reparse-cc5a15ccb3b7d7f9)
+
+running 4 tests
+test immutable_reparse_intent_and_unknown_historical_facts_are_explicit ... ok
+test explicit_verified_reparse_corrects_only_known_fact_and_finishes_without_duplicate_usage ... ok
+test retained_bytes_owner_scope_and_prior_reference_are_required ... ok
+test replay_cursor_and_correction_facts_share_crash_boundary ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/sources.rs (target/debug/deps/sources-ee154a2bbf62f4fa)
+
+running 2 tests
+test bounded_anchor_detects_rewrite_and_symlink_never_reads_target ... ok
+test scoped_reader_keeps_partial_bytes_and_refuses_rotation_missing_and_truncation ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/spool.rs (target/debug/deps/spool-454fae4ad524da2c)
+
+running 10 tests
+test crash_faults_have_both_cursor_and_facts_or_neither ... ok
+test frozen_pending_packet_does_not_change_when_new_facts_arrive_and_changed_id_payload_refuses ... ok
+test journal_corruption_and_orphan_temporary_refuse_without_deleting_evidence ... ok
+test lost_batch_ack_replays_identical_packet_after_restart_and_stale_or_changed_receipt_cannot_prune ... ok
+test missing_rotation_and_truncation_are_durable_gaps_not_empty_transcript_success ... ok
+test multiple_sources_share_one_node_sequence_without_cross_binding_or_capability_fallback ... ok
+test overflow_holds_cursor_or_records_reserved_gap_and_holds_reconciliation_while_control_remains_readable ... ok
+test public_record_cursor_cas_and_native_record_provenance_use_no_private_database ... ok
+test retry_exhaustion_keeps_facts_and_accepts_exact_late_receipt ... ok
+test source_cursor_facts_and_native_dedupe_commit_atomically_and_never_store_raw_text ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_protocol-04fbb2930c97de51)
+
+running 1 test
+test tests::api_error_round_trips ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_session_host-4a5f4ed1b52621df)
+
+running 7 tests
+test io_tests::command_stdout_above_pipe_capacity_is_drained_before_exit ... ok
+test io_tests::large_stdout_fixture ... ignored, subprocess output fixture invoked by bounded output test
+test io_tests::nonregular_and_symlink_material_is_refused ... ok
+test reaper::tests::reservation_exhaustion_refuses_before_spawning ... ok
+test tests::independent_permit_is_exact_bounded_and_expiring ... ok
+test tests::local_command_bounds_and_protected_environment ... ok
+test io_tests::command_input_and_output_above_pipe_capacity_progress_under_one_deadline ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/main.rs (target/debug/deps/aq_session_host-32cf6be037e01acc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-8d766a34444c0cd0)
+
+running 23 tests
+test caller_crashes_at_durable_start_boundaries_never_relaunch ... ignored, requires explicit local tmux 3.4 qualification
+test central_and_remote_interaction_stop_and_no_relaunch ... ignored, requires explicit local tmux 3.4 qualification
+test copied_launch_directory_and_old_mailbox_cannot_reset_physical_input_history ... ignored, requires explicit local tmux 3.4 qualification
+test encrypted_mailbox_tamper_and_missing_key_refuse_without_stopping_expiry ... ignored, requires explicit local tmux 3.4 qualification
+test exact_observation_and_unstarted_recovery_never_launch_or_inject ... ignored, requires explicit local tmux 3.4 qualification
+test existing_pane_is_refused_and_never_used_for_the_agent ... ignored, requires explicit local tmux 3.4 qualification
+test failed_durable_start_and_socket_collision_never_launch_native_child ... ignored, requires explicit local tmux 3.4 qualification
+test guarded_literal_unicode_resize_and_durable_duplicate_receipts ... ignored, requires explicit local tmux 3.4 qualification
+test guardian_crashes_across_socket_and_pane_creation_never_claim_stop ... ignored, requires explicit local tmux 3.4 qualification
+test guardian_loss_remains_uncertain_even_after_known_processes_disappear ... ignored, requires explicit local tmux 3.4 qualification
+test helper_expiry_survives_caller_death_without_recovery_control ... ignored, requires explicit local tmux 3.4 qualification
+test injecting_crash_before_or_after_physical_effect_is_unknown_never_replayed ... ignored, requires explicit local tmux 3.4 qualification
+test launch_child_fixture ... ignored, subprocess fixture, called by local crash tests only
+test local_configuration_refusals_happen_before_durable_launch_or_process ... ignored, requires explicit local tmux 3.4 qualification
+test malformed_renewal_stops_and_wall_limit_cannot_be_extended ... ignored, requires explicit local tmux 3.4 qualification
+test pane_exit_has_no_fallback_and_escaped_descendants_require_kernel_stop ... ignored, requires explicit local tmux 3.4 qualification
+test paused_injecting_deadline_and_new_controller_cannot_clear_unknown ... ignored, requires explicit local tmux 3.4 qualification
+test permit_expiry_is_independent_and_late_renewal_cannot_revive ... ignored, requires explicit local tmux 3.4 qualification
+test renewal_compare_publish_is_serialized_while_guardian_is_stopped ... ignored, requires explicit local tmux 3.4 qualification
+test renewals_are_monotonic_and_resource_cost_is_observed ... ignored, requires explicit local tmux 3.4 qualification
+test replayed_valid_encrypted_ledger_cannot_repeat_an_applied_input ... ignored, requires explicit local tmux 3.4 qualification
+test sustained_adopted_child_exits_cannot_starve_expiry_or_stop_proof ... ignored, requires explicit local tmux 3.4 qualification
+test tmux_pane_identifier_reuse_does_not_authorize_the_replacement_process ... ignored, requires explicit local tmux 3.4 qualification
+
+test result: ok. 0 passed; 0 failed; 23 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_session_protocol-2a2684573d2dd6e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-31eced69f305b092)
+
+running 19 tests
+test authority_and_deadline_rechecked_before_effect ... ok
+test canonical_and_schema_drift ... ok
+test bounded_input_backlog ... ok
+test central_identity_is_not_a_worker ... ok
+test controller_lease_identity_is_immutable_within_generation ... ok
+test exact_capabilities_and_launch_binding ... ok
+test fixture_generation_drift ... ok
+test literal_input_conflicts_and_unknown_never_replays ... ok
+test nil_poll_refuses_and_terminal_capability_mandatory ... ok
+test nil_rebinding_and_aggregate_context_refuse ... ok
+test outbound_batches_deduplicate_and_conflict ... ok
+test published_artifact_mirrors_match_when_in_repository ... ok
+test resize_ids_do_not_rebind_after_intervening_command ... ok
+test resize_is_fenced_ordered_and_idempotent ... ok
+test snapshot_boundary_conflicts_gaps_and_backlog ... ok
+test stale_capture_and_controller_cannot_resolve_unknown ... ok
+test unknown_mutation_fields_and_oversized_text_refuse ... ok
+test unknown_required_capability_is_not_self_authorizing ... ok
+test maximum_snapshot_roundtrips_bounded_wire ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_bridge-b2fb14315fb69163)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/test-host.rs (target/debug/deps/aq_terminal_bridge_test_host-0f64c2b53fb00d52)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fake_peer.rs (target/debug/deps/fake_peer-f539a749fb09972d)
+
+running 12 tests
+test changed_bytes_stale_boot_epoch_and_host_replacement_are_refused ... ok
+test corruption_missing_journal_and_competing_owner_fail_closed ... ok
+test bounded_recovery_rotates_past_a_busy_terminal_and_preserves_other_metadata_progress ... ok
+test identical_journal_inode_replacement_is_detected_while_owner_is_live ... ok
+test lost_host_reply_after_effect_recovers_unknown_without_resubmission ... ok
+test lost_network_ack_restarts_with_identical_metadata_never_another_input ... ok
+test lost_preparation_is_durably_refused_and_stale_token_cannot_inject ... ok
+test missing_journal_between_temp_fsync_and_rename_poison_refuses_all_effects ... ok
+test root_and_lock_replacement_poison_the_old_owner_and_cannot_adopt_copied_history ... ok
+test submitted_local_mailbox_is_observed_without_cancel_or_another_submission ... ok
+test two_exclusive_installers_have_one_owner_and_open_never_creates_missing_members ... ok
+test finite_history_refuses_new_ids_but_keeps_exact_retries_and_reserved_metadata ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.53s
+
+     Running tests/http.rs (target/debug/deps/http-0fc4ad7b87adbe0d)
+
+running 4 tests
+test lost_control_reply_is_not_automatically_retried_and_content_never_uses_control_lane ... ok
+test production_requires_https_and_credentials_remain_redacted ... ok
+test held_poll_and_saturated_poll_lane_preserve_reserved_control_progress ... ok
+test redirects_and_wrong_scope_acknowledgements_are_refused ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/local_relay.rs (target/debug/deps/local_relay-7e48c83c409dbbc3)
+
+running 2 tests
+test actual_guardian_http_relay_lost_ack_restart_unicode_resize_no_duplicate ... ignored, explicit local tmux 3.4 synthetic relay qualification
+test stalled_receipt_network_does_not_hold_guardian_renewal_or_stop ... ignored, explicit local tmux 3.4 synthetic relay qualification
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-c697bc632f691487)
+
+running 1 test
+test journal::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-fixture-agent.rs (target/debug/deps/aq_fixture_agent-27e29e779cc263d4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/aq_worker-a4ff17ee3a58f3a9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-worker-test-host.rs (target/debug/deps/aq_worker_test_host-11f19a6a8d2f4b26)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backoff.rs (target/debug/deps/backoff-a73a7ccca2a10128)
+
+running 2 tests
+test attempt_zero_has_one_second_ceiling ... ok
+test backoff_is_bounded_and_jittered ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (target/debug/deps/client-8ee882c238203f35)
+
+running 14 tests
+test connection_refused_error_includes_the_cause ... ok
+test html_login_page_classified_as_access_rejected ... ok
+test html_429_and_408_and_502_are_transient ... ok
+test malformed_server_urls_are_rejected ... ok
+test non_json_401_is_access_rejected ... ok
+test not_found_hints_at_the_worker_port ... ok
+test redirect_classified_as_access_rejected ... ok
+test revoked_is_fatal ... ok
+test sends_bearer_and_cf_headers ... ok
+test server_down_is_transient ... ok
+test server_error_is_transient ... ok
+test unexpected_401_code_is_other ... ok
+test unknown_credential_is_invalid ... ok
+test upgrade_required_is_incompatible ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/config.rs (target/debug/deps/config-1b1c20fc4e02b3d9)
+
+running 3 tests
+test debug_redacts_secrets ... ok
+test load_refuses_world_readable_config ... ok
+test config_saved_with_0600 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/driver.rs (target/debug/deps/driver-350be1cd962c428e)
+
+running 5 tests
+test binary_executes_real_child_against_fake_http_peer_with_lost_responses ... ok
+test blocked_fixture_is_killed_and_reaped_on_cancellation ... ok
+test post_stop_observation_outage_preserves_and_replays_before_report ... ok
+test stopped_report_recovers_before_new_boot_registration_without_relaunch ... ok
+test blocked_fixture_is_killed_and_reaped_on_grant_expiry ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.29s
+
+     Running tests/execution.rs (target/debug/deps/execution-4e5478c134fdb747)
+
+running 17 tests
+test admission_replay_and_changed_bytes_are_distinct ... ok
+test competing_projects_share_one_durable_capacity_budget ... ok
+test actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test exclusive_owner_and_unknown_state_format_fail_closed ... ok
+test launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired ... ok
+test observations_and_directive_receipts_cross_durable_boundary ... ok
+test orderly_journal_release_does_not_wait_for_an_unrelated_fork_child ... ok
+test oversized_journal_is_refused_before_deserialization ... ok
+test profiled_tmux_launch_remains_refused_until_authority_integration ... ok
+test request_send_time_includes_network_delay_and_suspend ... ok
+test directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+test uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test write_failures_never_acknowledge_unpersisted_admission ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.22s
+
+     Running tests/foundation_fixtures.rs (target/debug/deps/foundation_fixtures-71e85d7fd0dddfaa)
+
+running 2 tests
+test retained_wire_fixtures_parse_against_foundation_types ... ok
+test retained_worker_identity_survives_save_reload ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/foundation_lifecycle.rs (target/debug/deps/foundation_lifecycle-9996890f624fb860)
+
+running 1 test
+test enroll_saved_identity_reconnect_and_revocation_need_no_sibling ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/guardian.rs (target/debug/deps/guardian-5e526a80ac36b76a)
+
+running 11 tests
+test exited_root_is_not_stop_proof_for_escaped_descendant ... ok
+test clock_failure_uses_raw_clock_to_escalate_ignored_term ... ok
+test guardian_does_not_inherit_runtime_lock_or_publish_token ... ok
+test guardian_loss_holds_resources_even_after_known_pids_disappear ... ok
+test guardian_independently_expires_while_runtime_is_dead ... ok
+test slow_drip_control_has_total_deadline_and_cannot_starve_expiry ... ok
+test stalled_control_cannot_start_after_expiry_and_stale_identity_is_refused ... ok
+test stalled_renew_cannot_revive_expired_guardian_authority ... ok
+test surviving_double_fork_setsid_writer_stops_by_live_guardian_and_not_pid_scan ... ok
+test unavailable_profile_refuses_before_runtime_state ... ok
+test spawn_boundary_crashes_never_duplicate_and_recover_owned_writers ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.39s
+
+     Running tests/journal_migration.rs (target/debug/deps/journal_migration-f469d81a665ec310)
+
+running 5 tests
+test frozen_v1_reader_refuses_current_format_without_modifying_new_state ... ok
+test drain_survives_restart_and_does_not_restore_launch_authority ... ok
+test legacy_active_launch_without_guardian_stays_uncertain_even_with_missing_pid ... ok
+test v1_retired_and_stopped_reports_upgrade_without_reinterpreting_evidence ... ok
+test v2_guardian_report_upgrades_exactly_and_old_reader_refuses_v3_unchanged ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+     Running tests/source.rs (target/debug/deps/source-a6ffec0997c4792a)
+
+running 16 tests
+test binding_conflicts_and_pending_disk_pressure_refuse_new_work ... ok
+test download_refuses_changed_assignment_or_corrupt_complete_bytes ... ok
+test download_reservation_pressure_preserves_existing_source_and_allocates_no_files ... ok
+test download_nonstart_cleanup_requires_release_and_preserves_unknown_git_effects ... ok
+test download_restart_replays_only_unacknowledged_tail_and_cannot_grant_import ... ok
+test legacy_v3::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+test pinned_git_real_workspace_checkpoint_export_and_feature_refusal ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; no sibling checkout
+test guardian_stopped_writers_gate_checkpoint_and_replay ... ok
+test source_admission_is_demand_only_and_socket_loss_replays_after_restart ... ok
+test source_cli::pinned_git_cli_cold_download_handoff_and_held_download_cancel ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; actual CLI HTTP integration
+test source_http::pinned_git_http_retention_lost_finalize_and_report_restart ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; local HTTP qualification
+test shared_cache_is_charged_once_for_multiple_projects_and_growth_stays_protected ... ok
+test source_v3_upgrade_preserves_retained_work_without_inventing_transfer_progress ... ok
+test upload_changed_retained_bytes_or_symlink_never_replays_changed_payload ... ok
+test upload_local_commit_failure_keeps_same_pending_chunk_on_reopen ... ok
+test upload_restart_preserves_intent_chunk_and_finalize_ids_until_exact_retention ... ok
+
+test result: ok. 13 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 5.35s
+
+     Running tests/transfer_client.rs (target/debug/deps/transfer_client-ce050692c03a7bca)
+
+running 7 tests
+test bounded_responses_and_ranges_reject_large_short_or_untrusted_bodies ... ok
+test credentials_in_urls_partial_access_credentials_and_unbounded_lanes_refuse ... ok
+test blocked_bulk_does_not_queue_or_block_status_and_execution_control ... ok
+test invalid_local_input_cannot_reach_remote_transport ... ok
+test finite_authenticated_routes_preserve_exact_ids_bytes_and_ranges ... ok
+test mismatched_peer_identity_offsets_or_unconfirmed_retention_refuse ... ok
+test redirects_never_forward_credentials_and_remote_secrets_are_not_errors ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker_protocol-3753d9dc7b255412)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-b892d2724b01d133)
+
+running 10 tests
+test nil_optional_recovery_and_duplicate_pending_ids_are_refused ... ok
+test published_valid_and_invalid_vectors_execute ... ok
+test scenarios::cancellation_race_and_late_generation_retain_evidence ... ok
+test scenarios::expiry_stale_incarnation_and_generation_are_refused ... ok
+test scenarios::lost_acceptance_replay_reduces_ttl_and_changed_bytes_conflict ... ok
+test scenarios::observation_sequences_and_report_replays_are_immutable ... ok
+test scenarios::result_requires_grant_binding_and_pending_operations_block_release ... ok
+test scenarios::spec_tampering_and_response_overflow_are_invalid ... ok
+test generated_schema_has_no_drift ... ok
+test wire_is_strict_and_payload_digest_is_canonical ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/m4.rs (target/debug/deps/m4-aff81426b7858469)
+
+running 2 tests
+test source_and_raw_chunk_bounds_are_validated ... ok
+test frozen_bindings_are_strict_and_part_of_spec_digest ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_agent_client
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_lifecycle_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_observation
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_session_host
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_session_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_terminal_bridge
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_worker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_worker_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
