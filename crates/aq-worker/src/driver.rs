@@ -12,7 +12,16 @@ use aq_worker_protocol::*;
 use std::{path::Path, time::Duration};
 use uuid::Uuid;
 
+pub struct SourceOptions {
+    pub binary: std::path::PathBuf,
+    pub binary_sha256: String,
+    pub state_dir: std::path::PathBuf,
+    pub git_executable: std::path::PathBuf,
+    pub max_bundle_bytes: u64,
+    pub max_expanded_bytes: u64,
+}
 pub struct DriverOptions {
+    pub source: Option<SourceOptions>,
     pub max_agents: u32,
     pub idle_timeout_secs: u64,
     pub exit_after_result: bool,
@@ -35,6 +44,22 @@ pub async fn run_execution(
     mut options: DriverOptions,
 ) -> Result<()> {
     crate::guardian::probe_profile()?;
+    let git_service = options
+        .source
+        .as_ref()
+        .map(|s| {
+            crate::source::GitService::start_with_git(
+                &s.binary,
+                &s.binary_sha256,
+                &s.state_dir,
+                &s.git_executable,
+            )
+        })
+        .transpose()?;
+    let git = git_service.as_ref().map(|s| &s.client);
+    if let (Some(git), Some(source)) = (git, options.source.as_ref()) {
+        git.validate_storage_profile(source.max_bundle_bytes, source.max_expanded_bytes)?;
+    }
     let existing_journal = state_dir.join("journal.json").exists();
     let identity = NodeIdentity {
         node_id: config.node_id,
@@ -44,12 +69,20 @@ pub async fn run_execution(
         slots: options.max_agents,
         cpu_millis: 1_000_000,
         memory_bytes: 64 * 1024 * 1024 * 1024,
-        disk_bytes: 1024 * 1024 * 1024,
+        disk_bytes: if git.is_some() {
+            8 * 1024 * 1024 * 1024
+        } else {
+            1024 * 1024 * 1024
+        },
     };
     let limits = Limits {
         capacity,
         max_pending_results: 64,
-        max_pending_bytes: 1024 * 1024,
+        max_pending_bytes: if git.is_some() {
+            256 * 1024 * 1024
+        } else {
+            1024 * 1024
+        },
         max_preparing: options.max_agents as usize,
         minimum_free_disk_bytes: 16 * 1024 * 1024,
     };
@@ -58,7 +91,7 @@ pub async fn run_execution(
         BootClock,
     );
     let client = ExecutionClient::from_config(config)?;
-    let registration = RegisterRequest {
+    let mut registration = RegisterRequest {
         identity: identity.clone(),
         operation_id: Uuid::new_v4(),
         protocol_version: EXECUTION_PROTOCOL_VERSION,
@@ -68,10 +101,38 @@ pub async fn run_execution(
             crate::guardian::PROFILE.into(),
         ],
     };
+    if git.is_some() {
+        registration.capabilities.push(SOURCE_CAPABILITY.into());
+    }
     // Node recovery does not acquire new execution authority. It must be usable
     // before the old boot's registration has been explicitly replaced.
     if existing_journal {
         let _uncertain = runtime.recover_owned_launches()?;
+        if let Some(git) = git {
+            let collect: Vec<_> = runtime
+                .journal
+                .state()
+                .attempts
+                .iter()
+                .filter(|(_, r)| {
+                    r.source
+                        .as_ref()
+                        .is_some_and(|s| s.workspace.is_some() && s.exported.is_none())
+                        && r.stop_certainty == StopCertainty::ConfirmedStopped
+                        && r.stopped_proof.is_some()
+                        && r.result.is_none()
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            for id in collect {
+                runtime.checkpoint_source(id, git)?;
+                runtime.export_source(id, git)?;
+                println!(
+                    "{}",
+                    serde_json::json!({"event":"source_pending","attempt_id":id,"recovered":true})
+                );
+            }
+        }
         let response = match client.reconcile(&runtime.reconcile_request()).await {
             Ok(response) => response,
             Err(error)
@@ -110,6 +171,12 @@ pub async fn run_execution(
             .values()
             .filter_map(|r| {
                 if r.phase == Phase::Reporting
+                    && r.source.as_ref().is_none_or(|s| {
+                        s.receipt.is_some()
+                            || (!s.operations.contains_key("create")
+                                && s.workspace.is_none()
+                                && r.launch_id.is_none())
+                    })
                     && matches!(
                         r.stop_certainty,
                         StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
@@ -126,7 +193,7 @@ pub async fn run_execution(
             if let Some(response) = submit_report(&client, &mut runtime, &report).await? {
                 runtime.acknowledge_result(response.clone())?;
                 if response.retention_release {
-                    runtime.retire(report.attempt.attempt_id)?;
+                    retire_local(&mut runtime, report.attempt.attempt_id, git)?;
                 }
             }
             recovered += 1;
@@ -143,7 +210,7 @@ pub async fn run_execution(
             })
             .collect();
         for id in released {
-            runtime.retire(id)?;
+            retire_local(&mut runtime, id, git)?;
         }
         let uncertain = runtime.journal.state().attempts.values().any(|r| {
             r.phase != Phase::Retired
@@ -255,7 +322,18 @@ pub async fn run_execution(
                 continue;
             }
             let attempt_id = offer.attempt.attempt_id;
-            let acceptance = match runtime.reserve(offer.clone()) {
+            let source = offer.spec.bindings.as_ref().and_then(|b| b.source.as_ref());
+            let admitted = if let Some(source) = source {
+                match git {
+                    Some(git) => git
+                        .base_available(source)
+                        .and_then(|()| runtime.reserve_source(offer.clone(), git)),
+                    None => Err(anyhow::anyhow!("local source adapter is not configured")),
+                }
+            } else {
+                runtime.reserve(offer.clone())
+            };
+            let acceptance = match admitted {
                 Ok(r) => r,
                 Err(e) => {
                     let decline = DeclineRequest {
@@ -296,7 +374,7 @@ pub async fn run_execution(
                 if let Some(response) = submit_report(&client, &mut runtime, &report).await? {
                     runtime.acknowledge_result(response.clone())?;
                     if response.retention_release {
-                        runtime.retire(attempt_id)?;
+                        retire_local(&mut runtime, attempt_id, git)?;
                     }
                 }
                 println!(
@@ -313,6 +391,9 @@ pub async fn run_execution(
                 runtime.observation(attempt_id, "authorized synthetic fixture".into())?;
             let ack = client.observe(&observation).await?;
             runtime.acknowledge_observation(attempt_id, &ack)?;
+            if source.is_some() {
+                runtime.prepare_source(attempt_id, git.context("source service absent")?)?;
+            }
             let mut handle = runtime.launch_fixture(attempt_id, executable)?;
             let control = control_fixture(&mut runtime, &client, attempt_id, &mut handle).await;
             if let Err(error) = control {
@@ -326,6 +407,21 @@ pub async fn run_execution(
                 return Err(error);
             }
             let report = runtime.finish_fixture(attempt_id, handle)?;
+            if source.is_some() {
+                let git = git.context("source service absent")?;
+                runtime.checkpoint_source(attempt_id, git)?;
+                let exported = runtime.export_source(attempt_id, git)?;
+                println!(
+                    "{}",
+                    serde_json::json!({"event":"source_pending","attempt_id":attempt_id,"artifact_id":exported["artifact_handle"],"protected_usage":runtime.journal.protected_usage()?,"pending_bytes":runtime.journal.state().attempts[&attempt_id].pending_bytes})
+                );
+                // No source-transfer capability/client is claimed: preserve locally;
+                // never submit a success/empty-artifact report as completion.
+                if options.exit_after_result {
+                    return Ok(());
+                }
+                continue;
+            }
             let observation = runtime.observation(
                 attempt_id,
                 "synthetic writers confirmed stopped; immutable report pending".into(),
@@ -350,7 +446,7 @@ pub async fn run_execution(
                             serde_json::json!({"event":"result_acknowledged","attempt":report.attempt,"report_id":report.report_id,"disposition":result.disposition})
                         );
                         if result.retention_release {
-                            runtime.retire(attempt_id)?;
+                            retire_local(&mut runtime, attempt_id, git)?;
                         }
                         break;
                     }
@@ -519,4 +615,18 @@ async fn submit_report(
         }
     }
     Ok(Some(client.report(report).await?))
+}
+
+fn retire_local<C: Clock>(
+    runtime: &mut Runtime<C>,
+    id: Uuid,
+    git: Option<&crate::source::GitClient>,
+) -> Result<()> {
+    if runtime.journal.state().attempts[&id].source.is_some() {
+        runtime.retire_source(
+            id,
+            git.context("source retirement requires configured aq-git")?,
+        )?;
+    }
+    runtime.retire(id)
 }

@@ -13,7 +13,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub const STATE_FORMAT: u32 = 2;
+pub const STATE_FORMAT: u32 = 3;
 pub const MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 pub const MAX_DIRECTIVES_PER_ATTEMPT: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +53,8 @@ pub struct AttemptRecord {
     pub stopped_proof: Option<crate::guardian::GuardianState>,
     #[serde(default)]
     pub unstarted_decline: Option<DeclineRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::source::SourceState>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -138,7 +140,7 @@ impl Journal {
             let mut s: State = serde_json::from_slice(&std::fs::read(&file)?)
                 .context("parse journal; refusing to advertise capacity")?;
             ensure!(
-                matches!(s.format_version, 1 | STATE_FORMAT),
+                matches!(s.format_version, 1 | 2 | STATE_FORMAT),
                 "unsupported state format {}",
                 s.format_version
             );
@@ -153,6 +155,47 @@ impl Journal {
                 ensure!(*id == r.offer.attempt.attempt_id, "corrupt attempt key");
                 r.offer.validate()?;
                 r.acceptance.validate()?;
+                if let Some(source) = &r.source {
+                    ensure!(
+                        r.offer
+                            .spec
+                            .bindings
+                            .as_ref()
+                            .and_then(|b| b.source.as_ref())
+                            == Some(&source.binding),
+                        "corrupt frozen source binding"
+                    );
+                    ensure!(
+                        source.operations.len() <= 64
+                            && source.managed_root.as_ref().is_none_or(|p| p.is_absolute()),
+                        "corrupt source runtime state"
+                    );
+                    for op in source.operations.values() {
+                        ensure!(
+                            !op.operation_id.is_nil()
+                                && op.request["operation_id"] == op.operation_id.to_string()
+                                && op.request["repository_id"]
+                                    == source.binding.repository_id.to_string(),
+                            "corrupt source operation binding"
+                        );
+                    }
+                    if let Some(receipt) = &source.receipt {
+                        receipt.validate()?;
+                        ensure!(
+                            source
+                                .transfer
+                                .as_ref()
+                                .is_some_and(|t| t.transfer_id == receipt.transfer_id)
+                                && source
+                                    .checkpoint
+                                    .as_ref()
+                                    .is_some_and(|c| c.source == receipt.source)
+                                && receipt.repository_id == source.binding.repository_id
+                                && receipt.binding_generation == source.binding.binding_generation,
+                            "corrupt source retention association"
+                        );
+                    }
+                }
                 ensure!(
                     r.acceptance.attempt == r.offer.attempt
                         && r.acceptance.offer_id == r.offer.offer_id
@@ -253,19 +296,25 @@ impl Journal {
             memory_bytes: 0,
             disk_bytes: 0,
         };
-        for r in self
-            .state
-            .attempts
-            .values()
-            .filter(|r| r.phase != Phase::Retired)
-        {
+        let mut pools = BTreeMap::new();
+        for r in self.state.attempts.values().filter(|r| {
+            r.phase != Phase::Retired
+                || r.source
+                    .as_ref()
+                    .is_some_and(|s| !s.cache_evicted || r.pending_bytes > 0)
+        }) {
             if !matches!(
                 r.stop_certainty,
                 StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
-            ) || matches!(
-                r.phase,
-                Phase::Reserved | Phase::Authorized | Phase::Preparing
-            ) {
+            ) || r
+                .source
+                .as_ref()
+                .is_some_and(|s| s.operations.values().any(|o| o.result.is_none()))
+                || matches!(
+                    r.phase,
+                    Phase::Reserved | Phase::Authorized | Phase::Preparing
+                )
+            {
                 total.slots = total
                     .slots
                     .checked_add(r.offer.spec.resources.slots)
@@ -281,8 +330,28 @@ impl Journal {
             }
             total.disk_bytes = total
                 .disk_bytes
-                .checked_add(r.offer.spec.resources.disk_bytes)
+                .checked_add(if r.phase == Phase::Retired {
+                    r.pending_bytes
+                } else {
+                    r.offer.spec.resources.disk_bytes.max(
+                        r.pending_bytes
+                            .saturating_add(r.source.as_ref().map_or(0, |s| s.workspace_bytes)),
+                    )
+                })
                 .context("disk accounting overflow")?;
+            if let Some(source) = &r.source
+                && !source.cache_evicted
+            {
+                let key = (source.managed_root.clone(), source.binding.repository_id);
+                let bytes = pools.entry(key).or_insert(0u64);
+                *bytes = (*bytes).max(source.pool_reservation_bytes);
+            }
+        }
+        for bytes in pools.values() {
+            total.disk_bytes = total
+                .disk_bytes
+                .checked_add(*bytes)
+                .context("source pool accounting overflow")?;
         }
         Ok(total)
     }

@@ -45,6 +45,20 @@ enum Cmd {
         idle_timeout_secs: u64,
         #[arg(long)]
         exit_after_result: bool,
+        /// Configure the local source adapter with an immutable aq-git executable pin.
+        #[arg(long, requires_all=["aq_git_sha256","aq_git_state_dir"])]
+        aq_git_binary: Option<PathBuf>,
+        #[arg(long, requires = "aq_git_binary")]
+        aq_git_sha256: Option<String>,
+        #[arg(long, requires = "aq_git_binary")]
+        aq_git_state_dir: Option<PathBuf>,
+        /// Trusted Git executable used by aq-git.
+        #[arg(long, default_value = "/usr/bin/git")]
+        git_executable: PathBuf,
+        #[arg(long,default_value_t=64*1024*1024)]
+        source_max_bundle_bytes: u64,
+        #[arg(long,default_value_t=512*1024*1024)]
+        source_max_expanded_bytes: u64,
         /// Fault injection for the deterministic integration fixture.
         #[arg(long)]
         drop_acceptance_response_once: bool,
@@ -151,6 +165,12 @@ async fn main() -> ExitCode {
             drop_report_response_once,
             fault_checkpoint,
             fault_action,
+            aq_git_binary,
+            aq_git_sha256,
+            aq_git_state_dir,
+            git_executable,
+            source_max_bundle_bytes,
+            source_max_expanded_bytes,
         } => {
             let result = async {
                 if let Some(name) = fault_checkpoint {
@@ -162,6 +182,14 @@ async fn main() -> ExitCode {
                     &state_dir,
                     &fixture_agent,
                     aq_worker::driver::DriverOptions {
+                        source: aq_git_binary.map(|binary| aq_worker::driver::SourceOptions {
+                            binary,
+                            binary_sha256: aq_git_sha256.unwrap(),
+                            state_dir: aq_git_state_dir.unwrap(),
+                            git_executable,
+                            max_bundle_bytes: source_max_bundle_bytes,
+                            max_expanded_bytes: source_max_expanded_bytes,
+                        }),
                         max_agents,
                         idle_timeout_secs,
                         exit_after_result,

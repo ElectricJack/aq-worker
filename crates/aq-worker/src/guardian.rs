@@ -47,6 +47,8 @@ pub struct LaunchBinding {
     pub attempt: AttemptRef,
     pub spec_digest: String,
     pub executable: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<PathBuf>,
     pub initial_grant_sequence: u64,
     pub initial_deadline_ms: u64,
     pub logical_origin_ms: u64,
@@ -695,6 +697,7 @@ pub fn run(directory: &Path) -> Result<()> {
                                     "grant expired before writer spawn"
                                 );
                                 let child = Command::new(&binding.executable)
+                                    .current_dir(binding.workspace.as_deref().unwrap_or(directory))
                                     .arg("--launch-dir")
                                     .arg(directory)
                                     .stdin(std::process::Stdio::null())

@@ -1,5 +1,6 @@
 use aq_worker::{
     clock::FakeClock,
+    guardian,
     journal::{Journal, Limits, ProcessEvidence, State},
     runtime::Runtime,
 };
@@ -9,6 +10,9 @@ use uuid::Uuid;
 #[allow(dead_code)]
 #[path = "fixtures/journal-v1.rs"]
 mod legacy;
+#[allow(dead_code)]
+#[path = "fixtures/journal-v2.rs"]
+mod legacy_v2;
 fn limits() -> Limits {
     Limits {
         capacity: Resources {
@@ -107,7 +111,10 @@ fn v1_retired_and_stopped_reports_upgrade_without_reinterpreting_evidence() {
             Journal::open(temp.path(), identity, limits()).unwrap(),
             FakeClock::new(200),
         );
-        assert_eq!(runtime.journal.state().format_version, 2);
+        assert_eq!(
+            runtime.journal.state().format_version,
+            aq_worker::journal::STATE_FORMAT
+        );
         assert!(runtime.recover_owned_launches().unwrap().is_empty());
         let record = runtime.journal.state().attempts.values().next().unwrap();
         assert_eq!(record.phase, phase);
@@ -144,7 +151,7 @@ fn legacy_active_launch_without_guardian_stays_uncertain_even_with_missing_pid()
     );
 }
 #[test]
-fn frozen_v1_reader_refuses_v2_without_modifying_new_state() {
+fn frozen_v1_reader_refuses_current_format_without_modifying_new_state() {
     let temp = TempDir::new().unwrap();
     let journal = Journal::open(temp.path(), sample_offer().identity, limits()).unwrap();
     drop(journal);
@@ -155,7 +162,7 @@ fn frozen_v1_reader_refuses_v2_without_modifying_new_state() {
         original
     );
     let state: State = serde_json::from_slice(&original).unwrap();
-    assert_eq!(state.format_version, 2);
+    assert_eq!(state.format_version, aq_worker::journal::STATE_FORMAT);
 }
 #[test]
 fn drain_survives_restart_and_does_not_restore_launch_authority() {
@@ -194,4 +201,67 @@ fn drain_survives_restart_and_does_not_restore_launch_authority() {
         StopCertainty::NotStarted
     );
     assert!(runtime.reserve(sample_offer()).is_err());
+}
+#[test]
+fn v2_guardian_report_upgrades_exactly_and_old_reader_refuses_v3_unchanged() {
+    let temp = TempDir::new().unwrap();
+    let offer = sample_offer();
+    let id = offer.attempt.attempt_id;
+    let identity = offer.identity.clone();
+    let mut runtime = Runtime::new(
+        Journal::open(temp.path(), identity.clone(), limits()).unwrap(),
+        FakeClock::new(100),
+    );
+    let mut coordinator = FakeCoordinator::new(offer.clone(), 100);
+    let accept = runtime.reserve(offer).unwrap();
+    runtime
+        .authorize(coordinator.accept(&accept).unwrap().grant, 100)
+        .unwrap();
+    let child = runtime
+        .launch_fixture(
+            id,
+            std::path::Path::new(env!("CARGO_BIN_EXE_aq-fixture-agent")),
+        )
+        .unwrap();
+    runtime.finish_fixture(id, child).unwrap();
+    drop(runtime);
+    let file = temp.path().join("journal.json");
+    let mut v2: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    v2["format_version"] = serde_json::json!(2);
+    std::fs::write(&file, serde_json::to_vec(&v2).unwrap()).unwrap();
+    let frozen = legacy_v2::Journal::open(
+        temp.path(),
+        identity.clone(),
+        legacy_v2::Limits {
+            capacity: limits().capacity,
+            max_pending_results: 16,
+            max_pending_bytes: 4096,
+            max_preparing: 16,
+            minimum_free_disk_bytes: 0,
+        },
+    )
+    .unwrap();
+    drop(frozen);
+    let current = Journal::open(temp.path(), identity.clone(), limits()).unwrap();
+    assert_eq!(current.state().format_version, 3);
+    assert!(current.state().attempts[&id].source.is_none());
+    drop(current);
+    let bytes = std::fs::read(&file).unwrap();
+    let v3: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v2["attempts"], v3["attempts"]);
+    assert!(
+        legacy_v2::Journal::open(
+            temp.path(),
+            identity,
+            legacy_v2::Limits {
+                capacity: limits().capacity,
+                max_pending_results: 16,
+                max_pending_bytes: 4096,
+                max_preparing: 16,
+                minimum_free_disk_bytes: 0
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read(file).unwrap(), bytes);
 }

@@ -19,8 +19,26 @@ impl<C: Clock> Runtime<C> {
         Self { journal, clock }
     }
     pub fn reserve(&mut self, offer: Offer) -> Result<AcceptRequest> {
+        self.reserve_inner(offer, false, 0)
+    }
+    pub(crate) fn reserve_inner(
+        &mut self,
+        offer: Offer,
+        source_checked: bool,
+        source_pending_bytes: u64,
+    ) -> Result<AcceptRequest> {
         ensure!(!self.journal.state().local_drain, "node drain is active");
         offer.validate()?;
+        ensure!(
+            source_checked
+                || offer
+                    .spec
+                    .bindings
+                    .as_ref()
+                    .and_then(|b| b.source.as_ref())
+                    .is_none(),
+            "source binding requires configured aq-git admission"
+        );
         offer.spec.verify_digest()?;
         ensure!(
             !self.journal.state().reconciliation_required,
@@ -36,7 +54,9 @@ impl<C: Clock> Runtime<C> {
                     .spec
                     .required_capabilities
                     .iter()
-                    .all(|c| c == FAKE_HARNESS_CAPABILITY || c == crate::guardian::PROFILE),
+                    .all(|c| c == FAKE_HARNESS_CAPABILITY
+                        || c == crate::guardian::PROFILE
+                        || (source_checked && c == SOURCE_CAPABILITY)),
             "unsupported harness/capability"
         );
         if let Some(record) = self.journal.state().attempts.get(&offer.attempt.attempt_id) {
@@ -71,7 +91,11 @@ impl<C: Clock> Runtime<C> {
             .try_fold(0u64, |n, r| n.checked_add(r.pending_bytes))
             .context("pending byte accounting overflow")?;
         let projected_bytes = pending_bytes
-            .checked_add(offer.spec.fixture_output.len() as u64)
+            .checked_add(if source_checked {
+                source_pending_bytes
+            } else {
+                offer.spec.fixture_output.len() as u64
+            })
             .context("pending bytes overflow")?;
         ensure!(
             projected_bytes <= self.journal.limits().max_pending_bytes,
@@ -119,7 +143,17 @@ impl<C: Clock> Runtime<C> {
             reservation_remaining_ms: offer.reservation_ttl_ms,
         };
         let record = AttemptRecord {
-            pending_bytes: offer.spec.fixture_output.len() as u64,
+            source: offer
+                .spec
+                .bindings
+                .as_ref()
+                .and_then(|b| b.source.clone())
+                .map(crate::source::SourceState::new),
+            pending_bytes: if source_checked {
+                source_pending_bytes
+            } else {
+                offer.spec.fixture_output.len() as u64
+            },
             stop_reason: None,
             ownership_profile: None,
             guardian: None,
@@ -253,6 +287,10 @@ impl<C: Clock> Runtime<C> {
                     && now < r.acceptance.reservation_deadline_ms,
                 "expired/stale launch authority"
             );
+            ensure!(
+                r.source.as_ref().is_none_or(|s| s.workspace.is_some()),
+                "source workspace preparation required"
+            );
             let launch_id = Uuid::new_v4();
             r.launch_id = Some(launch_id);
             r.ownership_profile = Some(crate::guardian::PROFILE.into());
@@ -278,6 +316,10 @@ impl<C: Clock> Runtime<C> {
             attempt: r.offer.attempt.clone(),
             spec_digest: r.offer.spec.resolved_spec_digest.clone(),
             executable: std::fs::canonicalize(executable)?,
+            workspace: r
+                .source
+                .as_ref()
+                .and_then(|s| s.workspace.as_ref().map(|w| w.path.clone())),
             initial_grant_sequence: r.grant.as_ref().unwrap().grant_sequence,
             initial_deadline_ms: r.grant_deadline_ms.unwrap(),
             logical_origin_ms,
@@ -401,7 +443,7 @@ impl<C: Clock> Runtime<C> {
                 resolved_spec_digest: r.offer.spec.resolved_spec_digest.clone(),
                 outcome,
                 stop_certainty: r.stop_certainty,
-                claimed_success: outcome == ProcessOutcome::Success,
+                claimed_success: outcome == ProcessOutcome::Success && r.source.is_none(),
                 output,
                 artifacts: vec![],
                 pending_operation_ids: vec![],
@@ -527,11 +569,18 @@ impl<C: Clock> Runtime<C> {
             ensure!(
                 r.stop_certainty == StopCertainty::NotStarted
                     && !r.start_intent
+                    && r.grant.is_none()
+                    && r.source.as_ref().is_none_or(
+                        |source| source.operations.is_empty() && source.workspace.is_none()
+                    )
                     && r.unstarted_decline
                         .as_ref()
                         .is_some_and(|d| d.operation_id == ack.operation_id),
                 "decline acknowledgement mismatch"
             );
+            if let Some(source) = r.source.as_mut() {
+                source.retired = true;
+            }
             r.phase = Phase::Retired;
             Ok(())
         })
@@ -552,6 +601,14 @@ impl<C: Clock> Runtime<C> {
                 ensure!(*old == response, "changed result disposition");
                 return Ok(());
             }
+            ensure!(
+                !response.retention_release
+                    || record.source.as_ref().is_none_or(|s| s.receipt.is_some()
+                        || (!s.operations.contains_key("create")
+                            && s.workspace.is_none()
+                            && record.launch_id.is_none())),
+                "source central retention required for release"
+            );
             ensure!(
                 matches!(
                     record.stop_certainty,
@@ -579,6 +636,10 @@ impl<C: Clock> Runtime<C> {
                 )
                 && record.result.as_ref().is_some_and(|x| x.retention_release),
             "retention release required"
+        );
+        ensure!(
+            record.source.as_ref().is_none_or(|s| s.retired),
+            "aq-git workspace must be retired first"
         );
         // Deletion follows the durable central release and stopped-writer proof.
         // A crash before the retired transition safely repeats this cleanup.
