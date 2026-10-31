@@ -1,0 +1,50 @@
+{
+  "status": "research_only_no_dependency_added",
+  "candidate": "redb=4.4.0",
+  "official_source_revision": "7061f7e60d4573311c0636e161d417b93e9fd2b1",
+  "source_files": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "fe438aff5c0942132df6fcf4b58e1030b4a8a0c1f42fc1121e8510b2784d5c73",
+      "url": "https://github.com/cberner/redb/blob/7061f7e60d4573311c0636e161d417b93e9fd2b1/Cargo.toml"
+    },
+    {
+      "path": "docs/design.md",
+      "sha256": "fdd4454b665a605c2470ee43b51b0b2149ca1bfe59896c472f25acde15a6528a",
+      "url": "https://github.com/cberner/redb/blob/7061f7e60d4573311c0636e161d417b93e9fd2b1/docs/design.md"
+    },
+    {
+      "path": "src/db.rs",
+      "sha256": "39497ce76d1d10a22f970eb17e5f601903ef76c5b80d595fb6fcebc28446abe6",
+      "url": "https://github.com/cberner/redb/blob/7061f7e60d4573311c0636e161d417b93e9fd2b1/src/db.rs"
+    },
+    {
+      "path": "src/transactions.rs",
+      "sha256": "4dee5b2915fba8f016e90f08e9937016a4aa62365b939421e4ba4c948cd98db4",
+      "url": "https://github.com/cberner/redb/blob/7061f7e60d4573311c0636e161d417b93e9fd2b1/src/transactions.rs"
+    },
+    {
+      "path": "tests/basic_tests.rs",
+      "sha256": "858d2632b7d8ad0af0f77534b98f17f6ba5f05638aaea08ca9b8fc1a47c3f2a1",
+      "url": "https://github.com/cberner/redb/blob/7061f7e60d4573311c0636e161d417b93e9fd2b1/tests/basic_tests.rs"
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "url": "https://github.com/cberner/redb/blob/7061f7e60d4573311c0636e161d417b93e9fd2b1/LICENSE-APACHE"
+    },
+    {
+      "path": "LICENSE-MIT",
+      "sha256": "9dc47584f810f4a0f88197b590bf428b154dc5a7f87237c06a39720241e0461f",
+      "url": "https://github.com/cberner/redb/blob/7061f7e60d4573311c0636e161d417b93e9fd2b1/LICENSE-MIT"
+    }
+  ],
+  "recommendation": "qualify row-based redb prototype; keep bounded custom-log fallback; dependency approval before implementation",
+  "unqualified": [
+    "build/dependency audit",
+    "workload latency and physical quota",
+    "crash/recovery/compaction",
+    "migration",
+    "worker runtime controls"
+  ]
+}
