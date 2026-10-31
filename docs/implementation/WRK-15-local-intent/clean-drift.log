@@ -1,0 +1,8 @@
+   Compiling uuid v1.29.0
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/tmp/wrk15-owner-extracted-imx0a8r5/aq-session-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/wrk15-owner-extracted-imx0a8r5/aq-lifecycle-protocol-0.1.0)
+   Compiling aq-observation-engine v0.0.1 (/tmp/wrk15-owner-extracted-imx0a8r5/aq-observation-engine-0.0.1)
+   Compiling aq-observation v0.1.0 (/tmp/wrk15-owner-extracted-imx0a8r5/aq-observation-0.1.0)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.84s
+     Running `/tmp/wrk15-owner-clean-target-baa65e31-standalone/debug/examples/export --check`

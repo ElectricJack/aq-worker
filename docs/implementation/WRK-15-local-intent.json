@@ -1,5 +1,5 @@
 {
-  "status": "isolated source review candidate; clean exact-commit standalone qualification pending",
+  "status": "isolated checkpoint clean standalone qualified; no main adoption",
   "base_checkpoint": "80d79133e720ec684a0724b90b519cb0acacf35a",
   "admission_archive": {
     "version": "0.1.0",
@@ -21,7 +21,7 @@
     "strict_clippy": "passed",
     "format": "passed",
     "engine_artifact_drift": "passed",
-    "final_changes_after_full_suite": "strict unknown-meta-field refusal plus stronger database-lock error assertion; focused lock test and strict lint passed; clean full qualification follows commit"
+    "final_changes_after_full_suite": "covered by exact clean full107-test standalone qualification"
   },
   "limits": {
     "intent_bytes": 65536,
@@ -39,7 +39,6 @@
   },
   "remaining_gates": [
     "root review before any main adoption",
-    "clean exact-commit standalone package qualification",
     "real HTTP qualification against mounted coordinator (main597693b not exercised here)",
     "production worker integration and trusted source enrollment/host-start parser catalog bridge",
     "raw artifact transfer/retention and complete native selected-CLI qualification",
@@ -200,5 +199,22 @@
       "path": "vendor/aq-observation-admission-0.1.0/tests/ownership.rs",
       "sha256": "7143c4da91432b76f16e056b9a67602d7a901f0038b1f6f755ccd057605cb585"
     }
-  ]
+  ],
+  "source_revision": "baa65e319d1878a0375022cefea921593050c787",
+  "standalone": {
+    "source_revision": "baa65e319d1878a0375022cefea921593050c787",
+    "archive": "/tmp/wrk15-owner-clean-target-baa65e31/package/aq-observation-redb-prototype-0.0.3.crate",
+    "archive_sha256": "8a0f9ed73118aebc1c7b8e8ca0bed16e1b60899abade0a99a9efd564481cba15",
+    "standalone_root": "/tmp/wrk15-owner-extracted-imx0a8r5",
+    "artifacts": {
+      "/tmp/wrk15-owner-clean-target-baa65e31/package/aq-observation-redb-prototype-0.0.3.crate": "8a0f9ed73118aebc1c7b8e8ca0bed16e1b60899abade0a99a9efd564481cba15",
+      "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-engine-0.0.1.crate": "d4531ac14096e8257961b0d1f68c99e7b84cc83e3654b066a222ff540e511d4b",
+      "/tmp/aq22-transport-package-target/package/aq-observation-admission-0.1.0.crate": "7de84f372c0a963c8f61d8e075e4744779bb2b125676ed1df90c165dd982fab6",
+      "/tmp/wrk15-clean-target-50c9e48/package/aq-observation-0.1.0.crate": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+      "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+      "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+    },
+    "qualification": "standalone candidate62 +reference35 +admission10 tests/clippy/fmt/engine drift passed; no owner performance or HTTP qualification",
+    "clean_worktree_status": ""
+  }
 }
