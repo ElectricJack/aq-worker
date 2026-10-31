@@ -18,6 +18,7 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 pub mod control;
+pub mod source;
 
 #[derive(Clone)]
 pub struct NativeClient {

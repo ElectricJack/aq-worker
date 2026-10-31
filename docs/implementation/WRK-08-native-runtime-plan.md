@@ -105,9 +105,11 @@ passing tests and strict worker lint. Inline assembly is capped at2MiB with256Ki
 chunks. Typed inline Source observations use the same bounded verifier; Git
 bundles of any size use the separate streaming source owner.
 
-Native journal, private material installation, current HTTP authority, actual Git
-hydration and the Codex adapter remain implementation work. No launch capability
-is advertised by these component checkpoints.
+At those initial checkpoints the native journal, installation, control transport,
+Git hydration and Codex adapter were still open. The subsequent control and
+material components below are now implemented; durable runtime integration, Git
+hydration and the actual adapter remain open. These components do not advertise
+a runnable native worker by themselves.
 
 Source7b729d3 adds the native reporting/download HTTP client over frozen0.1.6:
 registration, Started, Stopped, result recording, artifact ranges and private
@@ -170,3 +172,8 @@ The [native journal and restart plan](WRK-08-native-journal-plan.md) specifies t
 next driver slice, including current-boot admission versus historical cleanup
 reports. New runtime boots cannot inherit old live authority. The initial
 stop-and-preserve profile keeps granted-without-Started recovery explicitly open.
+
+The [native source API1 client](WRK-08-native-source-client.md) specifies exact
+status/range consumption and the two whole-source preparation receipt slots.
+Actual Git hydration and journal ownership remain separate from successful HTTP
+downloads. Initial reference-only and zero-bundle source modes are unsupported.
