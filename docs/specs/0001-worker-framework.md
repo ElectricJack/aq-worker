@@ -26,7 +26,7 @@ The canonical cross-component lifecycle is [AQ execution and recovery](../../../
 | W8 | Active and unacknowledged work is protected from automatic cache eviction. Disk pressure may refuse work but cannot justify silently deleting it. |
 | W9 | Offers, acceptances, execution reports, directives, and artifact handoffs have explicit identity, acknowledgement, replay, and recovery behavior. |
 | W10 | Node liveness, execution authority, local process state, durable source handoff, and task completion remain distinct facts. |
-| W11 | Tmux-hosted CLI agents and multiple harnesses remain supported design goals through small adapters. |
+| W11 | Every real agent CLI runs in an attempt-owned tmux host; Codex CLI, Claude Code, Gemini CLI and OpenCode each require explicit adapter qualification for product acceptance. |
 | W12 | The worker is independently released and tested, with no AQ database or source-tree dependency and no new broker or database service. |
 | W13 | Scheduling explains eligibility, placement, refusals, and cache decisions; ordinary polling performs no fleet-wide Git or filesystem scan. |
 | W14 | Slot reclamation requires stopped execution writers. Workspace deletion additionally requires safe checkpoint/handoff and explicit retention release. |
@@ -67,7 +67,7 @@ flowchart TD
     A2 --> D
 ```
 
-A worker image contains the aq-worker binary, its compatible aq-git binary, Git, tmux where required, and the harnesses/toolchains intended for that node class. Lightweight images for different project families are encouraged. Every node does not need every toolchain or project dependency. Environment selection uses capabilities; automatic rebuilding of arbitrary images is outside the baseline.
+A worker image contains the aq-worker binary, its compatible aq-git binary, Git, tmux for every real agent CLI, and the harnesses/toolchains intended for that node class. Lightweight images for different project families are encouraged. Every node does not need every toolchain or project dependency. Environment selection uses capabilities; automatic rebuilding of arbitrary images is outside the baseline.
 
 The node has persistent storage for its identity, journal, retained work, and caches. Container replacement preserves that volume. Ephemeral deployments may use disposable storage only when their operating policy accepts loss of work that has not reached central retention. Node destruction is not a substitute for normal drain and handoff.
 
@@ -343,9 +343,11 @@ Messages to a finished or superseded session remain in its history with an undel
 
 ## 14. Harnesses, tmux, and process ownership
 
+The canonical [profile, intelligence and terminal design](../../../agent-q/docs/architecture/0003-agent-profiles-harnesses-and-terminals.md) makes tmux mandatory for real agent CLIs and defines the four required product adapters. The [worker supplement](0003-profiled-tmux-sessions.md) specifies the common host and outbound terminal bridge. Earlier synthetic-worker evidence does not qualify these additions.
+
 Each adapter exposes a small capability-driven interface: validate a resolved spec, configure permissions, start, observe, deliver input, collect outcome, stop, and optionally reattach. Supported configuration versions and permission semantics are part of its capability report. Resolve model/profile/intelligence choices centrally; adapters translate concrete values into the selected CLI's options/configuration.
 
-Tmux is a supported presentation/session host for CLI agents. The runtime records exact attempt-owned session/socket identifiers and process identities. It does not kill arbitrary tmux servers or match process names globally. Where necessary, use attempt-specific tmux hosting to avoid mixing unrelated process ownership.
+Tmux is the mandatory presentation/session host for CLI agents. The runtime records exact attempt-owned session/socket identifiers and process identities. Each attempt starts a private tmux server inside its guardian boundary; it never joins an unrelated existing server, kills arbitrary tmux servers or matches process names globally. The selected tmux launch mode must pass the stopped-writer ownership tests.
 
 A pane exit, harness success message, or missing PID is not sufficient proof that every child writer has stopped. The execution adapter tracks owned process groups/session descendants according to its declared containment capability, requests graceful termination, escalates within a configured deadline, and reports `stopped_confirmed` or `stop_uncertain`. Escaped or unverifiable processes keep affected capacity/workspace protected until an explicit recovery decision. This limitation is visible in the cooperative baseline; it must not be hidden by claiming hard containment.
 

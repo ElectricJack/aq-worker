@@ -62,6 +62,8 @@ Stopped execution releases its slot only under the framework's writer checks. Pe
 
 ## 7. Protocol publication and compatibility
 
+The [profiled tmux/session supplement](0003-profiled-tmux-sessions.md) adds frozen launch manifests, required adapter capabilities, terminal identities, controller fencing and bounded outbound terminal exchanges. Publish these through CON-02 before changing consumers. Agent API access profiles remain distinct from agent, intelligence and execution profiles. Terminal commands do not renew execution or alter agent grants.
+
 [`protocol/README.md`](../../protocol/README.md) defines the owned contract artifacts. Publish a separately versioned execution protocol with node/boot binding, negotiated capabilities, stable IDs/digests, typed errors, bounded pagination and explicit acknowledgement meanings. Foundation enrollment/heartbeat/probe version 1 retains its existing interpretation.
 
 The protocol contains no private daemon/graph tables or scheduler implementation. A small optional Rust wire-types crate may be consumed by both repositories; it must remain implementation-independent. Schemas, fixtures and Rust types derive from one declared contract source with CI drift checks. A schema version cannot substitute for behavioral compatibility tests.
