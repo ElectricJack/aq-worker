@@ -1,9 +1,10 @@
 # Profiled tmux sessions and outbound terminal access
 
-**Status:** Implementation design; current synthetic-worker qualification does
-not establish this functionality.
+**Status:** Partial implementation. Guarded hosting and finite terminal control
+have component qualification; continuous output, renderer snapshots and worker
+runtime adoption remain unqualified.
 
-**Date:** 2026-10-30
+**Date:** 2026-10-31
 
 The canonical policy, definitions, limits and P/H/R requirements live in
 [Agent profiles, intelligence, tmux hosting and remote terminals](../../../agent-q/docs/architecture/0003-agent-profiles-harnesses-and-terminals.md).
@@ -113,10 +114,32 @@ have priority and are not implemented by simulating a Ctrl-C key.
 Capture bounded output with epoch/sequence/digest and a snapshot-watermark
 barrier. Test full-screen/alternate-screen behavior rather than assuming plain
 capture-pane text reproduces terminal state. Overflow emits gap markers and a
-new snapshot/epoch; local output draining cannot block the agent or guardian.
+fresh qualified snapshot at the same physical terminal epoch; local output
+draining cannot block the agent or guardian. The terminal epoch binds the
+physical host and cannot reset merely because a reader reconnects or overflows.
+A replacement pane/server requires a new independently authorized attempt.
 Interactive buffers can discard acknowledged/expired output within policy;
 source/results and explicitly retained transcript artifacts use their own
 durability rules. The shared design supplies initial byte/concurrency limits.
+
+The qualified WRK-14 stage1 component supplies guarded literal input/resize,
+durable no-replay receipts, controller fences and bounded outbound control HTTP.
+It does not supply output capture or snapshots, and the worker scheduler does not
+adopt it. `capture_text` remains development inspection only. See
+[the output implementation plan](../implementation/WRK-14-output-plan.md) for the
+next bounded acquisition slice and the remaining renderer/adoption gates.
+
+Complete renderer state must come from a qualified ordered output history and
+baseline, with dimensions/resize ordering, main and alternate screens, cursor,
+attributes, incremental Unicode decoding and declared unsupported-sequence
+behavior. A snapshot covers exactly the preceding output sequence watermark;
+only later frames apply. Missing history, observer restart or unsupported state
+invalidates completeness. Plain capture text cannot repair that claim.
+
+Unknown input may be resolved only by an explicitly requested fresh capture,
+bound to the current exact controller/lease and a request token minted after the
+uncertain operation. Quiet output or a larger sequence alone does not establish
+freshness. Until that capture profile is qualified, Unknown remains blocked.
 
 ## 5. Outbound transport
 
