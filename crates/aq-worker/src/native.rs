@@ -1,6 +1,8 @@
 //! Native consumer building blocks. Verified bytes are not execution permission.
 //! Runtime journal, current authenticated transport and actual grants separately
 //! own admission. Git bundles use the streaming source owner, never this buffer.
+pub mod http;
+
 use anyhow::{Result, ensure};
 use aq_admission::{
     ArtifactKind, RetainedArtifact, startup::NativeOffer, transport::ArtifactReceipt,
