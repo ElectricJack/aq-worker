@@ -1,6 +1,7 @@
 //! Native consumer building blocks. Verified bytes are not execution permission.
 //! Runtime journal, current authenticated transport and actual grants separately
-//! own admission. Git bundles use the streaming source owner, never this buffer.
+//! own admission. Typed inline Source observations may use this buffer; Git
+//! bundles use the separate streaming source owner.
 pub mod http;
 
 use anyhow::{Result, ensure};
