@@ -1,0 +1,25 @@
+   Compiling tracing-core v0.1.36
+   Compiling log v0.4.35
+   Compiling futures-task v0.3.34
+   Compiling slab v0.4.12
+   Compiling futures-channel v0.3.34
+   Compiling futures-util v0.3.34
+   Compiling tracing v0.1.44
+   Compiling axum-core v0.5.6
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling tower-http v0.6.11
+   Compiling hyper-rustls v0.27.10
+   Compiling axum v0.8.9
+   Compiling reqwest v0.12.28
+   Compiling aq-terminal-bridge v0.1.1 (/tmp/aq-worker-native-runtime/crates/aq-terminal-bridge)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.83s
+     Running tests/local_relay.rs (/tmp/aq-native-worker-target/debug/deps/local_relay-35bf560b78afe7da)
+
+running 3 tests
+test stalled_receipt_network_does_not_hold_guardian_renewal_or_stop ... ok
+test full_tail_queue_keeps_draining_without_a_network_consumer ... ok
+test actual_guardian_http_relay_lost_ack_restart_unicode_resize_no_duplicate ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
