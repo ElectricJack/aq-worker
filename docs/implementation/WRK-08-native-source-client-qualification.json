@@ -1,0 +1,30 @@
+{
+  "source_revision": "3bbf1684673ff7d2111aebe431a0e2fe95cc69c8",
+  "qualification": {
+    "source_http_tests": 3,
+    "material_http_filesystem_tests": 4,
+    "control_http_tests": 6,
+    "reporting_download_http_tests": 7,
+    "startup_tests": 6,
+    "strict_worker_all_targets_all_features_clippy": "passed",
+    "format": "passed"
+  },
+  "source_sha256": {
+    "Cargo.toml": "453cf0065acee6b51a32ecfefe9a05d43b6c2747deb66dc584e5aee12976c0b8",
+    "Cargo.lock": "619e0522482cdfbfa3aee3a9e236fe74186e01422496b999b2244016b3f94922",
+    "crates/aq-worker/Cargo.toml": "16dacc0ff567052fa929e343b89fafe38a5342ade13a2bca971e131280ce7b13",
+    "crates/aq-worker/src/native/http.rs": "36891e7d795cc1fce85909bcecf41cf8efb6ff97b2e68786ee223bb5a94ee39b",
+    "crates/aq-worker/src/native/http/source.rs": "d70ce9f50dc2bd63a20b7ab1fa2f4f610cbe992ea2b890a119da161a8406b7ab",
+    "crates/aq-worker/tests/native_source.rs": "b11c97638aa8be293200c453273cd0d1e6ff87e8ddf08e4ab47590ff56769c69"
+  },
+  "evidence": {
+    "docs/implementation/evidence/wrk08-source-client-3bbf168/clippy.log": "b7279630b83181d17671f7cc0d962ab24e5a1cb00f5b2c882d3795b53678702d",
+    "docs/implementation/evidence/wrk08-source-client-3bbf168/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/implementation/evidence/wrk08-source-client-3bbf168/tests.log": "9177daee03331ba215e888f9f9aa5ec2ac74fe6e543a6b1b8159764921ed744f"
+  },
+  "limits": [
+    "Actual loopback HTTP uses synthetic source bytes and public worker0.2 manifests. Actual025daemon/auth/Git owner qualified separately.",
+    "Caller pins SourceAdmission from its verified execution spec and journals first manifest. This transport emits no hydration receipt, workspace or grant.",
+    "Only native initial Base export with positive bundle bytes and equal operation/transfer/artifact IDs is supported; no reference-only mode."
+  ]
+}
