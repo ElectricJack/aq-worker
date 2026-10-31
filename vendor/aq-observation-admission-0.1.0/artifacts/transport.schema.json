@@ -1,0 +1,445 @@
+{
+  "reply": {
+    "$defs": {
+      "Digest": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "Marker": {
+        "additionalProperties": false,
+        "description": "Written durably into the new store before activation. Initial boot never changes.",
+        "properties": {
+          "initial_boot_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "node_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "prepare_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "prepare_operation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "node_id",
+          "store_id",
+          "owner_id",
+          "initial_boot_id",
+          "prepare_operation_id",
+          "prepare_digest"
+        ],
+        "type": "object"
+      },
+      "Owner": {
+        "additionalProperties": false,
+        "properties": {
+          "boot_transitions": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "current_boot_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "marker": {
+            "$ref": "#/$defs/Marker"
+          },
+          "phase": {
+            "$ref": "#/$defs/Phase"
+          },
+          "revision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "marker",
+          "phase",
+          "current_boot_id",
+          "revision",
+          "boot_transitions"
+        ],
+        "type": "object"
+      },
+      "Phase": {
+        "enum": [
+          "prepared",
+          "active"
+        ],
+        "type": "string"
+      },
+      "Receipt": {
+        "additionalProperties": false,
+        "description": "Immutable operation receipt. Current state is supplied separately on replay.",
+        "properties": {
+          "operation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "resulting_owner": {
+            "$ref": "#/$defs/Owner"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "operation_id",
+          "request_digest",
+          "resulting_owner"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "accepted_through": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "admitted_node_boot_id": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "current_owner": {
+        "$ref": "#/$defs/Owner"
+      },
+      "receipt": {
+        "$ref": "#/$defs/Receipt"
+      }
+    },
+    "required": [
+      "receipt",
+      "current_owner",
+      "accepted_through",
+      "admitted_node_boot_id"
+    ],
+    "title": "Reply",
+    "type": "object"
+  },
+  "request": {
+    "$defs": {
+      "Digest": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "Marker": {
+        "additionalProperties": false,
+        "description": "Written durably into the new store before activation. Initial boot never changes.",
+        "properties": {
+          "initial_boot_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "node_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "prepare_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "prepare_operation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "node_id",
+          "store_id",
+          "owner_id",
+          "initial_boot_id",
+          "prepare_operation_id",
+          "prepare_digest"
+        ],
+        "type": "object"
+      },
+      "Operation": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "boot_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "const": "prepare",
+                "type": "string"
+              },
+              "store_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "boot_id",
+              "store_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "activate",
+                "type": "string"
+              },
+              "marker": {
+                "$ref": "#/$defs/Marker"
+              }
+            },
+            "required": [
+              "kind",
+              "marker"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "expected_boot_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "expected_revision": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "advance_boot",
+                "type": "string"
+              },
+              "marker": {
+                "$ref": "#/$defs/Marker"
+              },
+              "new_boot_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "next_sequence": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "marker",
+              "expected_boot_id",
+              "expected_revision",
+              "new_boot_id",
+              "next_sequence"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "node_id": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "operation": {
+        "$ref": "#/$defs/Operation"
+      },
+      "operation_id": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "version": {
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "version",
+      "operation_id",
+      "node_id",
+      "operation"
+    ],
+    "title": "Request",
+    "type": "object"
+  },
+  "status": {
+    "$defs": {
+      "Digest": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "Marker": {
+        "additionalProperties": false,
+        "description": "Written durably into the new store before activation. Initial boot never changes.",
+        "properties": {
+          "initial_boot_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "node_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "prepare_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "prepare_operation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "node_id",
+          "store_id",
+          "owner_id",
+          "initial_boot_id",
+          "prepare_operation_id",
+          "prepare_digest"
+        ],
+        "type": "object"
+      },
+      "Owner": {
+        "additionalProperties": false,
+        "properties": {
+          "boot_transitions": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "current_boot_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "marker": {
+            "$ref": "#/$defs/Marker"
+          },
+          "phase": {
+            "$ref": "#/$defs/Phase"
+          },
+          "revision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "marker",
+          "phase",
+          "current_boot_id",
+          "revision",
+          "boot_transitions"
+        ],
+        "type": "object"
+      },
+      "Phase": {
+        "enum": [
+          "prepared",
+          "active"
+        ],
+        "type": "string"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "A read-only status response is deliberately a different type from Reply.\nIt can authorize resuming an existing matching store through an owner adapter;\nit cannot be used with may_create or substituted for a preparation receipt.",
+    "properties": {
+      "accepted_through": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "admitted_node_boot_id": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "node_id": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "owner": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Owner"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "version": {
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "version",
+      "node_id",
+      "admitted_node_boot_id",
+      "accepted_through"
+    ],
+    "title": "Status",
+    "type": "object"
+  }
+}

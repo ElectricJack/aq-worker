@@ -108,6 +108,7 @@ impl Store {
         maximum: usize,
         scoped_channel: bool,
     ) -> Result<()> {
+        self.require_collectible()?;
         self.attach_engine_input(source, maximum, scoped_channel, None)
     }
     pub(super) fn attach_engine_input(
@@ -193,6 +194,7 @@ impl Store {
         frame: &engine::framing::Frame,
         observed_at_ms: u64,
     ) -> Result<CollectedFrame> {
+        self.require_collectible()?;
         self.process_frame(id, frame, observed_at_ms, None, None)
     }
     fn process_frame(
@@ -699,6 +701,7 @@ impl Store {
         observed_at_ms: u64,
         policy: aq_observation::spool::OverflowPolicy,
     ) -> Result<CollectedFrame> {
+        self.require_collectible()?;
         self.process_batch_policy(id, frames, observed_at_ms, None, policy)
     }
     pub(super) fn process_batch(
@@ -1007,7 +1010,7 @@ fn loss_gap(
     };
     let parser = ArtifactRef {
         id: Text::new("row-spool-loss-monitor")?,
-        version: Text::new("0.0.2")?,
+        version: Text::new("0.0.3")?,
         digest: Digest::of(include_bytes!("engine_store.rs")),
     };
     let body = Observation {
@@ -1047,6 +1050,7 @@ impl Store {
         bytes: Vec<u8>,
         observed_at_ms: u64,
     ) -> Result<CollectedFrame> {
+        self.require_collectible()?;
         next_cursor.validate()?;
         let source = self.source(id)?;
         ensure!(

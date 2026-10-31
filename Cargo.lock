@@ -104,6 +104,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-observation-admission"
+version = "0.1.0"
+dependencies = [
+ "aq-lifecycle-protocol",
+ "schemars",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "aq-observation-engine"
 version = "0.0.1"
 dependencies = [
@@ -119,11 +130,12 @@ dependencies = [
 
 [[package]]
 name = "aq-observation-redb-prototype"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "aq-lifecycle-protocol",
  "aq-observation",
+ "aq-observation-admission",
  "aq-observation-engine",
  "fs2",
  "libc",

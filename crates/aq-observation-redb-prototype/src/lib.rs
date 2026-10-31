@@ -1,5 +1,6 @@
-//! Experimental store only. No transport authentication, bootstrap authority,
-//! transcript normalization adapter or migration from the qualified v1 spool.
+//! Candidate embedded observation store and durable owner handshake. Network
+//! authentication is supplied by a trusted adapter; no production worker wiring
+//! or migration from the qualified JSON reference is provided.
 pub mod backend;
 use anyhow::{Context, Result, ensure};
 use aq_lifecycle_protocol::*;
@@ -18,7 +19,10 @@ use std::{
 };
 use uuid::Uuid;
 mod engine_store;
+mod intent_files;
+mod local_intent;
 mod owner;
+pub use local_intent::{AuthenticatedOwnerPeer, LocalIntent, LocalStage};
 mod reader;
 mod reparse;
 pub use reader::{
@@ -70,9 +74,11 @@ impl Limits {
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Meta {
     version: u32,
     transport: Option<aq_observation::InitialTransport>,
+    managed: Option<local_intent::Managed>,
     active_boot: Uuid,
     boot_history: Vec<aq_observation::BootTransition>,
     limits: Limits,
@@ -253,16 +259,18 @@ fn envelope_bytes(node: Uuid, boot: Uuid, first: u64, last: u64, usage: bool) ->
 }
 impl Store {
     pub fn create(root: &Path, limits: Limits) -> Result<Self> {
-        Self::open_inner(root, limits, true, None)
+        Self::open_inner(root, limits, true, None, None, false)
     }
     pub fn open(root: &Path, limits: Limits) -> Result<Self> {
-        Self::open_inner(root, limits, false, None)
+        Self::open_inner(root, limits, false, None, None, false)
     }
     fn open_inner(
         root: &Path,
         limits: Limits,
         create: bool,
         transport: Option<aq_observation::InitialTransport>,
+        managed: Option<local_intent::Managed>,
+        managed_open: bool,
     ) -> Result<Self> {
         limits.validate()?;
         let (directory, owner) = backend::private_root(root, create)?;
@@ -284,7 +292,7 @@ impl Store {
             poisoned: Cell::new(false),
         };
         if create {
-            let tx = store.begin()?;
+            let tx = store.begin_owner()?;
             for table in [SOURCES, SEEN, EVENTS] {
                 tx.open_table(table)?;
             }
@@ -296,8 +304,9 @@ impl Store {
             write_meta(
                 &tx,
                 &Meta {
-                    version: 3,
+                    version: 4,
                     transport,
+                    managed,
                     active_boot: store.limits.boot_id,
                     boot_history: vec![],
                     limits: store.limits.clone(),
@@ -324,7 +333,9 @@ impl Store {
                 .value(),
         )?;
         ensure!(
-            meta.version == 3 && meta.limits == store.limits,
+            meta.version == 4
+                && meta.limits == store.limits
+                && (meta.managed.is_none() || managed_open),
             "store version/identity/limits"
         );
         drop(table);
@@ -334,6 +345,22 @@ impl Store {
         Ok(store)
     }
     fn begin(&self) -> Result<WriteTransaction> {
+        self.require_collectible()?;
+        self.begin_owner()
+    }
+    fn require_collectible(&self) -> Result<()> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(META)?;
+        let meta: Meta = decode(table.get("state")?.context("metadata absent")?.value())?;
+        if let Some(managed) = meta.managed {
+            ensure!(
+                managed.owner.phase == aq_observation_admission::Phase::Active && !managed.blocked,
+                "managed store inactive or recovery held"
+            );
+        }
+        Ok(())
+    }
+    fn begin_owner(&self) -> Result<WriteTransaction> {
         ensure!(!self.poisoned.get(), "store uncertain; reopen required");
         self.poisoned.set(true);
         self.identity.check()?;
@@ -549,6 +576,7 @@ impl Store {
         })
     }
     pub fn prepare(&self) -> Result<Option<Packet>> {
+        self.require_collectible()?;
         ensure!(!self.poisoned.get(), "store uncertain; reopen required");
         if let Some(d) = self.snapshot()?.delivery {
             return Ok(Some(d.packet));
@@ -624,6 +652,7 @@ impl Store {
         Ok(Some(packet))
     }
     pub fn begin_send(&self, now: u64) -> Result<Option<Packet>> {
+        self.require_collectible()?;
         let Some(packet) = self.prepare()? else {
             return Ok(None);
         };
@@ -704,6 +733,7 @@ impl Store {
             "metadata scope/cursor"
         );
         sessions::validate_boot_history(&meta)?;
+        local_intent::validate_managed(&meta)?;
         if let Some(initial) = &meta.transport {
             ensure!(
                 initial.initial_sequence == 1

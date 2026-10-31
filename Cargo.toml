@@ -36,3 +36,7 @@ libc = "0.2"
 [profile.release]
 lto = "thin"
 strip = true
+
+[patch.crates-io]
+aq-lifecycle-protocol={path="crates/aq-lifecycle-protocol"}
+aq-session-protocol={path="crates/aq-session-protocol"}

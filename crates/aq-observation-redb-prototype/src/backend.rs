@@ -52,7 +52,7 @@ impl Monitor {
     pub fn stats(&self) -> IoStats {
         self.0.lock().unwrap().stats.clone()
     }
-    fn boundary(&self, after: bool) -> io::Result<()> {
+    pub(crate) fn boundary(&self, after: bool) -> io::Result<()> {
         let mut c = self.0.lock().unwrap();
         if !after {
             c.stats.operations += 1;

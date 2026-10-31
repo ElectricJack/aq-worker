@@ -64,14 +64,25 @@ pub(super) fn event_boot(event: &ObservationRecord) -> Result<Uuid> {
 fn parser() -> ArtifactRef {
     ArtifactRef {
         id: Text::new("row-store-source-fence").unwrap(),
-        version: Text::new("0.0.2").unwrap(),
+        version: Text::new("0.0.3").unwrap(),
         digest: Digest::of(include_bytes!("sessions.rs")),
     }
 }
 impl Store {
     pub fn adopt_boot(&self, admission: &VerifiedBootAdmission, observed_at_ms: u64) -> Result<()> {
-        let plan = &admission.plan;
-        let tx = self.begin()?;
+        ensure!(
+            self.managed_optional()?.is_none(),
+            "prototype boot callback cannot control managed store"
+        );
+        self.apply_boot(&admission.plan, observed_at_ms, None)
+    }
+    pub(super) fn apply_boot(
+        &self,
+        plan: &BootTransition,
+        observed_at_ms: u64,
+        owner: Option<&aq_observation_admission::Owner>,
+    ) -> Result<()> {
+        let tx = self.begin_owner()?;
         let mut meta = read_meta(&tx)?;
         if let Some(old) = meta
             .boot_history
@@ -180,6 +191,13 @@ impl Store {
         );
         meta.active_boot = plan.new_boot_id;
         meta.boot_history.push(plan.clone());
+        if let Some(owner) = owner {
+            meta.managed = Some(super::local_intent::Managed {
+                owner: owner.clone(),
+                blocked: false,
+            });
+            super::local_intent::validate_managed(&meta)?;
+        }
         write_meta(&tx, &meta)?;
         self.commit(tx)
     }

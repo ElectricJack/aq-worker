@@ -111,6 +111,7 @@ impl Store {
         maximum: usize,
         permit: SourcePermit,
     ) -> Result<()> {
+        self.require_collectible()?;
         ensure!(
             source.format != engine::Format::OpenCodeSessionDto6c24ec9
                 && source.source_id == permit.source_id
@@ -127,6 +128,7 @@ impl Store {
         observed_at_ms: u64,
         policy: OverflowPolicy,
     ) -> Result<CollectedFrame> {
+        self.require_collectible()?;
         ensure!(
             !self.poisoned.get(),
             "store uncertain; reopen before source reads"
@@ -201,7 +203,7 @@ impl Store {
         };
         let parser = ArtifactRef {
             id: Text::new("row-file-source-monitor")?,
-            version: Text::new("0.0.2")?,
+            version: Text::new("0.0.3")?,
             digest: Digest::of(include_bytes!("reader.rs")),
         };
         let body = Observation {
@@ -370,6 +372,7 @@ impl Store {
         verified: &VerifiedFileGeneration,
         observed_at_ms: u64,
     ) -> Result<()> {
+        self.require_collectible()?;
         ensure!(!self.poisoned.get(), "store uncertain; reopen required");
         let plan = &verified.plan;
         let known = self.source(plan.source_id)?;
@@ -424,7 +427,7 @@ impl Store {
         let reason = GapReason::Rotated;
         let parser = ArtifactRef {
             id: Text::new("row-file-source-monitor")?,
-            version: Text::new("0.0.2")?,
+            version: Text::new("0.0.3")?,
             digest: Digest::of(include_bytes!("reader.rs")),
         };
         let body = Observation {
@@ -507,6 +510,7 @@ impl Store {
         self.commit(tx)
     }
     pub fn finish_file_history(&self, verified: &VerifiedHistoryBoundary) -> Result<()> {
+        self.require_collectible()?;
         let plan = &verified.plan;
         let tx = self.begin()?;
         let mut meta = read_meta(&tx)?;

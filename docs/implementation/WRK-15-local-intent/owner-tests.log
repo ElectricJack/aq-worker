@@ -1,0 +1,27 @@
+   Compiling aq-observation-redb-prototype v0.0.3 (/tmp/aq-wrk15-delta/crates/aq-observation-redb-prototype)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+     Running tests/local_intent.rs (target/debug/deps/local_intent-ee7e830c54acf21b)
+
+running 15 tests
+test owner_crash_boundary_child ... ok
+test owner_process_child ... ok
+test prepare_receipt_replay_after_remote_activation_never_creates_at_zero_cursor ... ok
+test owner_lock_replacement_refuses_original_owner_mutation_and_second_open ... ok
+test two_process_open_and_create_refuse_and_redb_lock_survives_replaced_owner_locks ... ok
+test activation_operation_immutable_and_changed_binding_status_refused ... ok
+test lost_prepare_and_activation_replies_recover_only_existing_store ... ok
+test real_prepare_create_activate_exact_marker_and_fresh_resume_gate ... ok
+test held_owner_root_or_intent_replacement_refuses_mutation ... ok
+test remote_boot_commit_loss_replays_exact_request_and_fences_old_sources_once ... ok
+test corrupt_empty_or_missing_managed_store_and_corrupt_intent_are_preserved ... ok
+owner database IO-error boundary cuts:56
+test owner_database_error_cuts_preserve_activation_and_boot_fence_atomicity ... ok
+owner database process-exit boundary cuts:56
+test owner_database_process_exits_preserve_activation_and_boot_fence_atomicity ... ok
+owner real process-exit boundary cuts:96
+test owner_real_process_exit_boundaries_reopen_consistently_or_hold_without_reseed ... ok
+owner IO/transaction/network boundary cuts:96
+test owner_io_boundaries_reopen_consistently_or_hold_without_reseed ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.44s
+

@@ -124,6 +124,7 @@ pub struct CompletedReplay {
 }
 impl Store {
     pub fn begin_reparse(&self, replay: &VerifiedRetained) -> Result<()> {
+        self.require_collectible()?;
         let plan = &replay.plan;
         let digest = plan.digest()?;
         let tx = self.begin()?;
@@ -248,6 +249,7 @@ impl Store {
         self.commit(tx)
     }
     pub fn replay_next(&self, replay: &VerifiedRetained, now: u64) -> Result<CollectedFrame> {
+        self.require_collectible()?;
         let plan = &replay.plan;
         ensure!(
             now >= plan.transcript.retained_at_ms && now < plan.transcript.retained_until_ms,
@@ -273,6 +275,7 @@ impl Store {
         self.process_batch(plan.source_id, &framed.records, now, Some(&digest))
     }
     pub fn finish_reparse(&self, id: Uuid, operation_id: Uuid, digest: &Digest) -> Result<()> {
+        self.require_collectible()?;
         let tx = self.begin()?;
         let mut meta = read_meta(&tx)?;
         let mut sources = tx.open_table(SOURCES)?;
