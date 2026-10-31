@@ -466,7 +466,7 @@ impl<C: Clock> Runtime<C> {
         let mut uncertain = vec![];
         for (id, record) in records {
             if record.launch_id.is_none() && record.stop_certainty == StopCertainty::NotStarted {
-                self.report_not_started(id, ProcessOutcome::Expired)?;
+                self.report_not_started(id, record.stop_reason.unwrap_or(ProcessOutcome::Expired))?;
                 continue;
             }
             if record.ownership_profile.as_deref() != Some(crate::guardian::PROFILE) {
