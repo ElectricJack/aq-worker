@@ -497,6 +497,30 @@ pub(crate) fn fixture(dir: &Path, mode: &str) -> Result<()> {
     std::io::stdout().flush()?;
     for line in BufReader::new(std::io::stdin()).lines() {
         let line = line?;
+        if mode == "output-pattern" && line == "emit" {
+            std::io::stdout()
+                .write_all("\x1b[?1049h\x1b[2J\x1b[3;4H雪🙂e\u{301}\x1b[?1049l\n".as_bytes())?;
+            std::io::stdout().flush()?;
+        }
+        if mode == "output-flood" && line == "flood" {
+            std::fs::write(
+                dir.join("fixture-output-start"),
+                b"synthetic flood accepted",
+            )?;
+            let block = vec![b'x'; 8192];
+            for n in 1..=4096u64 {
+                std::io::stdout().write_all(&block)?;
+                if n.is_multiple_of(8) {
+                    std::io::stdout().flush()?;
+                    // Volatile synthetic progress: fsync latency must not stand in
+                    // for PTY backpressure in the stalled-reader qualification.
+                    std::fs::write(
+                        dir.join("fixture-output-progress"),
+                        (n * block.len() as u64).to_string().as_bytes(),
+                    )?;
+                }
+            }
+        }
         if mode == "terminal-journal" {
             let mut file = OpenOptions::new()
                 .create(true)

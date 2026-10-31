@@ -1,8 +1,9 @@
-# Guarded terminal bridge, stage 1
+# Guarded terminal bridge: control and incomplete output tails
 
-This experimental finite control component uses an explicitly installed, already
-Running `aq-session-host`0.1.1. It has no launch/resume, arbitrary command, socket
-selection, renderer, snapshot, capture or unknown-resolution API. The worker
+The qualified stage1 control component used host0.1.1. Candidate bridge0.1.1 uses
+host0.1.2 to add bounded raw tails, not complete terminal views. It has no
+launch/resume, arbitrary command, socket selection, renderer, snapshot or
+unknown-resolution API. The worker
 scheduler does not adopt or advertise this bridge. Central identities remain
 independent local identities; HTTP supports remote node credentials only.
 
@@ -53,3 +54,33 @@ steady-state memory/disk capacity claim follows from these finite tests.
 DTO dependencies are exact immutable archives; only the consumer supplies patches.
 Original API publication tests also need their published companion fixtures. See
 `docs/implementation/WRK-14-stage1.md` and retained public-package evidence.
+
+The tail observer is a fixed read-only, size-neutral tmux3.4 control client. It
+decodes bounded octal payloads into literal bytes without ANSI interpretation or
+lossy UTF-8 conversion. Pause, exit or malformed input makes it Discontinuous.
+Every initial tail is Incomplete; none can emit a Snapshot. The one-shot producer
+claim lives in encrypted host metadata as well as a marker. Startup failure,
+loss, expiry or pause can strand the tail until a new qualified producer/baseline
+or independently authorized attempt; same-terminal reattachment/epoch reset is
+not an implicit recovery path.
+
+Tail queues honor lower sealed frame/replay bounds, retain at most1024 frames and
+64 merged exact eviction gaps. Unknown missing bytes have no invented range.
+`OutputTails` reserves at most32 tails and16MiB payload capacity before attachment;
+metadata/allocator and tmux buffers are additional costs. HTTP has a separate
+one-request output lane using the existing outbound upload route. It forbids
+snapshots and control receipts; metadata control stays independently reserved.
+No output payload is persisted. Renderer/baseline/resync handoff, unknown-input
+resolution and production runtime adoption remain separate gates.
+
+
+### Output candidate: qualification failed
+
+The0.1.2 host/0.1.1 bridge output candidate is experimental and must not be
+adopted by a producer. Actual tmux3.4 tests reproduced a stopped sole observer
+blocking the harness in a PTY write for more than5seconds despite
+`pause-after=1`. Guarded execution expiry still stops the writers, but continued
+harness progress is not qualified. Passing individual runs do not remove this
+failure. The control-only checkpoint remains distinct; no output capability is
+advertised. An independently enforceable observer strategy is required before
+output acceptance, followed by the separate baseline/renderer gates.

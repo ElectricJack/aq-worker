@@ -16,7 +16,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-aq-session-host = { path = "crates/aq-session-host", version = "=0.1.1" }
+aq-session-host = { path = "crates/aq-session-host", version = "=0.1.2" }
 aq-session-protocol = { path = "crates/aq-session-protocol", version = "=0.1.0" }
 aq-protocol = { path = "crates/aq-protocol", version = "=0.1.0" }
 aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.2.0" }

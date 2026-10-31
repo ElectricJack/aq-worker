@@ -122,3 +122,26 @@ needed, and additive Cargo changes. Do not edit daemon/public frozen contracts.
 Review the concrete acquisition proof before adding renderer/baseline changes.
 After this slice, proceed to the full renderer gate rather than treating a tail
 as completed terminal watch/control.
+
+
+## Tail experiment: blocking result
+
+The first read-only control observer candidate failed the required stopped-reader
+qualification on actual tmux3.4. With its sole client SIGSTOPped, a synthetic
+flood command had an Applied input receipt and an explicit fixture-start marker,
+but the pane remained in `write(1, ...,8192)` with zero64KiB progress markers after
+5seconds. Volatile markers reproduced the failure, excluding their prior fsync
+cost. Dropping the observer released progress. Other runs passed; those do not
+establish safety. The exact execution-expiry-while-reader-stopped case passed,
+but stopping writers is a different property from their continued progress.
+
+The published3.4 [control.c](https://raw.githubusercontent.com/tmux/tmux/3.4/control.c)
+checks pause age on output/write paths; this is not an independent stall timer.
+This observation is a code-informed explanation, not a proof of every failure
+path. The candidate is unqualified for producer adoption. Freeze its source and
+negative evidence before changing the strategy. A fix must survive stopped or
+dead acquisition consumers, preserve bounded memory and literal bytes, avoid
+silently resetting the one-shot epoch, and never disable pane reading globally.
+A guardian-enforced read-client deadline may bound disruption and force a
+visible discontinuity; its continued-progress and independent-failure behavior
+must be demonstrated before acceptance. No renderer or snapshot claim follows.
