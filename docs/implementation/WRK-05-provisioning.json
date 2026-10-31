@@ -1,0 +1,70 @@
+{
+  "task": "WRK-05",
+  "scope": "provisioning and node-recovery component draft only",
+  "source_revision": null,
+  "source_state": "uncommitted candidate; clean package/revision qualification pending root task",
+  "checks": {
+    "provisioning_tests_passed": 12,
+    "node_recovery_tests_passed": 5,
+    "strict_component_clippy": "passed",
+    "commands": [
+      "cargo test -p aq-agent-client --offline --test provisioning --test recovery",
+      "cargo clippy -p aq-agent-client --test provisioning --test recovery --lib --offline -- -D warnings"
+    ],
+    "latest_provisioning_only_commands": [
+      "cargo test -p aq-agent-client --offline --test provisioning",
+      "cargo clippy -p aq-agent-client --test provisioning --lib --offline -- -D warnings"
+    ]
+  },
+  "reservation": {
+    "minimum_per_session_bytes": 67108864,
+    "node_journal_reserved_bytes": 2097152,
+    "max_node_journal_bytes": 1048576,
+    "max_intents_per_session": 16,
+    "reclamation": "none; retained until later explicit proof"
+  },
+  "source_files": [
+    {
+      "path": "crates/aq-agent-client/src/provision.rs",
+      "sha256": "9c564744d66e2d63272d0d0e6b4c5007d2c6b22c1f3ea7044a96c73f1ebf9411"
+    },
+    {
+      "path": "crates/aq-agent-client/tests/provisioning.rs",
+      "sha256": "6d25bbe99ab5461d81887a2e387bf32d8b3ac03a78b9863087387556a2236c1c"
+    },
+    {
+      "path": "crates/aq-agent-client/src/node.rs",
+      "sha256": "7267228e6daa41809575d6ad298f3f5f4f1db026a7163f169bb9405962ce292c"
+    },
+    {
+      "path": "crates/aq-agent-client/tests/recovery.rs",
+      "sha256": "313f74fff5ac2becbfc3baf9adcaf584234341cb8b9c1112c579e39624c72939"
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/WRK-05-provision-final-clippy.log",
+      "sha256": "a1ff58647cd65e8955afbbee473fefbf406ead6a2ee04301ba9acf03243aefc5"
+    },
+    {
+      "path": "docs/implementation/WRK-05-provision-final-tests.log",
+      "sha256": "5fd81f51389b63e5959c601719d025ab1685b2a1f8bc395787aa821321e6641d"
+    },
+    {
+      "path": "docs/implementation/WRK-05-provision-recovery-clippy.log",
+      "sha256": "98add4809205f732bcbcf0622cf0af2f6238e3bc8a1b9d82bfa1958a74cd478e"
+    },
+    {
+      "path": "docs/implementation/WRK-05-provision-recovery-tests.log",
+      "sha256": "cdaeb1433f8a038327aab5802541ddf07c078a8029e6f2d528132d6548404e6b"
+    }
+  ],
+  "excluded_claims": [
+    "full WRK-05 completion",
+    "publication/deployment",
+    "provider key/lease/execution grant/launch",
+    "live daemon auth or DB qualification",
+    "automatic allocation reclamation",
+    "message client surface"
+  ]
+}

@@ -1,0 +1,1059 @@
+{
+  "context": {
+    "api_version": 1,
+    "binding": {
+      "task_id": "00000000-0000-0000-0000-000000000001",
+      "attempt_id": "00000000-0000-0000-0000-000000000066",
+      "session_id": "00000000-0000-0000-0000-000000000067",
+      "generation": 1,
+      "node_id": "00000000-0000-0000-0000-000000000064",
+      "boot_id": "00000000-0000-0000-0000-000000000065",
+      "project_id": "00000000-0000-0000-0000-000000000068",
+      "workspace_id": "00000000-0000-0000-0000-000000000069",
+      "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+      "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+    },
+    "profile": {
+      "profile_id": "coding-pilot",
+      "revision": "1",
+      "role": "coding",
+      "model": {
+        "provider": "fixture-provider",
+        "model": "deterministic",
+        "configuration_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "instructions_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "tool_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "capabilities": [
+        "read.get",
+        "read.revision",
+        "read.history",
+        "read.search",
+        "read.context",
+        "read.relationships",
+        "write.finding",
+        "write.correct",
+        "write.proposal",
+        "write.relationships"
+      ],
+      "read_scope": {
+        "mode": "records",
+        "record_ids": [
+          "00000000-0000-0000-0000-000000000001",
+          "00000000-0000-0000-0000-000000000002",
+          "00000000-0000-0000-0000-000000000003"
+        ],
+        "include_created_by_attempt": true,
+        "edge_types": [
+          "blocks",
+          "parent-child",
+          "references",
+          "motivated_by",
+          "produces",
+          "supports",
+          "contradicts",
+          "supersedes"
+        ]
+      },
+      "write_scope": {
+        "record_ids": [
+          "00000000-0000-0000-0000-000000000001",
+          "00000000-0000-0000-0000-000000000002",
+          "00000000-0000-0000-0000-000000000003"
+        ],
+        "relationship_types": [
+          "references",
+          "motivated_by",
+          "produces",
+          "supports",
+          "contradicts",
+          "supersedes"
+        ],
+        "correct_fields": [
+          "title",
+          "body",
+          "labels"
+        ],
+        "max_created_records": 32,
+        "max_proposal_tasks": 8
+      },
+      "retry_budget": {
+        "max_attempts": 5,
+        "max_elapsed_ms": 30000,
+        "initial_delay_ms": 250,
+        "max_delay_ms": 2000
+      },
+      "max_response_bytes": 1048576
+    },
+    "credential": {
+      "kind": "agent_session",
+      "version": "1",
+      "authority_revision": "1",
+      "expires_at": "2099-01-01T00:00:00Z"
+    },
+    "context": {
+      "observed_at": "2026-10-31T01:19:39.098143+00:00",
+      "projection": "authorized_scope",
+      "root_ids": [
+        "00000000-0000-0000-0000-000000000001"
+      ],
+      "nodes": [
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "kind": "task",
+          "title": "Implement scoped graph access",
+          "body": "Keep execution authority separate.",
+          "acceptance_criteria": "",
+          "labels": [],
+          "task_state": "active",
+          "verification": "unverified",
+          "content_type": "note",
+          "retired": false,
+          "deleted": false,
+          "version": "3",
+          "content_revision": "3"
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000002",
+          "kind": "knowledge",
+          "title": "Operation receipts survive response loss",
+          "body": "Preserve the same operation and graph idempotency key.",
+          "acceptance_criteria": "",
+          "labels": [
+            "recovery"
+          ],
+          "task_state": null,
+          "verification": "unverified",
+          "content_type": "note",
+          "retired": false,
+          "deleted": false,
+          "version": "2",
+          "content_revision": "2"
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000003",
+          "kind": "task",
+          "title": "Add a bounded conformance fixture",
+          "body": "",
+          "acceptance_criteria": "",
+          "labels": [],
+          "task_state": "active",
+          "verification": "unverified",
+          "content_type": "note",
+          "retired": false,
+          "deleted": false,
+          "version": "2",
+          "content_revision": "2"
+        }
+      ],
+      "edges": [
+        {
+          "id": "00000000-0000-0000-0000-000000000015",
+          "source": "00000000-0000-0000-0000-000000000002",
+          "target": "00000000-0000-0000-0000-000000000001",
+          "edge_type": "references",
+          "version": "1",
+          "description": null,
+          "source_revision": null,
+          "target_revision": "1"
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000016",
+          "source": "00000000-0000-0000-0000-000000000001",
+          "target": "00000000-0000-0000-0000-000000000003",
+          "edge_type": "parent-child",
+          "version": "1",
+          "description": null,
+          "source_revision": null,
+          "target_revision": null
+        }
+      ],
+      "pinned_revisions": [
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "kind": "task",
+          "title": "Implement scoped graph access",
+          "body": "Keep execution authority separate.",
+          "acceptance_criteria": "",
+          "labels": [],
+          "task_state": "active",
+          "verification": "unverified",
+          "content_type": "note",
+          "retired": false,
+          "deleted": false,
+          "version": "1",
+          "content_revision": "1"
+        }
+      ],
+      "coverage": {
+        "status": "complete",
+        "complete_for": "authorized_projection",
+        "reasons": []
+      }
+    }
+  },
+  "agent_principal": {
+    "kind": "agent_session",
+    "binding": {
+      "task_id": "00000000-0000-0000-0000-000000000001",
+      "attempt_id": "00000000-0000-0000-0000-000000000066",
+      "session_id": "00000000-0000-0000-0000-000000000067",
+      "generation": 1,
+      "node_id": "00000000-0000-0000-0000-000000000064",
+      "boot_id": "00000000-0000-0000-0000-000000000065",
+      "project_id": "00000000-0000-0000-0000-000000000068",
+      "workspace_id": "00000000-0000-0000-0000-000000000069",
+      "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+      "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+    },
+    "active": true,
+    "graph_actor_id": "api01-writer"
+  },
+  "node_principal": {
+    "kind": "node",
+    "node_id": "00000000-0000-0000-0000-000000000064"
+  },
+  "read_requests": {
+    "get": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d2",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query": {
+        "kind": "get",
+        "node_id": "00000000-0000-0000-0000-000000000002"
+      }
+    },
+    "revision": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d3",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query": {
+        "kind": "revision",
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "revision": "1"
+      }
+    },
+    "history": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d4",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query": {
+        "kind": "history",
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "limit": 64,
+        "cursor": null
+      }
+    },
+    "search": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d5",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query": {
+        "kind": "search",
+        "text": "receipts",
+        "kind_filter": "knowledge",
+        "limit": 64,
+        "cursor": null
+      }
+    },
+    "context": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d6",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query": {
+        "kind": "context",
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "depth": 1,
+        "direction": "both",
+        "max_nodes": 64,
+        "max_edges": 256,
+        "max_bytes": 262144
+      }
+    },
+    "relationships": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d7",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query": {
+        "kind": "relationships",
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "direction": "both",
+        "edge_types": [
+          "blocks",
+          "parent-child",
+          "references",
+          "motivated_by",
+          "produces",
+          "supports",
+          "contradicts",
+          "supersedes"
+        ],
+        "limit": 64,
+        "cursor": null
+      }
+    }
+  },
+  "read_responses": {
+    "get": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d2",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query_digest": "3f72b299d4ba516d9b2097dcd27cbaaffe488a7e62fffd517b7c2c66f3d9d33b",
+      "observed_at": "2026-10-31T01:19:39.098143+00:00",
+      "projection": "authorized_scope",
+      "result": {
+        "kind": "get",
+        "node": {
+          "id": "00000000-0000-0000-0000-000000000002",
+          "kind": "knowledge",
+          "title": "Operation receipts survive response loss",
+          "body": "Preserve the same operation and graph idempotency key.",
+          "acceptance_criteria": "",
+          "labels": [
+            "recovery"
+          ],
+          "task_state": null,
+          "verification": "unverified",
+          "content_type": "note",
+          "retired": false,
+          "deleted": false,
+          "version": "2",
+          "content_revision": "2"
+        }
+      }
+    },
+    "revision": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d3",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query_digest": "13d71d8543d521aae56e5131df2f1f9b919f439775af4e32b95458c5802d63b3",
+      "observed_at": "2026-10-31T01:19:39.098143+00:00",
+      "projection": "authorized_scope",
+      "result": {
+        "kind": "revision",
+        "node": {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "kind": "task",
+          "title": "Implement scoped graph access",
+          "body": "Keep execution authority separate.",
+          "acceptance_criteria": "",
+          "labels": [],
+          "task_state": "active",
+          "verification": "unverified",
+          "content_type": "note",
+          "retired": false,
+          "deleted": false,
+          "version": "1",
+          "content_revision": "1"
+        },
+        "links": [],
+        "relationships_available": true,
+        "coverage": {
+          "status": "complete",
+          "complete_for": "authorized_projection",
+          "reasons": []
+        }
+      }
+    },
+    "history": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d4",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query_digest": "a00a3add2cebb3903b88a0670c6914a70427902eec13381df6e820384a5dbb40",
+      "observed_at": "2026-10-31T01:19:39.098143+00:00",
+      "projection": "authorized_scope",
+      "result": {
+        "kind": "history",
+        "items": [
+          {
+            "entry_id": "e528afd9-5c10-46e1-9aee-45e6e18475dc",
+            "sequence": "2",
+            "category": "lifecycle",
+            "subject_id": "00000000-0000-0000-0000-000000000001",
+            "occurred_at": "2026-10-31T01:19:38.975581+00:00",
+            "node": null,
+            "edge": null
+          }
+        ],
+        "next_cursor": null,
+        "coverage": {
+          "status": "complete",
+          "complete_for": "authorized_projection",
+          "reasons": []
+        }
+      }
+    },
+    "search": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d5",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query_digest": "4272723d4760268d9c0b26a55f3365c70156feae2e8e771296ea5e54df7c68bd",
+      "observed_at": "2026-10-31T01:19:39.098143+00:00",
+      "projection": "authorized_scope",
+      "result": {
+        "kind": "search",
+        "nodes": [
+          {
+            "id": "00000000-0000-0000-0000-000000000002",
+            "kind": "knowledge",
+            "title": "Operation receipts survive response loss",
+            "body": "Preserve the same operation and graph idempotency key.",
+            "acceptance_criteria": "",
+            "labels": [
+              "recovery"
+            ],
+            "task_state": null,
+            "verification": "unverified",
+            "content_type": "note",
+            "retired": false,
+            "deleted": false,
+            "version": "2",
+            "content_revision": "2"
+          }
+        ],
+        "next_cursor": null,
+        "coverage": {
+          "status": "complete",
+          "complete_for": "authorized_projection",
+          "reasons": []
+        }
+      }
+    },
+    "context": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d6",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query_digest": "47dc317b93b26d16fb122567a66e8836baaf89edd6aa93fc3cab83e52414f64b",
+      "observed_at": "2026-10-31T01:19:39.098143+00:00",
+      "projection": "authorized_scope",
+      "result": {
+        "kind": "context",
+        "node": {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "kind": "task",
+          "title": "Implement scoped graph access",
+          "body": "Keep execution authority separate.",
+          "acceptance_criteria": "",
+          "labels": [],
+          "task_state": "active",
+          "verification": "unverified",
+          "content_type": "note",
+          "retired": false,
+          "deleted": false,
+          "version": "3",
+          "content_revision": "3"
+        },
+        "nodes": [
+          {
+            "id": "00000000-0000-0000-0000-000000000002",
+            "kind": "knowledge",
+            "title": "Operation receipts survive response loss",
+            "body": "Preserve the same operation and graph idempotency key.",
+            "acceptance_criteria": "",
+            "labels": [
+              "recovery"
+            ],
+            "task_state": null,
+            "verification": "unverified",
+            "content_type": "note",
+            "retired": false,
+            "deleted": false,
+            "version": "2",
+            "content_revision": "2"
+          },
+          {
+            "id": "00000000-0000-0000-0000-000000000003",
+            "kind": "task",
+            "title": "Add a bounded conformance fixture",
+            "body": "",
+            "acceptance_criteria": "",
+            "labels": [],
+            "task_state": "active",
+            "verification": "unverified",
+            "content_type": "note",
+            "retired": false,
+            "deleted": false,
+            "version": "2",
+            "content_revision": "2"
+          }
+        ],
+        "edges": [
+          {
+            "id": "00000000-0000-0000-0000-000000000015",
+            "source": "00000000-0000-0000-0000-000000000002",
+            "target": "00000000-0000-0000-0000-000000000001",
+            "edge_type": "references",
+            "version": "1",
+            "description": null,
+            "source_revision": null,
+            "target_revision": "1"
+          },
+          {
+            "id": "00000000-0000-0000-0000-000000000016",
+            "source": "00000000-0000-0000-0000-000000000001",
+            "target": "00000000-0000-0000-0000-000000000003",
+            "edge_type": "parent-child",
+            "version": "1",
+            "description": null,
+            "source_revision": null,
+            "target_revision": null
+          }
+        ],
+        "pinned_revisions": [
+          {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "kind": "task",
+            "title": "Implement scoped graph access",
+            "body": "Keep execution authority separate.",
+            "acceptance_criteria": "",
+            "labels": [],
+            "task_state": "active",
+            "verification": "unverified",
+            "content_type": "note",
+            "retired": false,
+            "deleted": false,
+            "version": "1",
+            "content_revision": "1"
+          }
+        ],
+        "coverage": {
+          "status": "complete",
+          "complete_for": "authorized_projection",
+          "reasons": []
+        }
+      }
+    },
+    "relationships": {
+      "api_version": 1,
+      "request_id": "00000000-0000-0000-0000-0000000000d7",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "query_digest": "d0929eddafb82e5ae4e98d2a12a958bb69f383a09a8bdd9a7571f6e6278626ca",
+      "observed_at": "2026-10-31T01:19:39.098143+00:00",
+      "projection": "authorized_scope",
+      "result": {
+        "kind": "relationships",
+        "edges": [
+          {
+            "id": "00000000-0000-0000-0000-000000000015",
+            "source": "00000000-0000-0000-0000-000000000002",
+            "target": "00000000-0000-0000-0000-000000000001",
+            "edge_type": "references",
+            "version": "1",
+            "description": null,
+            "source_revision": null,
+            "target_revision": "1"
+          },
+          {
+            "id": "00000000-0000-0000-0000-000000000016",
+            "source": "00000000-0000-0000-0000-000000000001",
+            "target": "00000000-0000-0000-0000-000000000003",
+            "edge_type": "parent-child",
+            "version": "1",
+            "description": null,
+            "source_revision": null,
+            "target_revision": null
+          }
+        ],
+        "next_cursor": null,
+        "coverage": {
+          "status": "complete",
+          "complete_for": "authorized_projection",
+          "reasons": []
+        }
+      }
+    }
+  },
+  "command_requests": {
+    "create_finding": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012c",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "reason": "Synthetic contract conformance",
+      "commands": [
+        {
+          "kind": "create_finding",
+          "id": "00000000-0000-0000-0000-00000000000a",
+          "title": "A scoped finding",
+          "body": "Synthetic evidence; no secret or automatic approval.",
+          "labels": [
+            "conformance"
+          ],
+          "content_type": "note"
+        }
+      ]
+    },
+    "correct_record": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012d",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "reason": "Synthetic contract conformance",
+      "commands": [
+        {
+          "kind": "correct_record",
+          "id": "00000000-0000-0000-0000-000000000002",
+          "expected_version": "2",
+          "patch": {
+            "body": "Preserve the same operation and graph idempotency key."
+          }
+        }
+      ]
+    },
+    "add_relationship": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012e",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "reason": "Synthetic contract conformance",
+      "commands": [
+        {
+          "kind": "add_relationship",
+          "id": "00000000-0000-0000-0000-00000000001d",
+          "source": "00000000-0000-0000-0000-000000000002",
+          "target": "00000000-0000-0000-0000-000000000003",
+          "expected_source_version": "2",
+          "edge_type": "references",
+          "source_revision": null,
+          "target_revision": "1",
+          "description": "Pinned authorized evidence"
+        }
+      ]
+    },
+    "remove_relationship": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012f",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "reason": "Synthetic contract conformance",
+      "commands": [
+        {
+          "kind": "remove_relationship",
+          "id": "00000000-0000-0000-0000-000000000015",
+          "source": "00000000-0000-0000-0000-000000000002",
+          "target": "00000000-0000-0000-0000-000000000001",
+          "expected_version": "1",
+          "expected_source_version": "2"
+        }
+      ]
+    },
+    "propose_decomposition": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-000000000130",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "reason": "Synthetic contract conformance",
+      "commands": [
+        {
+          "kind": "propose_decomposition",
+          "name": "Proposed follow-up work",
+          "parent_id": "00000000-0000-0000-0000-000000000001",
+          "expected_parent_version": "3",
+          "tasks": [
+            {
+              "id": "00000000-0000-0000-0000-00000000000b",
+              "title": "Review scoped writes",
+              "body": "Draft only.",
+              "acceptance_criteria": "No stale overwrite."
+            }
+          ],
+          "relationships": [
+            {
+              "id": "00000000-0000-0000-0000-00000000001f",
+              "source": "00000000-0000-0000-0000-000000000001",
+              "target": "00000000-0000-0000-0000-00000000000b",
+              "edge_type": "parent-child"
+            },
+            {
+              "id": "00000000-0000-0000-0000-000000000020",
+              "source": "00000000-0000-0000-0000-00000000000b",
+              "target": "00000000-0000-0000-0000-000000000003",
+              "edge_type": "blocks"
+            }
+          ],
+          "guards": [
+            {
+              "id": "00000000-0000-0000-0000-000000000003",
+              "expected_version": "2"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "operation_statuses": {
+    "pending": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012d",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "payload_digest": "b8a05d348e60a9f86d2640362cbe9f51cb6d625974199da125026a16adf014b3",
+      "state": "pending",
+      "admission": "recorded",
+      "effect": "not_dispatched",
+      "recovery": {
+        "action": "poll_existing",
+        "after_ms": 250,
+        "remaining_attempts": 4,
+        "remaining_elapsed_ms": 30000
+      }
+    },
+    "confirmed": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012d",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "payload_digest": "b8a05d348e60a9f86d2640362cbe9f51cb6d625974199da125026a16adf014b3",
+      "state": "confirmed",
+      "admission": "recorded",
+      "effect": "confirmed",
+      "receipt": {
+        "kind": "graph_mutation",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "change_set_id": "00000000-0000-0000-0000-000000000190",
+        "versions": [
+          {
+            "kind": "node",
+            "id": "00000000-0000-0000-0000-000000000002",
+            "version": "2",
+            "content_revision": "2"
+          }
+        ],
+        "affected_record_ids": [
+          "00000000-0000-0000-0000-000000000002"
+        ],
+        "task_completion": false
+      }
+    },
+    "unknown": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012d",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "payload_digest": "b8a05d348e60a9f86d2640362cbe9f51cb6d625974199da125026a16adf014b3",
+      "state": "unknown",
+      "admission": "recorded",
+      "effect": "possible",
+      "recovery": {
+        "action": "query_or_replay_identical",
+        "after_ms": 250,
+        "remaining_attempts": 4,
+        "remaining_elapsed_ms": 30000
+      }
+    },
+    "conflict": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012d",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "payload_digest": "b8a05d348e60a9f86d2640362cbe9f51cb6d625974199da125026a16adf014b3",
+      "state": "conflict",
+      "admission": "recorded",
+      "effect": "not_applied",
+      "retryable": false,
+      "conflicts": [
+        {
+          "kind": "version",
+          "subject_id": "00000000-0000-0000-0000-000000000002",
+          "expected": "2",
+          "current": "3"
+        }
+      ]
+    },
+    "rejected": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-00000000012d",
+      "binding": {
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1,
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+        "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+      },
+      "payload_digest": "b8a05d348e60a9f86d2640362cbe9f51cb6d625974199da125026a16adf014b3",
+      "state": "rejected",
+      "admission": "recorded",
+      "effect": "not_applied",
+      "retryable": false,
+      "code": "graph_rejected"
+    }
+  },
+  "node_recovery_request": {
+    "api_version": 1,
+    "request_id": "00000000-0000-0000-0000-0000000001f4",
+    "node_id": "00000000-0000-0000-0000-000000000064",
+    "attempt": {
+      "attempt_id": "00000000-0000-0000-0000-000000000066",
+      "session_id": "00000000-0000-0000-0000-000000000067",
+      "generation": 1
+    },
+    "mode": "lookup",
+    "operation_ids": [
+      "00000000-0000-0000-0000-00000000012d"
+    ]
+  },
+  "node_list_request": {
+    "api_version": 1,
+    "request_id": "00000000-0000-0000-0000-0000000001f4",
+    "node_id": "00000000-0000-0000-0000-000000000064",
+    "attempt": {
+      "attempt_id": "00000000-0000-0000-0000-000000000066",
+      "session_id": "00000000-0000-0000-0000-000000000067",
+      "generation": 1
+    },
+    "mode": "list",
+    "limit": 64,
+    "cursor": null
+  }
+}

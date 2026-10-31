@@ -13,6 +13,7 @@ This repository contains the extracted foundation connector and an execution-pro
 - [Worker protocol ownership](protocol/README.md)
 - [Local source workspaces](docs/source-workspaces.md)
 - [Resumable source transfer candidate](docs/source-transfers.md)
+- [Scoped agent client and protected provisioning](crates/aq-agent-client/README.md)
 - [Shared execution and recovery](../agent-q/docs/architecture/0002-execution-and-recovery.md)
 - [AQ ecosystem and releases](../agent-q/docs/architecture/0001-ecosystem-and-releases.md)
 - [Agent Q foundation](../agent-q/docs/specs/0001-infrastructure-foundation.md)

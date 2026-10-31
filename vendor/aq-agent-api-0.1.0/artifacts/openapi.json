@@ -1,0 +1,6849 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AQ agent graph access",
+    "version": "1.0.0",
+    "description": "Versioned public agent routes. See owning implementation evidence for qualified behavior; no raw graph proxy or playbook Host API."
+  },
+  "paths": {
+    "/v1/agent/context": {
+      "get": {
+        "operationId": "agentContextGet",
+        "security": [
+          {
+            "AgentSessionBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/agent/graph/read": {
+      "post": {
+        "operationId": "agentGraphRead",
+        "security": [
+          {
+            "AgentSessionBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent/messages/send": {
+      "post": {
+        "operationId": "agentMessageSend",
+        "security": [
+          {
+            "AgentSessionBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageSendReceipt"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageSend"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent/messages/inbox": {
+      "post": {
+        "operationId": "agentMessageInbox",
+        "security": [
+          {
+            "AgentSessionBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageInboxResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageInbox"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent/messages/ack": {
+      "post": {
+        "operationId": "agentMessageAck",
+        "security": [
+          {
+            "AgentSessionBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAckReceipt"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageAck"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent/messages/body": {
+      "post": {
+        "operationId": "agentMessageBody",
+        "security": [
+          {
+            "AgentSessionBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageBodyResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageBodyRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/worker/messages/poll": {
+      "post": {
+        "operationId": "workerMessagePoll",
+        "security": [
+          {
+            "NodeRecoveryBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageNodeBatch"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageNodePoll"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/worker/messages/ack": {
+      "post": {
+        "operationId": "workerMessageAck",
+        "security": [
+          {
+            "NodeRecoveryBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageNodeAckReceipt"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageNodeAck"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent/graph/commands": {
+      "post": {
+        "operationId": "agentGraphCommand",
+        "security": [
+          {
+            "AgentSessionBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "required": false,
+            "description": "respond-async commits admission without starting dispatch; identical replay without this header may dispatch.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "respond-async"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent/operations/{operation_id}": {
+      "get": {
+        "operationId": "agentOperationGet",
+        "security": [
+          {
+            "AgentSessionBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/v2/worker/agent-operations/query": {
+      "post": {
+        "operationId": "workerAgentOperationQuery",
+        "security": [
+          {
+            "NodeRecoveryBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/worker/agent-operations/retry": {
+      "post": {
+        "operationId": "workerAgentOperationRetry",
+        "security": [
+          {
+            "NodeRecoveryBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract response; effect is explicit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured refusal or uncertainty; never imply mutation success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-AQ-Agent-API-Version": {
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AQ-Agent-API-Version",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryRetry"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "AgentSessionBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Opaque scoped per-attempt credential; node/worker/service credentials refused."
+      },
+      "NodeRecoveryBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Enrolled node credential, own existing attempt operations only; no graph request body or new admission."
+      }
+    },
+    "schemas": {
+      "EdgeType": {
+        "type": "string",
+        "enum": [
+          "blocks",
+          "parent-child",
+          "references",
+          "motivated_by",
+          "produces",
+          "supports",
+          "contradicts",
+          "supersedes"
+        ]
+      },
+      "InformationalEdgeType": {
+        "type": "string",
+        "enum": [
+          "references",
+          "motivated_by",
+          "produces",
+          "supports",
+          "contradicts",
+          "supersedes"
+        ]
+      },
+      "Capability": {
+        "type": "string",
+        "enum": [
+          "read.get",
+          "read.revision",
+          "read.history",
+          "read.search",
+          "read.context",
+          "read.relationships",
+          "write.finding",
+          "write.correct",
+          "write.proposal",
+          "write.relationships",
+          "write.task_content",
+          "message.send",
+          "message.read",
+          "message.ack"
+        ]
+      },
+      "TaskMailbox": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "task"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "workspace_id",
+          "project_id",
+          "task_id"
+        ]
+      },
+      "SessionMailbox": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "session"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          }
+        },
+        "required": [
+          "kind",
+          "workspace_id",
+          "project_id",
+          "task_id",
+          "session_id",
+          "attempt_id",
+          "generation"
+        ]
+      },
+      "MailboxRecipient": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TaskMailbox"
+          },
+          {
+            "$ref": "#/components/schemas/SessionMailbox"
+          }
+        ]
+      },
+      "MessageSend": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "x-utf8-maxBytes": 16384
+          }
+        },
+        "required": [
+          "operation_id",
+          "message_id",
+          "thread_id",
+          "recipient",
+          "body"
+        ]
+      },
+      "MessageInbox": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "after": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f-]{36}$",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          }
+        },
+        "required": [
+          "recipient",
+          "after",
+          "limit"
+        ]
+      },
+      "MessageAck": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "disposition": {
+            "enum": [
+              "received",
+              "read"
+            ]
+          }
+        },
+        "required": [
+          "operation_id",
+          "recipient",
+          "message_id",
+          "disposition"
+        ]
+      },
+      "MessageSendReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "disposition": {
+            "const": "queued"
+          },
+          "node_delivery": {
+            "const": "not_attempted"
+          },
+          "harness_delivery": {
+            "const": "not_attempted"
+          },
+          "notification_delivery": {
+            "const": "not_attempted"
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "message_id",
+          "recipient",
+          "thread_id",
+          "cursor",
+          "disposition",
+          "node_delivery",
+          "harness_delivery",
+          "notification_delivery"
+        ]
+      },
+      "MessageAckReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "disposition": {
+            "enum": [
+              "received",
+              "read"
+            ]
+          },
+          "node_delivery": {
+            "const": "not_attempted"
+          },
+          "harness_delivery": {
+            "const": "not_attempted"
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "message_id",
+          "recipient",
+          "cursor",
+          "attempt_id",
+          "disposition",
+          "node_delivery",
+          "harness_delivery"
+        ]
+      },
+      "OwnerMessageSender": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "owner"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "user_id"
+        ]
+      },
+      "SessionMessageSender": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "session"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          }
+        },
+        "required": [
+          "kind",
+          "binding"
+        ]
+      },
+      "MessageSender": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OwnerMessageSender"
+          },
+          {
+            "$ref": "#/components/schemas/SessionMessageSender"
+          }
+        ]
+      },
+      "MailboxMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "sender": {
+            "$ref": "#/components/schemas/MessageSender"
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "x-utf8-maxBytes": 16384
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "created_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "disposition": {
+            "enum": [
+              "queued",
+              "received",
+              "read"
+            ]
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageDelivery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "message_id",
+          "thread_id",
+          "cursor",
+          "sender",
+          "recipient",
+          "body",
+          "payload_digest",
+          "created_at_ms",
+          "disposition",
+          "delivery"
+        ]
+      },
+      "MessageDelivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "disposition": {
+            "enum": [
+              "pending",
+              "received_by_node",
+              "handed_to_harness",
+              "delivery_unknown",
+              "stale"
+            ]
+          }
+        },
+        "required": [
+          "attempt_id",
+          "disposition"
+        ]
+      },
+      "OmittedMailboxMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "body_omitted": {
+            "const": true
+          },
+          "body_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16384
+          },
+          "recovery": {
+            "const": "message_body"
+          },
+          "body_request": {
+            "$ref": "#/components/schemas/MessageBodyRequest"
+          }
+        },
+        "required": [
+          "message_id",
+          "cursor",
+          "body_omitted",
+          "body_bytes",
+          "recovery",
+          "body_request"
+        ]
+      },
+      "MailboxEntry": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MailboxMessage"
+          },
+          {
+            "$ref": "#/components/schemas/OmittedMailboxMessage"
+          }
+        ]
+      },
+      "MessageInboxResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "after": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "next_cursor": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailboxEntry"
+            },
+            "minItems": 0,
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "api_version",
+          "recipient",
+          "after",
+          "next_cursor",
+          "has_more",
+          "messages"
+        ]
+      },
+      "MessageBodyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "offset": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "max_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16384
+          }
+        },
+        "required": [
+          "recipient",
+          "message_id",
+          "offset",
+          "max_bytes"
+        ]
+      },
+      "MessageBodyResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "offset": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "next_offset": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 16384,
+            "x-utf8-maxBytes": 16384
+          }
+        },
+        "required": [
+          "api_version",
+          "message_id",
+          "cursor",
+          "payload_digest",
+          "offset",
+          "next_offset",
+          "complete",
+          "body"
+        ]
+      },
+      "MessageNodeIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "boot_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          }
+        },
+        "required": [
+          "node_id",
+          "boot_id"
+        ]
+      },
+      "MessageNodePoll": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/MessageNodeIdentity"
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AttemptRef"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          }
+        },
+        "required": [
+          "identity",
+          "attempt",
+          "limit"
+        ]
+      },
+      "MessageNodeAck": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "identity": {
+            "$ref": "#/components/schemas/MessageNodeIdentity"
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AttemptRef"
+          },
+          "delivery_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "disposition": {
+            "enum": [
+              "received_by_node",
+              "handed_to_harness",
+              "delivery_unknown",
+              "stale"
+            ]
+          }
+        },
+        "required": [
+          "operation_id",
+          "identity",
+          "attempt",
+          "delivery_id",
+          "disposition"
+        ]
+      },
+      "MessageNodeDelivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "delivery_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/MailboxRecipient"
+          },
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "x-utf8-maxBytes": 16384
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "sender": {
+            "$ref": "#/components/schemas/MessageSender"
+          },
+          "disposition": {
+            "enum": [
+              "pending",
+              "received_by_node"
+            ]
+          }
+        },
+        "required": [
+          "delivery_id",
+          "message_id",
+          "recipient",
+          "thread_id",
+          "cursor",
+          "body",
+          "payload_digest",
+          "sender",
+          "disposition"
+        ]
+      },
+      "MessageNodeBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AttemptRef"
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageNodeDelivery"
+            },
+            "minItems": 0,
+            "maxItems": 16
+          }
+        },
+        "required": [
+          "api_version",
+          "attempt",
+          "deliveries"
+        ]
+      },
+      "MessageNodeAckReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "delivery_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AttemptRef"
+          },
+          "disposition": {
+            "enum": [
+              "received_by_node",
+              "handed_to_harness",
+              "delivery_unknown",
+              "stale"
+            ]
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "delivery_id",
+          "attempt",
+          "disposition"
+        ]
+      },
+      "NodeKind": {
+        "type": "string",
+        "enum": [
+          "task",
+          "knowledge"
+        ]
+      },
+      "ContentType": {
+        "type": "string",
+        "enum": [
+          "fact",
+          "decision",
+          "policy",
+          "procedure",
+          "incident",
+          "reference",
+          "note"
+        ]
+      },
+      "Verification": {
+        "type": "string",
+        "enum": [
+          "unverified",
+          "verified",
+          "disputed"
+        ]
+      },
+      "TaskState": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "active",
+          "completed",
+          "canceled"
+        ]
+      },
+      "AttemptRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          }
+        },
+        "required": [
+          "attempt_id",
+          "session_id",
+          "generation"
+        ]
+      },
+      "Binding": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "boot_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "resolved_spec_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "profile_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "context_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "task_id",
+          "attempt_id",
+          "session_id",
+          "generation",
+          "node_id",
+          "boot_id",
+          "project_id",
+          "workspace_id",
+          "resolved_spec_digest",
+          "profile_digest",
+          "context_digest"
+        ]
+      },
+      "ReadScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "workspace",
+              "records"
+            ]
+          },
+          "record_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            "minItems": 0,
+            "maxItems": 256,
+            "uniqueItems": true
+          },
+          "include_created_by_attempt": {
+            "type": "boolean"
+          },
+          "edge_types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EdgeType"
+            },
+            "minItems": 0,
+            "maxItems": 8,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "mode",
+          "record_ids",
+          "include_created_by_attempt",
+          "edge_types"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "workspace"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "record_ids": {
+                  "maxItems": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      "WriteScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "record_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            "minItems": 0,
+            "maxItems": 256,
+            "uniqueItems": true
+          },
+          "relationship_types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EdgeType"
+            },
+            "minItems": 0,
+            "maxItems": 8,
+            "uniqueItems": true
+          },
+          "correct_fields": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "title",
+                "body",
+                "labels"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "max_created_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          },
+          "max_proposal_tasks": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          }
+        },
+        "required": [
+          "record_ids",
+          "relationship_types",
+          "correct_fields",
+          "max_created_records",
+          "max_proposal_tasks"
+        ]
+      },
+      "RetryBudget": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "max_elapsed_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120000
+          },
+          "initial_delay_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "max_delay_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30000
+          }
+        },
+        "required": [
+          "max_attempts",
+          "max_elapsed_ms",
+          "initial_delay_ms",
+          "max_delay_ms"
+        ]
+      },
+      "ResolvedModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "x-utf8-maxBytes": 128
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "x-utf8-maxBytes": 128
+          },
+          "configuration_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "configuration_digest"
+        ]
+      },
+      "ResolvedProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "x-utf8-maxBytes": 128
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "x-utf8-maxBytes": 128
+          },
+          "model": {
+            "$ref": "#/components/schemas/ResolvedModel"
+          },
+          "instructions_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "tool_policy_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "minItems": 0,
+            "maxItems": 14,
+            "uniqueItems": true
+          },
+          "read_scope": {
+            "$ref": "#/components/schemas/ReadScope"
+          },
+          "write_scope": {
+            "$ref": "#/components/schemas/WriteScope"
+          },
+          "retry_budget": {
+            "$ref": "#/components/schemas/RetryBudget"
+          },
+          "max_response_bytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 1048576
+          }
+        },
+        "required": [
+          "profile_id",
+          "revision",
+          "role",
+          "model",
+          "instructions_digest",
+          "tool_policy_digest",
+          "capabilities",
+          "read_scope",
+          "write_scope",
+          "retry_budget",
+          "max_response_bytes"
+        ]
+      },
+      "CredentialMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "agent_session"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "authority_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          }
+        },
+        "required": [
+          "kind",
+          "version",
+          "expires_at",
+          "authority_revision"
+        ]
+      },
+      "ScopedNode": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NodeKind"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "content_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "x-utf8-maxBytes": 512
+          },
+          "body": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 262144,
+            "x-utf8-maxBytes": 262144
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 16384,
+            "x-utf8-maxBytes": 16384
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-utf8-maxBytes": 128
+            },
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "task_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContentType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retired": {
+            "type": "boolean"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "version",
+          "content_revision",
+          "title",
+          "body",
+          "acceptance_criteria",
+          "labels",
+          "task_state",
+          "verification",
+          "content_type",
+          "retired",
+          "deleted"
+        ]
+      },
+      "ScopedEdge": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "source": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "target": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "edge_type": {
+            "$ref": "#/components/schemas/EdgeType"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "source_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$",
+                "x-int64-token": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$",
+                "x-int64-token": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 4096,
+                "x-utf8-maxBytes": 4096
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "target",
+          "edge_type",
+          "version",
+          "source_revision",
+          "target_revision",
+          "description"
+        ]
+      },
+      "Coverage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "complete",
+              "partial"
+            ]
+          },
+          "complete_for": {
+            "const": "authorized_projection"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "scan_budget",
+                "node_budget",
+                "edge_budget",
+                "byte_budget"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 4,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "status",
+          "complete_for",
+          "reasons"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "complete"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "reasons": {
+                  "maxItems": 0
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "reasons": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ContextSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "projection": {
+            "const": "authorized_scope"
+          },
+          "root_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            "minItems": 1,
+            "maxItems": 16,
+            "uniqueItems": true
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopedNode"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopedEdge"
+            },
+            "minItems": 0,
+            "maxItems": 256
+          },
+          "pinned_revisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopedNode"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          }
+        },
+        "required": [
+          "observed_at",
+          "projection",
+          "root_ids",
+          "nodes",
+          "edges",
+          "pinned_revisions",
+          "coverage"
+        ]
+      },
+      "ContextResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/CredentialMetadata"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ResolvedProfile"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ContextSnapshot"
+          }
+        },
+        "required": [
+          "api_version",
+          "binding",
+          "credential",
+          "profile",
+          "context"
+        ]
+      },
+      "GetQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "get"
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "node_id"
+        ]
+      },
+      "RevisionQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "revision"
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          }
+        },
+        "required": [
+          "kind",
+          "node_id",
+          "revision"
+        ]
+      },
+      "HistoryQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "history"
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "x-utf8-maxBytes": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "node_id",
+          "limit",
+          "cursor"
+        ]
+      },
+      "SearchQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "search"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "x-utf8-maxBytes": 1024
+          },
+          "kind_filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "x-utf8-maxBytes": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "kind_filter",
+          "limit",
+          "cursor"
+        ]
+      },
+      "ContextQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "context"
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "direction": {
+            "enum": [
+              "both",
+              "incoming",
+              "outgoing"
+            ]
+          },
+          "max_nodes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "max_edges": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "max_bytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 1048576
+          }
+        },
+        "required": [
+          "kind",
+          "node_id",
+          "depth",
+          "direction",
+          "max_nodes",
+          "max_edges",
+          "max_bytes"
+        ]
+      },
+      "RelationshipsQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "relationships"
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "direction": {
+            "enum": [
+              "both",
+              "incoming",
+              "outgoing"
+            ]
+          },
+          "edge_types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EdgeType"
+            },
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "x-utf8-maxBytes": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "node_id",
+          "direction",
+          "edge_types",
+          "limit",
+          "cursor"
+        ]
+      },
+      "ReadQuery": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/GetQuery"
+          },
+          {
+            "$ref": "#/components/schemas/RevisionQuery"
+          },
+          {
+            "$ref": "#/components/schemas/HistoryQuery"
+          },
+          {
+            "$ref": "#/components/schemas/SearchQuery"
+          },
+          {
+            "$ref": "#/components/schemas/ContextQuery"
+          },
+          {
+            "$ref": "#/components/schemas/RelationshipsQuery"
+          }
+        ]
+      },
+      "ReadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "query": {
+            "$ref": "#/components/schemas/ReadQuery"
+          }
+        },
+        "required": [
+          "api_version",
+          "request_id",
+          "binding",
+          "query"
+        ]
+      },
+      "GetResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "get"
+          },
+          "node": {
+            "$ref": "#/components/schemas/ScopedNode"
+          }
+        },
+        "required": [
+          "kind",
+          "node"
+        ]
+      },
+      "RevisionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "revision"
+          },
+          "node": {
+            "$ref": "#/components/schemas/ScopedNode"
+          },
+          "links": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ScopedEdge"
+                },
+                "minItems": 0,
+                "maxItems": 256
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relationships_available": {
+            "type": "boolean"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          }
+        },
+        "required": [
+          "kind",
+          "node",
+          "links",
+          "relationships_available",
+          "coverage"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "relationships_available": {
+                  "const": false
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "links": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "links": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "HistoryItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "sequence": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "category": {
+            "enum": [
+              "revision",
+              "lifecycle",
+              "edge"
+            ]
+          },
+          "subject_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "node": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScopedNode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "edge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScopedEdge"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "entry_id",
+          "sequence",
+          "category",
+          "subject_id",
+          "occurred_at",
+          "node",
+          "edge"
+        ]
+      },
+      "HistoryResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "history"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryItem"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "x-utf8-maxBytes": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          }
+        },
+        "required": [
+          "kind",
+          "items",
+          "next_cursor",
+          "coverage"
+        ]
+      },
+      "SearchResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "search"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopedNode"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "x-utf8-maxBytes": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          }
+        },
+        "required": [
+          "kind",
+          "nodes",
+          "next_cursor",
+          "coverage"
+        ]
+      },
+      "ContextResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "context"
+          },
+          "node": {
+            "$ref": "#/components/schemas/ScopedNode"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopedNode"
+            },
+            "minItems": 0,
+            "maxItems": 63
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopedEdge"
+            },
+            "minItems": 0,
+            "maxItems": 256
+          },
+          "pinned_revisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopedNode"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          }
+        },
+        "required": [
+          "kind",
+          "node",
+          "nodes",
+          "edges",
+          "pinned_revisions",
+          "coverage"
+        ]
+      },
+      "RelationshipsResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "relationships"
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopedEdge"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "x-utf8-maxBytes": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          }
+        },
+        "required": [
+          "kind",
+          "edges",
+          "next_cursor",
+          "coverage"
+        ]
+      },
+      "ReadResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/GetResult"
+          },
+          {
+            "$ref": "#/components/schemas/RevisionResult"
+          },
+          {
+            "$ref": "#/components/schemas/HistoryResult"
+          },
+          {
+            "$ref": "#/components/schemas/SearchResult"
+          },
+          {
+            "$ref": "#/components/schemas/ContextResult"
+          },
+          {
+            "$ref": "#/components/schemas/RelationshipsResult"
+          }
+        ]
+      },
+      "ReadResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "query_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "projection": {
+            "const": "authorized_scope"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ReadResult"
+          }
+        },
+        "required": [
+          "api_version",
+          "request_id",
+          "binding",
+          "query_digest",
+          "observed_at",
+          "projection",
+          "result"
+        ]
+      },
+      "FindingCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "create_finding"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "x-utf8-maxBytes": 512
+          },
+          "body": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 262144,
+            "x-utf8-maxBytes": 262144
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-utf8-maxBytes": 128
+            },
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "content_type": {
+            "$ref": "#/components/schemas/ContentType"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "body",
+          "labels",
+          "content_type"
+        ]
+      },
+      "CorrectionPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "x-utf8-maxBytes": 512
+          },
+          "body": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 262144,
+            "x-utf8-maxBytes": 262144
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-utf8-maxBytes": 128
+            },
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          }
+        },
+        "required": [],
+        "minProperties": 1
+      },
+      "CorrectionCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "correct_record"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "expected_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "patch": {
+            "$ref": "#/components/schemas/CorrectionPatch"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "expected_version",
+          "patch"
+        ]
+      },
+      "RelationshipCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "add_relationship"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "source": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "target": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "expected_source_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "edge_type": {
+            "$ref": "#/components/schemas/InformationalEdgeType"
+          },
+          "source_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$",
+                "x-int64-token": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$",
+                "x-int64-token": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 4096,
+                "x-utf8-maxBytes": 4096
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "source",
+          "target",
+          "expected_source_version",
+          "edge_type",
+          "source_revision",
+          "target_revision",
+          "description"
+        ]
+      },
+      "RemoveRelationshipCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "remove_relationship"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "source": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "target": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "expected_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "expected_source_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "source",
+          "target",
+          "expected_version",
+          "expected_source_version"
+        ]
+      },
+      "ProposedTask": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "x-utf8-maxBytes": 512
+          },
+          "body": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 262144,
+            "x-utf8-maxBytes": 262144
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 16384,
+            "x-utf8-maxBytes": 16384
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "acceptance_criteria"
+        ]
+      },
+      "ProposedEdge": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "source": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "target": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "edge_type": {
+            "enum": [
+              "blocks",
+              "parent-child"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "target",
+          "edge_type"
+        ]
+      },
+      "VersionGuard": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "expected_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          }
+        },
+        "required": [
+          "id",
+          "expected_version"
+        ]
+      },
+      "DecompositionCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "propose_decomposition"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "x-utf8-maxBytes": 200
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "expected_parent_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProposedTask"
+            },
+            "minItems": 1,
+            "maxItems": 8
+          },
+          "relationships": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProposedEdge"
+            },
+            "minItems": 0,
+            "maxItems": 16
+          },
+          "guards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VersionGuard"
+            },
+            "minItems": 0,
+            "maxItems": 16
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "parent_id",
+          "expected_parent_version",
+          "tasks",
+          "relationships",
+          "guards"
+        ]
+      },
+      "GraphCommand": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FindingCommand"
+          },
+          {
+            "$ref": "#/components/schemas/CorrectionCommand"
+          },
+          {
+            "$ref": "#/components/schemas/RelationshipCommand"
+          },
+          {
+            "$ref": "#/components/schemas/RemoveRelationshipCommand"
+          },
+          {
+            "$ref": "#/components/schemas/DecompositionCommand"
+          }
+        ]
+      },
+      "CommandRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "x-utf8-maxBytes": 4096
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphCommand"
+            },
+            "minItems": 1,
+            "maxItems": 16
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "binding",
+          "reason",
+          "commands"
+        ]
+      },
+      "SubjectVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "node",
+              "edge"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "x-int64-token": true
+          },
+          "content_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$",
+                "x-int64-token": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "version",
+          "content_revision"
+        ]
+      },
+      "MutationReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "graph_mutation"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "change_set_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubjectVersion"
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "affected_record_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "task_completion": {
+            "const": false
+          }
+        },
+        "required": [
+          "kind",
+          "workspace_id",
+          "change_set_id",
+          "versions",
+          "affected_record_ids",
+          "task_completion"
+        ]
+      },
+      "ProposalReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "graph_draft"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "draft_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "proposal_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "applied": {
+            "const": false
+          },
+          "task_completion": {
+            "const": false
+          }
+        },
+        "required": [
+          "kind",
+          "workspace_id",
+          "draft_id",
+          "proposal_digest",
+          "applied",
+          "task_completion"
+        ]
+      },
+      "GraphReceipt": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MutationReceipt"
+          },
+          {
+            "$ref": "#/components/schemas/ProposalReceipt"
+          }
+        ]
+      },
+      "RecoveryHint": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "poll_existing",
+              "query_or_replay_identical",
+              "manual_reconciliation"
+            ]
+          },
+          "after_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 30000
+          },
+          "remaining_attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "remaining_elapsed_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120000
+          }
+        },
+        "required": [
+          "action",
+          "after_ms",
+          "remaining_attempts",
+          "remaining_elapsed_ms"
+        ]
+      },
+      "PendingOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "state": {
+            "const": "pending"
+          },
+          "admission": {
+            "const": "recorded"
+          },
+          "effect": {
+            "enum": [
+              "not_dispatched",
+              "possible"
+            ]
+          },
+          "recovery": {
+            "$ref": "#/components/schemas/RecoveryHint"
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "binding",
+          "payload_digest",
+          "state",
+          "admission",
+          "effect",
+          "recovery"
+        ]
+      },
+      "ConfirmedOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "state": {
+            "const": "confirmed"
+          },
+          "admission": {
+            "const": "recorded"
+          },
+          "effect": {
+            "const": "confirmed"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/GraphReceipt"
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "binding",
+          "payload_digest",
+          "state",
+          "admission",
+          "effect",
+          "receipt"
+        ]
+      },
+      "ConflictItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "version",
+              "idempotency",
+              "binding_changed",
+              "scope_revision"
+            ]
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f-]{36}$",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$",
+                "x-int64-token": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$",
+                "x-int64-token": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "subject_id",
+          "expected",
+          "current"
+        ]
+      },
+      "ConflictOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "state": {
+            "const": "conflict"
+          },
+          "admission": {
+            "const": "recorded"
+          },
+          "effect": {
+            "const": "not_applied"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictItem"
+            },
+            "minItems": 1,
+            "maxItems": 16
+          },
+          "retryable": {
+            "const": false
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "binding",
+          "payload_digest",
+          "state",
+          "admission",
+          "effect",
+          "conflicts",
+          "retryable"
+        ]
+      },
+      "RejectedOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "state": {
+            "const": "rejected"
+          },
+          "admission": {
+            "const": "recorded"
+          },
+          "effect": {
+            "const": "not_applied"
+          },
+          "code": {
+            "enum": [
+              "invalid_request",
+              "capability_denied",
+              "session_expired",
+              "session_revoked",
+              "stale_generation",
+              "scope_denied",
+              "graph_rejected",
+              "unsupported_capability"
+            ]
+          },
+          "retryable": {
+            "const": false
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "binding",
+          "payload_digest",
+          "state",
+          "admission",
+          "effect",
+          "code",
+          "retryable"
+        ]
+      },
+      "UnknownOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "payload_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "state": {
+            "const": "unknown"
+          },
+          "admission": {
+            "enum": [
+              "recorded",
+              "unknown"
+            ]
+          },
+          "effect": {
+            "const": "possible"
+          },
+          "recovery": {
+            "$ref": "#/components/schemas/RecoveryHint"
+          }
+        },
+        "required": [
+          "api_version",
+          "operation_id",
+          "binding",
+          "payload_digest",
+          "state",
+          "admission",
+          "effect",
+          "recovery"
+        ]
+      },
+      "OperationStatus": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PendingOperation"
+          },
+          {
+            "$ref": "#/components/schemas/ConfirmedOperation"
+          },
+          {
+            "$ref": "#/components/schemas/ConflictOperation"
+          },
+          {
+            "$ref": "#/components/schemas/RejectedOperation"
+          },
+          {
+            "$ref": "#/components/schemas/UnknownOperation"
+          }
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f-]{36}$",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "enum": [
+              "invalid_request",
+              "unsupported_api_version",
+              "unsupported_capability",
+              "unauthorized",
+              "session_expired",
+              "session_revoked",
+              "stale_generation",
+              "scope_denied",
+              "not_found",
+              "operation_unknown",
+              "cursor_invalid",
+              "id_conflict",
+              "overloaded",
+              "response_too_large",
+              "internal"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "x-utf8-maxBytes": 4096
+          },
+          "effect": {
+            "enum": [
+              "not_applied",
+              "unknown"
+            ]
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "recovery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecoveryHint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "api_version",
+          "request_id",
+          "operation_id",
+          "code",
+          "message",
+          "effect",
+          "retryable",
+          "recovery"
+        ]
+      },
+      "RecoveryLookup": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AttemptRef"
+          },
+          "mode": {
+            "const": "lookup"
+          },
+          "operation_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            "minItems": 1,
+            "maxItems": 64,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "api_version",
+          "request_id",
+          "node_id",
+          "attempt",
+          "mode",
+          "operation_ids"
+        ]
+      },
+      "RecoveryList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AttemptRef"
+          },
+          "mode": {
+            "const": "list"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "x-utf8-maxBytes": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "api_version",
+          "request_id",
+          "node_id",
+          "attempt",
+          "mode",
+          "limit",
+          "cursor"
+        ]
+      },
+      "RecoveryRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RecoveryLookup"
+          },
+          {
+            "$ref": "#/components/schemas/RecoveryList"
+          }
+        ]
+      },
+      "RecoveryRetry": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "node_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AttemptRef"
+          },
+          "mode": {
+            "const": "lookup"
+          },
+          "operation_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            "minItems": 1,
+            "maxItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "api_version",
+          "request_id",
+          "node_id",
+          "attempt",
+          "mode",
+          "operation_ids"
+        ]
+      },
+      "RecoveryResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": 1
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AttemptRef"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperationStatus"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "x-utf8-maxBytes": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          }
+        },
+        "required": [
+          "api_version",
+          "request_id",
+          "attempt",
+          "operations",
+          "next_cursor",
+          "coverage"
+        ]
+      }
+    }
+  }
+}

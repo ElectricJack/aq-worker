@@ -1,0 +1,35 @@
+{
+  "contract": "agent-access",
+  "version": 1,
+  "source_revision": "2b58715",
+  "files": {
+    "schema.json": {
+      "sha256": "a9fdaf3766c09ee40c87c68aeb161da738991decb876e79aa8d7efba112fab97",
+      "bytes": 85989
+    },
+    "openapi.json": {
+      "sha256": "eace57b329766da89478d87f1fd68a69c7463073a276fc5f65c9b4ac1917e7e7",
+      "bytes": 183327
+    },
+    "cli-contract.json": {
+      "sha256": "75087bf8ee96918ba12266b96cc3b3dfc064c8d4187673eb2428af3e7d840e52",
+      "bytes": 2416
+    },
+    "fixtures/base.json": {
+      "sha256": "e3deade737992bad2800b8e5d6e0e89282f8c3078b484896e9b8c81fc2af78e5",
+      "bytes": 41615
+    },
+    "fixtures/messages.json": {
+      "sha256": "0d862801912ac2230e14d10a106ac4fcb810b41fc83ee9855cad40949c2b856d",
+      "bytes": 61208
+    },
+    "fixtures/messaging.json": {
+      "sha256": "b6e5e86da0fe752fea0168e67fe48599c516e229c483690f57a94994d7928d50",
+      "bytes": 12987
+    },
+    "fixtures/mutation-delivery.json": {
+      "sha256": "12ad3cc630778ef0088e75569b7cd586e5ff393ef71bb9753c5a4dea2e1958a3",
+      "bytes": 5155
+    }
+  }
+}

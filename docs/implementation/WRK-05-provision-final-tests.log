@@ -1,0 +1,20 @@
+   Compiling aq-agent-client v0.1.0 (/tmp/aq-wrk05-client/crates/aq-agent-client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.09s
+     Running tests/provisioning.rs (target/debug/deps/provisioning-51aae0e4197c75e5)
+
+running 12 tests
+test node_owner_lock_and_conservative_minimum_are_enforced ... ok
+test symlink_permissions_and_unexpected_temp_refuse_before_http ... ok
+test allocation_quota_and_binding_survive_restart_without_implicit_reclaim ... ok
+test changed_startup_bytes_and_impossible_disk_reservation_refuse ... ok
+test mismatched_real_response_stays_unknown_and_never_publishes_config ... ok
+test explicit_agent_egress_never_copies_node_cf_identity ... ok
+test private_atomic_install_has_real_context_and_no_node_credential ... ok
+test explicit_new_intent_can_recover_loss_before_server_commit_at_same_cas_version ... ok
+test lost_reply_never_reissues_plaintext_and_explicit_cas_rotation_recovers ... ok
+test exact_retained_response_recovers_local_install_without_http ... ok
+test explicit_refresh_atomically_replaces_credential_while_agent_journal_is_open ... ok
+test context_bundle_bound_is_distinct_from_one_megabyte_wire_bound ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+

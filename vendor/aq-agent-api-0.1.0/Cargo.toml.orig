@@ -1,0 +1,13 @@
+[package]
+name = "aq-agent-api"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Agent Q scoped agent API v1 schemas and pure contract validation"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde"] }
+chrono = "0.4"
+sha2 = "0.10"

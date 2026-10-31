@@ -1,0 +1,28 @@
+[package]
+name = "aq-agent-client"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "aq-agent"
+path = "src/main.rs"
+
+[dependencies]
+aq-agent-api = { path = "../../vendor/aq-agent-api-0.1.0", version = "=0.1.0" }
+aq-session-protocol = { path = "../aq-session-protocol", version = "=0.1.0" }
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+fs2 = "0.4"
+libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+axum = "0.8"
+tempfile = "3"

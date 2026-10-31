@@ -1,0 +1,177 @@
+{
+  "wire": [
+    {
+      "type": "RecoveryRetry",
+      "value": {
+        "api_version": 1,
+        "request_id": "00000000-0000-0000-0000-0000000001f4",
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "attempt": {
+          "attempt_id": "00000000-0000-0000-0000-000000000066",
+          "session_id": "00000000-0000-0000-0000-000000000067",
+          "generation": 1
+        },
+        "mode": "lookup",
+        "operation_ids": [
+          "00000000-0000-0000-0000-00000000012d"
+        ]
+      }
+    }
+  ],
+  "proposal_profiles": [
+    {
+      "name": "legacy-informational-only",
+      "profile": {
+        "profile_id": "coding-pilot",
+        "revision": "1",
+        "role": "coding",
+        "model": {
+          "provider": "fixture-provider",
+          "model": "deterministic",
+          "configuration_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "instructions_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "tool_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+        "capabilities": [
+          "read.get",
+          "read.revision",
+          "read.history",
+          "read.search",
+          "read.context",
+          "read.relationships",
+          "write.finding",
+          "write.correct",
+          "write.proposal",
+          "write.relationships"
+        ],
+        "read_scope": {
+          "mode": "records",
+          "record_ids": [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003"
+          ],
+          "include_created_by_attempt": true,
+          "edge_types": [
+            "blocks",
+            "parent-child",
+            "references",
+            "motivated_by",
+            "produces",
+            "supports",
+            "contradicts",
+            "supersedes"
+          ]
+        },
+        "write_scope": {
+          "record_ids": [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003"
+          ],
+          "relationship_types": [
+            "references",
+            "motivated_by",
+            "produces",
+            "supports",
+            "contradicts",
+            "supersedes"
+          ],
+          "correct_fields": [
+            "title",
+            "body",
+            "labels"
+          ],
+          "max_created_records": 32,
+          "max_proposal_tasks": 8
+        },
+        "retry_budget": {
+          "max_attempts": 5,
+          "max_elapsed_ms": 30000,
+          "initial_delay_ms": 250,
+          "max_delay_ms": 2000
+        },
+        "max_response_bytes": 1048576
+      },
+      "authorized": false
+    },
+    {
+      "name": "explicit-structural-draft",
+      "profile": {
+        "profile_id": "coding-pilot",
+        "revision": "1",
+        "role": "coding",
+        "model": {
+          "provider": "fixture-provider",
+          "model": "deterministic",
+          "configuration_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "instructions_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "tool_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+        "capabilities": [
+          "read.get",
+          "read.revision",
+          "read.history",
+          "read.search",
+          "read.context",
+          "read.relationships",
+          "write.finding",
+          "write.correct",
+          "write.proposal",
+          "write.relationships"
+        ],
+        "read_scope": {
+          "mode": "records",
+          "record_ids": [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003"
+          ],
+          "include_created_by_attempt": true,
+          "edge_types": [
+            "blocks",
+            "parent-child",
+            "references",
+            "motivated_by",
+            "produces",
+            "supports",
+            "contradicts",
+            "supersedes"
+          ]
+        },
+        "write_scope": {
+          "record_ids": [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003"
+          ],
+          "relationship_types": [
+            "references",
+            "motivated_by",
+            "produces",
+            "supports",
+            "contradicts",
+            "supersedes",
+            "blocks",
+            "parent-child"
+          ],
+          "correct_fields": [
+            "title",
+            "body",
+            "labels"
+          ],
+          "max_created_records": 32,
+          "max_proposal_tasks": 8
+        },
+        "retry_budget": {
+          "max_attempts": 5,
+          "max_elapsed_ms": 30000,
+          "initial_delay_ms": 250,
+          "max_delay_ms": 2000
+        },
+        "max_response_bytes": 1048576
+      },
+      "authorized": true
+    }
+  ]
+}

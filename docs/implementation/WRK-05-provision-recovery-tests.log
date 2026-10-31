@@ -1,0 +1,30 @@
+   Compiling aq-agent-client v0.1.0 (/tmp/aq-wrk05-client/crates/aq-agent-client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.78s
+     Running tests/provisioning.rs (target/debug/deps/provisioning-51aae0e4197c75e5)
+
+running 11 tests
+test node_owner_lock_and_conservative_minimum_are_enforced ... ok
+test symlink_permissions_and_unexpected_temp_refuse_before_http ... ok
+test allocation_quota_and_binding_survive_restart_without_implicit_reclaim ... ok
+test changed_startup_bytes_and_impossible_disk_reservation_refuse ... ok
+test explicit_agent_egress_never_copies_node_cf_identity ... ok
+test mismatched_real_response_stays_unknown_and_never_publishes_config ... ok
+test private_atomic_install_has_real_context_and_no_node_credential ... ok
+test lost_reply_never_reissues_plaintext_and_explicit_cas_rotation_recovers ... ok
+test exact_retained_response_recovers_local_install_without_http ... ok
+test explicit_refresh_atomically_replaces_credential_while_agent_journal_is_open ... ok
+test context_bundle_bound_is_distinct_from_one_megabyte_wire_bound ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+
+     Running tests/recovery.rs (target/debug/deps/recovery-473c31cd9e707a89)
+
+running 5 tests
+test bounded_paginated_list_returns_server_cursor_without_new_authority ... ok
+test client_refuses_new_payload_list_retry_and_foreign_request_before_http ... ok
+test known_lookup_and_retry_use_only_retained_ids_and_node_credential ... ok
+test foreign_workspace_duplicate_ids_limit_overrun_and_lookup_cursor_refuse ... ok
+test foreign_response_bindings_ids_status_and_malformed_body_refuse ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

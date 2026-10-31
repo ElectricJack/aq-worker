@@ -1,0 +1,388 @@
+[
+  {
+    "name": "scoped-task-send",
+    "type": "MessageSend",
+    "value": {
+      "operation_id": "00000000-0000-0000-0000-0000000001f5",
+      "message_id": "00000000-0000-0000-0000-0000000001f6",
+      "thread_id": "00000000-0000-0000-0000-0000000001f7",
+      "recipient": {
+        "kind": "task",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001"
+      },
+      "body": "Review é界🙂 safely."
+    },
+    "valid": true
+  },
+  {
+    "name": "immutable-session-send",
+    "type": "MessageSend",
+    "value": {
+      "operation_id": "00000000-0000-0000-0000-0000000001f5",
+      "message_id": "00000000-0000-0000-0000-0000000001f6",
+      "thread_id": "00000000-0000-0000-0000-0000000001f7",
+      "recipient": {
+        "kind": "session",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "generation": 1
+      },
+      "body": "Review é界🙂 safely."
+    },
+    "valid": true
+  },
+  {
+    "name": "accepted-is-queued",
+    "type": "MessageSendReceipt",
+    "value": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-0000000001f5",
+      "message_id": "00000000-0000-0000-0000-0000000001f6",
+      "thread_id": "00000000-0000-0000-0000-0000000001f7",
+      "recipient": {
+        "kind": "task",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001"
+      },
+      "cursor": "1",
+      "disposition": "queued",
+      "node_delivery": "not_attempted",
+      "harness_delivery": "not_attempted",
+      "notification_delivery": "not_attempted"
+    },
+    "valid": true
+  },
+  {
+    "name": "exclusive-thread-cursor",
+    "type": "MessageInbox",
+    "value": {
+      "recipient": {
+        "kind": "task",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001"
+      },
+      "after": "0",
+      "thread_id": "00000000-0000-0000-0000-0000000001f7",
+      "limit": 32
+    },
+    "valid": true
+  },
+  {
+    "name": "agent-read-ack",
+    "type": "MessageAck",
+    "value": {
+      "operation_id": "00000000-0000-0000-0000-0000000001f8",
+      "recipient": {
+        "kind": "task",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001"
+      },
+      "message_id": "00000000-0000-0000-0000-0000000001f6",
+      "disposition": "read"
+    },
+    "valid": true
+  },
+  {
+    "name": "mailbox-page",
+    "type": "MessageInboxResponse",
+    "value": {
+      "api_version": 1,
+      "recipient": {
+        "kind": "task",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001"
+      },
+      "after": "0",
+      "next_cursor": "1",
+      "has_more": false,
+      "messages": [
+        {
+          "message_id": "00000000-0000-0000-0000-0000000001f6",
+          "thread_id": "00000000-0000-0000-0000-0000000001f7",
+          "recipient": {
+            "kind": "task",
+            "workspace_id": "00000000-0000-0000-0000-000000000069",
+            "project_id": "00000000-0000-0000-0000-000000000068",
+            "task_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "body": "Review é界🙂 safely.",
+          "cursor": "1",
+          "sender": {
+            "kind": "session",
+            "binding": {
+              "task_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000066",
+              "session_id": "00000000-0000-0000-0000-000000000067",
+              "generation": 1,
+              "node_id": "00000000-0000-0000-0000-000000000064",
+              "boot_id": "00000000-0000-0000-0000-000000000065",
+              "project_id": "00000000-0000-0000-0000-000000000068",
+              "workspace_id": "00000000-0000-0000-0000-000000000069",
+              "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+              "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+              "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+            }
+          },
+          "payload_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "created_at_ms": 1000000,
+          "disposition": "queued",
+          "delivery": null
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "bounded-body-request",
+    "type": "MessageBodyRequest",
+    "value": {
+      "recipient": {
+        "kind": "task",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001"
+      },
+      "message_id": "00000000-0000-0000-0000-0000000001f6",
+      "offset": "0",
+      "max_bytes": 512
+    },
+    "valid": true
+  },
+  {
+    "name": "bounded-body-response",
+    "type": "MessageBodyResponse",
+    "value": {
+      "api_version": 1,
+      "message_id": "00000000-0000-0000-0000-0000000001f6",
+      "cursor": "1",
+      "payload_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "offset": "0",
+      "next_offset": "5",
+      "complete": false,
+      "body": "é界"
+    },
+    "valid": true
+  },
+  {
+    "name": "node-poll",
+    "type": "MessageNodePoll",
+    "value": {
+      "identity": {
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065"
+      },
+      "attempt": {
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1
+      },
+      "limit": 16
+    },
+    "valid": true
+  },
+  {
+    "name": "node-batch",
+    "type": "MessageNodeBatch",
+    "value": {
+      "api_version": 1,
+      "attempt": {
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1
+      },
+      "deliveries": [
+        {
+          "message_id": "00000000-0000-0000-0000-0000000001f6",
+          "thread_id": "00000000-0000-0000-0000-0000000001f7",
+          "recipient": {
+            "kind": "task",
+            "workspace_id": "00000000-0000-0000-0000-000000000069",
+            "project_id": "00000000-0000-0000-0000-000000000068",
+            "task_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "body": "Review é界🙂 safely.",
+          "cursor": "1",
+          "sender": {
+            "kind": "session",
+            "binding": {
+              "task_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000066",
+              "session_id": "00000000-0000-0000-0000-000000000067",
+              "generation": 1,
+              "node_id": "00000000-0000-0000-0000-000000000064",
+              "boot_id": "00000000-0000-0000-0000-000000000065",
+              "project_id": "00000000-0000-0000-0000-000000000068",
+              "workspace_id": "00000000-0000-0000-0000-000000000069",
+              "resolved_spec_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+              "profile_digest": "c811b2e30db6ac7e128432bfcf3b06b2c15eb6dba576f502d3cd15d0cb061a36",
+              "context_digest": "9b6ad2f3f32353e8e45d679f90091882954041c96c7e5a34a4322a5db5ef83d8"
+            }
+          },
+          "payload_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "delivery_id": "00000000-0000-0000-0000-0000000001f9",
+          "disposition": "pending"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "node-received_by_node",
+    "type": "MessageNodeAck",
+    "value": {
+      "operation_id": "00000000-0000-0000-0000-0000000001fa",
+      "identity": {
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065"
+      },
+      "attempt": {
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1
+      },
+      "delivery_id": "00000000-0000-0000-0000-0000000001f9",
+      "disposition": "received_by_node"
+    },
+    "valid": true
+  },
+  {
+    "name": "node-handed_to_harness",
+    "type": "MessageNodeAck",
+    "value": {
+      "operation_id": "00000000-0000-0000-0000-0000000001fa",
+      "identity": {
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065"
+      },
+      "attempt": {
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1
+      },
+      "delivery_id": "00000000-0000-0000-0000-0000000001f9",
+      "disposition": "handed_to_harness"
+    },
+    "valid": true
+  },
+  {
+    "name": "node-delivery_unknown",
+    "type": "MessageNodeAck",
+    "value": {
+      "operation_id": "00000000-0000-0000-0000-0000000001fa",
+      "identity": {
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065"
+      },
+      "attempt": {
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1
+      },
+      "delivery_id": "00000000-0000-0000-0000-0000000001f9",
+      "disposition": "delivery_unknown"
+    },
+    "valid": true
+  },
+  {
+    "name": "node-stale",
+    "type": "MessageNodeAck",
+    "value": {
+      "operation_id": "00000000-0000-0000-0000-0000000001fa",
+      "identity": {
+        "node_id": "00000000-0000-0000-0000-000000000064",
+        "boot_id": "00000000-0000-0000-0000-000000000065"
+      },
+      "attempt": {
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1
+      },
+      "delivery_id": "00000000-0000-0000-0000-0000000001f9",
+      "disposition": "stale"
+    },
+    "valid": true
+  },
+  {
+    "name": "agent-read-receipt",
+    "type": "MessageAckReceipt",
+    "valid": true,
+    "value": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-0000000001f8",
+      "recipient": {
+        "kind": "task",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001"
+      },
+      "message_id": "00000000-0000-0000-0000-0000000001f6",
+      "disposition": "read",
+      "cursor": "1",
+      "attempt_id": "00000000-0000-0000-0000-000000000066",
+      "node_delivery": "not_attempted",
+      "harness_delivery": "not_attempted"
+    }
+  },
+  {
+    "name": "node-unknown-receipt",
+    "type": "MessageNodeAckReceipt",
+    "valid": true,
+    "value": {
+      "api_version": 1,
+      "operation_id": "00000000-0000-0000-0000-0000000001fa",
+      "delivery_id": "00000000-0000-0000-0000-0000000001f9",
+      "attempt": {
+        "attempt_id": "00000000-0000-0000-0000-000000000066",
+        "session_id": "00000000-0000-0000-0000-000000000067",
+        "generation": 1
+      },
+      "disposition": "delivery_unknown"
+    }
+  },
+  {
+    "name": "omitted-body-explicit-chunk-request",
+    "type": "MessageInboxResponse",
+    "valid": true,
+    "value": {
+      "api_version": 1,
+      "recipient": {
+        "kind": "task",
+        "workspace_id": "00000000-0000-0000-0000-000000000069",
+        "project_id": "00000000-0000-0000-0000-000000000068",
+        "task_id": "00000000-0000-0000-0000-000000000001"
+      },
+      "after": "0",
+      "next_cursor": "0",
+      "has_more": true,
+      "messages": [
+        {
+          "message_id": "00000000-0000-0000-0000-0000000001f6",
+          "cursor": "1",
+          "body_omitted": true,
+          "body_bytes": 16384,
+          "recovery": "message_body",
+          "body_request": {
+            "recipient": {
+              "kind": "task",
+              "workspace_id": "00000000-0000-0000-0000-000000000069",
+              "project_id": "00000000-0000-0000-0000-000000000068",
+              "task_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "message_id": "00000000-0000-0000-0000-0000000001f6",
+            "offset": "0",
+            "max_bytes": 16384
+          }
+        }
+      ]
+    }
+  }
+]

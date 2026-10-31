@@ -1,0 +1,69 @@
+{
+  "name": "aq-agent-api",
+  "version": "0.1.0",
+  "producer_repository": "agent-q",
+  "source_revision": "2d71f3b7c161b0dff922f0bf2b9b6e5a63b6509b",
+  "archive_sha256": "59925d45196e14c18674375c3064fede5181f1ff42f285e3f81c02efbce36733",
+  "files": {
+    ".cargo_vcs_info.json": {
+      "sha256": "05faf23f0738019a24c85e7d3f2e53ec7e874bc53a73450924918f1154501c99",
+      "bytes": 113
+    },
+    "Cargo.lock": {
+      "sha256": "e3f80409e5668a99bb992a4bfd7fe857387afa348fbb8d03be979bc83fbc3486",
+      "bytes": 12276
+    },
+    "Cargo.toml": {
+      "sha256": "f879ad7bc5af1fec6ee0281d66cd8baa3798535524cbf22fd13973b7cc65ac91",
+      "bytes": 1094
+    },
+    "Cargo.toml.orig": {
+      "sha256": "46c4d2387a7df93e6c2d781b7b8a079431c787be7a373a575f0e08b9c6e8c1be",
+      "bytes": 322
+    },
+    "README.md": {
+      "sha256": "530c0aea876871d60cfef9722bef623a1aa9c66537d76be47cc2ec5e4ee2d73f",
+      "bytes": 1294
+    },
+    "artifacts/cli-contract.json": {
+      "sha256": "75087bf8ee96918ba12266b96cc3b3dfc064c8d4187673eb2428af3e7d840e52",
+      "bytes": 2416
+    },
+    "artifacts/fixtures/base.json": {
+      "sha256": "e3deade737992bad2800b8e5d6e0e89282f8c3078b484896e9b8c81fc2af78e5",
+      "bytes": 41615
+    },
+    "artifacts/fixtures/messages.json": {
+      "sha256": "0d862801912ac2230e14d10a106ac4fcb810b41fc83ee9855cad40949c2b856d",
+      "bytes": 61208
+    },
+    "artifacts/fixtures/messaging.json": {
+      "sha256": "b6e5e86da0fe752fea0168e67fe48599c516e229c483690f57a94994d7928d50",
+      "bytes": 12987
+    },
+    "artifacts/fixtures/mutation-delivery.json": {
+      "sha256": "12ad3cc630778ef0088e75569b7cd586e5ff393ef71bb9753c5a4dea2e1958a3",
+      "bytes": 5155
+    },
+    "artifacts/inventory.json": {
+      "sha256": "6688d4c025c53b05610f93e36877382aa7930091874d336af33ae37c1931a1aa",
+      "bytes": 1085
+    },
+    "artifacts/openapi.json": {
+      "sha256": "eace57b329766da89478d87f1fd68a69c7463073a276fc5f65c9b4ac1917e7e7",
+      "bytes": 183327
+    },
+    "artifacts/schema.json": {
+      "sha256": "a9fdaf3766c09ee40c87c68aeb161da738991decb876e79aa8d7efba112fab97",
+      "bytes": 85989
+    },
+    "src/lib.rs": {
+      "sha256": "ab426eddee7e58e325c1979b3b3cc682e2fa421b573badb9d5b7eb3c6a304e4b",
+      "bytes": 12463
+    },
+    "tests/contract.rs": {
+      "sha256": "8535d5df39d70c67ff8f90fddaf17f81640f1528798d22de7227fa51a5f4d3ca",
+      "bytes": 3353
+    }
+  }
+}

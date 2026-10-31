@@ -1,0 +1,24 @@
+{
+  "contract_version": 1,
+  "status": "Reserved CLI behavior; no CLI executable or production SDK shipped by API-01",
+  "command_name": "aq-agent",
+  "credential_input": {"agent": "--token-file PATH", "node_recovery": "worker-owned node credential binding; not accepted as agent token", "token_value_argument": false},
+  "commands": [
+    {"tokens": ["context"], "operation_id": "agentContextGet"},
+    {"tokens": ["graph", "get"], "query_kind": "get", "operation_id": "agentGraphRead"},
+    {"tokens": ["graph", "revision"], "query_kind": "revision", "operation_id": "agentGraphRead"},
+    {"tokens": ["graph", "history"], "query_kind": "history", "operation_id": "agentGraphRead"},
+    {"tokens": ["graph", "search"], "query_kind": "search", "operation_id": "agentGraphRead"},
+    {"tokens": ["graph", "context"], "query_kind": "context", "operation_id": "agentGraphRead"},
+    {"tokens": ["graph", "relationships"], "query_kind": "relationships", "operation_id": "agentGraphRead"},
+    {"tokens": ["graph", "command"], "operation_id": "agentGraphCommand", "input": "strict CommandRequest JSON; journal exact canonical bytes and operation ID before transport"},
+    {"tokens": ["operation", "get"], "operation_id": "agentOperationGet", "input": "existing operation UUID only"}
+  ],
+  "exit_codes": {"read_or_confirmed": 0, "pending": 10, "conflict": 11, "rejected": 12, "unknown": 13, "authentication_or_authority_refused": 14, "invalid_contract": 15},
+  "json_output": "Exactly the validated public response on stdout; structured errors on stderr; never claim success for pending/unknown/conflict",
+  "mutation_timeout": "Print original operation ID and unknown/possible effect; query existing status, then replay only original bytes/ID if authority and persisted retry budget permit",
+  "operation_not_found": "Not proof of no graph effect; preserve uncertainty, never generate a replacement key automatically",
+  "retry": "Persist attempt count and suspend-aware elapsed budget across process restart; bounded jittered backoff from resolved profile; exhaustion requires manual reconciliation",
+  "cache": "Private, bounded, read-only and scoped by session/generation/profile/context digests plus observation time; a cached value never authorizes a new operation",
+  "redaction": "Do not log bearer values, token file contents, raw invalid JSON, unauthorized records, unfiltered graph errors or source paths"
+}
