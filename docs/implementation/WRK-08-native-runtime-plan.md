@@ -103,3 +103,17 @@ chunks; larger Git bundles must use the source owner.
 Native journal, private material installation, current HTTP authority, actual Git
 hydration and the Codex adapter remain implementation work. No launch capability
 is advertised by these component checkpoints.
+
+Source7b729d3 adds the native reporting/download HTTP client over frozen0.1.6:
+registration, Started, Stopped, result recording, artifact ranges and private
+material. [Qualification](WRK-08-native-http-qualification.json) records6 actual
+loopback HTTP peer tests plus6 startup tests, strict worker lint and formatting.
+Two bounded reporting connections remain independent of two bounded download/
+result connections. Replies must match original request and owner pins; material
+TTL charges the full CLOCK_BOOTTIME send/body interval. The client never retries,
+follows redirects or interprets a historical acknowledgment as runnable authority.
+
+The [Codex adapter plan](WRK-08-codex-adapter-plan.md) now pins local CLI interface
+observation evidence and explicitly requires standalone guardian-owned executor
+qualification, exact stdin payload delivery and observed readiness before any
+real runtime capability claim.
