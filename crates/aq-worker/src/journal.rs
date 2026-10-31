@@ -82,9 +82,37 @@ pub enum WriteFault {
     AfterRename,
 }
 
+// flock is associated with the open file description, which raw fork children
+// inherit even with CLOEXEC. Closing the parent's last descriptor therefore
+// does not necessarily release it. An orderly owner release must explicitly
+// unlock; an inherited copy must never unlock the still-live parent's guard.
+struct OwnerLock {
+    file: File,
+    owner_pid: u32,
+}
+impl OwnerLock {
+    fn acquire(file: File) -> Result<Self> {
+        file.try_lock_exclusive()
+            .context("another runtime owns journal")?;
+        Ok(Self {
+            file,
+            owner_pid: std::process::id(),
+        })
+    }
+}
+impl Drop for OwnerLock {
+    fn drop(&mut self) {
+        if self.owner_pid == std::process::id() {
+            // Drop cannot return an error. Closing the descriptor still follows;
+            // crash/abort paths that skip Drop retain kernel last-FD semantics.
+            let _ = FileExt::unlock(&self.file);
+        }
+    }
+}
+
 pub struct Journal {
     root: PathBuf,
-    _owner: File,
+    _owner: OwnerLock,
     state: State,
     limits: Limits,
     next_fault: Option<WriteFault>,
@@ -116,14 +144,12 @@ impl Journal {
             .truncate(false)
             .mode(0o600)
             .open(root.join("owner.lock"))?;
-        owner
-            .try_lock_exclusive()
-            .context("another runtime owns journal")?;
+        let owner = OwnerLock::acquire(owner)?;
         // Rust opens Files CLOEXEC; verify rather than relying on an implicit
         // inheritance assumption for the guardian's exec boundary.
         use std::os::fd::AsRawFd;
         ensure!(
-            unsafe { libc::fcntl(owner.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC != 0,
+            unsafe { libc::fcntl(owner.file.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC != 0,
             "journal lock must not survive exec"
         );
         let parent = root
@@ -364,5 +390,54 @@ impl Journal {
             memory_bytes: cap.memory_bytes.saturating_sub(used.memory_bytes),
             disk_bytes: cap.disk_bytes.saturating_sub(used.disk_bytes),
         })
+    }
+}
+
+#[cfg(test)]
+mod owner_lock_tests {
+    use super::*;
+
+    #[test]
+    fn forked_guard_drop_cannot_unlock_the_original_owner() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let path = temp.path().join("owner.lock");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let owner = OwnerLock::acquire(file).unwrap();
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork: {}", std::io::Error::last_os_error());
+        if pid == 0 {
+            // OwnerLock contains only a File and PID. In this forked copy its
+            // Drop invokes getpid and File's close; no unlock or allocation.
+            drop(owner);
+            unsafe { libc::_exit(0) }
+        }
+        let mut status = 0;
+        loop {
+            let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+            if waited == pid {
+                break;
+            }
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::EINTR)
+            );
+        }
+        assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0);
+        let contender = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        assert!(
+            contender.try_lock_exclusive().is_err(),
+            "child must not release parent's lock"
+        );
+        drop(owner);
+        contender.try_lock_exclusive().unwrap();
     }
 }

@@ -330,3 +330,72 @@ fn oversized_journal_is_refused_before_deserialization() {
         .unwrap();
     assert!(Journal::open(temp.path(), sample_offer().identity, limits(1)).is_err());
 }
+
+#[test]
+fn orderly_journal_release_does_not_wait_for_an_unrelated_fork_child() {
+    use std::{
+        io::{Read, Write},
+        os::{fd::AsRawFd, unix::net::UnixStream},
+    };
+
+    // Model the guardian capability probe's raw fork while another test/runtime
+    // owns a journal. CLOEXEC does not close the inherited lock before exec.
+    // The child performs only async-signal-safe syscalls and holds its inherited
+    // descriptors until the parent explicitly releases it; no scheduler timing
+    // or sleeps determine whether the lock inheritance occurs.
+    struct Child {
+        pid: libc::pid_t,
+        control: UnixStream,
+    }
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.control.write_all(&[1]);
+            let mut status = 0;
+            loop {
+                let result = unsafe { libc::waitpid(self.pid, &mut status, 0) };
+                if result != -1
+                    || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR)
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    let temp = TempDir::new().unwrap();
+    let rt = runtime(temp.path(), 1);
+    let (parent, child) = UnixStream::pair().unwrap();
+    let parent_fd = parent.as_raw_fd();
+    let child_fd = child.as_raw_fd();
+    let pid = unsafe { libc::fork() };
+    assert!(pid >= 0, "fork: {}", std::io::Error::last_os_error());
+    if pid == 0 {
+        unsafe {
+            libc::close(parent_fd);
+            let ready = [1u8];
+            if libc::write(child_fd, ready.as_ptr().cast(), 1) != 1 {
+                libc::_exit(90);
+            }
+            let mut release = [0u8];
+            let result = libc::read(child_fd, release.as_mut_ptr().cast(), 1);
+            libc::_exit(if result == 1 { 0 } else { 91 });
+        }
+    }
+    drop(child);
+    let mut holder = Child {
+        pid,
+        control: parent,
+    };
+    let mut ready = [0u8];
+    holder.control.read_exact(&mut ready).unwrap();
+    assert_eq!(ready, [1]);
+    assert!(Journal::open(temp.path(), sample_offer().identity, limits(1)).is_err());
+    drop(rt);
+    // The unrelated child is still blocked with its inherited descriptor open.
+    let reopened = Journal::open(temp.path(), sample_offer().identity, limits(1));
+    assert!(
+        reopened.is_ok(),
+        "orderly owner release: {:?}",
+        reopened.err()
+    );
+}
