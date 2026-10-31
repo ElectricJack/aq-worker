@@ -1,0 +1,14 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-native-consumer/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.77s
+     Running tests/native_startup.rs (/tmp/aq-native-consumer-target/debug/deps/native_startup-4f2a6acb15b913ed)
+
+running 6 tests
+test incomplete_corrupt_empty_oversized_and_source_bundle_downloads_refuse ... ok
+test exact_prefix_retry_is_idempotent_but_changed_partial_and_gapped_replies_refuse ... ok
+test alternate_descriptor_encoding_is_not_the_content_addressed_object ... ok
+test self_consistent_replacement_cannot_replace_original_payload ... ok
+test published_native_fixture_downloads_produce_one_host_payload ... ok
+test offer_cannot_qualify_its_own_renderer_or_replace_retention_receipt ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
