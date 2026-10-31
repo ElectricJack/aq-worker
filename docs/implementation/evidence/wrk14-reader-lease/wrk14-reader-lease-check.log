@@ -1,0 +1,8 @@
+    Checking ref-cast v1.0.27
+    Checking serde v1.0.229
+    Checking thiserror v2.0.21
+    Checking schemars v1.2.3
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-session-protocol)
+    Checking aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-worker-output/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.92s
