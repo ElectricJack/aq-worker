@@ -1,0 +1,821 @@
+{
+  "task": "WRK-15",
+  "status": "isolated_prototype_checkpoint_not_production_storage",
+  "source_revision": null,
+  "base_revision": "444e1d67f27259169583f1e62ab9bd26ab754171",
+  "recorded_at_utc": "2026-10-31T10:33:57.572264+00:00",
+  "source_hashes": {
+    "Cargo.toml": "a41aad81271ca303287731219382edaaf31f96c1bd51b3033200788b4090e2f7",
+    "Cargo.lock": "f58b3c4e4b5027b5087b906c243531b2932c3cfe8bbeb08696dc294edcdbff64",
+    "crates/aq-observation-redb-prototype/Cargo.toml": "52d6bcb0df2cbf0eb28a9bff542a6724bf9a0815c2a6713cf20cffc74d8a87ed",
+    "crates/aq-observation-redb-prototype/README.md": "bf6c6b84e3ad55403c4906558659c49c32cf405a041d64d66b1d3eb3712e5bf4",
+    "crates/aq-observation-redb-prototype/examples/measure.rs": "b0c1d9e90917a2dd0f43fcc8b6edba52a768dac0313d9f3841bbb90e3a91c98a",
+    "crates/aq-observation-redb-prototype/examples/reference_measure.rs": "58f6751e5dcb237b4661ab344f04653fb8849392b88eb2d3ae119edbd85dd2e6",
+    "crates/aq-observation-redb-prototype/src/backend.rs": "f1482f5aaf34d685c4d366f37bdb0f287683fb21f801b22bb7d620f7520bca7d",
+    "crates/aq-observation-redb-prototype/src/lib.rs": "5a7fc92dbb19c995fa115d9695a66fedeb0b281537f03365a3e06f0cf71fe156",
+    "crates/aq-observation-redb-prototype/tests/faults.rs": "50912607b0dfb24eb1636383a791cce33a3083a797d22a5b25aae619eaded997",
+    "crates/aq-observation-redb-prototype/tests/store.rs": "4f22b4750746044043b4c0d81d97b882f527066d222271ed3be13df529377cfd",
+    "crates/aq-observation-redb-prototype/tests/support/mod.rs": "923991c4fb9ce83555463b45fbfbfe05c39b34b26e037414f82f0091cb11624e"
+  },
+  "dependency": {
+    "name": "redb",
+    "version": "4.4.0",
+    "registry_checksum": "39178e0a867f9e3eaa6292a4ab1dd3613f2519c5b564341e1e7b29b270736cc4",
+    "official_release_commit": "7061f7e60d4573311c0636e161d417b93e9fd2b1",
+    "external_service_required": false
+  },
+  "qualification": {
+    "tests_passed": 9,
+    "includes_child_helper": true,
+    "io_error_boundary_cuts": 88,
+    "process_exit_boundary_cuts": 88,
+    "old_or_new_exact_projection": true,
+    "reference_exact_packet_retry_receipt_parity": true,
+    "actual_physical_growth_refusal_reopen": true,
+    "strict_all_target_clippy": true,
+    "format": true,
+    "clean_source_revision_qualification": "pending reviewed commit",
+    "empty_and_short_existing_store_refused_unchanged": [
+      0,
+      1,
+      511
+    ]
+  },
+  "measurement": {
+    "method": "release warm-local-filesystem;35 single-event cycles per configuration; population excluded; p95 nearest-rank ceil(.95*n); not performance guarantee",
+    "redb": {
+      "near": {
+        "initial_logical_bytes": 12441400,
+        "initial_file_bytes": 33689600,
+        "final_file_bytes": 33689600,
+        "quick_repair": false,
+        "operations": {
+          "append": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.579479,
+              "p95": 5.1295150000000005,
+              "max": 6.212022999999999,
+              "min": 3.240462
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 53888,
+              "p95": 57984,
+              "max": 62080,
+              "min": 53888
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 4096,
+              "max": 36864,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 17,
+              "p95": 18,
+              "max": 19,
+              "min": 17
+            }
+          },
+          "prepare": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.3470940000000002,
+              "p95": 4.589854,
+              "max": 4.754668,
+              "min": 3.040274
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 21120,
+              "p95": 21120,
+              "max": 21120,
+              "min": 21120
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 4096,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 9,
+              "p95": 9,
+              "max": 9,
+              "min": 9
+            }
+          },
+          "send": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.289021,
+              "p95": 4.727883,
+              "max": 4.832910999999999,
+              "min": 2.922994
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 21120,
+              "p95": 21120,
+              "max": 21120,
+              "min": 21120
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 9,
+              "p95": 9,
+              "max": 9,
+              "min": 9
+            }
+          },
+          "ack": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.237202,
+              "p95": 4.438618,
+              "max": 4.531628,
+              "min": 3.016334
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 25216,
+              "p95": 25216,
+              "max": 25216,
+              "min": 25216
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 10,
+              "p95": 10,
+              "max": 10,
+              "min": 10
+            }
+          }
+        }
+      },
+      "near_quick": {
+        "initial_logical_bytes": 12441400,
+        "initial_file_bytes": 33689600,
+        "final_file_bytes": 33689600,
+        "quick_repair": true,
+        "operations": {
+          "append": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.6215800000000002,
+              "p95": 7.573462,
+              "max": 7.5796730000000005,
+              "min": 3.287133
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 66176,
+              "p95": 70272,
+              "max": 82560,
+              "min": 66176
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 20480,
+              "max": 69632,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 20,
+              "p95": 21,
+              "max": 24,
+              "min": 20
+            }
+          },
+          "prepare": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.4514229999999997,
+              "p95": 6.620872,
+              "max": 8.364314,
+              "min": 3.2166859999999997
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 33408,
+              "p95": 33408,
+              "max": 33408,
+              "min": 33408
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 4096,
+              "max": 8192,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 12,
+              "p95": 12,
+              "max": 12,
+              "min": 12
+            }
+          },
+          "send": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.3061689999999997,
+              "p95": 4.642547,
+              "max": 5.188808,
+              "min": 2.983002
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 33408,
+              "p95": 33408,
+              "max": 33408,
+              "min": 33408
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 12,
+              "p95": 12,
+              "max": 12,
+              "min": 12
+            }
+          },
+          "ack": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.412668,
+              "p95": 4.676953999999999,
+              "max": 5.209473,
+              "min": 3.095089
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 37504,
+              "p95": 37504,
+              "max": 37504,
+              "min": 37504
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 13,
+              "p95": 13,
+              "max": 13,
+              "min": 13
+            }
+          }
+        }
+      },
+      "small": {
+        "initial_logical_bytes": 2125,
+        "initial_file_bytes": 1056768,
+        "final_file_bytes": 159744,
+        "quick_repair": false,
+        "operations": {
+          "append": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.513535,
+              "p95": 5.445164,
+              "max": 5.912416,
+              "min": 3.1861129999999998
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 41600,
+              "p95": 45696,
+              "max": 45696,
+              "min": 37504
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 14,
+              "p95": 15,
+              "max": 15,
+              "min": 13
+            }
+          },
+          "prepare": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.396343,
+              "p95": 6.131698,
+              "max": 11.464266,
+              "min": 3.093644
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 21120,
+              "p95": 21120,
+              "max": 21120,
+              "min": 21120
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 9,
+              "p95": 10,
+              "max": 10,
+              "min": 9
+            }
+          },
+          "send": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.3172129999999997,
+              "p95": 4.454404,
+              "max": 4.485116,
+              "min": 2.991411
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 21120,
+              "p95": 21120,
+              "max": 21120,
+              "min": 21120
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 9,
+              "p95": 10,
+              "max": 10,
+              "min": 9
+            }
+          },
+          "ack": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.296062,
+              "p95": 4.984992,
+              "max": 10.997857,
+              "min": 3.0453810000000003
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 25216,
+              "p95": 25216,
+              "max": 25216,
+              "min": 25216
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 10,
+              "p95": 10,
+              "max": 10,
+              "min": 10
+            }
+          }
+        }
+      },
+      "small_quick": {
+        "initial_logical_bytes": 2125,
+        "initial_file_bytes": 1056768,
+        "final_file_bytes": 589824,
+        "quick_repair": true,
+        "operations": {
+          "append": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.4759550000000004,
+              "p95": 5.080719,
+              "max": 5.087338,
+              "min": 3.17341
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 53888,
+              "p95": 57984,
+              "max": 57984,
+              "min": 49792
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 17,
+              "p95": 18,
+              "max": 18,
+              "min": 16
+            }
+          },
+          "prepare": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.404563,
+              "p95": 4.854385,
+              "max": 4.915712,
+              "min": 3.1696079999999998
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 33408,
+              "p95": 33408,
+              "max": 33408,
+              "min": 33408
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 12,
+              "p95": 12,
+              "max": 13,
+              "min": 12
+            }
+          },
+          "send": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.350279,
+              "p95": 4.930937,
+              "max": 5.712168,
+              "min": 3.018033
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 33408,
+              "p95": 33408,
+              "max": 33408,
+              "min": 33408
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 12,
+              "p95": 12,
+              "max": 12,
+              "min": 12
+            }
+          },
+          "ack": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 3.414652,
+              "p95": 4.70095,
+              "max": 4.702437000000001,
+              "min": 2.992491
+            },
+            "written_bytes": {
+              "count": 35,
+              "p50": 37504,
+              "p95": 37504,
+              "max": 37504,
+              "min": 37504
+            },
+            "read_bytes": {
+              "count": 35,
+              "p50": 0,
+              "p95": 0,
+              "max": 0,
+              "min": 0
+            },
+            "syncs": {
+              "count": 35,
+              "p50": 2,
+              "p95": 2,
+              "max": 2,
+              "min": 2
+            },
+            "mutating_operations": {
+              "count": 35,
+              "p50": 13,
+              "p95": 13,
+              "max": 13,
+              "min": 13
+            }
+          }
+        }
+      }
+    },
+    "reference": {
+      "near": {
+        "initial_journal_bytes": 12386456,
+        "operations": {
+          "collect": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 105.192752,
+              "p95": 142.54015,
+              "max": 145.823882,
+              "min": 98.398062
+            }
+          },
+          "prepare": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 103.01780600000001,
+              "p95": 121.32701399999999,
+              "max": 125.80486799999998,
+              "min": 90.662064
+            },
+            "output_journal_bytes": {
+              "count": 35,
+              "p50": 12397079,
+              "p95": 12402503,
+              "max": 12402842,
+              "min": 12391098
+            }
+          },
+          "send": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 102.77602800000001,
+              "p95": 131.255461,
+              "max": 142.38888699999998,
+              "min": 96.887698
+            },
+            "output_journal_bytes": {
+              "count": 35,
+              "p50": 12397085,
+              "p95": 12402509,
+              "max": 12402848,
+              "min": 12391101
+            }
+          },
+          "ack": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 102.85918,
+              "p95": 126.77369399999999,
+              "max": 306.973133,
+              "min": 96.026756
+            },
+            "output_journal_bytes": {
+              "count": 35,
+              "p50": 12392857,
+              "p95": 12398281,
+              "max": 12398620,
+              "min": 12387097
+            }
+          }
+        }
+      },
+      "small": {
+        "initial_journal_bytes": 3869,
+        "operations": {
+          "collect": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 4.4464630000000005,
+              "p95": 10.252181,
+              "max": 16.466547000000002,
+              "min": 4.2288559999999995
+            }
+          },
+          "prepare": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 4.668048,
+              "p95": 9.981026,
+              "max": 13.523195,
+              "min": 4.2725610000000005
+            },
+            "output_journal_bytes": {
+              "count": 35,
+              "p50": 14492,
+              "p95": 19916,
+              "max": 20255,
+              "min": 8511
+            }
+          },
+          "send": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 4.3894340000000005,
+              "p95": 8.035026,
+              "max": 13.084128,
+              "min": 4.098895
+            },
+            "output_journal_bytes": {
+              "count": 35,
+              "p50": 14498,
+              "p95": 19922,
+              "max": 20261,
+              "min": 8514
+            }
+          },
+          "ack": {
+            "latency_ms": {
+              "count": 35,
+              "p50": 4.298954,
+              "p95": 9.572979,
+              "max": 10.311587000000001,
+              "min": 4.064266000000001
+            },
+            "output_journal_bytes": {
+              "count": 35,
+              "p50": 10270,
+              "p95": 15694,
+              "max": 16033,
+              "min": 4510
+            }
+          }
+        }
+      }
+    },
+    "reference_bytes_note": "output journal length per commit, not syscall-traced bytes",
+    "comparability": "approximately matching synthetic retained identity counts; native fixture content differs slightly; redb append excludes file reader and retained-normalizer cost; compare prepare/send/ACK only",
+    "retained_sample_scope": "Samples precede only the pre-engine existing-file minimum512-byte guard; measured delivery paths unchanged."
+  },
+  "bounds": {
+    "physical_bytes": 67108864,
+    "logical_bytes": 16777216,
+    "cache_bytes": 4194304,
+    "reserve_headroom_qualified": false
+  },
+  "pending": [
+    "full normalizer row delta adapter",
+    "production authenticated transport/boot runtime integration",
+    "explicit new-store owner admission; unknown existing format refusal",
+    "compaction and long-reader/page corruption qualification",
+    "cross-filesystem/hardware power-loss behavior",
+    "complete physical reserve/headroom analysis"
+  ],
+  "environment": {
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "uname": "Linux DESKTOP-EB8UOME 6.18.33.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 18 21:54:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+    "filesystem": "ext4"
+  }
+}
