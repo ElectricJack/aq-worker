@@ -1,0 +1,10 @@
+   Compiling aq-observation-redb-prototype v0.0.5 (/tmp/aq-wrk15-delta/crates/aq-observation-redb-prototype)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.98s
+     Running unittests examples/headroom.rs (target/debug/examples/headroom-8b1eceaa12cded1f)
+
+running 2 tests
+test tests::prepare_send_and_ack_errors_keep_report_and_exact_recovery ... ok
+test tests::full_ordinary_budget_preserves_all16_control_credits_and64_boots ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.55s
+

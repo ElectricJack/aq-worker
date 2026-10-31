@@ -1,0 +1,16 @@
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/tmp/wrk15-reserve-extracted-7lyidfyf/aq-session-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/wrk15-reserve-extracted-7lyidfyf/aq-lifecycle-protocol-0.1.0)
+   Compiling aq-observation-admission v0.1.0 (/tmp/wrk15-reserve-extracted-7lyidfyf/aq-observation-admission-0.1.0)
+   Compiling aq-observation-engine v0.0.1 (/tmp/wrk15-reserve-extracted-7lyidfyf/aq-observation-engine-0.0.1)
+   Compiling aq-observation v0.1.0 (/tmp/wrk15-reserve-extracted-7lyidfyf/aq-observation-0.1.0)
+   Compiling aq-observation-redb-prototype v0.0.5 (/tmp/wrk15-reserve-extracted-7lyidfyf/aq-observation-redb-prototype-0.0.5)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.40s
+     Running unittests examples/headroom.rs (/tmp/wrk15-reserve-clean-target-83eec309-standalone/debug/examples/headroom-be165d0f3a595231)
+
+running 2 tests
+test tests::prepare_send_and_ack_errors_keep_report_and_exact_recovery ... ok
+test tests::full_ordinary_budget_preserves_all16_control_credits_and64_boots ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.30s
+

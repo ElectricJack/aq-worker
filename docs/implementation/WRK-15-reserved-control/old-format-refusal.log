@@ -1,0 +1,4 @@
+   Compiling aq-observation-redb-prototype v0.0.5 (/tmp/aq-wrk15-delta/crates/aq-observation-redb-prototype)
+    Finished `release` profile [optimized] target(s) in 6.04s
+     Running `/tmp/wrk15-headroom-target/release/examples/headroom --check-old-root /tmp/.tmpad7OgO/owner`
+{"database_bytes_unchanged":true,"database_sha256":"6e18552e2a144a587325d3d71103ccc1a93efe0350c34da73750ada160f1fa80","intent_bytes_unchanged":true,"new_format_marker_created":false,"old_root":"/tmp/.tmpad7OgO/owner","refused":true}

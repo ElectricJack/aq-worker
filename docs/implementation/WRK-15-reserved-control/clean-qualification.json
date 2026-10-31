@@ -1,0 +1,18 @@
+{
+  "source_revision": "83eec309f956cc13bf22a7da1c3d84b292408c0f",
+  "archive": "/tmp/wrk15-reserve-clean-target-83eec309/package/aq-observation-redb-prototype-0.0.5.crate",
+  "archive_sha256": "e505f71593ff94a8e24f0d9e701a0c4936c24906a27037790eb43eed29b93885",
+  "standalone_root": "/tmp/wrk15-reserve-extracted-7lyidfyf",
+  "artifacts": {
+    "/tmp/wrk15-reserve-clean-target-83eec309/package/aq-observation-redb-prototype-0.0.5.crate": "e505f71593ff94a8e24f0d9e701a0c4936c24906a27037790eb43eed29b93885",
+    "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-engine-0.0.1.crate": "d4531ac14096e8257961b0d1f68c99e7b84cc83e3654b066a222ff540e511d4b",
+    "/tmp/aq22-transport-package-target/package/aq-observation-admission-0.1.0.crate": "7de84f372c0a963c8f61d8e075e4744779bb2b125676ed1df90c165dd982fab6",
+    "/tmp/wrk15-clean-target-50c9e48/package/aq-observation-0.1.0.crate": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+    "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+    "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+  },
+  "qualification": "standalone candidate72 +reference35 +admission10 tests and headroom example2 tests; strictlint/fmt/drift; default64MiB/16MiB saturation+reservedcontrols+64boots; old0.0.4 byte-preserving refusal; owner_peer build passed; no physical ENOSPC progress guarantee",
+  "binary": "/tmp/wrk15-reserve-clean-target-83eec309-standalone/release/examples/owner_peer",
+  "binary_sha256": "c1bd5cd8a1ab6738953e5e1fce58577a60a5d2156be133cf43afe20bd321b07b",
+  "clean_worktree_status": ""
+}
