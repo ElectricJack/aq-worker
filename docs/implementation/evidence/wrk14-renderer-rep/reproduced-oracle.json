@@ -1,0 +1,22 @@
+{
+  "tmux_version": "tmux 3.4",
+  "scope": "screen oracle only; not guarded-host or renderer compatibility qualification",
+  "cases": [
+    {
+      "sequence_utf8_hex": "1b5b324a1b5b48411b5b33627c",
+      "columns": 20,
+      "pane_rows": 4,
+      "status": "off",
+      "capture": "AAAA|\n\n\n\n",
+      "tail_marker_observed": true
+    },
+    {
+      "sequence_utf8_hex": "1b5b324a1b5b4865cc811b5b33627c",
+      "columns": 20,
+      "pane_rows": 4,
+      "status": "off",
+      "capture": "e\u0301|\n\n\n\n",
+      "tail_marker_observed": true
+    }
+  ]
+}
