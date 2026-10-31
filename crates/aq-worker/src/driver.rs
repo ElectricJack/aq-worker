@@ -426,8 +426,7 @@ pub async fn run_execution(
                 attempt_id,
                 "synthetic writers confirmed stopped; immutable report pending".into(),
             )?;
-            let ack = client.observe(&observation).await?;
-            runtime.acknowledge_observation(attempt_id, &ack)?;
+            deliver_stopped_observation(&client, &mut runtime, &observation).await?;
             let report_retry_deadline = runtime.clock.now_ms().saturating_add(30_000);
             loop {
                 ensure!(
@@ -464,6 +463,37 @@ pub async fn run_execution(
             }
         }
         retry_delay().await;
+    }
+}
+
+/// Stopped writers need no renewed execution authority to deliver their durable
+/// observations. Retrying this exact node exchange must precede report delivery;
+/// an ordinary disconnect must not strand an already journaled final report.
+async fn deliver_stopped_observation<C: Clock>(
+    client: &ExecutionClient,
+    runtime: &mut Runtime<C>,
+    observation: &Observation,
+) -> Result<()> {
+    let deadline = runtime.clock.now_ms().saturating_add(30_000);
+    loop {
+        let remaining = deadline.saturating_sub(runtime.clock.now_ms());
+        ensure!(
+            remaining > 0,
+            "stopped observation and report remain durable after retry timeout"
+        );
+        match tokio::time::timeout(
+            Duration::from_millis(remaining),
+            client.observe(observation),
+        )
+        .await
+        {
+            Ok(Ok(ack)) => {
+                return runtime.acknowledge_observation(observation.attempt.attempt_id, &ack);
+            }
+            Ok(Err(error)) if retryable(&error) => retry_delay().await,
+            Ok(Err(error)) => return Err(error),
+            Err(_) => bail!("stopped observation and report remain durable after retry timeout"),
+        }
     }
 }
 

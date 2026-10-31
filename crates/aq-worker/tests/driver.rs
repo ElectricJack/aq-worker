@@ -24,6 +24,8 @@ struct Peer {
     last_report: Option<ResultReport>,
     directive_acks: usize,
     register_calls: usize,
+    post_stop_observation_failures: usize,
+    post_stop_observation_requests: Vec<Observation>,
 }
 type Shared = Arc<Mutex<Peer>>;
 async fn register(
@@ -88,6 +90,21 @@ async fn observe(
 ) -> Result<Json<Ack>, (StatusCode, Json<ProtocolError>)> {
     let mut s = shared.lock().unwrap();
     s.observations += 1;
+    if r.phase == Phase::Reporting {
+        s.post_stop_observation_requests.push(r.clone());
+        if s.post_stop_observation_failures > 0 {
+            s.post_stop_observation_failures -= 1;
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ProtocolError {
+                    code: ErrorCode::Overloaded,
+                    message: "injected post-stop observation outage".into(),
+                    retryable: true,
+                    operation_id: Some(r.operation_id),
+                }),
+            ));
+        }
+    }
     s.coordinator
         .as_mut()
         .unwrap()
@@ -427,5 +444,72 @@ async fn stopped_report_recovers_before_new_boot_registration_without_relaunch()
         state.attempts.values().next().unwrap().phase,
         Phase::Retired
     );
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_stop_observation_outage_preserves_and_replays_before_report() {
+    let shared = Arc::new(Mutex::new(Peer {
+        post_stop_observation_failures: 1,
+        ..Peer::default()
+    }));
+    let app = Router::new()
+        .route("/v2/worker/register", post(register))
+        .route("/v2/worker/poll", post(poll))
+        .route("/v2/worker/accept", post(accept))
+        .route("/v2/worker/observe", post(observe))
+        .route("/v2/worker/result", post(report))
+        .route("/v2/worker/renew", post(renew))
+        .route("/v2/worker/directive-ack", post(directive_ack))
+        .with_state(shared.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let temp = tempfile::TempDir::new().unwrap();
+    let path = temp.path().join("worker.toml");
+    WorkerConfig {
+        server_url: base,
+        node_id: Uuid::from_u128(1),
+        credential: "fixture-node-secret".into(),
+        cf_client_id: None,
+        cf_client_secret: None,
+    }
+    .save(&path)
+    .unwrap();
+    let state = temp.path().join("state");
+    let result = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
+        .arg("--config")
+        .arg(&path)
+        .arg("run-execution")
+        .arg("--state-dir")
+        .arg(&state)
+        .arg("--fixture-agent")
+        .arg(env!("CARGO_BIN_EXE_aq-fixture-agent"))
+        .args(["--exit-after-result", "--idle-timeout-secs", "5"])
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let peer = shared.lock().unwrap();
+    assert_eq!(peer.post_stop_observation_requests.len(), 2);
+    assert_eq!(
+        peer.post_stop_observation_requests[0],
+        peer.post_stop_observation_requests[1]
+    );
+    assert_eq!(peer.reports, 1);
+    assert_eq!(peer.accepts, 1);
+    assert_eq!(peer.renewals, 0);
+    let journal: aq_worker::journal::State =
+        serde_json::from_slice(&std::fs::read(state.join("journal.json")).unwrap()).unwrap();
+    let r = journal.attempts.values().next().unwrap();
+    assert_eq!(r.phase, Phase::Retired);
+    assert_eq!(r.stop_certainty, StopCertainty::ConfirmedStopped);
+    assert!(r.pending_observations.is_empty());
+    assert!(r.stopped_proof.as_ref().unwrap().kernel_wait_echild);
     server.abort();
 }
