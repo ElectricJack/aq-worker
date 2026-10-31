@@ -1,6 +1,7 @@
 //! Reusable Linux tmux hosting. The caller owns authorization and durable task
 //! state; a dedicated helper owns every tmux/pane descendant and permit expiry.
 pub mod ownership;
+mod reader_lease;
 mod reaper;
 mod supervisor;
 pub mod terminal_io;

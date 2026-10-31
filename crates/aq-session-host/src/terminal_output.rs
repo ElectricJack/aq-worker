@@ -218,14 +218,13 @@ fn unescape(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// A read-only client, not a writer guardian or stopped-writer proof. It never
-/// sends control commands on stdin; that pipe is held only to avoid client EOF.
+/// A guardian-owned read-only client, not renderer state or stop proof by itself.
+/// The guardian holds stdin without sending commands. Only a drain to EAGAIN can
+/// renew its independent short lease; loss is one-shot and never reattaches.
 pub struct OutputObserver {
     terminal: terminal_io::TerminalHandle,
-    child: Option<Child>,
-    slot: Option<reaper::Slot>,
-    stdout: std::process::ChildStdout,
-    _stdin: std::process::ChildStdin,
+    lease: Option<reader_lease::Client>,
+    stdout: File,
     decoder: ControlDecoder,
     process: ProcessEvidence,
     failed: bool,
@@ -233,57 +232,14 @@ pub struct OutputObserver {
 }
 impl OutputObserver {
     pub fn open(terminal: &terminal_io::TerminalHandle) -> Result<Self> {
-        use std::os::fd::AsRawFd;
         let decoder = ControlDecoder::new(&terminal.binding().pane.pane_id)?;
-        let slot = reaper::Slot::reserve()?;
-        let (directory, tmux, _) = terminal.output_settings()?;
-        terminal.claim_output()?;
         terminal.output_settings()?;
-        let mut child = Command::new(tmux)
-            .args(["-N", "-C", "-S"])
-            .arg(directory.join("tmux.sock"))
-            .args([
-                "attach-session",
-                "-f",
-                "read-only,ignore-size,pause-after=1",
-                "-t",
-                "aq",
-            ])
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("TERM", "xterm-256color")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-        let setup = (|| -> Result<_> {
-            let stdout = child.stdout.take().context("output observer stdout")?;
-            let stdin = child.stdin.take().context("output observer stdin")?;
-            let flags = unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFL) };
-            ensure!(
-                flags >= 0
-                    && unsafe {
-                        libc::fcntl(stdout.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK)
-                    } == 0,
-                "output observer nonblocking pipe"
-            );
-            let process = ownership::process_evidence(child.id())?;
-            Ok((stdout, stdin, process))
-        })();
-        let (stdout, stdin, process) = match setup {
-            Ok(value) => value,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = slot.track(child);
-                return Err(error);
-            }
-        };
+        let claim = terminal.claim_output()?;
+        let (lease, stdout, process) = reader_lease::Client::open(terminal, claim)?;
         Ok(Self {
             terminal: terminal.clone(),
-            child: Some(child),
-            slot: Some(slot),
+            lease: Some(lease),
             stdout,
-            _stdin: stdin,
             decoder,
             process,
             failed: false,
@@ -315,6 +271,10 @@ impl OutputObserver {
     }
     fn read_once(&mut self) -> Result<Vec<ControlEvent>> {
         self.terminal.output_settings()?;
+        self.lease
+            .as_ref()
+            .context("reader lease closed")?
+            .check()?;
         let mut bytes = [0u8; MAX_CONTROL_READ];
         let events = match self.stdout.read(&mut bytes) {
             Ok(0) => {
@@ -322,12 +282,14 @@ impl OutputObserver {
                 vec![ControlEvent::Exited]
             }
             Ok(n) => self.decoder.feed(&bytes[..n])?,
-            Err(e)
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::Interrupted =>
-            {
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                self.lease
+                    .as_mut()
+                    .context("reader lease closed")?
+                    .drained()?;
                 vec![]
             }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => vec![],
             Err(_) => bail!("output observer read failed"),
         };
         if events.iter().any(|e| matches!(e, ControlEvent::Attached)) {
@@ -346,16 +308,7 @@ impl OutputObserver {
         Ok(events)
     }
     fn close(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            if !matches!(child.try_wait(), Ok(Some(_))) {
-                if let Some(slot) = self.slot.take() {
-                    let _ = slot.track(child);
-                }
-            } else {
-                self.slot.take();
-            }
-        }
+        self.lease.take();
     }
 }
 impl Drop for OutputObserver {

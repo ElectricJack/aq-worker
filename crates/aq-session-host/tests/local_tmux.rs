@@ -799,7 +799,7 @@ fn read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_res
 #[test]
 #[ignore = "explicit local tmux 3.4 bounded output qualification"]
 fn sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control() {
-    use aq_session_host::terminal_output::{ControlEvent, OutputObserver};
+    use aq_session_host::terminal_output::OutputObserver;
     use aq_terminal_relay_protocol::Effect;
     let (_case, mut host, io, lease) = io_setup_mode("output-flood");
     let mut observer = OutputObserver::open(&io).unwrap();
@@ -809,7 +809,10 @@ fn sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control() {
     });
     let client = ownership::verified_pidfd(observer.process()).unwrap();
     ownership::signal(&client, libc::SIGSTOP).unwrap();
-    wait_named("observer SIGSTOP state", || {
+    wait_named("observer stopped or independently severed", || {
+        if !ownership::pidfd_is_live(&client).unwrap() {
+            return Some(());
+        }
         std::fs::read_to_string(format!("/proc/{}/status", observer.process().pid))
             .ok()
             .is_some_and(|s| {
@@ -863,7 +866,10 @@ fn sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control() {
         }
         std::thread::sleep(Duration::from_millis(2));
     }
-    assert!(ownership::pidfd_is_live(&client).unwrap());
+    assert!(
+        !ownership::pidfd_is_live(&client).unwrap(),
+        "guardian must sever the stopped read-only client"
+    );
     let boot = ownership::raw_boot_ms();
     host.renew(&ExecutionPermit {
         session: lease.terminal.session.clone(),
@@ -876,18 +882,15 @@ fn sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control() {
     wait_named("guardian applied independent renewal", || {
         (host.observe().unwrap().permit_sequence == 2).then_some(())
     });
-    ownership::signal(&client, libc::SIGCONT).unwrap();
-    let mut paused = false;
-    wait_named("actual tmux pause-after notification", || {
-        for event in observer.poll().unwrap() {
-            if matches!(event, ControlEvent::Paused) {
-                paused = true;
-            }
-        }
-        paused.then_some(())
-    });
-    assert!(paused, "actual tmux pause-after must be observed");
-    assert!(observer.poll().is_err());
+    let lost = observer.poll();
+    assert!(
+        lost.is_err()
+            || lost
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e, aq_session_host::terminal_output::ControlEvent::Exited)),
+        "reader cutoff must invalidate continuity"
+    );
     host.stop().unwrap();
     host.wait_stopped(Duration::from_secs(5)).unwrap();
     eprintln!("synthetic output progress with stopped sole observer: {progress} bytes");
@@ -906,6 +909,9 @@ fn execution_expiry_stops_writers_even_while_observer_client_remains_sigstopped(
     let client = ownership::verified_pidfd(observer.process()).unwrap();
     ownership::signal(&client, libc::SIGSTOP).unwrap();
     wait(|| {
+        if !ownership::pidfd_is_live(&client).unwrap() {
+            return Some(());
+        }
         std::fs::read_to_string(format!("/proc/{}/status", observer.process().pid))
             .ok()
             .is_some_and(|s| {
@@ -927,8 +933,8 @@ fn execution_expiry_stops_writers_even_while_observer_client_remains_sigstopped(
     assert_eq!(stopped.phase, HostPhase::Stopped);
     assert!(stopped.kernel_wait_echild);
     assert!(
-        ownership::pidfd_is_live(&client).unwrap(),
-        "reader is outside the writer proof and still stopped"
+        !ownership::pidfd_is_live(&client).unwrap(),
+        "guardian-owned stopped reader must be reaped too"
     );
     let process = observer.process().clone();
     drop(observer);
@@ -1488,4 +1494,164 @@ fn sustained_adopted_child_exits_cannot_starve_expiry_or_stop_proof() {
     assert!(s.reaped_count >= 16);
     assert!(s.stop_reason.unwrap().contains("expired"));
     assert!(ownership::process_evidence(producer.pid).is_err());
+}
+
+#[test]
+#[ignore = "explicit guardian reader-lease process fixture"]
+fn reader_owner_child_fixture() {
+    let Some(path) = std::env::var_os("AQ_READER_BINDING") else {
+        return;
+    };
+    let path = PathBuf::from(path);
+    let binding: terminal_io::TerminalBinding =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let dir = path.parent().unwrap();
+    let host = SessionHost::observe_existing(dir.parent().unwrap(), &binding.guardian).unwrap();
+    let io = terminal_io::TerminalHandle::recover(&host, &binding.terminal).unwrap();
+    let mut observer = terminal_output::OutputObserver::open(&io).unwrap();
+    wait_named("child observer attachment", || {
+        observer.poll().unwrap();
+        observer.is_attached().then_some(())
+    });
+    std::fs::write(
+        dir.join("reader-owner-ready"),
+        serde_json::to_vec(observer.process()).unwrap(),
+    )
+    .unwrap();
+    loop {
+        if observer.poll().is_err() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+#[test]
+#[ignore = "explicit local tmux guardian read-lease qualification"]
+fn quiet_drained_reader_renews_but_undrained_reader_expires_without_stopping_harness() {
+    let (_case, mut host, io, lease) = io_setup_mode("output-flood");
+    let mut observer = terminal_output::OutputObserver::open(&io).unwrap();
+    let client = ownership::verified_pidfd(observer.process()).unwrap();
+    let end = Instant::now() + Duration::from_millis(2200);
+    while Instant::now() < end {
+        observer.poll().unwrap();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(ownership::pidfd_is_live(&client).unwrap());
+    let input = io_input(&lease, b"flood\n");
+    let id = input.operation_id;
+    io.submit(
+        &aq_terminal_relay_protocol::Effect::Input(input),
+        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
+    )
+    .unwrap();
+    // Deliberately do not read the pipe or issue drain receipts.
+    wait_named("undrained reader independently severed", || {
+        (!ownership::pidfd_is_live(&client).unwrap()).then_some(())
+    });
+    wait_named("producer progresses after undrained cutoff", || {
+        std::fs::read_to_string(host.directory().join("fixture-output-progress"))
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|v| *v >= 4 * 1024 * 1024)
+    });
+    assert!(matches!(
+        io.receipt(id).unwrap(),
+        Some(terminal_io::Receipt::Input(
+            aq_session_protocol::InputReceipt {
+                disposition: aq_session_protocol::InputDisposition::Applied,
+                ..
+            }
+        ))
+    ));
+    assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
+    assert!(observer.poll().is_err());
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(3)).unwrap();
+}
+#[test]
+#[ignore = "explicit local tmux independent owner failure qualification"]
+fn dead_or_stopped_owner_and_lost_ready_or_ack_cannot_leave_a_blocking_reader() {
+    for mode in ["dead", "stopped", "before-ready", "before-ack"] {
+        let (_case, mut host, io, lease) = io_setup_mode("output-flood");
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--ignored",
+                "--exact",
+                "reader_owner_child_fixture",
+                "--test-threads=1",
+            ])
+            .env(
+                "AQ_READER_BINDING",
+                host.directory().join("terminal-binding.json"),
+            )
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if mode.starts_with("before-") {
+            command.env("AQ_HOST_READER_PAUSE", mode);
+        }
+        let mut consumer = command.spawn().unwrap();
+        let process: ProcessEvidence = wait_named("owned read client created", || {
+            std::fs::read(host.directory().join("reader.process.json"))
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok())
+        });
+        let client = ownership::verified_pidfd(&process).unwrap();
+        if mode.starts_with("before-") {
+            wait_named("private handoff pause reached", || {
+                host.directory()
+                    .join("reader-owner-paused")
+                    .exists()
+                    .then_some(())
+            });
+        } else {
+            wait_named("reader consumer ready", || {
+                host.directory()
+                    .join("reader-owner-ready")
+                    .exists()
+                    .then_some(())
+            });
+            if mode == "dead" {
+                consumer.kill().unwrap();
+            } else {
+                unsafe {
+                    libc::kill(consumer.id() as i32, libc::SIGSTOP);
+                }
+            }
+        }
+        let input = io_input(&lease, b"flood\n");
+        let id = input.operation_id;
+        io.submit(
+            &aq_terminal_relay_protocol::Effect::Input(input),
+            terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
+        )
+        .unwrap();
+        wait_named("reader severed after owner/handoff failure", || {
+            (!ownership::pidfd_is_live(&client).unwrap()).then_some(())
+        });
+        wait_named("harness progresses independently of owner", || {
+            std::fs::read_to_string(host.directory().join("fixture-output-progress"))
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .filter(|v| *v >= 4 * 1024 * 1024)
+        });
+        assert!(matches!(
+            io.receipt(id).unwrap(),
+            Some(terminal_io::Receipt::Input(
+                aq_session_protocol::InputReceipt {
+                    disposition: aq_session_protocol::InputDisposition::Applied,
+                    ..
+                }
+            ))
+        ));
+        assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
+        assert!(terminal_output::OutputObserver::open(&io).is_err());
+        if mode != "dead" {
+            consumer.kill().unwrap();
+        }
+        consumer.wait().unwrap();
+        host.stop().unwrap();
+        let proof = host.wait_stopped(Duration::from_secs(3)).unwrap();
+        assert!(proof.kernel_wait_echild);
+    }
 }
