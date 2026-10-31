@@ -1,11 +1,12 @@
 # Observed launch and ordered terminal proof: concrete API proposal
 
 Base: current worker main, preserving host0.1.3 RenderedStartup and native
-consumer behavior. No host source edit is authorized by this document alone;
-root review precedes implementation. Pure renderer715c4b3 plus REP correction
+consumer behavior. Root reviewed and approved the first closed-gate component, with the sealed
+image correction below, before host source edits. Pure renderer715c4b3 plus REP correction
 is independently frozen and remains an abstract profile, not a physical Snapshot
 producer. Version allocation for the additive host candidate is coordinated
-before changing any retained0.1.3 archive.
+before changing any retained0.1.3 archive. The new additive candidate is0.1.4;
+legacy/rendered0.1.3 serialized configurations remain byte-compatible.
 
 ## Additive public surface
 
@@ -70,8 +71,9 @@ ELF digest and installed immutability qualification. Device/inode are recorded;
 path equality alone is insufficient. The helper receives the fixed executable
 FD over the authenticated local gate and uses FD-based exec, with literal sealed
 argv/environment. Scripts/npm launchers are not this profile. An FD prevents
-path-replacement races but does not prevent in-place rewrite; absent qualified
-immutability/sealing or a fresh exact digest check, exec refuses. Any required
+path-replacement races but does not prevent in-place rewrite; absent genuine
+immutable sealing, exec refuses. A fresh digest alone is never proof that the
+inode stays unchanged through exec. Any required
 sealing/copy must have declared byte/memory cost and cannot silently consume an
 unbounded per-attempt ELF copy.
 
@@ -164,3 +166,40 @@ This agent owns the future host baseline/sequencer changes in a new worktree fro
 current main after review. Root owns native runtime/control and shared daemon
 contracts. No host lib/supervisor edit will be made against the old0.1.2 branch or
 overwrite the0.1.3 rendered path.
+
+
+## Approved first-component constraints
+
+The first profile uses sealed memfd ELF images, not a mutable installation plus
+rehash. Each image is at most4MiB. An explicit process-local image pool holds at
+most4exact-artifact entries and16MiB total bytes, with no eviction or implicit
+credit reset. Immutable image reuse passes the actual held kernel object, not an
+unchecked path metadata cache; seals/identity and actual bytes are verified on
+handoff. Source copying/hash uses at most64KiB scratch. FD duplication creates no
+second image copy. The library does not claim a node-wide/cgroup limit across
+independent pool owners or runtime restarts; production admission must retain
+unknown old owners in its durable resource accounting. Real large CLIs are not
+silently admitted under this first small-ELF qualification.
+
+The image must carry WRITE/GROW/SHRINK/SEAL kernel seals before any handoff, and
+execution uses execveat(AT_EMPTY_PATH) on that exact descriptor with literal argv/
+environment and no execvp/shell fallback. The guardian owns the image FD before
+starting the pane helper. The helper receives it through the bounded private
+CLOEXEC gate, not an unmonitored spawn-to-publish window or guessed FD number.
+An original mutable path is not exec authority. Kernel exec proof requires the
+same live PID/startticks and the sealed memfd device/inode after gate EOF; the
+helper's pre-exec image differs even when the copied test program has equal
+bytes. All failures remain no-Started/Unknown, never NeverGranted.
+
+ObservedStartup also seals the original conservative hard boot deadline supplied
+by the trusted native authority adapter. It must bound the initial permit and
+not exceed the manifest wall cap. Every observed gate/renewal uses the minimum
+of that fixed deadline, the original wall cap and the current explicit execution
+permit. The helper becoming ready cannot create a later hard clock origin.
+
+The first implementation qualifies baseline/positive exec only. It does not
+mint shared Snapshot/proof-schema objects before the sequencer experiment and
+physical renderer/resize agreement are qualified. Existing literal input/resize
+and source/material authority remain unchanged outside the explicit observed
+profile. Initial qualification uses only small synthetic ELF programs; actual
+Codex0.166.0/background-server ownership and provider behavior stay separate.
