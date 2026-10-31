@@ -279,3 +279,43 @@ fn empty_or_short_existing_database_is_rejected_before_engine_without_changing_b
         assert_eq!(std::fs::read(root.join("store.redb")).unwrap(), bytes);
     }
 }
+#[test]
+fn database_basename_replacement_refuses_mutation_of_detached_inode() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("rows");
+    let store = Store::create(&root, Limits::fixture()).unwrap();
+    store.attach(support::source(8)).unwrap();
+    support::append(&store, 1);
+    std::fs::rename(root.join("store.redb"), root.join("detached.redb")).unwrap();
+    let original = std::fs::read(root.join("detached.redb")).unwrap();
+    std::fs::copy(root.join("detached.redb"), root.join("store.redb")).unwrap();
+    let replacement = std::fs::read(root.join("store.redb")).unwrap();
+    assert!(store.prepare().is_err());
+    assert_eq!(std::fs::read(root.join("detached.redb")).unwrap(), original);
+    assert_eq!(std::fs::read(root.join("store.redb")).unwrap(), replacement);
+}
+#[test]
+fn private_root_rename_and_direct_backend_replacement_are_fenced() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("rows");
+    let store = Store::create(&root, Limits::fixture()).unwrap();
+    store.attach(support::source(8)).unwrap();
+    support::append(&store, 1);
+    let moved = temp.path().join("detached-root");
+    std::fs::rename(&root, &moved).unwrap();
+    let bytes = std::fs::read(moved.join("store.redb")).unwrap();
+    assert!(store.prepare().is_err());
+    assert_eq!(std::fs::read(moved.join("store.redb")).unwrap(), bytes);
+    let direct = temp.path().join("direct");
+    std::fs::create_dir(&direct).unwrap();
+    std::fs::set_permissions(&direct, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let dir = File::open(&direct).unwrap();
+    let backend = CappedFile::open(&dir, true, 4096, Monitor::default()).unwrap();
+    backend.set_len(4096).unwrap();
+    std::fs::rename(direct.join("store.redb"), direct.join("old")).unwrap();
+    std::fs::copy(direct.join("old"), direct.join("store.redb")).unwrap();
+    assert!(backend.write(0, b"unreachable").is_err());
+    assert!(backend.set_len(2048).is_err());
+    assert!(backend.sync_data().is_err());
+    assert_eq!(std::fs::read(direct.join("old")).unwrap(), vec![0; 4096]);
+}

@@ -10,7 +10,7 @@ use std::{
         fd::{AsRawFd, FromRawFd},
         unix::fs::{FileExt, MetadataExt, OpenOptionsExt},
     },
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -69,9 +69,69 @@ impl Monitor {
         Ok(())
     }
 }
+/// Held-fd and pathname identity must agree before every mutating IO.
+#[derive(Debug)]
+pub struct IdentityGuard {
+    file: File,
+    directory: File,
+    root: Option<PathBuf>,
+}
+impl IdentityGuard {
+    pub fn check(&self) -> io::Result<()> {
+        let held = self.file.metadata()?;
+        let directory = self.directory.metadata()?;
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        let result = unsafe {
+            libc::fstatat(
+                self.directory.as_raw_fd(),
+                c"store.redb".as_ptr(),
+                stat.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if result != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let entry = unsafe { stat.assume_init() };
+        if !held.is_file()
+            || held.nlink() != 1
+            || held.uid() != unsafe { libc::geteuid() }
+            || held.mode() & 0o077 != 0
+            || entry.st_mode & libc::S_IFMT != libc::S_IFREG
+            || entry.st_dev != held.dev()
+            || entry.st_ino != held.ino()
+            || entry.st_nlink != 1
+            || entry.st_uid != held.uid()
+            || entry.st_mode & 0o077 != 0
+        {
+            return Err(io::Error::other(
+                "held database basename/inode changed; refuse unreachable writes",
+            ));
+        }
+        if !directory.is_dir()
+            || directory.nlink() == 0
+            || directory.uid() != held.uid()
+            || directory.mode() & 0o077 != 0
+        {
+            return Err(io::Error::other("held private directory changed"));
+        }
+        if let Some(root) = &self.root {
+            let named = std::fs::symlink_metadata(root)?;
+            if !named.is_dir()
+                || named.dev() != directory.dev()
+                || named.ino() != directory.ino()
+                || std::fs::canonicalize(root)? != *root
+            {
+                return Err(io::Error::other("private root basename/inode changed"));
+            }
+        }
+        Ok(())
+    }
+}
 #[derive(Debug)]
 pub struct CappedFile {
     file: File,
+    guard: Arc<IdentityGuard>,
     limit: u64,
     monitor: Monitor,
 }
@@ -116,11 +176,28 @@ impl CappedFile {
             create || m.len() >= 512,
             "existing database shorter than pinned512-byte super-header; preserve without initialization"
         );
+        let guard = Arc::new(IdentityGuard {
+            file: file.try_clone()?,
+            directory: directory.try_clone()?,
+            root: None,
+        });
+        guard.check()?;
         Ok(Self {
             file,
+            guard,
             limit,
             monitor,
         })
+    }
+    pub fn bind_root(mut self, root: &Path) -> Result<Self> {
+        Arc::get_mut(&mut self.guard)
+            .expect("unshared backend")
+            .root = Some(root.into());
+        self.guard.check()?;
+        Ok(self)
+    }
+    pub fn identity_guard(&self) -> Arc<IdentityGuard> {
+        self.guard.clone()
     }
     fn end(&self, offset: u64, len: usize) -> io::Result<u64> {
         let end = offset
@@ -149,6 +226,7 @@ impl StorageBackend for CappedFile {
         if len > self.limit {
             return Err(io::Error::other("physical database cap"));
         }
+        self.guard.check()?;
         self.monitor.boundary(false)?;
         self.file.set_len(len)?;
         {
@@ -160,6 +238,7 @@ impl StorageBackend for CappedFile {
     }
     fn write(&self, offset: u64, data: &[u8]) -> io::Result<()> {
         let end = self.end(offset, data.len())?;
+        self.guard.check()?;
         self.monitor.boundary(false)?;
         self.file.write_all_at(data, offset)?;
         {
@@ -170,6 +249,7 @@ impl StorageBackend for CappedFile {
         self.monitor.boundary(true)
     }
     fn sync_data(&self) -> io::Result<()> {
+        self.guard.check()?;
         self.monitor.boundary(false)?;
         self.file.sync_all()?;
         self.monitor.0.lock().unwrap().stats.syncs += 1;

@@ -28,6 +28,45 @@ fn apply(store: &Store, stage: &str) -> anyhow::Result<()> {
                 &seen,
             )
         }
+        "file_collect" => {
+            let row = store.source(Uuid::from_u128(8))?;
+            let file = aq_observation::source::SourceFile::open(row.reader.unwrap().permit)?;
+            store
+                .collect_file(
+                    Uuid::from_u128(8),
+                    &file,
+                    100,
+                    aq_observation::spool::OverflowPolicy::Hold,
+                )
+                .map(|_| ())
+        }
+        "engine_batch" => {
+            let mut start = 0;
+            let mut frames = vec![];
+            for i in 0..32 {
+                let bytes = support::row(1000 + i);
+                frames.push(aq_observation_engine::framing::Frame {
+                    start,
+                    bytes: bytes.clone(),
+                    oversized: false,
+                });
+                start += bytes.len() as u64;
+            }
+            store
+                .collect_batch(Uuid::from_u128(8), &frames, 100)
+                .map(|_| ())
+        }
+        "engine_collect" => store
+            .collect_frame(
+                Uuid::from_u128(8),
+                &aq_observation_engine::framing::Frame {
+                    start: 0,
+                    bytes: support::row(2),
+                    oversized: false,
+                },
+                100,
+            )
+            .map(|_| ()),
         "prepare" => store.prepare().map(|_| ()),
         "send" => store.begin_send(1000).map(|_| ()),
         "ack" => {
@@ -44,6 +83,28 @@ fn copy_db(from: &Path, to: &Path) {
 }
 fn setup(base: &Path, stage: &str) {
     let store = Store::create(base, Limits::fixture()).unwrap();
+    if stage == "file_collect" {
+        let root = base.parent().unwrap().join("native");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("native.jsonl"), support::row(2)).unwrap();
+        let source: aq_observation_engine::Source =
+            serde_json::from_value(serde_json::to_value(support::source(8)).unwrap()).unwrap();
+        let permit = aq_observation::source::SourceFile::inspect(
+            source.source_id,
+            &root,
+            "native.jsonl",
+            source.native_session_key.clone(),
+        )
+        .unwrap();
+        store.attach_file_engine(source, 4096, permit).unwrap();
+        return;
+    }
+    if stage == "engine_collect" || stage == "engine_batch" {
+        let source =
+            serde_json::from_value(serde_json::to_value(support::source(8)).unwrap()).unwrap();
+        store.attach_engine(source, 4096, false).unwrap();
+        return;
+    }
     store.attach(support::source(8)).unwrap();
     if stage != "append" {
         support::append(&store, 1);
@@ -80,7 +141,15 @@ static MATRIX_OWNER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn walk(process_exit: bool) -> u64 {
     let _exclusive = MATRIX_OWNER.lock().unwrap();
     let mut cuts = 0;
-    for stage in ["append", "prepare", "send", "ack"] {
+    for stage in [
+        "append",
+        "prepare",
+        "send",
+        "ack",
+        "engine_collect",
+        "engine_batch",
+        "file_collect",
+    ] {
         let temp = tempfile::tempdir().unwrap();
         let base = temp.path().join("base");
         setup(&base, stage);

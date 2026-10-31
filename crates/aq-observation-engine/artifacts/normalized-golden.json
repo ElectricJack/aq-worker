@@ -1,0 +1,1360 @@
+{
+  "cases": [
+    {
+      "events": [
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "kind": "usage",
+              "usage": {
+                "basis": {
+                  "counter_generation": 1,
+                  "counter_id": "codex-total:native-fixture",
+                  "kind": "cumulative"
+                },
+                "call": {
+                  "account_reference": "fixture-account",
+                  "model": "model-a",
+                  "native_call_id": "codex-total:native-fixture",
+                  "provider": "fixture-provider"
+                },
+                "category_semantics": {
+                  "kind": "may_overlap",
+                  "policy": {
+                    "digest": "6cece99a73a457d14396e8cd6ba7823f1e95e926a54519c95eb50b44d103b49c",
+                    "id": "codex-rollout-67f0994",
+                    "version": "0.0.1-engine"
+                  }
+                },
+                "completeness": {
+                  "kind": "partial",
+                  "reason": "incomplete"
+                },
+                "correction_of": null,
+                "cost": {
+                  "kind": "unknown",
+                  "reason": "not_reported"
+                },
+                "counters": {
+                  "cache_read": {
+                    "kind": "known",
+                    "value": 25
+                  },
+                  "cache_write": {
+                    "kind": "unknown",
+                    "reason": "not_reported"
+                  },
+                  "input": {
+                    "kind": "known",
+                    "value": 100
+                  },
+                  "output": {
+                    "kind": "known",
+                    "value": 10
+                  },
+                  "reasoning": {
+                    "kind": "known",
+                    "value": 4
+                  }
+                }
+              }
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 366,
+                "kind": "bytes",
+                "start": 112
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "6cece99a73a457d14396e8cd6ba7823f1e95e926a54519c95eb50b44d103b49c",
+                "id": "codex-rollout-67f0994",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 254,
+                "digest": "313750aa17d23cae5708bdbe7f8e75fc72c7df5ce7df824f19cce0ff489b11bd",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 1
+          },
+          "body_digest": "627e42991d5e653d2a485195566c86d7ec4deee20de1e953c9f65857e6cf9c38",
+          "event_id": "12b8785e-ee68-84c2-bed1-df31dfd9afef"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "kind": "usage",
+              "usage": {
+                "basis": {
+                  "counter_generation": 1,
+                  "counter_id": "codex-total:native-fixture",
+                  "kind": "cumulative"
+                },
+                "call": {
+                  "account_reference": "fixture-account",
+                  "model": "model-a",
+                  "native_call_id": "codex-total:native-fixture",
+                  "provider": "fixture-provider"
+                },
+                "category_semantics": {
+                  "kind": "may_overlap",
+                  "policy": {
+                    "digest": "6cece99a73a457d14396e8cd6ba7823f1e95e926a54519c95eb50b44d103b49c",
+                    "id": "codex-rollout-67f0994",
+                    "version": "0.0.1-engine"
+                  }
+                },
+                "completeness": {
+                  "kind": "partial",
+                  "reason": "incomplete"
+                },
+                "correction_of": null,
+                "cost": {
+                  "kind": "unknown",
+                  "reason": "not_reported"
+                },
+                "counters": {
+                  "cache_read": {
+                    "kind": "known",
+                    "value": 25
+                  },
+                  "cache_write": {
+                    "kind": "unknown",
+                    "reason": "not_reported"
+                  },
+                  "input": {
+                    "kind": "known",
+                    "value": 150
+                  },
+                  "output": {
+                    "kind": "known",
+                    "value": 20
+                  },
+                  "reasoning": {
+                    "kind": "known",
+                    "value": 6
+                  }
+                }
+              }
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 619,
+                "kind": "bytes",
+                "start": 366
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "6cece99a73a457d14396e8cd6ba7823f1e95e926a54519c95eb50b44d103b49c",
+                "id": "codex-rollout-67f0994",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 253,
+                "digest": "e04b713001fc34ef898b15ec46f36114af55eb9187319e49a5a3016123ef8902",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 2
+          },
+          "body_digest": "8fd1b0ab0ef926b441edd094e8b6f4ee6e773cefa73a60201ced2b583a9fbde5",
+          "event_id": "0be05c86-76f7-830c-bef8-485434df9f70"
+        }
+      ],
+      "harness": "codex",
+      "mutations": [],
+      "source": {
+        "account_reference": "fixture-account",
+        "binding": {
+          "attempt_generation": 1,
+          "attempt_id": "00000000-0000-0000-0000-000000000004",
+          "lineage_id": "00000000-0000-0000-0000-000000000003",
+          "project_id": "00000000-0000-0000-0000-000000000001",
+          "session": {
+            "assignment_generation": 1,
+            "attempt_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000006",
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000005",
+            "session_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "task_id": "00000000-0000-0000-0000-000000000002"
+        },
+        "format": "codex_rollout67f0994",
+        "generation": 1,
+        "native_session_key": "native-fixture",
+        "provider": "fixture-provider",
+        "source_id": "00000000-0000-0000-0000-000000000008"
+      }
+    },
+    {
+      "events": [
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "kind": "usage",
+              "usage": {
+                "basis": {
+                  "kind": "per_call"
+                },
+                "call": {
+                  "account_reference": "fixture-account",
+                  "model": "model-a",
+                  "native_call_id": "call-a",
+                  "provider": "fixture-provider"
+                },
+                "category_semantics": {
+                  "kind": "may_overlap",
+                  "policy": {
+                    "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+                    "id": "claude-v1-9a9b8e8",
+                    "version": "0.0.1-engine"
+                  }
+                },
+                "completeness": {
+                  "kind": "partial",
+                  "reason": "incomplete"
+                },
+                "correction_of": null,
+                "cost": {
+                  "kind": "unknown",
+                  "reason": "not_reported"
+                },
+                "counters": {
+                  "cache_read": {
+                    "kind": "known",
+                    "value": 0
+                  },
+                  "cache_write": {
+                    "kind": "known",
+                    "value": 2
+                  },
+                  "input": {
+                    "kind": "known",
+                    "value": 12
+                  },
+                  "output": {
+                    "kind": "known",
+                    "value": 5
+                  },
+                  "reasoning": {
+                    "kind": "unknown",
+                    "reason": "unsupported"
+                  }
+                }
+              }
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 277,
+                "kind": "bytes",
+                "start": 0
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+                "id": "claude-v1-9a9b8e8",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 277,
+                "digest": "976f3d58dc1db61ac44adfa99aa2deee551818190978f846d5dfb0dbd392f216",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 1
+          },
+          "body_digest": "c83b138209573f62c855f05fd72fb215eec0d01a03f754acb37621c0b7c53902",
+          "event_id": "b78ac669-5657-869e-ac23-42f426b09f2f"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "content": {
+                "digest": "12dfb80b8f4792ed0b3e86235df104d054a245036f67bf5d15b92564e35a7377",
+                "id": "logical-content:12dfb80b8f4792ed0b3e86235df104d054a245036f67bf5d15b92564e35a7377",
+                "version": "1"
+              },
+              "kind": "text_reference",
+              "role": "assistant",
+              "utf8_bytes": 24
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 277,
+                "kind": "bytes",
+                "start": 0
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+                "id": "claude-v1-9a9b8e8",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 277,
+                "digest": "976f3d58dc1db61ac44adfa99aa2deee551818190978f846d5dfb0dbd392f216",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 2
+          },
+          "body_digest": "6ae3cca5eb6612df3986aae53d057a9e352a0bffd858f54ec3a097d3767cbf0f",
+          "event_id": "93920f0d-0f19-8634-8734-d781085234ad"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "content": {
+                "digest": "19afc871d3bd8b12637ec8d74f950d5b17a2e422ece60bb8b4d25faf2c82e0e8",
+                "id": "logical-content:19afc871d3bd8b12637ec8d74f950d5b17a2e422ece60bb8b4d25faf2c82e0e8",
+                "version": "1"
+              },
+              "kind": "text_reference",
+              "role": "assistant",
+              "utf8_bytes": 22
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 552,
+                "kind": "bytes",
+                "start": 277
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+                "id": "claude-v1-9a9b8e8",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 275,
+                "digest": "ed1f2ab2f7f109e0861394a04f4b61863fe326f25cbdc6ec9294f91d7444a72a",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 3
+          },
+          "body_digest": "34bb6c1fa1b50a646dd567f0724fa1492530ccea32fe6486e0b5242ab23ff9aa",
+          "event_id": "7738d296-d132-8752-a94c-d5bccc09d555"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "kind": "usage",
+              "usage": {
+                "basis": {
+                  "kind": "per_call"
+                },
+                "call": {
+                  "account_reference": "fixture-account",
+                  "model": "model-a",
+                  "native_call_id": "call-a",
+                  "provider": "fixture-provider"
+                },
+                "category_semantics": {
+                  "kind": "may_overlap",
+                  "policy": {
+                    "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+                    "id": "claude-v1-9a9b8e8",
+                    "version": "0.0.1-engine"
+                  }
+                },
+                "completeness": {
+                  "kind": "partial",
+                  "reason": "incomplete"
+                },
+                "correction_of": {
+                  "digest": "c83b138209573f62c855f05fd72fb215eec0d01a03f754acb37621c0b7c53902",
+                  "event_id": "b78ac669-5657-869e-ac23-42f426b09f2f"
+                },
+                "cost": {
+                  "kind": "unknown",
+                  "reason": "not_reported"
+                },
+                "counters": {
+                  "cache_read": {
+                    "kind": "known",
+                    "value": 0
+                  },
+                  "cache_write": {
+                    "kind": "known",
+                    "value": 2
+                  },
+                  "input": {
+                    "kind": "known",
+                    "value": 12
+                  },
+                  "output": {
+                    "kind": "known",
+                    "value": 8
+                  },
+                  "reasoning": {
+                    "kind": "unknown",
+                    "reason": "unsupported"
+                  }
+                }
+              }
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 851,
+                "kind": "bytes",
+                "start": 552
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+                "id": "claude-v1-9a9b8e8",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 299,
+                "digest": "53b843ed2bddf3e4b54224a6354dc1ae0e70bdf409ce0fce371d79f348d88881",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 4
+          },
+          "body_digest": "57b71bf2b9fac367f7dd24c23e6c45df7de631f926ddaed3ba837d03beac2988",
+          "event_id": "c8a7fc32-ff22-8128-8150-97e06df4a8fe"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "content": {
+                "digest": "f80354c96e445460281a97d698199662f2445c7ebaef70e7b8a222ba6b870721",
+                "id": "logical-content:f80354c96e445460281a97d698199662f2445c7ebaef70e7b8a222ba6b870721",
+                "version": "1"
+              },
+              "kind": "text_reference",
+              "role": "assistant",
+              "utf8_bytes": 21
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 851,
+                "kind": "bytes",
+                "start": 552
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+                "id": "claude-v1-9a9b8e8",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 299,
+                "digest": "53b843ed2bddf3e4b54224a6354dc1ae0e70bdf409ce0fce371d79f348d88881",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 5
+          },
+          "body_digest": "cf27182cdda16ef04e11a6bfcb95b55d0a28b9bab22dfd2dd5c351528dbbdfe4",
+          "event_id": "3687ea5a-97b6-88e1-b439-4fc3f4c43243"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "in_turn": false,
+              "kind": "turn_boundary"
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 851,
+                "kind": "bytes",
+                "start": 552
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+                "id": "claude-v1-9a9b8e8",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 299,
+                "digest": "53b843ed2bddf3e4b54224a6354dc1ae0e70bdf409ce0fce371d79f348d88881",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 6
+          },
+          "body_digest": "7f7609816d2efb9298a5c3837c480a0d159d7dfbab5d340a98937c0b3bad5c01",
+          "event_id": "fb7cc747-91ce-87d7-9588-eb385b04a73b"
+        }
+      ],
+      "harness": "claude",
+      "mutations": [],
+      "source": {
+        "account_reference": "fixture-account",
+        "binding": {
+          "attempt_generation": 1,
+          "attempt_id": "00000000-0000-0000-0000-000000000004",
+          "lineage_id": "00000000-0000-0000-0000-000000000003",
+          "project_id": "00000000-0000-0000-0000-000000000001",
+          "session": {
+            "assignment_generation": 1,
+            "attempt_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000006",
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000005",
+            "session_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "task_id": "00000000-0000-0000-0000-000000000002"
+        },
+        "format": "claude_v1_jsonl9a9b8e8",
+        "generation": 1,
+        "native_session_key": "native-fixture",
+        "provider": "fixture-provider",
+        "source_id": "00000000-0000-0000-0000-000000000008"
+      }
+    },
+    {
+      "events": [
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "kind": "usage",
+              "usage": {
+                "basis": {
+                  "kind": "per_call"
+                },
+                "call": {
+                  "account_reference": "fixture-account",
+                  "model": "model-a",
+                  "native_call_id": "gemini-message:gemini-a",
+                  "provider": "fixture-provider"
+                },
+                "category_semantics": {
+                  "kind": "may_overlap",
+                  "policy": {
+                    "digest": "103947b88e5ebe20c80d391b21080464420228da7a69a40ae4bd64827ac61a65",
+                    "id": "gemini-recording-6814e00",
+                    "version": "0.0.1-engine"
+                  }
+                },
+                "completeness": {
+                  "kind": "partial",
+                  "reason": "incomplete"
+                },
+                "correction_of": null,
+                "cost": {
+                  "kind": "unknown",
+                  "reason": "not_reported"
+                },
+                "counters": {
+                  "cache_read": {
+                    "kind": "known",
+                    "value": 0
+                  },
+                  "cache_write": {
+                    "kind": "unknown",
+                    "reason": "unsupported"
+                  },
+                  "input": {
+                    "kind": "known",
+                    "value": 12
+                  },
+                  "output": {
+                    "kind": "known",
+                    "value": 5
+                  },
+                  "reasoning": {
+                    "kind": "known",
+                    "value": 2
+                  }
+                }
+              }
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 292,
+                "kind": "bytes",
+                "start": 100
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "103947b88e5ebe20c80d391b21080464420228da7a69a40ae4bd64827ac61a65",
+                "id": "gemini-recording-6814e00",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 192,
+                "digest": "8ab2705c08a57639e61e8d44c471c95eb4023c76402ed5ac7578fd02a178676b",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 1
+          },
+          "body_digest": "2405d67a01ae017126c1677c83b97906b36e1b6bba63997b758c9de06694ee1f",
+          "event_id": "f86a0835-3a53-89e7-b4e0-3298603a4ef8"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "content": {
+                "digest": "12dfb80b8f4792ed0b3e86235df104d054a245036f67bf5d15b92564e35a7377",
+                "id": "logical-content:12dfb80b8f4792ed0b3e86235df104d054a245036f67bf5d15b92564e35a7377",
+                "version": "1"
+              },
+              "kind": "text_reference",
+              "role": "assistant",
+              "utf8_bytes": 24
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 292,
+                "kind": "bytes",
+                "start": 100
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "103947b88e5ebe20c80d391b21080464420228da7a69a40ae4bd64827ac61a65",
+                "id": "gemini-recording-6814e00",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 192,
+                "digest": "8ab2705c08a57639e61e8d44c471c95eb4023c76402ed5ac7578fd02a178676b",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 2
+          },
+          "body_digest": "226b31cd25579d27f8b24b3fe0d657a4c6f8beb5349926279e6819323adf8628",
+          "event_id": "ae4535c7-15a8-8c65-81ae-53d34fd9d2e1"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "affected": null,
+              "kind": "gap",
+              "reason": "replay_unavailable"
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 356,
+                "kind": "bytes",
+                "start": 292
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "103947b88e5ebe20c80d391b21080464420228da7a69a40ae4bd64827ac61a65",
+                "id": "gemini-recording-6814e00",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 64,
+                "digest": "316557802d9de30e7b66f8f7a993b60c7cf1206ec8510c7809fef414138b6199",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 3
+          },
+          "body_digest": "cf8c2d4345d9b4fcd4fec2f60e902215faa45bc279224946681b5808e6a37f52",
+          "event_id": "fa9e7c24-56ff-8d40-b6c9-f7ca85497006"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "content": {
+                "digest": "5851942c8015d2c11048c7edf683b10a19d7ab4039251cac2756beefdc9e7120",
+                "id": "logical-content:5851942c8015d2c11048c7edf683b10a19d7ab4039251cac2756beefdc9e7120",
+                "version": "1"
+              },
+              "kind": "text_reference",
+              "role": "assistant",
+              "utf8_bytes": 22
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 356,
+                "kind": "bytes",
+                "start": 292
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "103947b88e5ebe20c80d391b21080464420228da7a69a40ae4bd64827ac61a65",
+                "id": "gemini-recording-6814e00",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 64,
+                "digest": "316557802d9de30e7b66f8f7a993b60c7cf1206ec8510c7809fef414138b6199",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 4
+          },
+          "body_digest": "1a8dcb46832e3846c48cb6b81ffb95730c7a35cba305c950d1e7cc6b37bf8f3b",
+          "event_id": "3ebe770f-c6dd-85c9-bf77-83f5f68dba8a"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "affected": null,
+              "kind": "gap",
+              "reason": "replay_unavailable"
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "end": 381,
+                "kind": "bytes",
+                "start": 356
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "103947b88e5ebe20c80d391b21080464420228da7a69a40ae4bd64827ac61a65",
+                "id": "gemini-recording-6814e00",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 25,
+                "digest": "658e68c76543e976047724777f7a781808ea25e91ce1ff3396a4076d7ee503b8",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 5
+          },
+          "body_digest": "8f6496d73d91b5279563da49c4e8e829ededb7dd43ba76b8e627e98f3f59b68f",
+          "event_id": "ca0a9819-d028-83d5-84bc-5f56b640a0e8"
+        }
+      ],
+      "harness": "gemini",
+      "mutations": [
+        {
+          "affected_native_ids": [
+            "gemini-a"
+          ],
+          "operation": "patch",
+          "prior_events": [
+            {
+              "digest": "2405d67a01ae017126c1677c83b97906b36e1b6bba63997b758c9de06694ee1f",
+              "event_id": "f86a0835-3a53-89e7-b4e0-3298603a4ef8"
+            },
+            {
+              "digest": "226b31cd25579d27f8b24b3fe0d657a4c6f8beb5349926279e6819323adf8628",
+              "event_id": "ae4535c7-15a8-8c65-81ae-53d34fd9d2e1"
+            }
+          ],
+          "source_record_digest": "316557802d9de30e7b66f8f7a993b60c7cf1206ec8510c7809fef414138b6199"
+        },
+        {
+          "affected_native_ids": [
+            "gemini-a"
+          ],
+          "operation": "rewind",
+          "prior_events": [
+            {
+              "digest": "2405d67a01ae017126c1677c83b97906b36e1b6bba63997b758c9de06694ee1f",
+              "event_id": "f86a0835-3a53-89e7-b4e0-3298603a4ef8"
+            },
+            {
+              "digest": "1a8dcb46832e3846c48cb6b81ffb95730c7a35cba305c950d1e7cc6b37bf8f3b",
+              "event_id": "3ebe770f-c6dd-85c9-bf77-83f5f68dba8a"
+            }
+          ],
+          "source_record_digest": "658e68c76543e976047724777f7a781808ea25e91ce1ff3396a4076d7ee503b8"
+        }
+      ],
+      "source": {
+        "account_reference": "fixture-account",
+        "binding": {
+          "attempt_generation": 1,
+          "attempt_id": "00000000-0000-0000-0000-000000000004",
+          "lineage_id": "00000000-0000-0000-0000-000000000003",
+          "project_id": "00000000-0000-0000-0000-000000000001",
+          "session": {
+            "assignment_generation": 1,
+            "attempt_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000006",
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000005",
+            "session_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "task_id": "00000000-0000-0000-0000-000000000002"
+        },
+        "format": "gemini_recording6814e00",
+        "generation": 1,
+        "native_session_key": "native-fixture",
+        "provider": "fixture-provider",
+        "source_id": "00000000-0000-0000-0000-000000000008"
+      }
+    },
+    {
+      "events": [
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "kind": "usage",
+              "usage": {
+                "basis": {
+                  "kind": "per_call"
+                },
+                "call": {
+                  "account_reference": "fixture-account",
+                  "model": "model-a",
+                  "native_call_id": "msg_synthetic-a",
+                  "provider": "fixture-provider"
+                },
+                "category_semantics": {
+                  "kind": "may_overlap",
+                  "policy": {
+                    "digest": "dab49a66e3d7daac47284b92347bc2fcb122746e7c4f35efda8e5d6d27b7104f",
+                    "id": "opencode-session-dto-6c24ec9",
+                    "version": "0.0.1-engine"
+                  }
+                },
+                "completeness": {
+                  "kind": "partial",
+                  "reason": "incomplete"
+                },
+                "correction_of": null,
+                "cost": {
+                  "kind": "unknown",
+                  "reason": "unsupported"
+                },
+                "counters": {
+                  "cache_read": {
+                    "kind": "known",
+                    "value": 0
+                  },
+                  "cache_write": {
+                    "kind": "known",
+                    "value": 1
+                  },
+                  "input": {
+                    "kind": "known",
+                    "value": 12
+                  },
+                  "output": {
+                    "kind": "known",
+                    "value": 5
+                  },
+                  "reasoning": {
+                    "kind": "known",
+                    "value": 2
+                  }
+                }
+              }
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "id": "msg_synthetic-a",
+                "kind": "record"
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "dab49a66e3d7daac47284b92347bc2fcb122746e7c4f35efda8e5d6d27b7104f",
+                "id": "opencode-session-dto-6c24ec9",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 516,
+                "digest": "97de6d9ee94833a19c025f29bf294f6d80edcac836b123bfa2624ab403b3c349",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "structured_provider_event"
+            },
+            "sequence": 1
+          },
+          "body_digest": "10646ffa851a90adb1ec879c971e4e812d529af55b12bf5fada6bda8b8092841",
+          "event_id": "a0cd3418-0639-8d8a-ae1a-ebfa9e0d5eb0"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "content": {
+                "digest": "12dfb80b8f4792ed0b3e86235df104d054a245036f67bf5d15b92564e35a7377",
+                "id": "logical-content:12dfb80b8f4792ed0b3e86235df104d054a245036f67bf5d15b92564e35a7377",
+                "version": "1"
+              },
+              "kind": "text_reference",
+              "role": "assistant",
+              "utf8_bytes": 24
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "id": "msg_synthetic-a",
+                "kind": "record"
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "dab49a66e3d7daac47284b92347bc2fcb122746e7c4f35efda8e5d6d27b7104f",
+                "id": "opencode-session-dto-6c24ec9",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 516,
+                "digest": "97de6d9ee94833a19c025f29bf294f6d80edcac836b123bfa2624ab403b3c349",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "structured_provider_event"
+            },
+            "sequence": 2
+          },
+          "body_digest": "9adf1b9f8d22df433319c8b1716755d3507a2d2348d3d708fb9e69573bbc9f3c",
+          "event_id": "a1922e1b-1061-8787-b461-12e47fa1bbe3"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "call_id": "tool-a",
+              "kind": "tool_started",
+              "tool_name": "fixture-tool"
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "id": "msg_synthetic-a",
+                "kind": "record"
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "dab49a66e3d7daac47284b92347bc2fcb122746e7c4f35efda8e5d6d27b7104f",
+                "id": "opencode-session-dto-6c24ec9",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 516,
+                "digest": "97de6d9ee94833a19c025f29bf294f6d80edcac836b123bfa2624ab403b3c349",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "structured_provider_event"
+            },
+            "sequence": 3
+          },
+          "body_digest": "bf041e1ccbca265eca805c5398d4b69fcee1df8554b109803a66fe089461e544",
+          "event_id": "a10e2459-5249-8080-a95a-0b86f19d878f"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "call_id": "tool-a",
+              "content": {
+                "digest": "54eb52f9f6fa8d25da03e5e6a9be34e1825f3ebe9e388d41964436a4f756e8cb",
+                "id": "logical-content:54eb52f9f6fa8d25da03e5e6a9be34e1825f3ebe9e388d41964436a4f756e8cb",
+                "version": "1"
+              },
+              "kind": "tool_result"
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "id": "msg_synthetic-a",
+                "kind": "record"
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "dab49a66e3d7daac47284b92347bc2fcb122746e7c4f35efda8e5d6d27b7104f",
+                "id": "opencode-session-dto-6c24ec9",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 516,
+                "digest": "97de6d9ee94833a19c025f29bf294f6d80edcac836b123bfa2624ab403b3c349",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "structured_provider_event"
+            },
+            "sequence": 4
+          },
+          "body_digest": "38345afd4b95cf497d383abc1bc1be5a3a88c5339dd66fd917da52618c92cf91",
+          "event_id": "963c6dbd-b841-8fcb-9c68-6d114d85aa43"
+        },
+        {
+          "body": {
+            "binding": {
+              "attempt_generation": 1,
+              "attempt_id": "00000000-0000-0000-0000-000000000004",
+              "lineage_id": "00000000-0000-0000-0000-000000000003",
+              "project_id": "00000000-0000-0000-0000-000000000001",
+              "session": {
+                "assignment_generation": 1,
+                "attempt_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000006",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000005",
+                "session_id": "00000000-0000-0000-0000-000000000007"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "kind": {
+              "in_turn": false,
+              "kind": "turn_boundary"
+            },
+            "observed_at_ms": 100,
+            "provenance": {
+              "cursor": {
+                "id": "msg_synthetic-a",
+                "kind": "record"
+              },
+              "native_session_key": "native-fixture",
+              "parser": {
+                "digest": "dab49a66e3d7daac47284b92347bc2fcb122746e7c4f35efda8e5d6d27b7104f",
+                "id": "opencode-session-dto-6c24ec9",
+                "version": "0.0.1-engine"
+              },
+              "raw_record": {
+                "byte_length": 516,
+                "digest": "97de6d9ee94833a19c025f29bf294f6d80edcac836b123bfa2624ab403b3c349",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-000000000008",
+              "source_kind": "structured_provider_event"
+            },
+            "sequence": 5
+          },
+          "body_digest": "f45314a20c92c65e7cc86403bc6e016a06bd3f7bdee10d58610789fa36e06738",
+          "event_id": "02bf6515-ee3c-80e7-b2b8-3ffc5c929e2e"
+        }
+      ],
+      "harness": "opencode",
+      "mutations": [],
+      "source": {
+        "account_reference": "fixture-account",
+        "binding": {
+          "attempt_generation": 1,
+          "attempt_id": "00000000-0000-0000-0000-000000000004",
+          "lineage_id": "00000000-0000-0000-0000-000000000003",
+          "project_id": "00000000-0000-0000-0000-000000000001",
+          "session": {
+            "assignment_generation": 1,
+            "attempt_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000006",
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000005",
+            "session_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "task_id": "00000000-0000-0000-0000-000000000002"
+        },
+        "format": "open_code_session_dto6c24ec9",
+        "generation": 1,
+        "native_session_key": "native-fixture",
+        "provider": "fixture-provider",
+        "source_id": "00000000-0000-0000-0000-000000000008"
+      }
+    }
+  ],
+  "fixture_provenance": "synthetic; no released CLI qualification or provider/billing evidence"
+}

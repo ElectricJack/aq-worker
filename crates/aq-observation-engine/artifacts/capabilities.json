@@ -1,0 +1,115 @@
+{
+  "fixture_provenance": "synthetic; no actual selected CLI qualification",
+  "parsers": [
+    {
+      "absent_fields": "unknown_never_zero",
+      "complete_accounting_policy_eligible": false,
+      "cost": "unknown_without_qualified_receipt_or_rate_card",
+      "counter_basis": "native_cumulative",
+      "cross_source_accounting": "central_ledger_precedence_required",
+      "format_id": "codex-rollout-jsonl-67f0994",
+      "format_source_revision": "67f0994b532b8740f14b5b738af7b7b2a915b1d6",
+      "harness": "codex",
+      "native_usage_when_present": [
+        "input",
+        "output",
+        "cache_read",
+        "cache_write",
+        "reasoning"
+      ],
+      "parser": {
+        "digest": "6cece99a73a457d14396e8cd6ba7823f1e95e926a54519c95eb50b44d103b49c",
+        "id": "codex-rollout-67f0994",
+        "version": "0.0.1-engine"
+      },
+      "raw_content_export": false,
+      "schema_version": 1,
+      "scoped_file_discovery": true,
+      "scoped_public_dto_channel": false,
+      "selected_cli_version": null,
+      "selected_released_cli_qualified": false
+    },
+    {
+      "absent_fields": "unknown_never_zero",
+      "complete_accounting_policy_eligible": false,
+      "cost": "unknown_without_qualified_receipt_or_rate_card",
+      "counter_basis": "native_message_call",
+      "cross_source_accounting": "central_ledger_precedence_required",
+      "format_id": "claude-jsonl-v1-reference-9a9b8e8",
+      "format_source_revision": "9a9b8e8ef992d1ff699755a9383ed3c91e2844ea",
+      "harness": "claude",
+      "native_usage_when_present": [
+        "input",
+        "output",
+        "cache_read",
+        "cache_write"
+      ],
+      "parser": {
+        "digest": "3e67b0c5ffe7816b257fa800b62462393c6704016d7a057f7f69492da184ff46",
+        "id": "claude-v1-9a9b8e8",
+        "version": "0.0.1-engine"
+      },
+      "raw_content_export": false,
+      "schema_version": 1,
+      "scoped_file_discovery": true,
+      "scoped_public_dto_channel": false,
+      "selected_cli_version": null,
+      "selected_released_cli_qualified": false
+    },
+    {
+      "absent_fields": "unknown_never_zero",
+      "complete_accounting_policy_eligible": false,
+      "cost": "unknown_without_qualified_receipt_or_rate_card",
+      "counter_basis": "native_message",
+      "cross_source_accounting": "central_ledger_precedence_required",
+      "format_id": "gemini-recording-jsonl-6814e00",
+      "format_source_revision": "6814e00d6b148c3a1d57244d5d7040f7c541009d",
+      "harness": "gemini",
+      "native_usage_when_present": [
+        "input",
+        "output",
+        "cache_read",
+        "reasoning"
+      ],
+      "parser": {
+        "digest": "103947b88e5ebe20c80d391b21080464420228da7a69a40ae4bd64827ac61a65",
+        "id": "gemini-recording-6814e00",
+        "version": "0.0.1-engine"
+      },
+      "raw_content_export": false,
+      "schema_version": 1,
+      "scoped_file_discovery": true,
+      "scoped_public_dto_channel": false,
+      "selected_cli_version": null,
+      "selected_released_cli_qualified": false
+    },
+    {
+      "absent_fields": "unknown_never_zero",
+      "complete_accounting_policy_eligible": false,
+      "cost": "unknown_without_qualified_receipt_or_rate_card",
+      "counter_basis": "scoped_public_message",
+      "cross_source_accounting": "central_ledger_precedence_required",
+      "format_id": "opencode-public-session-dto-6c24ec9",
+      "format_source_revision": "6c24ec953200c59f4b044ca70f9c549da35c6608",
+      "harness": "opencode",
+      "native_usage_when_present": [
+        "input",
+        "output",
+        "cache_read",
+        "cache_write",
+        "reasoning"
+      ],
+      "parser": {
+        "digest": "dab49a66e3d7daac47284b92347bc2fcb122746e7c4f35efda8e5d6d27b7104f",
+        "id": "opencode-session-dto-6c24ec9",
+        "version": "0.0.1-engine"
+      },
+      "raw_content_export": false,
+      "schema_version": 1,
+      "scoped_file_discovery": false,
+      "scoped_public_dto_channel": true,
+      "selected_cli_version": null,
+      "selected_released_cli_qualified": false
+    }
+  ]
+}

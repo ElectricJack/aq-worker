@@ -1,0 +1,4050 @@
+{
+  "near": {
+    "cache_bytes": 4194304,
+    "final_file_bytes": 46895104,
+    "fixture": "synthetic Claude-shaped records,real file/normalizer/row-store;32distinct raw fingerprints per retained call forlargecase; no actualCLI/provider qualification",
+    "initial": {
+      "acked": 5120,
+      "active_boot": "00000000-0000-0000-0000-000000000006",
+      "delivery": null,
+      "logical_bytes": 12784487,
+      "next": 5121,
+      "persistence_uncertain": false,
+      "queued": 0,
+      "receipt": {
+        "body_digest": "e7d7fbc171593c2b3c64eb3fd72d6ec585f4dd51d71ebe8e0e510f6d802c061f",
+        "disposition": "observation_recorded",
+        "message_id": "55a8f122-ba4d-8a32-8b51-6b13bfe51837",
+        "schema_version": 1,
+        "through_sequence": 5120
+      },
+      "seen": 5120
+    },
+    "initial_file_bytes": 23449600,
+    "near": true,
+    "physical_cap": 67108864,
+    "population": "real bounded32-record collection/ACK path; excluded fromsamples",
+    "repetitions": 35,
+    "samples": [
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16457728,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 7.283742999999999
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 126,
+            "peak_file_bytes": 20168704,
+            "read_bytes": 376832,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 500352
+          },
+          "ms": 13.608145
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20254720,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 43.280888000000004
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20320256,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.634659
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16420864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.059705999999999
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 80,
+            "peak_file_bytes": 20201472,
+            "read_bytes": 110592,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 311936
+          },
+          "ms": 15.188768999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20320256,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.617089
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20385792,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.692666
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16027648,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.80381
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 71,
+            "peak_file_bytes": 20209664,
+            "read_bytes": 86016,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 275072
+          },
+          "ms": 11.817549999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20320256,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 44.392703999999995
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20385792,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.766932
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 13524992,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.926589000000001
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 20242432,
+            "read_bytes": 86016,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.421489999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20320256,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.255768999999994
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20385792,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.030457999999999
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 13524992,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.2356929999999995
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 20271104,
+            "read_bytes": 57344,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.67785
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20385792,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 47.327831
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20451328,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.717714
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16457728,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.341692
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 20307968,
+            "read_bytes": 45056,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 12.041806000000001
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20385792,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 44.195094
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20451328,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.853064
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 13524992,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.865175000000001
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 73,
+            "peak_file_bytes": 20340736,
+            "read_bytes": 40960,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 283264
+          },
+          "ms": 11.954253
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20451328,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 42.403327
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20516864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 6.133587
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16117760,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.720534
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 70,
+            "peak_file_bytes": 20357120,
+            "read_bytes": 45056,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 270976
+          },
+          "ms": 20.161679
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20451328,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.031323
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20516864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.013717
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 15724544,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.0917829999999995
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 71,
+            "peak_file_bytes": 22392832,
+            "read_bytes": 28672,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 275072
+          },
+          "ms": 11.035569
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20516864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 38.935325
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20582400,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.231658
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12341248,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.944444
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 73,
+            "peak_file_bytes": 22392832,
+            "read_bytes": 24576,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 283264
+          },
+          "ms": 11.772378
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20516864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.505523000000004
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20582400,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.092463
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16642048,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.034523
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 69,
+            "peak_file_bytes": 22392832,
+            "read_bytes": 16384,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 266880
+          },
+          "ms": 10.924119
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20516864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.168374
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20582400,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.8819859999999995
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16396288,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.825746
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 20480000,
+            "read_bytes": 16384,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.353867
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20582400,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.590579
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20647936,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.596394
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12341248,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.089197
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 22392832,
+            "read_bytes": 20480,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.032259000000002
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20582400,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.006422
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20647936,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.260564
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 11530240,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.992112
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 71,
+            "peak_file_bytes": 20537344,
+            "read_bytes": 12288,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 275072
+          },
+          "ms": 12.237136
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20647936,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.899947999999995
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20713472,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.629455
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 15888384,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.02132
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 74,
+            "peak_file_bytes": 20578304,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 287360
+          },
+          "ms": 11.806736
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20647936,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.049941
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20713472,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.9726479999999995
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12038144,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.938804
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 73,
+            "peak_file_bytes": 20606976,
+            "read_bytes": 12288,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 283264
+          },
+          "ms": 11.161317
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20713472,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.148325
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20779008,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.721437
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 11677696,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.890119
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 75,
+            "peak_file_bytes": 20639744,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 291456
+          },
+          "ms": 11.071911
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20713472,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 38.713097000000005
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20779008,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.038257
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16396288,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.809108
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 20664320,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.758117
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20779008,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.136725
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20844544,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.406231
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 11530240,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.035614
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 73,
+            "peak_file_bytes": 20697088,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 283264
+          },
+          "ms": 11.334198
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20779008,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.070536
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20844544,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.087994
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16838656,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.270124
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 74,
+            "peak_file_bytes": 20725760,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 287360
+          },
+          "ms": 11.33961
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20844544,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.215323000000005
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20910080,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.648985
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12038144,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.894858
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 74,
+            "peak_file_bytes": 20762624,
+            "read_bytes": 20480,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 287360
+          },
+          "ms": 11.192138
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20844544,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.075832
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20910080,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.900146
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 11530240,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.158446
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 74,
+            "peak_file_bytes": 20791296,
+            "read_bytes": 12288,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 287360
+          },
+          "ms": 11.143583
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20910080,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.845298
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20975616,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 6.017745
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 11677696,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.103058
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 73,
+            "peak_file_bytes": 20811776,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 283264
+          },
+          "ms": 11.568983999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20910080,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.654892
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20975616,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.9198189999999995
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 11063296,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.943480999999999
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 74,
+            "peak_file_bytes": 20844544,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 287360
+          },
+          "ms": 11.405296
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20910080,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.437199
+        },
+        "send32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 20975616,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.103394
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 15888384,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.019139
+        },
+        "collect32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 20877312,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.406975
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 23449600,
+          "file_before": 23449600,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20975616,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.282194000000004
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 23449600,
+          "io": {
+            "operations": 12,
+            "peak_file_bytes": 46895104,
+            "read_bytes": 0,
+            "resizes": 1,
+            "syncs": 3,
+            "written_bytes": 86656
+          },
+          "ms": 8.055555
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 11063296,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 8.985471
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 23465984,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.139758
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20975616,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.031404
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 46862336,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.890956999999999
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 11063296,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.190094
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 46870528,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.357140999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 20975616,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.397287
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 46862336,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.993110000000001
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12484608,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.005586999999999
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 46895104,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 12.463401000000001
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 46862336,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.091481
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 23531520,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.531135000000001
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 10145792,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.914916
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 76,
+            "peak_file_bytes": 20967424,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 295552
+          },
+          "ms": 11.364605
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 46862336,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.775369
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 23531520,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.969571
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 16793600,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.883064
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 74,
+            "peak_file_bytes": 46895104,
+            "read_bytes": 16384,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 287360
+          },
+          "ms": 11.219019
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 23531520,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.836053
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 23597056,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.52901
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12398592,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.894949
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 69,
+            "peak_file_bytes": 46895104,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 266880
+          },
+          "ms": 11.667809
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 23531520,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.263312
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 23597056,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.947634
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12341248,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.853045000000001
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 76,
+            "peak_file_bytes": 46882816,
+            "read_bytes": 8192,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 295552
+          },
+          "ms": 11.126202
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 23597056,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.007398
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 46731264,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.4034510000000004
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12341248,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.15285
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 75,
+            "peak_file_bytes": 46895104,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 291456
+          },
+          "ms": 11.187134
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 23597056,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.90946
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 46731264,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.855423
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12341248,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.200502
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 72,
+            "peak_file_bytes": 46858240,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 279168
+          },
+          "ms": 11.498455
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 46731264,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.092845000000004
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 46796800,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.064235
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 12038144,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.0397050000000005
+        },
+        "collect32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 76,
+            "peak_file_bytes": 46895104,
+            "read_bytes": 4096,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 295552
+          },
+          "ms": 10.844448
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 46731264,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.128968
+        },
+        "send32": {
+          "file_after": 46895104,
+          "file_before": 46895104,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 46796800,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.101612
+        },
+        "source_read_bytes": 7552
+      }
+    ]
+  },
+  "small": {
+    "cache_bytes": 4194304,
+    "final_file_bytes": 2281472,
+    "fixture": "synthetic Claude-shaped records,real file/normalizer/row-store;32distinct raw fingerprints per retained call forlargecase; no actualCLI/provider qualification",
+    "initial": {
+      "acked": 4,
+      "active_boot": "00000000-0000-0000-0000-000000000006",
+      "delivery": null,
+      "logical_bytes": 4291,
+      "next": 5,
+      "persistence_uncertain": false,
+      "queued": 0,
+      "receipt": {
+        "body_digest": "c98e4c0ef5e8135a041175c71b9bd688a12aba39b3886a3338ad024d1b2a3522",
+        "disposition": "observation_recorded",
+        "message_id": "601bd2f9-5354-8761-bfa1-0c462f62d437",
+        "schema_version": 1,
+        "through_sequence": 4
+      },
+      "seen": 4
+    },
+    "initial_file_bytes": 573440,
+    "near": false,
+    "physical_cap": 67108864,
+    "population": "real bounded32-record collection/ACK path; excluded fromsamples",
+    "repetitions": 35,
+    "samples": [
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 561152,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.510022
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 35,
+            "peak_file_bytes": 573440,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 127616
+          },
+          "ms": 9.578686
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 200704,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 37.616259
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 569344,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.728807
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 548864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.534644
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 37,
+            "peak_file_bytes": 573440,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 135808
+          },
+          "ms": 9.334635
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 561152,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 36.738912
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 569344,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 7.8032140000000005
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 573440,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.824339
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 38,
+            "peak_file_bytes": 569344,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 139904
+          },
+          "ms": 9.607205
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 557056,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 38.036068
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 548864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.730182999999999
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 569344,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.68729
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 40,
+            "peak_file_bytes": 565248,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 148096
+          },
+          "ms": 9.526196
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 548864,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 37.080751
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 561152,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.971359
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 561152,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.733916000000001
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 40,
+            "peak_file_bytes": 573440,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 148096
+          },
+          "ms": 9.603493
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 331776,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 37.264368
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 397312,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.762080999999999
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 552960,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.734310000000001
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 42,
+            "peak_file_bytes": 569344,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 156288
+          },
+          "ms": 9.585376
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 397312,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 36.436271999999995
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 462848,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.014368
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 552960,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.779718
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 43,
+            "peak_file_bytes": 573440,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 160384
+          },
+          "ms": 15.453669999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 397312,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 46.927689
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 462848,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.838987
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 561152,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.819243
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 43,
+            "peak_file_bytes": 573440,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 160384
+          },
+          "ms": 9.764402
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 462848,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 37.785131
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 528384,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.860907
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 319488,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.873607000000001
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 44,
+            "peak_file_bytes": 569344,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 164480
+          },
+          "ms": 9.608508
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 462848,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.030914
+        },
+        "send32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 528384,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.739868
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 307200,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.962615
+        },
+        "collect32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 46,
+            "peak_file_bytes": 573440,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 172672
+          },
+          "ms": 9.987535000000001
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 573440,
+          "file_before": 573440,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 528384,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.782016999999996
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 573440,
+          "io": {
+            "operations": 12,
+            "peak_file_bytes": 1142784,
+            "read_bytes": 0,
+            "resizes": 1,
+            "syncs": 3,
+            "written_bytes": 86656
+          },
+          "ms": 6.683839
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 241664,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.697914
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 46,
+            "peak_file_bytes": 1142784,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 172672
+          },
+          "ms": 10.764876
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 528384,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.097915
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 659456,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.748422000000001
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 299008,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.804759
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 49,
+            "peak_file_bytes": 1142784,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 184960
+          },
+          "ms": 10.568188
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 528384,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 38.607935000000005
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 659456,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.771122
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 323584,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.711825999999999
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 48,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 180864
+          },
+          "ms": 10.478329
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 659456,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 36.815386
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1118208,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.661288000000001
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 323584,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.5963460000000005
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 49,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 184960
+          },
+          "ms": 10.439639
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 659456,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 37.993986
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1118208,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.718660000000001
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 409600,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.673641
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 51,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 193152
+          },
+          "ms": 10.414681
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 1118208,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.021226999999996
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 724992,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.7920039999999995
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 405504,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.468443
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 53,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 201344
+          },
+          "ms": 10.014443
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 1118208,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 37.60006
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 724992,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.738812
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 327680,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.033364000000001
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 50,
+            "peak_file_bytes": 1134592,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 189056
+          },
+          "ms": 10.110999000000001
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 1118208,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 38.631788
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 724992,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.809269
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 327680,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.669874999999999
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 54,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 205440
+          },
+          "ms": 10.753524
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 724992,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.662441
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 790528,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.805166
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 327680,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.640881
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 52,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 197248
+          },
+          "ms": 9.910001999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 724992,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.521097
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 790528,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.699287
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 290816,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.612438
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 51,
+            "peak_file_bytes": 1126400,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 193152
+          },
+          "ms": 9.941996
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 790528,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.417147
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 856064,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.609922
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 360448,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 6.1786200000000004
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 54,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 205440
+          },
+          "ms": 9.863425
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 790528,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.618657
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 856064,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.85969
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 327680,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.580043
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 54,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 205440
+          },
+          "ms": 10.164202000000001
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 856064,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.832011
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 921600,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.9375219999999995
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 241664,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.569017
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 56,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 213632
+          },
+          "ms": 10.06576
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 856064,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.035859
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 921600,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.57854
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 368640,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.702345
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 56,
+            "peak_file_bytes": 1126400,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 213632
+          },
+          "ms": 9.925022
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 856064,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.792632000000005
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 921600,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.566921
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 368640,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.629742
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 54,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 205440
+          },
+          "ms": 9.980117
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 921600,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.490862
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 987136,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.797007
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 217088,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.807954
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 58,
+            "peak_file_bytes": 1126400,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 221824
+          },
+          "ms": 10.038442
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 921600,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.53955800000001
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 987136,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.728149
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 327680,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.567545999999999
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 54,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 205440
+          },
+          "ms": 10.37358
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 987136,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 38.941299
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1052672,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.764751
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 290816,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 14.485414
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 58,
+            "peak_file_bytes": 1114112,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 221824
+          },
+          "ms": 10.280021999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 987136,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 45.591026
+        },
+        "send32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1052672,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 10.502595
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 282624,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.5933459999999995
+        },
+        "collect32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 56,
+            "peak_file_bytes": 1138688,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 213632
+          },
+          "ms": 10.042864
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 1142784,
+          "file_before": 1142784,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 1052672,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.715385999999995
+        },
+        "send32": {
+          "file_after": 2281472,
+          "file_before": 1142784,
+          "io": {
+            "operations": 12,
+            "peak_file_bytes": 2281472,
+            "read_bytes": 0,
+            "resizes": 1,
+            "syncs": 3,
+            "written_bytes": 86656
+          },
+          "ms": 6.370407
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 376832,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.667992
+        },
+        "collect32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 57,
+            "peak_file_bytes": 2281472,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 217728
+          },
+          "ms": 11.158483
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 987136,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 41.118592
+        },
+        "send32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1052672,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.962327
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 241664,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.843272
+        },
+        "collect32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 57,
+            "peak_file_bytes": 2281472,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 217728
+          },
+          "ms": 10.642838
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 987136,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.950725
+        },
+        "send32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1052672,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.604573
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 282624,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.808687
+        },
+        "collect32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 61,
+            "peak_file_bytes": 2269184,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 234112
+          },
+          "ms": 11.61868
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 1052672,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 42.618683999999995
+        },
+        "send32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1249280,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.7947299999999995
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 409600,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.61183
+        },
+        "collect32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 60,
+            "peak_file_bytes": 2281472,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 230016
+          },
+          "ms": 10.942685
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 1052672,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 40.255258000000005
+        },
+        "send32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1249280,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.7152970000000005
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 397312,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.773629
+        },
+        "collect32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 60,
+            "peak_file_bytes": 2281472,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 230016
+          },
+          "ms": 10.515709999999999
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 1052672,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.429718
+        },
+        "send32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1249280,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 4.6600909999999995
+        },
+        "source_read_bytes": 7552
+      },
+      {
+        "ack32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 368640,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 25216
+          },
+          "ms": 5.576848
+        },
+        "collect32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 59,
+            "peak_file_bytes": 2277376,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 225920
+          },
+          "ms": 10.103805000000001
+        },
+        "facts": 32,
+        "indexed_lookups": 128,
+        "prepare32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 11,
+            "peak_file_bytes": 1249280,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 90752
+          },
+          "ms": 39.404855000000005
+        },
+        "send32": {
+          "file_after": 2281472,
+          "file_before": 2281472,
+          "io": {
+            "operations": 10,
+            "peak_file_bytes": 1314816,
+            "read_bytes": 0,
+            "resizes": 0,
+            "syncs": 2,
+            "written_bytes": 86656
+          },
+          "ms": 5.122478
+        },
+        "source_read_bytes": 7552
+      }
+    ]
+  }
+}

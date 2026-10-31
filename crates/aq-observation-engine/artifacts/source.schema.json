@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "Binding": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "attempt_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "lineage_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionIdentity"
+        },
+        "task_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "task_id",
+        "lineage_id",
+        "attempt_id",
+        "attempt_generation",
+        "session"
+      ],
+      "type": "object"
+    },
+    "Format": {
+      "enum": [
+        "codex_rollout67f0994",
+        "claude_v1_jsonl9a9b8e8",
+        "gemini_recording6814e00",
+        "open_code_session_dto6c24ec9"
+      ],
+      "type": "string"
+    },
+    "SessionIdentity": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "assignment_generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "attempt_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "boot_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "kind": {
+              "const": "remote",
+              "type": "string"
+            },
+            "node_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "session_id": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "node_id",
+            "boot_id",
+            "attempt_id",
+            "assignment_generation",
+            "session_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "authority_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "central",
+              "type": "string"
+            },
+            "session_id": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "authority_id",
+            "session_id",
+            "generation"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Text": {
+      "description": "Nonempty UTF-8 text, at most 512 bytes; no control characters.",
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string",
+      "x-utf8-maxBytes": 512
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "account_reference": {
+      "$ref": "#/$defs/Text"
+    },
+    "binding": {
+      "$ref": "#/$defs/Binding"
+    },
+    "format": {
+      "$ref": "#/$defs/Format"
+    },
+    "generation": {
+      "format": "uint64",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "native_session_key": {
+      "$ref": "#/$defs/Text"
+    },
+    "provider": {
+      "$ref": "#/$defs/Text"
+    },
+    "source_id": {
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "binding",
+    "source_id",
+    "generation",
+    "native_session_key",
+    "format",
+    "provider",
+    "account_reference"
+  ],
+  "title": "Source",
+  "type": "object",
+  "x-input-role": "host-admitted observation source assertion; not authentication or execution authority"
+}

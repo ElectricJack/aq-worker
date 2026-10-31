@@ -4,7 +4,7 @@ pub mod backend;
 use anyhow::{Context, Result, ensure};
 use aq_lifecycle_protocol::*;
 use aq_observation::Source;
-use backend::{CappedFile, Monitor};
+use backend::{CappedFile, IdentityGuard, Monitor};
 use redb::{
     Database, Durability, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition,
     WriteTransaction,
@@ -17,6 +17,19 @@ use std::{
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
+mod engine_store;
+mod owner;
+mod reader;
+mod reparse;
+pub use reader::{
+    FileGenerationPlan, HistoryBoundary, ReaderState, SourceAuthority, VerifiedFileGeneration,
+    VerifiedHistoryBoundary,
+};
+mod sessions;
+pub use engine_store::{CollectedFrame, EngineState};
+pub use owner::VerifiedNewStore;
+pub use reparse::{ReplayAuthority, ReplayPlan, VerifiedRetained};
+pub use sessions::{HoldReason, VerifiedBootAdmission};
 const META: TableDefinition<&str, &[u8]> = TableDefinition::new("meta");
 const SOURCES: TableDefinition<&[u8], &[u8]> = TableDefinition::new("sources");
 const SEEN: TableDefinition<&[u8], &[u8]> = TableDefinition::new("seen");
@@ -59,6 +72,9 @@ impl Limits {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Meta {
     version: u32,
+    transport: Option<aq_observation::InitialTransport>,
+    active_boot: Uuid,
+    boot_history: Vec<aq_observation::BootTransition>,
     limits: Limits,
     next: u64,
     acked: u64,
@@ -74,6 +90,13 @@ struct Meta {
 pub struct SourceRow {
     pub source: Source,
     pub cursor: u64,
+    pub engine: Option<EngineState>,
+    pub hold: Option<HoldReason>,
+    pub parsers: Vec<ArtifactRef>,
+    pub generations: Vec<u64>,
+    pub reader: Option<ReaderState>,
+    pub source_operations: Vec<reader::SourceOperation>,
+    pub record_cursor: Option<Text>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SeenRow {
@@ -89,8 +112,65 @@ pub struct Delivery {
     pub last_ms: Option<u64>,
     pub next_retry_ms: u64,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Retry {
+    message_id: Uuid,
+    body_digest: Digest,
+    attempts: u32,
+    first_ms: Option<u64>,
+    last_ms: Option<u64>,
+    next_retry_ms: u64,
+}
+impl Retry {
+    fn initial(packet: &Packet) -> Self {
+        Self {
+            message_id: packet.body.message_id,
+            body_digest: packet.body_digest.clone(),
+            attempts: 0,
+            first_ms: None,
+            last_ms: None,
+            next_retry_ms: 0,
+        }
+    }
+    fn check(&self, packet: &Packet) -> Result<()> {
+        ensure!(
+            self.message_id == packet.body.message_id && self.body_digest == packet.body_digest,
+            "retry row packet identity mismatch"
+        );
+        Ok(())
+    }
+}
+fn load_delivery(
+    table: &impl ReadableTable<&'static str, &'static [u8]>,
+) -> Result<Option<Delivery>> {
+    let packet = table
+        .get("packet")?
+        .map(|v| decode::<Packet>(v.value()))
+        .transpose()?;
+    let retry = table
+        .get("retry")?
+        .map(|v| decode::<Retry>(v.value()))
+        .transpose()?;
+    match (packet, retry) {
+        (None, None) => Ok(None),
+        (Some(packet), Some(retry)) => {
+            retry.check(&packet)?;
+            Ok(Some(Delivery {
+                packet,
+                attempts: retry.attempts,
+                first_ms: retry.first_ms,
+                last_ms: retry.last_ms,
+                next_retry_ms: retry.next_retry_ms,
+            }))
+        }
+        _ => anyhow::bail!("incomplete packet/retry atomic intent"),
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
+    pub persistence_uncertain: bool,
+    pub active_boot: Uuid,
     pub next: u64,
     pub acked: u64,
     pub queued: u64,
@@ -101,6 +181,7 @@ pub struct Snapshot {
 }
 pub struct Store {
     db: Database,
+    identity: std::sync::Arc<IdentityGuard>,
     _owner: File,
     _directory: File,
     root: PathBuf,
@@ -139,23 +220,62 @@ fn seen_key(source: Uuid, key: &str) -> Result<Vec<u8>> {
     out.extend_from_slice(key.as_bytes());
     Ok(out)
 }
+// Exact serde envelope length with an empty event vector. UUID/digest text
+// lengths are fixed; no candidate is sealed or trusted from a size hint. The
+// final actual packet is sealed/validated and its full length rechecked.
+fn envelope_bytes(node: Uuid, boot: Uuid, first: u64, last: u64, usage: bool) -> Result<usize> {
+    let mut required_capabilities = vec![Capability {
+        id: Text::new(OBSERVATION_CAPABILITY)?,
+        version: 1,
+    }];
+    if usage {
+        required_capabilities.push(Capability {
+            id: Text::new(USAGE_CAPABILITY)?,
+            version: 1,
+        });
+    }
+    let length_only = Packet {
+        body: PacketBody {
+            schema_version: SCHEMA_VERSION,
+            message_id: Uuid::from_u128(1),
+            required_capabilities,
+            message: Message::Batch(ObservationBatch {
+                node_id: node,
+                boot_id: boot,
+                first_sequence: first,
+                last_sequence: last,
+                events: vec![],
+            }),
+        },
+        body_digest: Digest::of(b"length-only"),
+    };
+    Ok(encode(&length_only)?.len())
+}
 impl Store {
     pub fn create(root: &Path, limits: Limits) -> Result<Self> {
-        Self::open_inner(root, limits, true)
+        Self::open_inner(root, limits, true, None)
     }
     pub fn open(root: &Path, limits: Limits) -> Result<Self> {
-        Self::open_inner(root, limits, false)
+        Self::open_inner(root, limits, false, None)
     }
-    fn open_inner(root: &Path, limits: Limits, create: bool) -> Result<Self> {
+    fn open_inner(
+        root: &Path,
+        limits: Limits,
+        create: bool,
+        transport: Option<aq_observation::InitialTransport>,
+    ) -> Result<Self> {
         limits.validate()?;
         let (directory, owner) = backend::private_root(root, create)?;
         let monitor = Monitor::default();
-        let backend = CappedFile::open(&directory, create, limits.physical_bytes, monitor.clone())?;
+        let backend = CappedFile::open(&directory, create, limits.physical_bytes, monitor.clone())?
+            .bind_root(root)?;
+        let identity = backend.identity_guard();
         let db = Database::builder()
             .set_cache_size(limits.cache_bytes)
             .create_with_backend(backend)?;
         let store = Self {
             db,
+            identity,
             _owner: owner,
             _directory: directory,
             root: root.into(),
@@ -170,10 +290,16 @@ impl Store {
             }
             tx.open_table(OUTBOX)?;
             tx.open_table(DELIVERY)?;
+            for table in engine_store::TABLES {
+                tx.open_table(table)?;
+            }
             write_meta(
                 &tx,
                 &Meta {
-                    version: 1,
+                    version: 3,
+                    transport,
+                    active_boot: store.limits.boot_id,
+                    boot_history: vec![],
                     limits: store.limits.clone(),
                     next: 1,
                     acked: 0,
@@ -198,7 +324,7 @@ impl Store {
                 .value(),
         )?;
         ensure!(
-            meta.version == 1 && meta.limits == store.limits,
+            meta.version == 3 && meta.limits == store.limits,
             "store version/identity/limits"
         );
         drop(table);
@@ -210,6 +336,7 @@ impl Store {
     fn begin(&self) -> Result<WriteTransaction> {
         ensure!(!self.poisoned.get(), "store uncertain; reopen required");
         self.poisoned.set(true);
+        self.identity.check()?;
         let mut tx = self.db.begin_write()?;
         tx.set_durability(Durability::Immediate)?;
         tx.set_two_phase_commit(true);
@@ -235,12 +362,28 @@ impl Store {
     pub fn attach(&self, source: Source) -> Result<()> {
         source.validate()?;
         ensure!(
-            matches!(source.binding.session,SessionIdentity::Remote{node_id,boot_id,..}if node_id==self.limits.node_id&&boot_id==self.limits.boot_id),
+            matches!(source.binding.session,SessionIdentity::Remote{node_id,boot_id,..}if node_id==self.limits.node_id&&boot_id!=Uuid::nil()),
             "source node/boot"
         );
         let tx = self.begin()?;
         let mut meta = read_meta(&tx)?;
-        let row = SourceRow { source, cursor: 0 };
+        let parsers = vec![source.parser()];
+        let generations = vec![source.generation];
+        let row = SourceRow {
+            source,
+            cursor: 0,
+            engine: None,
+            hold: None,
+            parsers,
+            generations,
+            reader: None,
+            source_operations: vec![],
+            record_cursor: None,
+        };
+        ensure!(
+            matches!(row.source.binding.session,SessionIdentity::Remote{boot_id,..}if boot_id==meta.active_boot),
+            "inactive boot source admission"
+        );
         let id = row.source.source_id;
         let bytes = encode(&row)?;
         let existing = {
@@ -301,6 +444,10 @@ impl Store {
                     .value(),
             )?
         };
+        ensure!(
+            source.engine.is_none(),
+            "raw normalized append excluded for engine-owned source"
+        );
         ensure!(source.cursor == expected_cursor, "source cursor conflict");
         {
             let mut out = tx.open_table(OUTBOX)?;
@@ -384,15 +531,14 @@ impl Store {
         let tx = self.db.begin_read()?;
         let meta: Meta = decode(tx.open_table(META)?.get("state")?.unwrap().value())?;
         let delivery = tx.open_table(DELIVERY)?;
-        let pending = delivery
-            .get("pending")?
-            .map(|v| decode(v.value()))
-            .transpose()?;
+        let pending = load_delivery(&delivery)?;
         let receipt = delivery
             .get("receipt")?
             .map(|v| decode(v.value()))
             .transpose()?;
         Ok(Snapshot {
+            persistence_uncertain: self.poisoned.get(),
+            active_boot: meta.active_boot,
             next: meta.next,
             acked: meta.acked,
             queued: meta.ordinary + meta.gaps,
@@ -410,30 +556,43 @@ impl Store {
         let tx = self.begin()?;
         let meta = read_meta(&tx)?;
         let mut events = vec![];
+        let mut boot = None;
+        let mut event_bytes = 0usize;
+        let mut usage = false;
+        let mut selected_bytes = None;
         {
             let table = tx.open_table(OUTBOX)?;
             for result in table.iter()?.take(MAX_EVENTS) {
                 let (_, v) = result?;
                 let event: ObservationRecord = decode(v.value())?;
-                let mut candidate = events.clone();
-                candidate.push(event);
-                let batch = ObservationBatch {
-                    node_id: self.limits.node_id,
-                    boot_id: self.limits.boot_id,
-                    first_sequence: meta.acked + 1,
-                    last_sequence: candidate.last().unwrap().body.sequence,
-                    events: candidate,
-                };
-                let id = stable(&batch)?;
-                match Packet::seal(id, Message::Batch(batch)) {
-                    Ok(packet) => {
-                        let Message::Batch(b) = packet.body.message else {
-                            unreachable!()
-                        };
-                        events = b.events;
-                    }
-                    Err(_) => break,
+                let candidate_boot = sessions::event_boot(&event)?;
+                if boot.is_some_and(|b| b != candidate_boot) {
+                    break;
                 }
+                boot = Some(candidate_boot);
+                event.validate()?;
+                let candidate_usage =
+                    usage || matches!(event.body.kind, ObservationKind::Usage { .. });
+                let candidate_bytes = event_bytes
+                    .checked_add(encode(&event)?.len())
+                    .context("packet size overflow")?;
+                let size = envelope_bytes(
+                    self.limits.node_id,
+                    candidate_boot,
+                    meta.acked + 1,
+                    event.body.sequence,
+                    candidate_usage,
+                )?
+                .checked_add(candidate_bytes)
+                .and_then(|n| n.checked_add(events.len()))
+                .context("packet size overflow")?;
+                if size > MAX_BATCH_BYTES {
+                    break;
+                }
+                event_bytes = candidate_bytes;
+                usage = candidate_usage;
+                selected_bytes = Some(size);
+                events.push(event);
             }
         }
         if events.is_empty() {
@@ -446,21 +605,21 @@ impl Store {
         }
         let batch = ObservationBatch {
             node_id: self.limits.node_id,
-            boot_id: self.limits.boot_id,
+            boot_id: boot.context("batch boot absent")?,
             first_sequence: meta.acked + 1,
             last_sequence: events.last().unwrap().body.sequence,
             events,
         };
         let packet = Packet::seal(stable(&batch)?, Message::Batch(batch))?;
-        let delivery = Delivery {
-            packet: packet.clone(),
-            attempts: 0,
-            first_ms: None,
-            last_ms: None,
-            next_retry_ms: 0,
-        };
-        tx.open_table(DELIVERY)?
-            .insert("pending", encode(&delivery)?.as_slice())?;
+        ensure!(
+            selected_bytes == Some(encode(&packet)?.len()),
+            "exact packet length disagrees with selected prefix"
+        );
+        {
+            let mut table = tx.open_table(DELIVERY)?;
+            table.insert("packet", encode(&packet)?.as_slice())?;
+            table.insert("retry", encode(&Retry::initial(&packet))?.as_slice())?;
+        }
         self.commit(tx)?;
         Ok(Some(packet))
     }
@@ -470,7 +629,8 @@ impl Store {
         };
         let tx = self.begin()?;
         let mut table = tx.open_table(DELIVERY)?;
-        let mut d: Delivery = decode(table.get("pending")?.context("pending absent")?.value())?;
+        let mut d: Retry = decode(table.get("retry")?.context("retry absent")?.value())?;
+        d.check(&packet)?;
         ensure!(
             d.attempts < 3
                 && d.last_ms.is_none_or(|t| now >= t)
@@ -484,19 +644,20 @@ impl Store {
         d.next_retry_ms = now
             .checked_add((250u64 << (d.attempts - 1)).min(2000))
             .context("clock overflow")?;
-        table.insert("pending", encode(&d)?.as_slice())?;
+        table.insert("retry", encode(&d)?.as_slice())?;
         drop(table);
         self.commit(tx)?;
         Ok(Some(packet))
     }
     pub fn acknowledge(&self, receipt: &Receipt) -> Result<()> {
+        ensure!(!self.poisoned.get(), "store uncertain; reopen required");
         if self.snapshot()?.receipt.as_ref() == Some(receipt) {
             return Ok(());
         }
         let tx = self.begin()?;
         let mut meta = read_meta(&tx)?;
         let mut delivery = tx.open_table(DELIVERY)?;
-        let d: Delivery = decode(delivery.get("pending")?.context("pending absent")?.value())?;
+        let d = load_delivery(&delivery)?.context("pending absent")?;
         receipt.validate_against(&d.packet)?;
         let Message::Batch(batch) = &d.packet.body.message else {
             anyhow::bail!("pending packet class")
@@ -522,7 +683,8 @@ impl Store {
             }
         }
         meta.acked = batch.last_sequence;
-        delivery.remove("pending")?;
+        delivery.remove("packet")?;
+        delivery.remove("retry")?;
         delivery.insert("receipt", encode(receipt)?.as_slice())?;
         drop(delivery);
         write_meta(&tx, &meta)?;
@@ -541,6 +703,18 @@ impl Store {
             meta.limits == self.limits && meta.next > meta.acked,
             "metadata scope/cursor"
         );
+        sessions::validate_boot_history(&meta)?;
+        if let Some(initial) = &meta.transport {
+            ensure!(
+                initial.initial_sequence == 1
+                    && initial.node.node_id == self.limits.node_id
+                    && initial.node.boot_id == self.limits.boot_id
+                    && !initial.operation_id.is_nil()
+                    && !initial.transport_owner_id.is_nil(),
+                "initial store admission scope"
+            );
+            artifact(&initial.owner_receipt)?;
+        }
         let sources = tx.open_table(SOURCES)?;
         ensure!(
             sources.len()? == meta.sources && meta.sources <= 16,
@@ -557,11 +731,45 @@ impl Store {
             let (k, v) = value?;
             let row: SourceRow = decode(v.value())?;
             row.source.validate()?;
+            if let Some(reader) = &row.reader {
+                reader.cursor.validate()?;
+                ensure!(
+                    reader.cursor.offset == row.cursor
+                        && reader.permit.source_id == row.source.source_id
+                        && reader.permit.native_session_key == row.source.native_session_key,
+                    "file reader scope/cursor"
+                );
+            }
             ensure!(
                 row.source.source_id.as_bytes().as_slice() == k.value()
-                    && matches!(row.source.binding.session,SessionIdentity::Remote{node_id,boot_id,..}if node_id==self.limits.node_id&&boot_id==self.limits.boot_id),
+                    && matches!(row.source.binding.session,SessionIdentity::Remote{node_id,boot_id,..}if node_id==self.limits.node_id&&sessions::known_boot(&meta,boot_id)),
                 "source identity"
             );
+            ensure!(
+                !row.parsers.is_empty()
+                    && row.parsers.len() <= 16
+                    && row.generations.contains(&row.source.generation)
+                    && row.generations.len() <= 64,
+                "source provenance history bounds"
+            );
+            ensure!(
+                row.source_operations.len() <= 64
+                    && row
+                        .source_operations
+                        .iter()
+                        .all(|op| !op.operation_id.is_nil())
+                    && row
+                        .source_operations
+                        .iter()
+                        .map(|op| op.operation_id)
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        == row.source_operations.len(),
+                "source operation history bounds/identity"
+            );
+            for parser in &row.parsers {
+                artifact(parser)?;
+            }
             logical += v.value().len() as u64;
         }
         for value in seen.iter()? {
@@ -602,9 +810,11 @@ impl Store {
             )?;
             ensure!(
                 e.body.binding == row.source.binding
-                    && e.body.provenance.source_generation == row.source.generation
+                    && row
+                        .generations
+                        .contains(&e.body.provenance.source_generation)
                     && e.body.provenance.native_session_key == row.source.native_session_key
-                    && e.body.provenance.parser == row.source.parser(),
+                    && row.parsers.contains(&e.body.provenance.parser),
                 "fact source scope"
             );
             let digest: Digest = decode(
@@ -623,6 +833,7 @@ impl Store {
                 ordinary_bytes += v.value().len() as u64;
             }
         }
+        logical += self.audit_engine_rows(&tx)?;
         ensure!(
             sequence == meta.next
                 && ordinary == meta.ordinary
@@ -634,8 +845,15 @@ impl Store {
             "projection/quota counts"
         );
         let delivery = tx.open_table(DELIVERY)?;
-        if let Some(v) = delivery.get("pending")? {
-            let d: Delivery = decode(v.value())?;
+        ensure!(delivery.len()? <= 3, "delivery row bound");
+        for entry in delivery.iter()? {
+            let (key, _) = entry?;
+            ensure!(
+                matches!(key.value(), "packet" | "retry" | "receipt"),
+                "unknown delivery row; no silent format fallback"
+            );
+        }
+        if let Some(d) = load_delivery(&delivery)? {
             d.packet.validate()?;
             let Message::Batch(batch) = d.packet.body.message else {
                 anyhow::bail!("pending class")
