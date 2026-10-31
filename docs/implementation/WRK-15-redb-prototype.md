@@ -1,6 +1,6 @@
 # WRK-15 isolated transactional storage checkpoint
 
-This prototype demonstrates bounded delivery metadata writes independent of unrelated retained identity history. It does not replace the qualified JSON spool, change existing package bytes, publish migration or complete WRK-15. Source is pending root review/commit; [machine evidence](WRK-15-redb-prototype.json) hashes the isolated candidate and retains exact measurements. The dependency is exactly redb4.4.0, registry checksum `39178e0a867f9e3eaa6292a4ab1dd3613f2519c5b564341e1e7b29b270736cc4`, an embedded Rust library requiring no service. Official release source is `7061f7e60d4573311c0636e161d417b93e9fd2b1`.
+This prototype demonstrates bounded delivery metadata writes independent of unrelated retained identity history. It does not replace the qualified JSON spool, change existing package bytes, publish migration or complete WRK-15. Reviewed source is `5a7f88f76851ef47b805f6dde8da7d317ef538fb`; [machine evidence](WRK-15-redb-prototype.json) hashes exact git objects and retains clean standalone qualification. The candidate archive SHA256 is `265ea2fc84b65947a227a5b996774cdded4c8ed6f9b03c7e117c0a1558def133`. Extracted archive qualification passed nine tests, strict all-target clippy, formatting and all35-repetition configurations with only exact extracted reference/lifecycle/session library dependencies and cached registry crates; no sibling worker runtime checkout. The clean source worktree remained clean. The dependency is exactly redb4.4.0, registry checksum `39178e0a867f9e3eaa6292a4ab1dd3613f2519c5b564341e1e7b29b270736cc4`, an embedded Rust library requiring no service. Official release source is `7061f7e60d4573311c0636e161d417b93e9fd2b1`.
 
 The crate has independent source, Seen, immutable event-ID, sequence-indexed outbox and delivery/receipt rows, with transactional counters. All transactions use Immediate durability and two-phase commit. The private no-follow same-owner single-link0600 fd backend caps resize/write endpoints and counts actual backend bytes/syncs. Source/Seen/facts/cursor updates are atomic; prepare reads at most32 outbox rows, send changes only retained retry metadata, and ACK deletes only the exact validated prefix plus counter/receipt updates. None scans retained Seen/source history. Full startup audit remains O(retained rows). The existing active-normalizer clone path is not integrated or refactored here.
 
@@ -8,25 +8,27 @@ Nine tests (including the spawned child helper) passed with strict all-target cl
 
 The fault matrix cuts all observed mutating backend boundaries before and after append, prepare, send and ACK:88 deterministic IO-error cuts and88 actual child-process exit cuts. Each reopens through application audit to one entirely old or new projection, including source cursor, retained identity counts, facts, delivery intent and receipt. An uncertain instance cannot prepare/send another packet before reopen. These tests do not simulate arbitrary torn pages or certify hardware power loss. One initial concurrent test run exposed a test-harness fork/flock window: a simultaneous child launch can briefly inherit another test's CLOEXEC lock before exec. The two matrices are serialized to test recovery independently; the final full suite passes.
 
-Measurements use35 repetitions/configuration on local warm filesystem, synthetic retained identity history and actual normalizer-generated one-event batches. Population is excluded. Redb near-history has12,441,400 logical retained bytes and a33,689,600-byte file; the reference synthetic JSON has12,386,456 bytes. Both use8 sources ×640 retained identities ×32 raw digests. Small cases have one source/4 identities. Slight fixture metadata differences and the row-store append seam prevent an end-to-end collection comparison; prepare/send/ACK are the intended comparison. P95 uses nearest rank ceil(0.95×35). The final guard only changes pre-engine open admission; measured prepare/send/ACK code is unchanged. Raw samples and backend read/write/sync counts are retained in [the evidence directory](WRK-15-redb-prototype).
+Measurements use35 repetitions/configuration on local warm filesystem, synthetic retained identity history and actual normalizer-generated one-event batches. Population is excluded. Redb near-history has12,441,400 logical retained bytes and a33,689,600-byte file; the reference synthetic JSON has12,386,456 bytes. Both use8 sources ×640 retained identities ×32 raw digests. Small cases have one source/4 identities. Slight fixture metadata differences and the row-store append seam prevent an end-to-end collection comparison; prepare/send/ACK are the intended comparison. P95 uses nearest rank ceil(0.95×35). Definitive samples are from that exact extracted archive with isolated targets/default release profile; earlier working-tree samples are retained separately as local-* evidence. Raw samples and backend read/write/sync counts are retained in [the evidence directory](WRK-15-redb-prototype).
 
 | Store/configuration | Operation | p50 ms | p95 ms | max ms | Median bytes written | Median syncs |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-|redb small|prepare|3.396|6.132|11.464|21120|2|
-|redb small|send|3.317|4.454|4.485|21120|2|
-|redb small|ack|3.296|4.985|10.998|25216|2|
-|redb12 MiB|prepare|3.347|4.590|4.755|21120|2|
-|redb12 MiB|send|3.289|4.728|4.833|21120|2|
-|redb12 MiB|ack|3.237|4.439|4.532|25216|2|
-|redb12 MiB quick-repair|prepare|3.451|6.621|8.364|33408|2|
-|redb12 MiB quick-repair|send|3.306|4.643|5.189|33408|2|
-|redb12 MiB quick-repair|ack|3.413|4.677|5.209|37504|2|
-|JSON12 MiB|prepare|103.018|121.327|125.805|12397079 (journal length)|not instrumented|
-|JSON12 MiB|send|102.776|131.255|142.389|12397085 (journal length)|not instrumented|
-|JSON12 MiB|ack|102.859|126.774|306.973|12392857 (journal length)|not instrumented|
+|redb small|prepare|3.244|4.951|6.157|21120|2|
+|redb small|send|3.030|4.231|4.900|21120|2|
+|redb small|ack|3.191|4.962|6.002|25216|2|
+|redb12 MiB|prepare|3.385|7.635|11.283|21120|2|
+|redb12 MiB|send|3.449|7.254|7.371|21120|2|
+|redb12 MiB|ack|3.286|7.538|13.236|25216|2|
+|redb12 MiB quick-repair|prepare|3.385|4.693|12.598|33408|2|
+|redb12 MiB quick-repair|send|3.213|4.379|4.395|33408|2|
+|redb12 MiB quick-repair|ack|3.308|4.466|4.726|37504|2|
+|JSON12 MiB|prepare|104.792|123.872|215.310|12397079 (journal length)|not instrumented|
+|JSON12 MiB|send|107.069|131.493|132.796|12397085 (journal length)|not instrumented|
+|JSON12 MiB|ack|109.130|126.139|130.541|12392857 (journal length)|not instrumented|
 
 The latest redb medians remain nearly flat between small and12 MiB retained history, while reference delivery medians are about100 ms at12 MiB. Actual backend bytes are roughly21–25 KiB per normal prepare/send/ACK rather than12 MiB. Both measured near-history DB files remained33,689,600 bytes across35 cycles; this is not a long-running growth proof. Quick-repair adds about12 KiB per transaction here, with filesystem-latency noise preventing a universal latency conclusion. Startup repair/audit latency at large history, long-reader retention, compaction and cross-filesystem behavior remain unqualified.
 
 Candidate bounds are64 MiB physical DB,16 MiB logical retained data/selected key bytes and4 MiB cache. Database COW/index overhead means physical reserve is larger than logical retained values; a logical quota is not a disk reservation. A hard-cap failure conservatively holds progress, and reserved logical gaps do not guarantee physical admission during every storage failure. Actual root reservation must include future migration backup/maintenance bytes; no deletion or reserve sizing is approved by these samples. Event-ID digests stay retained and counted, so long histories eventually hold rather than silently pruning uncertainty.
 
 Next review gates: adopt a versioned bounded Normalizer read-view/delta adapter, add retained boot/reparse/runtime authority ownership, qualify physical headroom/long-reader/compaction behavior, then admit only new observation stores with explicit owner approval and unknown-format refusal. The JSON reference has never been deployed or worker-integrated; full JSON-to-row-store migration is not a prerequisite without evidence of actual retained user stores. No worker/runtime/production API path references this prototype. Commands and limitations are in the [crate README](../../crates/aq-observation-redb-prototype/README.md).
+
+The private fd is currently checked at startup. The owner adapter must additionally revalidate basename/device/inode before each write transaction, so accidental rename/replacement cannot let an unreachable old inode keep accepting durable state. This is an explicit future adoption gate, not a claim made by the current checkpoint.

@@ -1,0 +1,5 @@
+warning: manifest has no license, license-file, documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+   Packaging aq-observation-redb-prototype v0.0.1 (/tmp/aq-wrk15-redb-clean-5a7f88f/crates/aq-observation-redb-prototype)
+    Packaged 11 files, 70.0KiB (18.2KiB compressed)

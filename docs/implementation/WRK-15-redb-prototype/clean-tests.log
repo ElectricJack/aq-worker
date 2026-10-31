@@ -1,0 +1,83 @@
+     Locking 59 packages to latest Rust 1.96.1 compatible versions
+      Adding sha2 v0.10.9 (available: v0.11.1)
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.229
+   Compiling typenum v1.20.1
+   Compiling libc v0.2.191
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling cfg-if v1.0.5
+   Compiling serde_json v1.0.154
+   Compiling ref-cast v1.0.27
+   Compiling itoa v1.0.18
+   Compiling thiserror v2.0.21
+   Compiling memchr v2.8.3
+   Compiling dyn-clone v1.0.20
+   Compiling cpufeatures v0.2.17
+   Compiling anyhow v1.0.104
+   Compiling rustix v1.1.6
+   Compiling redb v4.4.0
+   Compiling getrandom v0.4.3
+   Compiling bitflags v2.13.2
+   Compiling linux-raw-sys v0.12.1
+   Compiling once_cell v1.21.4
+   Compiling fastrand v2.5.0
+   Compiling generic-array v0.14.7
+   Compiling syn v3.0.9
+   Compiling fs2 v0.4.3
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling tempfile v3.27.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling uuid v1.29.0
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling schemars_derive v1.2.3
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/tmp/wrk15-redb-extracted-i9vnynj1/aq-session-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/wrk15-redb-extracted-i9vnynj1/aq-lifecycle-protocol-0.1.0)
+   Compiling aq-observation v0.1.0 (/tmp/wrk15-redb-extracted-i9vnynj1/aq-observation-0.1.0)
+   Compiling aq-observation-redb-prototype v0.0.1 (/tmp/wrk15-redb-extracted-i9vnynj1/aq-observation-redb-prototype-0.0.1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.34s
+     Running unittests src/lib.rs (/tmp/wrk15-redb-clean-target-5a7f88f-standalone/debug/deps/aq_observation_redb_prototype-7d1bc1cc10e67a45)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/faults.rs (/tmp/wrk15-redb-clean-target-5a7f88f-standalone/debug/deps/faults-10a64e1bac366f40)
+
+running 3 tests
+test crash_child ... ok
+deterministic IO-error boundary cuts: 88
+test every_mutating_backend_boundary_io_error_reopens_to_old_or_new_projection ... ok
+process-exit boundary cuts: 88
+test every_mutating_backend_boundary_process_exit_reopens_to_old_or_new_projection ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.84s
+
+     Running tests/store.rs (/tmp/wrk15-redb-clean-target-5a7f88f-standalone/debug/deps/store-10c477f0dae2645c)
+
+running 6 tests
+test private_root_exclusivity_missing_corruption_and_physical_cap_fail_closed ... ok
+transaction cap refusal: I/O error: physical database cap
+test retry_bound_keeps_exact_intent_and_late_ack_after_reopen ... ok
+test empty_or_short_existing_database_is_rejected_before_engine_without_changing_bytes ... ok
+test transaction_disk_cap_holds_cursor_and_reopens_without_reseed ... ok
+test scope_changed_identity_quota_and_invalid_receipt_refuse_without_new_effect ... ok
+test exact_delivery_send_unknown_restart_and_ack_match_reference_spool ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+   Doc-tests aq_observation_redb_prototype
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

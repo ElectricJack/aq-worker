@@ -1,0 +1,655 @@
+   Compiling aq-observation-redb-prototype v0.0.1 (/tmp/wrk15-redb-extracted-i9vnynj1/aq-observation-redb-prototype-0.0.1)
+    Finished `release` profile [optimized] target(s) in 0.63s
+     Running `/tmp/wrk15-redb-clean-target-5a7f88f-standalone/release/examples/reference_measure`
+{
+  "near": {
+    "byte_measurement": "journal output lengths; one full journal write per commit, not syscall-traced bytes",
+    "fixture": "synthetic structurally validated reference snapshots;35 one-event normalizer/file/delivery cycles; population excluded",
+    "initial_journal_bytes": 12386456,
+    "near": true,
+    "samples": [
+      {
+        "ack_journal_bytes": 12387097,
+        "ack_ms": 121.215876,
+        "collect_ms": 149.111877,
+        "prepare_journal_bytes": 12391098,
+        "prepare_ms": 119.93263499999999,
+        "send_journal_bytes": 12391101,
+        "send_ms": 117.96164200000001
+      },
+      {
+        "ack_journal_bytes": 12387435,
+        "ack_ms": 112.099066,
+        "collect_ms": 114.02093400000001,
+        "prepare_journal_bytes": 12391647,
+        "prepare_ms": 111.67159,
+        "send_journal_bytes": 12391650,
+        "send_ms": 103.8779
+      },
+      {
+        "ack_journal_bytes": 12387773,
+        "ack_ms": 103.640832,
+        "collect_ms": 119.975994,
+        "prepare_journal_bytes": 12391985,
+        "prepare_ms": 107.17219,
+        "send_journal_bytes": 12391988,
+        "send_ms": 104.572919
+      },
+      {
+        "ack_journal_bytes": 12388111,
+        "ack_ms": 100.90468399999999,
+        "collect_ms": 107.576436,
+        "prepare_journal_bytes": 12392323,
+        "prepare_ms": 99.434588,
+        "send_journal_bytes": 12392326,
+        "send_ms": 100.606402
+      },
+      {
+        "ack_journal_bytes": 12388451,
+        "ack_ms": 125.610876,
+        "collect_ms": 98.30726700000001,
+        "prepare_journal_bytes": 12392665,
+        "prepare_ms": 100.856828,
+        "send_journal_bytes": 12392668,
+        "send_ms": 122.429769
+      },
+      {
+        "ack_journal_bytes": 12388789,
+        "ack_ms": 103.38665700000001,
+        "collect_ms": 101.902963,
+        "prepare_journal_bytes": 12393005,
+        "prepare_ms": 104.792,
+        "send_journal_bytes": 12393008,
+        "send_ms": 104.788561
+      },
+      {
+        "ack_journal_bytes": 12389127,
+        "ack_ms": 103.091002,
+        "collect_ms": 106.968261,
+        "prepare_journal_bytes": 12393343,
+        "prepare_ms": 108.351753,
+        "send_journal_bytes": 12393346,
+        "send_ms": 108.39585
+      },
+      {
+        "ack_journal_bytes": 12389465,
+        "ack_ms": 115.176898,
+        "collect_ms": 110.030658,
+        "prepare_journal_bytes": 12393681,
+        "prepare_ms": 101.019279,
+        "send_journal_bytes": 12393684,
+        "send_ms": 109.253894
+      },
+      {
+        "ack_journal_bytes": 12389805,
+        "ack_ms": 109.946727,
+        "collect_ms": 110.344147,
+        "prepare_journal_bytes": 12394021,
+        "prepare_ms": 102.128968,
+        "send_journal_bytes": 12394024,
+        "send_ms": 99.406258
+      },
+      {
+        "ack_journal_bytes": 12390145,
+        "ack_ms": 100.867598,
+        "collect_ms": 104.92860900000001,
+        "prepare_journal_bytes": 12394363,
+        "prepare_ms": 103.60136,
+        "send_journal_bytes": 12394369,
+        "send_ms": 100.82515599999999
+      },
+      {
+        "ack_journal_bytes": 12390484,
+        "ack_ms": 104.935519,
+        "collect_ms": 102.992086,
+        "prepare_journal_bytes": 12394706,
+        "prepare_ms": 102.795842,
+        "send_journal_bytes": 12394712,
+        "send_ms": 110.41331
+      },
+      {
+        "ack_journal_bytes": 12390823,
+        "ack_ms": 101.778998,
+        "collect_ms": 107.03219899999999,
+        "prepare_journal_bytes": 12395045,
+        "prepare_ms": 101.101893,
+        "send_journal_bytes": 12395051,
+        "send_ms": 103.729907
+      },
+      {
+        "ack_journal_bytes": 12391162,
+        "ack_ms": 109.13045000000001,
+        "collect_ms": 103.416444,
+        "prepare_journal_bytes": 12395384,
+        "prepare_ms": 100.212723,
+        "send_journal_bytes": 12395390,
+        "send_ms": 106.945737
+      },
+      {
+        "ack_journal_bytes": 12391501,
+        "ack_ms": 108.539294,
+        "collect_ms": 100.941084,
+        "prepare_journal_bytes": 12395723,
+        "prepare_ms": 112.36935100000001,
+        "send_journal_bytes": 12395729,
+        "send_ms": 102.669386
+      },
+      {
+        "ack_journal_bytes": 12391840,
+        "ack_ms": 109.537965,
+        "collect_ms": 105.10762799999999,
+        "prepare_journal_bytes": 12396062,
+        "prepare_ms": 103.039928,
+        "send_journal_bytes": 12396068,
+        "send_ms": 102.206974
+      },
+      {
+        "ack_journal_bytes": 12392179,
+        "ack_ms": 101.41451699999999,
+        "collect_ms": 106.340509,
+        "prepare_journal_bytes": 12396401,
+        "prepare_ms": 114.18179500000001,
+        "send_journal_bytes": 12396407,
+        "send_ms": 105.066544
+      },
+      {
+        "ack_journal_bytes": 12392518,
+        "ack_ms": 120.641389,
+        "collect_ms": 108.535877,
+        "prepare_journal_bytes": 12396740,
+        "prepare_ms": 102.666815,
+        "send_journal_bytes": 12396746,
+        "send_ms": 102.475356
+      },
+      {
+        "ack_journal_bytes": 12392857,
+        "ack_ms": 101.33430899999999,
+        "collect_ms": 119.186247,
+        "prepare_journal_bytes": 12397079,
+        "prepare_ms": 102.64656099999999,
+        "send_journal_bytes": 12397085,
+        "send_ms": 107.81324000000001
+      },
+      {
+        "ack_journal_bytes": 12393196,
+        "ack_ms": 104.09412,
+        "collect_ms": 102.950908,
+        "prepare_journal_bytes": 12397418,
+        "prepare_ms": 109.00987199999999,
+        "send_journal_bytes": 12397424,
+        "send_ms": 107.722892
+      },
+      {
+        "ack_journal_bytes": 12393535,
+        "ack_ms": 99.271354,
+        "collect_ms": 102.937846,
+        "prepare_journal_bytes": 12397757,
+        "prepare_ms": 105.34671499999999,
+        "send_journal_bytes": 12397763,
+        "send_ms": 101.455609
+      },
+      {
+        "ack_journal_bytes": 12393874,
+        "ack_ms": 110.94271599999999,
+        "collect_ms": 104.577957,
+        "prepare_journal_bytes": 12398096,
+        "prepare_ms": 102.695507,
+        "send_journal_bytes": 12398102,
+        "send_ms": 107.068553
+      },
+      {
+        "ack_journal_bytes": 12394213,
+        "ack_ms": 103.999064,
+        "collect_ms": 116.619473,
+        "prepare_journal_bytes": 12398435,
+        "prepare_ms": 100.78029,
+        "send_journal_bytes": 12398441,
+        "send_ms": 99.984273
+      },
+      {
+        "ack_journal_bytes": 12394552,
+        "ack_ms": 106.78971800000001,
+        "collect_ms": 113.17246899999999,
+        "prepare_journal_bytes": 12398774,
+        "prepare_ms": 116.797808,
+        "send_journal_bytes": 12398780,
+        "send_ms": 111.13110800000001
+      },
+      {
+        "ack_journal_bytes": 12394891,
+        "ack_ms": 106.596845,
+        "collect_ms": 116.24765500000001,
+        "prepare_journal_bytes": 12399113,
+        "prepare_ms": 121.91978,
+        "send_journal_bytes": 12399119,
+        "send_ms": 114.95416
+      },
+      {
+        "ack_journal_bytes": 12395230,
+        "ack_ms": 100.833811,
+        "collect_ms": 102.156033,
+        "prepare_journal_bytes": 12399452,
+        "prepare_ms": 111.93940099999999,
+        "send_journal_bytes": 12399458,
+        "send_ms": 104.775623
+      },
+      {
+        "ack_journal_bytes": 12395569,
+        "ack_ms": 123.27162999999999,
+        "collect_ms": 100.16615399999999,
+        "prepare_journal_bytes": 12399791,
+        "prepare_ms": 100.883069,
+        "send_journal_bytes": 12399797,
+        "send_ms": 110.90768600000001
+      },
+      {
+        "ack_journal_bytes": 12395908,
+        "ack_ms": 102.341725,
+        "collect_ms": 106.065194,
+        "prepare_journal_bytes": 12400130,
+        "prepare_ms": 100.39042400000001,
+        "send_journal_bytes": 12400136,
+        "send_ms": 110.857028
+      },
+      {
+        "ack_journal_bytes": 12396247,
+        "ack_ms": 113.621779,
+        "collect_ms": 101.772689,
+        "prepare_journal_bytes": 12400469,
+        "prepare_ms": 102.17754599999999,
+        "send_journal_bytes": 12400475,
+        "send_ms": 100.581837
+      },
+      {
+        "ack_journal_bytes": 12396586,
+        "ack_ms": 126.13949099999999,
+        "collect_ms": 111.818738,
+        "prepare_journal_bytes": 12400808,
+        "prepare_ms": 108.39834499999999,
+        "send_journal_bytes": 12400814,
+        "send_ms": 104.794241
+      },
+      {
+        "ack_journal_bytes": 12396925,
+        "ack_ms": 116.097048,
+        "collect_ms": 135.762075,
+        "prepare_journal_bytes": 12401147,
+        "prepare_ms": 114.428829,
+        "send_journal_bytes": 12401153,
+        "send_ms": 111.181252
+      },
+      {
+        "ack_journal_bytes": 12397264,
+        "ack_ms": 122.046626,
+        "collect_ms": 129.583574,
+        "prepare_journal_bytes": 12401486,
+        "prepare_ms": 113.755228,
+        "send_journal_bytes": 12401492,
+        "send_ms": 131.49347
+      },
+      {
+        "ack_journal_bytes": 12397603,
+        "ack_ms": 118.543165,
+        "collect_ms": 141.339022,
+        "prepare_journal_bytes": 12401825,
+        "prepare_ms": 215.310116,
+        "send_journal_bytes": 12401831,
+        "send_ms": 132.79623199999997
+      },
+      {
+        "ack_journal_bytes": 12397942,
+        "ack_ms": 116.642904,
+        "collect_ms": 128.959201,
+        "prepare_journal_bytes": 12402164,
+        "prepare_ms": 123.87248100000001,
+        "send_journal_bytes": 12402170,
+        "send_ms": 129.622189
+      },
+      {
+        "ack_journal_bytes": 12398281,
+        "ack_ms": 130.541146,
+        "collect_ms": 128.928538,
+        "prepare_journal_bytes": 12402503,
+        "prepare_ms": 111.75987099999999,
+        "send_journal_bytes": 12402509,
+        "send_ms": 111.65051700000001
+      },
+      {
+        "ack_journal_bytes": 12398620,
+        "ack_ms": 112.76543699999999,
+        "collect_ms": 117.26052800000001,
+        "prepare_journal_bytes": 12402842,
+        "prepare_ms": 103.663672,
+        "send_journal_bytes": 12402848,
+        "send_ms": 121.118526
+      }
+    ],
+    "seen_per_source": 640,
+    "sources": 8
+  },
+  "small": {
+    "byte_measurement": "journal output lengths; one full journal write per commit, not syscall-traced bytes",
+    "fixture": "synthetic structurally validated reference snapshots;35 one-event normalizer/file/delivery cycles; population excluded",
+    "initial_journal_bytes": 3869,
+    "near": false,
+    "samples": [
+      {
+        "ack_journal_bytes": 4510,
+        "ack_ms": 13.539793,
+        "collect_ms": 4.174222,
+        "prepare_journal_bytes": 8511,
+        "prepare_ms": 10.228323,
+        "send_journal_bytes": 8514,
+        "send_ms": 12.984335
+      },
+      {
+        "ack_journal_bytes": 4848,
+        "ack_ms": 4.255127,
+        "collect_ms": 4.534127,
+        "prepare_journal_bytes": 9060,
+        "prepare_ms": 4.569508,
+        "send_journal_bytes": 9063,
+        "send_ms": 4.321669999999999
+      },
+      {
+        "ack_journal_bytes": 5186,
+        "ack_ms": 4.32576,
+        "collect_ms": 4.433648,
+        "prepare_journal_bytes": 9398,
+        "prepare_ms": 4.441428,
+        "send_journal_bytes": 9401,
+        "send_ms": 4.353238
+      },
+      {
+        "ack_journal_bytes": 5524,
+        "ack_ms": 4.249012,
+        "collect_ms": 4.559378000000001,
+        "prepare_journal_bytes": 9736,
+        "prepare_ms": 4.550591,
+        "send_journal_bytes": 9739,
+        "send_ms": 4.284222
+      },
+      {
+        "ack_journal_bytes": 5864,
+        "ack_ms": 4.274521,
+        "collect_ms": 4.299222,
+        "prepare_journal_bytes": 10078,
+        "prepare_ms": 4.482327000000001,
+        "send_journal_bytes": 10081,
+        "send_ms": 4.1760019999999995
+      },
+      {
+        "ack_journal_bytes": 6202,
+        "ack_ms": 4.1350370000000005,
+        "collect_ms": 4.467213999999999,
+        "prepare_journal_bytes": 10418,
+        "prepare_ms": 4.512374,
+        "send_journal_bytes": 10421,
+        "send_ms": 4.297358
+      },
+      {
+        "ack_journal_bytes": 6540,
+        "ack_ms": 4.210738,
+        "collect_ms": 4.3308670000000005,
+        "prepare_journal_bytes": 10756,
+        "prepare_ms": 4.495462000000001,
+        "send_journal_bytes": 10759,
+        "send_ms": 4.247253000000001
+      },
+      {
+        "ack_journal_bytes": 6878,
+        "ack_ms": 4.162599999999999,
+        "collect_ms": 5.669011,
+        "prepare_journal_bytes": 11094,
+        "prepare_ms": 4.454058000000001,
+        "send_journal_bytes": 11097,
+        "send_ms": 4.269804000000001
+      },
+      {
+        "ack_journal_bytes": 7218,
+        "ack_ms": 4.198202,
+        "collect_ms": 4.298499,
+        "prepare_journal_bytes": 11434,
+        "prepare_ms": 4.375847,
+        "send_journal_bytes": 11437,
+        "send_ms": 4.193512
+      },
+      {
+        "ack_journal_bytes": 7558,
+        "ack_ms": 4.302845,
+        "collect_ms": 4.3889059999999995,
+        "prepare_journal_bytes": 11776,
+        "prepare_ms": 4.668836,
+        "send_journal_bytes": 11782,
+        "send_ms": 4.2804
+      },
+      {
+        "ack_journal_bytes": 7897,
+        "ack_ms": 4.191420000000001,
+        "collect_ms": 4.334529,
+        "prepare_journal_bytes": 12119,
+        "prepare_ms": 4.439249,
+        "send_journal_bytes": 12125,
+        "send_ms": 4.257106
+      },
+      {
+        "ack_journal_bytes": 8236,
+        "ack_ms": 4.198086999999999,
+        "collect_ms": 4.627120000000001,
+        "prepare_journal_bytes": 12458,
+        "prepare_ms": 4.483715999999999,
+        "send_journal_bytes": 12464,
+        "send_ms": 4.264647
+      },
+      {
+        "ack_journal_bytes": 8575,
+        "ack_ms": 4.155411,
+        "collect_ms": 4.383920000000001,
+        "prepare_journal_bytes": 12797,
+        "prepare_ms": 4.394965,
+        "send_journal_bytes": 12803,
+        "send_ms": 4.081658
+      },
+      {
+        "ack_journal_bytes": 8914,
+        "ack_ms": 4.309733,
+        "collect_ms": 4.345789,
+        "prepare_journal_bytes": 13136,
+        "prepare_ms": 4.514494,
+        "send_journal_bytes": 13142,
+        "send_ms": 4.488423
+      },
+      {
+        "ack_journal_bytes": 9253,
+        "ack_ms": 4.144432,
+        "collect_ms": 4.287285,
+        "prepare_journal_bytes": 13475,
+        "prepare_ms": 4.5686800000000005,
+        "send_journal_bytes": 13481,
+        "send_ms": 4.281572
+      },
+      {
+        "ack_journal_bytes": 9592,
+        "ack_ms": 4.267378,
+        "collect_ms": 4.513762,
+        "prepare_journal_bytes": 13814,
+        "prepare_ms": 4.543952,
+        "send_journal_bytes": 13820,
+        "send_ms": 4.272999
+      },
+      {
+        "ack_journal_bytes": 9931,
+        "ack_ms": 4.338087,
+        "collect_ms": 4.614801,
+        "prepare_journal_bytes": 14153,
+        "prepare_ms": 4.4615920000000004,
+        "send_journal_bytes": 14159,
+        "send_ms": 4.5265640000000005
+      },
+      {
+        "ack_journal_bytes": 10270,
+        "ack_ms": 4.160118,
+        "collect_ms": 4.573095,
+        "prepare_journal_bytes": 14492,
+        "prepare_ms": 4.737575,
+        "send_journal_bytes": 14498,
+        "send_ms": 4.335614
+      },
+      {
+        "ack_journal_bytes": 10609,
+        "ack_ms": 4.4954909999999995,
+        "collect_ms": 4.865,
+        "prepare_journal_bytes": 14831,
+        "prepare_ms": 4.6786900000000005,
+        "send_journal_bytes": 14837,
+        "send_ms": 4.502443
+      },
+      {
+        "ack_journal_bytes": 10948,
+        "ack_ms": 4.358916,
+        "collect_ms": 4.508035,
+        "prepare_journal_bytes": 15170,
+        "prepare_ms": 4.336802,
+        "send_journal_bytes": 15176,
+        "send_ms": 4.078176999999999
+      },
+      {
+        "ack_journal_bytes": 11287,
+        "ack_ms": 4.176543,
+        "collect_ms": 4.108138,
+        "prepare_journal_bytes": 15509,
+        "prepare_ms": 4.221533,
+        "send_journal_bytes": 15515,
+        "send_ms": 4.324181
+      },
+      {
+        "ack_journal_bytes": 11626,
+        "ack_ms": 4.093253,
+        "collect_ms": 4.734646000000001,
+        "prepare_journal_bytes": 15848,
+        "prepare_ms": 4.510301,
+        "send_journal_bytes": 15854,
+        "send_ms": 4.180185000000001
+      },
+      {
+        "ack_journal_bytes": 11965,
+        "ack_ms": 4.0592500000000005,
+        "collect_ms": 4.116337000000001,
+        "prepare_journal_bytes": 16187,
+        "prepare_ms": 4.334091,
+        "send_journal_bytes": 16193,
+        "send_ms": 4.053049000000001
+      },
+      {
+        "ack_journal_bytes": 12304,
+        "ack_ms": 4.053571,
+        "collect_ms": 4.129746999999999,
+        "prepare_journal_bytes": 16526,
+        "prepare_ms": 4.238473000000001,
+        "send_journal_bytes": 16532,
+        "send_ms": 4.069569
+      },
+      {
+        "ack_journal_bytes": 12643,
+        "ack_ms": 4.023857,
+        "collect_ms": 4.178151,
+        "prepare_journal_bytes": 16865,
+        "prepare_ms": 4.267054,
+        "send_journal_bytes": 16871,
+        "send_ms": 4.031048
+      },
+      {
+        "ack_journal_bytes": 12982,
+        "ack_ms": 4.17059,
+        "collect_ms": 4.188405,
+        "prepare_journal_bytes": 17204,
+        "prepare_ms": 4.402373,
+        "send_journal_bytes": 17210,
+        "send_ms": 7.413588
+      },
+      {
+        "ack_journal_bytes": 13321,
+        "ack_ms": 4.011245,
+        "collect_ms": 4.153735,
+        "prepare_journal_bytes": 17543,
+        "prepare_ms": 4.266627000000001,
+        "send_journal_bytes": 17549,
+        "send_ms": 4.027927
+      },
+      {
+        "ack_journal_bytes": 13660,
+        "ack_ms": 4.018940000000001,
+        "collect_ms": 4.288828,
+        "prepare_journal_bytes": 17882,
+        "prepare_ms": 4.287656,
+        "send_journal_bytes": 17888,
+        "send_ms": 4.116499
+      },
+      {
+        "ack_journal_bytes": 13999,
+        "ack_ms": 13.267434999999999,
+        "collect_ms": 4.179929,
+        "prepare_journal_bytes": 18221,
+        "prepare_ms": 4.340369,
+        "send_journal_bytes": 18227,
+        "send_ms": 7.0764260000000005
+      },
+      {
+        "ack_journal_bytes": 14338,
+        "ack_ms": 4.141418,
+        "collect_ms": 16.083167999999997,
+        "prepare_journal_bytes": 18560,
+        "prepare_ms": 4.302391,
+        "send_journal_bytes": 18566,
+        "send_ms": 4.299487999999999
+      },
+      {
+        "ack_journal_bytes": 14677,
+        "ack_ms": 4.3008869999999995,
+        "collect_ms": 4.118106,
+        "prepare_journal_bytes": 18899,
+        "prepare_ms": 4.434208,
+        "send_journal_bytes": 18905,
+        "send_ms": 4.142046
+      },
+      {
+        "ack_journal_bytes": 15016,
+        "ack_ms": 4.190297,
+        "collect_ms": 4.258332,
+        "prepare_journal_bytes": 19238,
+        "prepare_ms": 4.395269,
+        "send_journal_bytes": 19244,
+        "send_ms": 4.2283729999999995
+      },
+      {
+        "ack_journal_bytes": 15355,
+        "ack_ms": 4.257334,
+        "collect_ms": 4.2795890000000005,
+        "prepare_journal_bytes": 19577,
+        "prepare_ms": 4.190468999999999,
+        "send_journal_bytes": 19583,
+        "send_ms": 4.129405
+      },
+      {
+        "ack_journal_bytes": 15694,
+        "ack_ms": 4.075476,
+        "collect_ms": 4.180483,
+        "prepare_journal_bytes": 19916,
+        "prepare_ms": 4.347625,
+        "send_journal_bytes": 19922,
+        "send_ms": 4.170875
+      },
+      {
+        "ack_journal_bytes": 16033,
+        "ack_ms": 4.399919000000001,
+        "collect_ms": 4.2608250000000005,
+        "prepare_journal_bytes": 20255,
+        "prepare_ms": 4.578202,
+        "send_journal_bytes": 20261,
+        "send_ms": 4.274456000000001
+      }
+    ],
+    "seen_per_source": 4,
+    "sources": 1
+  }
+}

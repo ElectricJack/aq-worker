@@ -1,7 +1,7 @@
 {
   "task": "WRK-15",
   "status": "isolated_prototype_checkpoint_not_production_storage",
-  "source_revision": null,
+  "source_revision": "5a7f88f76851ef47b805f6dde8da7d317ef538fb",
   "base_revision": "444e1d67f27259169583f1e62ab9bd26ab754171",
   "recorded_at_utc": "2026-10-31T10:33:57.572264+00:00",
   "source_hashes": {
@@ -34,7 +34,19 @@
     "actual_physical_growth_refusal_reopen": true,
     "strict_all_target_clippy": true,
     "format": true,
-    "clean_source_revision_qualification": "pending reviewed commit",
+    "clean_source_revision_qualification": {
+      "source_revision": "5a7f88f76851ef47b805f6dde8da7d317ef538fb",
+      "archive": "/tmp/wrk15-redb-clean-target-5a7f88f/package/aq-observation-redb-prototype-0.0.1.crate",
+      "archive_sha256": "265ea2fc84b65947a227a5b996774cdded4c8ed6f9b03c7e117c0a1558def133",
+      "standalone_root": "/tmp/wrk15-redb-extracted-i9vnynj1",
+      "dependencies": {
+        "/tmp/wrk15-clean-target-50c9e48/package/aq-observation-0.1.0.crate": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+        "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+        "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+      },
+      "qualification": "standalone9tests/clippy/fmt/35repetitions-per-configuration passed",
+      "clean_worktree_status": ""
+    },
     "empty_and_short_existing_store_refused_unchanged": [
       0,
       1,
@@ -53,10 +65,10 @@
           "append": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.579479,
-              "p95": 5.1295150000000005,
-              "max": 6.212022999999999,
-              "min": 3.240462
+              "p50": 3.495393,
+              "p95": 10.765805,
+              "max": 16.906525,
+              "min": 3.177583
             },
             "written_bytes": {
               "count": 35,
@@ -79,7 +91,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 17,
               "p95": 18,
@@ -90,10 +102,10 @@
           "prepare": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.3470940000000002,
-              "p95": 4.589854,
-              "max": 4.754668,
-              "min": 3.040274
+              "p50": 3.3846789999999998,
+              "p95": 7.635298000000001,
+              "max": 11.282823,
+              "min": 3.1367249999999998
             },
             "written_bytes": {
               "count": 35,
@@ -116,7 +128,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 9,
               "p95": 9,
@@ -127,10 +139,10 @@
           "send": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.289021,
-              "p95": 4.727883,
-              "max": 4.832910999999999,
-              "min": 2.922994
+              "p50": 3.449181,
+              "p95": 7.253992,
+              "max": 7.371461,
+              "min": 2.89901
             },
             "written_bytes": {
               "count": 35,
@@ -153,7 +165,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 9,
               "p95": 9,
@@ -164,10 +176,10 @@
           "ack": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.237202,
-              "p95": 4.438618,
-              "max": 4.531628,
-              "min": 3.016334
+              "p50": 3.285577,
+              "p95": 7.538125,
+              "max": 13.235851,
+              "min": 3.052432
             },
             "written_bytes": {
               "count": 35,
@@ -190,7 +202,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 10,
               "p95": 10,
@@ -209,10 +221,10 @@
           "append": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.6215800000000002,
-              "p95": 7.573462,
-              "max": 7.5796730000000005,
-              "min": 3.287133
+              "p50": 3.509426,
+              "p95": 4.762538,
+              "max": 4.980839,
+              "min": 3.263456
             },
             "written_bytes": {
               "count": 35,
@@ -235,7 +247,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 20,
               "p95": 21,
@@ -246,10 +258,10 @@
           "prepare": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.4514229999999997,
-              "p95": 6.620872,
-              "max": 8.364314,
-              "min": 3.2166859999999997
+              "p50": 3.385071,
+              "p95": 4.692538,
+              "max": 12.597752999999999,
+              "min": 3.194593
             },
             "written_bytes": {
               "count": 35,
@@ -272,7 +284,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 12,
               "p95": 12,
@@ -283,10 +295,10 @@
           "send": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.3061689999999997,
-              "p95": 4.642547,
-              "max": 5.188808,
-              "min": 2.983002
+              "p50": 3.212523,
+              "p95": 4.379196,
+              "max": 4.395467,
+              "min": 3.016474
             },
             "written_bytes": {
               "count": 35,
@@ -309,7 +321,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 12,
               "p95": 12,
@@ -320,10 +332,10 @@
           "ack": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.412668,
-              "p95": 4.676953999999999,
-              "max": 5.209473,
-              "min": 3.095089
+              "p50": 3.30775,
+              "p95": 4.466424,
+              "max": 4.725505,
+              "min": 3.0803990000000003
             },
             "written_bytes": {
               "count": 35,
@@ -346,7 +358,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 13,
               "p95": 13,
@@ -365,10 +377,10 @@
           "append": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.513535,
-              "p95": 5.445164,
-              "max": 5.912416,
-              "min": 3.1861129999999998
+              "p50": 3.287833,
+              "p95": 5.933942,
+              "max": 6.278637,
+              "min": 3.019803
             },
             "written_bytes": {
               "count": 35,
@@ -391,7 +403,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 14,
               "p95": 15,
@@ -402,10 +414,10 @@
           "prepare": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.396343,
-              "p95": 6.131698,
-              "max": 11.464266,
-              "min": 3.093644
+              "p50": 3.243891,
+              "p95": 4.951368,
+              "max": 6.156515000000001,
+              "min": 2.943796
             },
             "written_bytes": {
               "count": 35,
@@ -428,7 +440,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 9,
               "p95": 10,
@@ -439,10 +451,10 @@
           "send": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.3172129999999997,
-              "p95": 4.454404,
-              "max": 4.485116,
-              "min": 2.991411
+              "p50": 3.030084,
+              "p95": 4.231134999999999,
+              "max": 4.899841,
+              "min": 2.805024
             },
             "written_bytes": {
               "count": 35,
@@ -465,7 +477,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 9,
               "p95": 10,
@@ -476,10 +488,10 @@
           "ack": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.296062,
-              "p95": 4.984992,
-              "max": 10.997857,
-              "min": 3.0453810000000003
+              "p50": 3.191264,
+              "p95": 4.962472,
+              "max": 6.00193,
+              "min": 2.903736
             },
             "written_bytes": {
               "count": 35,
@@ -502,7 +514,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 10,
               "p95": 10,
@@ -521,10 +533,10 @@
           "append": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.4759550000000004,
-              "p95": 5.080719,
-              "max": 5.087338,
-              "min": 3.17341
+              "p50": 3.4263589999999997,
+              "p95": 5.353308,
+              "max": 13.875146999999998,
+              "min": 3.2109069999999997
             },
             "written_bytes": {
               "count": 35,
@@ -547,7 +559,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 17,
               "p95": 18,
@@ -558,10 +570,10 @@
           "prepare": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.404563,
-              "p95": 4.854385,
-              "max": 4.915712,
-              "min": 3.1696079999999998
+              "p50": 3.3697760000000003,
+              "p95": 6.228911999999999,
+              "max": 13.356212,
+              "min": 3.194879
             },
             "written_bytes": {
               "count": 35,
@@ -584,7 +596,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 12,
               "p95": 12,
@@ -595,10 +607,10 @@
           "send": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.350279,
-              "p95": 4.930937,
-              "max": 5.712168,
-              "min": 3.018033
+              "p50": 3.380646,
+              "p95": 5.095471,
+              "max": 7.645095,
+              "min": 3.01622
             },
             "written_bytes": {
               "count": 35,
@@ -621,7 +633,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 12,
               "p95": 12,
@@ -632,10 +644,10 @@
           "ack": {
             "latency_ms": {
               "count": 35,
-              "p50": 3.414652,
-              "p95": 4.70095,
-              "max": 4.702437000000001,
-              "min": 2.992491
+              "p50": 3.3521319999999997,
+              "p95": 7.416146,
+              "max": 10.574521,
+              "min": 3.069457
             },
             "written_bytes": {
               "count": 35,
@@ -658,7 +670,7 @@
               "max": 2,
               "min": 2
             },
-            "mutating_operations": {
+            "operations": {
               "count": 35,
               "p50": 13,
               "p95": 13,
@@ -676,19 +688,19 @@
           "collect": {
             "latency_ms": {
               "count": 35,
-              "p50": 105.192752,
-              "p95": 142.54015,
-              "max": 145.823882,
-              "min": 98.398062
+              "p50": 107.576436,
+              "p95": 141.339022,
+              "max": 149.111877,
+              "min": 98.30726700000001
             }
           },
           "prepare": {
             "latency_ms": {
               "count": 35,
-              "p50": 103.01780600000001,
-              "p95": 121.32701399999999,
-              "max": 125.80486799999998,
-              "min": 90.662064
+              "p50": 104.792,
+              "p95": 123.87248100000001,
+              "max": 215.310116,
+              "min": 99.434588
             },
             "output_journal_bytes": {
               "count": 35,
@@ -701,10 +713,10 @@
           "send": {
             "latency_ms": {
               "count": 35,
-              "p50": 102.77602800000001,
-              "p95": 131.255461,
-              "max": 142.38888699999998,
-              "min": 96.887698
+              "p50": 107.068553,
+              "p95": 131.49347,
+              "max": 132.79623199999997,
+              "min": 99.406258
             },
             "output_journal_bytes": {
               "count": 35,
@@ -717,10 +729,10 @@
           "ack": {
             "latency_ms": {
               "count": 35,
-              "p50": 102.85918,
-              "p95": 126.77369399999999,
-              "max": 306.973133,
-              "min": 96.026756
+              "p50": 109.13045000000001,
+              "p95": 126.13949099999999,
+              "max": 130.541146,
+              "min": 99.271354
             },
             "output_journal_bytes": {
               "count": 35,
@@ -738,19 +750,19 @@
           "collect": {
             "latency_ms": {
               "count": 35,
-              "p50": 4.4464630000000005,
-              "p95": 10.252181,
-              "max": 16.466547000000002,
-              "min": 4.2288559999999995
+              "p50": 4.3308670000000005,
+              "p95": 5.669011,
+              "max": 16.083167999999997,
+              "min": 4.108138
             }
           },
           "prepare": {
             "latency_ms": {
               "count": 35,
-              "p50": 4.668048,
-              "p95": 9.981026,
-              "max": 13.523195,
-              "min": 4.2725610000000005
+              "p50": 4.441428,
+              "p95": 4.737575,
+              "max": 10.228323,
+              "min": 4.190468999999999
             },
             "output_journal_bytes": {
               "count": 35,
@@ -763,10 +775,10 @@
           "send": {
             "latency_ms": {
               "count": 35,
-              "p50": 4.3894340000000005,
-              "p95": 8.035026,
-              "max": 13.084128,
-              "min": 4.098895
+              "p50": 4.269804000000001,
+              "p95": 7.413588,
+              "max": 12.984335,
+              "min": 4.027927
             },
             "output_journal_bytes": {
               "count": 35,
@@ -779,10 +791,10 @@
           "ack": {
             "latency_ms": {
               "count": 35,
-              "p50": 4.298954,
-              "p95": 9.572979,
-              "max": 10.311587000000001,
-              "min": 4.064266000000001
+              "p50": 4.198086999999999,
+              "p95": 13.267434999999999,
+              "max": 13.539793,
+              "min": 4.011245
             },
             "output_journal_bytes": {
               "count": 35,
@@ -797,7 +809,7 @@
     },
     "reference_bytes_note": "output journal length per commit, not syscall-traced bytes",
     "comparability": "approximately matching synthetic retained identity counts; native fixture content differs slightly; redb append excludes file reader and retained-normalizer cost; compare prepare/send/ACK only",
-    "retained_sample_scope": "Samples precede only the pre-engine existing-file minimum512-byte guard; measured delivery paths unchanged."
+    "retained_sample_scope": "Definitive extracted archive at exact reviewed source commit; prior working-tree samples retained separately as local-*; standalone default release profile, isolated target."
   },
   "bounds": {
     "physical_bytes": 67108864,
@@ -811,7 +823,8 @@
     "explicit new-store owner admission; unknown existing format refusal",
     "compaction and long-reader/page corruption qualification",
     "cross-filesystem/hardware power-loss behavior",
-    "complete physical reserve/headroom analysis"
+    "complete physical reserve/headroom analysis",
+    "before-write private database basename/device/inode replacement detection in owner adapter"
   ],
   "environment": {
     "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
