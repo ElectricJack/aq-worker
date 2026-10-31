@@ -145,3 +145,15 @@ silently resetting the one-shot epoch, and never disable pane reading globally.
 A guardian-enforced read-client deadline may bound disruption and force a
 visible discontinuity; its continued-progress and independent-failure behavior
 must be demonstrated before acceptance. No renderer or snapshot claim follows.
+
+
+## Reviewed continuation after independent reader lease
+
+Reader checkpoint `cfe2c33`/`26a852b` separately qualifies bounded client cutoff
+and continued harness progress, retaining the dense packet failure. The next
+slice keeps the strict decoder API's cap refusal but adds consumed-wire-count
+continuation for streaming callers. Each poll returns at most64events and stores
+at most one64KiB unconsumed packet; no further pipe read or EAGAIN renewal occurs
+until that packet is exhausted. Absolute line/decoded-event limits do not widen.
+Full renderer completeness still requires an explicit known baseline and ordered
+resize events; frozen literal OutputFrames do not provide resize ordering.

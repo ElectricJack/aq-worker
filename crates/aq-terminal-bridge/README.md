@@ -83,6 +83,8 @@ harness progress is not qualified. Passing individual runs do not remove this
 failure. The control-only checkpoint remains distinct; no output capability is
 advertised. The next candidate uses guardian-owned attachment and an independent short
 read lease; consumer death, stop or undrained backlog severs that reader and loses
-continuity. The unchanged decoded event cap may still refuse dense valid bursts.
-This remains experimental: full output acceptance and baseline/renderer/producer
+continuity. The streaming decoder now continues a bounded dense packet across polls without
+widening its64event cap or absolute line/decoded-byte bounds; retained raw wire
+is at most64KiB per observer in addition to its bounded incomplete line. It cannot
+renew a read lease while that raw backlog remains. This remains experimental: full output acceptance and baseline/renderer/producer
 adoption are not claimed.

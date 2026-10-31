@@ -193,5 +193,9 @@ passes one stdout FD, with one request/process check per tick (5ms sleep plus
 work/scheduling). Quiet drained renewals are bounded to four per second. This
 adds one local listener per host, one native reader plus pipes/pidfd/channel while
 attached, and fixed8KiB socket buffer requests (kernel overhead is additional).
-The decoder's unchanged event bound can still refuse dense bursts. Full output
-acceptance, baseline/renderer and producer adoption remain unqualified.
+The strict decoder API retains its unchanged event bound. Streaming observation
+now returns at most64events per poll and retains at most one64KiB raw packet
+suffix; it parses that suffix before another read and cannot renew until it is
+exhausted and the actual pipe reaches EAGAIN. Absolute256KiB line and64KiB decoded
+event bounds remain fail-closed. Full renderer/baseline and producer adoption
+remain unqualified.

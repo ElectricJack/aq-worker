@@ -1052,7 +1052,21 @@ fn launch_child_fixture() {
     )
     .unwrap();
     c.authority.pause = std::env::var("AQ_HOST_CALLER_PAUSE").ok();
-    let _handle = c.launch(1500);
+    let started = Instant::now();
+    let handle = c.launch(1500);
+    durable_new(
+        &c.temp.path().join("caller-launch-result.json"),
+        &serde_json::to_vec(&serde_json::json!({
+            "ok": handle.is_ok(),
+            "error": handle.as_ref().err().map(|e| format!("{e:#}")),
+            "elapsed_ms": started.elapsed().as_millis(),
+            "permit_ms": 1500,
+            "caller_stage": std::env::var("AQ_HOST_CALLER_PAUSE").ok(),
+            "guardian_stage": std::env::var("AQ_SESSION_HOST_FAULT_STAGE").ok(),
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     std::thread::sleep(Duration::from_secs(2));
     std::mem::forget(c);
 }
@@ -1075,6 +1089,32 @@ fn spawn_case(root: &Path, stage: &str, guardian_fault: bool) -> Child {
     }
     command.spawn().unwrap()
 }
+fn wait_crash_marker(
+    root: &mut Option<TempDir>,
+    caller: &mut Child,
+    case: &Path,
+    marker: &Path,
+    stage: &str,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if marker.exists() {
+            return;
+        }
+        let result = std::fs::read_to_string(case.join("caller-launch-result.json")).ok();
+        if result.is_some() || Instant::now() >= deadline {
+            let retained = root.take().unwrap().keep();
+            let _ = caller.kill();
+            let _ = caller.wait();
+            panic!(
+                "synthetic crash stage {stage}: marker not reached; launch_result={result:?}; retained={}",
+                retained.display()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
 #[test]
 #[ignore = "requires explicit local tmux 3.4 qualification"]
 fn caller_crashes_at_durable_start_boundaries_never_relaunch() {
@@ -1086,11 +1126,18 @@ fn caller_crashes_at_durable_start_boundaries_never_relaunch() {
         "start-sent",
         "start-receipt-durable",
     ] {
-        let root = TempDir::new().unwrap();
-        let mut caller = spawn_case(root.path(), stage, false);
-        let case = wait(|| std::fs::read_to_string(root.path().join("case-root")).ok());
+        let mut root = Some(TempDir::new().unwrap());
+        let root_path = root.as_ref().unwrap().path().to_path_buf();
+        let mut caller = spawn_case(&root_path, stage, false);
+        let case = wait(|| std::fs::read_to_string(root_path.join("case-root")).ok());
         let case = Path::new(&case);
-        wait(|| case.join("caller-checkpoint").exists().then_some(()));
+        wait_crash_marker(
+            &mut root,
+            &mut caller,
+            case,
+            &case.join("caller-checkpoint"),
+            stage,
+        );
         caller.kill().unwrap();
         caller.wait().unwrap();
         let intent: LaunchIntent =
@@ -1130,12 +1177,19 @@ fn guardian_crashes_across_socket_and_pane_creation_never_claim_stop() {
         "socket-created",
         "pane-created",
     ] {
-        let root = TempDir::new().unwrap();
-        let mut caller = spawn_case(root.path(), stage, true);
-        let case = wait(|| std::fs::read_to_string(root.path().join("case-root")).ok());
+        let mut root = Some(TempDir::new().unwrap());
+        let root_path = root.as_ref().unwrap().path().to_path_buf();
+        let mut caller = spawn_case(&root_path, stage, true);
+        let case = wait(|| std::fs::read_to_string(root_path.join("case-root")).ok());
         let case = Path::new(&case);
         let dir = case.join(Uuid::from_u128(2).to_string());
-        wait(|| dir.join("guardian-fault.json").exists().then_some(()));
+        wait_crash_marker(
+            &mut root,
+            &mut caller,
+            case,
+            &dir.join("guardian-fault.json"),
+            stage,
+        );
         let identity: GuardianIdentity =
             serde_json::from_slice(&std::fs::read(dir.join("identity.json")).unwrap()).unwrap();
         let children: Vec<ProcessEvidence> = std::fs::read_to_string(format!(
@@ -1654,4 +1708,67 @@ fn dead_or_stopped_owner_and_lost_ready_or_ack_cannot_leave_a_blocking_reader() 
         let proof = host.wait_stopped(Duration::from_secs(3)).unwrap();
         assert!(proof.kernel_wait_echild);
     }
+}
+
+#[test]
+#[ignore = "explicit actual slow-consumer read-lease qualification"]
+fn slow_data_only_polls_cannot_renew_an_undrained_reader_forever() {
+    let (_case, mut host, io, lease) = io_setup_mode("output-flood");
+    let mut observer = terminal_output::OutputObserver::open(&io).unwrap();
+    wait_named("slow observer attached", || {
+        observer.poll().unwrap();
+        observer.is_attached().then_some(())
+    });
+    let client = ownership::verified_pidfd(observer.process()).unwrap();
+    io.submit(
+        &aq_terminal_relay_protocol::Effect::Input(io_input(&lease, b"flood\n")),
+        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
+    )
+    .unwrap();
+    wait_named("synthetic flood consumed", || {
+        host.directory()
+            .join("fixture-output-start")
+            .exists()
+            .then_some(())
+    });
+    let started = Instant::now();
+    let mut data_polls = 0;
+    let mut continued_packets = 0;
+    while ownership::pidfd_is_live(&client).unwrap() {
+        std::thread::sleep(Duration::from_millis(200));
+        match observer.poll() {
+            Ok(events) => {
+                assert!(events.len() <= terminal_output::MAX_CONTROL_EVENTS);
+                assert!(observer.buffered_wire_bytes() <= terminal_output::MAX_CONTROL_READ);
+                data_polls += usize::from(
+                    events
+                        .iter()
+                        .any(|e| matches!(e, terminal_output::ControlEvent::Bytes(_))),
+                );
+                continued_packets += usize::from(observer.buffered_wire_bytes() > 0);
+            }
+            Err(_) => break,
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "slow data-only reader kept renewing"
+        );
+    }
+    assert!(data_polls > 0);
+    wait_named("slow reader cutoff", || {
+        (!ownership::pidfd_is_live(&client).unwrap()).then_some(())
+    });
+    wait_named("harness progresses after slow reader cutoff", || {
+        std::fs::read_to_string(host.directory().join("fixture-output-progress"))
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|v| *v >= 4 * 1024 * 1024)
+    });
+    assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
+    eprintln!(
+        "slow data-only cutoff={:?}, data_polls={data_polls}, retained_packet_polls={continued_packets}",
+        started.elapsed()
+    );
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(3)).unwrap();
 }
