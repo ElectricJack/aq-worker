@@ -1,0 +1,22 @@
+{
+  "base_commit": "9c7d2257a15bd186f54f15f4d4fa8affbe1c0d69",
+  "source_files": {
+    "Cargo.lock": "d6163f293bbb5cf14b13dd098bace83aaa7be67bf997ba63346ca1169d97a6d3",
+    "Cargo.toml": "78f97c8f7b00579c74be3b737a5d7e55137fa68a998fcac82e49774be4db755c",
+    "crates/aq-session-host/Cargo.toml": "22fc4148267fd51dbbf57f82215c676cd8f55842036525b5a696298acba330ff",
+    "crates/aq-session-host/README.md": "4e8825b0ea108dbd03a7e754d4d382afd009c05738f2db2c7d95c5801cfaa225",
+    "crates/aq-session-host/src/lib.rs": "a859b6c133e59c4d93570350f3cc60435822f229af78f44365b744847337655e",
+    "crates/aq-session-host/src/supervisor.rs": "1d46bbb71e679abe2a1c4791178c2644e3fe0f69146eb5b4cc90e86824199726",
+    "crates/aq-session-host/src/terminal_io.rs": "2168b02c3830929388f67360362d0fe61fe07c1c0860ad903e64da3b57bb234b",
+    "crates/aq-session-host/src/terminal_output.rs": "6ef7f26660c641205161b73f067d767a5d2d3c9abcbcd691d70f60c1fe29674c",
+    "crates/aq-session-host/tests/local_tmux.rs": "60d04ea452fefa70576cc0fa5a6b4b7f5fa969ca99915ca5eb6d7fdbc711091d",
+    "crates/aq-terminal-bridge/Cargo.toml": "df8786985466e03af7f7383fc0b0a642c36682ef2efad9960a707eb7a2a18372",
+    "crates/aq-terminal-bridge/README.md": "d9d4271b7f540f73491208f87a862bdcdd75ed0f62ab0af4be38662fbf5d264c",
+    "crates/aq-terminal-bridge/src/http.rs": "6b42bd3b8e441ffef42e836bdb142c13beb638cf810ba1b490e091a12d18842e",
+    "crates/aq-terminal-bridge/src/lib.rs": "2a9c46d8f2af167423a75c0df50cf96ab3ac4d9fb9fae2d4ff37293f14fb4cc5",
+    "crates/aq-terminal-bridge/src/output.rs": "b55b4e5080f22eae0e8078b5ebb2dd5a01d55629f3d8cdc5fe40bc479b1acbb2",
+    "crates/aq-terminal-bridge/tests/http.rs": "c01b906192351d160d0929e687ec7e06588871625b46982a315c5ecb7417c2ec",
+    "crates/aq-terminal-bridge/tests/local_relay.rs": "61b23709c95e30299edad38d107a1702efe5f1336db0f960ded8e7c0f34ad8c6"
+  },
+  "scope": "Bounded initial-incomplete tail, no renderer/snapshot/unknown-input resolution or runtime adoption"
+}

@@ -1,0 +1,36 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-6c4edfe11947e550)
+
+running 1 test
+test read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart ... FAILED
+
+failures:
+
+---- read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart stdout ----
+
+thread 'read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart' (3799208) panicked at crates/aq-session-host/tests/local_tmux.rs:19:9:
+local process predicate timeout
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/panicking.rs:80:14
+   2: local_tmux::wait
+             at ./tests/local_tmux.rs:19:9
+   3: local_tmux::read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart
+             at ./tests/local_tmux.rs:705:5
+   4: local_tmux::read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart::{{closure}}
+             at ./tests/local_tmux.rs:693:87
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 24 filtered out; finished in 5.19s
+
+error: test failed, to rerun pass `-p aq-session-host --test local_tmux`

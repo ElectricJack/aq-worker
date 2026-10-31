@@ -1,0 +1,22 @@
+   Compiling aq-session-host v0.1.1 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.39s
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-6c4edfe11947e550)
+
+running 1 test
+test read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart ... FAILED
+
+failures:
+
+---- read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart stdout ----
+
+thread 'read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart' (3798909) panicked at crates/aq-session-host/tests/local_tmux.rs:19:9:
+local process predicate timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 24 filtered out; finished in 5.17s
+
+error: test failed, to rerun pass `-p aq-session-host --test local_tmux`

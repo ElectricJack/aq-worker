@@ -1,0 +1,34 @@
+ATTEMPT 1 of 5
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-bdbb8405525bfbda)
+
+running 1 test
+stopped-observer diagnostic receipt=Ok(Some(Input(InputReceipt { operation_id: de67d3f4-809c-41b8-ba28-8921f5e58b76, command_digest: Digest("8b3008a38288718d3c45e5c73e196425ca785d138a322975e49282676e98ea76"), terminal: TerminalIdentity { session: Remote { node_id: 00000000-0000-0000-0000-000000000001, boot_id: 00000000-0000-0000-0000-000000000001, attempt_id: 00000000-0000-0000-0000-000000000001, assignment_generation: 1, session_id: 00000000-0000-0000-0000-000000000001 }, terminal_id: e8024c7a-e193-4c50-aea4-a79103d45fa3, epoch: 1 }, disposition: Applied }))) host=Ok(HostObservation { guardian: GuardianIdentity { intent: LaunchIntent { launch_id: 00000000-0000-0000-0000-000000000002, session: Remote { node_id: 00000000-0000-0000-0000-000000000001, boot_id: 00000000-0000-0000-0000-000000000001, attempt_id: 00000000-0000-0000-0000-000000000001, assignment_generation: 1, session_id: 00000000-0000-0000-0000-000000000001 }, manifest_digest: Digest("db76f47b7dfd95a9415db6f0753511e27d0a39dde1e27d79226aaa9ad9a7b69e"), configuration_digest: Digest("c6672dce1204fb6251106cc5827509da530d594ab68b9dcab0bf914c0e6fb02f") }, nonce: d03563bc-3757-40bd-a84b-63fe034a38a4, process: ProcessEvidence { pid: 3902858, start_ticks: 13186520 }, machine_boot_id: "f3e781b8-148b-4429-8d81-7c59c60223c8", pid_namespace: "pid:[4026532219]" }, phase: Running, pane: Some(PaneIdentity { server: ProcessEvidence { pid: 3902860, start_ticks: 13186523 }, pane: ProcessEvidence { pid: 3902864, start_ticks: 13186525 }, pane_id: "%0", session_name: "aq" }), permit_sequence: 1, permit_deadline_boot_ms: 131873189, observed_boot_ms: 131865250, reaped_count: 0, kernel_wait_echild: false, root_status: None, stop_reason: None }) root=/tmp/aqh-EhaTyh/00000000-0000-0000-0000-000000000002
+
+thread 'sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control' (3902854) panicked at crates/aq-session-host/tests/local_tmux.rs:847:13:
+stopped observer PTY progress timeout: 0 bytes after 5.002434569s
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/panicking.rs:80:14
+   2: local_tmux::sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control
+             at ./tests/local_tmux.rs:847:13
+   3: local_tmux::sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control::{{closure}}
+             at ./tests/local_tmux.rs:801:78
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+test sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control ... FAILED
+
+failures:
+
+failures:
+    sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 25 filtered out; finished in 5.18s
+
+error: test failed, to rerun pass `-p aq-session-host --test local_tmux`
+EXIT 101

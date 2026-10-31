@@ -1,0 +1,14 @@
+   Compiling aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.1 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-bridge)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.74s
+     Running tests/http.rs (target/debug/deps/http-fa29eba0e7ff0389)
+
+running 5 tests
+test production_requires_https_and_credentials_remain_redacted ... ok
+test lost_control_reply_is_not_automatically_retried_and_content_never_uses_control_lane ... ok
+test redirects_and_wrong_scope_acknowledgements_are_refused ... ok
+test held_poll_and_saturated_poll_lane_preserve_reserved_control_progress ... ok
+test saturated_output_lane_keeps_metadata_control_available ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

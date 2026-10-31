@@ -1,0 +1,15 @@
+{
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "logical_cpus": 24,
+  "tmux": "tmux 3.4",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "load_at_record": [
+    7.31298828125,
+    7.78564453125,
+    6.8642578125
+  ],
+  "load_note": "Shared development host; other agent Cargo/test jobs concurrent. Not an isolated scalability or hard scheduling envelope.",
+  "test_threads": 2,
+  "cargo_build_jobs": 3,
+  "cpu_max": "/sys/fs/cgroup/cpu.max absent; no cgroup CPU quota claim"
+}
