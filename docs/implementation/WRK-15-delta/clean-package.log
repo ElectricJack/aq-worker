@@ -1,0 +1,10 @@
+warning: manifest has no license, license-file, documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+   Packaging aq-observation-engine v0.0.1 (/tmp/aq-wrk15-delta-clean-80d79133/crates/aq-observation-engine)
+    Packaged 24 files, 177.0KiB (32.1KiB compressed)
+warning: manifest has no license, license-file, documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+   Packaging aq-observation-redb-prototype v0.0.2 (/tmp/aq-wrk15-delta-clean-80d79133/crates/aq-observation-redb-prototype)
+    Packaged 24 files, 225.2KiB (46.3KiB compressed)

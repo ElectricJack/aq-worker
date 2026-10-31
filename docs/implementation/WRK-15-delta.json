@@ -1,5 +1,5 @@
 {
-  "status": "source freeze candidate; clean exact-commit standalone qualification pending root commit",
+  "status": "isolated checkpoint clean standalone qualified; not production adopted",
   "base_revision": "5a7f88f76851ef47b805f6dde8da7d317ef538fb",
   "scope": "new-store bounded-delta candidate; not worker runtime adoption",
   "tests": {
@@ -328,7 +328,7 @@
     "All four selected native released CLI formats remain unqualified; complete accounting false",
     "No production worker, central ledger or provider integration qualification"
   ],
-  "measurement_source": "performance code before final test-only fault expansion; exact clean archive measurement pending",
+  "measurement_source": "clean extracted archives at source_revision; earlier measurements retained separately",
   "environment": {
     "uname": "Linux DESKTOP-EB8UOME 6.18.33.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 18 21:54:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
     "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
@@ -343,5 +343,111 @@
     "file-backed cursor+facts",
     "reparse begin/record/finish"
   ],
-  "hash_algorithm": "sha256"
+  "hash_algorithm": "sha256",
+  "source_revision": "80d79133e720ec684a0724b90b519cb0acacf35a",
+  "standalone": {
+    "source_revision": "80d79133e720ec684a0724b90b519cb0acacf35a",
+    "archive": "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-redb-prototype-0.0.2.crate",
+    "archive_sha256": "22fca152f1947bd1872167b67b7c99206c3a2275c4770b2d6d53dbb03367e2fd",
+    "standalone_root": "/tmp/wrk15-delta-extracted-985ti3au",
+    "artifacts": {
+      "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-redb-prototype-0.0.2.crate": "22fca152f1947bd1872167b67b7c99206c3a2275c4770b2d6d53dbb03367e2fd",
+      "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-engine-0.0.1.crate": "d4531ac14096e8257961b0d1f68c99e7b84cc83e3654b066a222ff540e511d4b",
+      "/tmp/wrk15-clean-target-50c9e48/package/aq-observation-0.1.0.crate": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+      "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+      "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+    },
+    "qualification": "standalone candidate47 +reference35 tests/clippy/fmt/drift/90repetitions-per-configuration passed",
+    "clean_worktree_status": ""
+  },
+  "clean_metrics": {
+    "near": {
+      "repetitions": 90,
+      "initial_file_bytes": 23449600,
+      "final_file_bytes": 46895104,
+      "operations": {
+        "collect32": {
+          "p50_ms": 20.5606545,
+          "p95_ms": 25.645324000000002,
+          "max_ms": 29.717192999999998,
+          "median_written_bytes": 283264.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "prepare32": {
+          "p50_ms": 15.581510000000002,
+          "p95_ms": 20.420118000000002,
+          "max_ms": 30.997227,
+          "median_written_bytes": 90752.0,
+          "sync_counts": [
+            2,
+            3
+          ]
+        },
+        "send32": {
+          "p50_ms": 11.738504500000001,
+          "p95_ms": 14.809286,
+          "max_ms": 94.27571,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "ack32": {
+          "p50_ms": 13.611971,
+          "p95_ms": 16.179166,
+          "max_ms": 82.719714,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        }
+      }
+    },
+    "small": {
+      "repetitions": 90,
+      "initial_file_bytes": 573440,
+      "final_file_bytes": 4558848,
+      "operations": {
+        "collect32": {
+          "p50_ms": 19.580907500000002,
+          "p95_ms": 24.033043,
+          "max_ms": 26.633487000000002,
+          "median_written_bytes": 230016.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "prepare32": {
+          "p50_ms": 15.7822455,
+          "p95_ms": 21.606188,
+          "max_ms": 24.861164000000002,
+          "median_written_bytes": 90752.0,
+          "sync_counts": [
+            2,
+            3
+          ]
+        },
+        "send32": {
+          "p50_ms": 12.024898,
+          "p95_ms": 14.293846,
+          "max_ms": 17.424993,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "ack32": {
+          "p50_ms": 13.760201,
+          "p95_ms": 18.882175,
+          "max_ms": 26.667203999999998,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        }
+      }
+    }
+  }
 }
