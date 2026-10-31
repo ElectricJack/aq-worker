@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-worker-protocol", "crates/aq-worker"]
+members = ["crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-worker-protocol", "crates/aq-worker"]
 
 [workspace.package]
 version = "0.1.0"

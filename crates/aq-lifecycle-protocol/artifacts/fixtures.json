@@ -1,0 +1,1352 @@
+{
+  "advertised_capabilities": [
+    {
+      "id": "aq.lifecycle.observation",
+      "version": 1
+    },
+    {
+      "id": "aq.lifecycle.usage",
+      "version": 1
+    },
+    {
+      "id": "aq.lifecycle.suspension",
+      "version": 1
+    },
+    {
+      "id": "aq.lifecycle.continuation",
+      "version": 1
+    }
+  ],
+  "first_usage_event": {
+    "body": {
+      "binding": {
+        "attempt_generation": 4,
+        "attempt_id": "00000000-0000-0000-0000-000000000003",
+        "lineage_id": "00000000-0000-0000-0000-000000000008",
+        "project_id": "00000000-0000-0000-0000-000000000006",
+        "session": {
+          "assignment_generation": 4,
+          "attempt_id": "00000000-0000-0000-0000-000000000003",
+          "boot_id": "00000000-0000-0000-0000-000000000002",
+          "kind": "remote",
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "session_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "task_id": "00000000-0000-0000-0000-000000000007"
+      },
+      "kind": {
+        "kind": "usage",
+        "usage": {
+          "basis": {
+            "counter_generation": 1,
+            "counter_id": "conversation-total",
+            "kind": "cumulative"
+          },
+          "call": {
+            "account_reference": "logical-account",
+            "model": "fixture-model",
+            "native_call_id": "native-call-1",
+            "provider": "synthetic"
+          },
+          "category_semantics": {
+            "kind": "may_overlap",
+            "policy": {
+              "digest": "80b8b51afc5df196ae89571708edb60fc7dbf426292ff3296d36d5bade84b2d9",
+              "id": "provider-category-semantics",
+              "version": "1"
+            }
+          },
+          "completeness": {
+            "kind": "reported_complete"
+          },
+          "correction_of": null,
+          "cost": {
+            "allocation_policy": {
+              "digest": "435e6d6e2f9a39d16dec7b304a4a830899a57b44be6fc2ab7d2df0eb04168c5f",
+              "id": "estimate-policy-r1",
+              "version": "1"
+            },
+            "amount_microunits": 0,
+            "basis": "token_rates",
+            "currency": "USD",
+            "kind": "non_invoice_estimate",
+            "rate_card": {
+              "digest": "39d7eef19377d071cac0dca795a7b7be487278c6ca845d29ba5af36b54eb407b",
+              "id": "rate-card-r1",
+              "version": "1"
+            }
+          },
+          "counters": {
+            "cache_read": {
+              "kind": "unknown",
+              "reason": "unsupported"
+            },
+            "cache_write": {
+              "kind": "unknown",
+              "reason": "unsupported"
+            },
+            "input": {
+              "kind": "unknown",
+              "reason": "not_reported"
+            },
+            "output": {
+              "kind": "known",
+              "value": 0
+            },
+            "reasoning": {
+              "kind": "unknown",
+              "reason": "not_applicable"
+            }
+          }
+        }
+      },
+      "observed_at_ms": 1001,
+      "provenance": {
+        "cursor": {
+          "end": 20,
+          "kind": "bytes",
+          "start": 0
+        },
+        "native_session_key": "native-session-1",
+        "parser": {
+          "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+          "id": "parser-fixture-v1",
+          "version": "1"
+        },
+        "raw_record": {
+          "byte_length": 20,
+          "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+          "kind": "available"
+        },
+        "source_generation": 1,
+        "source_id": "00000000-0000-0000-0000-00000000000d",
+        "source_kind": "native_transcript"
+      },
+      "sequence": 1
+    },
+    "body_digest": "036a1c7fc640f5372ecf45d6ed77cab39c39203c9be584745e6b65164abd125e",
+    "event_id": "00000000-0000-0000-0000-000000000065"
+  },
+  "predecessor": {
+    "attempt_generation": 4,
+    "attempt_id": "00000000-0000-0000-0000-000000000003",
+    "lineage_id": "00000000-0000-0000-0000-000000000008",
+    "project_id": "00000000-0000-0000-0000-000000000006",
+    "session": {
+      "assignment_generation": 4,
+      "attempt_id": "00000000-0000-0000-0000-000000000003",
+      "boot_id": "00000000-0000-0000-0000-000000000002",
+      "kind": "remote",
+      "node_id": "00000000-0000-0000-0000-000000000001",
+      "session_id": "00000000-0000-0000-0000-000000000005"
+    },
+    "task_id": "00000000-0000-0000-0000-000000000007"
+  },
+  "receipts": [
+    {
+      "body_digest": "9e5b25773f3bb96f2e1c8ba244e50412de910fe688845509afd2fcc54c0a6dc5",
+      "disposition": "observation_recorded",
+      "message_id": "00000000-0000-0000-0000-000000000064",
+      "schema_version": 1,
+      "through_sequence": 2
+    },
+    {
+      "body_digest": "0a62e7976b3ad173b124025114d48a84318dd511953a1c4a25f59f8e8deef336",
+      "disposition": "checkpoint_recorded",
+      "message_id": "00000000-0000-0000-0000-0000000000c9",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "47438175af577bb45b2d3d49b7e1b1d2e3b9f28db8b913ec2cfde5490c5467c2",
+      "disposition": "suspension_recorded",
+      "message_id": "00000000-0000-0000-0000-0000000000ca",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "287e11cd01570547870d52e62b321f3065e65e4a9144e5504a1b3a0e5ee8be31",
+      "disposition": "parking_recorded",
+      "message_id": "00000000-0000-0000-0000-0000000000cb",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "691d1453ea07dea7fbc118f7e9ff02d5ccbecb0439c2afa91dc0ac234b12de80",
+      "disposition": "continuation_received",
+      "message_id": "00000000-0000-0000-0000-0000000000cc",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "7a18f08fe558717acab5d257d42190bf835b37a9fc7b51adcef4d68e7662c393",
+      "disposition": "bootstrap_acknowledgment_recorded",
+      "message_id": "00000000-0000-0000-0000-0000000000cd",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "6bd1761ad0ede9c64e835d00b899ed5175263b06edad0a3641d9835a2bc9201b",
+      "disposition": "observation_recorded",
+      "message_id": "00000000-0000-0000-0000-00000000012c",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "511d6702c0a63c7af452b4a884ed30b3c59e8ef2696ba397e9d4062e0f41e235",
+      "disposition": "observation_recorded",
+      "message_id": "00000000-0000-0000-0000-00000000012d",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "05bd7d3cd9515804803cc1818ce8165fa6c83d447506aa291c697f18c05d27b6",
+      "disposition": "observation_recorded",
+      "message_id": "00000000-0000-0000-0000-00000000012e",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "e2ac92d9203733a64094f98f4fed4a10451b1d3a842813da32c92abecc905122",
+      "disposition": "observation_recorded",
+      "message_id": "00000000-0000-0000-0000-00000000012f",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "19e15020fbdde711969f24e83e602e67cb10bc3f0f97ddb01e2c5958a7eef5eb",
+      "disposition": "observation_recorded",
+      "message_id": "00000000-0000-0000-0000-000000000130",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "fab784baf6d48cd6f96e1a07db60034ebea439d347cfb8ed3eb698544bb7ea2d",
+      "disposition": "observation_recorded",
+      "message_id": "00000000-0000-0000-0000-000000000131",
+      "schema_version": 1,
+      "through_sequence": null
+    },
+    {
+      "body_digest": "037dbef3e5a8837fba5927cd273dca75e1230745d4cdfbb7deab1fb1f2148699",
+      "disposition": "observation_recorded",
+      "message_id": "00000000-0000-0000-0000-000000000132",
+      "schema_version": 1,
+      "through_sequence": null
+    }
+  ],
+  "schema_version": 1,
+  "semantics": {
+    "billing": "observation claims only; no ledger or exactly-once invoice guarantee",
+    "bootstrap": "AQ authenticated receipt, not bytes placed in a prompt",
+    "legacy_capabilities": "old session0.1.0 behavior preserved",
+    "reported_zero": "known value0 is distinct from unknown",
+    "stop": "reference must be verified by runtime owner",
+    "suspended": "distinct attempt disposition; never ordinary success/failure",
+    "task_mail": "only task-addressed IDs may attach to a successor"
+  },
+  "successor": {
+    "attempt_generation": 5,
+    "attempt_id": "00000000-0000-0000-0000-00000000000b",
+    "lineage_id": "00000000-0000-0000-0000-000000000008",
+    "project_id": "00000000-0000-0000-0000-000000000006",
+    "session": {
+      "assignment_generation": 5,
+      "attempt_id": "00000000-0000-0000-0000-00000000000b",
+      "boot_id": "00000000-0000-0000-0000-00000000000a",
+      "kind": "remote",
+      "node_id": "00000000-0000-0000-0000-000000000009",
+      "session_id": "00000000-0000-0000-0000-00000000000c"
+    },
+    "task_id": "00000000-0000-0000-0000-000000000007"
+  },
+  "valid_packets": [
+    {
+      "body": {
+        "message": {
+          "body": {
+            "boot_id": "00000000-0000-0000-0000-000000000002",
+            "events": [
+              {
+                "body": {
+                  "binding": {
+                    "attempt_generation": 4,
+                    "attempt_id": "00000000-0000-0000-0000-000000000003",
+                    "lineage_id": "00000000-0000-0000-0000-000000000008",
+                    "project_id": "00000000-0000-0000-0000-000000000006",
+                    "session": {
+                      "assignment_generation": 4,
+                      "attempt_id": "00000000-0000-0000-0000-000000000003",
+                      "boot_id": "00000000-0000-0000-0000-000000000002",
+                      "kind": "remote",
+                      "node_id": "00000000-0000-0000-0000-000000000001",
+                      "session_id": "00000000-0000-0000-0000-000000000005"
+                    },
+                    "task_id": "00000000-0000-0000-0000-000000000007"
+                  },
+                  "kind": {
+                    "kind": "usage",
+                    "usage": {
+                      "basis": {
+                        "counter_generation": 1,
+                        "counter_id": "conversation-total",
+                        "kind": "cumulative"
+                      },
+                      "call": {
+                        "account_reference": "logical-account",
+                        "model": "fixture-model",
+                        "native_call_id": "native-call-1",
+                        "provider": "synthetic"
+                      },
+                      "category_semantics": {
+                        "kind": "may_overlap",
+                        "policy": {
+                          "digest": "80b8b51afc5df196ae89571708edb60fc7dbf426292ff3296d36d5bade84b2d9",
+                          "id": "provider-category-semantics",
+                          "version": "1"
+                        }
+                      },
+                      "completeness": {
+                        "kind": "reported_complete"
+                      },
+                      "correction_of": null,
+                      "cost": {
+                        "allocation_policy": {
+                          "digest": "435e6d6e2f9a39d16dec7b304a4a830899a57b44be6fc2ab7d2df0eb04168c5f",
+                          "id": "estimate-policy-r1",
+                          "version": "1"
+                        },
+                        "amount_microunits": 0,
+                        "basis": "token_rates",
+                        "currency": "USD",
+                        "kind": "non_invoice_estimate",
+                        "rate_card": {
+                          "digest": "39d7eef19377d071cac0dca795a7b7be487278c6ca845d29ba5af36b54eb407b",
+                          "id": "rate-card-r1",
+                          "version": "1"
+                        }
+                      },
+                      "counters": {
+                        "cache_read": {
+                          "kind": "unknown",
+                          "reason": "unsupported"
+                        },
+                        "cache_write": {
+                          "kind": "unknown",
+                          "reason": "unsupported"
+                        },
+                        "input": {
+                          "kind": "unknown",
+                          "reason": "not_reported"
+                        },
+                        "output": {
+                          "kind": "known",
+                          "value": 0
+                        },
+                        "reasoning": {
+                          "kind": "unknown",
+                          "reason": "not_applicable"
+                        }
+                      }
+                    }
+                  },
+                  "observed_at_ms": 1001,
+                  "provenance": {
+                    "cursor": {
+                      "end": 20,
+                      "kind": "bytes",
+                      "start": 0
+                    },
+                    "native_session_key": "native-session-1",
+                    "parser": {
+                      "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+                      "id": "parser-fixture-v1",
+                      "version": "1"
+                    },
+                    "raw_record": {
+                      "byte_length": 20,
+                      "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                      "kind": "available"
+                    },
+                    "source_generation": 1,
+                    "source_id": "00000000-0000-0000-0000-00000000000d",
+                    "source_kind": "native_transcript"
+                  },
+                  "sequence": 1
+                },
+                "body_digest": "036a1c7fc640f5372ecf45d6ed77cab39c39203c9be584745e6b65164abd125e",
+                "event_id": "00000000-0000-0000-0000-000000000065"
+              },
+              {
+                "body": {
+                  "binding": {
+                    "attempt_generation": 4,
+                    "attempt_id": "00000000-0000-0000-0000-000000000003",
+                    "lineage_id": "00000000-0000-0000-0000-000000000008",
+                    "project_id": "00000000-0000-0000-0000-000000000006",
+                    "session": {
+                      "assignment_generation": 4,
+                      "attempt_id": "00000000-0000-0000-0000-000000000003",
+                      "boot_id": "00000000-0000-0000-0000-000000000002",
+                      "kind": "remote",
+                      "node_id": "00000000-0000-0000-0000-000000000001",
+                      "session_id": "00000000-0000-0000-0000-000000000005"
+                    },
+                    "task_id": "00000000-0000-0000-0000-000000000007"
+                  },
+                  "kind": {
+                    "kind": "usage",
+                    "usage": {
+                      "basis": {
+                        "counter_generation": 1,
+                        "counter_id": "conversation-total",
+                        "kind": "cumulative"
+                      },
+                      "call": {
+                        "account_reference": "logical-account",
+                        "model": "fixture-model",
+                        "native_call_id": "native-call-1",
+                        "provider": "synthetic"
+                      },
+                      "category_semantics": {
+                        "kind": "may_overlap",
+                        "policy": {
+                          "digest": "80b8b51afc5df196ae89571708edb60fc7dbf426292ff3296d36d5bade84b2d9",
+                          "id": "provider-category-semantics",
+                          "version": "1"
+                        }
+                      },
+                      "completeness": {
+                        "kind": "reported_complete"
+                      },
+                      "correction_of": {
+                        "digest": "036a1c7fc640f5372ecf45d6ed77cab39c39203c9be584745e6b65164abd125e",
+                        "event_id": "00000000-0000-0000-0000-000000000065"
+                      },
+                      "cost": {
+                        "allocation_policy": {
+                          "digest": "435e6d6e2f9a39d16dec7b304a4a830899a57b44be6fc2ab7d2df0eb04168c5f",
+                          "id": "estimate-policy-r1",
+                          "version": "1"
+                        },
+                        "amount_microunits": 0,
+                        "basis": "token_rates",
+                        "currency": "USD",
+                        "kind": "non_invoice_estimate",
+                        "rate_card": {
+                          "digest": "39d7eef19377d071cac0dca795a7b7be487278c6ca845d29ba5af36b54eb407b",
+                          "id": "rate-card-r1",
+                          "version": "1"
+                        }
+                      },
+                      "counters": {
+                        "cache_read": {
+                          "kind": "unknown",
+                          "reason": "unsupported"
+                        },
+                        "cache_write": {
+                          "kind": "unknown",
+                          "reason": "unsupported"
+                        },
+                        "input": {
+                          "kind": "unknown",
+                          "reason": "not_reported"
+                        },
+                        "output": {
+                          "kind": "known",
+                          "value": 7
+                        },
+                        "reasoning": {
+                          "kind": "unknown",
+                          "reason": "not_applicable"
+                        }
+                      }
+                    }
+                  },
+                  "observed_at_ms": 1002,
+                  "provenance": {
+                    "cursor": {
+                      "end": 20,
+                      "kind": "bytes",
+                      "start": 0
+                    },
+                    "native_session_key": "native-session-1",
+                    "parser": {
+                      "digest": "60ab7f869313c8c4cb159c5f9e0be3f10406a5ffa680b08760747ba4b9eb4162",
+                      "id": "parser-fixture",
+                      "version": "2"
+                    },
+                    "raw_record": {
+                      "byte_length": 20,
+                      "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                      "kind": "available"
+                    },
+                    "source_generation": 1,
+                    "source_id": "00000000-0000-0000-0000-00000000000d",
+                    "source_kind": "native_transcript"
+                  },
+                  "sequence": 2
+                },
+                "body_digest": "db467c88cf59641a3467688dac648ebdc9a4aaaf421cdac525f4319a9f07774d",
+                "event_id": "00000000-0000-0000-0000-000000000066"
+              }
+            ],
+            "first_sequence": 1,
+            "last_sequence": 2,
+            "node_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "kind": "batch"
+        },
+        "message_id": "00000000-0000-0000-0000-000000000064",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.observation",
+            "version": 1
+          },
+          {
+            "id": "aq.lifecycle.usage",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "9e5b25773f3bb96f2e1c8ba244e50412de910fe688845509afd2fcc54c0a6dc5"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "claim": {
+              "kind": "supplied",
+              "summary": {
+                "context_references": [
+                  {
+                    "digest": "ea7792a26f405e2ae9c6f49ca93bbe6076ceac0a1fc53d83426c7d7f2d9377e4",
+                    "id": "context",
+                    "version": "1"
+                  }
+                ],
+                "pending_operation_ids": [
+                  "00000000-0000-0000-0000-000000000032"
+                ],
+                "text": "Goal: preserve work.\nUncertainty: effects require reconciliation."
+              },
+              "summary_digest": "b5920a01c89bcaaecf1fd8e095c6248afd3a075d88cbfb5f2629ecaaa7cfd0ad"
+            },
+            "continuation": {
+              "continuation_id": "00000000-0000-0000-0000-000000000015",
+              "generation": 1,
+              "wait": {
+                "generation": 1,
+                "predicate_digest": "15d75890e091a0f8a1e0006c690b23265aff16b0818be350398ea19cc5b5d866",
+                "wait_id": "00000000-0000-0000-0000-000000000014"
+              }
+            }
+          },
+          "kind": "checkpoint"
+        },
+        "message_id": "00000000-0000-0000-0000-0000000000c9",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.suspension",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "0a62e7976b3ad173b124025114d48a84318dd511953a1c4a25f59f8e8deef336"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "continuation": {
+              "continuation_id": "00000000-0000-0000-0000-000000000015",
+              "generation": 1,
+              "wait": {
+                "generation": 1,
+                "predicate_digest": "15d75890e091a0f8a1e0006c690b23265aff16b0818be350398ea19cc5b5d866",
+                "wait_id": "00000000-0000-0000-0000-000000000014"
+              }
+            },
+            "deadline_ms": 2000,
+            "issued_at_ms": 1000,
+            "max_summary_bytes": 16384,
+            "retention_policy": {
+              "digest": "3281b75427119630c5794d69f868102e701b62353938cc76bc35673121b19fd9",
+              "id": "retention-policy",
+              "version": "1"
+            }
+          },
+          "kind": "suspend"
+        },
+        "message_id": "00000000-0000-0000-0000-0000000000ca",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.suspension",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "47438175af577bb45b2d3d49b7e1b1d2e3b9f28db8b913ec2cfde5490c5467c2"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "central_receipts": [
+              {
+                "artifact": {
+                  "digest": "34a36fe4e85bce3ee3d0df787228ffb4d6acffe075a91dae58c8ae35c6667f4d",
+                  "id": "source-snapshot",
+                  "version": "1"
+                },
+                "binding_digest": "2e91e4389927d272847ef83a5a5a05ab7ec0b8e969451d46aaf351a2f42b5374",
+                "bytes": 128,
+                "owner": "central-retention-owner",
+                "receipt_id": "00000000-0000-0000-0000-000000000028",
+                "retained_at_ms": 1500,
+                "retained_until_ms": 1000000,
+                "role": "source"
+              },
+              {
+                "artifact": {
+                  "digest": "3821cdfe3b8c9e72ac40479d0943fb9c0c08e6df1e386722eff5d9f0a7877d7a",
+                  "id": "checkpoint-artifact",
+                  "version": "1"
+                },
+                "binding_digest": "2e91e4389927d272847ef83a5a5a05ab7ec0b8e969451d46aaf351a2f42b5374",
+                "bytes": 128,
+                "owner": "central-retention-owner",
+                "receipt_id": "00000000-0000-0000-0000-000000000029",
+                "retained_at_ms": 1500,
+                "retained_until_ms": 1000000,
+                "role": "checkpoint"
+              }
+            ],
+            "compute_released": true,
+            "continuation": {
+              "continuation_id": "00000000-0000-0000-0000-000000000015",
+              "generation": 1,
+              "wait": {
+                "generation": 1,
+                "predicate_digest": "15d75890e091a0f8a1e0006c690b23265aff16b0818be350398ea19cc5b5d866",
+                "wait_id": "00000000-0000-0000-0000-000000000014"
+              }
+            },
+            "disk_release_directive": null,
+            "disposition": {
+              "kind": "retained_suspended"
+            },
+            "effects": {
+              "kind": "reconciled",
+              "receipt": {
+                "digest": "7e86b8907a38f6b84190e42fcbb5e9decfc4244484c880b6a79d775ef7214c18",
+                "id": "effect-reconciliation",
+                "version": "1"
+              }
+            },
+            "local_retained_bytes": 256,
+            "protected_disk_released": false,
+            "stop": {
+              "guardian_instance_id": "00000000-0000-0000-0000-00000000001f",
+              "kind": "reported_stopped",
+              "observation_id": "00000000-0000-0000-0000-00000000001e",
+              "observed_at_ms": 1400,
+              "proof": {
+                "digest": "8510646b6a7a09be815ae3b4d02bc3ba91f0026f76d06d85c63270baef8c6c8e",
+                "id": "guardian-stop-observation",
+                "version": "1"
+              },
+              "writer_count": 2,
+              "writer_set_digest": "4da783f860ef8413d25b5c1a3493d06ed2c83f8f01f70331391a51fce69277d1"
+            }
+          },
+          "kind": "parking"
+        },
+        "message_id": "00000000-0000-0000-0000-0000000000cb",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.suspension",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "287e11cd01570547870d52e62b321f3065e65e4a9144e5504a1b3a0e5ee8be31"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "admission_id": "00000000-0000-0000-0000-000000000017",
+            "continuation": {
+              "continuation_id": "00000000-0000-0000-0000-000000000015",
+              "generation": 1,
+              "wait": {
+                "generation": 1,
+                "predicate_digest": "15d75890e091a0f8a1e0006c690b23265aff16b0818be350398ea19cc5b5d866",
+                "wait_id": "00000000-0000-0000-0000-000000000014"
+              }
+            },
+            "fresh_offer_digest": "913fbb51fddd0e8982ffb6932c74a914cbc7e9e6c96c8b67b961e6339e5c61f9",
+            "held_task_message_ids": [
+              "00000000-0000-0000-0000-000000000033"
+            ],
+            "native_resume": null,
+            "outcome": {
+              "digest": "6d94bab78ea783316b3e73fcda65e36206d71853e19b7c1bd099bf0befa91d3b",
+              "outcome_id": "00000000-0000-0000-0000-000000000016",
+              "revision": 1,
+              "wait": {
+                "generation": 1,
+                "predicate_digest": "15d75890e091a0f8a1e0006c690b23265aff16b0818be350398ea19cc5b5d866",
+                "wait_id": "00000000-0000-0000-0000-000000000014"
+              }
+            },
+            "pending_operation_ids": [
+              "00000000-0000-0000-0000-000000000032"
+            ],
+            "predecessor": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "remaining": {
+              "cost": {
+                "kind": "unknown",
+                "reason": "incomplete"
+              },
+              "ledger_checkpoint": {
+                "digest": "29e069a964a635091f0c9bcfa73ee600bc42a4279bab54e37c311369ed44ff2a",
+                "id": "minimal-accounting-checkpoint",
+                "version": "1"
+              },
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "policy": {
+                "digest": "6da1ce44a5e2c58767875eb3846246f184cc55feea0c2c5dea0b851b00a49f2d",
+                "id": "lineage-budget-policy",
+                "version": "1"
+              },
+              "remaining_elapsed_ms": 60000,
+              "remaining_failure_retries": 2
+            },
+            "retained": [
+              {
+                "artifact": {
+                  "digest": "34a36fe4e85bce3ee3d0df787228ffb4d6acffe075a91dae58c8ae35c6667f4d",
+                  "id": "source-snapshot",
+                  "version": "1"
+                },
+                "binding_digest": "2e91e4389927d272847ef83a5a5a05ab7ec0b8e969451d46aaf351a2f42b5374",
+                "bytes": 128,
+                "owner": "central-retention-owner",
+                "receipt_id": "00000000-0000-0000-0000-000000000028",
+                "retained_at_ms": 1500,
+                "retained_until_ms": 1000000,
+                "role": "source"
+              },
+              {
+                "artifact": {
+                  "digest": "3821cdfe3b8c9e72ac40479d0943fb9c0c08e6df1e386722eff5d9f0a7877d7a",
+                  "id": "checkpoint-artifact",
+                  "version": "1"
+                },
+                "binding_digest": "2e91e4389927d272847ef83a5a5a05ab7ec0b8e969451d46aaf351a2f42b5374",
+                "bytes": 128,
+                "owner": "central-retention-owner",
+                "receipt_id": "00000000-0000-0000-0000-000000000029",
+                "retained_at_ms": 1500,
+                "retained_until_ms": 1000000,
+                "role": "checkpoint"
+              }
+            ],
+            "successor": {
+              "attempt_generation": 5,
+              "attempt_id": "00000000-0000-0000-0000-00000000000b",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 5,
+                "attempt_id": "00000000-0000-0000-0000-00000000000b",
+                "boot_id": "00000000-0000-0000-0000-00000000000a",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000009",
+                "session_id": "00000000-0000-0000-0000-00000000000c"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            }
+          },
+          "kind": "continuation"
+        },
+        "message_id": "00000000-0000-0000-0000-0000000000cc",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.continuation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "691d1453ea07dea7fbc118f7e9ff02d5ccbecb0439c2afa91dc0ac234b12de80"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "acknowledgment_receipt": {
+              "digest": "dd28fb3b0f7638b460451c04c5bc9df1fd705dce664672f70036357601cc97d8",
+              "id": "authenticated-aq-bootstrap-ack",
+              "version": "1"
+            },
+            "admission_id": "00000000-0000-0000-0000-000000000017",
+            "attachment_digest": "c1f35a447537e52757507e301de0638b1c0d8772e29b12ccff87880c9eea544e",
+            "continuation": {
+              "continuation_id": "00000000-0000-0000-0000-000000000015",
+              "generation": 1,
+              "wait": {
+                "generation": 1,
+                "predicate_digest": "15d75890e091a0f8a1e0006c690b23265aff16b0818be350398ea19cc5b5d866",
+                "wait_id": "00000000-0000-0000-0000-000000000014"
+              }
+            },
+            "outcome": {
+              "digest": "6d94bab78ea783316b3e73fcda65e36206d71853e19b7c1bd099bf0befa91d3b",
+              "outcome_id": "00000000-0000-0000-0000-000000000016",
+              "revision": 1,
+              "wait": {
+                "generation": 1,
+                "predicate_digest": "15d75890e091a0f8a1e0006c690b23265aff16b0818be350398ea19cc5b5d866",
+                "wait_id": "00000000-0000-0000-0000-000000000014"
+              }
+            },
+            "successor": {
+              "attempt_generation": 5,
+              "attempt_id": "00000000-0000-0000-0000-00000000000b",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 5,
+                "attempt_id": "00000000-0000-0000-0000-00000000000b",
+                "boot_id": "00000000-0000-0000-0000-00000000000a",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000009",
+                "session_id": "00000000-0000-0000-0000-00000000000c"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            }
+          },
+          "kind": "bootstrap_ack"
+        },
+        "message_id": "00000000-0000-0000-0000-0000000000cd",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.continuation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "7a18f08fe558717acab5d257d42190bf835b37a9fc7b51adcef4d68e7662c393"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "kind": {
+              "in_turn": true,
+              "kind": "turn_boundary"
+            },
+            "observed_at_ms": 1003,
+            "provenance": {
+              "cursor": {
+                "end": 60,
+                "kind": "bytes",
+                "start": 40
+              },
+              "native_session_key": "native-session-1",
+              "parser": {
+                "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+                "id": "parser-fixture-v1",
+                "version": "1"
+              },
+              "raw_record": {
+                "byte_length": 20,
+                "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-00000000000d",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 3
+          },
+          "kind": "observation"
+        },
+        "message_id": "00000000-0000-0000-0000-00000000012c",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.observation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "6bd1761ad0ede9c64e835d00b899ed5175263b06edad0a3641d9835a2bc9201b"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "kind": {
+              "content": {
+                "digest": "ba2f8b6b1d2a0812753ca89fbb7b559f83361f406c6fd4110994e79f80df562a",
+                "id": "scoped-text-artifact",
+                "version": "1"
+              },
+              "kind": "text_reference",
+              "role": "assistant",
+              "utf8_bytes": 32
+            },
+            "observed_at_ms": 1004,
+            "provenance": {
+              "cursor": {
+                "end": 80,
+                "kind": "bytes",
+                "start": 60
+              },
+              "native_session_key": "native-session-1",
+              "parser": {
+                "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+                "id": "parser-fixture-v1",
+                "version": "1"
+              },
+              "raw_record": {
+                "byte_length": 20,
+                "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-00000000000d",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 4
+          },
+          "kind": "observation"
+        },
+        "message_id": "00000000-0000-0000-0000-00000000012d",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.observation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "511d6702c0a63c7af452b4a884ed30b3c59e8ef2696ba397e9d4062e0f41e235"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "kind": {
+              "call_id": "tool-call-1",
+              "kind": "tool_started",
+              "tool_name": "fixture-tool"
+            },
+            "observed_at_ms": 1005,
+            "provenance": {
+              "cursor": {
+                "end": 100,
+                "kind": "bytes",
+                "start": 80
+              },
+              "native_session_key": "native-session-1",
+              "parser": {
+                "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+                "id": "parser-fixture-v1",
+                "version": "1"
+              },
+              "raw_record": {
+                "byte_length": 20,
+                "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-00000000000d",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 5
+          },
+          "kind": "observation"
+        },
+        "message_id": "00000000-0000-0000-0000-00000000012e",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.observation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "05bd7d3cd9515804803cc1818ce8165fa6c83d447506aa291c697f18c05d27b6"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "kind": {
+              "call_id": "tool-call-1",
+              "content": {
+                "digest": "90c6783d80fad0eefa7c2c8887502d4a9d8839e043cd5f51582aa89f71cc9fb5",
+                "id": "tool-result",
+                "version": "1"
+              },
+              "kind": "tool_result"
+            },
+            "observed_at_ms": 1006,
+            "provenance": {
+              "cursor": {
+                "end": 120,
+                "kind": "bytes",
+                "start": 100
+              },
+              "native_session_key": "native-session-1",
+              "parser": {
+                "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+                "id": "parser-fixture-v1",
+                "version": "1"
+              },
+              "raw_record": {
+                "byte_length": 20,
+                "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-00000000000d",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 6
+          },
+          "kind": "observation"
+        },
+        "message_id": "00000000-0000-0000-0000-00000000012f",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.observation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "e2ac92d9203733a64094f98f4fed4a10451b1d3a842813da32c92abecc905122"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "kind": {
+              "content": {
+                "digest": "9f5a3613ffb5ab9cd35c2ad20abdb856ee71741ead3516aa7ea2816005b05b89",
+                "id": "question-artifact",
+                "version": "1"
+              },
+              "kind": "question",
+              "question_id": "question-1"
+            },
+            "observed_at_ms": 1007,
+            "provenance": {
+              "cursor": {
+                "end": 140,
+                "kind": "bytes",
+                "start": 120
+              },
+              "native_session_key": "native-session-1",
+              "parser": {
+                "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+                "id": "parser-fixture-v1",
+                "version": "1"
+              },
+              "raw_record": {
+                "byte_length": 20,
+                "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-00000000000d",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 7
+          },
+          "kind": "observation"
+        },
+        "message_id": "00000000-0000-0000-0000-000000000130",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.observation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "19e15020fbdde711969f24e83e602e67cb10bc3f0f97ddb01e2c5958a7eef5eb"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "kind": {
+              "code": "rate_limit",
+              "kind": "provider_error",
+              "retryable": true
+            },
+            "observed_at_ms": 1008,
+            "provenance": {
+              "cursor": {
+                "end": 160,
+                "kind": "bytes",
+                "start": 140
+              },
+              "native_session_key": "native-session-1",
+              "parser": {
+                "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+                "id": "parser-fixture-v1",
+                "version": "1"
+              },
+              "raw_record": {
+                "byte_length": 20,
+                "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-00000000000d",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 8
+          },
+          "kind": "observation"
+        },
+        "message_id": "00000000-0000-0000-0000-000000000131",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.observation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "fab784baf6d48cd6f96e1a07db60034ebea439d347cfb8ed3eb698544bb7ea2d"
+    },
+    {
+      "body": {
+        "message": {
+          "body": {
+            "binding": {
+              "attempt_generation": 4,
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "lineage_id": "00000000-0000-0000-0000-000000000008",
+              "project_id": "00000000-0000-0000-0000-000000000006",
+              "session": {
+                "assignment_generation": 4,
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "task_id": "00000000-0000-0000-0000-000000000007"
+            },
+            "kind": {
+              "affected": {
+                "end": 200,
+                "kind": "bytes",
+                "start": 100
+              },
+              "kind": "gap",
+              "reason": "truncated"
+            },
+            "observed_at_ms": 1009,
+            "provenance": {
+              "cursor": {
+                "end": 180,
+                "kind": "bytes",
+                "start": 160
+              },
+              "native_session_key": "native-session-1",
+              "parser": {
+                "digest": "ec727a97ef79ffe0bb5b6022180eadcf43afe4cbf9fcfa358857cdf6f7ed92f2",
+                "id": "parser-fixture-v1",
+                "version": "1"
+              },
+              "raw_record": {
+                "byte_length": 20,
+                "digest": "0ccee546f17d1b386f3f47f5586eabfc3faee50e8f4c273810cad3ce9cf5fe87",
+                "kind": "available"
+              },
+              "source_generation": 1,
+              "source_id": "00000000-0000-0000-0000-00000000000d",
+              "source_kind": "native_transcript"
+            },
+            "sequence": 9
+          },
+          "kind": "observation"
+        },
+        "message_id": "00000000-0000-0000-0000-000000000132",
+        "required_capabilities": [
+          {
+            "id": "aq.lifecycle.observation",
+            "version": 1
+          }
+        ],
+        "schema_version": 1
+      },
+      "body_digest": "037dbef3e5a8837fba5927cd273dca75e1230745d4cdfbb7deab1fb1f2148699"
+    }
+  ]
+}

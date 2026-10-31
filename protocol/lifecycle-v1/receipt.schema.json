@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "Digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "ReceiptDisposition": {
+      "enum": [
+        "observation_recorded",
+        "suspension_recorded",
+        "checkpoint_recorded",
+        "parking_recorded",
+        "continuation_received",
+        "bootstrap_acknowledgment_recorded"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body_digest": {
+      "$ref": "#/$defs/Digest"
+    },
+    "disposition": {
+      "$ref": "#/$defs/ReceiptDisposition"
+    },
+    "message_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "through_sequence": {
+      "format": "uint64",
+      "maximum": 18446744073709551615,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "message_id",
+    "body_digest",
+    "disposition"
+  ],
+  "title": "Receipt",
+  "type": "object",
+  "x-max-wire-bytes": 4096
+}
