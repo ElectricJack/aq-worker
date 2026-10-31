@@ -88,6 +88,8 @@ impl Http {
             "unencrypted AQ access is limited to loopback fixtures"
         );
         let client = reqwest::Client::builder()
+            .no_proxy()
+            .retry(reqwest::retry::never())
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(10))

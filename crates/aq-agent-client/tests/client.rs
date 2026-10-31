@@ -382,6 +382,10 @@ async fn actual_cli_preserves_operation_states_and_safe_error_output() {
         install(root.path(), &url, base()["context"].clone());
         let request = base()["command_requests"]["correct_record"].clone();
         let mut child = Command::new(env!("CARGO_BIN_EXE_aq-agent"))
+            .env("HTTP_PROXY", "http://127.0.0.1:1")
+            .env("HTTPS_PROXY", "http://127.0.0.1:1")
+            .env("ALL_PROXY", "http://127.0.0.1:1")
+            .env("NO_PROXY", "")
             .arg("--state-dir")
             .arg(root.path())
             .args(["graph", "command"])
