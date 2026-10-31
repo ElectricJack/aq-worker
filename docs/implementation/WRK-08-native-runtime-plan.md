@@ -88,3 +88,18 @@ checks actual supported confinement/model/reasoning/context/auth interfaces and
 refuses unsupported required behavior. CLI/session observability and accounting
 are capability-specific. Live provider qualification needs the selected configured
 target and bounded budget; it does not block ordinary local implementation.
+
+## Implemented component checkpoints
+
+Host source3825480 (version0.1.3) combines the exact final-payload API and guardian
+reader fixes; its separate union qualification records307 normal tests,32 actual
+host and3 actual bridge tests. Consumer sourcebd17969 imports the exact unchanged
+aq-admission0.1.6 archive (58 files), adds bounded inline chunk assembly with exact
+prefix retry and verifies the actual descriptor/payload before host construction.
+Its [focused qualification](WRK-08-startup-consumer-qualification.json) records6
+passing tests and strict worker lint. Inline assembly is capped at2MiB with256KiB
+chunks; larger Git bundles must use the source owner.
+
+Native journal, private material installation, current HTTP authority, actual Git
+hydration and the Codex adapter remain implementation work. No launch capability
+is advertised by these component checkpoints.

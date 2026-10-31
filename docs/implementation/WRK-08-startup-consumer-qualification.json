@@ -1,0 +1,20 @@
+{
+  "source_revision": "bd1796909984a2e109c77af458cd91583af9bcf3",
+  "archive_sha256": "d74db09f5766a437b9d43b6d63710a56afc4db69432953ef06699ec7ab09e066",
+  "exact_archive_files": 58,
+  "qualification": {
+    "native_startup_tests": 6,
+    "strict_worker_all_targets_all_features_clippy": "passed"
+  },
+  "evidence": {
+    "docs/implementation/evidence/wrk08-startup-consumer-bd17969/initial-compile.log": "890718b1052ed938ecf754a1e35a18740df9220dc411cf7c1ae2803f882b32c5",
+    "docs/implementation/evidence/wrk08-startup-consumer-bd17969/tests.log": "2357597e85f5cca747e68162900b0da45f6eeaf9dd4dae092eea0a41a5813f85",
+    "docs/implementation/evidence/wrk08-startup-consumer-bd17969/clippy.log": "a9a1b439a197136a6468f75d0e3528daac8dc7771a336dc8c8a6071cc0a0b00e"
+  },
+  "limits": [
+    "Component is not connected to native HTTP or runnable worker mode yet.",
+    "Hash/shape/renderer checks do not authorize launch; actual local deadlines and daemon grants remain required.",
+    "Bounded inline assembly excludes large Git bundles, which remain owned by streaming source transport.",
+    "An initial compile failure using a trait unavailable on RetainedArtifact was corrected with explicit full descriptor comparison; retained initial log is not a passing check."
+  ]
+}
