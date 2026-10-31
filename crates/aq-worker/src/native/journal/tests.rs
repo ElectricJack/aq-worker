@@ -23,11 +23,18 @@ fn capabilities() -> Vec<Capability> {
     )
     .unwrap()
 }
-fn qualification() -> ArtifactRef {
-    ArtifactRef {
-        id: Text::new("synthetic.runtime").unwrap(),
-        version: Text::new("1").unwrap(),
-        digest: Digest::of(b"synthetic qualification"),
+fn qualification() -> RuntimeIdentity {
+    RuntimeIdentity {
+        runtime: ArtifactRef {
+            id: Text::new("synthetic.runtime").unwrap(),
+            version: Text::new("1").unwrap(),
+            digest: Digest::of(b"synthetic runtime"),
+        },
+        qualification: ArtifactRef {
+            id: Text::new("synthetic.qualification").unwrap(),
+            version: Text::new("1").unwrap(),
+            digest: Digest::of(b"synthetic qualification"),
+        },
     }
 }
 fn limits() -> Limits {
@@ -79,6 +86,17 @@ fn reservation_acceptance_survive_restart_without_restoring_live_authority() {
     assert!(recovered.available().is_err());
     assert_eq!(recovered.state().identity, identity());
     assert_eq!(recovered.state().revision, revision);
+    assert_eq!(
+        recovered.state().attempts[&id].reservation.runtime.runtime,
+        qualification().runtime
+    );
+    assert_eq!(
+        recovered.state().attempts[&id]
+            .reservation
+            .runtime
+            .qualification,
+        qualification().qualification
+    );
     assert_eq!(
         canonical_bytes(recovered.state().attempts[&id].acceptance.as_ref().unwrap()).unwrap(),
         canonical_bytes(&first).unwrap()
