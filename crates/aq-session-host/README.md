@@ -167,20 +167,31 @@ renderer, snapshot barrier or worker scheduler adoption. See WRK-14 stage1.
 Candidate0.1.2 adds a bounded read-only control-mode output observer and a durable
 one-shot claim. It preserves literal bytes and reports pause/exit/loss; it cannot
 produce renderer snapshots or recreate a lost producer. Its reader client is
-outside the writer guardian and cannot establish stopped-writer proof. Encrypted
+owned by the existing guardian; losing that reader cannot establish stopped-writer
+proof by itself. Encrypted
 IO metadata adds a required output-claim field; older IO state is refused, not
 implicitly rewritten. Stop-and-preserve remains available; this is not qualified
 hot upgrade of a running0.1.1 terminal. Launch, GuardianIdentity, HostObservation
 and StoppedProof serialization are unchanged.
 
 
-### Output candidate: qualification failed
+### Retained negative experiment
 
-The0.1.2 host/0.1.1 bridge output candidate is experimental and must not be
-adopted by a producer. Actual tmux3.4 tests reproduced a stopped sole observer
+The initial source14354e7 (host0.1.2/bridge0.1.1) is frozen separately with
+negative evidence f05bea5. Actual tmux3.4 tests reproduced a stopped sole observer
 blocking the harness in a PTY write for more than5seconds despite
 `pause-after=1`. Guarded execution expiry still stops the writers, but continued
 harness progress is not qualified. Passing individual runs do not remove this
 failure. The control-only checkpoint remains distinct; no output capability is
-advertised. An independently enforceable observer strategy is required before
-output acceptance, followed by the separate baseline/renderer gates.
+advertised. The current experiment replaces worker-owned spawning with guardian-owned
+attachment and a1second independent read lease. Only a timestamped EAGAIN drain
+may renew; old queued receipts cannot reset its lifetime. A stopped child,
+missing/slow consumer, lost ready/ACK or closed local channel severs the exact
+read-only client, never the pane/server. Guardian waitpid conservatively includes
+the reader in stop evidence. A private bounded local SOCK_SEQPACKET channel
+passes one stdout FD, with one request/process check per tick (5ms sleep plus
+work/scheduling). Quiet drained renewals are bounded to four per second. This
+adds one local listener per host, one native reader plus pipes/pidfd/channel while
+attached, and fixed8KiB socket buffer requests (kernel overhead is additional).
+The decoder's unchanged event bound can still refuse dense bursts. Full output
+acceptance, baseline/renderer and producer adoption remain unqualified.

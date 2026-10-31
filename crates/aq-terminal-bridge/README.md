@@ -74,13 +74,15 @@ No output payload is persisted. Renderer/baseline/resync handoff, unknown-input
 resolution and production runtime adoption remain separate gates.
 
 
-### Output candidate: qualification failed
+### Retained negative experiment
 
-The0.1.2 host/0.1.1 bridge output candidate is experimental and must not be
-adopted by a producer. Actual tmux3.4 tests reproduced a stopped sole observer
+The initial source14354e7 is frozen with negative evidence f05bea5. Actual tmux3.4 tests reproduced a stopped sole observer
 blocking the harness in a PTY write for more than5seconds despite
 `pause-after=1`. Guarded execution expiry still stops the writers, but continued
 harness progress is not qualified. Passing individual runs do not remove this
 failure. The control-only checkpoint remains distinct; no output capability is
-advertised. An independently enforceable observer strategy is required before
-output acceptance, followed by the separate baseline/renderer gates.
+advertised. The next candidate uses guardian-owned attachment and an independent short
+read lease; consumer death, stop or undrained backlog severs that reader and loses
+continuity. The unchanged decoded event cap may still refuse dense valid bursts.
+This remains experimental: full output acceptance and baseline/renderer/producer
+adoption are not claimed.

@@ -125,6 +125,7 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
     save(dir, &state)?;
     durable_new(&dir.join("identity.json"), &serde_json::to_vec(&identity)?)?;
     let _reaper = EmergencyReaper;
+    let mut reader_owner = reader_lease::Owner::new(dir)?;
     let mut root: Option<Child> = None;
     let mut root_pid = None;
     let mut stop_started = None;
@@ -349,6 +350,14 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                 }
             }
         }
+        reader_owner.tick(
+            dir,
+            &config,
+            &state,
+            wall_deadline,
+            &directory_guard,
+            &mut terminal_revision_highwater,
+        );
         let _ = &root;
         std::thread::sleep(Duration::from_millis(5));
     }

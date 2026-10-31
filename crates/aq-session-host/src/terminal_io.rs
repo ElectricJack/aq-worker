@@ -103,7 +103,7 @@ impl DirectoryGuard {
         )?;
         self.verify()
     }
-    fn verify(&self) -> Result<()> {
+    pub(crate) fn verify(&self) -> Result<()> {
         let m = std::fs::symlink_metadata(&self.path)?;
         let held = self.file.metadata()?;
         ensure!(
@@ -364,7 +364,7 @@ impl TerminalHandle {
             config.manifest.terminal,
         ))
     }
-    pub(crate) fn claim_output(&self) -> Result<()> {
+    pub(crate) fn claim_output(&self) -> Result<Uuid> {
         let _lock = RenewalLock::acquire(&self.directory.join("terminal.lock"))?;
         self.output_settings()?;
         let mut state = load(&self.directory, &self.binding)?;
@@ -372,13 +372,15 @@ impl TerminalHandle {
             state.output_claim.is_none(),
             "output producer already claimed; no implicit restart"
         );
-        state.output_claim = Some(Uuid::new_v4());
+        let claim = Uuid::new_v4();
+        state.output_claim = Some(claim);
         state.save(&self.directory)?;
         durable_new(
             &self.directory.join("terminal-output.claim"),
             &serde_json::to_vec(&self.binding)?,
         )?;
-        self.directory_guard.verify()
+        self.directory_guard.verify()?;
+        Ok(claim)
     }
     pub fn binding(&self) -> &TerminalBinding {
         &self.binding
@@ -1097,4 +1099,39 @@ fn guarded_tmux(
     )?;
     live(dir, host, wall_deadline, deadline)?;
     Ok(result)
+}
+
+pub(crate) fn verify_output_claim(
+    dir: &Path,
+    binding: &TerminalBinding,
+    claim: Uuid,
+    host: &HostObservation,
+    guard: &DirectoryGuard,
+    highwater: &mut u64,
+) -> Result<()> {
+    guard.verify()?;
+    binding.validate()?;
+    ensure!(
+        !claim.is_nil()
+            && binding.guardian == host.guardian
+            && host.phase == HostPhase::Running
+            && host.pane.as_ref() == Some(&binding.pane)
+            && binding.directory == guard.identity,
+        "reader physical binding"
+    );
+    let recorded: TerminalBinding = private_json(&dir.join(BINDING), MAX_REQUEST)?;
+    let marker: TerminalBinding = private_json(&dir.join("terminal-output.claim"), MAX_REQUEST)?;
+    ensure!(
+        recorded == *binding && marker == *binding,
+        "reader immutable claim binding"
+    );
+    // Atomic encrypted state replacement gives a coherent version. The claim is
+    // immutable; concurrent input receipts need no lock across this read.
+    let state = load(dir, binding)?;
+    ensure!(
+        state.output_claim == Some(claim) && state.revision >= *highwater,
+        "reader claim or ledger highwater mismatch"
+    );
+    *highwater = state.revision;
+    guard.verify()
 }
