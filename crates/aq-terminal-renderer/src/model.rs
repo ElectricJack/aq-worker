@@ -368,6 +368,10 @@ impl State {
                 return Err(Error::Bound);
             }
             cell.glyph.push(scalar);
+            // tmux3.4 does not repeat the base after a combining scalar. Until
+            // all such REP semantics are qualified, refuse rather than invent
+            // repetitions from a stale last-print base.
+            self.last_print = None;
             return Ok(());
         }
         if self.active().cursor.pending_wrap {

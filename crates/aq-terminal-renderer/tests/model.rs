@@ -407,3 +407,24 @@ fn retained_vector_hashes_drift_only_with_an_explicit_fixture_update() {
     );
     assert_eq!(include_str!("fixtures/vectors.sha256"), expected);
 }
+
+#[test]
+fn rep_after_combining_refuses_instead_of_disagreeing_with_actual_tmux_oracle() {
+    let mut ascii = renderer(20, 4);
+    feed(&mut ascii, b"\x1b[2J\x1b[HA\x1b[3b|");
+    assert_eq!(line(&ascii, 0), "AAAA|");
+    let mut combining = renderer(20, 4);
+    feed(&mut combining, "\x1b[2J\x1b[He\u{301}".as_bytes());
+    let image = combining.image().unwrap();
+    let mut restored = Renderer::restore(&terminal(), image.digest(), image.bytes()).unwrap();
+    for model in [&mut combining, &mut restored] {
+        let result = model.bytes(
+            model.through_ordinal() + 1,
+            &frame(model.through_sequence() + 1, b"\x1b[3b|"),
+        );
+        assert!(matches!(result, Err(Error::Unsupported(_))));
+        assert!(!model.is_consistent());
+        assert!(model.image().is_err());
+        assert_eq!(line(model, 0), "e\u{301}");
+    }
+}

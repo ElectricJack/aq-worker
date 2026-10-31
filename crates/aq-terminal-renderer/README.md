@@ -23,7 +23,8 @@ owned state, including hidden buffers and parser fragments.
 The Unicode width table is exact unicode-width0.2.2, ambiguous width1. Split
 UTF-8 scalars, CJK/wide characters and bounded zero-width combining marks are
 supported. ZWJ, variation selectors, regional indicators, emoji modifiers and
-keycaps refuse until a separately qualified compound/grapheme profile exists.
+keycaps refuse until a separately qualified compound/grapheme profile exists. REP after an appended zero-width scalar is also unqualified
+and refuses, rather than repeating a stale base character.
 Orphan combining marks and unsupported controls refuse rather than replacing,
 dropping or normalising bytes. This is not a claim of arbitrary Unicode grapheme
 or universal xterm compatibility. Zero-width format/bidi scalars and browser
