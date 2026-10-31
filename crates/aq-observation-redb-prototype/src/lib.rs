@@ -18,6 +18,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
+mod budget;
+mod diagnostics;
 mod engine_store;
 mod http_owner;
 mod intent_files;
@@ -69,6 +71,7 @@ impl Limits {
                 && (1024 * 1024..=128 * 1024 * 1024).contains(&self.physical_bytes)
                 && (4096..=16 * 1024 * 1024).contains(&self.logical_bytes)
                 && self.logical_bytes < self.physical_bytes
+                && self.ordinary_limit() >= budget::MIN_ORDINARY_BYTES
                 && (65536..=8 * 1024 * 1024).contains(&self.cache_bytes),
             "prototype bounds"
         );
@@ -79,6 +82,7 @@ impl Limits {
 #[serde(deny_unknown_fields)]
 struct Meta {
     version: u32,
+    control_catalog: Digest,
     transport: Option<aq_observation::InitialTransport>,
     managed: Option<local_intent::Managed>,
     active_boot: Uuid,
@@ -100,6 +104,7 @@ pub struct SourceRow {
     pub cursor: u64,
     pub engine: Option<EngineState>,
     pub hold: Option<HoldReason>,
+    pub last_control_sequence: Option<u64>,
     pub parsers: Vec<ArtifactRef>,
     pub generations: Vec<u64>,
     pub reader: Option<ReaderState>,
@@ -197,7 +202,7 @@ pub struct Store {
     monitor: Monitor,
     poisoned: Cell<bool>,
 }
-fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>> {
+fn encode<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>> {
     Ok(serde_json::to_vec(value)?)
 }
 fn decode<T: DeserializeOwned>(value: &[u8]) -> Result<T> {
@@ -208,8 +213,16 @@ fn read_meta(tx: &WriteTransaction) -> Result<Meta> {
     decode(table.get("state")?.context("metadata absent")?.value())
 }
 fn write_meta(tx: &WriteTransaction, meta: &Meta) -> Result<()> {
-    tx.open_table(META)?
-        .insert("state", encode(meta)?.as_slice())?;
+    let bytes = encode(meta)?;
+    ensure!(
+        bytes.len() as u64 <= budget::META_ALLOWANCE,
+        "bounded metadata allowance exceeded"
+    );
+    ensure!(
+        meta.logical_bytes <= meta.limits.data_limit(),
+        "hard logical data/metadata reserve"
+    );
+    tx.open_table(META)?.insert("state", bytes.as_slice())?;
     Ok(())
 }
 fn stable<T: Serialize>(value: &T) -> Result<Uuid> {
@@ -276,6 +289,9 @@ impl Store {
     ) -> Result<Self> {
         limits.validate()?;
         let (directory, owner) = backend::private_root(root, create)?;
+        if create {
+            backend::write_format(&directory)?;
+        }
         let monitor = Monitor::default();
         let backend = CappedFile::open(&directory, create, limits.physical_bytes, monitor.clone())?
             .bind_root(root)?;
@@ -306,7 +322,8 @@ impl Store {
             write_meta(
                 &tx,
                 &Meta {
-                    version: 4,
+                    version: budget::FORMAT,
+                    control_catalog: budget::catalog_digest(),
                     transport,
                     managed,
                     active_boot: store.limits.boot_id,
@@ -335,7 +352,8 @@ impl Store {
                 .value(),
         )?;
         ensure!(
-            meta.version == 4
+            meta.version == budget::FORMAT
+                && meta.control_catalog == budget::catalog_digest()
                 && meta.limits == store.limits
                 && (meta.managed.is_none() || managed_open),
             "store version/identity/limits"
@@ -403,6 +421,7 @@ impl Store {
             cursor: 0,
             engine: None,
             hold: None,
+            last_control_sequence: None,
             parsers,
             generations,
             reader: None,
@@ -414,6 +433,7 @@ impl Store {
             "inactive boot source admission"
         );
         let id = row.source.source_id;
+        budget::source_policy(&row)?;
         let bytes = encode(&row)?;
         let existing = {
             let table = tx.open_table(SOURCES)?;
@@ -428,13 +448,13 @@ impl Store {
         }
         {
             let mut table = tx.open_table(SOURCES)?;
-            ensure!(meta.sources < 16, "source quota");
+            ensure!(meta.sources < budget::MAX_SOURCES, "source quota");
             table.insert(id.as_bytes().as_slice(), bytes.as_slice())?;
         }
         meta.sources += 1;
         meta.logical_bytes += bytes.len() as u64;
         ensure!(
-            meta.logical_bytes <= self.limits.logical_bytes,
+            meta.logical_bytes <= self.limits.ordinary_limit(),
             "logical quota"
         );
         write_meta(&tx, &meta)?;
@@ -463,6 +483,12 @@ impl Store {
             next_cursor > expected_cursor && events.len() <= 32 && seen.len() <= 128,
             "append bounds"
         );
+        ensure!(
+            events
+                .iter()
+                .all(|event| !budget::reserved_parser(&event.body.provenance.parser)),
+            "reserved local monitor provenance cannot enter raw ingress"
+        );
         let tx = self.begin()?;
         let mut meta = read_meta(&tx)?;
         let mut source: SourceRow = {
@@ -476,6 +502,11 @@ impl Store {
         ensure!(
             source.engine.is_none(),
             "raw normalized append excluded for engine-owned source"
+        );
+        ensure!(
+            source.hold.is_none()
+                && matches!(source.source.binding.session,SessionIdentity::Remote{boot_id,..}if boot_id==meta.active_boot),
+            "raw live source fenced"
         );
         ensure!(source.cursor == expected_cursor, "source cursor conflict");
         {
@@ -503,7 +534,7 @@ impl Store {
                 out.insert(meta.next, bytes.as_slice())?;
                 meta.next = meta.next.checked_add(1).context("sequence exhausted")?;
                 meta.logical_bytes += (bytes.len() + digest.len()) as u64;
-                if matches!(event.body.kind, ObservationKind::Gap { .. }) {
+                if budget::is_urgent(event) {
                     meta.gaps += 1;
                     meta.gap_bytes += bytes.len() as u64;
                 } else {
@@ -538,7 +569,7 @@ impl Store {
                 && meta.gaps <= 16
                 && meta.gap_bytes <= 65536
                 && meta.seen <= 65536
-                && meta.logical_bytes <= self.limits.logical_bytes,
+                && meta.logical_bytes <= self.limits.ordinary_limit(),
             "logical event/history quota"
         );
         {
@@ -550,7 +581,7 @@ impl Store {
             t.insert(id.as_bytes().as_slice(), bytes.as_slice())?;
         }
         ensure!(
-            meta.logical_bytes <= self.limits.logical_bytes,
+            meta.logical_bytes <= self.limits.ordinary_limit(),
             "logical source quota"
         );
         write_meta(&tx, &meta)?;
@@ -704,7 +735,7 @@ impl Store {
                 drop(retained);
                 out.remove(event.body.sequence)?;
                 meta.logical_bytes -= bytes.len() as u64;
-                if matches!(event.body.kind, ObservationKind::Gap { .. }) {
+                if budget::is_urgent(event) {
                     meta.gaps -= 1;
                     meta.gap_bytes -= bytes.len() as u64;
                 } else {
@@ -749,7 +780,7 @@ impl Store {
         }
         let sources = tx.open_table(SOURCES)?;
         ensure!(
-            sources.len()? == meta.sources && meta.sources <= 16,
+            sources.len()? == meta.sources && meta.sources <= budget::MAX_SOURCES,
             "source count"
         );
         let seen = tx.open_table(SEEN)?;
@@ -759,9 +790,20 @@ impl Store {
         let mut sequence = meta.acked + 1;
         let (mut ordinary, mut ordinary_bytes, mut gaps, mut gap_bytes) = (0, 0, 0, 0);
         let mut logical = 0;
+        let mut live_sources = 0;
         for value in sources.iter()? {
             let (k, v) = value?;
             let row: SourceRow = decode(v.value())?;
+            budget::source_policy(&row)?;
+            live_sources += u64::from(budget::live(&row));
+            ensure!(
+                !budget::live(&row) || row.last_control_sequence.is_none_or(|n| n <= meta.acked),
+                "live source retains urgent credit before ACK"
+            );
+            ensure!(
+                row.last_control_sequence.is_none_or(|n| n < meta.next),
+                "source control sequence"
+            );
             row.source.validate()?;
             if let Some(reader) = &row.reader {
                 reader.cursor.validate()?;
@@ -857,7 +899,7 @@ impl Store {
             ensure!(digest == e.body_digest, "event ID digest");
             sequence = sequence.checked_add(1).context("sequence overflow")?;
             logical += v.value().len() as u64;
-            if matches!(e.body.kind, ObservationKind::Gap { .. }) {
+            if budget::is_urgent(&e) {
                 gaps += 1;
                 gap_bytes += v.value().len() as u64;
             } else {
@@ -872,8 +914,9 @@ impl Store {
                 && ordinary_bytes == meta.ordinary_bytes
                 && gaps == meta.gaps
                 && gap_bytes == meta.gap_bytes
+                && live_sources + gaps <= budget::MAX_SOURCES
                 && logical == meta.logical_bytes
-                && logical <= self.limits.logical_bytes,
+                && logical <= self.limits.data_limit(),
             "projection/quota counts"
         );
         let delivery = tx.open_table(DELIVERY)?;

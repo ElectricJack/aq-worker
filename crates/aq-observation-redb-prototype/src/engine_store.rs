@@ -156,11 +156,12 @@ impl Store {
             drop(table);
             return self.abort(tx);
         }
-        ensure!(meta.sources < 16, "source quota");
+        ensure!(meta.sources < budget::MAX_SOURCES, "source quota");
         let row = SourceRow {
             source: reference,
             cursor: 0,
             hold: None,
+            last_control_sequence: None,
             parsers: vec![context.parser.clone()],
             generations: vec![context.source.generation],
             reader,
@@ -176,13 +177,14 @@ impl Store {
                 counts: BTreeMap::new(),
             }),
         };
+        budget::source_policy(&row)?;
         let bytes = encode(&row)?;
         table.insert(id.as_bytes().as_slice(), bytes.as_slice())?;
         drop(table);
         meta.sources += 1;
         meta.logical_bytes += bytes.len() as u64;
         ensure!(
-            meta.logical_bytes <= self.limits.logical_bytes,
+            meta.logical_bytes <= self.limits.ordinary_limit(),
             "logical quota"
         );
         write_meta(&tx, &meta)?;
@@ -257,6 +259,13 @@ impl Store {
             counts: state.counts.clone(),
         };
         let delta = engine::normalize(&context, &view, frame, observed_at_ms)?;
+        ensure!(
+            delta
+                .events
+                .iter()
+                .all(|event| !budget::reserved_parser(&event.body.provenance.parser)),
+            "native output cannot claim reserved monitor provenance"
+        );
         let expected_revision = state.revision;
         let expected_next = meta.next;
         let end = frame.end()?;
@@ -342,7 +351,7 @@ impl Store {
             ids.insert(event.event_id.as_bytes().as_slice(), digest.as_slice())?;
             meta.next = meta.next.checked_add(1).context("sequence exhausted")?;
             meta.logical_bytes += (bytes.len() + digest.len()) as u64;
-            if matches!(event.body.kind, ObservationKind::Gap { .. }) {
+            if budget::is_urgent(event) {
                 meta.gaps += 1;
                 meta.gap_bytes += bytes.len() as u64;
             } else {
@@ -400,8 +409,9 @@ impl Store {
             ensure!(row.parsers.len() < 16, "source parser history bound");
             row.parsers.push(parser);
         }
-        if let Some(hold) = hold {
-            row.hold = Some(hold);
+        if let Some(hold) = &hold {
+            row.hold = Some(hold.clone());
+            row.last_control_sequence = Some(meta.next - 1);
         }
         if let Some(advance) = reader {
             ensure!(
@@ -433,6 +443,10 @@ impl Store {
         } else {
             row.cursor = end;
         }
+        budget::source_policy(&row)?;
+        if hold.is_some() {
+            budget::source_growth(&old, &row)?;
+        }
         let bytes = encode(&row)?;
         meta.logical_bytes = meta.logical_bytes - old.len() as u64 + bytes.len() as u64;
         sources.insert(id.as_bytes().as_slice(), bytes.as_slice())?;
@@ -442,7 +456,12 @@ impl Store {
                 && meta.ordinary_bytes <= 2 * 1024 * 1024
                 && meta.gaps <= 16
                 && meta.gap_bytes <= 65536
-                && meta.logical_bytes <= self.limits.logical_bytes,
+                && meta.logical_bytes
+                    <= if hold.is_some() {
+                        self.limits.routine_control_limit()
+                    } else {
+                        self.limits.ordinary_limit()
+                    },
             "engine spool quota; cursor held"
         );
         write_meta(&tx, &meta)?;
@@ -830,6 +849,13 @@ impl Store {
         for frame in frames {
             ensure!(frame.start == end, "noncontiguous batch frame");
             let delta = engine::normalize(&context, &view, frame, observed_at_ms)?;
+            ensure!(
+                delta
+                    .events
+                    .iter()
+                    .all(|event| !budget::reserved_parser(&event.body.provenance.parser)),
+                "native output cannot claim reserved monitor provenance"
+            );
             let mut candidate = view.clone();
             if !candidate.merge(&delta.rows)? {
                 blocked = true;
@@ -843,7 +869,7 @@ impl Store {
             }
             for event in &delta.events {
                 let bytes = encode(event)?.len() as u64;
-                if matches!(event.body.kind, ObservationKind::Gap { .. }) {
+                if budget::is_urgent(event) {
                     cg += 1;
                     cgb += bytes;
                 } else {
@@ -880,7 +906,7 @@ impl Store {
                 || cg > 16
                 || cgb > 65536
                 || logical < 0
-                || logical > self.limits.logical_bytes as i128
+                || logical > self.limits.ordinary_limit() as i128
             {
                 blocked = true;
                 if policy == aq_observation::spool::OverflowPolicy::GapAndHold && replay.is_none() {
@@ -928,7 +954,7 @@ impl Store {
                     if gaps < 16
                         && gap_bytes + retained_gap_bytes <= 65536
                         && logical >= 0
-                        && logical <= self.limits.logical_bytes as i128
+                        && logical <= self.limits.routine_control_limit() as i128
                         && parser_capacity
                     {
                         events.push(gap);
@@ -998,6 +1024,13 @@ impl Store {
     }
 }
 
+pub(super) fn loss_parser() -> ArtifactRef {
+    ArtifactRef {
+        id: Text::new("row-spool-loss-monitor").unwrap(),
+        version: Text::new("0.0.5").unwrap(),
+        digest: Digest::of(include_bytes!("engine_store.rs")),
+    }
+}
 fn loss_gap(
     source: &SourceRow,
     frame: &engine::framing::Frame,
@@ -1008,11 +1041,7 @@ fn loss_gap(
         start: frame.start,
         end: frame.end()?,
     };
-    let parser = ArtifactRef {
-        id: Text::new("row-spool-loss-monitor")?,
-        version: Text::new("0.0.3")?,
-        digest: Digest::of(include_bytes!("engine_store.rs")),
-    };
+    let parser = loss_parser();
     let body = Observation {
         binding: source.source.binding.clone(),
         provenance: Provenance {

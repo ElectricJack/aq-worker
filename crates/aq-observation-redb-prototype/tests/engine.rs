@@ -81,7 +81,7 @@ fn raw_bypass_and_wrong_native_scope_are_refused_and_logical_quota_rolls_back_wh
     );
     assert_eq!(store.source(Uuid::from_u128(8)).unwrap(), before);
     let mut limits = Limits::fixture();
-    limits.logical_bytes = 4096;
+    limits.logical_bytes = limits.logical_bytes - limits.ordinary_limit() + 4096;
     let quota = temp.path().join("quota");
     let store = Store::create(&quota, limits.clone()).unwrap();
     store.attach_engine(source(), 4096, false).unwrap();

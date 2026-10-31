@@ -320,6 +320,7 @@ fn copy_db(from: &std::path::Path, to: &std::path::Path) {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new().mode(0o700).create(to).unwrap();
     std::fs::copy(from.join("store.redb"), to.join("store.redb")).unwrap();
+    std::fs::copy(from.join("store.format"), to.join("store.format")).unwrap();
 }
 #[test]
 fn replay_crash_child() {

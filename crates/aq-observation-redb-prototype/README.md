@@ -1,6 +1,6 @@
 # Candidate embedded observation store
 
-This unpublished0.0.4 component adds bounded row-view normalization and a durable local transport-owner handshake to the isolated redb experiment. It is not integrated with the worker runtime. The qualified JSON reference and published session/lifecycle protocols remain unchanged. There is no legacy spool migration, production HTTP adapter, provider call, raw transcript artifact transfer or new command. The initial0.0.1 and bounded-delta0.0.2 checkpoints retain independent immutable qualification evidence.
+This unpublished0.0.5 component adds bounded row-view normalization and a durable local transport-owner handshake to the isolated redb experiment. It is not integrated with the worker runtime. The qualified JSON reference and published session/lifecycle protocols remain unchanged. There is no legacy spool migration, production HTTP adapter, provider call, raw transcript artifact transfer or new command. The initial0.0.1 and bounded-delta0.0.2 checkpoints retain independent immutable qualification evidence.
 
 The exact redb4.4.0 dependency (MIT OR Apache-2.0) is an embedded Rust library requiring no external service. Source/context/native/dedupe/outbox/event-ID/delivery rows share a private database and exclusive owner. Every write uses `Durability::Immediate` and two-phase commit. Candidate bounds are64 MiB physical,16 MiB logical retained values/selected keys,4 MiB cache,16 sources,65,536 identities,256 ordinary queued facts/2 MiB plus16 reserved gaps/64 KiB and32 facts/256 KiB per packet. No history is automatically evicted. Long-cycle COW growth, compaction and reserve sizing remain open; raw source retention and whole-directory disk bounds are separate obligations.
 
@@ -62,3 +62,64 @@ prints bounded stage/sequence metadata and never generates a replacement intent.
 Its default limits are the candidate bounds above. It is not a production worker
 command or execution adapter. Local synthetic HTTP tests and separately invoked
 actual daemon/Postgres qualification must remain distinct in the evidence.
+
+
+## Managed capacity qualification
+
+`cargo run --release -p aq-observation-redb-prototype --example headroom --offline`
+executes synthetic managed-owner workloads at the unchanged64MiB database-file
+and16MiB logical limits. One case collects32 distinct calls per batch; another
+retains32 raw fingerprints per call. A packet remains pending while more records
+are collected. The example stops at configured refusal/error, reopens with fresh
+owner reconciliation, compares the retained projection and replays exact packet
+and receipt identity. No retained dedupe history is deleted and no compaction is
+called. Raw fixtures are separate from the database cap and are reported.
+
+`audit_fingerprint` is an explicit cold O(retained rows) diagnostic. It streams
+domain-tagged table names/counts plus ordered length-prefixed keys/values after
+audit, and is never called by collection/send/ACK/admission. Capacity experiments
+use it outside operation timings; it is not a proof of source or execution
+authority. File extent and allocated blocks are reported separately. A plateau
+with ongoing writes may demonstrate reusable/preallocated pages; it does not
+establish compaction, physical shrinkage or unlimited disk headroom. Logical
+refusal must not be mislabeled as a backend physical write failure.
+
+`cargo test -p aq-observation-redb-prototype --example headroom --offline` checks
+the report/recovery path for injected prepare/send/ACK failures. Complete
+qualified measurements and remaining limits belong to the implementation
+evidence, not a production storage guarantee.
+
+
+## Logical urgent reserve (format5)
+
+Format5 adds an immutable private `store.format` marker checked before opening
+redb, including a digest of the bounded codec/control policy. Missing, old or
+unknown markers refuse without engine repair or reseeding. Format4 remains
+readable only by its frozen old component; no upgrade/migration is qualified.
+
+Within the unchanged16MiB logical hard limit,256KiB is set aside for bounded
+metadata and264KiB for the maximum frozen packet plus retry/receipt rows. Of the
+remaining data budget,512KiB stays unavailable to ordinary history and256KiB
+stays unavailable to routine control, leaving a final boot-fence margin. Source
+control metadata growth is checked at8192bytes per source (at most16 sources).
+Impossible limits refuse before creating a root. These are logical admission
+reserves; a physical cap or filesystem ENOSPC can still refuse urgent writes.
+
+Native/malformed parser gaps and elective generation events count as ordinary.
+Only internally produced spool-loss, first file-change and boot-fence gaps use
+urgent credits. Raw ingress rejects reserved monitor provenance, including exact
+public ArtifactRefs, and native normalization cannot emit a reserved monitor.
+Current monitor slots remain reserved inside the16-entry parser history budget;
+matching caller parser IDs cannot occupy those slots as proof.
+
+A file-change gap holds its source; polls remain blocked and cannot mint more
+urgent credits. Its exact gap must be acknowledged before an elective generation
+reactivates the source. Boot fencing emits a gap only for live sources; already
+held sources retain their hold and do not allocate another gap. Together these
+rules bound live sources plus outstanding urgent gaps to16. Repeated boot
+ownership changes retain old history and do not fabricate more source events.
+
+Cold retained-history fingerprints can exclude at most16 queued, proven local
+control event IDs; they reject ordinary/caller exclusions. They verify that gap
+and boot metadata changes preserve all preexisting Seen/native/index/event-ID
+rows, without introducing a runtime/history scan.
