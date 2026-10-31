@@ -168,10 +168,13 @@ rules. It has no cleanup or implicit uncertain-prefix recovery. The durable
 driver must journal its returned digest before sending Prepare and run fsync on
 a bounded blocking lane.
 
-The [native journal and restart plan](WRK-08-native-journal-plan.md) specifies the
-next driver slice, including current-boot admission versus historical cleanup
-reports. New runtime boots cannot inherit old live authority. The initial
-stop-and-preserve profile keeps granted-without-Started recovery explicitly open.
+The [native journal and restart plan](WRK-08-native-journal-plan.md) now has its
+first durable reservation/Accept/preparation implementation. The
+[combined worker qualification](WRK-08-worker-integration-qualification.md)
+includes the observed-launch host and actual Git/tmux checks, with the retained
+concurrent-load deadline failure explicitly bounded. New runtime boots cannot
+inherit old live authority. Durable Prepare/launch and granted-without-Started
+recovery remain open; the module does not advertise a runnable native profile.
 
 The [native source API1 client](WRK-08-native-source-client.md) specifies exact
 status/range consumption and the two whole-source preparation receipt slots.

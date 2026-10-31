@@ -1,0 +1,59 @@
+{
+  "source_revision": "0ff68c27eab628f1c4f390ac89f31ba853dc2ce5",
+  "workspace_and_git_revision": "9dcce81a2ad0baebd738757b33be92dc8bed2b54",
+  "tests": {
+    "workspace.log": {
+      "passed": 371,
+      "failed": 0,
+      "ignored": 43
+    },
+    "worker-final.log": {
+      "passed": 122,
+      "failed": 0,
+      "ignored": 3
+    },
+    "actual-git.log": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    "actual-host-loaded-negative.log": {
+      "passed": 35,
+      "failed": 1,
+      "ignored": 0
+    },
+    "actual-host-controlled.log": {
+      "passed": 36,
+      "failed": 0,
+      "ignored": 0
+    },
+    "actual-relay.log": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "checks": {
+    "workspace_strict_alltargets_allfeatures_clippy": 0,
+    "workspace_format": 0
+  },
+  "actual_git": {
+    "source": "2035654eeda57ded8880ea3f518ff0b4d324fa49",
+    "binary_sha256": "c2ff26f5e63008aec0fbd4082a547e87825e651d4aba0744c4b9fdf752d58c39"
+  },
+  "environment": {
+    "build_jobs": 2,
+    "test_threads": 2,
+    "actual_git_test_threads": 1,
+    "dependencies": "locked offline",
+    "platform": "Linux 6.18.33.2-microsoft-standard-WSL2"
+  },
+  "limits": [
+    "Workspace371/43 and actualGit3 qualify9dcce81. Final runtime/qualification pin change0ff68c2 separately qualifies worker122/3, actualhost36, relay3 and workspace strict lint/fmt.",
+    "Initial actual-host run concurrent with workspace crash/storage tests and builds failed1 of36 due to1500ms bootstrap authority expiry before intended fault injection; retained unchanged. Controlled rerun after root storage suite and package build completed passed36 with identical deadlines and2threads. Other agents remained active; no saturated-start or isolated-host latency claim.",
+    "Actual Git cases use actual aq-git/Git plus fixture/synthetic coordinator peers, not native daemon-to-model execution.",
+    "Journal only covers no-launch reservation, exact Accept and observed preparation; no grant, fetch, launch, result/release or runtime advertisement. Restart remains historical stop-and-preserve.",
+    "One foreground session-host case remains ignored;43 broad ignores include36actualhost,3actualrelay,3actualGit and1foreground. No provider/model called."
+  ],
+  "counting": "Top-level Cargo target summaries; nested single-child host probe is not counted twice."
+}
