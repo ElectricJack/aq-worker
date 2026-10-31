@@ -1,0 +1,29 @@
+{
+  "source_revision": "5fff55ef56f9064e0b23571469fead18ef05eb9c",
+  "qualification": {
+    "control_http_tests": 6,
+    "reporting_download_http_tests": 7,
+    "startup_tests": 6,
+    "strict_worker_all_targets_all_features_clippy": "passed",
+    "format": "passed",
+    "negative_reproductions": [
+      "valid 250-second hard execution deadline refused by two-minute DeliveryClock bound",
+      "changed Prepare operation reached network before prior owner correlation"
+    ]
+  },
+  "source_sha256": {
+    "crates/aq-worker/src/native/http/control.rs": "a34edeca0ce51008f77641def8c775d0f9fe242c76ad703cc42743a6bbf2b61e",
+    "crates/aq-worker/tests/native_control.rs": "48e800e906a39c4b7426381399d22862151414e09db9e0a848935f94cb9eda63"
+  },
+  "evidence": {
+    "docs/implementation/evidence/wrk08-control-reviewed-5fff55e/before-fix.log": "56205225f86376f924b5c2fbb8c18feeb8aad07eed55810575e30854c9a07885",
+    "docs/implementation/evidence/wrk08-control-reviewed-5fff55e/clippy.log": "3295f7c500ba1be662bb1c35de7b9f157201878bb153cf437dae122d40fc7fa2",
+    "docs/implementation/evidence/wrk08-control-reviewed-5fff55e/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/implementation/evidence/wrk08-control-reviewed-5fff55e/tests.log": "734f6fb7ae3954c28c84cb83a37743c0567d2c5a03bb1ca9eb698c53b5065a06"
+  },
+  "limits": [
+    "Synthetic actual-loopback contract fixtures, not actual native producer/worker/harness qualification.",
+    "Process-local observations do not claim durable recovery, installation or physical launch authority.",
+    "Earlier initial consumer evidence remains retained separately; this checkpoint closes both independent review findings."
+  ]
+}
