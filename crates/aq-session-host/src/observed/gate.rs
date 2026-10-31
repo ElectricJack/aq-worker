@@ -131,6 +131,7 @@ impl Owner {
         if self.released {
             let helper = self.helper.as_ref().context("released helper missing")?;
             if helper.hung_up()? {
+                exec::live_pane(&self.ready.as_ref().context("released pane missing")?.pane)?;
                 exec::observed_image(
                     &self
                         .ready
@@ -327,6 +328,7 @@ fn verify_closed(
             && !directory.join("stop.request").exists(),
         "closed baseline authority/identity changed"
     );
+    exec::live_pane(&ready.pane)?;
     ensure!(
         ownership::process_evidence(ready.pane.pane.pid)? == ready.pane.pane,
         "closed helper incarnation changed"
@@ -458,6 +460,7 @@ pub(crate) fn wait_closed(
     directory: &Path,
     config: &SealedLaunch,
     guardian: &GuardianIdentity,
+    server: &ProcessEvidence,
 ) -> Result<()> {
     let spec = config
         .observed
@@ -522,6 +525,10 @@ pub(crate) fn wait_closed(
                     && !directory.join("stop.request").exists()
                     && supervisor::guardian_live(guardian),
                 "authority expired immediately before sealed exec"
+            );
+            ensure!(
+                ownership::pidfd_is_live(&ownership::verified_pidfd(server)?)?,
+                "owned server lost immediately before sealed exec"
             );
             return exec::enter(
                 &file,

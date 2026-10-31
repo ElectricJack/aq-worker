@@ -2,6 +2,17 @@
 use super::*;
 use std::{ffi::CString, os::fd::AsRawFd, os::unix::ffi::OsStrExt};
 
+/// Incarnation/liveness only; guardian ancestry was established at pane creation.
+/// Both the original server and pane must still exist for terminal exec evidence.
+pub(crate) fn live_pane(pane: &PaneIdentity) -> Result<()> {
+    for process in [&pane.server, &pane.pane] {
+        ensure!(
+            ownership::pidfd_is_live(&ownership::verified_pidfd(process)?)?,
+            "owned terminal process exited"
+        );
+    }
+    Ok(())
+}
 pub(crate) fn observed_image(process: &ProcessEvidence, image: &ElfIdentity) -> Result<()> {
     let fd = ownership::verified_pidfd(process)?;
     ensure!(ownership::pidfd_is_live(&fd)?, "exec process not live");
@@ -70,6 +81,24 @@ pub(crate) fn enter(
 mod tests {
     use super::*;
     use std::os::fd::{FromRawFd, OwnedFd};
+    #[test]
+    fn dead_original_server_refuses_even_while_the_pane_identity_is_live() {
+        let mut server = std::process::Command::new("/bin/sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let pane = PaneIdentity {
+            server: ownership::process_evidence(server.id()).unwrap(),
+            pane: ownership::process_evidence(std::process::id()).unwrap(),
+            pane_id: "%0".into(),
+            session_name: "aq".into(),
+        };
+        live_pane(&pane).unwrap();
+        server.kill().unwrap();
+        server.wait().unwrap();
+        assert!(ownership::process_evidence(pane.pane.pid).is_ok());
+        assert!(live_pane(&pane).is_err());
+    }
     #[test]
     fn eof_without_matching_live_image_is_not_exec_proof() {
         let process = ownership::process_evidence(std::process::id()).unwrap();
