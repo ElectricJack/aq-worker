@@ -1,0 +1,247 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-native-journal/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.17s
+     Running unittests src/lib.rs (/home/jkern/dev/aq-worker/target/debug/deps/aq_worker-60e6e6c43e1d850b)
+
+running 16 tests
+test journal::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+test native::journal::tests::capacity_and_clock_limits_refuse_before_any_new_durable_record ... ok
+test native::journal::tests::changed_private_root_permissions_refuse_further_capacity_or_writes ... ok
+test native::journal::tests::actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap ... ok
+test native::journal::tests::different_kernel_boot_is_historical_without_comparing_local_clocks ... ok
+test native::journal::tests::exclusive_owner_and_unsafe_paths_refuse ... ok
+test native::journal::tests::checksum_and_structural_association_are_both_checked_on_reopen ... ok
+test native::journal::tests::expired_reservation_is_still_held_and_cannot_reaccept ... ok
+test native::journal::tests::missing_corrupt_newer_and_wrong_node_journals_are_not_empty_nodes ... ok
+test native::journal::tests::new_initialization_has_new_logical_boot_and_cannot_overwrite_existing_root ... ok
+test native::journal::tests::oversized_member_and_unknown_root_member_fail_closed ... ok
+test native::journal::tests::reservation_acceptance_survive_restart_without_restoring_live_authority ... ok
+test native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses ... ok
+test native::journal::tests::root_replacement_cannot_redirect_an_open_writers_effects ... ok
+test native::journal::tests::symlink_hardlink_and_nonprivate_members_refuse ... ok
+test native::journal::tests::unknown_attempts_and_changed_acceptance_retries_do_not_consume_revision ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+     Running unittests src/bin/aq-fixture-agent.rs (/home/jkern/dev/aq-worker/target/debug/deps/aq_fixture_agent-19f4fa0a5dbecb79)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/home/jkern/dev/aq-worker/target/debug/deps/aq_worker-bb8abf493150aab6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-worker-test-host.rs (/home/jkern/dev/aq-worker/target/debug/deps/aq_worker_test_host-458cca4798324d07)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backoff.rs (/home/jkern/dev/aq-worker/target/debug/deps/backoff-7f3e83d7472a752d)
+
+running 2 tests
+test attempt_zero_has_one_second_ceiling ... ok
+test backoff_is_bounded_and_jittered ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (/home/jkern/dev/aq-worker/target/debug/deps/client-26c26ee125cf2dfb)
+
+running 14 tests
+test connection_refused_error_includes_the_cause ... ok
+test html_login_page_classified_as_access_rejected ... ok
+test html_429_and_408_and_502_are_transient ... ok
+test malformed_server_urls_are_rejected ... ok
+test non_json_401_is_access_rejected ... ok
+test redirect_classified_as_access_rejected ... ok
+test not_found_hints_at_the_worker_port ... ok
+test revoked_is_fatal ... ok
+test server_down_is_transient ... ok
+test sends_bearer_and_cf_headers ... ok
+test server_error_is_transient ... ok
+test unexpected_401_code_is_other ... ok
+test unknown_credential_is_invalid ... ok
+test upgrade_required_is_incompatible ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/config.rs (/home/jkern/dev/aq-worker/target/debug/deps/config-dff85ea558e6bea8)
+
+running 3 tests
+test debug_redacts_secrets ... ok
+test load_refuses_world_readable_config ... ok
+test config_saved_with_0600 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/driver.rs (/home/jkern/dev/aq-worker/target/debug/deps/driver-29ca466ae7832641)
+
+running 5 tests
+test binary_executes_real_child_against_fake_http_peer_with_lost_responses ... ok
+test blocked_fixture_is_killed_and_reaped_on_cancellation ... ok
+test post_stop_observation_outage_preserves_and_replays_before_report ... ok
+test stopped_report_recovers_before_new_boot_registration_without_relaunch ... ok
+test blocked_fixture_is_killed_and_reaped_on_grant_expiry ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.44s
+
+     Running tests/execution.rs (/home/jkern/dev/aq-worker/target/debug/deps/execution-5abb53e421a00334)
+
+running 17 tests
+test admission_replay_and_changed_bytes_are_distinct ... ok
+test competing_projects_share_one_durable_capacity_budget ... ok
+test actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test exclusive_owner_and_unknown_state_format_fail_closed ... ok
+test launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired ... ok
+test observations_and_directive_receipts_cross_durable_boundary ... ok
+test orderly_journal_release_does_not_wait_for_an_unrelated_fork_child ... ok
+test oversized_journal_is_refused_before_deserialization ... ok
+test profiled_tmux_launch_remains_refused_until_authority_integration ... ok
+test request_send_time_includes_network_delay_and_suspend ... ok
+test directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+test uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test write_failures_never_acknowledge_unpersisted_admission ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running tests/foundation_fixtures.rs (/home/jkern/dev/aq-worker/target/debug/deps/foundation_fixtures-dfaf4eafd682818c)
+
+running 2 tests
+test retained_wire_fixtures_parse_against_foundation_types ... ok
+test retained_worker_identity_survives_save_reload ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/foundation_lifecycle.rs (/home/jkern/dev/aq-worker/target/debug/deps/foundation_lifecycle-c4099625526e21e9)
+
+running 1 test
+test enroll_saved_identity_reconnect_and_revocation_need_no_sibling ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/guardian.rs (/home/jkern/dev/aq-worker/target/debug/deps/guardian-7991e728cc3bbbb7)
+
+running 11 tests
+test exited_root_is_not_stop_proof_for_escaped_descendant ... ok
+test guardian_does_not_inherit_runtime_lock_or_publish_token ... ok
+test clock_failure_uses_raw_clock_to_escalate_ignored_term ... ok
+test guardian_independently_expires_while_runtime_is_dead ... ok
+test guardian_loss_holds_resources_even_after_known_pids_disappear ... ok
+test slow_drip_control_has_total_deadline_and_cannot_starve_expiry ... ok
+test stalled_control_cannot_start_after_expiry_and_stale_identity_is_refused ... ok
+test stalled_renew_cannot_revive_expired_guardian_authority ... ok
+test spawn_boundary_crashes_never_duplicate_and_recover_owned_writers ... ok
+test unavailable_profile_refuses_before_runtime_state ... ok
+test surviving_double_fork_setsid_writer_stops_by_live_guardian_and_not_pid_scan ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.99s
+
+     Running tests/journal_migration.rs (/home/jkern/dev/aq-worker/target/debug/deps/journal_migration-9dbfe040d0152053)
+
+running 5 tests
+test frozen_v1_reader_refuses_current_format_without_modifying_new_state ... ok
+test drain_survives_restart_and_does_not_restore_launch_authority ... ok
+test legacy_active_launch_without_guardian_stays_uncertain_even_with_missing_pid ... ok
+test v1_retired_and_stopped_reports_upgrade_without_reinterpreting_evidence ... ok
+test v2_guardian_report_upgrades_exactly_and_old_reader_refuses_v3_unchanged ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/native_control.rs (/home/jkern/dev/aq-worker/target/debug/deps/native_control-72bd16525751d2fe)
+
+running 6 tests
+test changed_initial_operation_refuses_before_a_second_prepare_send ... ok
+test hard_execution_deadline_can_exceed_two_minute_delivery_ttl ... ok
+test exact_control_roundtrips_and_retries_preserve_deadlines_and_owner_bytes ... ok
+test nonce_kind_shape_and_changed_original_replays_refuse ... ok
+test occupied_control_and_bulk_lanes_leave_the_renewal_lane_available ... ok
+test renewal_revision_and_transit_expiry_refuse_without_reanchoring ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/native_http.rs (/home/jkern/dev/aq-worker/target/debug/deps/native_http-0cde0f362938853f)
+
+running 7 tests
+test artifact_headers_ranges_and_exact_assembly_are_checked ... ok
+test incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo ... ok
+test exact_native_started_stopped_result_receipts_and_stable_replay ... ok
+test material_digest_scope_and_full_network_interval_are_checked ... ok
+test two_stalled_downloads_do_not_consume_started_reporting_lane ... ok
+test native_transport_ignores_ambient_proxy_configuration ... ok
+test wrong_node_changed_receipt_unknown_fields_and_redirects_refuse ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/native_materials.rs (/home/jkern/dev/aq-worker/target/debug/deps/native_materials-5e570e14497b3a30)
+
+running 4 tests
+test changed_operations_permissions_links_and_record_bytes_refuse ... ok
+test installation_is_exact_durable_private_replay_without_secret_in_receipt ... ok
+test root_symlinks_boot_mismatch_capacity_and_unknown_staging_refuse ... ok
+test lost_publication_ack_replays_but_post_fsync_expiry_stays_refused ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+     Running tests/native_source.rs (/home/jkern/dev/aq-worker/target/debug/deps/native_source-31f7f807d33e4fb4)
+
+running 3 tests
+test chunk_metadata_offset_size_and_redirects_are_fail_closed ... ok
+test source_manifest_pins_and_bounded_member_ranges_are_exact ... ok
+test source_scope_status_replay_and_protocol_variants_refuse ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/native_startup.rs (/home/jkern/dev/aq-worker/target/debug/deps/native_startup-23fec3c33a99d539)
+
+running 6 tests
+test exact_prefix_retry_is_idempotent_but_changed_partial_and_gapped_replies_refuse ... ok
+test alternate_descriptor_encoding_is_not_the_content_addressed_object ... ok
+test incomplete_corrupt_empty_oversized_and_source_bundle_downloads_refuse ... ok
+test published_native_fixture_downloads_produce_one_host_payload ... ok
+test offer_cannot_qualify_its_own_renderer_or_replace_retention_receipt ... ok
+test self_consistent_replacement_cannot_replace_original_payload ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/source.rs (/home/jkern/dev/aq-worker/target/debug/deps/source-ad1bcaea634f92bd)
+
+running 16 tests
+test binding_conflicts_and_pending_disk_pressure_refuse_new_work ... ok
+test download_refuses_changed_assignment_or_corrupt_complete_bytes ... ok
+test download_nonstart_cleanup_requires_release_and_preserves_unknown_git_effects ... ok
+test download_reservation_pressure_preserves_existing_source_and_allocates_no_files ... ok
+test download_restart_replays_only_unacknowledged_tail_and_cannot_grant_import ... ok
+test legacy_v3::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+test pinned_git_real_workspace_checkpoint_export_and_feature_refusal ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; no sibling checkout
+test guardian_stopped_writers_gate_checkpoint_and_replay ... ok
+test source_admission_is_demand_only_and_socket_loss_replays_after_restart ... ok
+test source_cli::pinned_git_cli_cold_download_handoff_and_held_download_cancel ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; actual CLI HTTP integration
+test source_http::pinned_git_http_retention_lost_finalize_and_report_restart ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; local HTTP qualification
+test shared_cache_is_charged_once_for_multiple_projects_and_growth_stays_protected ... ok
+test source_v3_upgrade_preserves_retained_work_without_inventing_transfer_progress ... ok
+test upload_changed_retained_bytes_or_symlink_never_replays_changed_payload ... ok
+test upload_local_commit_failure_keeps_same_pending_chunk_on_reopen ... ok
+test upload_restart_preserves_intent_chunk_and_finalize_ids_until_exact_retention ... ok
+
+test result: ok. 13 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 1.51s
+
+     Running tests/transfer_client.rs (/home/jkern/dev/aq-worker/target/debug/deps/transfer_client-3208c969a1d065fc)
+
+running 7 tests
+test bounded_responses_and_ranges_reject_large_short_or_untrusted_bodies ... ok
+test credentials_in_urls_partial_access_credentials_and_unbounded_lanes_refuse ... ok
+test blocked_bulk_does_not_queue_or_block_status_and_execution_control ... ok
+test invalid_local_input_cannot_reach_remote_transport ... ok
+test finite_authenticated_routes_preserve_exact_ids_bytes_and_ranges ... ok
+test redirects_never_forward_credentials_and_remote_secrets_are_not_errors ... ok
+test mismatched_peer_identity_offsets_or_unconfirmed_retention_refuse ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
