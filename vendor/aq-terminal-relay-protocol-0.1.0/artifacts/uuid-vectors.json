@@ -1,0 +1,34 @@
+{
+  "algorithm": "sha256-domain-terminal-epoch-lease-generation-sequence-uuidv8",
+  "permit": {
+    "controller_generation": 8,
+    "derivation_version": 1,
+    "epoch_id": "00000000-0000-0000-0000-000000000006",
+    "expires_at_ms": 9,
+    "lease_id": "00000000-0000-0000-0000-000000000007",
+    "terminal": {
+      "epoch": 5,
+      "session": {
+        "authority_id": "00000000-0000-0000-0000-000000000001",
+        "generation": 3,
+        "kind": "central",
+        "session_id": "00000000-0000-0000-0000-000000000002"
+      },
+      "terminal_id": "00000000-0000-0000-0000-000000000004"
+    }
+  },
+  "vectors": [
+    {
+      "operation_id": "8da947e6-212b-8e9c-b631-f670ca25ba73",
+      "sequence": 1
+    },
+    {
+      "operation_id": "2bb83041-7173-835c-9847-9c25f8d014b8",
+      "sequence": 2
+    },
+    {
+      "operation_id": "79e034f4-981d-8eb3-953f-4be646dc30df",
+      "sequence": 18446744073709551615
+    }
+  ]
+}

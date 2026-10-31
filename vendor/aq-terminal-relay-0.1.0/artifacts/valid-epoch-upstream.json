@@ -1,0 +1,40 @@
+{
+  "contract": "upstream",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-input-epoch",
+    "peer": {
+      "kind": "central",
+      "authority_id": "00000000-0000-0000-0000-000000000001"
+    },
+    "exchange_id": "00000000-0000-0000-0000-000000000015",
+    "cursor": 1,
+    "receipts": [],
+    "epoch_receipts": [
+      {
+        "epoch_id": "00000000-0000-0000-0000-000000000006",
+        "sequence": 1,
+        "receipt": {
+          "operation_id": "8da947e6-212b-8e9c-b631-f670ca25ba73",
+          "command_digest": "7db7bbddc7347794540cc5a9a071d54066fcfdad657f0aee091617aa47999d76",
+          "terminal": {
+            "session": {
+              "kind": "central",
+              "authority_id": "00000000-0000-0000-0000-000000000001",
+              "session_id": "00000000-0000-0000-0000-000000000002",
+              "generation": 3
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000004",
+            "epoch": 5
+          },
+          "disposition": "applied"
+        }
+      }
+    ],
+    "resize_receipts": [],
+    "fence_acks": [],
+    "frames": [],
+    "snapshots": [],
+    "gaps": []
+  }
+}

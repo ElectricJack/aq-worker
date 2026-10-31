@@ -1,0 +1,172 @@
+{
+  "body": {
+    "capability": "aq.terminal-relay",
+    "cursor": 1,
+    "effects": [
+      {
+        "body": {
+          "controller": {
+            "execution_expires_at_ms": 20100,
+            "expires_at_ms": 10100,
+            "generation": 1,
+            "issued_at_ms": 100,
+            "lease_id": "00000000-0000-0000-0000-000000000006",
+            "principal_id": "fixture-principal",
+            "terminal": {
+              "epoch": 1,
+              "session": {
+                "authority_id": "00000000-0000-0000-0000-000000000001",
+                "generation": 1,
+                "kind": "central",
+                "session_id": "00000000-0000-0000-0000-000000000002"
+              },
+              "terminal_id": "00000000-0000-0000-0000-000000000005"
+            }
+          },
+          "fence_id": "00000000-0000-0000-0000-00000000000c",
+          "generation": 1,
+          "terminal": {
+            "epoch": 1,
+            "session": {
+              "authority_id": "00000000-0000-0000-0000-000000000001",
+              "generation": 1,
+              "kind": "central",
+              "session_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000005"
+          }
+        },
+        "kind": "fence"
+      },
+      {
+        "body": {
+          "bytes": [
+            108,
+            105,
+            116,
+            101,
+            114,
+            97,
+            108,
+            10
+          ],
+          "deadline_ms": 1000,
+          "issued_at_ms": 200,
+          "lease": {
+            "execution_expires_at_ms": 20100,
+            "expires_at_ms": 10100,
+            "generation": 1,
+            "issued_at_ms": 100,
+            "lease_id": "00000000-0000-0000-0000-000000000006",
+            "principal_id": "fixture-principal",
+            "terminal": {
+              "epoch": 1,
+              "session": {
+                "authority_id": "00000000-0000-0000-0000-000000000001",
+                "generation": 1,
+                "kind": "central",
+                "session_id": "00000000-0000-0000-0000-000000000002"
+              },
+              "terminal_id": "00000000-0000-0000-0000-000000000005"
+            }
+          },
+          "operation_id": "00000000-0000-0000-0000-000000000007"
+        },
+        "kind": "input"
+      },
+      {
+        "body": {
+          "columns": 80,
+          "deadline_ms": 1000,
+          "issued_at_ms": 200,
+          "lease": {
+            "execution_expires_at_ms": 20100,
+            "expires_at_ms": 10100,
+            "generation": 1,
+            "issued_at_ms": 100,
+            "lease_id": "00000000-0000-0000-0000-000000000006",
+            "principal_id": "fixture-principal",
+            "terminal": {
+              "epoch": 1,
+              "session": {
+                "authority_id": "00000000-0000-0000-0000-000000000001",
+                "generation": 1,
+                "kind": "central",
+                "session_id": "00000000-0000-0000-0000-000000000002"
+              },
+              "terminal_id": "00000000-0000-0000-0000-000000000005"
+            }
+          },
+          "operation_id": "00000000-0000-0000-0000-000000000008",
+          "rows": 24,
+          "sequence": 1
+        },
+        "kind": "resize"
+      },
+      {
+        "body": {
+          "expires_at_ms": 5000,
+          "principal_id": "viewer",
+          "subscription_id": "00000000-0000-0000-0000-00000000000d",
+          "terminal": {
+            "epoch": 1,
+            "session": {
+              "authority_id": "00000000-0000-0000-0000-000000000001",
+              "generation": 1,
+              "kind": "central",
+              "session_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000005"
+          }
+        },
+        "kind": "watch"
+      },
+      {
+        "body": {
+          "after_ledger_revision": 3,
+          "capture_request_id": "00000000-0000-0000-0000-000000000000",
+          "controller_generation": 1,
+          "expires_at_ms": 1000,
+          "lease_id": "00000000-0000-0000-0000-000000000006",
+          "terminal": {
+            "epoch": 1,
+            "session": {
+              "authority_id": "00000000-0000-0000-0000-000000000001",
+              "generation": 1,
+              "kind": "central",
+              "session_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "uncertain_operation_id": "00000000-0000-0000-0000-000000000007"
+        },
+        "kind": "capture"
+      },
+      {
+        "body": {
+          "controller": null,
+          "fence_id": "00000000-0000-0000-0000-00000000000e",
+          "generation": 2,
+          "terminal": {
+            "epoch": 1,
+            "session": {
+              "authority_id": "00000000-0000-0000-0000-000000000001",
+              "generation": 1,
+              "kind": "central",
+              "session_id": "00000000-0000-0000-0000-000000000002"
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000005"
+          }
+        },
+        "kind": "fence"
+      }
+    ],
+    "exchange_id": "00000000-0000-0000-0000-00000000000b",
+    "peer": {
+      "authority_id": "00000000-0000-0000-0000-000000000001",
+      "kind": "central"
+    },
+    "version": 1
+  },
+  "contract": "downstream"
+}

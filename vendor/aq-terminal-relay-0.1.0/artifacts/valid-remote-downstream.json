@@ -1,0 +1,187 @@
+{
+  "contract": "downstream",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-relay",
+    "peer": {
+      "kind": "remote",
+      "node_id": "00000000-0000-0000-0000-000000000001",
+      "boot_id": "00000000-0000-0000-0000-000000000002"
+    },
+    "exchange_id": "00000000-0000-0000-0000-00000000000b",
+    "cursor": 1,
+    "effects": [
+      {
+        "kind": "fence",
+        "body": {
+          "terminal": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000002",
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000004"
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000005",
+            "epoch": 1
+          },
+          "fence_id": "00000000-0000-0000-0000-00000000000c",
+          "generation": 1,
+          "controller": {
+            "terminal": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000004"
+              },
+              "terminal_id": "00000000-0000-0000-0000-000000000005",
+              "epoch": 1
+            },
+            "principal_id": "fixture-principal",
+            "lease_id": "00000000-0000-0000-0000-000000000006",
+            "generation": 1,
+            "issued_at_ms": 100,
+            "expires_at_ms": 10100,
+            "execution_expires_at_ms": 20100
+          }
+        }
+      },
+      {
+        "kind": "input",
+        "body": {
+          "operation_id": "00000000-0000-0000-0000-000000000007",
+          "lease": {
+            "terminal": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000004"
+              },
+              "terminal_id": "00000000-0000-0000-0000-000000000005",
+              "epoch": 1
+            },
+            "principal_id": "fixture-principal",
+            "lease_id": "00000000-0000-0000-0000-000000000006",
+            "generation": 1,
+            "issued_at_ms": 100,
+            "expires_at_ms": 10100,
+            "execution_expires_at_ms": 20100
+          },
+          "issued_at_ms": 200,
+          "deadline_ms": 1000,
+          "bytes": [
+            108,
+            105,
+            116,
+            101,
+            114,
+            97,
+            108,
+            10
+          ]
+        }
+      },
+      {
+        "kind": "resize",
+        "body": {
+          "operation_id": "00000000-0000-0000-0000-000000000008",
+          "lease": {
+            "terminal": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000002",
+                "attempt_id": "00000000-0000-0000-0000-000000000003",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000004"
+              },
+              "terminal_id": "00000000-0000-0000-0000-000000000005",
+              "epoch": 1
+            },
+            "principal_id": "fixture-principal",
+            "lease_id": "00000000-0000-0000-0000-000000000006",
+            "generation": 1,
+            "issued_at_ms": 100,
+            "expires_at_ms": 10100,
+            "execution_expires_at_ms": 20100
+          },
+          "sequence": 1,
+          "issued_at_ms": 200,
+          "deadline_ms": 1000,
+          "columns": 80,
+          "rows": 24
+        }
+      },
+      {
+        "kind": "watch",
+        "body": {
+          "subscription_id": "00000000-0000-0000-0000-00000000000d",
+          "terminal": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000002",
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000004"
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000005",
+            "epoch": 1
+          },
+          "principal_id": "viewer",
+          "expires_at_ms": 5000
+        }
+      },
+      {
+        "kind": "capture",
+        "body": {
+          "terminal": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000002",
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000004"
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000005",
+            "epoch": 1
+          },
+          "capture_request_id": "00000000-0000-0000-0000-00000000000a",
+          "uncertain_operation_id": "00000000-0000-0000-0000-000000000007",
+          "lease_id": "00000000-0000-0000-0000-000000000006",
+          "controller_generation": 1,
+          "after_ledger_revision": 3,
+          "expires_at_ms": 1000
+        }
+      },
+      {
+        "kind": "fence",
+        "body": {
+          "terminal": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000002",
+              "attempt_id": "00000000-0000-0000-0000-000000000003",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000004"
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000005",
+            "epoch": 1
+          },
+          "fence_id": "00000000-0000-0000-0000-00000000000e",
+          "generation": 2,
+          "controller": null
+        }
+      }
+    ]
+  }
+}

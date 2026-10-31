@@ -1,0 +1,152 @@
+{
+  "contract": "upstream",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-relay",
+    "peer": {
+      "kind": "remote",
+      "node_id": "00000000-0000-0000-0000-000000000001",
+      "boot_id": "00000000-0000-0000-0000-000000000002"
+    },
+    "exchange_id": "00000000-0000-0000-0000-00000000000f",
+    "cursor": 1,
+    "receipts": [
+      {
+        "operation_id": "00000000-0000-0000-0000-000000000007",
+        "command_digest": "1dfdd1fdf6331a699525dc2250ccc7a7f289d1e808f55f86d2df870a5ac33f44",
+        "terminal": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000002",
+            "attempt_id": "00000000-0000-0000-0000-000000000003",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000004"
+          },
+          "terminal_id": "00000000-0000-0000-0000-000000000005",
+          "epoch": 1
+        },
+        "disposition": "delivery_unknown"
+      }
+    ],
+    "epoch_receipts": [],
+    "resize_receipts": [
+      {
+        "terminal": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000002",
+            "attempt_id": "00000000-0000-0000-0000-000000000003",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000004"
+          },
+          "terminal_id": "00000000-0000-0000-0000-000000000005",
+          "epoch": 1
+        },
+        "operation_id": "00000000-0000-0000-0000-000000000008",
+        "command_digest": "e571dbb6e51611a3110d3c1b007be6361f06e0bf3549dd2ec476befedd1d84de",
+        "sequence": 1,
+        "applied": true
+      }
+    ],
+    "fence_acks": [
+      {
+        "terminal": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000002",
+            "attempt_id": "00000000-0000-0000-0000-000000000003",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000004"
+          },
+          "terminal_id": "00000000-0000-0000-0000-000000000005",
+          "epoch": 1
+        },
+        "fence_id": "00000000-0000-0000-0000-00000000000c",
+        "generation": 1
+      }
+    ],
+    "frames": [
+      {
+        "terminal": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000002",
+            "attempt_id": "00000000-0000-0000-0000-000000000003",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000004"
+          },
+          "terminal_id": "00000000-0000-0000-0000-000000000005",
+          "epoch": 1
+        },
+        "sequence": 2,
+        "bytes": [
+          101,
+          99,
+          104,
+          111
+        ],
+        "byte_length": 4,
+        "digest": "092c79e8f80e559e404bcf660c48f3522b67aba9ff1484b0367e1a4ddef7431d"
+      }
+    ],
+    "snapshots": [
+      {
+        "snapshot_id": "00000000-0000-0000-0000-000000000009",
+        "capture_request_id": "00000000-0000-0000-0000-00000000000a",
+        "terminal": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000002",
+            "attempt_id": "00000000-0000-0000-0000-000000000003",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000004"
+          },
+          "terminal_id": "00000000-0000-0000-0000-000000000005",
+          "epoch": 1
+        },
+        "through_sequence": 1,
+        "columns": 80,
+        "rows": 24,
+        "renderer": {
+          "id": "synthetic",
+          "version": "1",
+          "digest": "6bd52b204f5b4cffb267597f37d0fa62bae229341394dfec0e5d42439d8b722c"
+        },
+        "state": [
+          115,
+          110,
+          97,
+          112,
+          115,
+          104,
+          111,
+          116
+        ],
+        "digest": "16a0eeb0791b6c92451fd284dd9f599e0a7dbe7f6ebea6e2d2d06c7f74aec112"
+      }
+    ],
+    "gaps": [
+      {
+        "terminal": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000002",
+            "attempt_id": "00000000-0000-0000-0000-000000000003",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000004"
+          },
+          "terminal_id": "00000000-0000-0000-0000-000000000005",
+          "epoch": 1
+        },
+        "first_missing": 3,
+        "last_missing": 4
+      }
+    ]
+  }
+}

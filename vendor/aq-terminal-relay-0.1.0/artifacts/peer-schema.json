@@ -1,0 +1,1219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WireDocument",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/Envelope"
+        },
+        "contract": {
+          "type": "string",
+          "const": "downstream"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/PeerUpload"
+        },
+        "contract": {
+          "type": "string",
+          "const": "upstream"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/RelayPoll"
+        },
+        "contract": {
+          "type": "string",
+          "const": "poll"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/UploadAck"
+        },
+        "contract": {
+          "type": "string",
+          "const": "upload_ack"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "body"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/Register"
+        },
+        "contract": {
+          "type": "string",
+          "const": "register"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "body"
+      ]
+    }
+  ],
+  "$defs": {
+    "ArtifactRef": {
+      "type": "object",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "id": {
+          "$ref": "#/$defs/Text"
+        },
+        "version": {
+          "$ref": "#/$defs/Text"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "digest"
+      ]
+    },
+    "Capability": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Text"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ]
+    },
+    "Capture": {
+      "type": "object",
+      "properties": {
+        "after_ledger_revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "capture_request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "controller_generation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "expires_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lease_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        },
+        "uncertain_operation_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "terminal",
+        "capture_request_id",
+        "uncertain_operation_id",
+        "lease_id",
+        "controller_generation",
+        "after_ledger_revision",
+        "expires_at_ms"
+      ]
+    },
+    "Command": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/InputCommand"
+        },
+        "permit": {
+          "$ref": "#/$defs/Permit"
+        },
+        "sequence": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "permit",
+        "sequence",
+        "input"
+      ]
+    },
+    "ControllerLease": {
+      "type": "object",
+      "properties": {
+        "execution_expires_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "expires_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "generation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "issued_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lease_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/Text"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "terminal",
+        "principal_id",
+        "lease_id",
+        "generation",
+        "issued_at_ms",
+        "expires_at_ms",
+        "execution_expires_at_ms"
+      ]
+    },
+    "Digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "Effect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/Fence"
+            },
+            "kind": {
+              "type": "string",
+              "const": "fence"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/Capture"
+            },
+            "kind": {
+              "type": "string",
+              "const": "capture"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/InputCommand"
+            },
+            "kind": {
+              "type": "string",
+              "const": "input"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/ResizeCommand"
+            },
+            "kind": {
+              "type": "string",
+              "const": "resize"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/WatchSubscription"
+            },
+            "kind": {
+              "type": "string",
+              "const": "watch"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/Command"
+            },
+            "kind": {
+              "type": "string",
+              "const": "epoch_input"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ]
+        }
+      ]
+    },
+    "Envelope": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/Text"
+        },
+        "cursor": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Effect"
+          }
+        },
+        "exchange_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "peer": {
+          "$ref": "#/$defs/Peer"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "capability",
+        "peer",
+        "exchange_id",
+        "cursor",
+        "effects"
+      ]
+    },
+    "Fence": {
+      "type": "object",
+      "properties": {
+        "controller": {
+          "description": "None invalidates all older grants without minting another input principal.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ControllerLease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fence_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "generation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "terminal",
+        "fence_id",
+        "generation"
+      ]
+    },
+    "FenceAck": {
+      "type": "object",
+      "properties": {
+        "fence_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "generation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "terminal",
+        "fence_id",
+        "generation"
+      ]
+    },
+    "InputCommand": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0
+          }
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "issued_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lease": {
+          "$ref": "#/$defs/ControllerLease"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "lease",
+        "issued_at_ms",
+        "deadline_ms",
+        "bytes"
+      ]
+    },
+    "InputDisposition": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "received",
+        "injecting",
+        "applied",
+        "delivery_unknown",
+        "expired",
+        "rejected"
+      ]
+    },
+    "InputMode": {
+      "type": "string",
+      "enum": [
+        "finite_v1",
+        "epoch_v1"
+      ]
+    },
+    "InputReceipt": {
+      "type": "object",
+      "properties": {
+        "command_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "disposition": {
+          "$ref": "#/$defs/InputDisposition"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "command_digest",
+        "terminal",
+        "disposition"
+      ]
+    },
+    "OutputFrame": {
+      "type": "object",
+      "properties": {
+        "byte_length": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0
+          }
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "sequence": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "terminal",
+        "sequence",
+        "bytes",
+        "byte_length",
+        "digest"
+      ]
+    },
+    "OutputGap": {
+      "type": "object",
+      "properties": {
+        "first_missing": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "last_missing": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "terminal",
+        "first_missing",
+        "last_missing"
+      ]
+    },
+    "Peer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "boot_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "kind": {
+              "type": "string",
+              "const": "remote"
+            },
+            "node_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "boot_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "authority_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "kind": {
+              "type": "string",
+              "const": "central"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "authority_id"
+          ]
+        }
+      ]
+    },
+    "PeerUpload": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/Text"
+        },
+        "cursor": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "epoch_receipts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Receipt"
+          }
+        },
+        "exchange_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "fence_acks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FenceAck"
+          }
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OutputFrame"
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OutputGap"
+          }
+        },
+        "peer": {
+          "$ref": "#/$defs/Peer"
+        },
+        "receipts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InputReceipt"
+          }
+        },
+        "resize_receipts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResizeReceipt"
+          }
+        },
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Snapshot"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "capability",
+        "peer",
+        "exchange_id",
+        "cursor",
+        "receipts",
+        "epoch_receipts",
+        "resize_receipts",
+        "fence_acks",
+        "frames",
+        "snapshots",
+        "gaps"
+      ]
+    },
+    "Permit": {
+      "type": "object",
+      "properties": {
+        "controller_generation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "derivation_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "epoch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expires_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lease_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "terminal",
+        "epoch_id",
+        "lease_id",
+        "controller_generation",
+        "expires_at_ms",
+        "derivation_version"
+      ]
+    },
+    "Receipt": {
+      "type": "object",
+      "properties": {
+        "epoch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "receipt": {
+          "$ref": "#/$defs/InputReceipt"
+        },
+        "sequence": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "epoch_id",
+        "sequence",
+        "receipt"
+      ]
+    },
+    "Register": {
+      "type": "object",
+      "properties": {
+        "advertised_capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "capability": {
+          "$ref": "#/$defs/Text"
+        },
+        "expected_authority_revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "input_mode": {
+          "$ref": "#/$defs/InputMode"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "peer": {
+          "$ref": "#/$defs/Peer"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "capability",
+        "operation_id",
+        "peer",
+        "terminal",
+        "expected_authority_revision",
+        "input_mode",
+        "advertised_capabilities"
+      ]
+    },
+    "RelayPoll": {
+      "type": "object",
+      "properties": {
+        "active_controllers": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "active_subscriptions": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "advertised_capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "capability": {
+          "$ref": "#/$defs/Text"
+        },
+        "cursor": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "hold_ms": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "peer": {
+          "$ref": "#/$defs/Peer"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "capability",
+        "peer",
+        "cursor",
+        "hold_ms",
+        "active_subscriptions",
+        "active_controllers",
+        "advertised_capabilities"
+      ]
+    },
+    "ResizeCommand": {
+      "type": "object",
+      "properties": {
+        "columns": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "issued_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lease": {
+          "$ref": "#/$defs/ControllerLease"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rows": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "sequence": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "lease",
+        "sequence",
+        "issued_at_ms",
+        "deadline_ms",
+        "columns",
+        "rows"
+      ]
+    },
+    "ResizeReceipt": {
+      "type": "object",
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "command_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "terminal",
+        "operation_id",
+        "command_digest",
+        "sequence",
+        "applied"
+      ]
+    },
+    "Retirement": {
+      "type": "object",
+      "properties": {
+        "permit": {
+          "$ref": "#/$defs/Permit"
+        },
+        "retired_through": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "permit",
+        "retired_through"
+      ]
+    },
+    "SessionIdentity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "assignment_generation": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "attempt_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "boot_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "kind": {
+              "type": "string",
+              "const": "remote"
+            },
+            "node_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "boot_id",
+            "attempt_id",
+            "assignment_generation",
+            "session_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "authority_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "generation": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "central"
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "authority_id",
+            "session_id",
+            "generation"
+          ]
+        }
+      ]
+    },
+    "Snapshot": {
+      "type": "object",
+      "properties": {
+        "capture_request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "columns": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "renderer": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "rows": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "snapshot_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0
+          }
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        },
+        "through_sequence": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "snapshot_id",
+        "capture_request_id",
+        "terminal",
+        "through_sequence",
+        "columns",
+        "rows",
+        "renderer",
+        "state",
+        "digest"
+      ]
+    },
+    "TerminalIdentity": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "session": {
+          "$ref": "#/$defs/SessionIdentity"
+        },
+        "terminal_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "session",
+        "terminal_id",
+        "epoch"
+      ]
+    },
+    "Text": {
+      "description": "Nonempty UTF-8 text, at most 512 bytes; no control characters.",
+      "type": "string",
+      "maxLength": 512,
+      "minLength": 1
+    },
+    "UploadAck": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/Text"
+        },
+        "cursor": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dropped_output": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OutputGap"
+          }
+        },
+        "exchange_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "peer": {
+          "$ref": "#/$defs/Peer"
+        },
+        "retirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Retirement"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "capability",
+        "peer",
+        "exchange_id",
+        "cursor",
+        "retirements",
+        "dropped_output"
+      ]
+    },
+    "WatchSubscription": {
+      "type": "object",
+      "properties": {
+        "expires_at_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "principal_id": {
+          "$ref": "#/$defs/Text"
+        },
+        "subscription_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "subscription_id",
+        "terminal",
+        "principal_id",
+        "expires_at_ms"
+      ]
+    }
+  }
+}

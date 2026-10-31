@@ -1,0 +1,26 @@
+{
+  "contract": "poll",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-input-epoch",
+    "peer": {
+      "kind": "remote",
+      "node_id": "00000000-0000-0000-0000-000000000001",
+      "boot_id": "00000000-0000-0000-0000-000000000002"
+    },
+    "cursor": 0,
+    "hold_ms": 0,
+    "active_subscriptions": 0,
+    "active_controllers": 0,
+    "advertised_capabilities": [
+      {
+        "id": "aq.terminal-relay",
+        "version": 1
+      },
+      {
+        "id": "aq.terminal-input-epoch",
+        "version": 1
+      }
+    ]
+  }
+}

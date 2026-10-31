@@ -3,6 +3,7 @@
 pub mod ownership;
 mod reaper;
 mod supervisor;
+pub mod terminal_io;
 use anyhow::{Context, Result, bail, ensure};
 use aq_session_protocol::{
     ArtifactRef, Capability, Digest, LaunchManifest, SessionIdentity, Validate, canonical_digest,
@@ -511,6 +512,45 @@ impl SessionHost {
         handle.stop()?;
         Ok(handle)
     }
+    /// Explicit relay observation of an already-running exact physical guardian.
+    /// This neither resumes a stopped host nor calls record_started or renews a
+    /// permit. Legacy recovery retains its stop-and-preserve behavior above.
+    pub fn observe_existing(root: &Path, expected: &GuardianIdentity) -> Result<SessionHandle> {
+        let directory = std::fs::canonicalize(root)?.join(expected.intent.launch_id.to_string());
+        let _directory_guard = terminal_io::DirectoryGuard::existing(&directory)?;
+        let config: SealedLaunch = read_json(&directory.join("launch.json"))?;
+        ensure!(
+            config.intent()? == expected.intent,
+            "observed host launch mismatch"
+        );
+        let identity: GuardianIdentity = read_json(&directory.join("identity.json"))?;
+        ensure!(identity == *expected, "observed physical guardian mismatch");
+        let handle = SessionHandle {
+            directory,
+            identity,
+        };
+        let state = handle.observe()?;
+        let wall_deadline = config
+            .permit
+            .issued_boot_ms
+            .checked_add(config.manifest.resources.wall_time_ms)
+            .context("observed host wall deadline")?;
+        ensure!(
+            state.phase == HostPhase::Running
+                && ownership::raw_boot_ms() < state.permit_deadline_boot_ms
+                && ownership::raw_boot_ms() < wall_deadline
+                && !handle.directory.join("stop.request").exists(),
+            "observation requires unexpired running host"
+        );
+        let pane = state.pane.as_ref().context("observed host pane missing")?;
+        for process in [&pane.server, &pane.pane] {
+            ensure!(
+                ownership::pidfd_is_live(&ownership::verified_pidfd(process)?)?,
+                "observed host process no longer live"
+            );
+        }
+        Ok(handle)
+    }
 }
 impl SessionHandle {
     pub fn directory(&self) -> &Path {
@@ -753,7 +793,22 @@ fn durable_replace(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 fn bounded_command(command: &mut Command) -> Result<Vec<u8>> {
+    bounded_command_input(command, None, Duration::from_millis(250))
+}
+fn bounded_command_input(
+    command: &mut Command,
+    input: Option<&[u8]>,
+    timeout: Duration,
+) -> Result<Vec<u8>> {
     use std::os::fd::AsRawFd;
+    ensure!(
+        timeout <= Duration::from_millis(250) && !timeout.is_zero(),
+        "local command deadline bounds"
+    );
+    ensure!(
+        input.is_none_or(|v| v.len() <= 65536),
+        "local command input bounds"
+    );
     // A guardian remains single-threaded and reaps all its command children in
     // its ownership loop. Other callers reserve parent registry capacity first.
     let slot = if supervisor::in_guardian() {
@@ -764,11 +819,27 @@ fn bounded_command(command: &mut Command) -> Result<Vec<u8>> {
     let mut child = command
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()?;
     let result = (|| -> Result<Vec<u8>> {
+        let mut stdin = child.stdin.take();
+        if let Some(stdin) = &stdin {
+            let flags = unsafe { libc::fcntl(stdin.as_raw_fd(), libc::F_GETFL) };
+            ensure!(
+                flags >= 0
+                    && unsafe {
+                        libc::fcntl(stdin.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK)
+                    } == 0,
+                "nonblocking command stdin unavailable"
+            );
+        }
+        let mut written = 0usize;
         let mut stdout = child.stdout.take().context("command stdout")?;
         let flags = unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFL) };
         ensure!(
@@ -778,12 +849,25 @@ fn bounded_command(command: &mut Command) -> Result<Vec<u8>> {
                 } == 0,
             "nonblocking command stdout unavailable"
         );
-        let end = Instant::now() + Duration::from_millis(250);
+        let end = Instant::now() + timeout;
         let mut output = Vec::new();
         let mut status = None;
         let mut eof = false;
         let mut buffer = [0u8; 4096];
         loop {
+            ensure!(Instant::now() < end, "local tmux command total deadline");
+            if let (Some(bytes), Some(pipe)) = (input, stdin.as_mut()) {
+                match pipe.write(&bytes[written..]) {
+                    Ok(n) => written += n,
+                    Err(e)
+                        if e.kind() == std::io::ErrorKind::WouldBlock
+                            || e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(e) => return Err(e.into()),
+                }
+                if written == bytes.len() {
+                    stdin.take();
+                }
+            }
             loop {
                 match stdout.read(&mut buffer) {
                     Ok(0) => {
@@ -920,6 +1004,27 @@ mod io_tests {
         ]))
         .unwrap();
         assert!(output.windows(60000).any(|w| w.iter().all(|b| *b == b'x')));
+    }
+    #[test]
+    fn command_input_and_output_above_pipe_capacity_progress_under_one_deadline() {
+        let bytes: Vec<_> = (0..60000).map(|n| (n % 251) as u8).collect();
+        let output = bounded_command_input(
+            &mut Command::new("/bin/cat"),
+            Some(&bytes),
+            Duration::from_millis(250),
+        )
+        .unwrap();
+        assert_eq!(output, bytes);
+        let started = Instant::now();
+        assert!(
+            bounded_command_input(
+                Command::new("/bin/sleep").arg("2"),
+                Some(&bytes),
+                Duration::from_millis(50)
+            )
+            .is_err()
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
     #[test]
     fn nonregular_and_symlink_material_is_refused() {
