@@ -87,6 +87,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-session-protocol"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "aq-worker"
 version = "0.3.1"
 dependencies = [

@@ -1,0 +1,1436 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "id": {
+          "$ref": "#/$defs/Text"
+        },
+        "version": {
+          "$ref": "#/$defs/Text"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "BudgetBasis": {
+      "enum": [
+        "task_cumulative_estimated_cost",
+        "task_cumulative_enforced_cost"
+      ],
+      "type": "string"
+    },
+    "Capability": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Text"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ContextDelivery": {
+      "enum": [
+        "startup",
+        "on_demand"
+      ],
+      "type": "string"
+    },
+    "ContextPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "context_window_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/ContextRef"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "reserved_output_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "startup_byte_budget": {
+          "format": "uint64",
+          "maximum": 1048576,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "startup_token_budget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "references",
+        "startup_token_budget",
+        "startup_byte_budget",
+        "reserved_output_tokens",
+        "context_window_tokens"
+      ],
+      "type": "object"
+    },
+    "ContextRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "bytes": {
+          "format": "uint64",
+          "maximum": 1048576,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delivery": {
+          "$ref": "#/$defs/ContextDelivery"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Text"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "tokens": {
+          "format": "uint64",
+          "maximum": 1048576,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact",
+        "provenance",
+        "delivery",
+        "bytes",
+        "tokens",
+        "required"
+      ],
+      "type": "object"
+    },
+    "ControllerLease": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "issued_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/Text"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "required": [
+        "terminal",
+        "principal_id",
+        "lease_id",
+        "generation",
+        "issued_at_ms",
+        "expires_at_ms",
+        "execution_expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "Digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "HarnessSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "cli_version": {
+          "$ref": "#/$defs/Text"
+        },
+        "environment": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "harness": {
+          "$ref": "#/$defs/Text"
+        },
+        "required_capabilities": {
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "harness",
+        "cli_version",
+        "adapter",
+        "environment",
+        "required_capabilities"
+      ],
+      "type": "object"
+    },
+    "InputCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 4096,
+          "type": "array"
+        },
+        "deadline_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "issued_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease": {
+          "$ref": "#/$defs/ControllerLease"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "lease",
+        "issued_at_ms",
+        "deadline_ms",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "InputDisposition": {
+      "enum": [
+        "queued",
+        "received",
+        "injecting",
+        "applied",
+        "delivery_unknown",
+        "expired",
+        "rejected"
+      ],
+      "type": "string"
+    },
+    "InputReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "command_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "disposition": {
+          "$ref": "#/$defs/InputDisposition"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "required": [
+        "operation_id",
+        "command_digest",
+        "terminal",
+        "disposition"
+      ],
+      "type": "object"
+    },
+    "LaunchBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "assignment_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "attempt_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "execution_spec_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "graph_access_profile_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "launch_manifest_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "offer_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionIdentity"
+        }
+      },
+      "required": [
+        "session",
+        "schema_version",
+        "offer_id",
+        "attempt_id",
+        "assignment_generation",
+        "execution_spec_digest",
+        "launch_manifest_digest",
+        "graph_access_profile_digest"
+      ],
+      "type": "object"
+    },
+    "LaunchBindings": {
+      "additionalProperties": false,
+      "properties": {
+        "assignment_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "attempt_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "graph_access_profile": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "graph_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionIdentity"
+        },
+        "source": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "task_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "task_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "session",
+        "project_id",
+        "project_revision",
+        "graph_id",
+        "task_id",
+        "task_revision",
+        "attempt_id",
+        "assignment_generation",
+        "source",
+        "outcome",
+        "graph_access_profile"
+      ],
+      "type": "object"
+    },
+    "LaunchManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_profile": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "bindings": {
+          "$ref": "#/$defs/LaunchBindings"
+        },
+        "catalog": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "context": {
+          "$ref": "#/$defs/ContextPlan"
+        },
+        "credentials": {
+          "items": {
+            "$ref": "#/$defs/SecretRef"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "execution_profile": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "harness": {
+          "$ref": "#/$defs/HarnessSettings"
+        },
+        "intelligence_profile": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "model": {
+          "$ref": "#/$defs/ModelSettings"
+        },
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "permissions": {
+          "$ref": "#/$defs/PermissionPlan"
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceLimits"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "selection_explanation": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalPolicy"
+        }
+      },
+      "required": [
+        "schema_version",
+        "catalog",
+        "modules",
+        "agent_profile",
+        "intelligence_profile",
+        "execution_profile",
+        "bindings",
+        "model",
+        "harness",
+        "credentials",
+        "permissions",
+        "context",
+        "resources",
+        "terminal",
+        "selection_explanation"
+      ],
+      "type": "object"
+    },
+    "ModelSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "max_output_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "model": {
+          "$ref": "#/$defs/Text"
+        },
+        "provider": {
+          "$ref": "#/$defs/Text"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/Text"
+        },
+        "spending_budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpendingBudget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "reasoning",
+        "max_output_tokens"
+      ],
+      "type": "object"
+    },
+    "NodeCommandBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "boot_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/TerminalCommand"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "cursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "node_id",
+        "boot_id",
+        "batch_id",
+        "cursor",
+        "commands"
+      ],
+      "type": "object"
+    },
+    "NodeOutputBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "boot_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "cursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "frames": {
+          "items": {
+            "$ref": "#/$defs/OutputFrame"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "gaps": {
+          "items": {
+            "$ref": "#/$defs/OutputGap"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "node_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "receipts": {
+          "items": {
+            "$ref": "#/$defs/InputReceipt"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshots": {
+          "items": {
+            "$ref": "#/$defs/Snapshot"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "node_id",
+        "boot_id",
+        "batch_id",
+        "cursor",
+        "frames",
+        "snapshots",
+        "gaps",
+        "receipts"
+      ],
+      "type": "object"
+    },
+    "NodeTerminalPoll": {
+      "additionalProperties": false,
+      "properties": {
+        "active_subscriptions": {
+          "format": "uint32",
+          "maximum": 32,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "boot_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "cursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hold_ms": {
+          "format": "uint32",
+          "maximum": 20000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "node_id",
+        "boot_id",
+        "cursor",
+        "hold_ms",
+        "active_subscriptions"
+      ],
+      "type": "object"
+    },
+    "OutputFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_length": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bytes": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 65536,
+          "type": "array"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "required": [
+        "terminal",
+        "sequence",
+        "bytes",
+        "byte_length",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "OutputGap": {
+      "additionalProperties": false,
+      "properties": {
+        "first_missing": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_missing": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "required": [
+        "terminal",
+        "first_missing",
+        "last_missing"
+      ],
+      "type": "object"
+    },
+    "PermissionPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "effective": {
+          "items": {
+            "$ref": "#/$defs/Scope"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "omissions": {
+          "items": {
+            "$ref": "#/$defs/Text"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "requested": {
+          "items": {
+            "$ref": "#/$defs/Scope"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "required": {
+          "items": {
+            "$ref": "#/$defs/Scope"
+          },
+          "maxItems": 128,
+          "type": "array"
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "required",
+        "omissions"
+      ],
+      "type": "object"
+    },
+    "ProfiledAcceptance": {
+      "additionalProperties": false,
+      "properties": {
+        "advertised_capabilities": {
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "binding": {
+          "$ref": "#/$defs/LaunchBinding"
+        }
+      },
+      "required": [
+        "binding",
+        "advertised_capabilities"
+      ],
+      "type": "object"
+    },
+    "ProfiledGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/LaunchBinding"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "grant_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding",
+        "grant_id",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "ProfiledJournalRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/LaunchBinding"
+        },
+        "grant_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding",
+        "grant_id"
+      ],
+      "type": "object"
+    },
+    "ProfiledOffer": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/LaunchBinding"
+        },
+        "manifest": {
+          "$ref": "#/$defs/LaunchManifest"
+        },
+        "required_capabilities": {
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "binding",
+        "manifest",
+        "required_capabilities"
+      ],
+      "type": "object"
+    },
+    "ResizeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "format": "uint16",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deadline_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "issued_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease": {
+          "$ref": "#/$defs/ControllerLease"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "rows": {
+          "format": "uint16",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation_id",
+        "lease",
+        "sequence",
+        "issued_at_ms",
+        "deadline_ms",
+        "columns",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "ResourceLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_millis": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "process_limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stop_grace_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wall_time_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "memory_bytes",
+        "cpu_millis",
+        "process_limit",
+        "wall_time_ms",
+        "stop_grace_ms"
+      ],
+      "type": "object"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/Text"
+        },
+        "resource": {
+          "$ref": "#/$defs/Text"
+        }
+      },
+      "required": [
+        "operation",
+        "resource"
+      ],
+      "type": "object"
+    },
+    "SecretRef": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_profile": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "purpose": {
+          "$ref": "#/$defs/Text"
+        }
+      },
+      "required": [
+        "credential_profile",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "SessionIdentity": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "assignment_generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "attempt_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "boot_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "kind": {
+              "const": "remote",
+              "type": "string"
+            },
+            "node_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "session_id": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "node_id",
+            "boot_id",
+            "attempt_id",
+            "assignment_generation",
+            "session_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "authority_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "central",
+              "type": "string"
+            },
+            "session_id": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "authority_id",
+            "session_id",
+            "generation"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Snapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "capture_request_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "columns": {
+          "format": "uint16",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "renderer": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "rows": {
+          "format": "uint16",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "state": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 196608,
+          "type": "array"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        },
+        "through_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "capture_request_id",
+        "terminal",
+        "through_sequence",
+        "columns",
+        "rows",
+        "renderer",
+        "state",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "SpendingBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/BudgetBasis"
+        },
+        "currency": {
+          "$ref": "#/$defs/Text"
+        },
+        "limit_microunits": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "currency",
+        "basis",
+        "limit_microunits"
+      ],
+      "type": "object"
+    },
+    "TerminalCommand": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/InputCommand"
+            },
+            "kind": {
+              "const": "input",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/ResizeCommand"
+            },
+            "kind": {
+              "const": "resize",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/ControllerLease"
+            },
+            "kind": {
+              "const": "controller",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/WatchSubscription"
+            },
+            "kind": {
+              "const": "watch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TerminalHost": {
+      "enum": [
+        "tmux"
+      ],
+      "type": "string"
+    },
+    "TerminalIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionIdentity"
+        },
+        "terminal_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "terminal_id",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "TerminalPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "$ref": "#/$defs/TerminalHost"
+        },
+        "input_enabled": {
+          "type": "boolean"
+        },
+        "max_frame_bytes": {
+          "format": "uint32",
+          "maximum": 65536,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_input_bytes": {
+          "format": "uint32",
+          "maximum": 4096,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_pending_input_bytes": {
+          "format": "uint32",
+          "maximum": 32768,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "replay_bytes": {
+          "format": "uint32",
+          "maximum": 1048576,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "host",
+        "input_enabled",
+        "max_input_bytes",
+        "max_pending_input_bytes",
+        "max_frame_bytes",
+        "replay_bytes"
+      ],
+      "type": "object"
+    },
+    "Text": {
+      "description": "Nonempty UTF-8 text, at most 512 bytes; no control characters.",
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "WatchSubscription": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/Text"
+        },
+        "subscription_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TerminalIdentity"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "terminal",
+        "principal_id",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/ProfiledOffer"
+        },
+        "kind": {
+          "const": "launch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/ProfiledAcceptance"
+        },
+        "kind": {
+          "const": "acceptance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/ProfiledGrant"
+        },
+        "kind": {
+          "const": "grant",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/ProfiledJournalRecord"
+        },
+        "kind": {
+          "const": "journal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/NodeTerminalPoll"
+        },
+        "kind": {
+          "const": "poll",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/NodeCommandBatch"
+        },
+        "kind": {
+          "const": "commands",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/NodeOutputBatch"
+        },
+        "kind": {
+          "const": "output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "ContractDocument"
+}
