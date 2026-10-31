@@ -1,0 +1,11 @@
+{
+  "base_commit": "26a852b25b78788992c90de3cc2f2d00366edaba",
+  "files": {
+    "crates/aq-session-host/README.md": "e3b43eba9e2bbb99bc587fb39a94383133cf9ae7df5e34d603f09e3adbbd0916",
+    "crates/aq-session-host/src/terminal_output.rs": "8cd3b2d208719c117d4af5ea646fa06a175a97cacc290edfbaac39a7a373ec9b",
+    "crates/aq-session-host/tests/local_tmux.rs": "d9f0d3717e67abd847c4c5857795522021a2150e7294a896283a509f30c6b259",
+    "crates/aq-terminal-bridge/README.md": "549369e47fa35291b80d48a7d2d6d7f79d67533174dbeff205ec5430f7d8fab3",
+    "crates/aq-terminal-bridge/tests/local_relay.rs": "ac8098e885e33f1900e8b1e450df70ada938e9606ab304924c31187a9ab0cec5",
+    "docs/implementation/WRK-14-output-plan.md": "1ada73716d7a470471b6d010bbc188470103b6cd18ac022c21fc1a25d2b8e881"
+  }
+}
