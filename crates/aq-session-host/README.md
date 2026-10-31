@@ -1,4 +1,4 @@
-# AQ session host 0.1.0
+# AQ session host 0.1.4 candidate
 
 This independent Linux library and helper executable host one immutable agent
 session in a private tmux server. They depend on `aq-session-protocol =0.1.0`,
@@ -199,3 +199,58 @@ suffix; it parses that suffix before another read and cannot renew until it is
 exhausted and the actual pipe reaches EAGAIN. Absolute256KiB line and64KiB decoded
 event bounds remain fail-closed. Full renderer/baseline and producer adoption
 remain unqualified.
+
+
+## Explicit observed-launch component
+
+`observed::ObservedStartup` combines the unchanged `RenderedStartup` literal
+payload, exact physical terminal identity, installed adapter/renderer references,
+fixed geometry and the **original** CLOCK_BOOTTIME hard deadline. The separate
+`SessionHost::prepare_observed` path returns a closed `PendingObservedSession`;
+it remains Starting and cannot return an active terminal controller. Legacy
+`launch`/`launch_rendered` keep their behavior and omit the optional private
+observed configuration field. HostObservation/GuardianIdentity/LaunchIntent and
+StoppedProof wire shapes are unchanged.
+
+`SealedElfPool` admits at most four images/16MiB per explicit process-local pool,
+with a4MiB per-image bound and64KiB copy/hash scratch. It copies verified ELF
+bytes into an executable memfd, verifies kernel immutable seals, and retains the
+same immutable object for reuse; a fresh path hash alone is not immutability.
+There is no implicit eviction or budget reset. The embedding must reserve
+aggregate pools, retained old owners and process resources across restart; these
+are logical component quotas, not RSS/cgroup enforcement. Executable memfd/seals
+are required and unavailable kernels refuse. The first actual fixture is a small
+statically linked synthetic ELF. Sealing an ELF does not pin a dynamic loader,
+libraries, tools or model executor; installed adapter/environment qualification
+must cover those dependencies and the actual helper/tmux installation.
+
+The guardian owns the exact sealed descriptor before any pane starts. The fixed
+helper emits no terminal bytes while closed and reports its original PID/start
+identity and TIOCGWINSZ geometry over owner-only bounded local packets. Before
+returning `VerifiedBlankBaseline`, the guardian checks the exact acknowledged
+one-shot reader, original-time EAGAIN drain, live/non-stopped reader and helper,
+current geometry and immutable launch binding. The caller must also observe the
+attach/drain with no pane output. This proof is opaque/Serialize-only; it is a
+narrow blank premise, **not a renderer Snapshot or an output/resize barrier**.
+The first profile uses a fresh tmux3.4 server, status off, fixed pane dimensions,
+and a read-only ignore-size observer. No capture_text state is substituted.
+
+`release_after_baseline` requires durable caller-owned baseline acceptance via
+`ObservedLaunchAuthority::record_baseline`. The guardian persists one exec intent,
+rechecks authority/reader/geometry after persistence and hands off the held FD.
+The helper revalidates exact payload bytes, seals, cancellation, guardian liveness
+and the original permit/hard deadline, then uses execveat with no path/shell
+fallback. Running requires CLOEXEC peer closure **and** the same live original
+PID/startticks with `/proc/PID/exe` matching the sealed device/inode. EOF alone,
+exec failure, missed short-lived execution and failed durability remain post-grant
+uncertainty without Started; they never imply NeverGranted or safe release.
+`poll_started` is nonblocking so callers can drain output between observations.
+No baseline readiness step renews execution authority.
+
+This candidate is not adopted by the worker runtime/native producer, and proves
+no provider readiness, Codex compatibility, complete tool ownership, renderer
+codec/browser agreement, physical Unicode/alternate-screen compatibility, resize
+sequencer, snapshot barrier, reconnect resynchronization or unknown-input
+resolution. Preexec observer loss is one-shot and refuses release; after exec,
+reader loss retains the existing bounded detach/discontinuity behavior, requiring
+a future qualified resynchronization protocol rather than implicit reattach.

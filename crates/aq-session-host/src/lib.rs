@@ -1,5 +1,7 @@
 //! Reusable Linux tmux hosting. The caller owns authorization and durable task
 //! state; a dedicated helper owns every tmux/pane descendant and permit expiry.
+mod local_ipc;
+pub mod observed;
 pub mod ownership;
 mod reader_lease;
 mod reaper;
@@ -197,6 +199,7 @@ impl RenderedBinding {
 enum StartupInput<'a> {
     Constituents(&'a LaunchManifest),
     Rendered(&'a RenderedStartup),
+    Observed(&'a observed::ObservedStartup),
 }
 /// Memory/CPU/process limits are enforced by the qualified environment, not by
 /// this tmux host. Callers must choose admission-only or supply exact evidence.
@@ -300,8 +303,21 @@ struct SealedLaunch {
     resource_qualification: Option<ArtifactRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     rendered_startup: Option<RenderedBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    observed: Option<observed::Spec>,
 }
 impl SealedLaunch {
+    fn wall_deadline(&self) -> Result<u64> {
+        let wall = self
+            .permit
+            .issued_boot_ms
+            .checked_add(self.manifest.resources.wall_time_ms)
+            .context("wall deadline overflow")?;
+        Ok(self
+            .observed
+            .as_ref()
+            .map_or(wall, |spec| wall.min(spec.hard_deadline_boot_ms)))
+    }
     fn intent(&self) -> Result<LaunchIntent> {
         Ok(LaunchIntent {
             launch_id: self.launch_id,
@@ -397,6 +413,7 @@ impl SessionHost {
             adapter,
             authority,
         )
+        .map(|(handle, _)| handle)
     }
     /// Stage one already-rendered payload unchanged. The caller must validate
     /// the complete descriptor and retained inputs before constructing startup.
@@ -418,6 +435,7 @@ impl SessionHost {
             adapter,
             authority,
         )
+        .map(|(handle, _)| handle)
     }
     fn launch_inner(
         root: &Path,
@@ -427,10 +445,11 @@ impl SessionHost {
         local: &LocalEnvironment,
         adapter: &impl HarnessAdapter,
         authority: &mut impl LaunchAuthority,
-    ) -> Result<SessionHandle> {
+    ) -> Result<(SessionHandle, Option<observed::gate::Client>)> {
         let manifest = match &startup {
             StartupInput::Constituents(m) => *m,
             StartupInput::Rendered(r) => &r.manifest,
+            StartupInput::Observed(r) => &r.rendered.manifest,
         };
         let reaper_slot = reaper::Slot::reserve()?;
         manifest.validate()?;
@@ -494,7 +513,18 @@ impl SessionHost {
             local.context_material.len() <= 128,
             "context material bounds"
         );
-        let (context, rendered_startup) = if let StartupInput::Rendered(rendered) = startup {
+        let rendered = match &startup {
+            StartupInput::Rendered(r) => Some(*r),
+            StartupInput::Observed(r) => Some(&r.rendered),
+            _ => None,
+        };
+        if let StartupInput::Observed(observed) = &startup {
+            ensure!(
+                prepared.command.executable == observed.program.source(),
+                "observed adapter executable mismatch"
+            );
+        }
+        let (context, rendered_startup) = if let Some(rendered) = rendered {
             ensure!(
                 local.context_material.is_empty(),
                 "rendered startup cannot append constituent material"
@@ -558,7 +588,14 @@ impl SessionHost {
             resource_policy: local.resource_policy.clone(),
             resource_qualification: prepared.resource_qualification,
             rendered_startup,
+            observed: match &startup {
+                StartupInput::Observed(r) => Some(r.spec.clone()),
+                _ => None,
+            },
         };
+        if let Some(spec) = &config.observed {
+            spec.validate(&config)?;
+        }
         let intent = config.intent()?;
         durable_new(
             &directory.join("launch.json"),
@@ -578,6 +615,18 @@ impl SessionHost {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        #[cfg(feature = "test-support")]
+        if config.observed.is_some() {
+            // Private synthetic-test bootstrap diagnostics; never enabled by a
+            // production build and never attached to native harness stderr.
+            command.stderr(
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(directory.join("guardian-test-stderr.log"))?,
+            );
+        }
         #[cfg(feature = "test-support")]
         if let Some(stage) = std::env::var_os("AQ_SESSION_HOST_FAULT_STAGE") {
             command.env("AQ_SESSION_HOST_FAULT_STAGE", stage);
@@ -604,6 +653,16 @@ impl SessionHost {
         };
         authority.record_guardian(&handle.identity)?;
         authority.checkpoint("guardian-identity-durable")?;
+        let observed_client = if let StartupInput::Observed(r) = &startup {
+            Some(observed::gate::Client::admit(
+                &handle.directory,
+                &handle.identity,
+                &r.program,
+                config.permit.expires_boot_ms.min(config.wall_deadline()?),
+            )?)
+        } else {
+            None
+        };
         authority.record_start_intent(&intent, &handle.identity)?;
         authority.checkpoint("start-intent-durable")?;
         handle.request("start.request", &config.permit)?;
@@ -611,6 +670,21 @@ impl SessionHost {
         let end = Instant::now() + Duration::from_secs(3);
         let observed = loop {
             let s = handle.observe()?;
+            if let (Some(client), Some(spec)) = (&observed_client, &config.observed)
+                && client
+                    .closed(
+                        spec.baseline_id,
+                        config.permit.expires_boot_ms.min(config.wall_deadline()?),
+                    )?
+                    .is_some()
+            {
+                let current = handle.observe()?;
+                ensure!(
+                    current.phase == HostPhase::Starting,
+                    "observed gate must remain Starting"
+                );
+                return Ok((handle, observed_client));
+            }
             if s.phase == HostPhase::Running {
                 break s;
             }
@@ -624,7 +698,7 @@ impl SessionHost {
         };
         authority.record_started(&observed)?;
         authority.checkpoint("start-receipt-durable")?;
-        Ok(handle)
+        Ok((handle, None))
     }
     /// Recovery is stop-and-preserve only; it never creates a server or pane.
     pub fn recover(root: &Path, expected: &LaunchIntent) -> Result<SessionHandle> {
@@ -661,11 +735,7 @@ impl SessionHost {
             identity,
         };
         let state = handle.observe()?;
-        let wall_deadline = config
-            .permit
-            .issued_boot_ms
-            .checked_add(config.manifest.resources.wall_time_ms)
-            .context("observed host wall deadline")?;
+        let wall_deadline = config.wall_deadline()?;
         ensure!(
             state.phase == HostPhase::Running
                 && ownership::raw_boot_ms() < state.permit_deadline_boot_ms
@@ -756,11 +826,7 @@ impl SessionHandle {
             "expired current authority cannot renew"
         );
         let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
-        let wall = config
-            .permit
-            .issued_boot_ms
-            .checked_add(config.manifest.resources.wall_time_ms)
-            .context("renewal wall deadline")?;
+        let wall = config.wall_deadline()?;
         ensure!(
             permit.expires_boot_ms <= wall && !self.directory.join("stop.request").exists(),
             "renewal exceeds wall limit or cancelled session"
@@ -1256,10 +1322,12 @@ mod rendered_tests {
             }),
             resource_qualification: None,
             rendered_startup: None,
+            observed: None,
         };
         let bytes = serde_json::to_vec(&sealed).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(value.get("rendered_startup").is_none());
+        assert!(value.get("observed").is_none());
         let read: SealedLaunch = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(serde_json::to_vec(&read).unwrap(), bytes);
         assert_eq!(read.intent().unwrap(), sealed.intent().unwrap());

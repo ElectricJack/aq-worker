@@ -258,9 +258,17 @@ pub struct TerminalHandle {
     directory: PathBuf,
     binding: TerminalBinding,
     directory_guard: Arc<DirectoryGuard>,
+    pending_observation: bool,
 }
 impl SessionHandle {
     pub fn bind_terminal(&self, terminal: &TerminalIdentity) -> Result<TerminalHandle> {
+        self.bind_terminal_inner(terminal, false)
+    }
+    pub(crate) fn bind_terminal_inner(
+        &self,
+        terminal: &TerminalIdentity,
+        pending_observation: bool,
+    ) -> Result<TerminalHandle> {
         terminal.validate()?;
         let _lock = RenewalLock::acquire(&self.directory.join("terminal.lock"))?;
         let directory_guard = Arc::new(DirectoryGuard::existing(&self.directory)?);
@@ -270,19 +278,28 @@ impl SessionHandle {
             config.intent()? == self.identity.intent,
             "terminal sealed launch changed"
         );
-        let wall_deadline = config
-            .permit
-            .issued_boot_ms
-            .checked_add(config.manifest.resources.wall_time_ms)
-            .context("terminal binding wall deadline")?;
-        live(
+        if pending_observation {
+            let spec = config
+                .observed
+                .as_ref()
+                .context("pending observer specification")?;
+            spec.validate(&config)?;
+            ensure!(
+                &spec.terminal == terminal,
+                "pending observer exact terminal"
+            );
+        }
+        let wall_deadline = config.wall_deadline()?;
+        live_phase(
             &self.directory,
             &observation,
             wall_deadline,
             observation.permit_deadline_boot_ms,
+            pending_observation,
         )?;
         ensure!(
-            observation.phase == HostPhase::Running,
+            observation.phase == HostPhase::Running
+                || pending_observation && observation.phase == HostPhase::Starting,
             "terminal binding requires running host"
         );
         ensure!(
@@ -338,6 +355,7 @@ impl SessionHandle {
             directory: self.directory.clone(),
             binding,
             directory_guard,
+            pending_observation,
         })
     }
 }
@@ -346,17 +364,35 @@ impl TerminalHandle {
         &self,
     ) -> Result<(PathBuf, PathBuf, aq_session_protocol::TerminalPolicy)> {
         self.directory_guard.verify()?;
-        let root = self.directory.parent().context("output host root")?;
-        let host = SessionHost::observe_existing(root, &self.binding.guardian)?;
-        ensure!(
-            host.observe()?.pane.as_ref() == Some(&self.binding.pane),
-            "output pane identity changed"
-        );
         let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
         ensure!(
             config.intent()? == self.binding.guardian.intent,
             "output sealed configuration changed"
         );
+        let observation: HostObservation = read_json(&self.directory.join("state.json"))?;
+        ensure!(
+            observation.guardian == self.binding.guardian
+                && observation.pane.as_ref() == Some(&self.binding.pane),
+            "output physical identity changed"
+        );
+        if self.pending_observation {
+            let spec = config
+                .observed
+                .as_ref()
+                .context("pending output specification")?;
+            spec.validate(&config)?;
+            ensure!(
+                spec.terminal == self.binding.terminal,
+                "pending output terminal mismatch"
+            );
+        }
+        live_phase(
+            &self.directory,
+            &observation,
+            config.wall_deadline()?,
+            observation.permit_deadline_boot_ms,
+            self.pending_observation,
+        )?;
         self.directory_guard.verify()?;
         Ok((
             self.directory.clone(),
@@ -401,6 +437,7 @@ impl TerminalHandle {
             directory: host.directory.clone(),
             binding,
             directory_guard,
+            pending_observation: false,
         })
     }
     /// A duplicate returns historical metadata; it never authorizes another
@@ -807,9 +844,19 @@ pub(crate) fn tick(
     Ok(())
 }
 fn live(dir: &Path, host: &HostObservation, wall_deadline: u64, deadline: u64) -> Result<()> {
+    live_phase(dir, host, wall_deadline, deadline, false)
+}
+fn live_phase(
+    dir: &Path,
+    host: &HostObservation,
+    wall_deadline: u64,
+    deadline: u64,
+    pending_observation: bool,
+) -> Result<()> {
     let now = ownership::raw_boot_ms();
     ensure!(
-        host.phase == HostPhase::Running
+        (host.phase == HostPhase::Running
+            || pending_observation && host.phase == HostPhase::Starting)
             && now < host.permit_deadline_boot_ms
             && now < wall_deadline
             && now < deadline
@@ -1108,13 +1155,15 @@ pub(crate) fn verify_output_claim(
     host: &HostObservation,
     guard: &DirectoryGuard,
     highwater: &mut u64,
+    pending_observation: bool,
 ) -> Result<()> {
     guard.verify()?;
     binding.validate()?;
     ensure!(
         !claim.is_nil()
             && binding.guardian == host.guardian
-            && host.phase == HostPhase::Running
+            && (host.phase == HostPhase::Running
+                || pending_observation && host.phase == HostPhase::Starting)
             && host.pane.as_ref() == Some(&binding.pane)
             && binding.directory == guard.identity,
         "reader physical binding"

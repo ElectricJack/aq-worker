@@ -248,6 +248,7 @@ pub struct OutputObserver {
     process: ProcessEvidence,
     failed: bool,
     attached: bool,
+    drained_boot_ms: Option<u64>,
 }
 impl OutputObserver {
     pub fn open(terminal: &terminal_io::TerminalHandle) -> Result<Self> {
@@ -265,7 +266,13 @@ impl OutputObserver {
             process,
             failed: false,
             attached: false,
+            drained_boot_ms: None,
         })
+    }
+    pub(crate) fn drained_after(&self, after: u64) -> bool {
+        self.is_attached()
+            && self.drained_boot_ms.is_some_and(|t| t >= after)
+            && self.buffered_wire_bytes() == 0
     }
     pub fn process(&self) -> &ProcessEvidence {
         &self.process
@@ -326,8 +333,12 @@ impl OutputObserver {
                     self.decoder.finish()?;
                     return Ok(vec![ControlEvent::Exited]);
                 }
-                Ok(n) => self.wire.extend_from_slice(&bytes[..n]),
+                Ok(n) => {
+                    self.drained_boot_ms = None;
+                    self.wire.extend_from_slice(&bytes[..n]);
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    self.drained_boot_ms = Some(ownership::raw_boot_ms());
                     // A retained dense-packet suffix must never renew this lease.
                     self.lease
                         .as_mut()

@@ -1,12 +1,12 @@
 //! Private local read-client ownership; not an external relay or launch authority.
 use super::*;
-use std::mem::{size_of, size_of_val};
-use std::os::{
-    fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
-    unix::ffi::OsStrExt,
-};
+#[cfg(test)]
+use crate::local_ipc::MAX_PACKET;
+use crate::local_ipc::Socket;
+#[cfg(test)]
+use std::os::fd::FromRawFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 const SOCKET: &str = "terminal-reader.sock";
-const MAX_PACKET: usize = 4096;
 pub(crate) const LEASE_MS: u64 = 1000;
 const DRAIN_CADENCE_MS: u64 = 250;
 #[derive(Serialize, Deserialize)]
@@ -33,198 +33,6 @@ struct Ready {
     process: ProcessEvidence,
     deadline: u64,
 }
-struct Packet {
-    bytes: Vec<u8>,
-    fd: Option<OwnedFd>,
-}
-struct Socket(OwnedFd);
-impl Socket {
-    fn new() -> Result<Self> {
-        let fd = unsafe {
-            libc::socket(
-                libc::AF_UNIX,
-                libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
-                0,
-            )
-        };
-        ensure!(fd >= 0, "reader local socket creation");
-        let socket = Self(unsafe { OwnedFd::from_raw_fd(fd) });
-        let capacity: libc::c_int = 8192;
-        for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
-            ensure!(
-                unsafe {
-                    libc::setsockopt(
-                        socket.raw(),
-                        libc::SOL_SOCKET,
-                        option,
-                        (&capacity as *const libc::c_int).cast(),
-                        size_of::<libc::c_int>() as _,
-                    )
-                } == 0,
-                "reader socket capacity"
-            );
-        }
-        Ok(socket)
-    }
-    fn raw(&self) -> RawFd {
-        self.0.as_raw_fd()
-    }
-    fn address(path: &Path) -> Result<(libc::sockaddr_un, libc::socklen_t)> {
-        let bytes = path.as_os_str().as_bytes();
-        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-        ensure!(
-            !bytes.contains(&0) && bytes.len() < address.sun_path.len(),
-            "reader socket path bound"
-        );
-        address.sun_family = libc::AF_UNIX as _;
-        for (out, byte) in address.sun_path.iter_mut().zip(bytes) {
-            *out = *byte as _;
-        }
-        let length = (std::mem::offset_of!(libc::sockaddr_un, sun_path) + bytes.len() + 1) as _;
-        Ok((address, length))
-    }
-    fn connect(path: &Path) -> Result<Self> {
-        let socket = Self::new()?;
-        let (address, length) = Self::address(path)?;
-        ensure!(
-            unsafe {
-                libc::connect(
-                    socket.raw(),
-                    (&address as *const libc::sockaddr_un).cast(),
-                    length,
-                )
-            } == 0,
-            "reader local connect refused"
-        );
-        Ok(socket)
-    }
-    fn credentials(&self) -> Result<libc::ucred> {
-        let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
-        let mut length = size_of::<libc::ucred>() as libc::socklen_t;
-        ensure!(
-            unsafe {
-                libc::getsockopt(
-                    self.raw(),
-                    libc::SOL_SOCKET,
-                    libc::SO_PEERCRED,
-                    (&mut credentials as *mut libc::ucred).cast(),
-                    &mut length,
-                )
-            } == 0
-                && length as usize == size_of::<libc::ucred>()
-                && credentials.uid == unsafe { libc::geteuid() },
-            "reader local peer identity"
-        );
-        Ok(credentials)
-    }
-    fn accept(&self) -> Result<Option<Self>> {
-        let fd = unsafe {
-            libc::accept4(
-                self.raw(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
-            )
-        };
-        if fd < 0 {
-            let e = std::io::Error::last_os_error();
-            if e.kind() == std::io::ErrorKind::WouldBlock {
-                return Ok(None);
-            }
-            return Err(e.into());
-        }
-        let socket = Self(unsafe { OwnedFd::from_raw_fd(fd) });
-        socket.credentials()?;
-        Ok(Some(socket))
-    }
-    fn send<T: Serialize>(&self, value: &T, fd: Option<RawFd>) -> Result<()> {
-        let bytes = serde_json::to_vec(value)?;
-        ensure!(bytes.len() <= MAX_PACKET, "reader packet bound");
-        let mut iov = libc::iovec {
-            iov_base: bytes.as_ptr().cast_mut().cast(),
-            iov_len: bytes.len(),
-        };
-        let mut control = [0usize; 8];
-        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-        msg.msg_iov = &mut iov;
-        msg.msg_iovlen = 1;
-        if let Some(fd) = fd {
-            msg.msg_control = control.as_mut_ptr().cast();
-            msg.msg_controllen = unsafe { libc::CMSG_SPACE(size_of::<RawFd>() as _) } as _;
-            unsafe {
-                let header = libc::CMSG_FIRSTHDR(&msg);
-                (*header).cmsg_level = libc::SOL_SOCKET;
-                (*header).cmsg_type = libc::SCM_RIGHTS;
-                (*header).cmsg_len = libc::CMSG_LEN(size_of::<RawFd>() as _) as _;
-                std::ptr::write_unaligned(libc::CMSG_DATA(header).cast::<RawFd>(), fd);
-            }
-        }
-        ensure!(
-            unsafe { libc::sendmsg(self.raw(), &msg, libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL) }
-                == bytes.len() as isize,
-            "reader packet send refused"
-        );
-        Ok(())
-    }
-    fn receive(&self) -> Result<Option<Packet>> {
-        let mut bytes = vec![0u8; MAX_PACKET];
-        let mut iov = libc::iovec {
-            iov_base: bytes.as_mut_ptr().cast(),
-            iov_len: bytes.len(),
-        };
-        let mut control = [0usize; 8];
-        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-        msg.msg_iov = &mut iov;
-        msg.msg_iovlen = 1;
-        msg.msg_control = control.as_mut_ptr().cast();
-        msg.msg_controllen = size_of_val(&control);
-        let count = unsafe {
-            libc::recvmsg(
-                self.raw(),
-                &mut msg,
-                libc::MSG_DONTWAIT | libc::MSG_CMSG_CLOEXEC,
-            )
-        };
-        if count < 0 {
-            let e = std::io::Error::last_os_error();
-            if e.kind() == std::io::ErrorKind::WouldBlock {
-                return Ok(None);
-            }
-            return Err(e.into());
-        }
-        let mut fds = Vec::new();
-        unsafe {
-            let mut header = libc::CMSG_FIRSTHDR(&msg);
-            while !header.is_null() {
-                if (*header).cmsg_level == libc::SOL_SOCKET
-                    && (*header).cmsg_type == libc::SCM_RIGHTS
-                {
-                    let length = (*header)
-                        .cmsg_len
-                        .saturating_sub(libc::CMSG_LEN(0) as usize)
-                        / size_of::<RawFd>();
-                    for n in 0..length {
-                        fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(
-                            libc::CMSG_DATA(header).cast::<RawFd>().add(n),
-                        )));
-                    }
-                }
-                header = libc::CMSG_NXTHDR(&msg, header);
-            }
-        }
-        ensure!(
-            count > 0
-                && msg.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) == 0
-                && fds.len() <= 1,
-            "reader closed or malformed packet"
-        );
-        bytes.truncate(count as usize);
-        Ok(Some(Packet {
-            bytes,
-            fd: fds.pop(),
-        }))
-    }
-}
 struct Reader {
     socket: Socket,
     _stdin: std::process::ChildStdin,
@@ -249,6 +57,10 @@ pub(crate) struct Owner {
     reader: Option<Reader>,
     claimed: bool,
     failed: bool,
+}
+pub(crate) struct Gate<'a> {
+    pub highwater: &'a mut u64,
+    pub pending_observation: bool,
 }
 impl Owner {
     pub(crate) fn new(dir: &Path) -> Result<Self> {
@@ -281,6 +93,27 @@ impl Owner {
             failed: false,
         })
     }
+    pub(crate) fn drained_after(&self, after: u64) -> bool {
+        self.reader.as_ref().is_some_and(|r| {
+            r.acknowledged
+                && r.last_sequence > 0
+                && r.last_drain >= after
+                && ownership::raw_boot_ms() < r.deadline
+                && !r.socket.hung_up().unwrap_or(true)
+                && ownership::pidfd_is_live(&r.pidfd).unwrap_or(false)
+                && ownership::process_evidence(r.process.pid).is_ok_and(|p| p == r.process)
+                && std::fs::read_to_string(format!("/proc/{}/stat", r.process.pid)).is_ok_and(
+                    |stat| {
+                        stat.rsplit_once(") ").is_some_and(|(_, fields)| {
+                            fields
+                                .as_bytes()
+                                .first()
+                                .is_some_and(|v| *v != b'T' && *v != b't')
+                        })
+                    },
+                )
+        })
+    }
     pub(crate) fn tick(
         &mut self,
         dir: &Path,
@@ -288,13 +121,13 @@ impl Owner {
         host: &HostObservation,
         wall_deadline: u64,
         guard: &terminal_io::DirectoryGuard,
-        highwater: &mut u64,
+        gate: Gate<'_>,
     ) {
         if self.failed {
             return;
         }
         if self
-            .try_tick(dir, config, host, wall_deadline, guard, highwater)
+            .try_tick(dir, config, host, wall_deadline, guard, gate)
             .is_err()
         {
             self.reader.take();
@@ -309,8 +142,12 @@ impl Owner {
         host: &HostObservation,
         wall_deadline: u64,
         guard: &terminal_io::DirectoryGuard,
-        highwater: &mut u64,
+        gate: Gate<'_>,
     ) -> Result<()> {
+        let Gate {
+            highwater,
+            pending_observation,
+        } = gate;
         guard.verify()?;
         let metadata = std::fs::symlink_metadata(&self.path)?;
         ensure!(
@@ -323,7 +160,8 @@ impl Owner {
         let now = ownership::raw_boot_ms();
         if let Some(reader) = &mut self.reader {
             ensure!(
-                host.phase == HostPhase::Running
+                (host.phase == HostPhase::Running
+                    || pending_observation && host.phase == HostPhase::Starting)
                     && now < reader.deadline
                     && now < host.permit_deadline_boot_ms
                     && now < wall_deadline
@@ -371,7 +209,10 @@ impl Owner {
             }
             return Ok(());
         }
-        if self.claimed || host.phase != HostPhase::Running {
+        if self.claimed
+            || !(host.phase == HostPhase::Running
+                || pending_observation && host.phase == HostPhase::Starting)
+        {
             return Ok(());
         }
         if self.pending.is_none() {
@@ -386,7 +227,24 @@ impl Owner {
                 else {
                     bail!("reader registration required")
                 };
-                terminal_io::verify_output_claim(dir, &binding, claim, host, guard, highwater)?;
+                if pending_observation {
+                    ensure!(
+                        config
+                            .observed
+                            .as_ref()
+                            .is_some_and(|spec| spec.terminal == binding.terminal),
+                        "preexec reader terminal mismatch"
+                    );
+                }
+                terminal_io::verify_output_claim(
+                    dir,
+                    &binding,
+                    claim,
+                    host,
+                    guard,
+                    highwater,
+                    pending_observation,
+                )?;
                 self.claimed = true;
                 let now = ownership::raw_boot_ms();
                 ensure!(
