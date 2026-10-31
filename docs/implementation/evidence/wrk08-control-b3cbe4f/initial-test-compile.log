@@ -1,0 +1,13 @@
+   Compiling aq-admission v0.1.7 (/tmp/aq-worker-native-consumer/vendor/aq-admission-0.1.7)
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-native-consumer/crates/aq-worker)
+error[E0609]: no field `artifacts` on type `ProfiledOffer`
+   --> crates/aq-worker/tests/native_control.rs:291:48
+    |
+291 |             let expected = offer.offered.offer.artifacts[0].clone();
+    |                                                ^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `binding`, `manifest`, `required_capabilities`
+
+For more information about this error, try `rustc --explain E0609`.
+error: could not compile `aq-worker` (test "native_control") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

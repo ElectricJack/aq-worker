@@ -1,0 +1,35 @@
+{
+  "source_revision": "b3cbe4f2d655df76905a4ba0a9caefcf8734f55d",
+  "qualification": {
+    "control_http_tests": 4,
+    "reporting_download_http_tests": 7,
+    "startup_tests": 6,
+    "strict_worker_all_targets_all_features_clippy": "passed",
+    "format": "passed",
+    "exact_archive_extracted_files_verified": 66
+  },
+  "source_sha256": {
+    "Cargo.toml": "453cf0065acee6b51a32ecfefe9a05d43b6c2747deb66dc584e5aee12976c0b8",
+    "Cargo.lock": "619e0522482cdfbfa3aee3a9e236fe74186e01422496b999b2244016b3f94922",
+    "crates/aq-worker/Cargo.toml": "16dacc0ff567052fa929e343b89fafe38a5342ade13a2bca971e131280ce7b13",
+    "crates/aq-worker/src/native.rs": "79e0bd95dbbe90f54e49ad553c66dcc2d7aa6194bcad3f6efb9f4d197158396d",
+    "crates/aq-worker/src/native/http.rs": "2beaa11390a91466dc72a4d35be0c7d75e35cca958424b2935ac43ada848ca32",
+    "crates/aq-worker/src/native/http/control.rs": "d670350b0e4e64053214b1bc68bb860d6ecb2d5e27fd9126bc1f8912e7d3f194",
+    "crates/aq-worker/tests/native_control.rs": "5603cfd65c47a64e13527e91220e7010c35e924c21d173e9834c12d32f0b4a2c",
+    "crates/aq-worker/tests/native_http.rs": "75655cdbc07c11ab10719b03c9db99b67811280919da582e24f3effe927b4768",
+    "crates/aq-worker/tests/native_startup.rs": "d8935a04c07dad8670f0f918c2cbd6b3bdbcc5394a5105bb31b49a9e0222b92f",
+    "vendor/aq-admission-017-source.json": "fe852d71eb3f9117e19b5d0dfb4098a25d2f4c3304d02d676e511fd1d0c3169f"
+  },
+  "evidence": {
+    "docs/implementation/evidence/wrk08-control-b3cbe4f/clippy.log": "769123e1304ab50165afff2daa6ac46d11c9d84dcdb97f3478c29a88faae9743",
+    "docs/implementation/evidence/wrk08-control-b3cbe4f/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/implementation/evidence/wrk08-control-b3cbe4f/initial-test-compile.log": "4bc3911e6db4d802ed763b77be9bf8383228a4bebf28b45d45e998e818c6e0a6",
+    "docs/implementation/evidence/wrk08-control-b3cbe4f/tests.log": "047eb39d38fe1cd4f9be017285332611da815c2f7d4997e4e582ebc7d32a23bd"
+  },
+  "limits": [
+    "Actual loopback HTTP peers use synthetic published fixtures. Actual025producer/nativeworker/harness is not qualified.",
+    "Opaque preparation/grant wrappers are process-local network observations, not durable journal recovery, host permits, private material installation or physical process proof.",
+    "Initial test compile corrected a fixture helper field path from ProfiledOffer.artifacts to OfferedLaunch.artifacts; production implementation was unchanged by this fixture repair.",
+    "Existing0.1.6 archive/fixtures remain retained and byte-identical; extracted0.1.7 manifests unchanged."
+  ]
+}
