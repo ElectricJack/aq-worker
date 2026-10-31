@@ -1,7 +1,7 @@
 {
   "task": "WRK-15",
   "status": "pure_component_review_candidate_not_runtime_complete",
-  "source_revision": null,
+  "source_revision": "50c9e48c13bedb493ab022b37ea44f0e525bb582",
   "baseline_revision": "36ec3e2ae205203794f601eb29414718e62d43ea",
   "source_hashes": {
     "Cargo.toml": "638b46fefd8b10d120865164638b7a55300bc89a19a4f38654644dbad1ea40f0",
@@ -52,7 +52,20 @@
     "strict_all_target_clippy": true,
     "artifact_drift": true,
     "format": true,
-    "standalone_extracted_package": "pending clean reviewed source commit",
+    "standalone_extracted_package": {
+      "source_revision": "50c9e48c13bedb493ab022b37ea44f0e525bb582",
+      "archive_sha256": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+      "tests_passed": 35,
+      "strict_all_target_clippy": true,
+      "artifact_drift": true,
+      "format": true,
+      "archive_dependencies": {
+        "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+        "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+      },
+      "packaging": "cargo package -p aq-observation --exclude-lockfile --no-verify --offline; verify extracted package independently",
+      "no_sibling_runtime_checkout": true
+    },
     "actual_selected_cli_qualification": false,
     "production_transport_or_worker_runtime_integration": false
   },
@@ -63,7 +76,12 @@
     "fmt": "docs/implementation/WRK-15-component/fmt.log",
     "retained-temp-process-exit": "docs/implementation/WRK-15-component/retained-temp-process-exit.log",
     "performance-before": "docs/implementation/WRK-15-component/performance-before.json",
-    "performance-after": "docs/implementation/WRK-15-component/performance-after.json"
+    "performance-after": "docs/implementation/WRK-15-component/performance-after.json",
+    "clean-standalone-tests": "docs/implementation/WRK-15-component/clean-standalone-tests.log",
+    "clean-standalone-clippy": "docs/implementation/WRK-15-component/clean-standalone-clippy.log",
+    "clean-standalone-drift": "docs/implementation/WRK-15-component/clean-standalone-drift.log",
+    "clean-standalone-fmt": "docs/implementation/WRK-15-component/clean-standalone-fmt.log",
+    "clean-standalone-package": "docs/implementation/WRK-15-component/clean-standalone-package.log"
   },
   "performance": {
     "snapshot_provenance": "synthetic structurally valid private journals; checked by Spool::open; excludes population cost and native CLI evidence",
