@@ -1,0 +1,12 @@
+{
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "cpu_count": 24,
+  "load_sample": [
+    1.22021484375,
+    1.0517578125,
+    2.45458984375
+  ],
+  "provider": "none; pure synthetic fixtures",
+  "dependencies": "unicode-width=0.2.2 fetched once; qualification locked/offline"
+}

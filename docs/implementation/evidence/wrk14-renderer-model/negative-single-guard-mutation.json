@@ -1,0 +1,4 @@
+{
+  "scope": "Negative variant removed history compaction but retained resize-row compaction; regression correctly still passes due independent guard",
+  "sha256": "199bfbec94bcdad8fc450b0eed91394d4edefb3a0d8ab115f4d83f4c85b1fdb6"
+}

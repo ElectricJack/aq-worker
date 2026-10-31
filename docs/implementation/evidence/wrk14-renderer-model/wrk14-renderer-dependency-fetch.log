@@ -1,0 +1,7 @@
+    Updating crates.io index
+     Locking 1 package to latest Rust 1.96.1 compatible version
+      Adding unicode-width v0.2.2 (available: v0.2.3)
+ Downloading crates ...
+  Downloaded winapi v0.3.9
+  Downloaded winapi-x86_64-pc-windows-gnu v0.4.0
+  Downloaded winapi-i686-pc-windows-gnu v0.4.0

@@ -1,0 +1,15 @@
+    Checking aq-terminal-renderer v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-renderer)
+error[E0425]: cannot find value `flags` in this scope
+  --> crates/aq-terminal-renderer/src/codec.rs:55:16
+   |
+55 |             || flags & (8 | 256) == (8 | 256)
+   |                ^^^^^ not found in this scope
+
+error[E0425]: cannot find value `flags` in this scope
+   --> crates/aq-terminal-renderer/src/codec.rs:570:16
+    |
+570 |             || flags & (8 | 256) == (8 | 256)
+    |                ^^^^^ not found in this scope
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `aq-terminal-renderer` (lib) due to 2 previous errors

@@ -1,0 +1,21 @@
+{
+  "base_commit": "a257fcc90c41d4e2e29213464b76c8ff93d4405d",
+  "files": {
+    "Cargo.toml": "a220a6b9af6046bdb495f9cde8914cfaba879749c6bf2cd5abc58dda143a0c65",
+    "Cargo.lock": "538d5a686c3a2cb7e0551624623f7aee0b05634bc235a711a7e6afe66b7c1e78",
+    "crates/aq-terminal-renderer/CODEC.md": "281506de60e776523c689378b51c1b7e7478c044c9b07c4fe7a2be89f7c30a33",
+    "crates/aq-terminal-renderer/Cargo.toml": "f6ec6932c8e08203f6ca2acfed0ffd2da681120d7d250acce47ac9315f23276b",
+    "crates/aq-terminal-renderer/README.md": "a59ca441974ac340a4eb5a91d162cf5a1f15200e6cd605d8734070c2a232b515",
+    "crates/aq-terminal-renderer/examples/export_fixture_image.rs": "c0f2f7ed1bfd34ea9c6709999202969ef9ac2298b907591cba9de3ea333c3ce2",
+    "crates/aq-terminal-renderer/examples/record_cli_stream.rs": "b241978a05c0e868f04508863616dfc1ad3843bd3907a2480c893a0410940abd",
+    "crates/aq-terminal-renderer/src/codec.rs": "a8c4c069227a1743d2339183fdcb7e0fd5da7a14718fe1987fda38c7daf931e0",
+    "crates/aq-terminal-renderer/src/lib.rs": "9e92e6fb18bafdd2b0406051f6d97b3055aa9e5088ba01cb3862dd55f53e6ae4",
+    "crates/aq-terminal-renderer/src/model.rs": "1d0026c6d29eeb0e0345a9ce24e4f58cfc45ce1217d37bef166053e206ba6673",
+    "crates/aq-terminal-renderer/src/parser.rs": "ee1d7c6069076aef0810538bb24a6ae6652d278afb8f859f009fa5e479949d7b",
+    "crates/aq-terminal-renderer/tests/fixtures/alternate-partial.aqri": "0c68cbe57abec3f62141473a1726762daf9a113769922ae1fef1a709c61ffccd",
+    "crates/aq-terminal-renderer/tests/fixtures/synthetic-cli.ansi": "e6d822f2eaf92b1606067a24302880ac8c7c38632163ce78e1d1fe43d1a4a12d",
+    "crates/aq-terminal-renderer/tests/fixtures/vectors.sha256": "9929c08553edd0985c76e29e76070144a5f47991f2fdbd808456066492ffc325",
+    "crates/aq-terminal-renderer/tests/model.rs": "5d06d3b203c7d3b169d09dedce4be35400bd65d5c650d7707fafb62ad9e1c040"
+  },
+  "scope": "Abstract strict-profile model only; no physical baseline, renderer compatibility or sharedSnapshot producer"
+}

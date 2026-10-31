@@ -1,0 +1,9 @@
+    Checking unicode-width v0.2.2
+    Checking uuid v1.29.0
+    Checking crypto-common v0.1.7
+    Checking digest v0.10.7
+    Checking sha2 v0.10.9
+    Checking schemars v1.2.3
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-session-protocol)
+    Checking aq-terminal-renderer v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-renderer)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.04s
