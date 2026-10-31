@@ -1,0 +1,53 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+error[E0423]: cannot initialize a tuple struct which contains private fields
+   --> crates/aq-session-host/src/reader_lease.rs:426:17
+    |
+  9 | const SOCKET: &str = "terminal-reader.sock";
+    | -------------------------------------------- similarly named constant `SOCKET` defined here
+...
+426 |         let a = Socket(unsafe { OwnedFd::from_raw_fd(pair[0]) });
+    |                 ^^^^^^
+    |
+note: constructor is not visible here due to private fields
+   --> crates/aq-session-host/src/local_ipc.rs:13:26
+    |
+ 13 | pub(crate) struct Socket(OwnedFd);
+    |                          ^^^^^^^ private field
+help: consider making the field publicly accessible
+   --> crates/aq-session-host/src/local_ipc.rs:13:26
+    |
+ 13 | pub(crate) struct Socket(pub OwnedFd);
+    |                          +++
+help: a constant with a similar name exists
+    |
+426 -         let a = Socket(unsafe { OwnedFd::from_raw_fd(pair[0]) });
+426 +         let a = SOCKET(unsafe { OwnedFd::from_raw_fd(pair[0]) });
+    |
+
+error[E0423]: cannot initialize a tuple struct which contains private fields
+   --> crates/aq-session-host/src/reader_lease.rs:427:17
+    |
+  9 | const SOCKET: &str = "terminal-reader.sock";
+    | -------------------------------------------- similarly named constant `SOCKET` defined here
+...
+427 |         let b = Socket(unsafe { OwnedFd::from_raw_fd(pair[1]) });
+    |                 ^^^^^^
+    |
+note: constructor is not visible here due to private fields
+   --> crates/aq-session-host/src/local_ipc.rs:13:26
+    |
+ 13 | pub(crate) struct Socket(OwnedFd);
+    |                          ^^^^^^^ private field
+help: consider making the field publicly accessible
+   --> crates/aq-session-host/src/local_ipc.rs:13:26
+    |
+ 13 | pub(crate) struct Socket(pub OwnedFd);
+    |                          +++
+help: a constant with a similar name exists
+    |
+427 -         let b = Socket(unsafe { OwnedFd::from_raw_fd(pair[1]) });
+427 +         let b = SOCKET(unsafe { OwnedFd::from_raw_fd(pair[1]) });
+    |
+
+For more information about this error, try `rustc --explain E0423`.
+error: could not compile `aq-session-host` (lib test) due to 2 previous errors

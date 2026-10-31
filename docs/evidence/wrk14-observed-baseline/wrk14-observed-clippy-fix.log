@@ -1,0 +1,8 @@
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-protocol)
+    Checking aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+       Fixed crates/aq-session-host/src/supervisor.rs (1 fix)
+       Fixed crates/aq-session-host/src/observed/gate.rs (3 fixes)
+       Fixed crates/aq-session-host/src/lib.rs (1 fix)
+       Fixed crates/aq-session-host/src/observed/mod.rs (1 fix)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.29s

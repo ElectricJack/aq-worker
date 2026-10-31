@@ -1,0 +1,54 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+warning: fields `client` and `spec` are never read
+   --> crates/aq-session-host/src/observed/mod.rs:143:5
+    |
+141 | pub struct PendingObservedSession {
+    |            ---------------------- fields in this struct
+142 |     handle: SessionHandle,
+143 |     client: gate::Client,
+    |     ^^^^^^
+144 |     spec: Spec,
+    |     ^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `closed` is never used
+   --> crates/aq-session-host/src/observed/mod.rs:188:19
+    |
+178 | impl PendingObservedSession {
+    | --------------------------- method in this implementation
+...
+188 |     pub(crate) fn closed(&self) -> Result<gate::ClosedReady> {
+    |                   ^^^^^^
+
+warning: function `observed_image` is never used
+ --> crates/aq-session-host/src/observed/exec.rs:5:15
+  |
+5 | pub(crate) fn observed_image(process: &ProcessEvidence, image: &ElfIdentity) -> Result<()> {
+  |               ^^^^^^^^^^^^^^
+
+warning: function `enter` is never used
+  --> crates/aq-session-host/src/observed/exec.rs:21:15
+   |
+21 | pub(crate) fn enter(
+   |               ^^^^^
+
+warning: `aq-session-host` (lib) generated 4 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.11s
+     Running tests/local_tmux.rs (/tmp/wrk14-baseline-target/debug/deps/local_tmux-92ff75169bcbe83b)
+
+running 1 test
+
+thread 'observed_helper_stays_starting_without_exec_or_started_until_original_expiry' (4121151) panicked at crates/aq-session-host/tests/local_tmux.rs:1984:6:
+called `Result::unwrap()` on an `Err` value: observed gate must remain Starting
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test observed_helper_stays_starting_without_exec_or_started_until_original_expiry ... FAILED
+
+failures:
+
+failures:
+    observed_helper_stays_starting_without_exec_or_started_until_original_expiry
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `-p aq-session-host --test local_tmux`

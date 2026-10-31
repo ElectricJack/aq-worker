@@ -1,0 +1,11 @@
+{
+  "processes": 84,
+  "passed": 351,
+  "failed": 0,
+  "ignored": 43,
+  "summed_test_process_seconds": 174.24,
+  "build_lines": [
+    "    Finished `test` profile [unoptimized + debuginfo] target(s) in 34.09s"
+  ],
+  "total_wall_seconds": null
+}

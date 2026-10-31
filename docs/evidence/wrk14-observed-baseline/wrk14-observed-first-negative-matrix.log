@@ -1,0 +1,11 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.08s
+     Running tests/local_tmux.rs (/tmp/wrk14-baseline-target/debug/deps/local_tmux-92ff75169bcbe83b)
+
+running 3 tests
+test observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec ... ok
+test observed_helper_stays_starting_without_exec_or_started_until_original_expiry ... ok
+test observed_baseline_durability_reader_and_expiry_fail_closed_without_exec ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 3.46s
+

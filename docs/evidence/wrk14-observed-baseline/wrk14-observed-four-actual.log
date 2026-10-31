@@ -1,0 +1,37 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.91s
+     Running tests/local_tmux.rs (/tmp/wrk14-baseline-target/debug/deps/local_tmux-92ff75169bcbe83b)
+
+running 4 tests
+
+running 1 test
+test observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec ... ok
+test observed_helper_stays_starting_without_exec_or_started_until_original_expiry ... ok
+test observed_baseline_durability_reader_and_expiry_fail_closed_without_exec ... ok
+
+thread 'observed_short_exec_without_live_kernel_evidence_never_records_started' (4132291) panicked at crates/aq-session-host/tests/local_tmux.rs:22:9:
+guardian test fault after fixed exec permit timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... FAILED
+
+failures:
+
+failures:
+    observed_short_exec_without_live_kernel_evidence_never_records_started
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 35 filtered out; finished in 5.45s
+
+
+thread 'observed_short_exec_without_live_kernel_evidence_never_records_started' (4132288) panicked at crates/aq-session-host/tests/local_tmux.rs:2372:9:
+assertion failed: status.success()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... FAILED
+
+failures:
+
+failures:
+    observed_short_exec_without_live_kernel_evidence_never_records_started
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 5.46s
+
+error: test failed, to rerun pass `-p aq-session-host --test local_tmux`

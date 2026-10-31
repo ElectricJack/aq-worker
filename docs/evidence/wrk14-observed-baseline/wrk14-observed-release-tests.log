@@ -1,0 +1,137 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+error[E0425]: cannot find value `guard` in this scope
+   --> crates/aq-session-host/src/observed/gate.rs:106:9
+    |
+106 |         guard.verify()?;
+    |         ^^^^^ not found in this scope
+
+error[E0425]: cannot find value `readers` in this scope
+   --> crates/aq-session-host/src/observed/gate.rs:233:29
+    |
+233 |                         if !readers.drained_after(ready.helper_ready_boot_ms) {
+    |                             ^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `readers` in this scope
+   --> crates/aq-session-host/src/observed/gate.rs:261:36
+    |
+261 | ...                   && readers.drained_after(ready.helper_ready_boot_ms),
+    |                          ^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `guard` in this scope
+   --> crates/aq-session-host/src/observed/gate.rs:264:25
+    |
+264 |                         guard.verify()?;
+    |                         ^^^^^ not found in this scope
+
+error[E0425]: cannot find value `directory` in this scope
+   --> crates/aq-session-host/src/observed/gate.rs:266:30
+    |
+266 | ...                   &directory.join("pane-exec.claim"),
+    |                        ^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `guard` in this scope
+   --> crates/aq-session-host/src/observed/gate.rs:269:25
+    |
+269 |                         guard.verify()?;
+    |                         ^^^^^ not found in this scope
+
+error[E0425]: cannot find value `readers` in this scope
+   --> crates/aq-session-host/src/observed/gate.rs:272:29
+    |
+272 | ...                   readers.drained_after(ready.helper_ready_boot_ms),
+    |                       ^^^^^^^ not found in this scope
+
+error[E0308]: mismatched types
+   --> crates/aq-session-host/src/observed/gate.rs:136:27
+    |
+136 |                 return Ok(true);
+    |                        -- ^^^^ expected `()`, found `bool`
+    |                        |
+    |                        arguments to this enum variant are incorrect
+    |
+help: the type constructed contains `bool` due to the type of the argument passed
+   --> crates/aq-session-host/src/observed/gate.rs:136:24
+    |
+136 |                 return Ok(true);
+    |                        ^^^----^
+    |                           |
+    |                           this argument influences the type of `Ok`
+note: tuple variant defined here
+   --> /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/result.rs:561:4
+
+error[E0308]: mismatched types
+   --> crates/aq-session-host/src/observed/gate.rs:142:23
+    |
+142 |             return Ok(false);
+    |                    -- ^^^^^ expected `()`, found `bool`
+    |                    |
+    |                    arguments to this enum variant are incorrect
+    |
+help: the type constructed contains `bool` due to the type of the argument passed
+   --> crates/aq-session-host/src/observed/gate.rs:142:20
+    |
+142 |             return Ok(false);
+    |                    ^^^-----^
+    |                       |
+    |                       this argument influences the type of `Ok`
+note: tuple variant defined here
+   --> /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/result.rs:561:4
+
+error[E0308]: mismatched types
+   --> crates/aq-session-host/src/observed/gate.rs:305:12
+    |
+305 |         Ok(false)
+    |         -- ^^^^^ expected `()`, found `bool`
+    |         |
+    |         arguments to this enum variant are incorrect
+    |
+help: the type constructed contains `bool` due to the type of the argument passed
+   --> crates/aq-session-host/src/observed/gate.rs:305:9
+    |
+305 |         Ok(false)
+    |         ^^^-----^
+    |            |
+    |            this argument influences the type of `Ok`
+note: tuple variant defined here
+   --> /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/result.rs:561:4
+
+error[E0061]: this method takes 2 arguments but 5 arguments were supplied
+   --> crates/aq-session-host/src/supervisor.rs:363:29
+    |
+363 |                 match owner.tick(&config, &state, dir, &reader_owner, &directory_guard) {
+    |                             ^^^^                  ---  -------------  ---------------- unexpected argument #5 of type `&DirectoryGuard`
+    |                                                   |    |
+    |                                                   |    unexpected argument #4 of type `&reader_lease::Owner`
+    |                                                   unexpected argument #3 of type `&std::path::Path`
+    |
+note: method defined here
+   --> crates/aq-session-host/src/observed/gate.rs:105:19
+    |
+105 |     pub(crate) fn tick(&mut self, config: &SealedLaunch, host: &HostObservation) -> Result<()> {
+    |                   ^^^^
+help: remove the extra arguments
+    |
+363 -                 match owner.tick(&config, &state, dir, &reader_owner, &directory_guard) {
+363 +                 match owner.tick(&config, &state) {
+    |
+
+error[E0308]: mismatched types
+   --> crates/aq-session-host/src/supervisor.rs:364:24
+    |
+363 |                 match owner.tick(&config, &state, dir, &reader_owner, &directory_guard) {
+    |                       ----------------------------------------------------------------- this expression has type `std::result::Result<(), anyhow::Error>`
+364 |                     Ok(true) => {
+    |                        ^^^^ expected `()`, found `bool`
+
+error[E0308]: mismatched types
+   --> crates/aq-session-host/src/supervisor.rs:369:24
+    |
+363 |                 match owner.tick(&config, &state, dir, &reader_owner, &directory_guard) {
+    |                       ----------------------------------------------------------------- this expression has type `std::result::Result<(), anyhow::Error>`
+...
+369 |                     Ok(false) => {}
+    |                        ^^^^^ expected `()`, found `bool`
+
+Some errors have detailed explanations: E0061, E0308, E0425.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `aq-session-host` (lib test) due to 13 previous errors

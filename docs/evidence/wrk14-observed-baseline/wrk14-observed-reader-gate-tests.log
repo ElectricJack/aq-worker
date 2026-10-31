@@ -1,0 +1,74 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+warning: fields `client` and `spec` are never read
+   --> crates/aq-session-host/src/observed/mod.rs:143:5
+    |
+141 | pub struct PendingObservedSession {
+    |            ---------------------- fields in this struct
+142 |     handle: SessionHandle,
+143 |     client: gate::Client,
+    |     ^^^^^^
+144 |     spec: Spec,
+    |     ^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `closed` is never used
+   --> crates/aq-session-host/src/observed/mod.rs:188:19
+    |
+178 | impl PendingObservedSession {
+    | --------------------------- method in this implementation
+...
+188 |     pub(crate) fn closed(&self) -> Result<gate::ClosedReady> {
+    |                   ^^^^^^
+
+warning: function `enter` is never used
+  --> crates/aq-session-host/src/observed/exec.rs:21:15
+   |
+21 | pub(crate) fn enter(
+   |               ^^^^^
+
+warning: method `drained_after` is never used
+  --> crates/aq-session-host/src/reader_lease.rs:92:19
+   |
+61 | impl Owner {
+   | ---------- method in this implementation
+...
+92 |     pub(crate) fn drained_after(&self, after: u64) -> bool {
+   |                   ^^^^^^^^^^^^^
+
+warning: method `drained_after` is never used
+   --> crates/aq-session-host/src/terminal_output.rs:272:19
+    |
+253 | impl OutputObserver {
+    | ------------------- method in this implementation
+...
+272 |     pub(crate) fn drained_after(&self, after: u64) -> bool {
+    |                   ^^^^^^^^^^^^^
+
+warning: `aq-session-host` (lib test) generated 5 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.54s
+     Running unittests src/lib.rs (/tmp/wrk14-baseline-target/debug/deps/aq_session_host-30ae052d19a7152f)
+
+running 19 tests
+test io_tests::large_stdout_fixture ... ignored, subprocess output fixture invoked by bounded output test
+test observed::exec::tests::eof_without_matching_live_image_is_not_exec_proof ... ok
+test reader_lease::tests::queued_old_drain_cannot_extend_from_dequeue_or_revive_expiry ... ok
+test reaper::tests::reservation_exhaustion_refuses_before_spawning ... ok
+test reader_lease::tests::packet_fd_is_bounded_and_close_on_exec_and_extra_mutation_fields_refuse ... ok
+test terminal_output::tests::chunks_preserve_unicode_ansi_octal_and_literal_backslash_without_interpretation ... ok
+test terminal_output::tests::extended_output_and_pause_are_explicit_not_silent_recovery ... ok
+test tests::independent_permit_is_exact_bounded_and_expiring ... ok
+test rendered_tests::final_payload_is_literal_and_bound_to_exact_single_descriptor ... ok
+test tests::local_command_bounds_and_protected_environment ... ok
+test io_tests::nonregular_and_symlink_material_is_refused ... ok
+test observed::executable::tests::byte_entry_digest_header_and_nonregular_sources_refuse_before_admission ... ok
+test observed::executable::tests::sealed_actual_bytes_survive_path_change_and_cannot_be_written_or_grown ... ok
+test terminal_output::tests::malformed_foreign_and_oversized_streams_fail_closed ... ok
+test io_tests::command_stdout_above_pipe_capacity_is_drained_before_exit ... ok
+test rendered_tests::legacy_sealed_configuration_omits_new_optional_field ... ok
+test terminal_output::tests::bounded_continuation_does_not_widen_line_decoded_byte_or_eof_bounds ... ok
+test io_tests::command_input_and_output_above_pipe_capacity_progress_under_one_deadline ... ok
+test terminal_output::tests::dense_packet_continuation_preserves_every_event_and_escape_boundary ... ok
+
+test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.21s
+

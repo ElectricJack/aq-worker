@@ -1,0 +1,23 @@
+    Checking sha1_smol v1.0.1
+    Checking unicode-width v0.2.2
+    Checking uuid v1.29.0
+    Checking schemars v1.2.3
+    Checking aq-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-protocol)
+    Checking aq-agent-api v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-agent-api-0.1.0)
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-protocol)
+    Checking aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-worker-protocol)
+    Checking aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-lifecycle-protocol)
+    Checking aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-session-api v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-session-api-0.1.0)
+    Checking aq-agent-client v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-agent-client)
+    Checking aq-terminal-renderer v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-terminal-renderer)
+    Checking aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+    Checking aq-terminal-relay v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-terminal-relay-0.1.0)
+    Checking aq-observation v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-observation)
+    Checking aq-observation-engine v0.0.1 (/home/jkern/dev/aq-worker-baseline/crates/aq-observation-engine)
+    Checking aq-admission v0.1.7 (/home/jkern/dev/aq-worker-baseline/vendor/aq-admission-0.1.7)
+    Checking aq-observation-admission v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-observation-admission-0.1.0)
+    Checking aq-terminal-bridge v0.1.1 (/home/jkern/dev/aq-worker-baseline/crates/aq-terminal-bridge)
+    Checking aq-observation-redb-prototype v0.0.5 (/home/jkern/dev/aq-worker-baseline/crates/aq-observation-redb-prototype)
+    Checking aq-worker v0.3.3 (/home/jkern/dev/aq-worker-baseline/crates/aq-worker)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.31s

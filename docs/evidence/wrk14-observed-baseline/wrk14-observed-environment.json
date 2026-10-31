@@ -1,0 +1,14 @@
+{
+  "uname -a": "Linux DESKTOP-EB8UOME 6.18.33.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 18 21:54:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+  "rustc -Vv": "rustc 1.96.1 (31fca3adb 2026-06-26)\nbinary: rustc\ncommit-hash: 31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd\ncommit-date: 2026-06-26\nhost: x86_64-unknown-linux-gnu\nrelease: 1.96.1\nLLVM version: 22.1.2",
+  "cargo -V": "cargo 1.96.1 (356927216 2026-06-26)",
+  "/usr/bin/tmux -V": "tmux 3.4",
+  "/usr/bin/cc --version": "cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+  "nproc ": "24",
+  "cpu_model": "AMD Ryzen 9 5900X 12-Core Processor",
+  "meminfo": "MemTotal:       32863916 kB\nMemFree:         1598628 kB\nMemAvailable:   26597696 kB\nBuffers:         1134128 kB\nCached:         23012316 kB\nSwapCached:       214928 kB\nActive:         19590792 kB\nInactive:        7888668 kB\nActive(anon):    1381792 kB\nInactive(anon):  2276964 kB\nActive(file):   18209000 kB\nInactive(file):  5611704 kB\nUnevictable:           8 kB\nMlocked:               8 kB\nSwapTotal:      33554432 kB\nSwapFree:       29278496 kB\nDirty:             16384 kB\nWriteback:             0 kB\nAnonPages:       3291876 kB\nMapped:           938668 kB\nShmem:            325708 kB\nKReclaimable:    1557932 kB\nSlab:            1910508 kB\nSReclaimable:    1557932 kB\nSUnreclaim:       352576 kB\nKernelStack:       30404 kB\nPageTables:        86292 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    49986388 kB\nCommitted_AS:   17001876 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       88544 kB\nVmallocChunk:          0 kB\nPercpu:            19296 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:    571392 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:    434176 kB\nFilePmdMapped:    124928 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:      185344 kB\nDirectMap2M:    17639424 kB\nDirectMap1G:    25165824 kB\n",
+  "cgroup": "0::/init.scope\n",
+  "RUST_TEST_THREADS_parent_environment": null,
+  "cgroup_cpu_memory_limits": "not available at /sys/fs/cgroup/cpu.max or memory.max",
+  "load_note": "Concurrent root native/dashboard development and other agent builds; no dedicated-host capacity/SLO claim."
+}

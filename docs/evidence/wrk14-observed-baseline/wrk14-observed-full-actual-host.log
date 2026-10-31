@@ -1,0 +1,53 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.61s
+     Running tests/local_tmux.rs (/tmp/wrk14-baseline-target/debug/deps/local_tmux-92ff75169bcbe83b)
+
+running 36 tests
+test launch_child_fixture ... ok
+
+running 1 test
+test local_configuration_refusals_happen_before_durable_launch_or_process ... ok
+test guardian_loss_remains_uncertain_even_after_known_processes_disappear ... ok
+test reader_owner_child_fixture ... ok
+test existing_pane_is_refused_and_never_used_for_the_agent ... ok
+test pane_exit_has_no_fallback_and_escaped_descendants_require_kernel_stop ... ok
+test failed_durable_start_and_socket_collision_never_launch_native_child ... ok
+test exact_observation_and_unstarted_recovery_never_launch_or_inject ... ok
+test rendered_payload_tampered_after_intent_is_refused_before_native_exec ... ok
+test copied_launch_directory_and_old_mailbox_cannot_reset_physical_input_history ... ok
+test guarded_literal_unicode_resize_and_durable_duplicate_receipts ... ok
+test rendered_startup_reaches_owned_harness_as_one_exact_payload ... ok
+test central_and_remote_interaction_stop_and_no_relaunch ... ok
+test read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart ... ok
+test permit_expiry_is_independent_and_late_renewal_cannot_revive ... ok
+qualification_resource_rss_kib={"guardian":5460,"pane":4328,"tmux":5896}
+test renewals_are_monotonic_and_resource_cost_is_observed ... ok
+test renewal_compare_publish_is_serialized_while_guardian_is_stopped ... ok
+test observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec ... ok
+test guardian_crashes_across_socket_and_pane_creation_never_claim_stop ... ok
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.72s
+
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... ok
+test encrypted_mailbox_tamper_and_missing_key_refuse_without_stopping_expiry ... ok
+test paused_injecting_deadline_and_new_controller_cannot_clear_unknown ... ok
+test injecting_crash_before_or_after_physical_effect_is_unknown_never_replayed ... ok
+test malformed_renewal_stops_and_wall_limit_cannot_be_extended ... ok
+test replayed_valid_encrypted_ledger_cannot_repeat_an_applied_input ... ok
+test tmux_pane_identifier_reuse_does_not_authorize_the_replacement_process ... ok
+test execution_expiry_stops_writers_even_while_observer_client_remains_sigstopped ... ok
+test caller_crashes_at_durable_start_boundaries_never_relaunch ... ok
+test sustained_adopted_child_exits_cannot_starve_expiry_or_stop_proof ... ok
+test helper_expiry_survives_caller_death_without_recovery_control ... ok
+test observed_helper_stays_starting_without_exec_or_started_until_original_expiry ... ok
+slow data-only cutoff=1.183822059s, data_polls=4, retained_packet_polls=2
+test slow_data_only_polls_cannot_renew_an_undrained_reader_forever ... ok
+synthetic output progress with stopped sole observer: 12779520 bytes
+test sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control ... ok
+test quiet_drained_reader_renews_but_undrained_reader_expires_without_stopping_harness ... ok
+test observed_baseline_durability_reader_and_expiry_fail_closed_without_exec ... ok
+test dead_or_stopped_owner_and_lost_ready_or_ack_cannot_leave_a_blocking_reader ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.97s
+

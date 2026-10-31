@@ -1,0 +1,16 @@
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-protocol)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-session-api v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-session-api-0.1.0)
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+   Compiling aq-terminal-relay v0.1.0 (/home/jkern/dev/aq-worker-baseline/vendor/aq-terminal-relay-0.1.0)
+   Compiling aq-terminal-bridge v0.1.1 (/home/jkern/dev/aq-worker-baseline/crates/aq-terminal-bridge)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.35s
+     Running tests/local_relay.rs (/home/jkern/dev/aq-worker/target/debug/deps/local_relay-2363c5dfab805583)
+
+running 3 tests
+test full_tail_queue_keeps_draining_without_a_network_consumer ... ok
+test stalled_receipt_network_does_not_hold_guardian_renewal_or_stop ... ok
+test actual_guardian_http_relay_lost_ack_restart_unicode_resize_no_duplicate ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
