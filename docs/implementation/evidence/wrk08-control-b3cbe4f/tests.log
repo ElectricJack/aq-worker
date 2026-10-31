@@ -1,0 +1,37 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-native-consumer/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.33s
+     Running tests/native_control.rs (/tmp/aq-native-consumer-target/debug/deps/native_control-726d702d89aeee24)
+
+running 4 tests
+test occupied_control_and_bulk_lanes_leave_the_renewal_lane_available ... ok
+test nonce_kind_shape_and_changed_original_replays_refuse ... ok
+test exact_control_roundtrips_and_retries_preserve_deadlines_and_owner_bytes ... ok
+test renewal_revision_and_transit_expiry_refuse_without_reanchoring ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests/native_http.rs (/tmp/aq-native-consumer-target/debug/deps/native_http-57fe36d7daa69d23)
+
+running 7 tests
+test incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo ... ok
+test artifact_headers_ranges_and_exact_assembly_are_checked ... ok
+test two_stalled_downloads_do_not_consume_started_reporting_lane ... ok
+test wrong_node_changed_receipt_unknown_fields_and_redirects_refuse ... ok
+test exact_native_started_stopped_result_receipts_and_stable_replay ... ok
+test native_transport_ignores_ambient_proxy_configuration ... ok
+test material_digest_scope_and_full_network_interval_are_checked ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/native_startup.rs (/tmp/aq-native-consumer-target/debug/deps/native_startup-a456869eb537c5cc)
+
+running 6 tests
+test exact_prefix_retry_is_idempotent_but_changed_partial_and_gapped_replies_refuse ... ok
+test incomplete_corrupt_empty_oversized_and_source_bundle_downloads_refuse ... ok
+test alternate_descriptor_encoding_is_not_the_content_addressed_object ... ok
+test self_consistent_replacement_cannot_replace_original_payload ... ok
+test published_native_fixture_downloads_produce_one_host_payload ... ok
+test offer_cannot_qualify_its_own_renderer_or_replace_retention_receipt ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
