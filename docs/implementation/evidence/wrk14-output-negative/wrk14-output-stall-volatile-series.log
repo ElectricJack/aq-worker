@@ -1,0 +1,36 @@
+ATTEMPT 1 of 5
+   Compiling aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.90s
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-bdbb8405525bfbda)
+
+running 1 test
+stopped-observer diagnostic receipt=Ok(Some(Input(InputReceipt { operation_id: ecbbb13f-d3b8-4c46-842f-90c5e67d0b36, command_digest: Digest("233bf76b0be14db5d26172b84799b3823e72fbe59ed530e05dd07a1e02b6e1d5"), terminal: TerminalIdentity { session: Remote { node_id: 00000000-0000-0000-0000-000000000001, boot_id: 00000000-0000-0000-0000-000000000001, attempt_id: 00000000-0000-0000-0000-000000000001, assignment_generation: 1, session_id: 00000000-0000-0000-0000-000000000001 }, terminal_id: 953fa107-20fe-40e3-83f0-7f99645b69c5, epoch: 1 }, disposition: Applied }))) host=Ok(HostObservation { guardian: GuardianIdentity { intent: LaunchIntent { launch_id: 00000000-0000-0000-0000-000000000002, session: Remote { node_id: 00000000-0000-0000-0000-000000000001, boot_id: 00000000-0000-0000-0000-000000000001, attempt_id: 00000000-0000-0000-0000-000000000001, assignment_generation: 1, session_id: 00000000-0000-0000-0000-000000000001 }, manifest_digest: Digest("db76f47b7dfd95a9415db6f0753511e27d0a39dde1e27d79226aaa9ad9a7b69e"), configuration_digest: Digest("91ce74e0c88e3e7ac66a68cec175d0c9ba2a582f9b2cbea1c4ab71d41b731fcb") }, nonce: ee16d9f5-ab9a-44b3-8220-0a63cfb9aa05, process: ProcessEvidence { pid: 3904446, start_ticks: 13192269 }, machine_boot_id: "f3e781b8-148b-4429-8d81-7c59c60223c8", pid_namespace: "pid:[4026532219]" }, phase: Running, pane: Some(PaneIdentity { server: ProcessEvidence { pid: 3904447, start_ticks: 13192272 }, pane: ProcessEvidence { pid: 3904450, start_ticks: 13192274 }, pane_id: "%0", session_name: "aq" }), permit_sequence: 1, permit_deadline_boot_ms: 131930675, observed_boot_ms: 131922733, reaped_count: 0, kernel_wait_echild: false, root_status: None, stop_reason: None }) root=/tmp/aqh-OmlY6x/00000000-0000-0000-0000-000000000002
+synthetic pane wchan=Ok("wait_woken") status=Ok("Name:\taq-session-host\nUmask:\t0022\nState:\tS (sleeping)\nTgid:\t3904450\nNgid:\t0\nPid:\t3904450\nPPid:\t3904447\nTracerPid:\t0\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\nFDSize:\t64\nGroups:\t4 20 24 25 27 29 30 44 46 116 999 1000 1001 \nNStgid:\t3904450\nNSpid:\t3904450\nNSpgid:\t3904450\nNSsid:\t3904450\nKthread:\t0\nVmPeak:\t    6216 kB\nVmSize:\t    6216 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t    3900 kB\nVmRSS:\t    3900 kB\nRssAnon:\t     248 kB\nRssFile:\t    3652 kB\nRssShmem:\t       0 kB\nVmData:\t     240 kB\nVmStk:\t     132 kB\nVmExe:\t    2364 kB\nVmLib:\t    1896 kB\nVmPTE:\t      56 kB\nVmSwap:\t       0 kB\nHugetlbPages:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t1\nuntag_mask:\t0xffffffffffffffff\nThreads:\t1\nSigQ:\t2/128331\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000000301000\nSigCgt:\t0000000000000440\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\nNoNewPrivs:\t0\nSeccomp:\t0\nSeccomp_filters:\t0\nSpeculation_Store_Bypass:\tthread vulnerable\nSpeculationIndirectBranch:\tconditional enabled\nCpus_allowed:\tffffff\nCpus_allowed_list:\t0-23\nMems_allowed:\t00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001\nMems_allowed_list:\t0\nvoluntary_ctxt_switches:\t21\nnonvoluntary_ctxt_switches:\t0\n")
+
+thread 'sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control' (3904443) panicked at crates/aq-session-host/tests/local_tmux.rs:854:13:
+stopped observer PTY progress timeout: 0 bytes after 5.005227522s
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/panicking.rs:80:14
+   2: local_tmux::sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control
+             at ./tests/local_tmux.rs:854:13
+   3: local_tmux::sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control::{{closure}}
+             at ./tests/local_tmux.rs:801:78
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+test sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control ... FAILED
+
+failures:
+
+failures:
+    sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 25 filtered out; finished in 5.17s
+
+error: test failed, to rerun pass `-p aq-session-host --test local_tmux`
+EXIT 101

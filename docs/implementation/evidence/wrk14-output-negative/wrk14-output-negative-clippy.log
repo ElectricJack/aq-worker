@@ -1,0 +1,65 @@
+    Checking tracing-core v0.1.36
+    Checking log v0.4.35
+    Checking futures-sink v0.3.34
+    Checking slab v0.4.12
+    Checking futures-io v0.3.34
+    Checking futures-task v0.3.34
+    Checking utf8parse v0.2.2
+    Checking iana-time-zone v0.1.65
+    Checking anstyle v1.0.14
+    Checking is_terminal_polyfill v1.70.2
+    Checking colorchoice v1.0.5
+    Checking anstyle-query v1.1.5
+    Checking clap_lex v1.1.1
+    Checking strsim v0.11.1
+    Checking aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-lifecycle-protocol)
+    Checking futures-channel v0.3.34
+    Checking num-traits v0.2.19
+    Checking aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-worker-output/crates/aq-worker-protocol)
+    Checking regex-syntax v0.8.11
+    Checking equivalent v1.0.3
+    Checking hashbrown v0.17.1
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+    Checking winnow v0.7.15
+    Checking toml_write v0.1.2
+    Checking anstyle-parse v1.0.0
+    Checking lazy_static v1.5.1
+    Checking rtoolbox v0.0.6
+    Checking thread_local v1.1.10
+    Checking nu-ansi-term v0.50.3
+    Checking futures-util v0.3.34
+    Checking redb v4.4.0
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-session-protocol)
+    Checking sharded-slab v0.1.7
+    Checking rpassword v7.5.4
+    Checking anstream v1.0.0
+    Checking tracing v0.1.44
+    Checking tracing-log v0.2.0
+    Checking clap_builder v4.6.7
+    Checking axum-core v0.5.6
+    Checking indexmap v2.14.2
+    Checking chrono v0.4.45
+    Checking regex-automata v0.4.18
+    Checking toml_edit v0.22.27
+    Checking aq-protocol v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-protocol)
+    Checking aq-agent-api v0.1.0 (/home/jkern/dev/aq-worker-output/vendor/aq-agent-api-0.1.0)
+    Checking clap v4.6.7
+    Checking matchers v0.2.0
+    Checking aq-observation v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-observation)
+    Checking aq-observation-engine v0.0.1 (/home/jkern/dev/aq-worker-output/crates/aq-observation-engine)
+    Checking aq-observation-admission v0.1.0 (/home/jkern/dev/aq-worker-output/vendor/aq-observation-admission-0.1.0)
+    Checking hyper-util v0.1.21
+    Checking tower v0.5.3
+    Checking tracing-subscriber v0.3.23
+    Checking tower-http v0.6.11
+    Checking toml v0.8.23
+    Checking hyper-rustls v0.27.10
+    Checking axum v0.8.9
+    Checking reqwest v0.12.28
+    Checking aq-worker v0.3.3 (/home/jkern/dev/aq-worker-output/crates/aq-worker)
+    Checking aq-observation-redb-prototype v0.0.5 (/home/jkern/dev/aq-worker-output/crates/aq-observation-redb-prototype)
+    Checking aq-agent-client v0.1.0 (/home/jkern/dev/aq-worker-output/crates/aq-agent-client)
+    Checking aq-terminal-bridge v0.1.1 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-bridge)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.58s
