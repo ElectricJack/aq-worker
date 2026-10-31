@@ -1,0 +1,13 @@
+{
+  "base_commit": "f0e93856f31baee2e8442292b7196b68038eeb6f",
+  "files": {
+    "crates/aq-session-host/README.md": "08a1c0f4157e5c1bb5adbb728d07437a5e1dd4d9d780fa2e788faedfa971863c",
+    "crates/aq-session-host/src/lib.rs": "3402c049f794566465cfc9ac0f4105d2f5eeae108f7caa9f34a2dcac81257793",
+    "crates/aq-session-host/src/supervisor.rs": "1e56e5627b7ec1e40461a84adfe877c0b1df719d60ca4a3aadeac1760e58e21d",
+    "crates/aq-session-host/src/terminal_io.rs": "5f30313dc5f5f7dc51ce3f9f9236701c23d55a60dc831a736c16f1ed483fda2b",
+    "crates/aq-session-host/src/terminal_output.rs": "afa1192885d66a4582be59552a7745868c31ae594d405cdff30ed32af374d57d",
+    "crates/aq-session-host/tests/local_tmux.rs": "e29b11ab97903b3c8ec0c597548806e7db3d6c8de8db1c2376ef40c888b5a8ff",
+    "crates/aq-terminal-bridge/README.md": "2162921b0ddc72356dd33ee48bb5a94842cfa283171bd52de803d2b3873a1c25",
+    "crates/aq-session-host/src/reader_lease.rs": "82043b15bfd3926d2cc5c26ee7074ffd66ec75eaed2f701123765ef9ff5e3e67"
+  }
+}

@@ -1,0 +1,32 @@
+    Checking aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+    Checking aq-terminal-bridge v0.1.1 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-bridge)
+error: spawned process is not `wait()`ed on in all code paths
+    --> crates/aq-session-host/tests/local_tmux.rs:1593:28
+     |
+1593 |         let mut consumer = command.spawn().unwrap();
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: `wait()` is not called in this if branch
+    --> crates/aq-session-host/tests/local_tmux.rs:1617:14
+     |
+1617 |               } else {
+     |  ______________^
+1618 | |                 unsafe {
+1619 | |                     libc::kill(consumer.id() as i32, libc::SIGSTOP);
+1620 | |                 }
+1621 | |             }
+     | |_____________^
+note: `wait()` is called in the other branch
+    --> crates/aq-session-host/tests/local_tmux.rs:1616:17
+     |
+1616 |                 consumer.wait().unwrap();
+     |                 ^^^^^^^^
+     = help: consider calling `.wait()` in all code paths
+     = note: not doing so might leave behind zombie processes
+     = note: see https://doc.rust-lang.org/stable/std/process/struct.Child.html#warning
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#zombie_processes
+     = note: `-D clippy::zombie-processes` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::zombie_processes)]`
+
+error: could not compile `aq-session-host` (test "local_tmux") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

@@ -1,0 +1,14 @@
+{
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "tmux": "tmux 3.4",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "cpu_count": 24,
+  "load_sample": [
+    6.5673828125,
+    4.87451171875,
+    5.19580078125
+  ],
+  "scope": "Shared development host with concurrent compilation/tests. No real-time/scale/isolated load claim.",
+  "normal_and_actual_test_threads": 2,
+  "cargo_network": "locked offline"
+}

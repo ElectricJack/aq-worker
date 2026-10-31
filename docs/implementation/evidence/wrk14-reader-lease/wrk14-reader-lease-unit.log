@@ -1,0 +1,20 @@
+   Compiling aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.51s
+     Running unittests src/lib.rs (target/debug/deps/aq_session_host-18001262915b20e2)
+
+running 12 tests
+test io_tests::large_stdout_fixture ... ignored, subprocess output fixture invoked by bounded output test
+test reader_lease::tests::queued_old_drain_cannot_extend_from_dequeue_or_revive_expiry ... ok
+test reader_lease::tests::packet_fd_is_bounded_and_close_on_exec_and_extra_mutation_fields_refuse ... ok
+test reaper::tests::reservation_exhaustion_refuses_before_spawning ... ok
+test terminal_output::tests::chunks_preserve_unicode_ansi_octal_and_literal_backslash_without_interpretation ... ok
+test terminal_output::tests::extended_output_and_pause_are_explicit_not_silent_recovery ... ok
+test io_tests::nonregular_and_symlink_material_is_refused ... ok
+test tests::independent_permit_is_exact_bounded_and_expiring ... ok
+test tests::local_command_bounds_and_protected_environment ... ok
+test terminal_output::tests::malformed_foreign_and_oversized_streams_fail_closed ... ok
+test io_tests::command_stdout_above_pipe_capacity_is_drained_before_exit ... ok
+test io_tests::command_input_and_output_above_pipe_capacity_progress_under_one_deadline ... ok
+
+test result: ok. 11 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.05s
+

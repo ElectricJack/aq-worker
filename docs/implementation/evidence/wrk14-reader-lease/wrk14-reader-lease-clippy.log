@@ -1,0 +1,32 @@
+    Checking aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+error: large size difference between variants
+  --> crates/aq-session-host/src/reader_lease.rs:14:1
+   |
+14 | /   enum Request {
+15 | | /     Register {
+16 | | |         binding: terminal_io::TerminalBinding,
+17 | | |         claim: Uuid,
+18 | | |     },
+   | | |_____- the largest variant contains at least 440 bytes
+...  |
+22 | | /     Drained {
+23 | | |         claim: Uuid,
+24 | | |         sequence: u64,
+25 | | |         boot_ms: u64,
+26 | | |     },
+   | | |_____- the second-largest variant contains at least 32 bytes
+27 | |   }
+   | |___^ the entire enum is at least 440 bytes
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#large_enum_variant
+   = note: `-D clippy::large-enum-variant` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::large_enum_variant)]`
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+   |
+16 -         binding: terminal_io::TerminalBinding,
+16 +         binding: Box<terminal_io::TerminalBinding>,
+   |
+
+error: could not compile `aq-session-host` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aq-session-host` (lib test) due to 1 previous error
