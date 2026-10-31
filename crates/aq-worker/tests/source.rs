@@ -14,6 +14,9 @@ use std::{
 };
 use tempfile::TempDir;
 use uuid::Uuid;
+#[allow(dead_code)]
+#[path = "fixtures/journal-v3.rs"]
+mod legacy_v3;
 fn limits() -> Limits {
     Limits {
         capacity: Resources {
@@ -71,6 +74,7 @@ fn peer(lose_create: bool) -> Peer {
     std::fs::create_dir_all(&work).unwrap();
     let requests = Arc::new(Mutex::new(vec![]));
     let recorded = requests.clone();
+    let artifact_root = temp.path().to_path_buf();
     std::thread::spawn(move || {
         let mut lost = false;
         for conn in listener.incoming() {
@@ -100,6 +104,31 @@ fn peer(lose_create: bool) -> Peer {
                     json!({"workspace_id":Uuid::from_u128(70),"workspace_generation":2,"source":{"algorithm":"sha1","hex":"b".repeat(40)},"retention_handle":Uuid::from_u128(80)})
                 }
                 "workspace.retire" => json!({"retired":true}),
+                "artifact.export" => {
+                    use sha2::{Digest, Sha256};
+                    let artifact = Uuid::from_u128(81);
+                    let bundle = vec![b'q'; 600_000];
+                    let manifest = json!({
+                        "format_version":1,"repository_id":Uuid::from_u128(50),
+                        "repository_identity":"synthetic","binding_generation":1,
+                        "transfer_id":artifact,"object_format":"sha1",
+                        "base":{"algorithm":"sha1","hex":"a".repeat(40)},
+                        "source":{"algorithm":"sha1","hex":"b".repeat(40)},
+                        "prerequisites":[],"bundle_size":bundle.len(),
+                        "bundle_sha256":format!("{:x}",Sha256::digest(&bundle)),
+                        "producer_installation_id":Uuid::from_u128(82),
+                        "reference_only":false,"caller_correlation":null
+                    });
+                    let directory = artifact_root.join("artifacts").join(artifact.to_string());
+                    std::fs::create_dir_all(&directory).unwrap();
+                    std::fs::write(
+                        directory.join("manifest.json"),
+                        serde_json::to_vec(&manifest).unwrap(),
+                    )
+                    .unwrap();
+                    std::fs::write(directory.join("objects.bundle"), bundle).unwrap();
+                    json!({"artifact_handle":artifact,"retention_handle":artifact,"manifest":manifest})
+                }
                 other => panic!("unexpected operation {other}"),
             };
             let mut reply = json!({"protocol_version":1,"request_id":req["request_id"],"ok":true,"result":result});
@@ -123,6 +152,628 @@ fn authorize(rt: &mut Runtime<FakeClock>, p: &Peer, o: Offer) {
     let accept = rt.reserve_source(o, &p.client).unwrap();
     rt.authorize(coordinator.accept(&accept).unwrap().grant, 100)
         .unwrap();
+}
+
+fn upload_fixture() -> (Peer, TempDir, Runtime<FakeClock>, Uuid) {
+    let peer = peer(false);
+    let temp = TempDir::new().unwrap();
+    let mut rt = runtime(temp.path());
+    let o = offer();
+    let id = o.attempt.attempt_id;
+    authorize(&mut rt, &peer, o);
+    rt.prepare_source(id, &peer.client).unwrap();
+    let handle = rt
+        .launch_fixture(id, Path::new(env!("CARGO_BIN_EXE_aq-fixture-agent")))
+        .unwrap();
+    rt.finish_fixture(id, handle).unwrap();
+    rt.checkpoint_source(id, &peer.client).unwrap();
+    rt.export_source(id, &peer.client).unwrap();
+    rt.prepare_source_upload(id, &peer.client).unwrap();
+    (peer, temp, rt, id)
+}
+
+#[test]
+fn source_v3_upgrade_preserves_retained_work_without_inventing_transfer_progress() {
+    let (_peer, temp, rt, id) = upload_fixture();
+    drop(rt);
+    let file = temp.path().join("journal.json");
+    let mut old: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    old["format_version"] = json!(3);
+    let source = old["attempts"][id.to_string()]["source"]
+        .as_object_mut()
+        .unwrap();
+    source.remove("upload");
+    source.remove("download");
+    source.insert("transfer".into(), Value::Null);
+    std::fs::write(&file, serde_json::to_vec(&old).unwrap()).unwrap();
+    let old_limits = || legacy_v3::Limits {
+        capacity: limits().capacity,
+        max_pending_results: 16,
+        max_pending_bytes: 256 * 1024 * 1024,
+        max_preparing: 2,
+        minimum_free_disk_bytes: 0,
+    };
+    let before =
+        legacy_v3::Journal::open(temp.path(), sample_offer().identity, old_limits()).unwrap();
+    drop(before);
+    let old: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    let new = runtime(temp.path());
+    let source = new.journal.state().attempts[&id].source.as_ref().unwrap();
+    assert!(source.upload.is_none() && source.download.is_none() && source.transfer.is_none());
+    assert!(source.exported.is_some() && source.checkpoint.is_some());
+    drop(new);
+    let bytes = std::fs::read(&file).unwrap();
+    let current: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(old["attempts"], current["attempts"]);
+    assert_eq!(current["format_version"], 4);
+    assert!(legacy_v3::Journal::open(temp.path(), sample_offer().identity, old_limits()).is_err());
+    assert_eq!(std::fs::read(file).unwrap(), bytes);
+}
+
+fn upload_status(rt: &Runtime<FakeClock>, id: Uuid) -> TransferStatus {
+    let source = rt.journal.state().attempts[&id].source.as_ref().unwrap();
+    let upload = source.upload.as_ref().unwrap();
+    TransferStatus {
+        transfer_id: source.transfer.as_ref().unwrap().transfer_id,
+        manifest_offset: upload.manifest_offset,
+        bundle_offset: upload.bundle_offset,
+        receipt: None,
+    }
+}
+
+fn download_fixture() -> (
+    Peer,
+    TempDir,
+    Runtime<FakeClock>,
+    Uuid,
+    TransferManifest,
+    Vec<u8>,
+    Vec<u8>,
+) {
+    use sha2::{Digest, Sha256};
+    let peer = peer(false);
+    let temp = TempDir::new().unwrap();
+    let mut rt = runtime(temp.path());
+    let o = offer();
+    let id = o.attempt.attempt_id;
+    let source = o.spec.bindings.as_ref().unwrap().source.clone().unwrap();
+    let bundle = vec![b'p'; 600_000];
+    let artifact = Uuid::from_u128(201);
+    let native = aq_worker::source::GitManifest {
+        format_version: 1,
+        repository_id: source.repository_id,
+        repository_identity: source.logical_identity.clone(),
+        binding_generation: source.binding_generation,
+        transfer_id: artifact,
+        object_format: "sha1".into(),
+        base: source.base.clone(),
+        source: source.base.clone(),
+        prerequisites: vec![],
+        bundle_size: bundle.len() as u64,
+        bundle_sha256: Some(format!("{:x}", Sha256::digest(&bundle))),
+        producer_installation_id: Uuid::from_u128(202),
+        reference_only: false,
+        caller_correlation: Value::Null,
+    };
+    let bytes = serde_json::to_vec(&native).unwrap();
+    let manifest = TransferManifest {
+        transfer_id: Uuid::from_u128(203),
+        role: SourceRole::Base,
+        checkpoint: source.base.clone(),
+        attempt: o.attempt.clone(),
+        resolved_spec_digest: o.spec.resolved_spec_digest.clone(),
+        source,
+        artifact_id: artifact,
+        manifest_digest: format!("{:x}", Sha256::digest(&bytes)),
+        bundle_digest: native.bundle_sha256,
+        manifest_bytes: bytes.len() as u64,
+        bundle_bytes: bundle.len() as u64,
+    };
+    authorize(&mut rt, &peer, o);
+    (peer, temp, rt, id, manifest, bytes, bundle)
+}
+
+#[test]
+fn download_restart_replays_only_unacknowledged_tail_and_cannot_grant_import() {
+    use aq_worker::source_transfer::DownloadAction;
+    let (peer, temp, mut rt, id, manifest, bytes, bundle) = download_fixture();
+    let before = rt.journal.state().attempts[&id].pending_bytes;
+    rt.prepare_base_download(id, manifest.clone(), &peer.client)
+        .unwrap();
+    assert_eq!(
+        rt.journal.state().attempts[&id].pending_bytes,
+        before + manifest.manifest_bytes + manifest.bundle_bytes
+    );
+    assert!(rt.prepare_source(id, &peer.client).is_err());
+    let range = match rt.next_base_download(id).unwrap().unwrap() {
+        DownloadAction::Range(r) => r,
+        _ => unreachable!(),
+    };
+    rt.journal
+        .inject_write_fault(aq_worker::journal::WriteFault::AfterFileSync);
+    assert!(rt.store_base_download_chunk(id, &range, &bytes).is_err());
+    let path = peer
+        .client
+        .root()
+        .join("artifacts/incoming")
+        .join(manifest.artifact_id.to_string())
+        .join("manifest.json");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    drop(rt);
+    let mut identity = sample_offer().identity;
+    identity.boot_id = Uuid::new_v4();
+    let mut rt = Runtime::new(
+        Journal::open(temp.path(), identity, limits()).unwrap(),
+        FakeClock::new(200),
+    );
+    let replay = match rt.next_base_download(id).unwrap().unwrap() {
+        DownloadAction::Range(r) => r,
+        _ => unreachable!(),
+    };
+    assert_eq!(range, replay);
+    rt.store_base_download_chunk(id, &replay, &bytes).unwrap();
+    loop {
+        match rt.next_base_download(id).unwrap() {
+            Some(DownloadAction::Range(range)) => {
+                assert_eq!(range.file, TransferFile::Bundle);
+                let start = range.offset as usize;
+                rt.store_base_download_chunk(id, &range, &bundle[start..start + range.length])
+                    .unwrap();
+            }
+            Some(DownloadAction::Verify(v)) => rt
+                .acknowledge_base_verification(id, v.verify().unwrap())
+                .unwrap(),
+            None => break,
+        }
+    }
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+    assert!(
+        rt.journal.state().attempts[&id]
+            .source
+            .as_ref()
+            .unwrap()
+            .download
+            .as_ref()
+            .unwrap()
+            .verified
+    );
+    assert!(
+        rt.import_base(id, manifest.artifact_id, &peer.client)
+            .unwrap_err()
+            .to_string()
+            .contains("incarnation")
+    );
+    assert!(
+        rt.journal.state().attempts[&id]
+            .source
+            .as_ref()
+            .unwrap()
+            .workspace
+            .is_none()
+    );
+}
+
+#[test]
+fn download_refuses_changed_assignment_or_corrupt_complete_bytes() {
+    use aq_worker::source_transfer::DownloadAction;
+    let (peer, _temp, mut rt, id, manifest, bytes, bundle) = download_fixture();
+    rt.prepare_base_download(id, manifest.clone(), &peer.client)
+        .unwrap();
+    let mut changed = manifest.clone();
+    changed.transfer_id = Uuid::new_v4();
+    assert!(rt.prepare_base_download(id, changed, &peer.client).is_err());
+    let verification = loop {
+        match rt.next_base_download(id).unwrap().unwrap() {
+            DownloadAction::Range(range) => {
+                let data = if range.file == TransferFile::Manifest {
+                    &bytes
+                } else {
+                    &bundle
+                };
+                let start = range.offset as usize;
+                rt.store_base_download_chunk(id, &range, &data[start..start + range.length])
+                    .unwrap();
+            }
+            DownloadAction::Verify(v) => break v,
+        }
+    };
+    let path = peer
+        .client
+        .root()
+        .join("artifacts/incoming")
+        .join(manifest.artifact_id.to_string())
+        .join("objects.bundle");
+    std::fs::write(path, vec![b'x'; bundle.len()]).unwrap();
+    assert!(
+        verification
+            .verify()
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("digest")
+    );
+    assert!(
+        !rt.journal.state().attempts[&id]
+            .source
+            .as_ref()
+            .unwrap()
+            .download
+            .as_ref()
+            .unwrap()
+            .verified
+    );
+    assert!(
+        rt.import_base(id, manifest.artifact_id, &peer.client)
+            .unwrap_err()
+            .to_string()
+            .contains("verified")
+    );
+}
+
+#[test]
+fn download_reservation_pressure_preserves_existing_source_and_allocates_no_files() {
+    let (peer, _temp, mut rt, id, manifest, _bytes, _bundle) = download_fixture();
+    let pending = rt.journal.limits().max_pending_bytes;
+    rt.journal
+        .transaction(|s| {
+            s.attempts.get_mut(&id).unwrap().pending_bytes = pending;
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        rt.prepare_base_download(id, manifest.clone(), &peer.client)
+            .is_err()
+    );
+    let source = rt.journal.state().attempts[&id].source.as_ref().unwrap();
+    assert!(source.download.is_none());
+    assert_eq!(rt.journal.state().attempts[&id].pending_bytes, pending);
+    assert!(
+        !peer
+            .client
+            .root()
+            .join("artifacts/incoming")
+            .join(manifest.artifact_id.to_string())
+            .exists()
+    );
+}
+
+#[test]
+fn download_nonstart_cleanup_requires_release_and_preserves_unknown_git_effects() {
+    use aq_worker::source_transfer::DownloadAction;
+    for pending in [false, true] {
+        let (peer, _temp, mut rt, id, manifest, bytes, _bundle) = download_fixture();
+        rt.prepare_base_download(id, manifest.clone(), &peer.client)
+            .unwrap();
+        let range = match rt.next_base_download(id).unwrap().unwrap() {
+            DownloadAction::Range(r) => r,
+            _ => unreachable!(),
+        };
+        rt.store_base_download_chunk(id, &range, &bytes).unwrap();
+        let directory = peer
+            .client
+            .root()
+            .join("artifacts/incoming")
+            .join(manifest.artifact_id.to_string());
+        assert!(rt.retire_source(id, &peer.client).is_err());
+        assert!(directory.exists());
+        if pending {
+            rt.journal.transaction(|s|{let source=s.attempts.get_mut(&id).unwrap().source.as_mut().unwrap();let op=Uuid::new_v4();source.operations.insert("import-base-pending".into(),aq_worker::source::PendingGitOperation{operation_id:op,request:json!({"operation_id":op,"repository_id":source.binding.repository_id}),result:None});Ok(())}).unwrap();
+        }
+        let report = rt
+            .report_not_started(id, ProcessOutcome::Cancelled)
+            .unwrap();
+        rt.acknowledge_result(ResultResponse {
+            report_id: report.report_id,
+            disposition: ResultDisposition::Accepted,
+            retention_release: true,
+        })
+        .unwrap();
+        if pending {
+            assert!(rt.retire_source(id, &peer.client).is_err());
+            assert_eq!(
+                std::fs::read(directory.join("manifest.json")).unwrap(),
+                bytes
+            );
+        } else {
+            std::fs::write(directory.join("unknown"), b"preserve").unwrap();
+            assert!(rt.retire_source(id, &peer.client).is_err());
+            assert_eq!(
+                std::fs::read(directory.join("unknown")).unwrap(),
+                b"preserve"
+            );
+            std::fs::remove_file(directory.join("unknown")).unwrap();
+            rt.retire_source(id, &peer.client).unwrap();
+            rt.retire(id).unwrap();
+            assert!(!directory.exists());
+            assert_eq!(rt.journal.state().attempts[&id].pending_bytes, 0);
+            assert!(
+                rt.journal.state().attempts[&id]
+                    .source
+                    .as_ref()
+                    .unwrap()
+                    .receipt
+                    .is_none()
+            );
+        }
+    }
+}
+
+fn accept_upload_action(
+    rt: &mut Runtime<FakeClock>,
+    id: Uuid,
+    action: &aq_worker::source_transfer::UploadAction,
+) {
+    use aq_worker::source_transfer::UploadAction;
+    let mut status = upload_status(rt, id);
+    match action {
+        UploadAction::Begin { .. } => {}
+        UploadAction::Chunk { request, .. } => match request.file {
+            TransferFile::Manifest => status.manifest_offset += u64::from(request.length),
+            TransferFile::Bundle => status.bundle_offset += u64::from(request.length),
+        },
+        UploadAction::Finalize(_) => panic!("test must provide actual matching receipt"),
+    }
+    rt.acknowledge_source_upload(id, action, status).unwrap();
+}
+
+#[test]
+fn upload_restart_preserves_intent_chunk_and_finalize_ids_until_exact_retention() {
+    use aq_worker::source_transfer::UploadAction;
+    let (peer, temp, mut rt, id) = upload_fixture();
+    let begin = rt.next_source_upload(id).unwrap().unwrap();
+    let (begin_id, transfer) = match &begin {
+        UploadAction::Begin {
+            operation_id,
+            manifest,
+            ..
+        } => (*operation_id, manifest.clone()),
+        _ => panic!("begin expected"),
+    };
+    assert!(
+        !rt.journal.state().attempts[&id]
+            .report
+            .as_ref()
+            .unwrap()
+            .claimed_success
+    );
+    drop(rt);
+    let mut identity = sample_offer().identity;
+    identity.boot_id = Uuid::new_v4();
+    let mut rt = Runtime::new(
+        Journal::open(temp.path(), identity.clone(), limits()).unwrap(),
+        FakeClock::new(200),
+    );
+    rt.prepare_source_upload(id, &peer.client).unwrap();
+    let replay = rt.next_source_upload(id).unwrap().unwrap();
+    match &replay {
+        UploadAction::Begin {
+            operation_id,
+            manifest,
+            ..
+        } => {
+            assert_eq!(*operation_id, begin_id);
+            assert_eq!(manifest, &transfer);
+        }
+        _ => panic!("same begin expected"),
+    }
+    accept_upload_action(&mut rt, id, &replay);
+    let action = rt.next_source_upload(id).unwrap().unwrap();
+    let pending = match &action {
+        UploadAction::Chunk { request, .. } => request.clone(),
+        _ => panic!("chunk expected"),
+    };
+    // The peer could commit this chunk and lose its response. No local progress
+    // is acknowledged; restart must retransmit precisely the same operation.
+    drop(rt);
+    identity.boot_id = Uuid::new_v4();
+    let mut rt = Runtime::new(
+        Journal::open(temp.path(), identity, limits()).unwrap(),
+        FakeClock::new(300),
+    );
+    let replay = rt.next_source_upload(id).unwrap().unwrap();
+    match &replay {
+        UploadAction::Chunk { request, .. } => assert_eq!(request, &pending),
+        _ => panic!("pending chunk expected"),
+    }
+    accept_upload_action(&mut rt, id, &replay);
+    let finalize = loop {
+        let next = rt.next_source_upload(id).unwrap().unwrap();
+        if matches!(next, UploadAction::Finalize(_)) {
+            break next;
+        }
+        accept_upload_action(&mut rt, id, &next);
+    };
+    let finalize_id = match &finalize {
+        UploadAction::Finalize(r) => r.operation_id,
+        _ => unreachable!(),
+    };
+    drop(rt);
+    let mut rt = runtime(temp.path());
+    let replay = rt.next_source_upload(id).unwrap().unwrap();
+    match &replay {
+        UploadAction::Finalize(r) => assert_eq!(r.operation_id, finalize_id),
+        _ => panic!("same finalize expected"),
+    }
+    let mut status = upload_status(&rt, id);
+    assert_eq!(status.manifest_offset, transfer.manifest_bytes);
+    assert_eq!(status.bundle_offset, transfer.bundle_bytes);
+    assert!(
+        rt.journal.state().attempts[&id]
+            .source
+            .as_ref()
+            .unwrap()
+            .receipt
+            .is_none()
+    );
+    assert!(rt.retire_source(id, &peer.client).is_err());
+    let native: aq_worker::source::GitManifest = serde_json::from_value(
+        rt.journal.state().attempts[&id]
+            .source
+            .as_ref()
+            .unwrap()
+            .exported
+            .as_ref()
+            .unwrap()["manifest"]
+            .clone(),
+    )
+    .unwrap();
+    let mut receipt = CentralRetentionReceipt {
+        receipt_id: Uuid::new_v4(),
+        transfer_id: transfer.transfer_id,
+        repository_id: transfer.source.repository_id,
+        binding_generation: transfer.source.binding_generation,
+        source: transfer.checkpoint.clone(),
+        retention_handle: transfer.artifact_id,
+        manifest_digest: native.canonical_digest().unwrap(),
+    };
+    receipt.source.hex = "c".repeat(40);
+    status.receipt = Some(receipt.clone());
+    assert!(
+        rt.acknowledge_source_upload(id, &replay, status.clone())
+            .is_err()
+    );
+    receipt.source = transfer.checkpoint;
+    status.receipt = Some(receipt.clone());
+    rt.acknowledge_source_upload(id, &replay, status).unwrap();
+    assert!(rt.next_source_upload(id).unwrap().is_none());
+    let report = rt.journal.state().attempts[&id].report.as_ref().unwrap();
+    assert!(report.claimed_success);
+    assert_eq!(
+        report.artifacts[0].central_receipt,
+        Some(receipt.receipt_id.to_string())
+    );
+    let local_id = report.report_id;
+    assert!(report.supersedes_report_id.is_some());
+    // Central source retention alone does not authorize retirement.
+    assert!(rt.retire_source(id, &peer.client).is_err());
+    // First network delivery cannot name an unsubmitted local revision as a
+    // remote predecessor. Freeze a fresh immutable report before any HTTP.
+    rt.journal
+        .inject_write_fault(aq_worker::journal::WriteFault::AfterFileSync);
+    assert!(rt.prepare_source_report(id).is_err());
+    drop(rt);
+    let mut rt = runtime(temp.path());
+    assert_eq!(
+        rt.journal.state().attempts[&id]
+            .report
+            .as_ref()
+            .unwrap()
+            .report_id,
+        local_id
+    );
+    let sealed = rt.prepare_source_report(id).unwrap();
+    assert_ne!(sealed.report_id, local_id);
+    assert!(sealed.supersedes_report_id.is_none());
+    let bytes = serde_json::to_vec(&sealed).unwrap();
+    assert!(rt.export_source(id, &peer.client).is_err());
+    rt.acknowledge_source(id, receipt).unwrap();
+    drop(rt);
+    let mut rt = runtime(temp.path());
+    // A lost response must repeat identical first-delivery bytes and identity.
+    assert_eq!(
+        serde_json::to_vec(&rt.prepare_source_report(id).unwrap()).unwrap(),
+        bytes
+    );
+    rt.acknowledge_result(ResultResponse {
+        report_id: sealed.report_id,
+        disposition: ResultDisposition::Accepted,
+        retention_release: false,
+    })
+    .unwrap();
+}
+
+#[test]
+fn upload_local_commit_failure_keeps_same_pending_chunk_on_reopen() {
+    let (_peer, temp, mut rt, id) = upload_fixture();
+    let begin = rt.next_source_upload(id).unwrap().unwrap();
+    accept_upload_action(&mut rt, id, &begin);
+    let action = rt.next_source_upload(id).unwrap().unwrap();
+    let request = match &action {
+        aq_worker::source_transfer::UploadAction::Chunk { request, .. } => request.clone(),
+        _ => unreachable!(),
+    };
+    let mut status = upload_status(&rt, id);
+    status.manifest_offset += u64::from(request.length);
+    rt.journal
+        .inject_write_fault(aq_worker::journal::WriteFault::AfterFileSync);
+    assert!(rt.acknowledge_source_upload(id, &action, status).is_err());
+    drop(rt);
+    let mut rt = runtime(temp.path());
+    let replay = rt.next_source_upload(id).unwrap().unwrap();
+    match replay {
+        aq_worker::source_transfer::UploadAction::Chunk { request: again, .. } => {
+            assert_eq!(request, again)
+        }
+        _ => panic!("durable pending chunk lost"),
+    }
+    assert!(
+        rt.journal.state().attempts[&id]
+            .source
+            .as_ref()
+            .unwrap()
+            .receipt
+            .is_none()
+    );
+}
+
+#[test]
+fn upload_changed_retained_bytes_or_symlink_never_replays_changed_payload() {
+    use aq_worker::source_transfer::UploadAction;
+    let (peer, _temp, mut rt, id) = upload_fixture();
+    let begin = rt.next_source_upload(id).unwrap().unwrap();
+    accept_upload_action(&mut rt, id, &begin);
+    let manifest = rt.next_source_upload(id).unwrap().unwrap();
+    accept_upload_action(&mut rt, id, &manifest);
+    let action = rt.next_source_upload(id).unwrap().unwrap();
+    let request = match action {
+        UploadAction::Chunk { request, .. } => request,
+        _ => unreachable!(),
+    };
+    assert_eq!(request.file, TransferFile::Bundle);
+    let artifact = rt.journal.state().attempts[&id]
+        .source
+        .as_ref()
+        .unwrap()
+        .transfer
+        .as_ref()
+        .unwrap()
+        .artifact_id;
+    let path = peer
+        .client
+        .root()
+        .join("artifacts")
+        .join(artifact.to_string())
+        .join("objects.bundle");
+    std::fs::write(&path, vec![b'r'; 600_000]).unwrap();
+    assert!(
+        rt.next_source_upload(id)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("changed")
+    );
+    std::fs::remove_file(&path).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", &path).unwrap();
+    assert!(
+        rt.next_source_upload(id)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("unsafe")
+    );
+    assert_eq!(
+        rt.journal.state().attempts[&id]
+            .source
+            .as_ref()
+            .unwrap()
+            .upload
+            .as_ref()
+            .unwrap()
+            .pending
+            .as_ref()
+            .unwrap(),
+        &request
+    );
 }
 #[test]
 fn source_admission_is_demand_only_and_socket_loss_replays_after_restart() {

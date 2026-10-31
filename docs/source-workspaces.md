@@ -1,5 +1,9 @@
 # Local source workspace adapter (WRK-06)
 
+This page records the WRK-06 baseline. The opt-in worker 0.3.3 transfer consumer,
+cold downloads and journal format 4 are described in
+[resumable source handoff](source-transfers.md).
+
 The supported adapter is `source::GitClient`, talking only to aq-git's public Unix socket protocol 1. `GitService::start(executable, binary_sha256, state_root)` explicitly starts an operator-selected pinned executable, validates its hash and permissions, uses a private root and unique private socket, and verifies advertised artifact/profile/operation capabilities. `GitClient::new(socket, root)` connects to an already managed service. These runtime paths are never assignment fields or agent grants. Startup refusal and uncertain stop leave aq-git's ownership fence intact; no automatic fence clearing is attempted.
 
 `Runtime::reserve_source(offer, client)` applies ordinary shared capacity/pending-storage admission after validating the existing local worker binding against the frozen source UUID, identity and generation. Register local bindings using aq-git's public administration interface before admission; no worker remote credentials are accepted. Eligibility does not allocate a checkout. `import_base` imports a completed controller-staged base artifact under the private incoming area; it validates manifest identity, base and canonical digest plus current active retained receipt. The controller must durably publish the entire incoming artifact before calling it. Artifact transfer/download, authentication, and provisioned client credentials are separate consumers and are not implemented here.

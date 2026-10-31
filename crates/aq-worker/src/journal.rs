@@ -13,7 +13,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub const STATE_FORMAT: u32 = 3;
+pub const STATE_FORMAT: u32 = 4;
 pub const MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 pub const MAX_DIRECTIVES_PER_ATTEMPT: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,7 +161,7 @@ impl Journal {
             let mut s: State = serde_json::from_slice(&std::fs::read(&file)?)
                 .context("parse journal; refusing to advertise capacity")?;
             ensure!(
-                matches!(s.format_version, 1 | 2 | STATE_FORMAT),
+                matches!(s.format_version, 1 | 2 | 3 | STATE_FORMAT),
                 "unsupported state format {}",
                 s.format_version
             );
@@ -177,6 +177,42 @@ impl Journal {
                 r.offer.validate()?;
                 r.acceptance.validate()?;
                 if let Some(source) = &r.source {
+                    if source.report_sealed {
+                        let report = r.report.as_ref().context("sealed report missing")?;
+                        report.validate()?;
+                        let transfer = source
+                            .transfer
+                            .as_ref()
+                            .context("sealed transfer missing")?;
+                        let receipt = source.receipt.as_ref().context("sealed receipt missing")?;
+                        ensure!(
+                            source.upload.is_some()
+                                && report.identity == r.offer.identity
+                                && report.attempt == r.offer.attempt
+                                && report.resolved_spec_digest == r.offer.spec.resolved_spec_digest
+                                && report.supersedes_report_id.is_none()
+                                && report.artifacts.len() == 1
+                                && report.artifacts[0].artifact_id == transfer.artifact_id
+                                && report.artifacts[0].digest == transfer.manifest_digest
+                                && Some(report.artifacts[0].bytes)
+                                    == transfer.manifest_bytes.checked_add(transfer.bundle_bytes)
+                                && report.artifacts[0].central_receipt.as_deref()
+                                    == Some(receipt.receipt_id.to_string().as_str()),
+                            "corrupt sealed source report"
+                        );
+                    }
+                    if let Some(download) = &source.download {
+                        download.validate(&r.offer, &source.binding)?;
+                    }
+                    if let Some(upload) = &source.upload {
+                        upload.validate(
+                            source
+                                .transfer
+                                .as_ref()
+                                .context("upload manifest missing")?,
+                            s.identity.node_id,
+                        )?;
+                    }
                     ensure!(
                         r.offer
                             .spec

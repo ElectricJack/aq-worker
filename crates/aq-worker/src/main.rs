@@ -59,6 +59,9 @@ enum Cmd {
         source_max_bundle_bytes: u64,
         #[arg(long,default_value_t=512*1024*1024)]
         source_max_expanded_bytes: u64,
+        /// Enable resumable authenticated base downloads and source handoff.
+        #[arg(long, requires = "aq_git_binary")]
+        source_transfer: bool,
         /// Fault injection for the deterministic integration fixture.
         #[arg(long)]
         drop_acceptance_response_once: bool,
@@ -171,6 +174,7 @@ async fn main() -> ExitCode {
             git_executable,
             source_max_bundle_bytes,
             source_max_expanded_bytes,
+            source_transfer,
         } => {
             let result = async {
                 if let Some(name) = fault_checkpoint {
@@ -189,6 +193,7 @@ async fn main() -> ExitCode {
                             git_executable,
                             max_bundle_bytes: source_max_bundle_bytes,
                             max_expanded_bytes: source_max_expanded_bytes,
+                            transfer: source_transfer,
                         }),
                         max_agents,
                         idle_timeout_secs,

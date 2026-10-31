@@ -13,6 +13,7 @@ use std::{path::Path, time::Duration};
 use uuid::Uuid;
 
 pub struct SourceOptions {
+    pub transfer: bool,
     pub binary: std::path::PathBuf,
     pub binary_sha256: String,
     pub state_dir: std::path::PathBuf,
@@ -91,6 +92,12 @@ pub async fn run_execution(
         BootClock,
     );
     let client = ExecutionClient::from_config(config)?;
+    let transfer = options
+        .source
+        .as_ref()
+        .filter(|s| s.transfer)
+        .map(|_| crate::transfer_client::TransferClient::from_config(config, 2))
+        .transpose()?;
     let mut registration = RegisterRequest {
         identity: identity.clone(),
         operation_id: Uuid::new_v4(),
@@ -103,6 +110,11 @@ pub async fn run_execution(
     };
     if git.is_some() {
         registration.capabilities.push(SOURCE_CAPABILITY.into());
+    }
+    if transfer.is_some() {
+        registration
+            .capabilities
+            .push(SOURCE_TRANSFER_CAPABILITY.into());
     }
     // Node recovery does not acquire new execution authority. It must be usable
     // before the old boot's registration has been explicitly replaced.
@@ -131,6 +143,26 @@ pub async fn run_execution(
                     "{}",
                     serde_json::json!({"event":"source_pending","attempt_id":id,"recovered":true})
                 );
+            }
+            if let Some(transport) = &transfer {
+                let pending: Vec<_> = runtime
+                    .journal
+                    .state()
+                    .attempts
+                    .iter()
+                    .filter(|(_, r)| {
+                        r.result.is_none()
+                            && r.stop_certainty == StopCertainty::ConfirmedStopped
+                            && r.source
+                                .as_ref()
+                                .is_some_and(|s| s.exported.is_some() && s.receipt.is_none())
+                    })
+                    .map(|(id, _)| *id)
+                    .collect();
+                for id in pending {
+                    crate::source_driver::upload_source(&mut runtime, &client, transport, id, git)
+                        .await?;
+                }
             }
         }
         let response = match client.reconcile(&runtime.reconcile_request()).await {
@@ -323,11 +355,23 @@ pub async fn run_execution(
             }
             let attempt_id = offer.attempt.attempt_id;
             let source = offer.spec.bindings.as_ref().and_then(|b| b.source.as_ref());
-            let admitted = if let Some(source) = source {
+            let admitted = if offer
+                .spec
+                .required_capabilities
+                .contains(&SOURCE_TRANSFER_CAPABILITY.into())
+                && transfer.is_none()
+            {
+                Err(anyhow::anyhow!("source transfer is not configured"))
+            } else if let Some(source) = source {
                 match git {
-                    Some(git) => git
-                        .base_available(source)
-                        .and_then(|()| runtime.reserve_source(offer.clone(), git)),
+                    Some(git) => {
+                        let ready = if transfer.is_some() {
+                            Ok(())
+                        } else {
+                            git.base_available(source)
+                        };
+                        ready.and_then(|()| runtime.reserve_source(offer.clone(), git))
+                    }
                     None => Err(anyhow::anyhow!("local source adapter is not configured")),
                 }
             } else {
@@ -392,6 +436,18 @@ pub async fn run_execution(
             let ack = client.observe(&observation).await?;
             runtime.acknowledge_observation(attempt_id, &ack)?;
             if source.is_some() {
+                if let (Some(transport), Some(git), Some(binding)) = (&transfer, git, source)
+                    && git.base_available(binding).is_err()
+                {
+                    crate::source_driver::download_base(
+                        &mut runtime,
+                        &client,
+                        transport,
+                        attempt_id,
+                        git,
+                    )
+                    .await?;
+                }
                 runtime.prepare_source(attempt_id, git.context("source service absent")?)?;
             }
             let mut handle = runtime.launch_fixture(attempt_id, executable)?;
@@ -406,7 +462,7 @@ pub async fn run_execution(
                 let _ = runtime.finish_fixture(attempt_id, handle);
                 return Err(error);
             }
-            let report = runtime.finish_fixture(attempt_id, handle)?;
+            let mut report = runtime.finish_fixture(attempt_id, handle)?;
             if source.is_some() {
                 let git = git.context("source service absent")?;
                 runtime.checkpoint_source(attempt_id, git)?;
@@ -415,12 +471,25 @@ pub async fn run_execution(
                     "{}",
                     serde_json::json!({"event":"source_pending","attempt_id":attempt_id,"artifact_id":exported["artifact_handle"],"protected_usage":runtime.journal.protected_usage()?,"pending_bytes":runtime.journal.state().attempts[&attempt_id].pending_bytes})
                 );
-                // No source-transfer capability/client is claimed: preserve locally;
-                // never submit a success/empty-artifact report as completion.
-                if options.exit_after_result {
-                    return Ok(());
+                if let Some(transport) = &transfer {
+                    crate::source_driver::upload_source(
+                        &mut runtime,
+                        &client,
+                        transport,
+                        attempt_id,
+                        git,
+                    )
+                    .await?;
+                    report = runtime.journal.state().attempts[&attempt_id]
+                        .report
+                        .clone()
+                        .context("retained source report missing")?;
+                } else {
+                    if options.exit_after_result {
+                        return Ok(());
+                    }
+                    continue;
                 }
-                continue;
             }
             let observation = runtime.observation(
                 attempt_id,
@@ -442,7 +511,7 @@ pub async fn run_execution(
                         runtime.acknowledge_result(result.clone())?;
                         println!(
                             "{}",
-                            serde_json::json!({"event":"result_acknowledged","attempt":report.attempt,"report_id":report.report_id,"disposition":result.disposition})
+                            serde_json::json!({"event":"result_acknowledged","attempt":report.attempt,"report_id":result.report_id,"disposition":result.disposition})
                         );
                         if result.retention_release {
                             retire_local(&mut runtime, attempt_id, git)?;
@@ -630,6 +699,8 @@ async fn submit_report(
     report: &ResultReport,
 ) -> Result<Option<ResultResponse>> {
     let record = &runtime.journal.state().attempts[&report.attempt.attempt_id];
+    let source_report =
+        record.source.is_some() && report.stop_certainty == StopCertainty::ConfirmedStopped;
     if report.stop_certainty == StopCertainty::NotStarted && record.grant.is_none() {
         let request = runtime.unstarted_decline(report.attempt.attempt_id)?;
         match client.decline(&request).await {
@@ -644,6 +715,13 @@ async fn submit_report(
             Err(error) => return Err(error),
         }
     }
+    let prepared;
+    let report = if source_report {
+        prepared = runtime.prepare_source_report(report.attempt.attempt_id)?;
+        &prepared
+    } else {
+        report
+    };
     Ok(Some(client.report(report).await?))
 }
 

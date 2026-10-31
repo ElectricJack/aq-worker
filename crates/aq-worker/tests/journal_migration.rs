@@ -243,7 +243,10 @@ fn v2_guardian_report_upgrades_exactly_and_old_reader_refuses_v3_unchanged() {
     .unwrap();
     drop(frozen);
     let current = Journal::open(temp.path(), identity.clone(), limits()).unwrap();
-    assert_eq!(current.state().format_version, 3);
+    assert_eq!(
+        current.state().format_version,
+        aq_worker::journal::STATE_FORMAT
+    );
     assert!(current.state().attempts[&id].source.is_none());
     drop(current);
     let bytes = std::fs::read(&file).unwrap();

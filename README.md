@@ -11,6 +11,8 @@ This repository contains the extracted foundation connector and an execution-pro
 - [Profiled tmux sessions and outbound terminal access](docs/specs/0003-profiled-tmux-sessions.md) (design; not current synthetic-runtime functionality)
 - [Session observation, transcript accounting and suspension](docs/specs/0004-session-observation-and-suspension.md) (design; includes cross-node continuation startup)
 - [Worker protocol ownership](protocol/README.md)
+- [Local source workspaces](docs/source-workspaces.md)
+- [Resumable source transfer candidate](docs/source-transfers.md)
 - [Shared execution and recovery](../agent-q/docs/architecture/0002-execution-and-recovery.md)
 - [AQ ecosystem and releases](../agent-q/docs/architecture/0001-ecosystem-and-releases.md)
 - [Agent Q foundation](../agent-q/docs/specs/0001-infrastructure-foundation.md)

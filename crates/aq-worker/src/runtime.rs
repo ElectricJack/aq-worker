@@ -56,7 +56,8 @@ impl<C: Clock> Runtime<C> {
                     .iter()
                     .all(|c| c == FAKE_HARNESS_CAPABILITY
                         || c == crate::guardian::PROFILE
-                        || (source_checked && c == SOURCE_CAPABILITY)),
+                        || (source_checked
+                            && (c == SOURCE_CAPABILITY || c == SOURCE_TRANSFER_CAPABILITY))),
             "unsupported harness/capability"
         );
         if let Some(record) = self.journal.state().attempts.get(&offer.attempt.attempt_id) {

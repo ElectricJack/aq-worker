@@ -35,6 +35,10 @@ pub struct SourceState {
     pub managed_root: Option<PathBuf>,
     #[serde(default)]
     pub transfer: Option<aq_worker_protocol::TransferManifest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload: Option<crate::source_transfer::UploadState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<crate::source_transfer::DownloadState>,
     #[serde(default)]
     pub pool_reservation_bytes: u64,
     #[serde(default)]
@@ -48,6 +52,10 @@ pub struct SourceState {
     pub checkpoint: Option<Checkpoint>,
     pub exported: Option<Value>,
     pub receipt: Option<aq_worker_protocol::CentralRetentionReceipt>,
+    /// The first network report is frozen before delivery. Local checkpoint
+    /// revisions are not corrections to reports the coordinator has seen.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub report_sealed: bool,
     pub retired: bool,
 }
 impl SourceState {
@@ -56,6 +64,8 @@ impl SourceState {
             binding,
             managed_root: None,
             transfer: None,
+            upload: None,
+            download: None,
             pool_reservation_bytes: 0,
             cache_evicted: false,
             imported_bases: Default::default(),
@@ -65,6 +75,7 @@ impl SourceState {
             checkpoint: None,
             exported: None,
             receipt: None,
+            report_sealed: false,
             retired: false,
         }
     }
@@ -259,6 +270,9 @@ impl GitClient {
     }
     pub fn root(&self) -> &Path {
         &self.root
+    }
+    pub(crate) fn transfer_byte_limit(&self) -> u64 {
+        self.maximum_artifact_bytes
     }
     pub fn exchange(&self, request: &Value) -> Result<Value> {
         let mut stream = UnixStream::connect(&self.socket)
@@ -503,6 +517,10 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
         Ok(result)
     }
     pub fn prepare_source(&mut self, id: Uuid, git: &GitClient) -> Result<Workspace> {
+        ensure!(
+            !self.journal.state().reconciliation_required,
+            "source preparation requires reconciled incarnation"
+        );
         let r = self
             .journal
             .state()
@@ -510,10 +528,20 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             .get(&id)
             .context("unknown attempt")?;
         ensure!(
-            matches!(
-                r.phase,
-                aq_worker_protocol::Phase::Authorized | aq_worker_protocol::Phase::Preparing
-            ) && self.clock.now_ms() < r.grant_deadline_ms.context("no grant")?,
+            r.source
+                .as_ref()
+                .is_none_or(|s| s.download.as_ref().is_none_or(
+                    |d| d.verified && s.imported_bases.contains(&d.manifest.artifact_id)
+                )),
+            "download requires verified retained import before workspace preparation"
+        );
+        ensure!(
+            r.offer.identity == self.journal.state().identity
+                && matches!(
+                    r.phase,
+                    aq_worker_protocol::Phase::Authorized | aq_worker_protocol::Phase::Preparing
+                )
+                && self.clock.now_ms() < r.grant_deadline_ms.context("no grant")?,
             "source preparation lacks live authority"
         );
         self.journal.transaction(|s| {
@@ -624,12 +652,10 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
     }
     pub fn export_source(&mut self, id: Uuid, git: &GitClient) -> Result<Value> {
         ensure!(
-            self.journal
-                .state()
-                .attempts
-                .get(&id)
-                .is_some_and(|r| r.result.is_none()),
-            "source report already acknowledged"
+            self.journal.state().attempts.get(&id).is_some_and(
+                |r| r.result.is_none() && r.source.as_ref().is_some_and(|s| !s.report_sealed)
+            ),
+            "source report already sealed or acknowledged"
         );
         let c = self
             .journal
@@ -720,6 +746,10 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             let r = s.attempts.get_mut(&id).context("unknown attempt")?;
             ensure!(r.result.is_none(), "source report already acknowledged");
             let source = r.source.as_mut().context("source state absent")?;
+            ensure!(
+                !source.report_sealed || source.receipt.as_ref() == Some(&receipt),
+                "source report already sealed"
+            );
             let c = source.checkpoint.as_ref().context("checkpoint absent")?;
             let manifest: GitManifest = serde_json::from_value(
                 source.exported.as_ref().context("export required")?["manifest"].clone(),
@@ -759,6 +789,33 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             Ok(())
         })
     }
+    /// Freeze a first delivery after central retention, without inventing a
+    /// remote predecessor for local-only checkpoint/report revisions.
+    pub fn prepare_source_report(&mut self, id: Uuid) -> Result<aq_worker_protocol::ResultReport> {
+        self.journal.transaction(|s| {
+            let r = s.attempts.get_mut(&id).context("unknown attempt")?;
+            let source = r.source.as_mut().context("source state absent")?;
+            let report = r.report.as_mut().context("source report absent")?;
+            if source.report_sealed {
+                return Ok(report.clone());
+            }
+            ensure!(
+                source.upload.is_some()
+                    && source.receipt.is_some()
+                    && r.result.is_none()
+                    && r.stop_certainty == aq_worker_protocol::StopCertainty::ConfirmedStopped
+                    && r.stopped_proof
+                        .as_ref()
+                        .is_some_and(|p| p.kernel_wait_echild
+                            && p.phase == crate::guardian::GuardianPhase::Stopped),
+                "first source delivery requires owned upload, retention, and stopped proof"
+            );
+            report.report_id = Uuid::new_v4();
+            report.supersedes_report_id = None;
+            source.report_sealed = true;
+            Ok(report.clone())
+        })
+    }
     pub fn retire_source(&mut self, id: Uuid, git: &GitClient) -> Result<()> {
         let r = self
             .journal
@@ -777,7 +834,20 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
                 r.result.as_ref().is_some_and(|r| r.retention_release),
                 "explicit nonstart retention release required"
             );
+            let source = r.source.as_ref().unwrap();
+            ensure!(
+                source.managed_root.as_deref() == Some(git.root())
+                    && source.operations.values().all(|o| o.result.is_some()),
+                "unstarted source has unresolved local operations"
+            );
+            if let Some(download) = &source.download {
+                crate::source_transfer::discard_incoming(
+                    git.root(),
+                    download.manifest.artifact_id,
+                )?;
+            }
             return self.journal.transaction(|s| {
+                s.attempts.get_mut(&id).unwrap().pending_bytes = 0;
                 s.attempts
                     .get_mut(&id)
                     .unwrap()
@@ -867,6 +937,10 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
     /// Only imports a controller-staged completed artifact in aq-git's incoming area.
     /// HTTP transfer/download is a separate consumer of this local operation.
     pub fn import_base(&mut self, id: Uuid, artifact_handle: Uuid, git: &GitClient) -> Result<()> {
+        ensure!(
+            !self.journal.state().reconciliation_required,
+            "source import requires reconciled incarnation"
+        );
         ensure!(!artifact_handle.is_nil(), "nil base artifact");
         let r = self
             .journal
@@ -874,11 +948,19 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             .attempts
             .get(&id)
             .context("unknown attempt")?;
+        if let Some(download) = r.source.as_ref().and_then(|s| s.download.as_ref()) {
+            ensure!(
+                download.manifest.artifact_id == artifact_handle && download.verified,
+                "base download has not been verified"
+            );
+        }
         ensure!(
-            matches!(
-                r.phase,
-                aq_worker_protocol::Phase::Authorized | aq_worker_protocol::Phase::Preparing
-            ) && r.launch_id.is_none()
+            r.offer.identity == self.journal.state().identity
+                && matches!(
+                    r.phase,
+                    aq_worker_protocol::Phase::Authorized | aq_worker_protocol::Phase::Preparing
+                )
+                && r.launch_id.is_none()
                 && self.clock.now_ms() < r.grant_deadline_ms.context("grant missing")?,
             "base import requires live unstarted attempt"
         );
@@ -980,7 +1062,13 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
                 .filter(|(_, s)| s.binding.repository_id == repo)
                 .all(|(r, s)| r.phase == aq_worker_protocol::Phase::Retired
                     && s.retired
-                    && s.receipt.is_some()),
+                    && (s.receipt.is_some()
+                        || (r.stop_certainty == aq_worker_protocol::StopCertainty::NotStarted
+                            && r.launch_id.is_none()
+                            && !r.start_intent
+                            && s.workspace.is_none()
+                            && !s.operations.contains_key("create")
+                            && s.operations.values().all(|o| o.result.is_some())))),
             "repository has protected owners"
         );
         let mut handles = Vec::new();
