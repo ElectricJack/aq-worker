@@ -47,6 +47,7 @@ fn boot_ns() -> u64 {
     t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
 }
 struct Peer {
+    fixture: Value,
     mode: AtomicUsize,
     nonces: Mutex<BTreeSet<Uuid>>,
     stall: AtomicBool,
@@ -72,8 +73,7 @@ async fn handler(
         "each physical send needs its own nonce"
     );
     assert_eq!(
-        body,
-        fixture()["requests"][&path],
+        body, peer.fixture["requests"][&path],
         "immutable operation bytes must not acquire transmission fields"
     );
     if path == "poll" && peer.stall.load(Ordering::SeqCst) {
@@ -88,7 +88,7 @@ async fn handler(
         "reconcile" => 4,
         _ => panic!("unexpected path"),
     };
-    let mut reply = fixture()["replies"][index].clone();
+    let mut reply = peer.fixture["replies"][index].clone();
     if path == "reconcile" {
         reply["body"]["delivery_nonce"] = json!(nonce);
     } else if path != "poll" {
@@ -131,7 +131,11 @@ struct Server {
 }
 impl Server {
     async fn new() -> Self {
+        Self::with_fixture(fixture()).await
+    }
+    async fn with_fixture(fixture: Value) -> Self {
         let peer = Arc::new(Peer {
+            fixture,
             mode: AtomicUsize::new(0),
             nonces: Mutex::new(BTreeSet::new()),
             stall: AtomicBool::new(false),
@@ -170,6 +174,66 @@ impl Server {
             .await
             .unwrap()
     }
+}
+
+#[tokio::test]
+async fn hard_execution_deadline_can_exceed_two_minute_delivery_ttl() {
+    let mut data = fixture();
+    let old = data["native_offer"]["offered"]["offer"]["binding"]["launch_manifest_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    data["native_offer"]["offered"]["offer"]["manifest"]["resources"]["wall_time_ms"] =
+        json!(300_000);
+    let manifest: aq_session_protocol::LaunchManifest =
+        serde_json::from_value(data["native_offer"]["offered"]["offer"]["manifest"].clone())
+            .unwrap();
+    let new = aq_session_protocol::canonical_digest(&manifest).unwrap();
+    fn replace(v: &mut Value, old: &str, new: &str) {
+        match v {
+            Value::String(s) if s == old => *s = new.into(),
+            Value::Object(m) => m.values_mut().for_each(|v| replace(v, old, new)),
+            Value::Array(a) => a.iter_mut().for_each(|v| replace(v, old, new)),
+            _ => {}
+        }
+    }
+    replace(&mut data, &old, new.as_str());
+    data["replies"][2]["body"]["execution_deadline_ms"] = json!(250_000);
+    let offer: NativeOffer = serde_json::from_value(data["native_offer"].clone()).unwrap();
+    offer.validate().unwrap();
+    let accept: Accept = serde_json::from_value(data["requests"]["accept"].clone()).unwrap();
+    let prepare: Prepare = serde_json::from_value(data["requests"]["prepare"].clone()).unwrap();
+    let s = Server::with_fixture(data).await;
+    let plan = s
+        .client
+        .accept(&accept, boot_ns() + 1_000_000_000, None)
+        .await
+        .unwrap();
+    let grant = s
+        .client
+        .prepare(&prepare, &plan, &offer, None)
+        .await
+        .unwrap();
+    assert!(grant.hard_deadline_ns() - boot_ns() > 120_000_000_000);
+    assert!(grant.deadline_ns() - boot_ns() < 1_000_000_000);
+}
+
+#[tokio::test]
+async fn changed_initial_operation_refuses_before_a_second_prepare_send() {
+    let s = Server::new().await;
+    let plan = s.prepared().await;
+    let offer = serde_json::from_value(fixture()["native_offer"].clone()).unwrap();
+    let mut req: Prepare = request("prepare");
+    let grant = s.client.prepare(&req, &plan, &offer, None).await.unwrap();
+    let sends = s.peer.nonces.lock().unwrap().len();
+    req.operation_id = Uuid::new_v4();
+    assert!(
+        s.client
+            .prepare(&req, &plan, &offer, Some(&grant))
+            .await
+            .is_err()
+    );
+    assert_eq!(s.peer.nonces.lock().unwrap().len(), sends);
 }
 impl Drop for Server {
     fn drop(&mut self) {

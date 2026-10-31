@@ -4,7 +4,7 @@ use super::*;
 use aq_admission::{
     control as wire,
     startup::NativeOffer,
-    transport::{Accept, DeliveryClock, Poll, PreparationPlan, Prepare, Reconcile, Renew},
+    transport::{Accept, Poll, PreparationPlan, Prepare, Reconcile, Renew},
 };
 
 pub struct PollObservation {
@@ -202,6 +202,12 @@ impl NativeClient {
         );
         live(plan.deadline_ns)?;
         if let Some(previous) = previous {
+            previous.initial.validate_for(
+                request,
+                plan.plan(),
+                offer,
+                previous.initial.delivery.nonce,
+            )?;
             ensure!(
                 previous.current.is_none(),
                 "initial grant retry after renewal"
@@ -225,11 +231,15 @@ impl NativeClient {
                 "initial grant replay changed"
             );
         }
-        let hard_clock = DeliveryClock::new(
-            message.delivery.clock.server_time_ms,
-            message.execution_deadline_ms,
-        )?;
-        let mut hard_deadline_ns = hard_clock.client_deadline_ns(got.sent_ns, got.received_ns)?;
+        // Hard execution may outlast DeliveryClock's two-minute lease bound.
+        // Charge the same full network interval using checked arithmetic.
+        let mut hard_deadline_ns = message
+            .execution_deadline_ms
+            .checked_sub(message.delivery.clock.server_time_ms)
+            .and_then(|ms| ms.checked_mul(1_000_000))
+            .and_then(|ns| got.sent_ns.checked_add(ns))
+            .filter(|end| got.received_ns >= got.sent_ns && got.received_ns < *end)
+            .ok_or_else(|| anyhow::anyhow!("invalid local hard execution deadline"))?;
         let mut cap = plan.deadline_ns;
         if let Some(previous) = previous {
             hard_deadline_ns = hard_deadline_ns.min(previous.hard_deadline_ns);

@@ -151,3 +151,10 @@ require actual owner transitions. There are no implicit retries. Unknown network
 outcomes return to durable driver recovery. Journal persistence/reconstruction,
 host permit issuance, cancellation, material installation and Git hydration are
 separate integration work; these in-memory wrappers do not claim crash recovery.
+
+Control review also qualifies hard execution durations beyond the short two-minute
+delivery TTL: checked projection charges the same network interval without
+applying a lease-duration bound to the task's hard wall limit. Initial-grant
+retries validate their previous owner and operation before sending another
+Prepare request. Both regressions failed against the initial consumer and pass
+with the reviewed implementation.
