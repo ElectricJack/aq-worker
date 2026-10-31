@@ -114,3 +114,45 @@ capacity exhaustion. Synthetic clocks and peers qualify bounded local behavior;
 the product gate still needs an actual daemon, Git owner, worker and selected
 harness on one real task. This document is an implementation plan, not evidence
 that those journal transitions are installed.
+
+## First implemented storage slice
+
+`native::journal` now provides explicit initialization, exclusive private storage,
+no-launch reservation, stable acceptance and observed preparation persistence.
+It is a separately versioned format1; fixture journal formats are unchanged.
+The first slice holds at most64 attempts and8MiB of encoded state, with configured
+slot/memory/CPU/disk reservation limits. Every retained attempt remains charged,
+even after expiry or an unknown network outcome. These are logical budgets, not
+proof of physical disk headroom or sustained storage latency.
+
+Initialization requires a newly created root. Reopening requires an intact,
+checksummed supported snapshot with exact node/attempt/request associations.
+The root and members are owner-only and opened relative to retained directory
+descriptors without following symlinks. Atomic mutation writes one exclusive
+pending file, fsyncs it, renames and fsyncs the directory. Any possibly effective
+write failure poisons the writer. A published snapshot survives; an unacknowledged
+pre-rename pending file is discarded only after validating the published snapshot
+and pending file safety. Missing state never triggers automatic initialization.
+
+Reservation identity, original deadline, exact offer, runtime qualification and
+resource holds precede acceptance. Acceptance retains one stable request and its
+canonical digest before a caller may send it. Retries preserve the original
+request and remaining-time claim; a fresh network nonce is separate. The native
+HTTP observation exposes its actual send/receive CLOCK_BOOTTIME samples, which
+are retained with the preparation receipt and its non-extending local deadline.
+No credentials or private material bodies enter the journal.
+
+Every open after process restart is inspection/stop-and-preserve only, even on
+the same kernel boot. It cannot advertise free capacity, reaccept, renew or
+reconstruct a live preparation/grant wrapper. Original identities and kernel
+clock provenance remain history. This initial conservative profile also requires
+explicit recovery/reinitialization for an empty reopened journal; it provides no
+automatic release/reset API. Callers must run its blocking fsync work on their
+bounded storage lane before any external effect.
+
+Remaining integration is explicit: durable fetch/material/Prepare intents, actual
+Git hydration, launch/stop callbacks, guardian permits, result/release ownership,
+bootstrap recovery and the no-start recovery protocol. No runtime capability is
+advertised by the mere presence of this storage module. Physical ENOSPC, power-loss
+filesystem durability and real process restart recovery need additional system
+qualification; injected durability-boundary failures are component evidence only.

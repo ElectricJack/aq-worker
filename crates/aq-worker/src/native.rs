@@ -3,6 +3,7 @@
 //! own admission. Typed inline Source observations may use this buffer; Git
 //! bundles use the separate streaming source owner.
 pub mod http;
+pub mod journal;
 pub mod materials;
 
 use anyhow::{Result, ensure};
