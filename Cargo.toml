@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/aq-agent-client", "crates/aq-observation-engine", "crates/aq-observation-redb-prototype", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-terminal-bridge", "crates/aq-worker-protocol", "crates/aq-worker"]
+members = ["crates/aq-agent-client", "crates/aq-observation-engine", "crates/aq-observation-redb-prototype", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-terminal-bridge", "crates/aq-terminal-renderer", "crates/aq-worker-protocol", "crates/aq-worker"]
 
 exclude = ["vendor/aq-agent-api-0.1.0", "vendor/aq-terminal-relay-protocol-0.1.0", "vendor/aq-terminal-relay-0.1.0", "vendor/aq-session-api-0.1.0"]
 
