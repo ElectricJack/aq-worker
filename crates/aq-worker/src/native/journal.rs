@@ -42,11 +42,19 @@ impl Limits {
         Ok(())
     }
 }
+/// Both original installed runtime identity and its operator qualification must
+/// survive configuration changes; neither is inferred from the offered harness.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeIdentity {
+    pub runtime: ArtifactRef,
+    pub qualification: ArtifactRef,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reservation {
     pub offer: NativeOffer,
-    pub runtime_qualification: ArtifactRef,
+    pub runtime: RuntimeIdentity,
     pub reserved_at_ns: u64,
     pub deadline_ns: u64,
     pub disk_bytes: u64,
@@ -138,8 +146,10 @@ impl State {
         for (id, attempt) in &self.attempts {
             let r = &attempt.reservation;
             r.offer.validate()?;
-            r.runtime_qualification.id.validate()?;
-            r.runtime_qualification.version.validate()?;
+            for reference in [&r.runtime.runtime, &r.runtime.qualification] {
+                reference.id.validate()?;
+                reference.version.validate()?;
+            }
             let binding = &r.offer.offered.offer.binding;
             ensure!(
                 *id == binding.attempt_id
@@ -398,7 +408,7 @@ impl Journal {
     pub fn reserve(
         &mut self,
         offer: NativeOffer,
-        runtime_qualification: ArtifactRef,
+        runtime: RuntimeIdentity,
         deadline_ns: u64,
         disk_bytes: u64,
     ) -> Result<Uuid> {
@@ -424,7 +434,7 @@ impl Journal {
         );
         let reservation = Reservation {
             offer,
-            runtime_qualification,
+            runtime,
             reserved_at_ns: now,
             deadline_ns,
             disk_bytes,

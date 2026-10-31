@@ -134,7 +134,7 @@ write failure poisons the writer. A published snapshot survives; an unacknowledg
 pre-rename pending file is discarded only after validating the published snapshot
 and pending file safety. Missing state never triggers automatic initialization.
 
-Reservation identity, original deadline, exact offer, runtime qualification and
+Reservation identity, original deadline, exact offer, original installed runtime identity/qualification and
 resource holds precede acceptance. Acceptance retains one stable request and its
 canonical digest before a caller may send it. Retries preserve the original
 request and remaining-time claim; a fresh network nonce is separate. The native
