@@ -1,0 +1,27 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-native-consumer/crates/aq-worker)
+error[E0560]: struct `aq_admission::transport::MaterialDelivery` has no field named `schema_version`
+  --> crates/aq-worker/tests/native_materials.rs:97:29
+   |
+97 | ...                   schema_version: 1,
+   |                       ^^^^^^^^^^^^^^ `aq_admission::transport::MaterialDelivery` does not have this field
+   |
+   = note: all struct fields are already assigned
+
+error[E0618]: expected function, found `TempDir`
+   --> crates/aq-worker/tests/native_materials.rs:260:18
+    |
+155 | fn root() -> tempfile::TempDir {
+    | ------------------------------ this function of the same name is available here, but it's shadowed by the local binding
+...
+244 |     let root = root();
+    |         ---- `root` has type `TempDir`
+...
+260 |     let second = root();
+    |                  ^^^^--
+    |                  |
+    |                  call expression requires function
+
+Some errors have detailed explanations: E0560, E0618.
+For more information about an error, try `rustc --explain E0560`.
+error: could not compile `aq-worker` (test "native_materials") due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...

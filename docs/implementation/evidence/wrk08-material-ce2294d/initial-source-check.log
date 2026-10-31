@@ -1,0 +1,91 @@
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-worker-native-consumer/crates/aq-worker-protocol)
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-native-consumer/crates/aq-worker)
+error[E0277]: the trait bound `materials::Record: aq_session_protocol::Validate` is not satisfied
+   --> crates/aq-worker/src/native/materials.rs:55:42
+    |
+ 55 |                 digest: canonical_digest(self)?,
+    |                         ---------------- ^^^^ unsatisfied trait bound
+    |                         |
+    |                         required by a bound introduced by this call
+    |
+help: the trait `aq_session_protocol::Validate` is not implemented for `materials::Record`
+   --> crates/aq-worker/src/native/materials.rs:29:1
+    |
+ 29 | struct Record {
+    | ^^^^^^^^^^^^^
+    = help: the following other types implement trait `aq_session_protocol::Validate`:
+              Capability
+              ControllerLease
+              Descriptor
+              InputCommand
+              InputReceipt
+              LaunchManifest
+              NodeCommandBatch
+              NodeOutputBatch
+            and 47 others
+note: required by a bound in `canonical_digest`
+   --> crates/aq-session-protocol/src/lib.rs:112:40
+    |
+112 | pub fn canonical_digest<T: Serialize + Validate>(value: &T) -> Result<Digest, ContractError> {
+    |                                        ^^^^^^^^ required by this bound in `canonical_digest`
+
+error[E0277]: the trait bound `materials::Record: aq_session_protocol::Validate` is not satisfied
+   --> crates/aq-worker/src/native/materials.rs:301:37
+    |
+301 |                     canonical_bytes(&record)? == *raw
+    |                     --------------- ^^^^^^^ unsatisfied trait bound
+    |                     |
+    |                     required by a bound introduced by this call
+    |
+help: the trait `aq_session_protocol::Validate` is not implemented for `materials::Record`
+   --> crates/aq-worker/src/native/materials.rs:29:1
+    |
+ 29 | struct Record {
+    | ^^^^^^^^^^^^^
+    = help: the following other types implement trait `aq_session_protocol::Validate`:
+              Capability
+              ControllerLease
+              Descriptor
+              InputCommand
+              InputReceipt
+              LaunchManifest
+              NodeCommandBatch
+              NodeOutputBatch
+            and 47 others
+note: required by a bound in `canonical_bytes`
+   --> crates/aq-session-protocol/src/lib.rs:103:39
+    |
+103 | pub fn canonical_bytes<T: Serialize + Validate>(value: &T) -> Result<Vec<u8>, ContractError> {
+    |                                       ^^^^^^^^ required by this bound in `canonical_bytes`
+
+error[E0277]: the trait bound `materials::Record: aq_session_protocol::Validate` is not satisfied
+   --> crates/aq-worker/src/native/materials.rs:361:35
+    |
+361 |         let raw = canonical_bytes(&record)?;
+    |                   --------------- ^^^^^^^ unsatisfied trait bound
+    |                   |
+    |                   required by a bound introduced by this call
+    |
+help: the trait `aq_session_protocol::Validate` is not implemented for `materials::Record`
+   --> crates/aq-worker/src/native/materials.rs:29:1
+    |
+ 29 | struct Record {
+    | ^^^^^^^^^^^^^
+    = help: the following other types implement trait `aq_session_protocol::Validate`:
+              Capability
+              ControllerLease
+              Descriptor
+              InputCommand
+              InputReceipt
+              LaunchManifest
+              NodeCommandBatch
+              NodeOutputBatch
+            and 47 others
+note: required by a bound in `canonical_bytes`
+   --> crates/aq-session-protocol/src/lib.rs:103:39
+    |
+103 | pub fn canonical_bytes<T: Serialize + Validate>(value: &T) -> Result<Vec<u8>, ContractError> {
+    |                                       ^^^^^^^^ required by this bound in `canonical_bytes`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `aq-worker` (lib) due to 3 previous errors
