@@ -17,16 +17,19 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use zeroize::Zeroizing;
+pub mod control;
 
 #[derive(Clone)]
 pub struct NativeClient {
     control: reqwest::Client,
     bulk: reqwest::Client,
+    renewal: reqwest::Client,
     base: String,
     node: Uuid,
     credential: header::HeaderValue,
     control_slots: Arc<Semaphore>,
     bulk_slots: Arc<Semaphore>,
+    renewal_slots: Arc<Semaphore>,
 }
 #[derive(Debug)]
 pub struct HttpStatus(pub StatusCode);
@@ -165,11 +168,13 @@ impl NativeClient {
         Ok(Self {
             control: client()?,
             bulk: client()?,
+            renewal: client()?,
             base: config.server_url.trim_end_matches('/').into(),
             node: config.node_id,
             credential,
             control_slots: Arc::new(Semaphore::new(2)),
             bulk_slots: Arc::new(Semaphore::new(2)),
+            renewal_slots: Arc::new(Semaphore::new(1)),
         })
     }
     fn scope(&self, binding: &LaunchBinding) -> Result<()> {

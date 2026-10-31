@@ -4,7 +4,8 @@ This is the native consumer implementation lane. The existing fixture driver and
 journal retain their own wire/state format; a real harness is never disguised as
 the fixture. The shared execution/profile designs and AQ08 producer plan remain
 normative. Components are developed independently of an already runnable daemon.
-Actual HTTP/product qualification waits for the exact producer contracts.
+Synthetic HTTP qualification uses exact public contracts. Assembled product
+qualification additionally requires the actual producer and durable worker driver.
 
 ## Contract and ownership boundaries
 
@@ -13,8 +14,11 @@ acceptance/preparation/initial grant and Started/Stopped reports. Verify its
 standalone archive SHA256
 `d74db09f5766a437b9d43b6d63710a56afc4db69432953ef06699ec7ab09e066`.
 Use the exact Session0.1.0 and Lifecycle0.1.0 types already pinned by the worker.
-Pending0.1.7 adds bounded native polling, reconciliation and running-renewal replies;
-its publication must precede HTTP consumer wiring. Frozen0.1.6 PollPage cannot
+Frozen0.1.7 adds bounded native polling, reconciliation and running-renewal replies.
+Its exact archive is pinned by `vendor/aq-admission-017-source.json`, SHA256
+`46283490c98c5b082aa8dbfd4ccde230db3d97828fcbd71ff5b0526837bae545`.
+The worker now consumes0.1.7 while retaining the unchanged0.1.6 archive and fixtures.
+Frozen0.1.6 PollPage cannot
 silently carry NativeOffer or undocumented current-authority fields.
 
 A small native runtime module owns local capacity/reservation, immutable request
@@ -126,3 +130,24 @@ explicitly disables reqwest protocol retries as well as redirects. Proxy support
 if later needed, requires a separately configured trusted policy. Regression tests
 reproduce the former plaintext acceptance and ambient proxy interception, then
 exercise actual native wire roundtrips in an isolated proxy-configured subprocess.
+
+## Native control consumer seam
+
+The0.1.7 consumer returns process-local, non-deserializable preparation and grant
+observations. Successful JSON parsing alone is never a host permit. Every actual
+send has a new delivery nonce outside immutable operation bytes; the receiver
+checks exact request/owner identity and charges CLOCK_BOOTTIME through the final
+body byte. An acceptance is capped by the caller's original local reservation.
+Repeated preparation/initial grant replies must preserve original bytes and
+previous local deadlines. A newer running-renewal revision may extend only a
+still-live grant, capped by the original local hard execution deadline. Same-
+revision replies preserve their previous expiry; expired authority never revives.
+
+A separate one-request renewal lane remains available when both reporting/control
+slots and both artifact/result slots are occupied. Reconciliation is a bounded
+current-state observation with no deadline or launch-permit conversion. Poll
+offers carry local expiry observations only; acceptance and preparation still
+require actual owner transitions. There are no implicit retries. Unknown network
+outcomes return to durable driver recovery. Journal persistence/reconstruction,
+host permit issuance, cancellation, material installation and Git hydration are
+separate integration work; these in-memory wrappers do not claim crash recovery.
