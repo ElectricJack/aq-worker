@@ -363,6 +363,12 @@ impl ReleasedObservedSession {
                     && supervisor::guardian_live(&handle.identity),
                 "observed Started authority expired or lost"
             );
+            exec::live_pane(
+                observation
+                    .pane
+                    .as_ref()
+                    .context("observed Started pane missing")?,
+            )?;
             exec::observed_image(
                 &observation
                     .pane

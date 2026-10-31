@@ -2280,6 +2280,7 @@ fn observed_baseline_durability_reader_and_expiry_fail_closed_without_exec() {
         "reader-drop",
         "reader-stop",
         "helper-death",
+        "server-death",
         "expiry",
     ] {
         let (mut c, pending) = observed_closed_case();
@@ -2299,6 +2300,9 @@ fn observed_baseline_durability_reader_and_expiry_fail_closed_without_exec() {
                                 .is_some_and(|(_, f)| f.starts_with('T') || f.starts_with('t'))
                         })
                 });
+            }
+            if mode == "server-death" {
+                terminate(&initial.pane.as_ref().unwrap().server);
             }
             if mode == "helper-death" {
                 terminate(&initial.pane.as_ref().unwrap().pane);

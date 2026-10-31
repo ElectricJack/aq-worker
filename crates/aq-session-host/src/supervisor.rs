@@ -424,7 +424,7 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
         rendered.verify(&config.manifest, &bytes)?;
     }
     if config.observed.is_some() {
-        return observed::gate::wait_closed(dir, &config, &identity);
+        return observed::gate::wait_closed(dir, &config, &identity, &server);
     }
     durable_new(
         &dir.join("pane-exec.claim"),
