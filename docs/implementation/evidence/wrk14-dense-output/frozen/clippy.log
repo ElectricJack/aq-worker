@@ -1,0 +1,4 @@
+    Checking aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+    Checking aq-worker v0.3.3 (/home/jkern/dev/aq-worker-output/crates/aq-worker)
+    Checking aq-terminal-bridge v0.1.1 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-bridge)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.16s

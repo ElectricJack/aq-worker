@@ -1,0 +1,10 @@
+   Compiling aq-session-host v0.1.2 (/home/jkern/dev/aq-worker-output/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.1 (/home/jkern/dev/aq-worker-output/crates/aq-terminal-bridge)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.54s
+     Running tests/local_relay.rs (target/debug/deps/local_relay-8c06644e5326decc)
+
+running 1 test
+test full_tail_queue_keeps_draining_without_a_network_consumer ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.26s
+
