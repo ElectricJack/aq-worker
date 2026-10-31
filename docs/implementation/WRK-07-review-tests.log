@@ -1,0 +1,182 @@
+   Compiling aq-worker v0.3.3 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.54s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-95ea78cc6a87c0fd)
+
+running 1 test
+test journal::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-fixture-agent.rs (target/debug/deps/aq_fixture_agent-af23b1787fa0ad0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/aq_worker-5c8eaeb63f3e4311)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-worker-test-host.rs (target/debug/deps/aq_worker_test_host-e4d34c21e77320bd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backoff.rs (target/debug/deps/backoff-f4ba8ac13d9a60e7)
+
+running 2 tests
+test attempt_zero_has_one_second_ceiling ... ok
+test backoff_is_bounded_and_jittered ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (target/debug/deps/client-c44f0b150df8abb1)
+
+running 14 tests
+test malformed_server_urls_are_rejected ... ok
+test connection_refused_error_includes_the_cause ... ok
+test server_down_is_transient ... ok
+test revoked_is_fatal ... ok
+test upgrade_required_is_incompatible ... ok
+test redirect_classified_as_access_rejected ... ok
+test non_json_401_is_access_rejected ... ok
+test sends_bearer_and_cf_headers ... ok
+test server_error_is_transient ... ok
+test unexpected_401_code_is_other ... ok
+test unknown_credential_is_invalid ... ok
+test not_found_hints_at_the_worker_port ... ok
+test html_login_page_classified_as_access_rejected ... ok
+test html_429_and_408_and_502_are_transient ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/config.rs (target/debug/deps/config-ea97572102a06259)
+
+running 3 tests
+test debug_redacts_secrets ... ok
+test load_refuses_world_readable_config ... ok
+test config_saved_with_0600 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/driver.rs (target/debug/deps/driver-087f87749ae74395)
+
+running 5 tests
+test stopped_report_recovers_before_new_boot_registration_without_relaunch ... ok
+test binary_executes_real_child_against_fake_http_peer_with_lost_responses ... ok
+test blocked_fixture_is_killed_and_reaped_on_cancellation ... ok
+test post_stop_observation_outage_preserves_and_replays_before_report ... ok
+test blocked_fixture_is_killed_and_reaped_on_grant_expiry ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+     Running tests/execution.rs (target/debug/deps/execution-7914a894c6ff6611)
+
+running 17 tests
+test profiled_tmux_launch_remains_refused_until_authority_integration ... ok
+test exclusive_owner_and_unknown_state_format_fail_closed ... ok
+test oversized_journal_is_refused_before_deserialization ... ok
+test unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test admission_replay_and_changed_bytes_are_distinct ... ok
+test competing_projects_share_one_durable_capacity_budget ... ok
+test orderly_journal_release_does_not_wait_for_an_unrelated_fork_child ... ok
+test uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test request_send_time_includes_network_delay_and_suspend ... ok
+test launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test write_failures_never_acknowledge_unpersisted_admission ... ok
+test observations_and_directive_receipts_cross_durable_boundary ... ok
+test nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired ... ok
+test stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/foundation_fixtures.rs (target/debug/deps/foundation_fixtures-ffb79d1aeb3e3c7f)
+
+running 2 tests
+test retained_wire_fixtures_parse_against_foundation_types ... ok
+test retained_worker_identity_survives_save_reload ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/foundation_lifecycle.rs (target/debug/deps/foundation_lifecycle-cc9144940fc7827d)
+
+running 1 test
+test enroll_saved_identity_reconnect_and_revocation_need_no_sibling ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/guardian.rs (target/debug/deps/guardian-f95a6396f3e95dcb)
+
+running 11 tests
+test unavailable_profile_refuses_before_runtime_state ... ok
+test stalled_control_cannot_start_after_expiry_and_stale_identity_is_refused ... ok
+test guardian_loss_holds_resources_even_after_known_pids_disappear ... ok
+test guardian_does_not_inherit_runtime_lock_or_publish_token ... ok
+test exited_root_is_not_stop_proof_for_escaped_descendant ... ok
+test guardian_independently_expires_while_runtime_is_dead ... ok
+test surviving_double_fork_setsid_writer_stops_by_live_guardian_and_not_pid_scan ... ok
+test stalled_renew_cannot_revive_expired_guardian_authority ... ok
+test clock_failure_uses_raw_clock_to_escalate_ignored_term ... ok
+test slow_drip_control_has_total_deadline_and_cannot_starve_expiry ... ok
+test spawn_boundary_crashes_never_duplicate_and_recover_owned_writers ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+     Running tests/journal_migration.rs (target/debug/deps/journal_migration-76e3826e0916cd4e)
+
+running 5 tests
+test frozen_v1_reader_refuses_current_format_without_modifying_new_state ... ok
+test legacy_active_launch_without_guardian_stays_uncertain_even_with_missing_pid ... ok
+test drain_survives_restart_and_does_not_restore_launch_authority ... ok
+test v1_retired_and_stopped_reports_upgrade_without_reinterpreting_evidence ... ok
+test v2_guardian_report_upgrades_exactly_and_old_reader_refuses_v3_unchanged ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/source.rs (target/debug/deps/source-650356ba574b21e3)
+
+running 16 tests
+test pinned_git_real_workspace_checkpoint_export_and_feature_refusal ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; no sibling checkout
+test source_cli::pinned_git_cli_cold_download_handoff_and_held_download_cancel ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; actual CLI HTTP integration
+test source_http::pinned_git_http_retention_lost_finalize_and_report_restart ... ignored, requires explicit AQ_GIT_TEST_BINARY pinned public binary; local HTTP qualification
+test legacy_v3::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+test binding_conflicts_and_pending_disk_pressure_refuse_new_work ... ok
+test download_reservation_pressure_preserves_existing_source_and_allocates_no_files ... ok
+test source_admission_is_demand_only_and_socket_loss_replays_after_restart ... ok
+test download_refuses_changed_assignment_or_corrupt_complete_bytes ... ok
+test download_restart_replays_only_unacknowledged_tail_and_cannot_grant_import ... ok
+test shared_cache_is_charged_once_for_multiple_projects_and_growth_stays_protected ... ok
+test download_nonstart_cleanup_requires_release_and_preserves_unknown_git_effects ... ok
+test guardian_stopped_writers_gate_checkpoint_and_replay ... ok
+test upload_local_commit_failure_keeps_same_pending_chunk_on_reopen ... ok
+test source_v3_upgrade_preserves_retained_work_without_inventing_transfer_progress ... ok
+test upload_changed_retained_bytes_or_symlink_never_replays_changed_payload ... ok
+test upload_restart_preserves_intent_chunk_and_finalize_ids_until_exact_retention ... ok
+
+test result: ok. 13 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/transfer_client.rs (target/debug/deps/transfer_client-f3dd8b20ffc2595f)
+
+running 7 tests
+test credentials_in_urls_partial_access_credentials_and_unbounded_lanes_refuse ... ok
+test invalid_local_input_cannot_reach_remote_transport ... ok
+test redirects_never_forward_credentials_and_remote_secrets_are_not_errors ... ok
+test bounded_responses_and_ranges_reject_large_short_or_untrusted_bodies ... ok
+test mismatched_peer_identity_offsets_or_unconfirmed_retention_refuse ... ok
+test blocked_bulk_does_not_queue_or_block_status_and_execution_control ... ok
+test finite_authenticated_routes_preserve_exact_ids_bytes_and_ranges ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_worker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

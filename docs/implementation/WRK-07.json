@@ -1,0 +1,196 @@
+{
+  "task": "WRK-07",
+  "runtime_source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+  "qualification_source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+  "status": "clean exact-source local candidate qualified",
+  "review_findings": [
+    {
+      "id": "WRK07-R1",
+      "finding": "nonstart recovery overwrote persisted Cancelled stop reason with Expired",
+      "disposition": "fixed; one-line stop_reason fallback and regression"
+    }
+  ],
+  "runtime_changes_from_review": [
+    "recover_owned_launches uses known stop_reason, default Expired for unknown no-launch restart"
+  ],
+  "source_files": [
+    {
+      "path": "crates/aq-worker/src/runtime.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "67a4e902ce6e22538fb8526f40432aaeec3e5614d7d8dec51423cc2ec5c3a184"
+    },
+    {
+      "path": "crates/aq-worker/src/source_transfer/upload.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "a4f1084989531b0b7008e6a07b93d4171d6707399c0365f631224ae512168e8e"
+    },
+    {
+      "path": "crates/aq-worker/src/source_transfer/download.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "a10ac69fe24c3e667289f8f2a5f0a260fca80dd869928189a639e2a488aab95c"
+    },
+    {
+      "path": "crates/aq-worker/src/source_transfer/files.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "4765f14480f2a7248c4ed422febf026943c756adb6c57ff5d8f074eb6f52daa5"
+    },
+    {
+      "path": "crates/aq-worker/src/source_driver.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "b2535612b3151e4f4a1eae4804cb529fac723ad501714c470773904d32222282"
+    },
+    {
+      "path": "crates/aq-worker/src/source.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "ee864b680ebb7ac899b558be405ec6ee62eba842b2e266ed1eb39f64e00c842d"
+    },
+    {
+      "path": "crates/aq-worker/src/transfer_client.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "b4e4dbc93256d9bf01ba3d0f76c456591bd14646a04d7c7ddc7ccfbba678d144"
+    },
+    {
+      "path": "crates/aq-worker/src/journal.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "71af6f4ed67ac5d02434d928f045139a15698dc3a96ac8585205f210fdd9c3c1"
+    },
+    {
+      "path": "crates/aq-worker/src/driver.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "51e4eadb67e3f45f9be53b23093ea4d489ca85b85e22efb14ebd67707806d328"
+    },
+    {
+      "path": "crates/aq-worker/tests/execution.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "aba1dbcf2c0d377896209893ebc8c01edc7034ec278fc00f7c5d010ba4a17120"
+    },
+    {
+      "path": "crates/aq-worker/tests/source.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "cb95ddf6cc5a8f9d02cf8744ccb1e110a579fe31cc2a22ed12c66660b84ffd38"
+    },
+    {
+      "path": "crates/aq-worker/tests/support/source_http.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "7027f1d76f300ec5d30cd267249a5ba483e480d8c5974dbc76397a10e7aac81f"
+    },
+    {
+      "path": "crates/aq-worker/tests/support/source_cli.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "47c89bad0a568fc89b6b83e02c733904c441035a07bfc5e43057ffa3d8ed94b9"
+    },
+    {
+      "path": "Cargo.lock",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "787dee90583f3d400911b1ffffe99e76e967c5b75d56351743aea3415e5bc3af"
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "a2746db8780688180a6b08900f00441a5a218b8aff3f50433b34070ede8b028b"
+    },
+    {
+      "path": "crates/aq-worker/src/main.rs",
+      "source_revision": "b535c79663c22118c036d23a8d47a639d2d5ef4c",
+      "sha256": "2cc3d870d1b106e18b7ad33c6309f4402363034fb7f0a0857f244b1a0052e3b9"
+    }
+  ],
+  "pinned_git": {
+    "source_revision": "f3660a89cbeac0e068105af2926dfdcb06a1daad",
+    "binary_sha256": "9de33fd4e79d68a9cb8c72532ee03825dca3a3dbaf979bcd8770a53ef8fe9d3a",
+    "source_archive_sha256": "8f6a2f8ce04361c3cabaff5de7274505e28a042235da18cc346086f47e4c6cd5",
+    "build_image": "sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663",
+    "qualified_provenance": "agent-q/docs/evidence/m4-git-package.json",
+    "qualification_host_git_version": "git version 2.43.0"
+  },
+  "checks": {
+    "ordinary_tests_passed": 81,
+    "ordinary_tests_ignored": 3,
+    "strict_all_target_clippy": "passed",
+    "real_git_http_tests_passed": 1,
+    "cli_tests_passed": 1,
+    "cli_cases": [
+      "cold base held bundle response with concurrent control then upload/import/report unknown reply/exact replay/retirement",
+      "held bundle cancellation then two restarts/reconcile; unknown nonstart release response retains partial input, exact replay releases quota and removes input"
+    ],
+    "known_cancel_unknown_restart_regression": "passed",
+    "clean_ordinary_tests_passed": 81,
+    "clean_default_ignored": 3,
+    "clean_explicit_git_tests_passed": 3,
+    "clean_explicit_git_duration_seconds": 4.06,
+    "clean_strict_clippy": "passed",
+    "clean_format": "passed",
+    "clean_worktree_status_bytes": 0,
+    "commands": [
+      "CARGO_TARGET_DIR=/tmp/wrk07-clean-target CARGO_INCREMENTAL=0 cargo test -p aq-worker --all-features --locked --offline",
+      "CARGO_TARGET_DIR=/tmp/wrk07-clean-target CARGO_INCREMENTAL=0 AQ_GIT_TEST_BINARY=/home/jkern/dev/.aq-qualification/m4-git-build/target/release/aq-git cargo test -p aq-worker --all-features --locked --offline --test source -- --ignored --nocapture",
+      "CARGO_TARGET_DIR=/tmp/wrk07-clean-target CARGO_INCREMENTAL=0 cargo clippy -p aq-worker --all-targets --all-features --locked --offline -- -D warnings",
+      "cargo fmt --package aq-worker --check",
+      "git status --porcelain"
+    ]
+  },
+  "limits": [
+    "local fake HTTP peers mirror selected daemon predecessor/retention/replay checks; not live daemon authorization qualification",
+    "immediate inline canceled-result convergence remains deferred; actual restart/reconcile/release/cleanup qualified",
+    "no production harness/provider/fleet/throughput claim"
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/WRK-07-clean-clippy.log",
+      "sha256": "fe7866a07f5709738e61a223f9aa27211d55a30515a6b1875cdb9f21230feaed",
+      "kind": "definitive clean qualified-pin"
+    },
+    {
+      "path": "docs/implementation/WRK-07-clean-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "kind": "definitive clean qualified-pin"
+    },
+    {
+      "path": "docs/implementation/WRK-07-clean-git.log",
+      "sha256": "6613424c22be22ac16b2cc59d056748f692139b4cf780c83473fdf17f61aa9b9",
+      "kind": "definitive clean qualified-pin"
+    },
+    {
+      "path": "docs/implementation/WRK-07-clean-status.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "kind": "definitive clean qualified-pin"
+    },
+    {
+      "path": "docs/implementation/WRK-07-clean-tests.log",
+      "sha256": "b752c2c5a28ab0353e802ea695db5e92bbc686af053f29f5639b6827af4797e9",
+      "kind": "definitive clean qualified-pin"
+    },
+    {
+      "path": "docs/implementation/WRK-07-cli.log",
+      "sha256": "51e005afc504adf6a1ce3ea4aa828ee6d9bf8554c61f60d9fbd27ee6aa57a074",
+      "kind": "earlier local candidate; extra evidence"
+    },
+    {
+      "path": "docs/implementation/WRK-07-http.log",
+      "sha256": "7faa3d31878c9a4a978d15f25336ab0fbbfffb9d8bf1fd5c0bcaeb15690ac8a4",
+      "kind": "earlier local candidate; extra evidence"
+    },
+    {
+      "path": "docs/implementation/WRK-07-recovery.log",
+      "sha256": "cc06c06af70857af4b122b4194cf48d32db8eb5ca2612fc2f04ec65d97403b1a",
+      "kind": "earlier local candidate; extra evidence"
+    },
+    {
+      "path": "docs/implementation/WRK-07-review-clippy.log",
+      "sha256": "930126a2e47fae9cc4e0568516964b25da46fe398ed82fc36992e094ed22853d",
+      "kind": "earlier local candidate; extra evidence"
+    },
+    {
+      "path": "docs/implementation/WRK-07-review-tests.log",
+      "sha256": "1470a458fe817b333b62a7e97e790956521b10339254d6ffbbca7bb2733b8170",
+      "kind": "earlier local candidate; extra evidence"
+    }
+  ],
+  "extra_local_candidate_git": {
+    "source_revision": "f3660a89cbeac0e068105af2926dfdcb06a1daad",
+    "binary_sha256": "9de33fd4e79d68a9cb8c72532ee03825dca3a3dbaf979bcd8770a53ef8fe9d3a",
+    "source_archive_sha256": "8f6a2f8ce04361c3cabaff5de7274505e28a042235da18cc346086f47e4c6cd5",
+    "build_image": "sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663",
+    "qualified_provenance": "agent-q/docs/evidence/m4-git-package.json"
+  }
+}

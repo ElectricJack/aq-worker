@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/source.rs (/tmp/wrk07-clean-target/debug/deps/source-844e6b373bfe28ef)
+
+running 3 tests
+test source_http::pinned_git_http_retention_lost_finalize_and_report_restart ... ok
+test pinned_git_real_workspace_checkpoint_export_and_feature_refusal ... ok
+test source_cli::pinned_git_cli_cold_download_handoff_and_held_download_cancel ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 4.06s
+
