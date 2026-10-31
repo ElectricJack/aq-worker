@@ -1,0 +1,50 @@
+{
+  "source_revision": "f36534f04dde348264c842252c65d675b6f74ee3",
+  "source_tree": "8937cc0d5a74caafb6ebbaf6d492c25a3f1c7d69",
+  "source_inventory_sha256": "6de9c40d9bed03dd528a220da0af65548701ebf47f9ff9c0589b6f36da951ddd",
+  "source_file_count": 306,
+  "stage1_preservation": {
+    "identical_files": 90,
+    "changed_files": [
+      "Cargo.toml",
+      "Cargo.lock"
+    ]
+  },
+  "workspace_tests": {
+    "passed": 288,
+    "ignored": 29,
+    "exit_code": 0,
+    "exit_code_origin": "Root directly observed session56682 completion via tools.write_stdin; retained handoff confirmation",
+    "thread_count": "unrecorded",
+    "build_job_count": "unrecorded",
+    "sum_reported_test_process_seconds": 138.47,
+    "reported_cargo_build_seconds": 29.05,
+    "total_wall_time": "not measured"
+  },
+  "direct_checks": {
+    "clippy": "workspace/all-target/all-feature/-Dwarnings exit0",
+    "format": "cargo fmt all check exit0",
+    "local_relay": {
+      "passed": 2,
+      "ignored": 0,
+      "exit_code": 0,
+      "test_threads": 2,
+      "build_jobs": 3
+    }
+  },
+  "environment": {
+    "CARGO_TARGET_DIR": "/home/jkern/dev/aq-worker/target",
+    "CARGO_INCREMENTAL": "0",
+    "tmux_version": "tmux 3.4",
+    "tmux_sha256": "034b15c64035f783d43862f2775eb4828f61571ca62c8199796000b97d556ecd",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39"
+  },
+  "limitations": [
+    "Experimental finite control-only component; no worker scheduler adoption/capability advertisement",
+    "No output capture, renderer snapshot/live barrier, epoch/long-lived retention or central HTTP authority qualification",
+    "Applied is tmux command acceptance, not provider/model semantic acknowledgement or general saturated-PTY drain proof",
+    "Previous23host tmux cases retained at stage1 source; not rerun by this integration checkpoint",
+    "No performance/500-agent or physical storage/memory operating envelope claimed",
+    "No main merge, product binary pin, publication or deployment performed"
+  ]
+}
