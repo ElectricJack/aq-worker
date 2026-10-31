@@ -1,0 +1,42 @@
+{
+  "source_revision": "fa7da4660f79e7c443079f4f1712eb3cd06c5642",
+  "qualification": {
+    "focused": 15,
+    "worker_package_all_targets_all_features": {
+      "passed": 122,
+      "failed": 0,
+      "ignored": 3
+    },
+    "clippy": "strict all targets/all features passed",
+    "format": "passed"
+  },
+  "source_sha256": {
+    "Cargo.toml": "731141b6c3c2527be764dea57c3ee4cc02f9192aa6182d95d7c6d3d4100e83ee",
+    "Cargo.lock": "d67abeca73f41abad55ed1444b6a5ea6de43fdc1dca57b341e279f06a595037d",
+    "crates/aq-worker/Cargo.toml": "16dacc0ff567052fa929e343b89fafe38a5342ade13a2bca971e131280ce7b13",
+    "crates/aq-worker/src/native.rs": "44f59838a07370758f487f3625b31936b2041981afa1b30c9cda5fc8385cfabf",
+    "crates/aq-worker/src/native/http/control.rs": "60cc40638a5b1d8c4b29e26af429429c0ba0cddc29b1fd87efbe0ad2a6e36d33",
+    "crates/aq-worker/src/native/journal.rs": "ae64fb76be70f23f84b18987689bd67e45116b7d21a15857aa8fdf647afeeca3",
+    "crates/aq-worker/src/native/journal/storage.rs": "8fcceb7b15dc0e927e1068aff412243984323636a0a8f0d05187a71655f68845",
+    "crates/aq-worker/src/native/journal/tests.rs": "459acfb302a3a0ad077da7488ce1101887f317f176c5eaa154b7e8f0ca1ebe36"
+  },
+  "evidence": {
+    "docs/implementation/evidence/wrk08-native-journal-fa7da46/clippy.log": "49c301a0000e13974c13320ae8fc20698a7e2f9396e12ff3c76b1934c17672e7",
+    "docs/implementation/evidence/wrk08-native-journal-fa7da46/focused.log": "9bf529259ebbee75cf5f4c46d49573cea1bf9a87c9cde60e87152a60c103b3c6",
+    "docs/implementation/evidence/wrk08-native-journal-fa7da46/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/implementation/evidence/wrk08-native-journal-fa7da46/worker.log": "94adef9266bf07df5f3438195cfe19f835c1955b1bc1083d522c96d75e4ffc24"
+  },
+  "commands": [
+    "CARGO_TARGET_DIR=/home/jkern/dev/aq-worker/target CARGO_BUILD_JOBS=2 cargo test -p aq-worker --lib native::journal --locked --offline -- --test-threads=2",
+    "CARGO_TARGET_DIR=/home/jkern/dev/aq-worker/target CARGO_BUILD_JOBS=2 cargo test -p aq-worker --all-targets --all-features --locked --offline -- --test-threads=2",
+    "CARGO_TARGET_DIR=/home/jkern/dev/aq-worker/target CARGO_BUILD_JOBS=2 cargo clippy -p aq-worker --all-targets --all-features --locked --offline -- -D warnings",
+    "cargo fmt --all -- --check"
+  ],
+  "limits": [
+    "Native no-launch reservation/acceptance/preparation persistence only; no runtime advertisement or daemon native grant qualification.",
+    "Loopback preparation uses a synthetic public-contract HTTP peer; no real provider or model called.",
+    "Reopen is historical stop-and-preserve only; no release/reset, renewable old boot or process permit reconstruction.",
+    "Injected interruption boundaries are not actual ENOSPC/power-loss qualification.",
+    "Three existing Git binary cases remain explicitly ignored; no new ignores."
+  ]
+}
