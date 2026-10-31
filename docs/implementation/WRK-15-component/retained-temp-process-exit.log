@@ -1,0 +1,12 @@
+   Compiling aq-observation v0.1.0 (/tmp/aq-wrk15-observations/crates/aq-observation)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running tests/crash.rs (target/debug/deps/crash-4fa6cfacf1a9544a)
+
+running 2 tests
+test durable_temp_child ... ok
+
+running 1 test
+test retained_fsynced_temp_survives_process_exit_and_reopen_refuses_without_deletion ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

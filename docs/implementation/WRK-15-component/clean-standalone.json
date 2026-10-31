@@ -1,0 +1,11 @@
+{
+  "source_revision": "50c9e48c13bedb493ab022b37ea44f0e525bb582",
+  "archive": "/tmp/wrk15-clean-target-50c9e48/package/aq-observation-0.1.0.crate",
+  "archive_sha256": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+  "standalone_root": "/tmp/wrk15-extracted-ogk9mrbj",
+  "dependencies": {
+    "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+    "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+  },
+  "qualification": "standalone test/clippy/drift/fmt passed"
+}

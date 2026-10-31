@@ -120,6 +120,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-observation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aq-lifecycle-protocol",
+ "fs2",
+ "libc",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "aq-protocol"
 version = "0.1.0"
 dependencies = [

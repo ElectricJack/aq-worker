@@ -1,0 +1,5 @@
+warning: manifest has no license, license-file, documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+   Packaging aq-observation v0.1.0 (/tmp/aq-wrk15-clean-50c9e48/crates/aq-observation)
+    Packaged 36 files, 297.7KiB (56.4KiB compressed)

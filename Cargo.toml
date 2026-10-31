@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/aq-agent-client", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-worker-protocol", "crates/aq-worker"]
+members = ["crates/aq-agent-client", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-worker-protocol", "crates/aq-worker"]
 
 exclude = ["vendor/aq-agent-api-0.1.0"]
 
