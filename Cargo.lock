@@ -87,6 +87,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "aq-admission"
+version = "0.1.6"
+dependencies = [
+ "aq-lifecycle-protocol",
+ "aq-session-protocol",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "aq-agent-api"
 version = "0.1.0"
 dependencies = [
@@ -292,8 +305,10 @@ name = "aq-worker"
 version = "0.3.3"
 dependencies = [
  "anyhow",
+ "aq-admission",
  "aq-protocol",
  "aq-session-host",
+ "aq-session-protocol",
  "aq-worker-protocol",
  "axum",
  "chrono",
@@ -1679,6 +1694,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2117,6 +2138,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

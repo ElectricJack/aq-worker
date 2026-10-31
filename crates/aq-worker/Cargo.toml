@@ -5,6 +5,8 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+aq-admission = { path = "../../vendor/aq-admission-0.1.6", version = "=0.1.6" }
+aq-session-protocol.workspace = true
 aq-session-host.workspace = true
 aq-protocol.workspace = true
 aq-worker-protocol.workspace = true
