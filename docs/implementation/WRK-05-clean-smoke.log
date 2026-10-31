@@ -1,0 +1,9 @@
+{
+  "archive_sha256": "1e2fca5ac503ac08fdf215534496e06cc0d7b9a902803907e16cf4137ff5d3ad",
+  "source_revision": "08f78475d2598571554d2e2e9ea8ce1ceb3c0cf6",
+  "dirty": false,
+  "manifest_files_verified": 6,
+  "version": "aq-agent 0.1.0",
+  "invalid_private_state_exit": 15,
+  "safe_error_json": true
+}

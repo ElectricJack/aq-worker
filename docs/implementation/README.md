@@ -1,5 +1,7 @@
 # Local worker implementation evidence
 
+Scoped agent client and protected provisioning: [WRK-05.md](WRK-05.md).
+
 Reusable local tmux host: [WRK-10.md](WRK-10.md). This adds a separately qualified
 component; product profiled scheduling remains disabled pending WRK-08.
 

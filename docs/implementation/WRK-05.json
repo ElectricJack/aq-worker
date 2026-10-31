@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "task": "WRK-05",
+  "status": "component_complete_product_native_integration_separate",
+  "source_revision": "08f78475d2598571554d2e2e9ea8ce1ceb3c0cf6",
+  "source_files": {
+    "Cargo.lock": "7dc9c78706382487272f88ca9d7d29135647c742344cf2e93671cf9ef474cd9b",
+    "Cargo.toml": "5e240b881a1f69b647244261b00d21e58c9c652cfa28a3b945666b9304a55681",
+    "crates/aq-agent-client/Cargo.toml": "125aba16c7b03e0bf7861c920ca0350594c6bc820c449dba27a0bf5e4abaafa3",
+    "crates/aq-agent-client/README.md": "a55869c15e14fa6a8e38272e65f3b4230dfb7392dc09a819d36996ad90da8e27",
+    "crates/aq-agent-client/src/client.rs": "987507ac10094ca30a11b99925d78d5a504d28465838a2a6cd3ad1abd0b1ceb2",
+    "crates/aq-agent-client/src/context.rs": "5ace7344a8384d42b2d0f14ca0f04a8fe53ef71a0cf5e72b74f587c02034c0fb",
+    "crates/aq-agent-client/src/files.rs": "34b7804b6dc2196782bd5ed115d281bcf7af612a64b740d27e83209ded726610",
+    "crates/aq-agent-client/src/journal.rs": "8d2bb5f89d67777ffbe97c9d0bc0a04cb1165c34d6c628fb4534a93d365b9882",
+    "crates/aq-agent-client/src/lib.rs": "9c171ea6fb3ed0d08849b85a7e31e360c4f86838295b2c3eeee17cd8949e81a6",
+    "crates/aq-agent-client/src/main.rs": "3f53645b02a6ee7037c91a9aae1f38b903def8386c027c1124b05d6ff815828b",
+    "crates/aq-agent-client/src/node.rs": "7267228e6daa41809575d6ad298f3f5f4f1db026a7163f169bb9405962ce292c",
+    "crates/aq-agent-client/src/provision.rs": "7de6600ac52f4aa1b240497a66b7fd2673419711e0214c72e7765f9661b39757",
+    "crates/aq-agent-client/tests/client.rs": "16262da81702f863504602373130995faf35104e4c3eead633237e4d52015a85",
+    "crates/aq-agent-client/tests/contract_artifact.rs": "b53ae82a72630544dd7986730a089c17cfa7d81bdf9485ef3359dbf7988b3c3f",
+    "crates/aq-agent-client/tests/fixtures/agent-base.json": "e3deade737992bad2800b8e5d6e0e89282f8c3078b484896e9b8c81fc2af78e5",
+    "crates/aq-agent-client/tests/fixtures/profiled-offer.json": "34b28ba102cbec61985249edecee228cafdebc76896d2e0625b8b518e612517d",
+    "crates/aq-agent-client/tests/provisioning.rs": "6d25bbe99ab5461d81887a2e387bf32d8b3ac03a78b9863087387556a2236c1c",
+    "crates/aq-agent-client/tests/recovery.rs": "313f74fff5ac2becbfc3baf9adcaf584234341cb8b9c1112c579e39624c72939",
+    "scripts/package-agent-client.py": "cfcb77ab939560390f59df3a47103fd1bfde7ea4207da18381ab56335dfcc9e3",
+    "vendor/agent-api-contract.json": "29353d065963f0d3ef91354c07811c1fe20f4b694afcde83beadd6075483850d",
+    "vendor/aq-agent-api-0.1.0.crate": "59925d45196e14c18674375c3064fede5181f1ff42f285e3f81c02efbce36733",
+    "vendor/aq-agent-api-0.1.0/.cargo_vcs_info.json": "05faf23f0738019a24c85e7d3f2e53ec7e874bc53a73450924918f1154501c99",
+    "vendor/aq-agent-api-0.1.0/Cargo.lock": "e3f80409e5668a99bb992a4bfd7fe857387afa348fbb8d03be979bc83fbc3486",
+    "vendor/aq-agent-api-0.1.0/Cargo.toml": "f879ad7bc5af1fec6ee0281d66cd8baa3798535524cbf22fd13973b7cc65ac91",
+    "vendor/aq-agent-api-0.1.0/Cargo.toml.orig": "46c4d2387a7df93e6c2d781b7b8a079431c787be7a373a575f0e08b9c6e8c1be",
+    "vendor/aq-agent-api-0.1.0/README.md": "530c0aea876871d60cfef9722bef623a1aa9c66537d76be47cc2ec5e4ee2d73f",
+    "vendor/aq-agent-api-0.1.0/artifacts/cli-contract.json": "75087bf8ee96918ba12266b96cc3b3dfc064c8d4187673eb2428af3e7d840e52",
+    "vendor/aq-agent-api-0.1.0/artifacts/fixtures/base.json": "e3deade737992bad2800b8e5d6e0e89282f8c3078b484896e9b8c81fc2af78e5",
+    "vendor/aq-agent-api-0.1.0/artifacts/fixtures/messages.json": "0d862801912ac2230e14d10a106ac4fcb810b41fc83ee9855cad40949c2b856d",
+    "vendor/aq-agent-api-0.1.0/artifacts/fixtures/messaging.json": "b6e5e86da0fe752fea0168e67fe48599c516e229c483690f57a94994d7928d50",
+    "vendor/aq-agent-api-0.1.0/artifacts/fixtures/mutation-delivery.json": "12ad3cc630778ef0088e75569b7cd586e5ff393ef71bb9753c5a4dea2e1958a3",
+    "vendor/aq-agent-api-0.1.0/artifacts/inventory.json": "6688d4c025c53b05610f93e36877382aa7930091874d336af33ae37c1931a1aa",
+    "vendor/aq-agent-api-0.1.0/artifacts/openapi.json": "eace57b329766da89478d87f1fd68a69c7463073a276fc5f65c9b4ac1917e7e7",
+    "vendor/aq-agent-api-0.1.0/artifacts/schema.json": "a9fdaf3766c09ee40c87c68aeb161da738991decb876e79aa8d7efba112fab97",
+    "vendor/aq-agent-api-0.1.0/src/lib.rs": "ab426eddee7e58e325c1979b3b3cc682e2fa421b573badb9d5b7eb3c6a304e4b",
+    "vendor/aq-agent-api-0.1.0/tests/contract.rs": "8535d5df39d70c67ff8f90fddaf17f81640f1528798d22de7227fa51a5f4d3ca"
+  },
+  "logs": {
+    "docs/implementation/WRK-05-clean-tests.log": "31403c351b2e33bd78e3e3a05e0c0d5f2b991f33f52489d91d3881bf695178ba",
+    "docs/implementation/WRK-05-clean-clippy.log": "7a53c65c370eb17a1989a9fa55a28d267d4cf613581b1f1fc1f44c5e4fa89ae1",
+    "docs/implementation/WRK-05-clean-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/implementation/WRK-05-clean-package.log": "ef41ce5e75f1654d6f34b2c338d49ba7abe967f07ca745c06467554557ccf234",
+    "docs/implementation/WRK-05-clean-status.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/implementation/WRK-05-clean-smoke.log": "02fe2b757be7360fe3c8929ca1ddb66070d56096c08bcf33c5c192ef4a644be0"
+  },
+  "checks": {
+    "client_tests": 28,
+    "workspace_passed": 160,
+    "workspace_ignored": 19,
+    "workspace_failed": 0,
+    "strict_workspace_all_target_clippy": "passed",
+    "format": "passed",
+    "clean_git_status": true,
+    "packaged_binary_smoke": "passed"
+  },
+  "artifact": {
+    "path": "/home/jkern/dev/.aq-qualification/wrk05-2026-10-31/wrk05-agent-client-clean.tar.gz",
+    "sha256": "1e2fca5ac503ac08fdf215534496e06cc0d7b9a902803907e16cf4137ff5d3ad",
+    "working_tree_dirty": false,
+    "manifest_sha256": "35fcf66d6100cdfe275f84cdf831146d7fd059563dab17152cb4ba54f46b3133"
+  },
+  "public_api": {
+    "name": "aq-agent-api",
+    "version": "0.1.0",
+    "producer_repository": "agent-q",
+    "source_revision": "2d71f3b7c161b0dff922f0bf2b9b6e5a63b6509b",
+    "archive_sha256": "59925d45196e14c18674375c3064fede5181f1ff42f285e3f81c02efbce36733",
+    "files": {
+      ".cargo_vcs_info.json": {
+        "sha256": "05faf23f0738019a24c85e7d3f2e53ec7e874bc53a73450924918f1154501c99",
+        "bytes": 113
+      },
+      "Cargo.lock": {
+        "sha256": "e3f80409e5668a99bb992a4bfd7fe857387afa348fbb8d03be979bc83fbc3486",
+        "bytes": 12276
+      },
+      "Cargo.toml": {
+        "sha256": "f879ad7bc5af1fec6ee0281d66cd8baa3798535524cbf22fd13973b7cc65ac91",
+        "bytes": 1094
+      },
+      "Cargo.toml.orig": {
+        "sha256": "46c4d2387a7df93e6c2d781b7b8a079431c787be7a373a575f0e08b9c6e8c1be",
+        "bytes": 322
+      },
+      "README.md": {
+        "sha256": "530c0aea876871d60cfef9722bef623a1aa9c66537d76be47cc2ec5e4ee2d73f",
+        "bytes": 1294
+      },
+      "artifacts/cli-contract.json": {
+        "sha256": "75087bf8ee96918ba12266b96cc3b3dfc064c8d4187673eb2428af3e7d840e52",
+        "bytes": 2416
+      },
+      "artifacts/fixtures/base.json": {
+        "sha256": "e3deade737992bad2800b8e5d6e0e89282f8c3078b484896e9b8c81fc2af78e5",
+        "bytes": 41615
+      },
+      "artifacts/fixtures/messages.json": {
+        "sha256": "0d862801912ac2230e14d10a106ac4fcb810b41fc83ee9855cad40949c2b856d",
+        "bytes": 61208
+      },
+      "artifacts/fixtures/messaging.json": {
+        "sha256": "b6e5e86da0fe752fea0168e67fe48599c516e229c483690f57a94994d7928d50",
+        "bytes": 12987
+      },
+      "artifacts/fixtures/mutation-delivery.json": {
+        "sha256": "12ad3cc630778ef0088e75569b7cd586e5ff393ef71bb9753c5a4dea2e1958a3",
+        "bytes": 5155
+      },
+      "artifacts/inventory.json": {
+        "sha256": "6688d4c025c53b05610f93e36877382aa7930091874d336af33ae37c1931a1aa",
+        "bytes": 1085
+      },
+      "artifacts/openapi.json": {
+        "sha256": "eace57b329766da89478d87f1fd68a69c7463073a276fc5f65c9b4ac1917e7e7",
+        "bytes": 183327
+      },
+      "artifacts/schema.json": {
+        "sha256": "a9fdaf3766c09ee40c87c68aeb161da738991decb876e79aa8d7efba112fab97",
+        "bytes": 85989
+      },
+      "src/lib.rs": {
+        "sha256": "ab426eddee7e58e325c1979b3b3cc682e2fa421b573badb9d5b7eb3c6a304e4b",
+        "bytes": 12463
+      },
+      "tests/contract.rs": {
+        "sha256": "8535d5df39d70c67ff8f90fddaf17f81640f1528798d22de7227fa51a5f4d3ca",
+        "bytes": 3353
+      }
+    }
+  },
+  "not_qualified": [
+    "live provider/native harness and worker image integration (WRK08/product release)",
+    "fresh tmux or pinned Git qualification (existing WRK10/WRK07 evidence remains separate)",
+    "hostile same-UID process isolation",
+    "automatic local journal or allocation reclamation",
+    "messaging/terminal/suspension commands in aq-agent",
+    "complete general AQ API client surface"
+  ]
+}
