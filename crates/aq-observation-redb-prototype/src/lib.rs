@@ -19,8 +19,10 @@ use std::{
 };
 use uuid::Uuid;
 mod engine_store;
+mod http_owner;
 mod intent_files;
 mod local_intent;
+pub use http_owner::{HttpOwnerConfig, HttpOwnerPeer};
 mod owner;
 pub use local_intent::{AuthenticatedOwnerPeer, LocalIntent, LocalStage};
 mod reader;

@@ -1,6 +1,6 @@
 # Candidate embedded observation store
 
-This unpublished0.0.3 component adds bounded row-view normalization and a durable local transport-owner handshake to the isolated redb experiment. It is not integrated with the worker runtime. The qualified JSON reference and published session/lifecycle protocols remain unchanged. There is no legacy spool migration, production HTTP adapter, provider call, raw transcript artifact transfer or new command. The initial0.0.1 and bounded-delta0.0.2 checkpoints retain independent immutable qualification evidence.
+This unpublished0.0.4 component adds bounded row-view normalization and a durable local transport-owner handshake to the isolated redb experiment. It is not integrated with the worker runtime. The qualified JSON reference and published session/lifecycle protocols remain unchanged. There is no legacy spool migration, production HTTP adapter, provider call, raw transcript artifact transfer or new command. The initial0.0.1 and bounded-delta0.0.2 checkpoints retain independent immutable qualification evidence.
 
 The exact redb4.4.0 dependency (MIT OR Apache-2.0) is an embedded Rust library requiring no external service. Source/context/native/dedupe/outbox/event-ID/delivery rows share a private database and exclusive owner. Every write uses `Durability::Immediate` and two-phase commit. Candidate bounds are64 MiB physical,16 MiB logical retained values/selected keys,4 MiB cache,16 sources,65,536 identities,256 ordinary queued facts/2 MiB plus16 reserved gaps/64 KiB and32 facts/256 KiB per packet. No history is automatically evicted. Long-cycle COW growth, compaction and reserve sizing remain open; raw source retention and whole-directory disk bounds are separate obligations.
 
@@ -30,3 +30,35 @@ AQ_OBSERVATION_BENCH_REPETITIONS=90 cargo run --release -p aq-observation-redb-p
 ```
 
 Measurement examples use synthetic inputs and no external services. Local latency varies with host/IO conditions; the evidence retains p50/p95/max and byte/sync/file growth samples. No production adoption, deployment or fixed performance guarantee follows from them.
+
+## Finite HTTP owner peer candidate
+
+`HttpOwnerPeer` uses pinned reqwest0.12.28 and only GET/POST on the fixed
+`/v1/worker/observations/transport` route. A canonical bare HTTPS origin is
+required; an explicit fixture flag permits literal loopback HTTP. Userinfo,
+paths, queries, fragments, proxy inheritance, redirects, pooling, protocol-NACK
+retries and automatic compression are disabled/refused. Requests and responses
+are bounded16KiB, with3s connect/10s total timeout. Successful responses require
+JSON and `Cache-Control: no-store`. Any network/status/body/protocol error leaves
+the exact LocalIntent untouched; none is a claim that a mutation did not commit.
+There are no automatic mutation retries or credential rotations.
+
+The `owner_peer` example reads a private config file and a separate private node
+credential file. Both require no-follow regular same-owner single-link files in
+private canonical directories. The credential has no argv, debug, error, intent
+or output surface. This node-owned peer supplies no agent credentials or source
+admission. Cloudflare credential/header integration is not implemented here.
+
+A synthetic config shape is:
+
+```json
+{"version":1,"origin":"https://coordinator.example","node_id":"00000000-0000-0000-0000-000000000005","boot_id":"00000000-0000-0000-0000-000000000006","credential_file":"/private/node/credential","allow_loopback_http":false}
+```
+
+The experimental example actions are `initialize OPERATION_ID STORE_ID`,
+`prepare`, `create`, `activate OPERATION_ID`, `resume`, `advance OPERATION_ID` and
+`recover-boot`. The example receives only config/root/action/UUID arguments,
+prints bounded stage/sequence metadata and never generates a replacement intent.
+Its default limits are the candidate bounds above. It is not a production worker
+command or execution adapter. Local synthetic HTTP tests and separately invoked
+actual daemon/Postgres qualification must remain distinct in the evidence.
