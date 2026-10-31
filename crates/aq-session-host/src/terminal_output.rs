@@ -3,6 +3,7 @@ use super::*;
 pub const MAX_CONTROL_LINE: usize = 256 * 1024;
 pub const MAX_CONTROL_READ: usize = 64 * 1024;
 pub const MAX_CONTROL_EVENTS: usize = 64;
+#[derive(PartialEq, Eq)]
 pub enum ControlEvent {
     Bytes(Vec<u8>),
     Paused,
@@ -47,7 +48,21 @@ impl ControlDecoder {
             failed: false,
         })
     }
+    /// Strict single-batch decoding; a dense packet exceeding the event cap is
+    /// still refused. Streaming callers should preserve unconsumed wire below.
     pub fn feed(&mut self, bytes: &[u8]) -> Result<Vec<ControlEvent>> {
+        let (consumed, events) = self.feed_bounded(bytes)?;
+        if consumed != bytes.len() {
+            self.failed = true;
+            self.pending.clear();
+            bail!("control event count bound");
+        }
+        Ok(events)
+    }
+    /// Consume a prefix ending at a framing boundary, returning at most64
+    /// events. The caller must retain/retry the exact unconsumed suffix before
+    /// providing later bytes; no wire data is discarded or silently replayed.
+    pub fn feed_bounded(&mut self, bytes: &[u8]) -> Result<(usize, Vec<ControlEvent>)> {
         ensure!(!self.failed, "control decoder is discontinuous");
         let result = self.consume(bytes);
         if result.is_err() {
@@ -57,35 +72,37 @@ impl ControlDecoder {
         result
     }
     pub fn finish(&mut self) -> Result<()> {
-        ensure!(
-            !self.failed && self.pending.is_empty() && self.block.is_none(),
-            "truncated control stream"
-        );
+        if self.failed || !self.pending.is_empty() || self.block.is_some() {
+            self.failed = true;
+            self.pending.clear();
+            bail!("truncated control stream");
+        }
         Ok(())
     }
-    fn consume(&mut self, bytes: &[u8]) -> Result<Vec<ControlEvent>> {
+    fn consume(&mut self, bytes: &[u8]) -> Result<(usize, Vec<ControlEvent>)> {
         ensure!(bytes.len() <= MAX_CONTROL_READ, "control read byte bound");
         let mut events = Vec::new();
+        let mut consumed = 0;
         for piece in bytes.split_inclusive(|b| *b == b'\n') {
+            if events.len() == MAX_CONTROL_EVENTS {
+                break;
+            }
             ensure!(
                 self.pending.len() + piece.len() <= MAX_CONTROL_LINE,
                 "control line byte bound"
             );
             self.pending.extend_from_slice(piece);
+            consumed += piece.len();
             if piece.last() != Some(&b'\n') {
                 continue;
             }
             let mut line = std::mem::take(&mut self.pending);
             line.pop();
             if let Some(event) = self.line(&line)? {
-                ensure!(
-                    events.len() < MAX_CONTROL_EVENTS,
-                    "control event count bound"
-                );
                 events.push(event);
             }
         }
-        Ok(events)
+        Ok((consumed, events))
     }
     fn line(&mut self, line: &[u8]) -> Result<Option<ControlEvent>> {
         if let Some(header) = line.strip_prefix(b"%begin ") {
@@ -225,6 +242,8 @@ pub struct OutputObserver {
     terminal: terminal_io::TerminalHandle,
     lease: Option<reader_lease::Client>,
     stdout: File,
+    wire: Vec<u8>,
+    wire_offset: usize,
     decoder: ControlDecoder,
     process: ProcessEvidence,
     failed: bool,
@@ -240,6 +259,8 @@ impl OutputObserver {
             terminal: terminal.clone(),
             lease: Some(lease),
             stdout,
+            wire: Vec::with_capacity(MAX_CONTROL_READ),
+            wire_offset: 0,
             decoder,
             process,
             failed: false,
@@ -275,23 +296,7 @@ impl OutputObserver {
             .as_ref()
             .context("reader lease closed")?
             .check()?;
-        let mut bytes = [0u8; MAX_CONTROL_READ];
-        let events = match self.stdout.read(&mut bytes) {
-            Ok(0) => {
-                self.decoder.finish()?;
-                vec![ControlEvent::Exited]
-            }
-            Ok(n) => self.decoder.feed(&bytes[..n])?,
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                self.lease
-                    .as_mut()
-                    .context("reader lease closed")?
-                    .drained()?;
-                vec![]
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => vec![],
-            Err(_) => bail!("output observer read failed"),
-        };
+        let events = self.read_bounded()?;
         if events.iter().any(|e| matches!(e, ControlEvent::Attached)) {
             self.attached = true;
         }
@@ -305,6 +310,41 @@ impl OutputObserver {
             self.failed = true;
             self.close();
         }
+        Ok(events)
+    }
+    /// Unconsumed wire from a single bounded read, never a second authority.
+    pub fn buffered_wire_bytes(&self) -> usize {
+        self.wire.len() - self.wire_offset
+    }
+    fn read_bounded(&mut self) -> Result<Vec<ControlEvent>> {
+        if self.wire_offset == self.wire.len() {
+            self.wire.clear();
+            self.wire_offset = 0;
+            let mut bytes = [0u8; MAX_CONTROL_READ];
+            match self.stdout.read(&mut bytes) {
+                Ok(0) => {
+                    self.decoder.finish()?;
+                    return Ok(vec![ControlEvent::Exited]);
+                }
+                Ok(n) => self.wire.extend_from_slice(&bytes[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    // A retained dense-packet suffix must never renew this lease.
+                    self.lease
+                        .as_mut()
+                        .context("reader lease closed")?
+                        .drained()?;
+                    return Ok(vec![]);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => return Ok(vec![]),
+                Err(_) => bail!("output observer read failed"),
+            }
+        }
+        let (consumed, events) = self.decoder.feed_bounded(&self.wire[self.wire_offset..])?;
+        ensure!(
+            consumed > 0 && consumed <= self.buffered_wire_bytes(),
+            "control continuation progress"
+        );
+        self.wire_offset += consumed;
         Ok(events)
     }
     fn close(&mut self) {
@@ -365,5 +405,62 @@ mod tests {
         assert!(matches!(events[1], ControlEvent::Paused));
         assert!(matches!(events[2], ControlEvent::Continued));
         assert!(matches!(events[3], ControlEvent::Exited));
+    }
+    #[test]
+    fn dense_packet_continuation_preserves_every_event_and_escape_boundary() {
+        let line =
+            b"%output %0 \\033[?1049h\\351\\233\\252\\360\\237\\231\\202\\134\\033[?1049l\\012\n";
+        let wire = line.repeat(1000);
+        let expected = "\x1b[?1049h雪🙂\\\x1b[?1049l\n".as_bytes().repeat(1000);
+        for size in (1..=line.len()).chain([127, 4096, MAX_CONTROL_READ]) {
+            let mut decoder = ControlDecoder::new("%0").unwrap();
+            let mut decoded = vec![];
+            let mut count = 0;
+            for chunk in wire.chunks(size) {
+                let mut suffix = chunk;
+                while !suffix.is_empty() {
+                    let (consumed, events) = decoder.feed_bounded(suffix).unwrap();
+                    assert!(consumed > 0 && consumed <= suffix.len());
+                    assert!(events.len() <= MAX_CONTROL_EVENTS);
+                    count += events.len();
+                    for event in events {
+                        let ControlEvent::Bytes(bytes) = event else {
+                            panic!("wrong event");
+                        };
+                        decoded.extend(bytes);
+                    }
+                    suffix = &suffix[consumed..];
+                }
+            }
+            decoder.finish().unwrap();
+            assert_eq!(count, 1000);
+            assert_eq!(decoded, expected);
+        }
+        // The original strict API keeps its exact fail-closed event limit.
+        let mut strict = ControlDecoder::new("%0").unwrap();
+        assert!(strict.feed(&line.repeat(MAX_CONTROL_EVENTS + 1)).is_err());
+        assert!(strict.feed(line).is_err());
+    }
+    #[test]
+    fn bounded_continuation_does_not_widen_line_decoded_byte_or_eof_bounds() {
+        let mut line = ControlDecoder::new("%0").unwrap();
+        for _ in 0..4 {
+            line.feed_bounded(&vec![b'x'; MAX_CONTROL_READ]).unwrap();
+        }
+        assert!(line.feed_bounded(b"x").is_err());
+        assert!(line.feed_bounded(b"\n").is_err());
+        let mut oversized = b"%output %0 ".to_vec();
+        oversized.extend(vec![b'x'; MAX_CONTROL_READ + 1]);
+        oversized.push(b'\n');
+        let mut bytes = ControlDecoder::new("%0").unwrap();
+        assert!(
+            oversized
+                .chunks(MAX_CONTROL_READ)
+                .any(|p| bytes.feed_bounded(p).is_err())
+        );
+        let mut eof = ControlDecoder::new("%0").unwrap();
+        eof.feed_bounded(b"%output %0 \\03").unwrap();
+        assert!(eof.finish().is_err());
+        assert!(eof.feed_bounded(b"3\n").is_err());
     }
 }

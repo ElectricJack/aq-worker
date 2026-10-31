@@ -598,7 +598,12 @@ async fn full_tail_queue_keeps_draining_without_a_network_consumer() {
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut drained = 0usize;
     while drained < 256 * 1024 {
-        for event in observer.poll().unwrap() {
+        let events = observer.poll().unwrap();
+        assert!(events.len() <= aq_session_host::terminal_output::MAX_CONTROL_EVENTS);
+        assert!(
+            observer.buffered_wire_bytes() <= aq_session_host::terminal_output::MAX_CONTROL_READ
+        );
+        for event in events {
             if let aq_session_host::terminal_output::ControlEvent::Bytes(bytes) = &event {
                 drained += bytes.len();
             }
