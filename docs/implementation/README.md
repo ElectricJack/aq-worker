@@ -1,5 +1,8 @@
 # Local worker implementation evidence
 
+Reusable local tmux host: [WRK-10.md](WRK-10.md). This adds a separately qualified
+component; product profiled scheduling remains disabled pending WRK-08.
+
 Current guardian candidate: [worker-recovery.md](worker-recovery.md).
 Prior M2 corrected candidate: [worker-candidate.md](worker-candidate.md).
 The retained test log records 51 passing component checks.

@@ -1,0 +1,3 @@
+    Checking aq-session-host v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-session-host)
+    Checking aq-worker v0.3.2 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.86s

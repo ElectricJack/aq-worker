@@ -1,0 +1,135 @@
+{
+  "task": "WRK-10",
+  "source_revision": "d02f517ee1cdf3f9dab50b09063aeeaa4a45b7f7",
+  "host_version": "0.1.0",
+  "worker_version": "0.3.2",
+  "session_protocol_version": "0.1.0",
+  "status": "qualified reusable local host; profiled worker scheduling remains refused",
+  "files": {
+    "Cargo.lock": "cf7290a8f91973a7c908bf45000dc6692442db7563f78d4c4db4eebd83f448e0",
+    "Cargo.toml": "3e40a001a1577d1778c8a7bf6607439d3df02abab42d9480f194e06f0c5dcf71",
+    "crates/aq-session-host/Cargo.toml": "060cf6c8716e29f5f2bfc7197e87b423c0f9b63737ad6e1284b96d6ccec49b29",
+    "crates/aq-session-host/README.md": "8ef621c86e7b2f6348347bca3871c262261d62a241280623bba607588456ad60",
+    "crates/aq-session-host/src/lib.rs": "d42531fcf0095b69b811b77719754287708f4f3c29d09190c9e6960369e88382",
+    "crates/aq-session-host/src/main.rs": "bf17a193e7ef9464e5e6732ffd9714e48b082b181ec61354f4ccc30d1db27af9",
+    "crates/aq-session-host/src/ownership.rs": "27343e7c744524c0724602ef2a4ab2d4afeb69dca0d4d1d31d3aef4d329418b3",
+    "crates/aq-session-host/src/reaper.rs": "b3ed87c118c3b92515275ec2628af111cede1b538e481cea6cf49b7d61eea71d",
+    "crates/aq-session-host/src/supervisor.rs": "9a265c057ce0945097eadeba0852c1b08e73b9405e4ff716e6761e4f97ecf268",
+    "crates/aq-session-host/tests/fixtures/manifest.json": "e813d530b18be9706748dafb7c0959c654c3ce2e375108830907f5b80eb75bfe",
+    "crates/aq-session-host/tests/local_tmux.rs": "3b9f832542ad0ee61e8fe1009c6e6ceea5ff7e8b0f6e8f8049834e461a3f56fd",
+    "crates/aq-worker/Cargo.toml": "d3e3ce7616694880d64ebdc6e6a989e04ce3bb2a3c1475f3c4340a768e9e8dd9",
+    "crates/aq-worker/src/clock.rs": "3d4ba2b1c96a8f9e9a3ee5d181e8bcef6a6af9bdd4c928fdd7618a51596e736b",
+    "crates/aq-worker/src/fixture.rs": "2222c40485bc87564f40b3656980f1427234e87196d6c5f097fc92dba1f0e888",
+    "crates/aq-worker/src/guardian.rs": "69c5c992b0105286c7b69a6736766fde9bbfca822b463f7166b3a627c5831ef3",
+    "crates/aq-worker/src/journal.rs": "f48f7641eeab8ff2f5d8a5285d1a5ec3e419da8156efe159a186bdc418bc697a",
+    "crates/aq-worker/tests/execution.rs": "7d0ae046e7d23814b7e1c7b65362832c98111d99405ab79a6f165490b2c5b545"
+  },
+  "artifacts": {
+    "aq-session-host-0.1.0.crate": {
+      "path": "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-host-0.1.0.crate",
+      "sha256": "1e0d0c31a60230b0910f27c82385e68f66db10321434419779241dc935481934",
+      "bytes": 26371
+    },
+    "aq-session-protocol-0.1.0.crate": {
+      "path": "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate",
+      "sha256": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090",
+      "bytes": 22099
+    }
+  },
+  "environment": {
+    "os": "Linux 6.18.33.2-microsoft-standard-WSL2 x86_64 GNU/Linux",
+    "tmux": "tmux 3.4",
+    "rust": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "database": false,
+    "provider_calls": false,
+    "network_relay": false
+  },
+  "checks": [
+    {
+      "command": "cargo test --workspace --all-features --locked",
+      "result": "101 passed; 17 explicit ignores (15 local tmux suite entries, one subprocess output fixture, one real aq-git qualification). Local tmux suite separately passed below; real aq-git test not run in this qualification.",
+      "log": "workspace"
+    },
+    {
+      "command": "cargo test -p aq-session-host --features test-support --test local_tmux -- --ignored --nocapture",
+      "result": "15 passed: 14 scenarios plus subprocess helper",
+      "log": "tmux"
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings",
+      "result": "passed",
+      "log": "clippy"
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "result": "passed"
+    },
+    {
+      "command": "cargo package -p aq-session-host --no-verify --offline --exclude-lockfile --config patch.crates-io.aq-session-protocol.path=<exact local protocol producer source>",
+      "result": "clean VCS package at source_revision; standalone verification follows",
+      "log": "package"
+    },
+    {
+      "command": "cargo test --offline --all-features (extracted package, exact archived protocol dependency override)",
+      "result": "5 host unit tests pass; explicit tmux/fixture ignores remain declared",
+      "log": "standalone"
+    },
+    {
+      "command": "cargo test --offline --features test-support --test local_tmux -- --ignored --nocapture (extracted package)",
+      "result": "15 passed, no sibling repository source needed",
+      "log": "standalone-tmux"
+    }
+  ],
+  "logs": {
+    "workspace": {
+      "path": "docs/implementation/WRK-10-workspace.log",
+      "sha256": "b46b48ddefbf39c48c51de0e8ea742522921d48692e529eebc75cbc5a07e4c0a"
+    },
+    "tmux": {
+      "path": "docs/implementation/WRK-10-tmux.log",
+      "sha256": "0b8512815091ccdf3b6c5fb14dd7ecffe3a6b888f711a904d554535b454179e1"
+    },
+    "clippy": {
+      "path": "docs/implementation/WRK-10-clippy.log",
+      "sha256": "f928622606d9a65267cdba0619ecbae55956074283570bd5431df855b8628ac3"
+    },
+    "package": {
+      "path": "docs/implementation/WRK-10-package.log",
+      "sha256": "ffa53ba1fc0ecd13124e52e9fae3a67271f008d06a05713b8fe0e540bdb1a75c"
+    },
+    "standalone": {
+      "path": "docs/implementation/WRK-10-standalone.log",
+      "sha256": "0b7032fb9bfd5f905498c35cb94556593741fb129ae347a6351f318ab3ea85ce"
+    },
+    "standalone-tmux": {
+      "path": "docs/implementation/WRK-10-standalone-tmux.log",
+      "sha256": "d78cfb1e3fde567d175fc484fb675dbb9d69a64214c37b19a83d1f326b8df7c3"
+    }
+  },
+  "acceptance_evidence": {
+    "identity_and_ownership": "Dedicated private foreground tmux3.4 server, exact central/remote manifest and expiring permit; caller durability callbacks precede launch effects; distinct opaque ECHILD stop proof.",
+    "crashes_and_expiry": "Actual tmux six caller launch-boundary crashes, four guardian server/socket/pane-boundary crashes, caller death expiry, escaped writers, sustained adopted-child exit pressure, cancellation and stop uncertainty.",
+    "renewals": "Nonblocking serialized durable highwatermark and exact latest payload; paused guardian + concurrent call tests prevent changed-sequence overwrite or late revival.",
+    "bounded_resources": "No steady-state tmux client polling; nonblocking command output/read deadlines, one bounded parent reaper, batched guardian reaping/signaling, regular-file bounds; explicit trusted environment enforcement boundary.",
+    "reuse": "Public package depends on exact session protocol, no worker/daemon/private journal types; legacy worker only shares primitives and explicitly refuses new profiled capabilities."
+  },
+  "resource_sample_rss_kib": {
+    "guardian": 3988,
+    "tmux": 6004,
+    "pane": 3360
+  },
+  "limits": [
+    "RSS is one synthetic local observation, not a hundreds-agent capacity measurement.",
+    "CallerAdmission mode is qualified; memory/CPU/process-count hard enforcement requires trusted environment qualification outside this host.",
+    "WRK-08 must implement distinct durable host evidence, worker admission/recovery, and typed proof gates before enabling profiled scheduling. AQ-17 owns central authority adapter.",
+    "No real harness, credential provisioning, full terminal state snapshot, network relay or provider readiness is claimed.",
+    "Worker0.3.2 source passed component tests, but the product remains pinned to its separately qualified0.3.1 artifact; this does not promote a new product runtime."
+  ],
+  "review_revisions": [
+    "Nonblocking output drain prevents pipe-buffer deadlock and total cleanup never performs blocking child.wait.",
+    "Kernel pane pidfds replace 40Hz external tmux observation processes.",
+    "Exact pending/applied renewal fencing survives paused guardians and concurrent calls.",
+    "256-child reaping/signaling batches preserve expiry checks under adopted-child churn.",
+    "Parent obtains pidfd before publishing a Child to its reaper, preventing reap/PID-reuse races."
+  ]
+}

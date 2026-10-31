@@ -1,0 +1,24 @@
+   Compiling aq-session-host v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-c0a5dad4fe6fdddd)
+
+running 15 tests
+test launch_child_fixture ... ok
+test local_configuration_refusals_happen_before_durable_launch_or_process ... ok
+test guardian_loss_remains_uncertain_even_after_known_processes_disappear ... ok
+qualification_resource_rss_kib={"guardian":3988,"pane":3360,"tmux":6004}
+test existing_pane_is_refused_and_never_used_for_the_agent ... ok
+test pane_exit_has_no_fallback_and_escaped_descendants_require_kernel_stop ... ok
+test renewals_are_monotonic_and_resource_cost_is_observed ... ok
+test failed_durable_start_and_socket_collision_never_launch_native_child ... ok
+test renewal_compare_publish_is_serialized_while_guardian_is_stopped ... ok
+test central_and_remote_interaction_stop_and_no_relaunch ... ok
+test guardian_crashes_across_socket_and_pane_creation_never_claim_stop ... ok
+test caller_crashes_at_durable_start_boundaries_never_relaunch ... ok
+test permit_expiry_is_independent_and_late_renewal_cannot_revive ... ok
+test malformed_renewal_stops_and_wall_limit_cannot_be_extended ... ok
+test sustained_adopted_child_exits_cannot_starve_expiry_or_stop_proof ... ok
+test helper_expiry_survives_caller_death_without_recovery_control ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+

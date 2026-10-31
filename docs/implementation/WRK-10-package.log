@@ -1,0 +1,5 @@
+warning: manifest has no license, license-file, documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+   Packaging aq-session-host v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-session-host)
+    Packaged 11 files, 105.2KiB (25.8KiB compressed)
