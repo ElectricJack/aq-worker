@@ -51,6 +51,21 @@ renewal and cancellation retain independent capacity. Expiry stops acquisition
 and triggers the applicable no-launch cleanup or guarded stop/preserve path.
 A late grant response cannot restart the process or restore its credential.
 
+Delivery-lease expiry ends credential retrieval permission. Once the exact private
+binding is installed and admitted, a separately versioned running renewal may
+continue that same binding without redelivery. Initial GrantedLaunch0.1.6 remains
+unchanged. RenewedAuthority must bind the same grant/reservation/owner and original
+hard execution deadline, with monotonic authority/grant revisions and a freshly
+retimed conservative DeliveryClock. The daemon rechecks current registry/profile,
+material fingerprint and machine/agent scope. Rotation/revocation refuses renewal;
+the worker rejects stale/out-of-order replies and never reanchors cached TTLs.
+Private material is removed after confirmed stop, including stopping triggered
+by revocation or the hard deadline. Unknown writers retain protected recovery
+state. No renewal authorizes a replacement process or silently refreshes delivery.
+This is the required native consumer contract; it is not established by the
+existing fixture runtime.
+
+
 Cancellation acknowledgements identify receipt separately from stop confirmation. Reserve process resources until owned writers are confirmed stopped. Dirty checkpoints, uploads and final reports then proceed under recovery authority and separate storage/transfer bounds. Never delete retained files because the agent credential expired or the task moved on.
 
 A runtime restart creates a new boot ID. Continuation requires proof of the existing process identity and explicit renewed authority for that incarnation. If reattachment is unsupported, stop and preserve; do not launch a replacement under the same attempt ID. New attempts receive new sessions, credentials and writable workspaces, with selected prior source and context supplied explicitly.
