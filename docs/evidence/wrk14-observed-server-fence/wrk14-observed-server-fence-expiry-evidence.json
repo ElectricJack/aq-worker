@@ -1,0 +1,49 @@
+{
+  "permit": {
+    "session": {
+      "kind": "remote",
+      "node_id": "00000000-0000-0000-0000-000000000001",
+      "boot_id": "00000000-0000-0000-0000-000000000001",
+      "attempt_id": "00000000-0000-0000-0000-000000000001",
+      "assignment_generation": 1,
+      "session_id": "00000000-0000-0000-0000-000000000001"
+    },
+    "manifest_digest": "cf70c5a3b00141f9b2541f688cc6c18ba5148bb3a106fb0d3599a79926d7d464",
+    "sequence": 1,
+    "issued_boot_ms": 140902411,
+    "expires_boot_ms": 140903911
+  },
+  "manifest_wall_time_ms": 20000,
+  "files": {
+    "guardian-test-stderr.log": {
+      "bytes": 40,
+      "mtime_ns": 1793483486607907083,
+      "sha256": "fd87ae845d78a8366f7b336ad42a6276de7a3fc0a88e34e7cbf515dfdad74a8d"
+    },
+    "directory.json": {
+      "bytes": 31,
+      "mtime_ns": 1793483486596403280,
+      "sha256": "545a7137c78b623383a4fa03d4a906f7be6a0e35f844eb87ba560908b3296dd9"
+    },
+    "context-0.bin": {
+      "bytes": 30,
+      "mtime_ns": 1793483486563826229,
+      "sha256": "0f2fc6843ad318da391214883db1ed0f077c258a749ba0ad92e0e3c917e3cb17"
+    },
+    "launch.json": {
+      "bytes": 5458,
+      "mtime_ns": 1793483486323385208,
+      "sha256": "7ce42cd201f4fcf83d124fa4d39e16c304a4f8528ecde4a9842d34ff9cd8ad87"
+    }
+  },
+  "diagnostic": "Error: expired/invalid execution permit\n",
+  "legacy_launch_result": {
+    "caller_stage": null,
+    "elapsed_ms": 1744,
+    "error": "guardian exited before identity",
+    "guardian_stage": "before-tmux-spawn",
+    "ok": false,
+    "permit_ms": 1500
+  },
+  "qualification_note": "The preserved observed permit has valid positive1500ms interval and sequence1. Guardian initial validation refused before identity. File timestamps corroborate delayed bootstrap, but not a scheduling-vs-filesystem latency decomposition."
+}

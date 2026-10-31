@@ -1,0 +1,80 @@
+{
+  "source_revision": "31def9c",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 4745,
+      "sha256": "a4c4bf6b1fb6290f9826ea70ee52640659929254843eb0f7ef841b6eded25e3e"
+    },
+    {
+      "path": "changed-source.json",
+      "bytes": 967,
+      "sha256": "62232397fbe0ae2f9453e7113e8bbb480dbceb39b9518c6f2032876741f2952d"
+    },
+    {
+      "path": "expired-before-identity/context-0.bin",
+      "bytes": 30,
+      "sha256": "0f2fc6843ad318da391214883db1ed0f077c258a749ba0ad92e0e3c917e3cb17"
+    },
+    {
+      "path": "expired-before-identity/directory.json",
+      "bytes": 31,
+      "sha256": "545a7137c78b623383a4fa03d4a906f7be6a0e35f844eb87ba560908b3296dd9"
+    },
+    {
+      "path": "expired-before-identity/guardian-test-stderr.log",
+      "bytes": 40,
+      "sha256": "fd87ae845d78a8366f7b336ad42a6276de7a3fc0a88e34e7cbf515dfdad74a8d"
+    },
+    {
+      "path": "expired-before-identity/launch.json",
+      "bytes": 5458,
+      "sha256": "7ce42cd201f4fcf83d124fa4d39e16c304a4f8528ecde4a9842d34ff9cd8ad87"
+    },
+    {
+      "path": "legacy-launch-result.json",
+      "bytes": 146,
+      "sha256": "a64ebaef03fb3db9021412cf6e2aa66adca82b80eea6a7e5966b55569147ea6e"
+    },
+    {
+      "path": "source-inventory.json",
+      "bytes": 158784,
+      "sha256": "9497fad8e57c3084ff777cd4a6f202d958497aecc3de4268d29357cbea4a6ed7"
+    },
+    {
+      "path": "wrk14-observed-server-fence-actual.log",
+      "bytes": 6148,
+      "sha256": "75fc65f96606afeeeb9816129f50efdbb03dce592348497b62fb234b1be31dbc"
+    },
+    {
+      "path": "wrk14-observed-server-fence-clippy.log",
+      "bytes": 168,
+      "sha256": "be3faefce6fe1ebdd38f9134f37983c6de657dee8266d9cbee1ef921a75829c7"
+    },
+    {
+      "path": "wrk14-observed-server-fence-component.log",
+      "bytes": 7680,
+      "sha256": "21139ea12e58becce1935fd74189e4d591ba2f0d92b260e4d2f51530ca588067"
+    },
+    {
+      "path": "wrk14-observed-server-fence-expiry-evidence.json",
+      "bytes": 1798,
+      "sha256": "0ff2cc7c8604041afdac7f33bfe6648efb9962690f7709609ce23c3820cdffb4"
+    },
+    {
+      "path": "wrk14-observed-server-fence-failure-source.diff",
+      "bytes": 5893,
+      "sha256": "41653af7b723f9bf0f97980100b6f8b85635a422a8e277faa1b026dcf19662f4"
+    },
+    {
+      "path": "wrk14-observed-server-fence-fmt.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "wrk14-observed-server-fence-four-thread-actual.log",
+      "bytes": 3469,
+      "sha256": "35991c1f6cc420a1a5b1e3a68802905a9175eda6d30f96475e470915db157a34"
+    }
+  ]
+}

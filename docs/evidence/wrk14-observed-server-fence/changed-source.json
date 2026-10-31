@@ -1,0 +1,30 @@
+{
+  "revision": "31def9ce6e05de3e4dccec837ed63ad69092f4fe",
+  "files": [
+    {
+      "path": "crates/aq-session-host/src/observed/exec.rs",
+      "bytes": 5540,
+      "sha256": "8533dca8fdd60683e1a8c855290b35314c60e7e53c16c9597f5f40bdabd80ba3"
+    },
+    {
+      "path": "crates/aq-session-host/src/observed/gate.rs",
+      "bytes": 20490,
+      "sha256": "c9b88bc857319b9aefe500146033d814ef36b2fc19a99e70305faa0f2c0115f2"
+    },
+    {
+      "path": "crates/aq-session-host/src/observed/mod.rs",
+      "bytes": 13934,
+      "sha256": "99aac48122b44e859f1340492fe1603042148acbe01a8837a1aa18f905d19c2c"
+    },
+    {
+      "path": "crates/aq-session-host/src/supervisor.rs",
+      "bytes": 23778,
+      "sha256": "e83be28c344dfa2fcca90d2ca2a0b598819cd1a11c9026b6d50f4888313a08da"
+    },
+    {
+      "path": "crates/aq-session-host/tests/local_tmux.rs",
+      "bytes": 90218,
+      "sha256": "ec1938d4a8c8847407be6470a2347f8318a4a2d026b596662d44eff14aaf68d1"
+    }
+  ]
+}
