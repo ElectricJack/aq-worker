@@ -1,0 +1,9 @@
+{
+  "clippy.log": "da7b9618fa286d059f9ddafc9227b4458a9c76fcbd781af74753ab491382bd88",
+  "format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "reproduce.py": "9e53139c5e638d5afaaa40bdda170b64ac6af54d70985cb02d30015fda95796f",
+  "reproduced-oracle.json": "b51cf5185bd3f3be4fe5da6cb665ca64f1b55ad3193267e3f022c0e0e0cca969",
+  "root-oracle.json": "acdd8ec4a5eab77ee36fd96a14128ca4d69aac8a2fc6af42385be50f8c5cfbd3",
+  "source.json": "b08afcacd9e47967d24ff040d3e8828ae9f31de5e2bb5b6362dd6faf7f9212b2",
+  "tests.log": "348336f6dc9cc4718622ec7abb987ce8135bb07d5b1e9a00de0520097f678edb"
+}
