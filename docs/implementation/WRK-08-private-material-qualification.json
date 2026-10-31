@@ -1,0 +1,38 @@
+{
+  "source_revision": "ce2294d8738aac0c7ceb595240c0fb8587584e4b",
+  "qualification": {
+    "material_http_filesystem_tests": 4,
+    "control_http_tests": 6,
+    "reporting_download_http_tests": 7,
+    "startup_tests": 6,
+    "strict_worker_all_targets_all_features_clippy": "passed",
+    "format": "passed"
+  },
+  "source_sha256": {
+    "Cargo.toml": "453cf0065acee6b51a32ecfefe9a05d43b6c2747deb66dc584e5aee12976c0b8",
+    "Cargo.lock": "619e0522482cdfbfa3aee3a9e236fe74186e01422496b999b2244016b3f94922",
+    "crates/aq-worker/Cargo.toml": "16dacc0ff567052fa929e343b89fafe38a5342ade13a2bca971e131280ce7b13",
+    "crates/aq-worker/src/native.rs": "fd4f734bb2589deec085ef75f85bc9455a9af23a4d3f6859eb0c640f6fbc6b49",
+    "crates/aq-worker/src/native/http.rs": "1d804fd96ddd62bf8a621c58bf53d7332b4804371255fb127a28f4aefd31a6f7",
+    "crates/aq-worker/src/native/http/control.rs": "a34edeca0ce51008f77641def8c775d0f9fe242c76ad703cc42743a6bbf2b61e",
+    "crates/aq-worker/src/native/materials.rs": "282a22af5d8d20895905f7fcb16ede8a59417cdabfa5364e7a30135883d43c56",
+    "crates/aq-worker/tests/native_materials.rs": "49172568676abb2a8164be42e11bea1539b3f25112d4fbf81c31a319b86b385a",
+    "crates/aq-worker/tests/native_control.rs": "48e800e906a39c4b7426381399d22862151414e09db9e0a848935f94cb9eda63",
+    "crates/aq-worker/tests/native_http.rs": "75655cdbc07c11ab10719b03c9db99b67811280919da582e24f3effe927b4768",
+    "crates/aq-worker/tests/native_startup.rs": "d8935a04c07dad8670f0f918c2cbd6b3bdbcc5394a5105bb31b49a9e0222b92f"
+  },
+  "evidence": {
+    "docs/implementation/evidence/wrk08-material-ce2294d/clippy.log": "70d9dfb78afb6c41aef654ccab777bfa441896d110737a8db5c32b766defc45a",
+    "docs/implementation/evidence/wrk08-material-ce2294d/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/implementation/evidence/wrk08-material-ce2294d/initial-source-check.log": "492560204777fd60bf69d7683df8f4883e6d6927bf1ffc76e737776ab8d1accf",
+    "docs/implementation/evidence/wrk08-material-ce2294d/initial-test-compile.log": "63e6da0635c96e7e9549c80be3271e808c04216239d9ee9b2639da10615d2b2e",
+    "docs/implementation/evidence/wrk08-material-ce2294d/tests.log": "e221bd2bd3dfc2213678f7c200e19f07198fda986b0586b94068d56cc0268306"
+  },
+  "limits": [
+    "Actual temporary filesystem and loopback HTTP use synthetic assigned preparation/material; no provider credentials or real native producer/harness.",
+    "Fault injection qualifies loss before/after publication and a bounded post-fsync delay; it is enabled only for test-support.",
+    "Trusted private worker state is not tamper-proof against same-UID/root rewrite. Durable runtime must pin returned binding before Prepare.",
+    "Unknown staging prefixes remain protected and consume capacity. Cleanup, runtime journal, asynchronous blocking-lane integration and real adapter delivery remain open.",
+    "Initial source compilation corrected use of Session canonical helper requiring its Validate trait; local record encoding now explicitly sorts JSON and hashes bounded bytes. Initial test fixture compilation corrected absent MaterialDelivery.schema_version and shadowed helper name."
+  ]
+}
