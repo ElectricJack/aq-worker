@@ -1,0 +1,38 @@
+     Locking 45 packages to latest Rust 1.96.1 compatible versions
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.229
+   Compiling typenum v1.20.1
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling ref-cast v1.0.27
+   Compiling serde_json v1.0.154
+   Compiling itoa v1.0.18
+   Compiling thiserror v2.0.21
+   Compiling memchr v2.8.3
+   Compiling cpufeatures v0.2.17
+   Compiling cfg-if v1.0.5
+   Compiling dyn-clone v1.0.20
+   Compiling generic-array v0.14.7
+   Compiling syn v3.0.9
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling uuid v1.29.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling thiserror-impl v2.0.21
+   Compiling schemars_derive v1.2.3
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq22-observations/vendor/aq-session-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/aq22-observations/vendor/aq-lifecycle-protocol-0.1.0)
+   Compiling aq-observation-admission v0.1.0 (/tmp/aq22-observations/crates/aq-observation-admission)
+   Compiling wrk15-admission-consumer-review v0.0.0 (/tmp/wrk15-admission-review)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.44s
+     Running `/tmp/wrk15-admission-review-target/debug/wrk15-admission-consumer-review`
+same revision contradictory boot accepted: true
+ABA to initial boot accepted: true

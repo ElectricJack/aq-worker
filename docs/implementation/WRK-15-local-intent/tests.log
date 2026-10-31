@@ -1,0 +1,175 @@
+   Compiling aq-observation-redb-prototype v0.0.3 (/tmp/aq-wrk15-delta/crates/aq-observation-redb-prototype)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.58s
+     Running unittests src/lib.rs (target/debug/deps/aq_observation_engine-ca9356a053df9136)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/artifacts.rs (target/debug/deps/artifacts-6fd2844ae7203070)
+
+running 2 tests
+test source_formats_are_exact_and_native_release_or_complete_accounting_is_not_implied ... ok
+test generated_source_reparse_capability_and_normalized_goldens_do_not_drift ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/delta.rs (target/debug/deps/delta-685a0d8925b0817e)
+
+running 4 tests
+test row_storage_failure_holds_instead_of_advancing_with_invented_native_gap ... ok
+test gemini_suffix_over_budget_is_explicit_gap_and_never_partial_history_deletion ... ok
+test four_source_fixture_semantics_match_pinned_reference_with_explicit_parser_identity_mapping ... ok
+test replay_point_reads_and_delta_size_do_not_scale_with_unrelated_seen_history ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/normalizers.rs (target/debug/deps/normalizers-6ce931617c3b3ad4)
+
+running 10 tests
+test framing_partial_budget_and_oversized_records_remain_explicit ... ok
+test malformed_duplicate_negative_and_identity_mismatch_are_not_empty_success ... ok
+test opencode_public_dto_preserves_all_native_usage_but_cost_has_no_invoice_receipt ... ok
+test state_restart_replays_exact_native_records_and_parser_drift_refuses ... ok
+test historical_changed_usage_is_gap_not_new_charge_or_budget_reset ... ok
+test codex_structured_questions_and_lost_context_do_not_become_task_or_model_authority ... ok
+test codex_cumulative_native_counts_unknown_zero_and_repeated_last_are_distinct ... ok
+test claude_call_chunks_dedupe_and_corrections_reference_known_prior_fact ... ok
+test gemini_patch_rewind_and_replay_keep_mutation_provenance_without_raw_content ... ok
+test cumulative_reset_and_mixed_model_attribution_never_invent_delta_or_invoice ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation_redb_prototype-262af7d5a96ac94a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/boots.rs (target/debug/deps/boots-74aae103a9f2c9ee)
+
+running 2 tests
+test boot_transition_requires_retained_admitted_owner_and_current_sequence ... ok
+test retained_boot_fences_live_sources_preserves_packet_and_drains_same_boot_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/engine.rs (target/debug/deps/engine-b0d5cfaffbb41a32)
+
+running 5 tests
+test batch_retains_no_partial_source_state_when_foreign_record_follows_valid_record ... ok
+test normalized_delta_cursor_seen_facts_and_delivery_survive_atomic_restart ... ok
+test raw_bypass_and_wrong_native_scope_are_refused_and_logical_quota_rolls_back_whole_delta ... ok
+test thirty_two_record_batch_commits_once_and_quota_commits_only_accepted_prefix ... ok
+test ordinary_quota_cannot_consume_reserved_gap_loss_is_atomic_and_fences_source ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.38s
+
+     Running tests/faults.rs (target/debug/deps/faults-d458928b28053ce5)
+
+running 3 tests
+test crash_child ... ok
+process-exit boundary cuts: 204
+test every_mutating_backend_boundary_process_exit_reopens_to_old_or_new_projection ... ok
+test every_mutating_backend_boundary_io_error_reopens_to_old_or_new_projection has been running for over 60 seconds
+deterministic IO-error boundary cuts: 204
+test every_mutating_backend_boundary_io_error_reopens_to_old_or_new_projection ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 65.78s
+
+     Running tests/local_intent.rs (target/debug/deps/local_intent-ee7e830c54acf21b)
+
+running 15 tests
+test owner_crash_boundary_child ... ok
+test owner_process_child ... ok
+test prepare_receipt_replay_after_remote_activation_never_creates_at_zero_cursor ... ok
+test owner_lock_replacement_refuses_original_owner_mutation_and_second_open ... ok
+test two_process_open_and_create_refuse_and_redb_lock_survives_replaced_owner_locks ... ok
+test activation_operation_immutable_and_changed_binding_status_refused ... ok
+test lost_prepare_and_activation_replies_recover_only_existing_store ... ok
+test real_prepare_create_activate_exact_marker_and_fresh_resume_gate ... ok
+test held_owner_root_or_intent_replacement_refuses_mutation ... ok
+test remote_boot_commit_loss_replays_exact_request_and_fences_old_sources_once ... ok
+test corrupt_empty_or_missing_managed_store_and_corrupt_intent_are_preserved ... ok
+owner database process-exit boundary cuts:56
+test owner_database_process_exits_preserve_activation_and_boot_fence_atomicity ... ok
+owner database IO-error boundary cuts:56
+test owner_database_error_cuts_preserve_activation_and_boot_fence_atomicity ... ok
+owner real process-exit boundary cuts:96
+test owner_real_process_exit_boundaries_reopen_consistently_or_hold_without_reseed ... ok
+owner IO/transaction/network boundary cuts:96
+test owner_io_boundaries_reopen_consistently_or_hold_without_reseed ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.03s
+
+     Running tests/owner.rs (target/debug/deps/owner-4d7054e2c5d0046d)
+
+running 2 tests
+test anonymous_prototype_or_unknown_existing_format_cannot_become_admitted_store ... ok
+test only_explicit_new_owner_admission_creates_store_and_missing_data_never_reseeds ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/prefix.rs (target/debug/deps/prefix-ce9445dadc46038f)
+
+running 1 test
+test exact_escaped_envelope_sizes_choose_same_maximal_prefix_as_reference_algorithm ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.46s
+
+     Running tests/readers.rs (target/debug/deps/readers-db36cf7b7c760ce0)
+
+running 4 tests
+test foreign_handles_symlinks_and_root_replacement_refuse_original_cursor ... ok
+test file_partial_idle_poll_restart_and_oversized_source_keep_explicit_cursor ... ok
+test file_generation_identity_and_bounded_anchor_changes_report_durable_gaps_without_retarget ... ok
+test explicit_generation_retains_native_identity_and_requires_owner_history_boundary ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running tests/records.rs (target/debug/deps/records-3f2f01a649595458)
+
+running 1 test
+test scoped_public_record_cursor_cas_and_provenance_use_no_private_database ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/reparse.rs (target/debug/deps/reparse-f9d75188739c778d)
+
+running 5 tests
+test replay_crash_child ... ok
+reparse IO-error cuts:68;process-exit cuts:68
+test replay_intent_cursor_corrections_and_finish_share_every_mutating_crash_boundary ... ok
+test unknown_historical_records_emit_gaps_and_never_new_usage_charge ... ok
+test verified_known_prior_correction_retains_old_parser_and_live_cursor_then_finishes_once ... ok
+test wrong_bytes_owner_prior_and_changed_intent_refuse_without_cursor_advance ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.31s
+
+     Running tests/store.rs (target/debug/deps/store-e22356e0e8200ab4)
+
+running 8 tests
+test private_root_exclusivity_missing_corruption_and_physical_cap_fail_closed ... ok
+test private_root_rename_and_direct_backend_replacement_are_fenced ... ok
+test database_basename_replacement_refuses_mutation_of_detached_inode ... ok
+transaction cap refusal: I/O error: physical database cap
+test transaction_disk_cap_holds_cursor_and_reopens_without_reseed ... ok
+test retry_bound_keeps_exact_intent_and_late_ack_after_reopen ... ok
+test empty_or_short_existing_database_is_rejected_before_engine_without_changing_bytes ... ok
+test scope_changed_identity_quota_and_invalid_receipt_refuse_without_new_effect ... ok
+test exact_delivery_send_unknown_restart_and_ack_match_reference_spool ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+   Doc-tests aq_observation_engine
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_observation_redb_prototype
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

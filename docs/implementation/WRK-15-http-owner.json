@@ -1,0 +1,184 @@
+{
+  "status": "isolated HTTP owner checkpoint qualified; no main/runtime adoption",
+  "worker": {
+    "source_revision": "ab2921022bf1193a411448b019380dcbcab1c025",
+    "archive": "/tmp/wrk15-http-clean-target-ab292102/package/aq-observation-redb-prototype-0.0.4.crate",
+    "archive_sha256": "09d1b057698ac2563ad9a3d86bd9b1cebc757c19ea0d1bb21d1379c0c8a82f37",
+    "standalone_root": "/tmp/wrk15-http-extracted-6lrdvixw",
+    "artifacts": {
+      "/tmp/wrk15-http-clean-target-ab292102/package/aq-observation-redb-prototype-0.0.4.crate": "09d1b057698ac2563ad9a3d86bd9b1cebc757c19ea0d1bb21d1379c0c8a82f37",
+      "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-engine-0.0.1.crate": "d4531ac14096e8257961b0d1f68c99e7b84cc83e3654b066a222ff540e511d4b",
+      "/tmp/aq22-transport-package-target/package/aq-observation-admission-0.1.0.crate": "7de84f372c0a963c8f61d8e075e4744779bb2b125676ed1df90c165dd982fab6",
+      "/tmp/wrk15-clean-target-50c9e48/package/aq-observation-0.1.0.crate": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+      "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+      "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+    },
+    "qualification": "standalone candidate66 +reference35 +admission10 tests/clippy/fmt/engine drift and owner_peer build passed; actual mounted daemon HTTP qualification separate",
+    "binary": "/tmp/wrk15-http-clean-target-ab292102-standalone/release/examples/owner_peer",
+    "binary_sha256": "518014de89060fefc42b4b1bf7013f205f409c00e9301f01e97a3e18bca3f84b",
+    "clean_worktree_status": ""
+  },
+  "server": {
+    "server_revision": "e189615168d02bfa28b2d0cf03b9715ab571f29b",
+    "server_base_revision": "597693bcdf7ae3d72026d5ecc34ffd3933f81e46",
+    "server_test_path": "crates/aq-server/tests/observation_owner_peer.rs",
+    "server_test_sha256": "fd6c48ecc924c7dadc7bed968bfa282a0f59273aedcdf304c3de3d7929b17f6e",
+    "worker_source_revision": "ab2921022bf1193a411448b019380dcbcab1c025",
+    "worker_archive_sha256": "09d1b057698ac2563ad9a3d86bd9b1cebc757c19ea0d1bb21d1379c0c8a82f37",
+    "peer_binary_sha256": "518014de89060fefc42b4b1bf7013f205f409c00e9301f01e97a3e18bca3f84b",
+    "qualification": "2 actual loopback HTTP/TcpListener/child-process tests with scripts/test-db disposable Postgres; targeted strict lint and fmt passed",
+    "server_clean_status": ""
+  },
+  "tests": {
+    "standalone_candidate": 66,
+    "standalone_reference": 35,
+    "standalone_admission": 10,
+    "actual_tcp_http_postgres_child_process": 2,
+    "automatic_retries": "disabled; dropped-reply synthetic HTTP test observes exactly one request",
+    "scope": "transport owner prepare/activate/status/advance only; no transcript source registration or ingestion"
+  },
+  "dependency": {
+    "reqwest": "=0.12.28",
+    "standalone_lock_sha256": "b5407af8ba3f7c8c5e6145930ffca3809c4f2e9a32407449b5338d646406d3a9",
+    "primary_source_validation": "installed registry source reqwest0.12.28 blocking/client.rs retry/redirect/no_proxy and retry.rs never; exact resolved checksums retained in lock"
+  },
+  "source_inventory": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "3f9374a4a40122d69f7b536949ef9c8fe084aa32455b7fe1df730d82309c82ea"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "1f83185483c9ac3984c3fdd08ddfe991fb322211fefea129e7486455a8ecc744"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/Cargo.toml",
+      "sha256": "ee1f3d270df90eb95b13af0a704c6ea00ca9f06b3b1bab09985a04d8bcacc08a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/README.md",
+      "sha256": "56697b1f2e6eb16f582db9485d1ad2506c2af30198b575ca43148a5ec534c20a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/measure.rs",
+      "sha256": "b0c1d9e90917a2dd0f43fcc8b6edba52a768dac0313d9f3841bbb90e3a91c98a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/measure_engine.rs",
+      "sha256": "d67a9757e1c118cae629d57e98e0125cc4f555d47b2d6c178a3784fce03c7499"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/owner_peer.rs",
+      "sha256": "5dbe8ff142b6181e70239fcc74aacda57e94d0dc996922a512eec234e3f69b8a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/reference_measure.rs",
+      "sha256": "58f6751e5dcb237b4661ab344f04653fb8849392b88eb2d3ae119edbd85dd2e6"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/backend.rs",
+      "sha256": "10469e797c41f157e4b816766479fbe1e9b6d7abc14a03fe348aeb3ad141b021"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/engine_store.rs",
+      "sha256": "821c26591837391cf1660b6a6468e8019ab75a5ae5ebda6b960ea7576bf3e7ef"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/http_owner.rs",
+      "sha256": "208bba40c18ab01573c735775a2baadf2005430aee8877ee91af3dd40bd10a61"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/intent_files.rs",
+      "sha256": "9f4b73fd0beb7f14dccf64858b8e5b6ec93b2c24bf11e38606fe93bf76402560"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/lib.rs",
+      "sha256": "6b8e34fa9107e2fd44f0a2ccf39bb892a169cc7567c8d4ed3835f2b62dca56c3"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/local_intent.rs",
+      "sha256": "47e97947af3cbc8898613da4439d62a19c2d5030917c7b8ae10bd5492a11f7d0"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/owner.rs",
+      "sha256": "7bee3c4222c8f8bd8c27ae4f7559b57b6ee1bbd36599d6cea7cb049a2b9d21cd"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/reader.rs",
+      "sha256": "a7cd3d32e8f78195280626477d30a308df16c1d5db87fb4988aacc0f2e112d5a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/reparse.rs",
+      "sha256": "1274cbbe72b057e0f14850c39f652514798daacd06249e4502b73aad9bdf881f"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/sessions.rs",
+      "sha256": "54a429c38149ff38ca9db85c05a97ae5ba5849190c378c27a1c58265e6ce9ac2"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/boots.rs",
+      "sha256": "a1e8ff3802a2344e234c10ddfc4a027500566574c548845da984a0277b031a7e"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/engine.rs",
+      "sha256": "98cc61b300f0fc85e544a8479b94a4408be879f7302a19fa0a7bbf53079f7906"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/faults.rs",
+      "sha256": "5bb407689f0e1b328ad482161436b47ce770b699154b42ea9615dec8644dd0e7"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/http_owner.rs",
+      "sha256": "e4bd3b1bee5b63aad7a08cb528660bffccbe384e23734eb2d9d427363ad6d904"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/local_intent.rs",
+      "sha256": "d904648cb13ac79392b7cd5eb4f5362f01475a968a46defcd6531bab08eb8153"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/owner.rs",
+      "sha256": "fbab1c1780874079f821d130f955821c19a67cadc06612c498a0652516b11fbb"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/prefix.rs",
+      "sha256": "226d4602a4c6e57ff9a3d45b0d5847f2754c679fb670c2e22ed388f59c56fe0a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/readers.rs",
+      "sha256": "26d4a2017223d003fbf43f8fd2d6380f19b14bbe012ca5dd30b8f32b547db5a2"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/records.rs",
+      "sha256": "f02fb5b0a7e478e015381f90b69bbe51b9c814a7c1a3816013df947b0bc3e126"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/reparse.rs",
+      "sha256": "36035c8459e64a565e5372055679e53ec4f2b6cbf30809abc500d6af6d46ec0b"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/store.rs",
+      "sha256": "3ffd91cedf3031baa4c343f5285992ed4e440ac44c61d55bb94e0f059dfc8cda"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/support/mod.rs",
+      "sha256": "923991c4fb9ce83555463b45fbfbfe05c39b34b26e037414f82f0091cb11624e"
+    }
+  ],
+  "remaining_gates": [
+    "root review before main adoption",
+    "trusted Started/source-admission catalog bridge and actual observation batch transport",
+    "production worker runtime adapter",
+    "selected released native CLI source-format qualification (all four remain false)",
+    "raw artifact transfer/retention, compaction and long-cycle physical headroom",
+    "owner-enabled collection/delivery performance qualification"
+  ],
+  "honesty_notes": [
+    "actual daemon listener/child process/disposable PG tests are separate from synthetic peer and pure/fault tests",
+    "initial boot test correctly encountered409 incarnation fence; final fixture adds writer-free enrolled node and real guarded operator admission, retaining original profiled assignment",
+    "no hardware power-loss certification, service latency guarantee, release or deploy claim"
+  ],
+  "environment": {
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "uname": "Linux DESKTOP-EB8UOME 6.18.33.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 18 21:54:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux"
+  }
+}

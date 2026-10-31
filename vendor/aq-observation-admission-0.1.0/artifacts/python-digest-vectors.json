@@ -1,0 +1,25 @@
+{
+  "method": "Python stdlib sorted compact UTF-8 JSON + hashlib.sha256",
+  "vectors": [
+    {
+      "operation_id": "00000000-0000-0000-0000-000000000003",
+      "request_sha256": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+      "receipt_sha256": "5c2079cf910b8435557040d00d00952917edf7929b2bc1687e2df4fefc377ae9"
+    },
+    {
+      "operation_id": "00000000-0000-0000-0000-000000000006",
+      "request_sha256": "7b2046738efd88edc146c7f33fef6223b2b45856cff8c0af5da93fd157386d91",
+      "receipt_sha256": "f3e2e8821207be55e18efff7e66dc6e9d00aa882ac3b995333a4b1f4bee8403a"
+    },
+    {
+      "operation_id": "00000000-0000-0000-0000-000000000008",
+      "request_sha256": "04e62cd123cd7b41c50a39e076a83f9b570652021cbc7a38f05865b3adbc5117",
+      "receipt_sha256": "bd6074c2c8c3d790c20902f48ff86fbe735dd350bd6eae25af3b36b8f8d11023"
+    },
+    {
+      "operation_id": "00000000-0000-0000-0000-000000000003",
+      "request_sha256": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+      "receipt_sha256": "5c2079cf910b8435557040d00d00952917edf7929b2bc1687e2df4fefc377ae9"
+    }
+  ]
+}

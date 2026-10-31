@@ -1,0 +1,19 @@
+   Compiling memchr v2.8.3
+   Compiling syn v3.0.9
+   Compiling uuid v1.29.0
+   Compiling serde_json v1.0.154
+   Compiling serde_derive_internals v0.30.0
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling schemars_derive v1.2.3
+   Compiling ref-cast v1.0.27
+   Compiling thiserror v2.0.21
+   Compiling serde v1.0.229
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/tmp/wrk15-http-extracted-6lrdvixw/aq-session-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/wrk15-http-extracted-6lrdvixw/aq-lifecycle-protocol-0.1.0)
+   Compiling aq-observation-engine v0.0.1 (/tmp/wrk15-http-extracted-6lrdvixw/aq-observation-engine-0.0.1)
+   Compiling aq-observation v0.1.0 (/tmp/wrk15-http-extracted-6lrdvixw/aq-observation-0.1.0)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.17s
+     Running `/tmp/wrk15-http-clean-target-ab292102-standalone/debug/examples/export --check`

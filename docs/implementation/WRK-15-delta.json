@@ -1,0 +1,453 @@
+{
+  "status": "isolated checkpoint clean standalone qualified; not production adopted",
+  "base_revision": "5a7f88f76851ef47b805f6dde8da7d317ef538fb",
+  "scope": "new-store bounded-delta candidate; not worker runtime adoption",
+  "tests": {
+    "engine": 16,
+    "row_store": 31,
+    "io_error_boundary_cuts": 272,
+    "real_process_exit_boundary_cuts": 272,
+    "strict_clippy": "passed",
+    "artifact_drift": "passed",
+    "format": "passed"
+  },
+  "metrics": {
+    "near": {
+      "repetitions": 90,
+      "initial": {
+        "acked": 5120,
+        "active_boot": "00000000-0000-0000-0000-000000000006",
+        "delivery": null,
+        "logical_bytes": 12784487,
+        "next": 5121,
+        "persistence_uncertain": false,
+        "queued": 0,
+        "receipt": {
+          "body_digest": "e7d7fbc171593c2b3c64eb3fd72d6ec585f4dd51d71ebe8e0e510f6d802c061f",
+          "disposition": "observation_recorded",
+          "message_id": "55a8f122-ba4d-8a32-8b51-6b13bfe51837",
+          "schema_version": 1,
+          "through_sequence": 5120
+        },
+        "seen": 5120
+      },
+      "initial_file_bytes": 23449600,
+      "final_file_bytes": 46895104,
+      "operations": {
+        "collect32": {
+          "p50_ms": 11.332299,
+          "p95_ms": 14.29762,
+          "max_ms": 16.252682,
+          "median_written_bytes": 283264.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "prepare32": {
+          "p50_ms": 7.714529499999999,
+          "p95_ms": 8.575101,
+          "max_ms": 20.522616,
+          "median_written_bytes": 90752.0,
+          "sync_counts": [
+            2,
+            3
+          ]
+        },
+        "send32": {
+          "p50_ms": 4.602332,
+          "p95_ms": 5.118686,
+          "max_ms": 10.785938,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "ack32": {
+          "p50_ms": 6.162163,
+          "p95_ms": 7.802164,
+          "max_ms": 12.369873,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        }
+      }
+    },
+    "small": {
+      "repetitions": 90,
+      "initial": {
+        "acked": 4,
+        "active_boot": "00000000-0000-0000-0000-000000000006",
+        "delivery": null,
+        "logical_bytes": 4291,
+        "next": 5,
+        "persistence_uncertain": false,
+        "queued": 0,
+        "receipt": {
+          "body_digest": "c98e4c0ef5e8135a041175c71b9bd688a12aba39b3886a3338ad024d1b2a3522",
+          "disposition": "observation_recorded",
+          "message_id": "601bd2f9-5354-8761-bfa1-0c462f62d437",
+          "schema_version": 1,
+          "through_sequence": 4
+        },
+        "seen": 4
+      },
+      "initial_file_bytes": 573440,
+      "final_file_bytes": 4558848,
+      "operations": {
+        "collect32": {
+          "p50_ms": 10.956571,
+          "p95_ms": 12.278706,
+          "max_ms": 14.456857999999999,
+          "median_written_bytes": 230016.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "prepare32": {
+          "p50_ms": 7.9267710000000005,
+          "p95_ms": 9.561798,
+          "max_ms": 17.035664999999998,
+          "median_written_bytes": 90752.0,
+          "sync_counts": [
+            2,
+            3
+          ]
+        },
+        "send32": {
+          "p50_ms": 4.655292,
+          "p95_ms": 5.277340000000001,
+          "max_ms": 14.816168,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "ack32": {
+          "p50_ms": 6.125656,
+          "p95_ms": 6.910033,
+          "max_ms": 13.149745,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        }
+      }
+    }
+  },
+  "source_inventory": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "cb08f978b015942ba64d08cc2153049ab81ac5aef3f8c7b14a447e91751001a5"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "961640f9e13f658a4109c82d2479dedd59d0b8b74a6ca6a990e64cda8466b942"
+    },
+    {
+      "path": "crates/aq-observation-engine/Cargo.toml",
+      "sha256": "cf9550e09768c1bafa663c6569d103d4a93a2342a563ca41b03d9fc4aa0787ad"
+    },
+    {
+      "path": "crates/aq-observation-engine/artifacts/capabilities.json",
+      "sha256": "bc1b84b06b9a63086fd8bbf955e7d648355e097ab642f22f707ea9c292679be4"
+    },
+    {
+      "path": "crates/aq-observation-engine/artifacts/normalized-golden.json",
+      "sha256": "688bb0a8cfd3a4f901b761c2010da8df075c8892183c2040fa6537c27d444c11"
+    },
+    {
+      "path": "crates/aq-observation-engine/artifacts/source-formats.json",
+      "sha256": "ccba9de0bb8fa380e107cabfdc9acfa5a2bd49e563b566b14d4d00f04ed9b237"
+    },
+    {
+      "path": "crates/aq-observation-engine/artifacts/source.schema.json",
+      "sha256": "b5c68f3810548282a17b58e147a1e6a310e047200a7b15dcfa1b97e9c0217573"
+    },
+    {
+      "path": "crates/aq-observation-engine/examples/export.rs",
+      "sha256": "b455d92f33b6a118898d0ad49cc918a6b5d6beb941d78b24632d936589ff0729"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/capabilities.rs",
+      "sha256": "c117018066544d236c7c0877340cdc16f359d21bb5bd6a709382f872d22ed73f"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/formats/claude.rs",
+      "sha256": "246a1162f577df1215aafdb222e2690a84bc1748a8bac0ff2405ca0d5f1f14a7"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/formats/codex.rs",
+      "sha256": "a2ae372bce71b1823401bbcfa24008091d427cc289078e2dab98e81c549468cd"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/formats/gemini.rs",
+      "sha256": "3925a69a387df6c9aead5c65d58a3d7b36bd821e903364e90e5e009b6b3ae9b7"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/formats/mod.rs",
+      "sha256": "a2f981b277afcbd43a4b7bbf96502a15459beab0ff29c9aad9d4a291fa8a6a92"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/formats/opencode.rs",
+      "sha256": "187970eba5d5bd97ad73b94b69286d8a6ce35976f62dcea6ad10108ca978b688"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/framing.rs",
+      "sha256": "c6667a91fa185ff626e5ae243ffe318843e208585e726ae9ab2af308e6ff336c"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/json.rs",
+      "sha256": "b9d23c2c4ee86f26870350227f50fe24291a856005d27c9bf7f7337029f8a166"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/lib.rs",
+      "sha256": "acf97ab54c2039bd3083bab481c8ba7cc3122c58a9d1f8d0160105e37fb09732"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/normalize.rs",
+      "sha256": "4ea2c31013a0b57beb517fbdf54592458e8977757179d9b8796ca44a455276dc"
+    },
+    {
+      "path": "crates/aq-observation-engine/src/rows.rs",
+      "sha256": "4461dc45ce22872cc243ea831e5efe972a7c46a7946bf914bb8b086da69c60da"
+    },
+    {
+      "path": "crates/aq-observation-engine/tests/artifacts.rs",
+      "sha256": "9c01e6baf94adcd8dc1b33914e8c876cc79df8c0f7f93d905de28c9b9090b7dd"
+    },
+    {
+      "path": "crates/aq-observation-engine/tests/delta.rs",
+      "sha256": "40cf97c2b8664c087f9c0245cab10fd2cd13f2d20760b867d25e73d1d78b3fa0"
+    },
+    {
+      "path": "crates/aq-observation-engine/tests/fixtures/native-synthetic.json",
+      "sha256": "46d3f6143a5f0c0b9df5c65bb2d3c811fcc26f12534ea6ed86ff52a07c368134"
+    },
+    {
+      "path": "crates/aq-observation-engine/tests/normalizers.rs",
+      "sha256": "46a7f92b1a30b6eb357c2ff1dc3b257e79804ae032b0c10ceeadd9331d7dca3f"
+    },
+    {
+      "path": "crates/aq-observation-engine/tests/support/mod.rs",
+      "sha256": "4f23480f67e77c546fc6291bb9c9685cae03593fef6725f45f970bb170f71917"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/Cargo.toml",
+      "sha256": "7beaa07c456caf063adac810d96ebb788b14b0e7f7c4b80029b81fdb7af56020"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/README.md",
+      "sha256": "bf6c6b84e3ad55403c4906558659c49c32cf405a041d64d66b1d3eb3712e5bf4"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/measure.rs",
+      "sha256": "b0c1d9e90917a2dd0f43fcc8b6edba52a768dac0313d9f3841bbb90e3a91c98a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/measure_engine.rs",
+      "sha256": "d67a9757e1c118cae629d57e98e0125cc4f555d47b2d6c178a3784fce03c7499"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/reference_measure.rs",
+      "sha256": "58f6751e5dcb237b4661ab344f04653fb8849392b88eb2d3ae119edbd85dd2e6"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/backend.rs",
+      "sha256": "6cc2cc0aeb0f45ea9c65bf67c6286ab75ab5366bebe621e79f59e05d0fa2af6b"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/engine_store.rs",
+      "sha256": "be04d93402775733609c6e0f611e79e39da74f37ce81bc70852da1a30fc07478"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/lib.rs",
+      "sha256": "a34f692f33b73ee2d453f6fb4082987a30b39da34f8b7fa13328c3a95e7c68e6"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/owner.rs",
+      "sha256": "554b99ad516d19ddd2f6e5d51182d9156faa6c43dd959da604f1acb9a510a0b3"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/reader.rs",
+      "sha256": "17ff30a675e1f91037cbdf89f2c3fba1806901ac7962f2602fd5700245beb6c8"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/reparse.rs",
+      "sha256": "5ef6845412952a8763d30d815a933d1c25d9f2034ef84884bdfbecf9e7519312"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/sessions.rs",
+      "sha256": "dfde3a359577647bb3c0368f6a5ff059129304375d3ac57c0b71277155b8d99b"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/boots.rs",
+      "sha256": "a1e8ff3802a2344e234c10ddfc4a027500566574c548845da984a0277b031a7e"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/engine.rs",
+      "sha256": "98cc61b300f0fc85e544a8479b94a4408be879f7302a19fa0a7bbf53079f7906"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/faults.rs",
+      "sha256": "5bb407689f0e1b328ad482161436b47ce770b699154b42ea9615dec8644dd0e7"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/owner.rs",
+      "sha256": "fbab1c1780874079f821d130f955821c19a67cadc06612c498a0652516b11fbb"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/prefix.rs",
+      "sha256": "226d4602a4c6e57ff9a3d45b0d5847f2754c679fb670c2e22ed388f59c56fe0a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/readers.rs",
+      "sha256": "26d4a2017223d003fbf43f8fd2d6380f19b14bbe012ca5dd30b8f32b547db5a2"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/records.rs",
+      "sha256": "f02fb5b0a7e478e015381f90b69bbe51b9c814a7c1a3816013df947b0bc3e126"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/reparse.rs",
+      "sha256": "36035c8459e64a565e5372055679e53ec4f2b6cbf30809abc500d6af6d46ec0b"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/store.rs",
+      "sha256": "3ffd91cedf3031baa4c343f5285992ed4e440ac44c61d55bb94e0f059dfc8cda"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/support/mod.rs",
+      "sha256": "923991c4fb9ce83555463b45fbfbfe05c39b34b26e037414f82f0091cb11624e"
+    }
+  ],
+  "limitations": [
+    "Prepared/Activated durable LocalIntent handshake not implemented; existing owner callbacks are prototype-only",
+    "64MiB database cap and 16MiB logical cap are finite candidate bounds; sustained growth/compaction headroom not qualified",
+    "Raw transcript retention and total filesystem budget are not provided by this component",
+    "All four selected native released CLI formats remain unqualified; complete accounting false",
+    "No production worker, central ledger or provider integration qualification"
+  ],
+  "measurement_source": "clean extracted archives at source_revision; earlier measurements retained separately",
+  "environment": {
+    "uname": "Linux DESKTOP-EB8UOME 6.18.33.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 18 21:54:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "fault_scope": [
+    "append",
+    "prepare frozen packet",
+    "send mutable retry row",
+    "ACK",
+    "single normalization",
+    "32-record normalization batch",
+    "file-backed cursor+facts",
+    "reparse begin/record/finish"
+  ],
+  "hash_algorithm": "sha256",
+  "source_revision": "80d79133e720ec684a0724b90b519cb0acacf35a",
+  "standalone": {
+    "source_revision": "80d79133e720ec684a0724b90b519cb0acacf35a",
+    "archive": "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-redb-prototype-0.0.2.crate",
+    "archive_sha256": "22fca152f1947bd1872167b67b7c99206c3a2275c4770b2d6d53dbb03367e2fd",
+    "standalone_root": "/tmp/wrk15-delta-extracted-985ti3au",
+    "artifacts": {
+      "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-redb-prototype-0.0.2.crate": "22fca152f1947bd1872167b67b7c99206c3a2275c4770b2d6d53dbb03367e2fd",
+      "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-engine-0.0.1.crate": "d4531ac14096e8257961b0d1f68c99e7b84cc83e3654b066a222ff540e511d4b",
+      "/tmp/wrk15-clean-target-50c9e48/package/aq-observation-0.1.0.crate": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+      "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+      "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+    },
+    "qualification": "standalone candidate47 +reference35 tests/clippy/fmt/drift/90repetitions-per-configuration passed",
+    "clean_worktree_status": ""
+  },
+  "clean_metrics": {
+    "near": {
+      "repetitions": 90,
+      "initial_file_bytes": 23449600,
+      "final_file_bytes": 46895104,
+      "operations": {
+        "collect32": {
+          "p50_ms": 20.5606545,
+          "p95_ms": 25.645324000000002,
+          "max_ms": 29.717192999999998,
+          "median_written_bytes": 283264.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "prepare32": {
+          "p50_ms": 15.581510000000002,
+          "p95_ms": 20.420118000000002,
+          "max_ms": 30.997227,
+          "median_written_bytes": 90752.0,
+          "sync_counts": [
+            2,
+            3
+          ]
+        },
+        "send32": {
+          "p50_ms": 11.738504500000001,
+          "p95_ms": 14.809286,
+          "max_ms": 94.27571,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "ack32": {
+          "p50_ms": 13.611971,
+          "p95_ms": 16.179166,
+          "max_ms": 82.719714,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        }
+      }
+    },
+    "small": {
+      "repetitions": 90,
+      "initial_file_bytes": 573440,
+      "final_file_bytes": 4558848,
+      "operations": {
+        "collect32": {
+          "p50_ms": 19.580907500000002,
+          "p95_ms": 24.033043,
+          "max_ms": 26.633487000000002,
+          "median_written_bytes": 230016.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "prepare32": {
+          "p50_ms": 15.7822455,
+          "p95_ms": 21.606188,
+          "max_ms": 24.861164000000002,
+          "median_written_bytes": 90752.0,
+          "sync_counts": [
+            2,
+            3
+          ]
+        },
+        "send32": {
+          "p50_ms": 12.024898,
+          "p95_ms": 14.293846,
+          "max_ms": 17.424993,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        },
+        "ack32": {
+          "p50_ms": 13.760201,
+          "p95_ms": 18.882175,
+          "max_ms": 26.667203999999998,
+          "median_written_bytes": 25216.0,
+          "sync_counts": [
+            2
+          ]
+        }
+      }
+    }
+  }
+}

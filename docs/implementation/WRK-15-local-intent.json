@@ -1,0 +1,220 @@
+{
+  "status": "isolated checkpoint clean standalone qualified; no main adoption",
+  "base_checkpoint": "80d79133e720ec684a0724b90b519cb0acacf35a",
+  "admission_archive": {
+    "version": "0.1.0",
+    "source_revision_prefix": "a18a1d1",
+    "sha256": "7de84f372c0a963c8f61d8e075e4744779bb2b125676ed1df90c165dd982fab6",
+    "vendored_files": "exact archive contents; byte comparison passed"
+  },
+  "tests": {
+    "candidate_full": 62,
+    "engine": 16,
+    "existing_row_store": 31,
+    "local_owner": 15,
+    "existing_io_error_cuts": 272,
+    "existing_real_exit_cuts": 272,
+    "owner_journal_network_transaction_error_cuts": 96,
+    "owner_journal_network_transaction_real_exit_cuts": 96,
+    "owner_backend_io_error_cuts": 56,
+    "owner_backend_real_exit_cuts": 56,
+    "strict_clippy": "passed",
+    "format": "passed",
+    "engine_artifact_drift": "passed",
+    "final_changes_after_full_suite": "covered by exact clean full107-test standalone qualification"
+  },
+  "limits": {
+    "intent_bytes": 65536,
+    "intent_temporary_bytes": 65536,
+    "database_physical_bytes": 67108864,
+    "database_logical_bytes": 16777216,
+    "database_cache_bytes": 4194304
+  },
+  "review_map": {
+    "local_intent.rs": "durable stages, fresh peer wrappers, exact-marker existing-store resume, immutable activation/boot intents and source fence",
+    "intent_files.rs": "private held root/lock/current file, digest check, descriptor-relative exclusive temp and rename, fsync, ambiguous-temp holds",
+    "lib.rs": "managed metadata format4 and mutation gate; fixture open refuses managed stores",
+    "sessions.rs": "old callback refuses managed stores; internal atomic owner+boot+source-fence transaction",
+    "tests/local_intent.rs": "fake durable coordinator, two-process lock replacement and owner/backend fault matrices"
+  },
+  "remaining_gates": [
+    "root review before any main adoption",
+    "real HTTP qualification against mounted coordinator (main597693b not exercised here)",
+    "production worker integration and trusted source enrollment/host-start parser catalog bridge",
+    "raw artifact transfer/retention and complete native selected-CLI qualification",
+    "long-cycle physical headroom/compaction and owner-enabled performance measurement"
+  ],
+  "limitations": [
+    "retained intent.pending and ambiguous creation retain explicit recovery hold; no automatic cleanup or reseed",
+    "initial database creation is cut at enclosing owner boundaries, not every initial engine page IO",
+    "process exits are not hardware power-loss certification",
+    "transport ownership supplies no execution/source/accounting authority"
+  ],
+  "source_inventory": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "4be710a82ef4bb023046e07f2a664df2eb42146d9c08f840c45da4461ea51698"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "1f83185483c9ac3984c3fdd08ddfe991fb322211fefea129e7486455a8ecc744"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/Cargo.toml",
+      "sha256": "17ab7bd67d4412f8b3cd77af750911a6a6d3eae01eb1851e9ce816afba7363a7"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/README.md",
+      "sha256": "912e7a3599981aa72d734f577d2a912748704e54a98a74fa3b544811472c1b9f"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/measure.rs",
+      "sha256": "b0c1d9e90917a2dd0f43fcc8b6edba52a768dac0313d9f3841bbb90e3a91c98a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/measure_engine.rs",
+      "sha256": "d67a9757e1c118cae629d57e98e0125cc4f555d47b2d6c178a3784fce03c7499"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/examples/reference_measure.rs",
+      "sha256": "58f6751e5dcb237b4661ab344f04653fb8849392b88eb2d3ae119edbd85dd2e6"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/backend.rs",
+      "sha256": "10469e797c41f157e4b816766479fbe1e9b6d7abc14a03fe348aeb3ad141b021"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/engine_store.rs",
+      "sha256": "821c26591837391cf1660b6a6468e8019ab75a5ae5ebda6b960ea7576bf3e7ef"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/intent_files.rs",
+      "sha256": "9f4b73fd0beb7f14dccf64858b8e5b6ec93b2c24bf11e38606fe93bf76402560"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/lib.rs",
+      "sha256": "d5434ff18413abe6ee6ef9b16c825ef978e93cc60baf56a2b6dc90e6d6faef1e"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/local_intent.rs",
+      "sha256": "47e97947af3cbc8898613da4439d62a19c2d5030917c7b8ae10bd5492a11f7d0"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/owner.rs",
+      "sha256": "7bee3c4222c8f8bd8c27ae4f7559b57b6ee1bbd36599d6cea7cb049a2b9d21cd"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/reader.rs",
+      "sha256": "a7cd3d32e8f78195280626477d30a308df16c1d5db87fb4988aacc0f2e112d5a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/reparse.rs",
+      "sha256": "1274cbbe72b057e0f14850c39f652514798daacd06249e4502b73aad9bdf881f"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/src/sessions.rs",
+      "sha256": "54a429c38149ff38ca9db85c05a97ae5ba5849190c378c27a1c58265e6ce9ac2"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/boots.rs",
+      "sha256": "a1e8ff3802a2344e234c10ddfc4a027500566574c548845da984a0277b031a7e"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/engine.rs",
+      "sha256": "98cc61b300f0fc85e544a8479b94a4408be879f7302a19fa0a7bbf53079f7906"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/faults.rs",
+      "sha256": "5bb407689f0e1b328ad482161436b47ce770b699154b42ea9615dec8644dd0e7"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/local_intent.rs",
+      "sha256": "d904648cb13ac79392b7cd5eb4f5362f01475a968a46defcd6531bab08eb8153"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/owner.rs",
+      "sha256": "fbab1c1780874079f821d130f955821c19a67cadc06612c498a0652516b11fbb"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/prefix.rs",
+      "sha256": "226d4602a4c6e57ff9a3d45b0d5847f2754c679fb670c2e22ed388f59c56fe0a"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/readers.rs",
+      "sha256": "26d4a2017223d003fbf43f8fd2d6380f19b14bbe012ca5dd30b8f32b547db5a2"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/records.rs",
+      "sha256": "f02fb5b0a7e478e015381f90b69bbe51b9c814a7c1a3816013df947b0bc3e126"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/reparse.rs",
+      "sha256": "36035c8459e64a565e5372055679e53ec4f2b6cbf30809abc500d6af6d46ec0b"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/store.rs",
+      "sha256": "3ffd91cedf3031baa4c343f5285992ed4e440ac44c61d55bb94e0f059dfc8cda"
+    },
+    {
+      "path": "crates/aq-observation-redb-prototype/tests/support/mod.rs",
+      "sha256": "923991c4fb9ce83555463b45fbfbfe05c39b34b26e037414f82f0091cb11624e"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/.cargo_vcs_info.json",
+      "sha256": "d3c98bbfb7ad864fd559cafeed6056d820cbe0e1692b76dbdb6cf3771a18ce94"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/Cargo.toml",
+      "sha256": "66630f9a1daad1a9e738c53297bc6a5ff993234514aa1458f3eba867e7c81140"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/Cargo.toml.orig",
+      "sha256": "0f9de8fe7cde4d5b08f5de032fb6eb5c4100dc0c2d6ddc614f51b24015faf0dd"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/README.md",
+      "sha256": "30c69b5e91588329ac2a74a9177c3f5e575f2a9e60e078214eeaeec4a9570bae"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/artifacts/python-digest-vectors.json",
+      "sha256": "95f9297b0dd23c350d19b27b1204f8daa4f14b811b4c16089bb1fec05a1a6488"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/artifacts/transport.fixture.json",
+      "sha256": "7cfcca89f1358e5315f7e0115cc3e61e8409e24048b791f1ace38c62c1574fd8"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/artifacts/transport.schema.json",
+      "sha256": "0ee4af3d0b9b3cd957e5592bf0aa81d9e6776f5fa4b7abd96f424fd0ccde9ec4"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/examples/export.rs",
+      "sha256": "c5da36522b82cfa79659ee3041965df0c32d17097b51f55c170a93329ea93cb5"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/src/lib.rs",
+      "sha256": "f85b79a42e32262ba1265b5a525d0949362622b30f48e11621d659bfa7d764d3"
+    },
+    {
+      "path": "vendor/aq-observation-admission-0.1.0/tests/ownership.rs",
+      "sha256": "7143c4da91432b76f16e056b9a67602d7a901f0038b1f6f755ccd057605cb585"
+    }
+  ],
+  "source_revision": "baa65e319d1878a0375022cefea921593050c787",
+  "standalone": {
+    "source_revision": "baa65e319d1878a0375022cefea921593050c787",
+    "archive": "/tmp/wrk15-owner-clean-target-baa65e31/package/aq-observation-redb-prototype-0.0.3.crate",
+    "archive_sha256": "8a0f9ed73118aebc1c7b8e8ca0bed16e1b60899abade0a99a9efd564481cba15",
+    "standalone_root": "/tmp/wrk15-owner-extracted-imx0a8r5",
+    "artifacts": {
+      "/tmp/wrk15-owner-clean-target-baa65e31/package/aq-observation-redb-prototype-0.0.3.crate": "8a0f9ed73118aebc1c7b8e8ca0bed16e1b60899abade0a99a9efd564481cba15",
+      "/tmp/wrk15-delta-clean-target-80d79133/package/aq-observation-engine-0.0.1.crate": "d4531ac14096e8257961b0d1f68c99e7b84cc83e3654b066a222ff540e511d4b",
+      "/tmp/aq22-transport-package-target/package/aq-observation-admission-0.1.0.crate": "7de84f372c0a963c8f61d8e075e4744779bb2b125676ed1df90c165dd982fab6",
+      "/tmp/wrk15-clean-target-50c9e48/package/aq-observation-0.1.0.crate": "e3ee918942b425bf71509577856f332b1116d2c8c9acd480c4f0da12c28096a0",
+      "/tmp/con03-producer-target/package/aq-lifecycle-protocol-0.1.0.crate": "945b03a99701035eb7cf6679bd9baa9ad2b50a7cb6329b9ca8de2cf8bd58b92b",
+      "/home/jkern/dev/.aq-qualification/session-host-2026-10-31/aq-session-protocol-0.1.0.crate": "479778d8ea76f0605b9a20460e0bd3fda73b699337b1e80783ada0d291a68090"
+    },
+    "qualification": "standalone candidate62 +reference35 +admission10 tests/clippy/fmt/engine drift passed; no owner performance or HTTP qualification",
+    "clean_worktree_status": ""
+  }
+}

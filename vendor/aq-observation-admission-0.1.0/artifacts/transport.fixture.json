@@ -1,0 +1,248 @@
+{
+  "pairs": [
+    {
+      "reply": {
+        "accepted_through": 0,
+        "admitted_node_boot_id": "00000000-0000-0000-0000-000000000002",
+        "current_owner": {
+          "boot_transitions": 0,
+          "current_boot_id": "00000000-0000-0000-0000-000000000002",
+          "marker": {
+            "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "owner_id": "00000000-0000-0000-0000-000000000005",
+            "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+            "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+            "store_id": "00000000-0000-0000-0000-000000000004",
+            "version": 1
+          },
+          "phase": "prepared",
+          "revision": 1
+        },
+        "receipt": {
+          "operation_id": "00000000-0000-0000-0000-000000000003",
+          "request_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+          "resulting_owner": {
+            "boot_transitions": 0,
+            "current_boot_id": "00000000-0000-0000-0000-000000000002",
+            "marker": {
+              "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "owner_id": "00000000-0000-0000-0000-000000000005",
+              "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+              "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+              "store_id": "00000000-0000-0000-0000-000000000004",
+              "version": 1
+            },
+            "phase": "prepared",
+            "revision": 1
+          },
+          "version": 1
+        }
+      },
+      "request": {
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "operation": {
+          "boot_id": "00000000-0000-0000-0000-000000000002",
+          "kind": "prepare",
+          "store_id": "00000000-0000-0000-0000-000000000004"
+        },
+        "operation_id": "00000000-0000-0000-0000-000000000003",
+        "version": 1
+      }
+    },
+    {
+      "reply": {
+        "accepted_through": 0,
+        "admitted_node_boot_id": "00000000-0000-0000-0000-000000000002",
+        "current_owner": {
+          "boot_transitions": 0,
+          "current_boot_id": "00000000-0000-0000-0000-000000000002",
+          "marker": {
+            "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "owner_id": "00000000-0000-0000-0000-000000000005",
+            "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+            "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+            "store_id": "00000000-0000-0000-0000-000000000004",
+            "version": 1
+          },
+          "phase": "active",
+          "revision": 2
+        },
+        "receipt": {
+          "operation_id": "00000000-0000-0000-0000-000000000006",
+          "request_digest": "7b2046738efd88edc146c7f33fef6223b2b45856cff8c0af5da93fd157386d91",
+          "resulting_owner": {
+            "boot_transitions": 0,
+            "current_boot_id": "00000000-0000-0000-0000-000000000002",
+            "marker": {
+              "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "owner_id": "00000000-0000-0000-0000-000000000005",
+              "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+              "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+              "store_id": "00000000-0000-0000-0000-000000000004",
+              "version": 1
+            },
+            "phase": "active",
+            "revision": 2
+          },
+          "version": 1
+        }
+      },
+      "request": {
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "operation": {
+          "kind": "activate",
+          "marker": {
+            "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "owner_id": "00000000-0000-0000-0000-000000000005",
+            "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+            "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+            "store_id": "00000000-0000-0000-0000-000000000004",
+            "version": 1
+          }
+        },
+        "operation_id": "00000000-0000-0000-0000-000000000006",
+        "version": 1
+      }
+    },
+    {
+      "reply": {
+        "accepted_through": 0,
+        "admitted_node_boot_id": "00000000-0000-0000-0000-000000000007",
+        "current_owner": {
+          "boot_transitions": 1,
+          "current_boot_id": "00000000-0000-0000-0000-000000000007",
+          "marker": {
+            "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "owner_id": "00000000-0000-0000-0000-000000000005",
+            "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+            "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+            "store_id": "00000000-0000-0000-0000-000000000004",
+            "version": 1
+          },
+          "phase": "active",
+          "revision": 3
+        },
+        "receipt": {
+          "operation_id": "00000000-0000-0000-0000-000000000008",
+          "request_digest": "04e62cd123cd7b41c50a39e076a83f9b570652021cbc7a38f05865b3adbc5117",
+          "resulting_owner": {
+            "boot_transitions": 1,
+            "current_boot_id": "00000000-0000-0000-0000-000000000007",
+            "marker": {
+              "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "owner_id": "00000000-0000-0000-0000-000000000005",
+              "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+              "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+              "store_id": "00000000-0000-0000-0000-000000000004",
+              "version": 1
+            },
+            "phase": "active",
+            "revision": 3
+          },
+          "version": 1
+        }
+      },
+      "request": {
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "operation": {
+          "expected_boot_id": "00000000-0000-0000-0000-000000000002",
+          "expected_revision": 2,
+          "kind": "advance_boot",
+          "marker": {
+            "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "owner_id": "00000000-0000-0000-0000-000000000005",
+            "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+            "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+            "store_id": "00000000-0000-0000-0000-000000000004",
+            "version": 1
+          },
+          "new_boot_id": "00000000-0000-0000-0000-000000000007",
+          "next_sequence": 12
+        },
+        "operation_id": "00000000-0000-0000-0000-000000000008",
+        "version": 1
+      }
+    },
+    {
+      "reply": {
+        "accepted_through": 0,
+        "admitted_node_boot_id": "00000000-0000-0000-0000-000000000007",
+        "current_owner": {
+          "boot_transitions": 1,
+          "current_boot_id": "00000000-0000-0000-0000-000000000007",
+          "marker": {
+            "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "owner_id": "00000000-0000-0000-0000-000000000005",
+            "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+            "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+            "store_id": "00000000-0000-0000-0000-000000000004",
+            "version": 1
+          },
+          "phase": "active",
+          "revision": 3
+        },
+        "receipt": {
+          "operation_id": "00000000-0000-0000-0000-000000000003",
+          "request_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+          "resulting_owner": {
+            "boot_transitions": 0,
+            "current_boot_id": "00000000-0000-0000-0000-000000000002",
+            "marker": {
+              "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "owner_id": "00000000-0000-0000-0000-000000000005",
+              "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+              "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+              "store_id": "00000000-0000-0000-0000-000000000004",
+              "version": 1
+            },
+            "phase": "prepared",
+            "revision": 1
+          },
+          "version": 1
+        }
+      },
+      "request": {
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "operation": {
+          "boot_id": "00000000-0000-0000-0000-000000000002",
+          "kind": "prepare",
+          "store_id": "00000000-0000-0000-0000-000000000004"
+        },
+        "operation_id": "00000000-0000-0000-0000-000000000003",
+        "version": 1
+      }
+    }
+  ],
+  "provenance": "synthetic contract fixture; no execution/source/harness authority",
+  "status": {
+    "accepted_through": 0,
+    "admitted_node_boot_id": "00000000-0000-0000-0000-000000000007",
+    "node_id": "00000000-0000-0000-0000-000000000001",
+    "owner": {
+      "boot_transitions": 1,
+      "current_boot_id": "00000000-0000-0000-0000-000000000007",
+      "marker": {
+        "initial_boot_id": "00000000-0000-0000-0000-000000000002",
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "owner_id": "00000000-0000-0000-0000-000000000005",
+        "prepare_digest": "5d6addd6b2e4bf2c2ab6dc57992f10f8655dedbd074e86568dd9c352e6fe8b71",
+        "prepare_operation_id": "00000000-0000-0000-0000-000000000003",
+        "store_id": "00000000-0000-0000-0000-000000000004",
+        "version": 1
+      },
+      "phase": "active",
+      "revision": 3
+    },
+    "version": 1
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name="aq-observation-engine"
+version="0.0.1"
+edition="2024"
+publish=false
+description="Candidate bounded row-view transcript normalization; not runtime adoption"
+[dependencies]
+aq-lifecycle-protocol={path="../aq-lifecycle-protocol",version="=0.1.0"}
+anyhow="1"
+serde={version="1",features=["derive"]}
+serde_json="1"
+sha2="0.10"
+uuid={version="1",features=["serde"]}
+schemars={version="1",features=["uuid1"]}
+[dev-dependencies]
+aq-observation={path="../aq-observation",version="=0.1.0"}
