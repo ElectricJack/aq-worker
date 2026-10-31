@@ -696,6 +696,9 @@
         },
         "launch_id": {
           "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          },
           "type": [
             "string",
             "null"
@@ -713,6 +716,9 @@
         },
         "report_id": {
           "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          },
           "type": [
             "string",
             "null"
@@ -1014,13 +1020,20 @@
         "pending_operation_ids": {
           "items": {
             "format": "uuid",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            },
             "type": "string"
           },
           "maxItems": 64,
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "report_id": {
           "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          },
           "type": "string"
         },
         "resolved_spec_digest": {
@@ -1032,6 +1045,9 @@
         },
         "supersedes_report_id": {
           "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          },
           "type": [
             "string",
             "null"
@@ -1060,6 +1076,9 @@
         },
         "report_id": {
           "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          },
           "type": "string"
         },
         "retention_release": {

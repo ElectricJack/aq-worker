@@ -50,6 +50,10 @@ impl<C: Clock> Runtime<C> {
             );
             return Ok(record.acceptance.clone());
         }
+        ensure!(
+            self.journal.state().attempts.len() < 1024,
+            "local history bound reached; maintenance required"
+        );
         let pending: Vec<_> = self
             .journal
             .state()
@@ -92,6 +96,14 @@ impl<C: Clock> Runtime<C> {
                 && need.disk_bytes <= available.disk_bytes,
             "local capacity unavailable"
         );
+        let free_bytes = fs2::available_space(self.journal.root())?;
+        ensure!(
+            need.disk_bytes
+                <= free_bytes
+                    .saturating_sub(self.journal.limits().minimum_free_disk_bytes)
+                    .saturating_sub(self.journal.protected_usage()?.disk_bytes),
+            "physical disk headroom unavailable"
+        );
         let now = self.clock.now_ms();
         let acceptance = AcceptRequest {
             identity: offer.identity.clone(),
@@ -107,6 +119,7 @@ impl<C: Clock> Runtime<C> {
         };
         let record = AttemptRecord {
             pending_bytes: offer.spec.fixture_output.len() as u64,
+            stop_reason: None,
             offer,
             acceptance: acceptance.clone(),
             acceptance_sent_at_ms: now,
@@ -277,8 +290,8 @@ impl<C: Clock> Runtime<C> {
             "child ownership mismatch"
         );
         let (status, output) = handle.wait()?;
-        let outcome = if r.phase == Phase::Stopping {
-            ProcessOutcome::Cancelled
+        let outcome = if let Some(reason) = r.stop_reason {
+            reason
         } else if self.clock.now_ms() >= r.grant_deadline_ms.unwrap_or(0) {
             ProcessOutcome::Expired
         } else if status.success() {
@@ -346,6 +359,31 @@ impl<C: Clock> Runtime<C> {
         })
     }
     pub fn retire(&mut self, attempt_id: Uuid) -> Result<()> {
+        let record = self
+            .journal
+            .state()
+            .attempts
+            .get(&attempt_id)
+            .context("unknown attempt")?;
+        ensure!(
+            record.phase == Phase::Acknowledged
+                && record.stop_certainty == StopCertainty::ConfirmedStopped
+                && record.result.as_ref().is_some_and(|x| x.retention_release),
+            "retention release required"
+        );
+        // Deletion follows the durable central release and stopped-writer proof.
+        // A crash before the retired transition safely repeats this cleanup.
+        if let Some(launch_id) = record.launch_id {
+            let directory = self
+                .journal
+                .root()
+                .join("launches")
+                .join(launch_id.to_string());
+            if directory.exists() {
+                std::fs::remove_dir_all(&directory)?;
+                std::fs::File::open(directory.parent().unwrap())?.sync_all()?;
+            }
+        }
         self.journal.transaction(|s| {
             let r = s.attempts.get_mut(&attempt_id).context("unknown attempt")?;
             ensure!(
@@ -368,6 +406,14 @@ impl<C: Clock> Runtime<C> {
                 );
                 return Ok(existing.clone());
             }
+            ensure!(
+                s.directive_contents
+                    .values()
+                    .filter(|d| d.attempt.attempt_id == directive.attempt.attempt_id)
+                    .count()
+                    < crate::journal::MAX_DIRECTIVES_PER_ATTEMPT,
+                "directive receipt bound reached"
+            );
             let r = s
                 .attempts
                 .get_mut(&directive.attempt.attempt_id)
@@ -385,6 +431,7 @@ impl<C: Clock> Runtime<C> {
                     | Phase::LaunchUncertain
             ) {
                 r.phase = Phase::Stopping;
+                r.stop_reason = Some(ProcessOutcome::Cancelled);
             }
             let ack = DirectiveAck {
                 identity: s.identity.clone(),
@@ -400,8 +447,40 @@ impl<C: Clock> Runtime<C> {
             Ok(ack)
         })
     }
+    pub fn request_stop(&mut self, attempt_id: Uuid, reason: ProcessOutcome) -> Result<()> {
+        ensure!(
+            matches!(
+                reason,
+                ProcessOutcome::Cancelled | ProcessOutcome::Expired | ProcessOutcome::Failed
+            ),
+            "invalid stop reason"
+        );
+        self.journal.transaction(|s| {
+            let r = s.attempts.get_mut(&attempt_id).context("unknown attempt")?;
+            r.phase = Phase::Stopping;
+            r.stop_reason = Some(reason);
+            if r.launch_id.is_some() {
+                r.stop_certainty = StopCertainty::StopUncertain;
+            }
+            Ok(())
+        })
+    }
     pub fn expire(&mut self) -> Result<Vec<Uuid>> {
         let now = self.clock.now_ms();
+        if !self.journal.state().attempts.values().any(|r| {
+            matches!(
+                r.phase,
+                Phase::Reserved
+                    | Phase::Authorized
+                    | Phase::Preparing
+                    | Phase::Running
+                    | Phase::LaunchUncertain
+            ) && now
+                >= r.grant_deadline_ms
+                    .unwrap_or(r.acceptance.reservation_deadline_ms)
+        }) {
+            return Ok(vec![]);
+        }
         self.journal.transaction(|s| {
             let mut stop = vec![];
             for (id, r) in &mut s.attempts {
@@ -417,6 +496,7 @@ impl<C: Clock> Runtime<C> {
                         .unwrap_or(r.acceptance.reservation_deadline_ms))
                 {
                     r.phase = Phase::Stopping;
+                    r.stop_reason = Some(ProcessOutcome::Expired);
                     stop.push(*id);
                     if r.launch_id.is_some() {
                         r.stop_certainty = StopCertainty::StopUncertain;
@@ -450,6 +530,19 @@ impl<C: Clock> Runtime<C> {
             r.pending_observations
                 .insert(observation.sequence, observation.clone());
             Ok(observation)
+        })
+    }
+    pub fn acknowledge_observation(&mut self, attempt_id: Uuid, ack: &Ack) -> Result<()> {
+        self.journal.transaction(|s| {
+            let r = s.attempts.get_mut(&attempt_id).context("unknown attempt")?;
+            let sequence = r
+                .pending_observations
+                .iter()
+                .find(|(_, o)| o.operation_id == ack.operation_id)
+                .map(|(n, _)| *n)
+                .context("unknown observation acknowledgement")?;
+            r.pending_observations.remove(&sequence);
+            Ok(())
         })
     }
     pub fn reconcile_request(&self) -> ReconcileRequest {

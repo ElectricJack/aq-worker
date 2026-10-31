@@ -66,6 +66,7 @@ mod scenarios {
     fn observation_sequences_and_report_replays_are_immutable() {
         let offer = sample_offer();
         let mut peer = FakeCoordinator::new(offer.clone(), 100);
+        peer.accept(&sample_acceptance(&offer)).unwrap();
         let mut obs = Observation {
             identity: offer.identity.clone(),
             operation_id: uuid::Uuid::from_u128(10),
@@ -93,20 +94,61 @@ mod scenarios {
         let offer = sample_offer();
         let report = sample_report(&offer);
         let mut peer = FakeCoordinator::new(offer.clone(), 100);
+        peer.accept(&sample_acceptance(&offer)).unwrap();
         peer.cancelled = true;
         assert_eq!(
             peer.report(&report).unwrap().disposition,
             ResultDisposition::RetainedCancelled
         );
         let mut peer = FakeCoordinator::new(offer.clone(), 100);
+        peer.accept(&sample_acceptance(&offer)).unwrap();
         let first = peer.report(&report).unwrap();
         peer.cancelled = true;
         assert_eq!(peer.report(&report).unwrap(), first);
+        let mut peer = FakeCoordinator::new(offer.clone(), 100);
+        peer.accept(&sample_acceptance(&offer)).unwrap();
+        peer.report(&report).unwrap();
         let mut late = report;
         late.report_id = uuid::Uuid::from_u128(11);
-        late.attempt.generation += 1;
+        late.supersedes_report_id = Some(uuid::Uuid::from_u128(9));
+        peer.active_identity.boot_id = uuid::Uuid::from_u128(99);
         assert_eq!(
             peer.report(&late).unwrap().disposition,
+            ResultDisposition::RetainedStale
+        );
+    }
+    #[test]
+    fn result_requires_grant_binding_and_pending_operations_block_release() {
+        let offer = sample_offer();
+        let report = sample_report(&offer);
+        let mut peer = FakeCoordinator::new(offer.clone(), 100);
+        assert_eq!(
+            peer.report(&report).unwrap_err().code,
+            ErrorCode::InvalidRequest
+        );
+        peer.accept(&sample_acceptance(&offer)).unwrap();
+        for field in [0, 1, 2] {
+            let mut forged = report.clone();
+            match field {
+                0 => forged.identity.boot_id = uuid::Uuid::from_u128(99),
+                1 => forged.attempt.generation += 1,
+                _ => forged.resolved_spec_digest = "0".repeat(64),
+            };
+            assert_eq!(
+                peer.report(&forged).unwrap_err().code,
+                ErrorCode::StaleGeneration
+            );
+        }
+        let mut pending = report.clone();
+        pending
+            .pending_operation_ids
+            .push(uuid::Uuid::from_u128(20));
+        assert!(!peer.report(&pending).unwrap().retention_release);
+        let mut expired = FakeCoordinator::new(offer.clone(), 100);
+        expired.accept(&sample_acceptance(&offer)).unwrap();
+        expired.now_ms = 10_100;
+        assert_eq!(
+            expired.report(&report).unwrap().disposition,
             ResultDisposition::RetainedStale
         );
     }
@@ -137,4 +179,45 @@ mod scenarios {
             .is_err()
         );
     }
+}
+
+#[test]
+fn published_valid_and_invalid_vectors_execute() {
+    let fixtures: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/conformance-v2.json")).unwrap();
+    for value in fixtures["valid"].as_array().unwrap() {
+        serde_json::from_value::<WireMessage>(value.clone())
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
+    for value in fixtures["invalid"].as_array().unwrap() {
+        let message = serde_json::from_value::<WireMessage>(value.clone());
+        assert!(message.is_err() || message.unwrap().validate().is_err());
+    }
+}
+#[cfg(feature = "test-support")]
+#[test]
+fn nil_optional_recovery_and_duplicate_pending_ids_are_refused() {
+    use aq_worker_protocol::testing::*;
+    let mut report = sample_report(&sample_offer());
+    report.supersedes_report_id = Some(uuid::Uuid::nil());
+    assert!(report.validate().is_err());
+    report.supersedes_report_id = None;
+    report.pending_operation_ids = vec![uuid::Uuid::nil()];
+    assert!(report.validate().is_err());
+    report.pending_operation_ids = vec![uuid::Uuid::from_u128(88); 2];
+    assert!(report.validate().is_err());
+    let mut attempt = ReconcileAttempt {
+        attempt: sample_offer().attempt,
+        previous_boot_id: uuid::Uuid::nil(),
+        phase: Phase::Running,
+        launch_id: None,
+        stop_certainty: StopCertainty::Running,
+        report_id: None,
+    };
+    assert!(attempt.validate().is_err());
+    attempt.previous_boot_id = uuid::Uuid::from_u128(2);
+    attempt.launch_id = Some(uuid::Uuid::nil());
+    assert!(attempt.validate().is_err());
 }

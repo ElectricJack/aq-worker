@@ -224,6 +224,18 @@ impl Validate for ResultReport {
                 && self.pending_operation_ids.len() <= MAX_BATCH,
             "invalid report bounds",
         )?;
+        check(
+            self.supersedes_report_id
+                .is_none_or(|id| !id.is_nil() && id != self.report_id),
+            "invalid superseded report identity",
+        )?;
+        check(
+            self.pending_operation_ids
+                .iter()
+                .enumerate()
+                .all(|(i, id)| !id.is_nil() && !self.pending_operation_ids[..i].contains(id)),
+            "pending operation IDs must be nonnil and unique",
+        )?;
         for artifact in &self.artifacts {
             artifact.validate()?;
         }
@@ -252,7 +264,7 @@ impl Validate for ReconcileRequest {
             "invalid reconcile bounds",
         )?;
         for a in &self.attempts {
-            a.attempt.validate()?;
+            a.validate()?;
         }
         Ok(())
     }
@@ -346,11 +358,7 @@ pub fn schema() -> String {
         };
         for (field, value) in properties {
             let object = value.as_object_mut().unwrap();
-            if field.ends_with("_id")
-                && field != "report_id"
-                && field != "launch_id"
-                && field != "supersedes_report_id"
-            {
+            if field.ends_with("_id") {
                 object.insert(
                     "not".into(),
                     serde_json::json!({"const":"00000000-0000-0000-0000-000000000000"}),
@@ -377,6 +385,16 @@ pub fn schema() -> String {
                 }
                 "offers" | "directives" | "attempts" | "artifacts" | "pending_operation_ids" => {
                     object.insert("maxItems".into(), serde_json::json!(MAX_BATCH));
+                    if field == "pending_operation_ids" {
+                        object.insert("uniqueItems".into(), serde_json::json!(true));
+                        if let Some(items) = object.get_mut("items").and_then(|v| v.as_object_mut())
+                        {
+                            items.insert(
+                                "not".into(),
+                                serde_json::json!({"const":"00000000-0000-0000-0000-000000000000"}),
+                            );
+                        }
+                    }
                 }
                 "capabilities" | "required_capabilities" => {
                     object.insert("maxItems".into(), serde_json::json!(MAX_CAPABILITIES));
@@ -511,3 +529,40 @@ impl Validate for ProtocolError {
 
 #[cfg(feature = "test-support")]
 pub mod testing;
+
+impl Validate for ReconcileAttempt {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.attempt.validate()?;
+        check(
+            !self.previous_boot_id.is_nil()
+                && self.launch_id.is_none_or(|id| !id.is_nil())
+                && self.report_id.is_none_or(|id| !id.is_nil()),
+            "invalid reconciliation identity",
+        )
+    }
+}
+impl Validate for WireMessage {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            Self::RegisterRequest(x) => x.validate(),
+            Self::RegisterResponse(x) => x.validate(),
+            Self::PollRequest(x) => x.validate(),
+            Self::PollResponse(x) => x.validate(),
+            Self::AcceptRequest(x) => x.validate(),
+            Self::AcceptResponse(x) => x.validate(),
+            Self::DeclineRequest(x) => x.validate(),
+            Self::RenewRequest(x) => x.validate(),
+            Self::RenewResponse(x) => x.validate(),
+            Self::Observation(x) => x.validate(),
+            Self::Ack(x) => x.validate(),
+            Self::DirectiveAck(x) => x.validate(),
+            Self::ArtifactHandoffRequest(x) => x.validate(),
+            Self::ArtifactHandoffResponse(x) => x.validate(),
+            Self::ResultReport(x) => x.validate(),
+            Self::ResultResponse(x) => x.validate(),
+            Self::ReconcileRequest(x) => x.validate(),
+            Self::ReconcileResponse(x) => x.validate(),
+            Self::ProtocolError(x) => x.validate(),
+        }
+    }
+}

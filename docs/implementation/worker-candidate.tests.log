@@ -1,0 +1,150 @@
+   Compiling aq-worker-protocol v0.1.1 (/home/jkern/dev/aq-worker/crates/aq-worker-protocol)
+   Compiling aq-worker v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.79s
+     Running unittests src/lib.rs (target/debug/deps/aq_protocol-04fbb2930c97de51)
+
+running 1 test
+test tests::api_error_round_trips ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-c17b998221615ef5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-fixture-agent.rs (target/debug/deps/aq_fixture_agent-f054b0c3f199a693)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/aq_worker-97cfee1792f29144)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backoff.rs (target/debug/deps/backoff-32d1ecd951750f39)
+
+running 2 tests
+test attempt_zero_has_one_second_ceiling ... ok
+test backoff_is_bounded_and_jittered ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (target/debug/deps/client-9d59515a153903b7)
+
+running 14 tests
+test malformed_server_urls_are_rejected ... ok
+test connection_refused_error_includes_the_cause ... ok
+test non_json_401_is_access_rejected ... ok
+test revoked_is_fatal ... ok
+test redirect_classified_as_access_rejected ... ok
+test not_found_hints_at_the_worker_port ... ok
+test sends_bearer_and_cf_headers ... ok
+test html_429_and_408_and_502_are_transient ... ok
+test server_down_is_transient ... ok
+test unknown_credential_is_invalid ... ok
+test upgrade_required_is_incompatible ... ok
+test server_error_is_transient ... ok
+test unexpected_401_code_is_other ... ok
+test html_login_page_classified_as_access_rejected ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/config.rs (target/debug/deps/config-0108ba6e14c8b9a2)
+
+running 3 tests
+test debug_redacts_secrets ... ok
+test load_refuses_world_readable_config ... ok
+test config_saved_with_0600 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/driver.rs (target/debug/deps/driver-dac5eb9c482cca22)
+
+running 4 tests
+test stopped_report_recovers_before_new_boot_registration_without_relaunch ... ok
+test blocked_fixture_is_killed_and_reaped_on_cancellation ... ok
+test binary_executes_real_child_against_fake_http_peer_with_lost_responses ... ok
+test blocked_fixture_is_killed_and_reaped_on_grant_expiry ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running tests/execution.rs (target/debug/deps/execution-8bcbdf67070c2b4a)
+
+running 14 tests
+test oversized_journal_is_refused_before_deserialization ... ok
+test unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test exclusive_owner_and_unknown_state_format_fail_closed ... ok
+test admission_replay_and_changed_bytes_are_distinct ... ok
+test competing_projects_share_one_durable_capacity_budget ... ok
+test uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test request_send_time_includes_network_delay_and_suspend ... ok
+test launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test write_failures_never_acknowledge_unpersisted_admission ... ok
+test observations_and_directive_receipts_cross_durable_boundary ... ok
+test stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/foundation_fixtures.rs (target/debug/deps/foundation_fixtures-933e171928e6874a)
+
+running 2 tests
+test retained_wire_fixtures_parse_against_foundation_types ... ok
+test retained_worker_identity_survives_save_reload ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/foundation_lifecycle.rs (target/debug/deps/foundation_lifecycle-292d399ad1a3f4c4)
+
+running 1 test
+test enroll_saved_identity_reconnect_and_revocation_need_no_sibling ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker_protocol-9eb4d2739b90a34b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-4f9419975cd7989b)
+
+running 10 tests
+test nil_optional_recovery_and_duplicate_pending_ids_are_refused ... ok
+test scenarios::expiry_stale_incarnation_and_generation_are_refused ... ok
+test published_valid_and_invalid_vectors_execute ... ok
+test scenarios::lost_acceptance_replay_reduces_ttl_and_changed_bytes_conflict ... ok
+test scenarios::cancellation_race_and_late_generation_retain_evidence ... ok
+test wire_is_strict_and_payload_digest_is_canonical ... ok
+test scenarios::spec_tampering_and_response_overflow_are_invalid ... ok
+test scenarios::observation_sequences_and_report_replays_are_immutable ... ok
+test scenarios::result_requires_grant_binding_and_pending_operations_block_release ... ok
+test generated_schema_has_no_drift ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_worker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_worker_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

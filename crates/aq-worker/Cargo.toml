@@ -24,6 +24,7 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+aq-worker-protocol = { workspace = true, features = ["test-support"] }
 axum.workspace = true
 chrono.workspace = true
 tempfile.workspace = true

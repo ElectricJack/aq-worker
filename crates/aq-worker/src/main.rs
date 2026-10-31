@@ -33,6 +33,25 @@ enum Cmd {
     },
     /// Connect, heartbeat and reconnect until stopped.
     Run,
+    /// Run the protocol-2 synthetic execution candidate (no real provider harness).
+    RunExecution {
+        #[arg(long)]
+        state_dir: PathBuf,
+        #[arg(long)]
+        fixture_agent: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        max_agents: u32,
+        #[arg(long, default_value_t = 60)]
+        idle_timeout_secs: u64,
+        #[arg(long)]
+        exit_after_result: bool,
+        /// Fault injection for the deterministic integration fixture.
+        #[arg(long)]
+        drop_acceptance_response_once: bool,
+        /// Fault injection for the deterministic integration fixture.
+        #[arg(long)]
+        drop_report_response_once: bool,
+    },
     /// Print the node id and server (never the credential).
     Status,
 }
@@ -117,6 +136,37 @@ async fn main() -> ExitCode {
         .init();
     let path = cli.config.unwrap_or_else(default_path);
     match cli.command {
+        Cmd::RunExecution {
+            state_dir,
+            fixture_agent,
+            max_agents,
+            idle_timeout_secs,
+            exit_after_result,
+            drop_acceptance_response_once,
+            drop_report_response_once,
+        } => {
+            let result = async {
+                let cfg = WorkerConfig::load(&path)?;
+                aq_worker::driver::run_execution(
+                    &cfg,
+                    &state_dir,
+                    &fixture_agent,
+                    aq_worker::driver::DriverOptions {
+                        max_agents,
+                        idle_timeout_secs,
+                        exit_after_result,
+                        drop_acceptance_response_once,
+                        drop_report_response_once,
+                    },
+                )
+                .await
+            }
+            .await;
+            match result {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => usage_err(format!("{e:#}")),
+            }
+        }
         Cmd::Status => match WorkerConfig::load(&path) {
             Ok(c) => {
                 println!("node id: {}", c.node_id);

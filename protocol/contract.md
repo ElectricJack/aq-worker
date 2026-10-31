@@ -1,4 +1,4 @@
-# Execution protocol 2 candidate (aq-worker-protocol 0.1.0)
+# Execution protocol 2 candidate (aq-worker-protocol 0.1.1)
 
 Rust wire types in `crates/aq-worker-protocol` generate `execution-v2.schema.json`.
 Run `cargo run --locked -p aq-worker-protocol --example schema` to regenerate;
@@ -61,3 +61,12 @@ Conformance fixtures and fake coordinator tests are behavioral evidence, not
 production database or process-isolation evidence. Package consumers vendor an
 immutable generated source package and record its source revision and digest;
 no sibling source dependency or floating Git branch is required.
+
+Recovery-before-registration is explicit: a new process first reconciles known
+old attempts under node recovery scope and replays immutable stopped reports.
+The daemon may grant an exact new-boot registration permit only after checking
+all previously known writers are stopped or never started; omitted local entries
+cannot establish that proof. Conflicting direct registration still fails. The
+worker never uses this flow to relaunch an uncertain attempt. Observation
+sequence/origin is implemented; a separate observation timestamp is reserved
+for a subsequent reviewed contract extension.

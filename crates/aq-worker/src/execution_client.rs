@@ -68,12 +68,7 @@ impl ExecutionClient {
         }
         if !status.is_success() {
             if let Ok(error) = serde_json::from_slice::<ProtocolError>(&bytes) {
-                bail!(
-                    "execution {}: {} (retryable={})",
-                    serde_json::to_string(&error.code)?,
-                    error.message,
-                    error.retryable
-                );
+                return Err(RemoteError { status, error }.into());
             }
             bail!("execution endpoint returned {status}");
         }
@@ -109,3 +104,19 @@ impl ExecutionClient {
         self.post("reconcile", r).await
     }
 }
+
+#[derive(Debug)]
+pub struct RemoteError {
+    pub status: reqwest::StatusCode,
+    pub error: ProtocolError,
+}
+impl std::fmt::Display for RemoteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "coordinator returned {}: {:?}: {}",
+            self.status, self.error.code, self.error.message
+        )
+    }
+}
+impl std::error::Error for RemoteError {}

@@ -14,6 +14,8 @@ use std::{
 use uuid::Uuid;
 
 pub const STATE_FORMAT: u32 = 1;
+pub const MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
+pub const MAX_DIRECTIVES_PER_ATTEMPT: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Limits {
@@ -21,6 +23,7 @@ pub struct Limits {
     pub max_pending_results: usize,
     pub max_pending_bytes: u64,
     pub max_preparing: usize,
+    pub minimum_free_disk_bytes: u64,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,6 +42,7 @@ pub struct AttemptRecord {
     pub report: Option<ResultReport>,
     pub result: Option<ResultResponse>,
     pub pending_bytes: u64,
+    pub stop_reason: Option<ProcessOutcome>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -101,8 +105,17 @@ impl Journal {
         owner
             .try_lock_exclusive()
             .context("another runtime owns journal")?;
+        let parent = root
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        File::open(parent)?.sync_all()?;
         let file = root.join("journal.json");
         let state = if file.exists() {
+            ensure!(
+                std::fs::metadata(&file)?.len() <= MAX_JOURNAL_BYTES,
+                "journal exceeds bounded state size"
+            );
             let s: State = serde_json::from_slice(&std::fs::read(&file)?)
                 .context("parse journal; refusing to advertise capacity")?;
             ensure!(
@@ -174,6 +187,11 @@ impl Journal {
         );
         let mut candidate = self.state.clone();
         let value = f(&mut candidate)?;
+        let bytes = serde_json::to_vec(&candidate)?;
+        ensure!(
+            bytes.len() as u64 <= MAX_JOURNAL_BYTES,
+            "journal retained-state byte bound reached"
+        );
         let fault = self.next_fault.take();
         let tmp = self.root.join(format!(".journal.{}.tmp", Uuid::new_v4()));
         let result = (|| -> Result<()> {
@@ -185,7 +203,7 @@ impl Journal {
                 .create_new(true)
                 .mode(0o600)
                 .open(&tmp)?;
-            file.write_all(&serde_json::to_vec(&candidate)?)?;
+            file.write_all(&bytes)?;
             file.sync_all()?;
             if fault == Some(WriteFault::AfterFileSync) {
                 bail!("injected failure after file fsync");

@@ -1,0 +1,452 @@
+//! Minimal outbound synthetic-execution driver. All acceptance/report retries
+//! reuse journaled bytes. It intentionally refuses uncertain restart relaunch.
+use crate::{
+    clock::{BootClock, Clock},
+    config::WorkerConfig,
+    execution_client::{ExecutionClient, RemoteError},
+    journal::{Journal, Limits},
+    runtime::Runtime,
+};
+use anyhow::{Context, Result, bail, ensure};
+use aq_worker_protocol::*;
+use std::{path::Path, time::Duration};
+use uuid::Uuid;
+
+pub struct DriverOptions {
+    pub max_agents: u32,
+    pub idle_timeout_secs: u64,
+    pub exit_after_result: bool,
+    pub drop_acceptance_response_once: bool,
+    pub drop_report_response_once: bool,
+}
+fn retryable(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<RemoteError>()
+        .is_none_or(|e| e.error.retryable)
+}
+async fn retry_delay() {
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+pub async fn run_execution(
+    config: &WorkerConfig,
+    state_dir: &Path,
+    executable: &Path,
+    mut options: DriverOptions,
+) -> Result<()> {
+    let existing_journal = state_dir.join("journal.json").exists();
+    let identity = NodeIdentity {
+        node_id: config.node_id,
+        boot_id: Uuid::new_v4(),
+    };
+    let capacity = Resources {
+        slots: options.max_agents,
+        cpu_millis: 1_000_000,
+        memory_bytes: 64 * 1024 * 1024 * 1024,
+        disk_bytes: 1024 * 1024 * 1024,
+    };
+    let limits = Limits {
+        capacity,
+        max_pending_results: 64,
+        max_pending_bytes: 1024 * 1024,
+        max_preparing: options.max_agents as usize,
+        minimum_free_disk_bytes: 16 * 1024 * 1024,
+    };
+    let mut runtime = Runtime::new(
+        Journal::open(state_dir, identity.clone(), limits)?,
+        BootClock,
+    );
+    let client = ExecutionClient::from_config(config)?;
+    let registration = RegisterRequest {
+        identity: identity.clone(),
+        operation_id: Uuid::new_v4(),
+        protocol_version: EXECUTION_PROTOCOL_VERSION,
+        worker_version: env!("CARGO_PKG_VERSION").into(),
+        capabilities: vec![FAKE_HARNESS_CAPABILITY.into()],
+    };
+    // Node recovery does not acquire new execution authority. It must be usable
+    // before the old boot's registration has been explicitly replaced.
+    if existing_journal {
+        let response = match client.reconcile(&runtime.reconcile_request()).await {
+            Ok(response) => response,
+            Err(error)
+                if error
+                    .downcast_ref::<RemoteError>()
+                    .is_some_and(|e| e.error.code == ErrorCode::StaleBoot)
+                    && runtime.journal.state().attempts.is_empty() =>
+            {
+                ReconcileResponse {
+                    attempts: vec![],
+                    next_cursor: None,
+                }
+            }
+            Err(error) => return Err(error),
+        };
+        println!(
+            "{}",
+            serde_json::json!({"event":"reconciling","identity":identity,"dispositions":response})
+        );
+        for disposition in &response.attempts {
+            if let Some(result) = &disposition.result {
+                let exists = runtime.journal.state().attempts.values().any(|r| {
+                    r.report
+                        .as_ref()
+                        .is_some_and(|p| p.report_id == result.report_id)
+                });
+                if exists {
+                    runtime.acknowledge_result(result.clone())?;
+                }
+            }
+        }
+        let reports: Vec<_> = runtime
+            .journal
+            .state()
+            .attempts
+            .values()
+            .filter_map(|r| {
+                if r.phase == Phase::Reporting
+                    && r.stop_certainty == StopCertainty::ConfirmedStopped
+                {
+                    r.report.clone()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut recovered = 0;
+        for report in reports {
+            let response = client.report(&report).await?;
+            runtime.acknowledge_result(response.clone())?;
+            if response.retention_release {
+                runtime.retire(report.attempt.attempt_id)?;
+            }
+            recovered += 1;
+        }
+        let released: Vec<_> = runtime
+            .journal
+            .state()
+            .attempts
+            .iter()
+            .filter_map(|(id, r)| {
+                (r.phase == Phase::Acknowledged
+                    && r.result.as_ref().is_some_and(|x| x.retention_release))
+                .then_some(*id)
+            })
+            .collect();
+        for id in released {
+            runtime.retire(id)?;
+        }
+        let uncertain = runtime.journal.state().attempts.values().any(|r| {
+            r.phase != Phase::Retired && r.stop_certainty != StopCertainty::ConfirmedStopped
+        });
+        if uncertain {
+            println!(
+                "{}",
+                serde_json::json!({"event":"incarnation_replacement_required","registration":registration})
+            );
+            bail!(
+                "prior writers/reservations require process reconciliation; preserved without relaunch"
+            );
+        }
+        runtime.journal.transaction(|s| {
+            s.reconciliation_required = false;
+            Ok(())
+        })?;
+        if recovered > 0 {
+            if options.exit_after_result {
+                return Ok(());
+            }
+            // Receipt recovery may have supplied the daemon's first durable
+            // stopped proof, so acquire a fresh explicit recovery disposition.
+            client.reconcile(&runtime.reconcile_request()).await?;
+        }
+    }
+    let registered = match client.register(&registration).await {
+        Ok(r) => r,
+        Err(error) => {
+            println!(
+                "{}",
+                serde_json::json!({"event":"incarnation_replacement_required","registration":registration})
+            );
+            return Err(error);
+        }
+    };
+    ensure!(
+        registered.identity == identity
+            && registered
+                .capabilities
+                .contains(&FAKE_HARNESS_CAPABILITY.into()),
+        "coordinator negotiated different identity/capabilities"
+    );
+    println!(
+        "{}",
+        serde_json::json!({"event":"registered","identity":identity})
+    );
+    let mut idle_deadline = runtime
+        .clock
+        .now_ms()
+        .saturating_add(options.idle_timeout_secs.saturating_mul(1000));
+    loop {
+        ensure!(
+            runtime.clock.now_ms() < idle_deadline,
+            "execution idle timeout"
+        );
+        let inventory_sequence = runtime.journal.transaction(|s| {
+            s.inventory_sequence = s
+                .inventory_sequence
+                .checked_add(1)
+                .context("inventory overflow")?;
+            Ok(s.inventory_sequence)
+        })?;
+        let poll = PollRequest {
+            identity: identity.clone(),
+            operation_id: Uuid::new_v4(),
+            inventory_sequence,
+            available: runtime.journal.available()?,
+            max_items: MAX_BATCH as u32,
+        };
+        let response = match client.poll(&poll).await {
+            Ok(r) => r,
+            Err(e) if retryable(&e) => {
+                retry_delay().await;
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        for directive in &response.directives {
+            let ack = runtime.receive_directive(directive)?;
+            let result = client.directive_ack(&ack).await?;
+            ensure!(
+                result.operation_id == ack.operation_id,
+                "directive ack mismatch"
+            );
+        }
+        for offer in response.offers {
+            if runtime
+                .journal
+                .state()
+                .attempts
+                .contains_key(&offer.attempt.attempt_id)
+            {
+                continue;
+            }
+            // Server epoch is used only relative to the supplied server epoch.
+            if response.server_time_ms >= offer.offer_expires_at_ms {
+                continue;
+            }
+            let attempt_id = offer.attempt.attempt_id;
+            let acceptance = match runtime.reserve(offer.clone()) {
+                Ok(r) => r,
+                Err(e) => {
+                    let decline = DeclineRequest {
+                        identity: identity.clone(),
+                        operation_id: Uuid::new_v4(),
+                        offer_id: offer.offer_id,
+                        reason: e.to_string(),
+                    };
+                    client.decline(&decline).await?;
+                    continue;
+                }
+            };
+            loop {
+                let sent = runtime.clock.now_ms();
+                ensure!(
+                    sent < acceptance.reservation_deadline_ms,
+                    "reservation expired while acceptance uncertain"
+                );
+                match client.accept(&acceptance).await {
+                    Ok(_grant) if options.drop_acceptance_response_once => {
+                        options.drop_acceptance_response_once = false;
+                        continue;
+                    }
+                    Ok(grant) => {
+                        runtime.authorize(grant.grant, sent)?;
+                        break;
+                    }
+                    Err(e) if retryable(&e) => retry_delay().await,
+                    Err(e) => return Err(e),
+                }
+            }
+            let observation =
+                runtime.observation(attempt_id, "authorized synthetic fixture".into())?;
+            let ack = client.observe(&observation).await?;
+            runtime.acknowledge_observation(attempt_id, &ack)?;
+            let mut handle = runtime.launch_fixture(attempt_id, executable)?;
+            let control = control_fixture(&mut runtime, &client, attempt_id, &mut handle).await;
+            if let Err(error) = control {
+                // Even failed persistence/transport cannot justify leaving the
+                // owned synthetic writer alive. The durable state stays protected.
+                let _ = handle.kill();
+                while handle.try_wait()?.is_none() {
+                    retry_delay().await;
+                }
+                let _ = runtime.finish_fixture(attempt_id, handle);
+                return Err(error);
+            }
+            let report = runtime.finish_fixture(attempt_id, handle)?;
+            let observation = runtime.observation(
+                attempt_id,
+                "synthetic writers confirmed stopped; immutable report pending".into(),
+            )?;
+            let ack = client.observe(&observation).await?;
+            runtime.acknowledge_observation(attempt_id, &ack)?;
+            let report_retry_deadline = runtime.clock.now_ms().saturating_add(30_000);
+            loop {
+                ensure!(
+                    runtime.clock.now_ms() < report_retry_deadline,
+                    "report remains durable and unacknowledged after retry timeout"
+                );
+                match client.report(&report).await {
+                    Ok(_) if options.drop_report_response_once => {
+                        options.drop_report_response_once = false;
+                        continue;
+                    }
+                    Ok(result) => {
+                        runtime.acknowledge_result(result.clone())?;
+                        println!(
+                            "{}",
+                            serde_json::json!({"event":"result_acknowledged","attempt":report.attempt,"report_id":report.report_id,"disposition":result.disposition})
+                        );
+                        if result.retention_release {
+                            runtime.retire(attempt_id)?;
+                        }
+                        break;
+                    }
+                    Err(e) if retryable(&e) => retry_delay().await,
+                    Err(e) => return Err(e),
+                }
+            }
+            idle_deadline = runtime
+                .clock
+                .now_ms()
+                .saturating_add(options.idle_timeout_secs.saturating_mul(1000));
+            if options.exit_after_result {
+                return Ok(());
+            }
+        }
+        retry_delay().await;
+    }
+}
+
+async fn control_fixture(
+    runtime: &mut Runtime<BootClock>,
+    client: &ExecutionClient,
+    attempt_id: Uuid,
+    handle: &mut crate::fixture::FixtureHandle,
+) -> Result<()> {
+    let mut next_poll = runtime.clock.now_ms();
+    let mut next_renew = runtime.clock.now_ms().saturating_add(
+        runtime.journal.state().attempts[&attempt_id]
+            .grant
+            .as_ref()
+            .unwrap()
+            .valid_for_ms
+            / 3,
+    );
+    let mut renewal: Option<RenewRequest> = None;
+    let mut kill_sent = false;
+    loop {
+        if handle.try_wait()?.is_some() {
+            return Ok(());
+        }
+        let now = runtime.clock.now_ms();
+        runtime.expire()?;
+        let record = &runtime.journal.state().attempts[&attempt_id];
+        if record.phase == Phase::Stopping {
+            if !kill_sent {
+                handle.kill()?;
+                kill_sent = true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            continue;
+        }
+        let deadline = record.grant_deadline_ms.context("missing grant deadline")?;
+        let timeout = Duration::from_millis(deadline.saturating_sub(now).clamp(1, 500));
+        if now >= next_poll {
+            let sequence = runtime.journal.transaction(|s| {
+                s.inventory_sequence = s
+                    .inventory_sequence
+                    .checked_add(1)
+                    .context("inventory overflow")?;
+                Ok(s.inventory_sequence)
+            })?;
+            let request = PollRequest {
+                identity: runtime.journal.state().identity.clone(),
+                operation_id: Uuid::new_v4(),
+                inventory_sequence: sequence,
+                available: runtime.journal.available()?,
+                max_items: MAX_BATCH as u32,
+            };
+            match tokio::time::timeout(timeout, client.poll(&request)).await {
+                Ok(Ok(response)) => {
+                    for directive in response.directives {
+                        let ack = runtime.receive_directive(&directive)?;
+                        if directive.attempt.attempt_id == attempt_id && !kill_sent {
+                            handle.kill()?;
+                            kill_sent = true;
+                        }
+                        // Receipt is durable; killing the owned writer precedes
+                        // waiting for any network acknowledgement.
+                        let remaining = runtime.journal.state().attempts[&attempt_id]
+                            .grant_deadline_ms
+                            .unwrap()
+                            .saturating_sub(runtime.clock.now_ms());
+                        if remaining > 0 {
+                            let _ = tokio::time::timeout(
+                                Duration::from_millis(remaining.min(100)),
+                                client.directive_ack(&ack),
+                            )
+                            .await;
+                        }
+                    }
+                }
+                Ok(Err(error)) if !retryable(&error) => {
+                    runtime.request_stop(attempt_id, ProcessOutcome::Expired)?;
+                }
+                _ => {}
+            }
+            next_poll = now.saturating_add(100);
+        }
+        if runtime.journal.state().attempts[&attempt_id].phase == Phase::Stopping {
+            continue;
+        }
+        let now = runtime.clock.now_ms();
+        if now >= next_renew {
+            let record = &runtime.journal.state().attempts[&attempt_id];
+            let request = renewal.get_or_insert_with(|| RenewRequest {
+                identity: runtime.journal.state().identity.clone(),
+                operation_id: Uuid::new_v4(),
+                attempt: record.offer.attempt.clone(),
+                grant_sequence: record.grant.as_ref().unwrap().grant_sequence,
+            });
+            let sent = runtime.clock.now_ms();
+            let remaining = record.grant_deadline_ms.unwrap().saturating_sub(sent);
+            if remaining == 0 {
+                continue;
+            }
+            match tokio::time::timeout(
+                Duration::from_millis(remaining.min(500)),
+                client.renew(request),
+            )
+            .await
+            {
+                Ok(Ok(response)) => {
+                    runtime.renew(response.grant, sent)?;
+                    renewal = None;
+                    let record = &runtime.journal.state().attempts[&attempt_id];
+                    next_renew = runtime
+                        .clock
+                        .now_ms()
+                        .saturating_add(record.grant.as_ref().unwrap().valid_for_ms / 3);
+                }
+                Ok(Err(error)) if !retryable(&error) => {
+                    runtime.request_stop(attempt_id, ProcessOutcome::Expired)?;
+                }
+                _ => {
+                    next_renew = now.saturating_add(100);
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}

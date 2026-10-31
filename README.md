@@ -21,3 +21,20 @@ Run `cargo test --workspace --locked --all-features` and
 The foundation connector retains `aq-worker enroll`, `run`, and `status`.
 `aq-fixture-agent` is a synthetic deterministic test process, not a real agent harness.
 See [implementation evidence](docs/implementation/README.md).
+
+Run a synthetic assignment against a separately running compatible daemon:
+
+```sh
+cargo build --locked --bins
+target/debug/aq-worker --config worker.toml run-execution \
+  --state-dir state --fixture-agent target/debug/aq-fixture-agent \
+  --exit-after-result --idle-timeout-secs 60
+```
+
+Registration emits JSON containing the node/boot identity so a development
+fixture scheduler can supply a bound offer. Local test switches
+`--drop-acceptance-response-once` and `--drop-report-response-once` exercise
+identical-request replay. They discard one received acknowledgement, preserving
+the committed server action. The synthetic process's `AQ_FIXTURE_HOLD=1`
+injection waits for a `release` file inside its launch directory; cancellation
+and grant-expiry tests prove that control continues while it is blocked.

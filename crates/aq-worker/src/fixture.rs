@@ -33,6 +33,7 @@ impl FixtureHandle {
             })?,
         )?;
         File::open(directory.parent().unwrap())?.sync_all()?;
+        File::open(root)?.sync_all()?;
         let child = Command::new(executable)
             .arg("--launch-dir")
             .arg(&directory)
@@ -54,7 +55,16 @@ impl FixtureHandle {
         process_evidence(self.child.id())
     }
     pub fn kill(&mut self) -> Result<()> {
-        self.child.kill().context("stop owned fixture")
+        match self.child.kill() {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                if self.child.try_wait()?.is_some() {
+                    Ok(())
+                } else {
+                    Err(error).context("stop owned fixture")
+                }
+            }
+        }
     }
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
         Ok(self.child.try_wait()?)
@@ -86,6 +96,10 @@ pub fn run_fixture(directory: &Path) -> Result<()> {
         &directory.join("process.json"),
         &serde_json::to_vec(&process_evidence(std::process::id())?)?,
     )?;
+    // Explicit local fault-injection switch used by process/control tests only.
+    while std::env::var_os("AQ_FIXTURE_HOLD").is_some() && !directory.join("release").exists() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     durable_write_new(&directory.join("output.txt"), input.output.as_bytes())?;
     Ok(())
 }

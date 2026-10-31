@@ -8,6 +8,8 @@ pub struct FakeCoordinator {
     pub now_ms: u64,
     pub offer: Offer,
     pub cancelled: bool,
+    pub active_identity: NodeIdentity,
+    latest_report_id: Option<Uuid>,
     grant: Option<(Grant, u64)>,
     acceptances: BTreeMap<Uuid, (String, Grant)>,
     observations: BTreeMap<u64, (String, Ack)>,
@@ -17,6 +19,8 @@ impl FakeCoordinator {
     pub fn new(offer: Offer, now_ms: u64) -> Self {
         Self {
             now_ms,
+            active_identity: offer.identity.clone(),
+            latest_report_id: None,
             offer,
             cancelled: false,
             grant: None,
@@ -134,21 +138,44 @@ impl FakeCoordinator {
         {
             return Err(Self::error(ErrorCode::NotFound));
         }
-        let disposition = if r.attempt != self.offer.attempt {
-            ResultDisposition::RetainedStale
+        if !r.artifacts.is_empty() {
+            return Err(Self::error(ErrorCode::UnsupportedCapability));
+        }
+        let (grant, expiry) = self
+            .grant
+            .as_ref()
+            .ok_or_else(|| Self::error(ErrorCode::InvalidRequest))?;
+        if r.identity != grant.identity
+            || r.attempt != grant.attempt
+            || r.resolved_spec_digest != grant.resolved_spec_digest
+        {
+            return Err(Self::error(ErrorCode::StaleGeneration));
+        }
+        if r.supersedes_report_id != self.latest_report_id {
+            return Err(Self::error(ErrorCode::IdConflict));
+        }
+        let stopped = matches!(
+            r.stop_certainty,
+            StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
+        );
+        let disposition = if !stopped {
+            ResultDisposition::Rejected
         } else if self.cancelled {
             ResultDisposition::RetainedCancelled
-        } else if r.stop_certainty == StopCertainty::ConfirmedStopped {
-            ResultDisposition::Accepted
+        } else if self.active_identity != r.identity
+            || self.now_ms >= *expiry
+            || self.latest_report_id.is_some()
+        {
+            ResultDisposition::RetainedStale
         } else {
-            ResultDisposition::Rejected
+            ResultDisposition::Accepted
         };
         let response = ResultResponse {
             report_id: r.report_id,
             disposition,
-            retention_release: r.artifacts.is_empty()
-                && r.stop_certainty == StopCertainty::ConfirmedStopped,
+            retention_release: stopped && r.pending_operation_ids.is_empty(),
         };
+        self.latest_report_id = Some(r.report_id);
         self.reports.insert(r.report_id, (digest, response.clone()));
         Ok(response)
     }

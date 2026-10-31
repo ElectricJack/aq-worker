@@ -8,3 +8,5 @@ pub mod execution_client;
 pub mod fixture;
 pub mod journal;
 pub mod runtime;
+
+pub mod driver;

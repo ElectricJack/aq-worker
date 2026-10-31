@@ -1,5 +1,8 @@
 # Local worker implementation evidence
 
+Current corrected candidate: [worker-candidate.md](worker-candidate.md).
+The retained test log records 51 passing component checks.
+
 The foundation source was copied from Agent Q revision
 `eed842362f29016ee508ca200f3bb3da2473dc08`. The connector files
 `backoff.rs`, `client.rs`, `config.rs`, and `main.rs` retain their behavior;
@@ -9,7 +12,8 @@ and retry/revocation behavior. `crates/aq-protocol` is now the canonical
 foundation package; the daemon consumes its pinned immutable source artifact.
 No protocol v1 execution fields were introduced.
 
-The worker owns `aq-worker-protocol` 0.1.0 protocol-2 candidate, with generated
+The worker owns the `aq-worker-protocol` protocol-2 candidate (initial package
+0.1.0, corrected candidate 0.1.1), with generated
 schema, validators, fixture peer (`test-support` feature), and executable
 conformance tests. Generated schema/fixture copies inside the crate are package
 inputs; source-workspace CI checks them against the canonical protocol artifacts.
