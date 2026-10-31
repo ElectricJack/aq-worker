@@ -194,6 +194,7 @@ pub fn sample_offer() -> Offer {
             generation: 1,
         },
         spec: ExecutionSpec {
+            bindings: None,
             project_id: Uuid::from_u128(3),
             harness: FAKE_HARNESS_CAPABILITY.into(),
             resolved_spec_digest: String::new(),

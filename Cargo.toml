@@ -9,7 +9,7 @@ publish = false
 
 [workspace.dependencies]
 aq-protocol = { path = "crates/aq-protocol", version = "=0.1.0" }
-aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.1.1" }
+aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.2.0" }
 anyhow = "1"
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }

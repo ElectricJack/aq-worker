@@ -1,6 +1,6 @@
 [package]
 name = "aq-worker-protocol"
-version = "0.1.1"
+version = "0.2.0"
 edition.workspace = true
 publish.workspace = true
 description = "Implementation-independent AQ execution wire contract"

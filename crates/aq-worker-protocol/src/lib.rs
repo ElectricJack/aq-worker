@@ -19,6 +19,9 @@ macro_rules! wire {
         pub struct $name { $(pub $field: $ty),* }
     )*};
 }
+pub mod m4;
+pub use m4::*;
+
 wire! {
     NodeIdentity { node_id: Uuid, boot_id: Uuid }
     AttemptRef { attempt_id: Uuid, session_id: Uuid, generation: u64 }
@@ -27,7 +30,7 @@ wire! {
     RegisterResponse { identity: NodeIdentity, protocol_version: u32, capabilities: Vec<String> }
     PollRequest { identity: NodeIdentity, operation_id: Uuid, inventory_sequence: u64, available: Resources, max_items: u32 }
     PollResponse { server_time_ms: u64, offers: Vec<Offer>, directives: Vec<Directive> }
-    ExecutionSpec { project_id: Uuid, harness: String, resolved_spec_digest: String, fixture_output: String, resources: Resources, required_capabilities: Vec<String> }
+
     Offer { offer_id: Uuid, identity: NodeIdentity, attempt: AttemptRef, spec: ExecutionSpec, offer_expires_at_ms: u64, reservation_ttl_ms: u64 }
     AcceptRequest { identity: NodeIdentity, operation_id: Uuid, offer_id: Uuid, attempt: AttemptRef, resolved_spec_digest: String, reservation_id: Uuid, reservation_deadline_ms: u64, reservation_remaining_ms: u64 }
     Grant { identity: NodeIdentity, attempt: AttemptRef, offer_id: Uuid, reservation_id: Uuid, resolved_spec_digest: String, grant_sequence: u64, valid_for_ms: u64, reservation_deadline_ms: u64 }
@@ -49,6 +52,18 @@ wire! {
     ReconcileResponse { attempts: Vec<ReconcileDisposition>, next_cursor: Option<String> }
     ReconcileDisposition { attempt: AttemptRef, action: ReconcileAction, grant: Option<Grant>, result: Option<ResultResponse> }
     ProtocolError { code: ErrorCode, message: String, retryable: bool, operation_id: Option<Uuid> }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionSpec {
+    pub project_id: Uuid,
+    pub harness: String,
+    pub resolved_spec_digest: String,
+    pub fixture_output: String,
+    pub resources: Resources,
+    pub required_capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bindings: Option<ExecutionBindings>,
 }
 macro_rules! wire_enum {
     ($($name:ident { $($variant:ident),* $(,)? })*) => {$ (
@@ -146,6 +161,17 @@ impl Validate for PollRequest {
 impl Validate for ExecutionSpec {
     fn validate(&self) -> Result<(), ValidationError> {
         self.resources.validate()?;
+        if let Some(b) = &self.bindings {
+            b.validate()?;
+            check(
+                b.source.is_none()
+                    || self
+                        .required_capabilities
+                        .iter()
+                        .any(|c| c == SOURCE_CAPABILITY),
+                "source binding capability required",
+            )?;
+        }
         check(
             !self.project_id.is_nil()
                 && text(&self.harness, 128)
@@ -324,6 +350,11 @@ pub fn payload_digest<T: Serialize>(value: &T) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "message", content = "body", rename_all = "snake_case")]
 pub enum WireMessage {
+    TransferManifest(TransferManifest),
+    TransferChunkRequest(TransferChunkRequest),
+    TransferStatusRequest(TransferStatusRequest),
+    TransferStatus(TransferStatus),
+    CentralRetentionReceipt(CentralRetentionReceipt),
     RegisterRequest(RegisterRequest),
     RegisterResponse(RegisterResponse),
     PollRequest(PollRequest),
@@ -544,6 +575,11 @@ impl Validate for ReconcileAttempt {
 impl Validate for WireMessage {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
+            Self::TransferManifest(x) => x.validate(),
+            Self::TransferChunkRequest(x) => x.validate(),
+            Self::TransferStatusRequest(x) => x.validate(),
+            Self::TransferStatus(x) => x.validate(),
+            Self::CentralRetentionReceipt(x) => x.validate(),
             Self::RegisterRequest(x) => x.validate(),
             Self::RegisterResponse(x) => x.validate(),
             Self::PollRequest(x) => x.validate(),
