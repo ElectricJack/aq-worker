@@ -42,11 +42,20 @@ impl std::error::Error for HttpStatus {}
 
 /// No Debug/Serialize: private body bytes must not become logs or journal JSON.
 pub struct PrivateMaterial {
-    pub delivery: MaterialDelivery,
-    pub retrieval_deadline_ns: u64,
-    bytes: Zeroizing<Vec<u8>>,
+    pub(super) delivery: MaterialDelivery,
+    pub(super) retrieval_deadline_ns: u64,
+    pub(super) operation_id: Uuid,
+    pub(super) sent_ns: u64,
+    pub(super) received_ns: u64,
+    pub(super) bytes: Zeroizing<Vec<u8>>,
 }
 impl PrivateMaterial {
+    pub fn delivery(&self) -> &MaterialDelivery {
+        &self.delivery
+    }
+    pub fn retrieval_deadline_ns(&self) -> u64 {
+        self.retrieval_deadline_ns
+    }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -90,7 +99,7 @@ fn body_type(response: &Response) -> Result<()> {
     );
     Ok(())
 }
-fn boot_ns() -> Result<u64> {
+pub(super) fn boot_ns() -> Result<u64> {
     let mut time = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
@@ -341,10 +350,14 @@ impl NativeClient {
             "material lease changed"
         );
         let bytes = body(response, expected.material_bytes as usize).await?;
-        let deadline = delivery.verify_received(&request.binding, &bytes, sent, boot_ns()?)?;
+        let received_ns = boot_ns()?;
+        let deadline = delivery.verify_received(&request.binding, &bytes, sent, received_ns)?;
         Ok(PrivateMaterial {
             delivery,
             retrieval_deadline_ns: deadline,
+            operation_id: request.operation_id,
+            sent_ns: sent,
+            received_ns,
             bytes,
         })
     }

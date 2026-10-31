@@ -158,3 +158,10 @@ applying a lease-duration bound to the task's hard wall limit. Initial-grant
 retries validate their previous owner and operation before sending another
 Prepare request. Both regressions failed against the initial consumer and pass
 with the reviewed implementation.
+
+The [private material installer](WRK-08-private-material-plan.md) now defines the
+filesystem transaction, exact preparation/lease/private-binding pins, dual boot
+identity, server watermark versus local clock provenance, replay and capacity
+rules. It has no cleanup or implicit uncertain-prefix recovery. The durable
+driver must journal its returned digest before sending Prepare and run fsync on
+a bounded blocking lane.
