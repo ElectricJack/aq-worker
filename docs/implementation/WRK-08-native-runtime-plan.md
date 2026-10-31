@@ -98,7 +98,8 @@ aq-admission0.1.6 archive (58 files), adds bounded inline chunk assembly with ex
 prefix retry and verifies the actual descriptor/payload before host construction.
 Its [focused qualification](WRK-08-startup-consumer-qualification.json) records6
 passing tests and strict worker lint. Inline assembly is capped at2MiB with256KiB
-chunks; larger Git bundles must use the source owner.
+chunks. Typed inline Source observations use the same bounded verifier; Git
+bundles of any size use the separate streaming source owner.
 
 Native journal, private material installation, current HTTP authority, actual Git
 hydration and the Codex adapter remain implementation work. No launch capability
@@ -117,3 +118,11 @@ The [Codex adapter plan](WRK-08-codex-adapter-plan.md) now pins local CLI interf
 observation evidence and explicitly requires standalone guardian-owned executor
 qualification, exact stdin payload delivery and observed readiness before any
 real runtime capability claim.
+
+Transport review hardening requires HTTPS for every nonnumeric-loopback origin.
+Plain HTTP is allowed only for explicit loopback IPs; hostname resolution cannot
+grant this exception. The client disables ambient HTTP(S)/ALL_PROXY discovery and
+explicitly disables reqwest protocol retries as well as redirects. Proxy support,
+if later needed, requires a separately configured trusted policy. Regression tests
+reproduce the former plaintext acceptance and ambient proxy interception, then
+exercise actual native wire roundtrips in an isolated proxy-configured subprocess.

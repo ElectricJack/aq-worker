@@ -431,6 +431,10 @@ fn incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo() {
         cf_client_secret: None,
     };
     for url in [
+        "http://example.invalid",
+        "http://localhost",
+        "http://192.0.2.1",
+        "http://[2001:db8::1]",
         "https://private:secret@example.invalid",
         "https://example.invalid?secret=x",
         "https://example.invalid#secret",
@@ -440,7 +444,45 @@ fn incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo() {
         let error = NativeClient::from_config(&config).err().unwrap();
         assert!(!error.to_string().contains("secret"));
     }
+    for url in [
+        "https://example.invalid",
+        "http://127.0.0.1:4321",
+        "http://[::1]:4321",
+    ] {
+        let mut config = base.clone();
+        config.server_url = url.into();
+        assert!(NativeClient::from_config(&config).is_ok());
+    }
     let mut config = base;
     config.cf_client_id = Some("id".into());
     assert!(NativeClient::from_config(&config).is_err());
+}
+
+#[test]
+fn native_transport_ignores_ambient_proxy_configuration() {
+    // Child process isolates environment changes from parallel HTTP tests.
+    // Reuse the actual wire roundtrip instead of merely inspecting a builder.
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "exact_native_started_stopped_result_receipts_and_stable_replay",
+            "--nocapture",
+        ])
+        .envs([
+            ("HTTP_PROXY", "http://127.0.0.1:9"),
+            ("http_proxy", "http://127.0.0.1:9"),
+            ("HTTPS_PROXY", "http://127.0.0.1:9"),
+            ("https_proxy", "http://127.0.0.1:9"),
+            ("ALL_PROXY", "http://127.0.0.1:9"),
+            ("all_proxy", "http://127.0.0.1:9"),
+            ("NO_PROXY", ""),
+            ("no_proxy", ""),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }

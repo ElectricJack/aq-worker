@@ -126,8 +126,16 @@ impl NativeClient {
     pub fn from_config(config: &WorkerConfig) -> Result<Self> {
         let url = reqwest::Url::parse(&config.server_url)
             .map_err(|_| anyhow::anyhow!("invalid native coordinator URL"))?;
+        // Resolve no names to grant the plaintext exception. A hostname may
+        // change addresses; only an explicitly numeric loopback is local.
+        let numeric_loopback = url.host_str().is_some_and(|host| {
+            host.trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+        });
         ensure!(
-            matches!(url.scheme(), "http" | "https")
+            (url.scheme() == "https" || (url.scheme() == "http" && numeric_loopback))
                 && url.host_str().is_some()
                 && url.username().is_empty()
                 && url.password().is_none()
@@ -147,6 +155,8 @@ impl NativeClient {
         let client = || {
             reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
+                .retry(reqwest::retry::never())
+                .no_proxy()
                 .connect_timeout(Duration::from_secs(3))
                 .timeout(Duration::from_secs(10))
                 .default_headers(headers.clone())
