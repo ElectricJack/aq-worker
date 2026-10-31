@@ -10,6 +10,8 @@ fn frozen_bindings_are_strict_and_part_of_spec_digest() {
             .unwrap()
             .contains_key("bindings")
     );
+    spec.required_capabilities
+        .push(GRAPH_ACCESS_CAPABILITY.into());
     spec.bindings = Some(ExecutionBindings {
         source: None,
         graph: Some(GraphBinding {

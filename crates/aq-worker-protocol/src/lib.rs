@@ -164,6 +164,14 @@ impl Validate for ExecutionSpec {
         if let Some(b) = &self.bindings {
             b.validate()?;
             check(
+                b.graph.is_none()
+                    || self
+                        .required_capabilities
+                        .iter()
+                        .any(|c| c == GRAPH_ACCESS_CAPABILITY),
+                "graph binding capability required",
+            )?;
+            check(
                 b.source.is_none()
                     || self
                         .required_capabilities

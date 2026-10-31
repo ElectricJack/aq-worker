@@ -1,6 +1,8 @@
 //! Capability-negotiated immutable source and transfer contracts.
 use super::*;
-pub const SOURCE_CAPABILITY: &str = "source-handoff-v1";
+pub const SOURCE_CAPABILITY: &str = "source-workspaces-v1";
+pub const GRAPH_ACCESS_CAPABILITY: &str = "scoped-agent-access-v1";
+pub const SOURCE_TRANSFER_CAPABILITY: &str = "source-transfer-v1";
 pub const MAX_CHUNK_BYTES: usize = 256 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -71,6 +73,10 @@ impl Validate for GraphBinding {
 }
 impl Validate for ExecutionBindings {
     fn validate(&self) -> Result<(), ValidationError> {
+        check(
+            self.source.is_some() || self.graph.is_some(),
+            "empty execution bindings",
+        )?;
         if let Some(s) = &self.source {
             s.validate()?;
         }
@@ -140,7 +146,12 @@ impl Validate for CentralRetentionReceipt {
 }
 impl Validate for TransferStatus {
     fn validate(&self) -> Result<(), ValidationError> {
-        check(!self.transfer_id.is_nil(), "invalid transfer status")?;
+        check(
+            !self.transfer_id.is_nil()
+                && self.manifest_offset <= 1024 * 1024
+                && self.bundle_offset <= 16 * 1024 * 1024 * 1024,
+            "invalid transfer status",
+        )?;
         if let Some(r) = &self.receipt {
             r.validate()?;
             check(
