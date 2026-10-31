@@ -118,7 +118,7 @@ fn file_generation_identity_and_bounded_anchor_changes_report_durable_gaps_witho
             .collect_file(Uuid::from_u128(8), &file, 103, OverflowPolicy::Hold)
             .unwrap()
             .facts_added,
-        1
+        0
     );
     assert!(
         store
@@ -143,9 +143,38 @@ fn file_generation_identity_and_bounded_anchor_changes_report_durable_gaps_witho
     assert!(store.attach_file_engine(source(), 4096, new).is_err());
     drop(store);
     let store = Store::open(&temp.path().join("rows"), Limits::fixture()).unwrap();
-    assert_eq!(store.snapshot().unwrap().queued, 3);
+    assert_eq!(store.snapshot().unwrap().queued, 2);
     store.audit().unwrap();
 }
+#[test]
+fn first_rotation_reports_one_control_gap_and_holds_until_owner_generation() {
+    let temp = tempfile::tempdir().unwrap();
+    let raw = support::row(1);
+    let (store, file, path) = fixture(&temp, &raw);
+    std::fs::rename(&path, temp.path().join("old-native")).unwrap();
+    std::fs::write(&path, &raw).unwrap();
+    let gap = store
+        .collect_file(Uuid::from_u128(8), &file, 100, OverflowPolicy::Hold)
+        .unwrap();
+    assert_eq!(gap.facts_added, 1);
+    assert!(gap.blocked);
+    assert_eq!(gap.consumed_bytes, 0);
+    let row = store.source(Uuid::from_u128(8)).unwrap();
+    assert_eq!(
+        row.hold,
+        Some(aq_observation_redb_prototype::HoldReason::SourceChange)
+    );
+    assert_eq!(row.last_control_sequence, Some(1));
+    assert_eq!(
+        store
+            .collect_file(row.source.source_id, &file, 101, OverflowPolicy::Hold)
+            .unwrap()
+            .facts_added,
+        0
+    );
+    store.audit().unwrap();
+}
+
 #[test]
 fn foreign_handles_symlinks_and_root_replacement_refuse_original_cursor() {
     let temp = tempfile::tempdir().unwrap();

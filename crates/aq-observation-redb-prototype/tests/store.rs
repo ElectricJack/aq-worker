@@ -132,7 +132,7 @@ fn scope_changed_identity_quota_and_invalid_receipt_refuse_without_new_effect() 
     assert!(store.attach(changed).is_err());
     drop(store);
     let mut small = Limits::fixture();
-    small.logical_bytes = 4096;
+    small.logical_bytes = small.logical_bytes - small.ordinary_limit() + 4096;
     let other = t.path().join("quota");
     let store = Store::create(&other, small.clone()).unwrap();
     store.attach(support::source(8)).unwrap();
@@ -210,8 +210,8 @@ fn transaction_disk_cap_holds_cursor_and_reopens_without_reseed() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("rows");
     let mut limits = Limits::fixture();
-    limits.physical_bytes = 2 * 1024 * 1024;
-    limits.logical_bytes = 1024 * 1024;
+    limits.physical_bytes = 3 * 1024 * 1024;
+    limits.logical_bytes = 5 * 1024 * 1024 / 2;
     let store = Store::create(&path, limits.clone()).unwrap();
     store.attach(support::source(8)).unwrap();
     let (_, template) = support::normalize(1, 1);

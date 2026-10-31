@@ -104,6 +104,13 @@ impl FileBatch<'_> {
         })
     }
 }
+pub(super) fn control_parser() -> ArtifactRef {
+    ArtifactRef {
+        id: Text::new("row-file-source-monitor").unwrap(),
+        version: Text::new("0.0.5").unwrap(),
+        digest: Digest::of(include_bytes!("reader.rs")),
+    }
+}
 impl Store {
     pub fn attach_file_engine(
         &self,
@@ -134,14 +141,22 @@ impl Store {
             "store uncertain; reopen before source reads"
         );
         let row = self.source(id)?;
-        ensure!(
-            row.hold.is_none() && row.engine.as_ref().is_some_and(|e| e.replay.is_none()),
-            "file source held/replaying"
-        );
         let reader = row.reader.as_ref().context("source has no admitted file")?;
         ensure!(
             &reader.permit == file.permit(),
             "source handle differs from admitted permit"
+        );
+        if row.hold.is_some() {
+            return Ok(CollectedFrame {
+                consumed_bytes: 0,
+                facts_added: 0,
+                indexed_lookups: 0,
+                blocked: true,
+            });
+        }
+        ensure!(
+            row.engine.as_ref().is_some_and(|e| e.replay.is_none()),
+            "file source replaying"
         );
         if let Some(change) = reader.change()? {
             return self.source_change(id, &reader.permit, change, observed_at_ms);
@@ -201,11 +216,7 @@ impl Store {
             SourceChange::Rotated => GapReason::Rotated,
             SourceChange::Truncated | SourceChange::AnchorChanged => GapReason::Truncated,
         };
-        let parser = ArtifactRef {
-            id: Text::new("row-file-source-monitor")?,
-            version: Text::new("0.0.3")?,
-            digest: Digest::of(include_bytes!("reader.rs")),
-        };
+        let parser = control_parser();
         let body = Observation {
             binding: row.source.binding.clone(),
             provenance: Provenance {
@@ -253,6 +264,8 @@ impl Store {
         meta.gap_bytes += bytes.len() as u64;
         meta.logical_bytes += (bytes.len() + digest.len()) as u64;
         reader.last_change = Some(change);
+        row.hold = Some(HoldReason::SourceChange);
+        row.last_control_sequence = Some(meta.next - 1);
         if !row.parsers.contains(&parser) {
             ensure!(row.parsers.len() < 16, "source parser history bound");
             row.parsers.push(parser);
@@ -262,10 +275,12 @@ impl Store {
             .revision
             .checked_add(1)
             .context("source revision exhausted")?;
+        budget::source_growth(&prior, &row)?;
+        budget::source_policy(&row)?;
         let bytes = encode(&row)?;
         meta.logical_bytes = meta.logical_bytes - prior.len() as u64 + bytes.len() as u64;
         ensure!(
-            meta.logical_bytes <= self.limits.logical_bytes,
+            meta.logical_bytes <= self.limits.routine_control_limit(),
             "source-gap metadata quota"
         );
         sources.insert(id.as_bytes().as_slice(), bytes.as_slice())?;
@@ -410,6 +425,10 @@ impl Store {
             drop(sources);
             return self.abort(tx);
         }
+        ensure!(
+            row.last_control_sequence.is_none_or(|n| meta.acked >= n),
+            "urgent source gap must be acknowledged before reactivation"
+        );
         let state = row.engine.as_mut().context("source not engine-owned")?;
         ensure!(
             row.reader.is_some()
@@ -427,7 +446,7 @@ impl Store {
         let reason = GapReason::Rotated;
         let parser = ArtifactRef {
             id: Text::new("row-file-source-monitor")?,
-            version: Text::new("0.0.3")?,
+            version: Text::new("0.0.5")?,
             digest: Digest::of(include_bytes!("reader.rs")),
         };
         let body = Observation {
@@ -459,7 +478,7 @@ impl Store {
         let bytes = encode(&event)?;
         let digest = encode(&event.body_digest)?;
         ensure!(
-            meta.gaps < 16 && meta.gap_bytes + bytes.len() as u64 <= 65536,
+            meta.ordinary < 256 && meta.ordinary_bytes + bytes.len() as u64 <= 2 * 1024 * 1024,
             "reserved generation gap quota"
         );
         let mut out = tx.open_table(OUTBOX)?;
@@ -473,8 +492,8 @@ impl Store {
         drop(ids);
         drop(out);
         meta.next = meta.next.checked_add(1).context("sequence exhausted")?;
-        meta.gaps += 1;
-        meta.gap_bytes += bytes.len() as u64;
+        meta.ordinary += 1;
+        meta.ordinary_bytes += bytes.len() as u64;
         meta.logical_bytes += (bytes.len() + digest.len()) as u64;
         if !row.parsers.contains(&parser) {
             ensure!(row.parsers.len() < 16, "source parser history bound");
@@ -498,10 +517,11 @@ impl Store {
             .revision
             .checked_add(1)
             .context("source revision exhausted")?;
+        budget::source_policy(&row)?;
         let bytes = encode(&row)?;
         meta.logical_bytes = meta.logical_bytes - prior.len() as u64 + bytes.len() as u64;
         ensure!(
-            meta.logical_bytes <= self.limits.logical_bytes,
+            meta.logical_bytes <= self.limits.ordinary_limit(),
             "generation metadata quota"
         );
         sources.insert(plan.source_id.as_bytes().as_slice(), bytes.as_slice())?;
@@ -558,10 +578,11 @@ impl Store {
             operation_id: plan.operation_id,
             digest: verified.digest.clone(),
         });
+        budget::source_policy(&row)?;
         let bytes = encode(&row)?;
         meta.logical_bytes = meta.logical_bytes - prior.len() as u64 + bytes.len() as u64;
         ensure!(
-            meta.logical_bytes <= self.limits.logical_bytes,
+            meta.logical_bytes <= self.limits.ordinary_limit(),
             "history boundary quota"
         );
         sources.insert(plan.source_id.as_bytes().as_slice(), bytes.as_slice())?;

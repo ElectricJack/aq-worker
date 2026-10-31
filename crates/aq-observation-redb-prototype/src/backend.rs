@@ -307,10 +307,13 @@ pub fn private_root(root: &Path, create: bool) -> Result<(File, File)> {
         ensure!(
             matches!(
                 entry?.file_name().to_str(),
-                Some("owner.lock" | "store.redb")
+                Some("owner.lock" | "store.redb" | "store.format")
             ),
             "unknown member retained for recovery"
         );
+    }
+    if !create {
+        verify_format(&directory)?;
     }
     let fd = unsafe {
         libc::openat(
@@ -335,4 +338,58 @@ pub fn private_root(root: &Path, create: bool) -> Result<(File, File)> {
     fs2::FileExt::try_lock_exclusive(&owner)?;
     directory.sync_all()?;
     Ok((directory, owner))
+}
+
+// This immutable marker is checked before the engine is opened, so refusing an
+// old/unknown application format cannot repair/rewrite its redb header first.
+fn format_bytes() -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({"format":super::budget::FORMAT,"control_catalog":super::budget::catalog_digest()})).unwrap()
+}
+pub(super) fn write_format(directory: &File) -> Result<()> {
+    use std::io::Write;
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            c"store.format".as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    ensure!(fd >= 0, "exclusive format marker create failed");
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    file.write_all(&format_bytes())?;
+    file.sync_all()?;
+    directory.sync_all()?;
+    Ok(())
+}
+fn verify_format(directory: &File) -> Result<()> {
+    use std::io::Read;
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            c"store.format".as_ptr(),
+            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    ensure!(
+        fd >= 0,
+        "store format marker missing; no implicit migration or reseed"
+    );
+    let file = unsafe { File::from_raw_fd(fd) };
+    let m = file.metadata()?;
+    ensure!(
+        m.is_file()
+            && m.nlink() == 1
+            && m.uid() == unsafe { libc::geteuid() }
+            && m.mode() & 0o077 == 0
+            && m.len() <= 256,
+        "private format marker refused"
+    );
+    let mut bytes = vec![];
+    file.take(257).read_to_end(&mut bytes)?;
+    ensure!(
+        bytes == format_bytes(),
+        "unknown store format/control catalog; preserve without engine open"
+    );
+    Ok(())
 }

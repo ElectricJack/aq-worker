@@ -1,6 +1,6 @@
 [package]
 name="aq-observation-redb-prototype"
-version="0.0.4"
+version="0.0.5"
 edition="2024"
 publish=false
 description="Isolated bounded transactional observation delivery experiment; no runtime adapter"

@@ -237,10 +237,11 @@ impl Store {
             .revision
             .checked_add(1)
             .context("source revision exhausted")?;
+        budget::source_policy(&row)?;
         let bytes = encode(&row)?;
         meta.logical_bytes = meta.logical_bytes - prior.len() as u64 + bytes.len() as u64;
         ensure!(
-            meta.logical_bytes <= self.limits.logical_bytes,
+            meta.logical_bytes <= self.limits.ordinary_limit(),
             "reparse metadata quota"
         );
         sources.insert(plan.source_id.as_bytes().as_slice(), bytes.as_slice())?;
@@ -319,10 +320,11 @@ impl Store {
             .revision
             .checked_add(1)
             .context("source revision exhausted")?;
+        budget::source_policy(&row)?;
         let bytes = encode(&row)?;
         meta.logical_bytes = meta.logical_bytes - prior.len() as u64 + bytes.len() as u64;
         ensure!(
-            meta.logical_bytes <= self.limits.logical_bytes,
+            meta.logical_bytes <= self.limits.ordinary_limit(),
             "reparse completion quota"
         );
         sources.insert(id.as_bytes().as_slice(), bytes.as_slice())?;

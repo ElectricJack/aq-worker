@@ -61,10 +61,10 @@ pub(super) fn event_boot(event: &ObservationRecord) -> Result<Uuid> {
     };
     Ok(boot_id)
 }
-fn parser() -> ArtifactRef {
+pub(super) fn parser() -> ArtifactRef {
     ArtifactRef {
         id: Text::new("row-store-source-fence").unwrap(),
-        version: Text::new("0.0.3").unwrap(),
+        version: Text::new("0.0.5").unwrap(),
         digest: Digest::of(include_bytes!("sessions.rs")),
     }
 }
@@ -112,7 +112,8 @@ impl Store {
         for pair in sources.iter()? {
             let (k, v) = pair?;
             let row: SourceRow = decode(v.value())?;
-            if matches!(row.source.binding.session,SessionIdentity::Remote{boot_id,..}if boot_id==plan.expected_boot_id)
+            if budget::live(&row)
+                && matches!(row.source.binding.session,SessionIdentity::Remote{boot_id,..}if boot_id==plan.expected_boot_id)
             {
                 old.push((k.value().to_vec(), v.value().to_vec(), row));
             }
@@ -166,6 +167,7 @@ impl Store {
             meta.gap_bytes += bytes.len() as u64;
             meta.logical_bytes += (bytes.len() + digest.len()) as u64;
             row.hold = Some(HoldReason::BootFenced);
+            row.last_control_sequence = Some(meta.next - 1);
             if !row.parsers.contains(&monitor) {
                 ensure!(row.parsers.len() < 16, "source parser history bound");
                 row.parsers.push(monitor.clone());
@@ -176,6 +178,7 @@ impl Store {
                     .checked_add(1)
                     .context("source revision exhausted")?;
             }
+            budget::source_growth(&prior, &row)?;
             let bytes = encode(&row)?;
             sources.insert(key.as_slice(), bytes.as_slice())?;
             meta.logical_bytes = meta.logical_bytes - prior.len() as u64 + bytes.len() as u64;
@@ -186,7 +189,7 @@ impl Store {
         ensure!(
             meta.gaps <= 16
                 && meta.gap_bytes <= 65536
-                && meta.logical_bytes <= self.limits.logical_bytes,
+                && meta.logical_bytes <= self.limits.data_limit(),
             "reserved boot gap quota; retain old ownership"
         );
         meta.active_boot = plan.new_boot_id;

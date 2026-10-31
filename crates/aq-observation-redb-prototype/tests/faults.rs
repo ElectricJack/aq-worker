@@ -80,6 +80,7 @@ fn copy_db(from: &Path, to: &Path) {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new().mode(0o700).create(to).unwrap();
     std::fs::copy(from.join("store.redb"), to.join("store.redb")).unwrap();
+    std::fs::copy(from.join("store.format"), to.join("store.format")).unwrap();
 }
 fn setup(base: &Path, stage: &str) {
     let store = Store::create(base, Limits::fixture()).unwrap();
