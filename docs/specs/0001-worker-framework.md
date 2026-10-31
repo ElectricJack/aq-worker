@@ -1,6 +1,6 @@
 # Agent Q worker framework design
 
-**Status:** Draft for review  
+**Status:** Required framework; core mechanisms exist, native execution/product integration remains open
 **Date:** 2026-10-30  
 **Implementation language:** Rust  
 **Repository:** `aq-worker`  
@@ -235,7 +235,9 @@ External folder grants are never treated as managed cache roots and never recurs
 
 ## 10. Workspace lifecycle and aq-git contract
 
-Allocate a workspace only for an accepted, authorized attempt. Code assignments call aq-git to ensure base objects and create a private checkout at an explicit OID. Non-code assignments use a private scratch directory with the same ownership/retention rules. No live workspace or agent context is reused across attempts in the baseline; only safe caches are reused.
+Allocate a workspace only under an accepted attempt's current preparation authority.
+Preparation authority permits the bounded checkout/material work, not an agent
+launch; the latter requires a separately committed execution grant. Code assignments call aq-git to ensure base objects and create a private checkout at an explicit OID. Non-code assignments use a private scratch directory with the same ownership/retention rules. No live workspace or agent context is reused across attempts in the baseline; only safe caches are reused.
 
 Runtime states and Git records are coordinated through stable operation IDs. A retry after a lost response asks aq-git for the same operation; it does not allocate another checkout. The worker stores the returned workspace ID/generation and repository binding identity. It never writes aq-git's private journal or deletes its pool directly.
 
@@ -255,7 +257,8 @@ Use distinct stable IDs for offer, acceptance request, attempt, execution sessio
 
 A resolved execution spec contains:
 
-- Attempt/session identity, assigned node/incarnation, assignment generation, and execution grant.
+- Attempt/session identity, assigned node/incarnation and assignment generation;
+  execution grants are separately issued current authority bound to this immutable spec.
 - Project identity, resolved profile/configuration digest, harness/model settings, instructions/context references, and outcome contract.
 - Repository binding/base OID or scratch-workspace requirements.
 - Required environment digest, preparation recipe, and resource/storage estimates.
@@ -267,24 +270,27 @@ The worker validates the complete spec before acceptance. Strings in instruction
 ### 11.2 States
 
 ```text
-offered → reserved → authorized → preparing → running
-                                          ↓          ↓
-                                        stopping ←───┘
-                                          ↓
-                                       collecting → reporting → acknowledged → retired
+offered → reserved → preparing → granted → running
+                         ↓          ↓          ↓
+                         └────── stopping ←────┘
+                                    ↓
+                                 collecting → reporting → acknowledged → retired
 ```
 
 An offer can be declined or expire before authorization. A preparation failure may enter collecting directly if no process writers remain. A successful agent exit also requires a stop/quiescence check before collection. Outcome is a separate field: `succeeded`, `failed`, `cancelled`, `interrupted`, or `unknown`. A lifecycle phase is not an assertion about code integration or task completion.
 
 Persist enough intent before each external action to distinguish never-launched, launch-uncertain, running, stopped, and unacknowledged results after a crash. A crash between process spawn and storing its identity must not trigger a blind relaunch. Use an attempt-owned launch identity and discoverable process/session metadata; classify uncertainty when reattachment cannot be proven. PID alone is not a durable process identity because it can be reused.
 
-Initial execution is one agent session per attempt. Reusable chat sessions, hibernation, and migration of a running session between nodes require later contracts. Repository/environment reuse does not carry prior prompts, provider tokens, or mutable working files into a new attempt.
+Initial execution is one agent session per attempt. Reusable chat sessions and
+migration of a running session remain outside this baseline. Hibernation has
+separate required continuation contracts and is not implemented by this flow. Repository/environment reuse does not carry prior prompts, provider tokens, or mutable working files into a new attempt.
 
 ### 11.3 Leases and disconnects
 
 Node heartbeat liveness and attempt authorization have different timeouts. Retain the foundation defaults of a 15-second heartbeat and offline classification after 60 seconds unless configured otherwise. Offline classification prevents new placement and informs the UI; it neither deletes node identity nor proves an execution stopped.
 
-Execution grants carry a sequence, assignment generation, and renewable validity duration. Initial proposed validity is 120 seconds with renewal attempted every 15 seconds, independently of uploads/preparation. These are pilot defaults, not fixed protocol constants. The local deadline must conservatively account for request/response delay and use a clock that advances across host suspend. A late renewal response cannot extend an expired or superseded grant. After runtime restart or clock uncertainty, obtain a new explicit grant before continuing an attempt.
+Execution grants carry a sequence, assignment generation, and renewable validity duration. Initial proposed validity is 120 seconds with renewal attempted every 15 seconds, independently of uploads and other bulk work. Native preparation has a separate
+absolute plan/reservation deadline before any execution grant exists. These are pilot defaults, not fixed protocol constants. The local deadline must conservatively account for request/response delay and use a clock that advances across host suspend. A late renewal response cannot extend an expired or superseded grant. After runtime restart or clock uncertainty, obtain a new explicit grant before continuing an attempt.
 
 When a renewal cannot be obtained before the local deadline, stop the execution according to its adapter, preserve work, and report when connectivity returns. Do not start another attempt while still uncertain whether old writers are active. A disconnected desktop can therefore retain work without retaining indefinite authority to perform new external actions.
 
@@ -296,14 +302,18 @@ Revocation or a definite invalid-credential response stops acquisition and reque
 
 ### 12.1 Exchanges
 
-The following is a proposed execution extension, not a claim that Phase 1 implements these routes:
+The table specifies logical exchanges, not a claim that every native route is
+implemented. Frozen fixture and native admission protocols retain their distinct
+versions; the native handshake below includes no-launch preparation:
 
 | Exchange | Worker request | Central response |
 | --- | --- | --- |
 | Register incarnation | Stable node identity, boot ID, protocol/capabilities, recovery summary | Active incarnation and reconciliation requirements |
 | Heartbeat/renew | Resource summary, running attempt generations, grant sequences | Renewals/refusals and node policy updates |
 | Poll | Free/reserved capacity, inventory generation, acknowledged directives | Bounded assignment offers, messages, cancellations, drain directives |
-| Accept/decline | Offer identity, local reservation, resolved-spec digest, reason if declined | Durable execution grant or rejection |
+| Accept/decline | Offer identity, durable no-launch reservation, resolved-spec digest and logical owner; reason if declined | Original PreparationPlan or rejection; no grant |
+| Prepared | Exact source/material/journal receipts for the accepted binding | Separately committed execution grant or explicit refusal |
+| Started | Exact launch/grant binding and actual verified host observation | Immutable historical acknowledgement; no grant extension |
 | Progress | Attempt/generation, phase, sequence, bounded observations | Durable sequence acknowledgement |
 | Artifact upload/download | Authorized artifact identity, offsets/chunks/digests | Transfer progress, then separate central retention receipt |
 | Result | Immutable report identity/digest and referenced receipts | Durable acceptance/rejection disposition |
@@ -315,11 +325,17 @@ Large log/artifact transfers cannot monopolize the control path. Bound simultane
 
 ### 12.2 Central transactional behavior
 
-The central adapter persists offers/grants and result dispositions with assignment generations. Retrying acceptance returns the same committed grant or its explicit current expired/revoked status; it never manufactures a fresh lease merely because the HTTP response was lost. Updating the caller's task state is a separate policy action after validating attempt and artifact evidence.
+The central adapter persists offers/grants and result dispositions with assignment generations. Native acceptance retries return the original preparation outcome; the subsequent
+prepared/grant exchange recovers its own original outcome. Current eligibility
+and expiry remain separate from historical receipts. No retry manufactures a
+fresh plan, lease or grant merely because the HTTP response was lost. Updating the caller's task state is a separate policy action after validating attempt and artifact evidence.
 
 A result from a superseded generation can be retained for review but cannot settle the current task automatically. Upload authorization binds node, attempt, repository, artifact role, and size limits. Worker-supplied filenames, remote URLs, and arbitrary aq-git commands cannot be forwarded to the central Git interface.
 
-The daemon is responsible for scheduler offers, durable mailbox routing, authentication, and its result database. The standalone aq-worker repository owns their wire contract and fake-coordinator fixtures, not the production daemon implementation. No hidden dependency on central database tables is permitted.
+The daemon is responsible for scheduler offers, durable mailbox routing, authentication, and its result database. The standalone aq-worker repository owns its worker protocols and fake-coordinator
+fixtures. Native AQ admission envelopes and shared session contracts are consumed
+from their declared public owners; no duplicated daemon implementation or mutable
+sibling source dependency belongs in the worker. No hidden dependency on central database tables is permitted.
 
 Agents access graph context and permitted mutations through the daemon's scoped agent API using outbound request/response HTTPS, independently of worker polling. Workers receive neither a graph database replica nor graph service credentials. Context snapshots are bounded read caches; offline proposed edits are not applied graph state. Provisioning and recovery details are in the [agent-access supplement](0002-execution-and-agent-access.md).
 
@@ -406,7 +422,7 @@ The standalone suite uses a local fake coordinator, deterministic fake harness, 
 | T1 | Start a node with multiple eligible projects and confirm no per-project workspaces are allocated until assignments are accepted. |
 | T2 | Race offers across projects; slot/resource reservations remain within one node-wide budget and refusals carry reasons. |
 | T3 | Reject incompatible environment, project eligibility, grant, and incarnation requests without launching a process. |
-| T4 | Lose an acceptance response; retry returns the same grant/current disposition and launches at most one proven attempt. |
+| T4 | Lose acceptance and prepared/grant responses; each retries its own original outcome, never refreshes authority, and launches at most one proven attempt. |
 | T5 | Let a tentative reservation expire; a late grant cannot cause a launch after resources were released/reallocated. |
 | T6 | Run heavy preparation/uploads while heartbeats, renewals, cancellation, and messages continue within their budgets. |
 | T7 | Exercise desktop suspend, restart, expired lease, and stale result generation without automatic duplicate execution or task settlement. |
@@ -450,3 +466,17 @@ Before pilot use, select the first supported harness/environment images, node sl
 | W14 Safe reclamation | 10, 14, 16 | T12–T17 |
 | W15 Separate resource bounds | 6, 9, 12 | T2, T6, T11, T12 |
 | W16 Foundation compatibility | 4, 12, 19 | T18 |
+
+## Implementation evidence update (2026-10-31)
+
+The [current integration](../implementation/WRK-15-reserve-integration.md) records
+294 passing workspace tests with29 declared optional tests ignored. The sum of
+test-process durations was142.94 seconds on the shared qualification host, so
+this run does not meet the earlier two-minute complete-local-suite target. That
+target is not silently relaxed. Host/provider, extended capacity and deployment
+profiles retain their separate evidence requirements.
+
+Qualified components do not close the native harness/product gate. Actual native
+preparation/grant consumption, first-harness configuration, result settlement and
+production adoption of terminal/observation components are tracked in the
+[three-area completion map](../../../agent-q/docs/plans/0002-execution-sessions-policy-completion.md).

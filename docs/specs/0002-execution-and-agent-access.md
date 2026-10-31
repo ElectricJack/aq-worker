@@ -1,8 +1,10 @@
 # Worker execution recovery and agent access
 
-**Status:** Design baseline supplementing the worker framework
+**Status:** Current execution contract; foundation recovery/client/source components are qualified, native consumer integration remains open.
 
 **Date:** 2026-10-30
+
+**Reconciled:** 2026-10-31, against the native preparation/grant separation.
 
 This specification supplies worker implementation requirements for the canonical [shared execution lifecycle](../../../agent-q/docs/architecture/0002-execution-and-recovery.md). The [worker framework](0001-worker-framework.md) remains authoritative for placement eligibility, capacity, cache policy and harness confinement. [AQ's daemon specification](../../../agent-q/docs/specs/0002-execution-and-agent-access.md) owns central authorization and graph delivery. These documents describe complementary mechanisms, not separate task state machines.
 
@@ -28,7 +30,26 @@ The runtime has one root owner. Startup validates state format, enters reconcili
 
 An offer reserves nothing until local admission atomically validates current resources and persists the reservation. Acceptance retries retain their ID and payload. Launch requires the committed daemon grant and a still-live matching reservation. Expired reservations cannot be revived by delayed network responses.
 
-The shared grant defaults and suspend-aware deadline rules apply during preparation as well as agent execution. Heartbeat/renewal requests have independent reserved capacity. After expiry, request termination, escalate under the adapter's bounded policy, preserve work and reconcile when connected. A late grant response cannot restart the process or restore its credential.
+Native acceptance obtains an immutable PreparationPlan, not an execution grant.
+The plan and original reservation bound source/artifact/material preparation;
+no agent process starts during this phase. Persist the exact preparation operation,
+logical launch owner and receipts before reporting readiness. Verify retrieved
+artifact bytes and retention descriptors; install private material through the
+qualified adapter outside the agent's ordinary workspace grants. Neither material
+receipt delivery nor a prepared journal authorizes execution.
+
+A separate grant response must match the current preparation and reservation.
+Record its launch intent durably before invoking the host. Publish Started only
+from the real verified host observation, retaining the original operation identity
+through lost replies. The logical pre-grant guardian identity is not the physical
+host's freshly minted guardian nonce; both have explicit binding roles.
+
+Preparation uses its own absolute plan/material deadlines. Execution uses the
+shared grant defaults and suspend-aware deadline rules only after grant admission.
+Neither response delivery nor exact replay refreshes either deadline. Heartbeat,
+renewal and cancellation retain independent capacity. Expiry stops acquisition
+and triggers the applicable no-launch cleanup or guarded stop/preserve path.
+A late grant response cannot restart the process or restore its credential.
 
 Cancellation acknowledgements identify receipt separately from stop confirmation. Reserve process resources until owned writers are confirmed stopped. Dirty checkpoints, uploads and final reports then proceed under recovery authority and separate storage/transfer bounds. Never delete retained files because the agent credential expired or the task moved on.
 
@@ -86,3 +107,14 @@ Use fake clocks, a fake coordinator and deterministic harness for core tests. Fa
 | T28 | Run agent client configuration against a fake AQ API without aq-graph, the daemon or a sibling source checkout. |
 
 First publish schemas/fixtures and implement the durable state machine with a fake agent. Then add one real harness and protected agent-client provisioning, aq-git handoff, graph-operation recovery and compatibility testing. Extract the existing foundation connector through an explicit migration/release step. Do not maintain two production enrollment implementations or claim this design itself performs the extraction.
+
+## Current implementation boundary
+
+The qualified worker includes foundation execution/recovery, scoped AQ client
+provisioning, local aq-git workspace and retained-source handoff, and a guarded
+tmux host. The native acceptance/preparation/grant journal and first real harness
+consumer still require assembled qualification. Terminal bridge stage1 and the
+experimental observation store have separate component evidence and are not yet
+adopted by the production worker. Their presence in the workspace does not
+authorize advertising those capabilities. See the
+[completion map](../../../agent-q/docs/plans/0002-execution-sessions-policy-completion.md).
