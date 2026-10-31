@@ -1,0 +1,24 @@
+{
+  "contract": "human",
+  "body": {
+    "kind": "capture",
+    "body": {
+      "terminal": {
+        "session": {
+          "kind": "central",
+          "authority_id": "00000000-0000-0000-0000-000000000001",
+          "session_id": "00000000-0000-0000-0000-000000000002",
+          "generation": 1
+        },
+        "terminal_id": "00000000-0000-0000-0000-000000000005",
+        "epoch": 1
+      },
+      "operation_id": "00000000-0000-0000-0000-000000000012",
+      "expected_session_revision": 1,
+      "uncertain_operation_id": "00000000-0000-0000-0000-000000000007",
+      "lease_id": "00000000-0000-0000-0000-000000000006",
+      "expected_controller_generation": 1,
+      "expires_at_ms": 1000
+    }
+  }
+}

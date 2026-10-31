@@ -1,0 +1,8 @@
+[workspace]
+resolver="3"
+members=["crates/aq-terminal-relay-0.1.0","crates/aq-terminal-relay-protocol-0.1.0","crates/aq-session-api-0.1.0"]
+exclude=["vendor/aq-session-protocol-0.1.0"]
+[patch.crates-io]
+aq-session-protocol={path="vendor/aq-session-protocol-0.1.0"}
+aq-session-api={path="crates/aq-session-api-0.1.0"}
+aq-terminal-relay-protocol={path="crates/aq-terminal-relay-protocol-0.1.0"}

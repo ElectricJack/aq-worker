@@ -89,6 +89,8 @@ fn pane_status(config: &SealedLaunch, dir: &Path) -> Result<(u32, u32, bool, Str
 pub(crate) fn run(dir: &Path) -> Result<()> {
     ownership::become_subreaper()?;
     IN_GUARDIAN.store(true, Ordering::Relaxed);
+    let directory_guard = terminal_io::DirectoryGuard::open(dir)?;
+    directory_guard.anchor()?;
     let config: SealedLaunch = read_json(&dir.join("launch.json"))?;
     config.manifest.validate()?;
     config.command.validate()?;
@@ -127,6 +129,8 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
     let mut root_pid = None;
     let mut stop_started = None;
     let mut pane_fd = None;
+    let mut terminal_failed = false;
+    let mut terminal_revision_highwater = 0;
     let mut last_time = raw_boot_ms();
     let wall_deadline = config
         .permit
@@ -317,6 +321,25 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                         state.stop_reason = Some("harness pane exited".into());
                         save(dir, &state)?;
                     }
+                    if state.phase == HostPhase::Running
+                        && !terminal_failed
+                        && terminal_io::tick(
+                            dir,
+                            &config,
+                            &state,
+                            wall_deadline,
+                            &directory_guard,
+                            &mut terminal_revision_highwater,
+                        )
+                        .is_err()
+                    {
+                        // Terminal IPC failure must not block independent expiry.
+                        terminal_failed = true;
+                        let _ = durable_new(
+                            &dir.join("terminal.disabled"),
+                            b"terminal effects refused\n",
+                        );
+                    }
                     Ok(())
                 })();
                 if let Err(error) = running {
@@ -474,6 +497,17 @@ pub(crate) fn fixture(dir: &Path, mode: &str) -> Result<()> {
     std::io::stdout().flush()?;
     for line in BufReader::new(std::io::stdin()).lines() {
         let line = line?;
+        if mode == "terminal-journal" {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .open(dir.join("fixture-input.jsonl"))?;
+            let mut encoded = serde_json::to_vec(&line)?;
+            encoded.push(b'\n');
+            file.write_all(&encoded)?;
+            file.sync_all()?;
+        }
         if line == "exit" {
             break;
         }

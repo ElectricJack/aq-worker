@@ -1,0 +1,35 @@
+{
+  "source_inventory_sha256": "fbc4f92b62a1906978db2639f17f096a943e4956c5c5c4450f2be3e92d14d0ba",
+  "source_file_count": 92,
+  "source_base": "34d3d6aa285d4f790ea3775a21cef2ace822886f",
+  "qualification": {
+    "workspace-tests.log": {
+      "passed": 212,
+      "ignored": 29
+    },
+    "tmux-tests.log": {
+      "passed": 23,
+      "ignored": 0
+    },
+    "local-relay-tests.log": {
+      "passed": 2,
+      "ignored": 0
+    }
+  },
+  "lint": "strictworkspace alltarget/allfeature Clippy and fmt pass",
+  "public_dependency_evidence": "/home/jkern/dev/.aq-qualification/aq21-public-packages-2026-10-31",
+  "versions": {
+    "host": "0.1.1",
+    "bridge": "0.1.0",
+    "worker": "0.3.3"
+  },
+  "scope": "Experimental finite control+HTTP+tmux component, no scheduler adoption or complete WRK14 claim",
+  "remaining": [
+    "capture/renderer snapshot/live barriers",
+    "epoch/long-lived retention",
+    "central HTTP authority",
+    "source/admission runtime integration",
+    "saturated-PTY delivery timing/operating envelope",
+    "mergequalification with newer worker main dcb2a55"
+  ]
+}

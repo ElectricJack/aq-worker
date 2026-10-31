@@ -1,0 +1,30 @@
+{
+  "contract": "register",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-relay",
+    "operation_id": "00000000-0000-0000-0000-000000000016",
+    "peer": {
+      "kind": "central",
+      "authority_id": "00000000-0000-0000-0000-000000000001"
+    },
+    "terminal": {
+      "session": {
+        "kind": "central",
+        "authority_id": "00000000-0000-0000-0000-000000000001",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "generation": 1
+      },
+      "terminal_id": "00000000-0000-0000-0000-000000000005",
+      "epoch": 1
+    },
+    "expected_authority_revision": 1,
+    "input_mode": "finite_v1",
+    "advertised_capabilities": [
+      {
+        "id": "aq.terminal-relay",
+        "version": 1
+      }
+    ]
+  }
+}

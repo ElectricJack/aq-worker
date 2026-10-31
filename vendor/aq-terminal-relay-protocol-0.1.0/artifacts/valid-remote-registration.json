@@ -1,0 +1,33 @@
+{
+  "contract": "register",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-relay",
+    "operation_id": "00000000-0000-0000-0000-000000000016",
+    "peer": {
+      "kind": "remote",
+      "node_id": "00000000-0000-0000-0000-000000000001",
+      "boot_id": "00000000-0000-0000-0000-000000000002"
+    },
+    "terminal": {
+      "session": {
+        "kind": "remote",
+        "node_id": "00000000-0000-0000-0000-000000000001",
+        "boot_id": "00000000-0000-0000-0000-000000000002",
+        "attempt_id": "00000000-0000-0000-0000-000000000003",
+        "assignment_generation": 1,
+        "session_id": "00000000-0000-0000-0000-000000000004"
+      },
+      "terminal_id": "00000000-0000-0000-0000-000000000005",
+      "epoch": 1
+    },
+    "expected_authority_revision": 1,
+    "input_mode": "finite_v1",
+    "advertised_capabilities": [
+      {
+        "id": "aq.terminal-relay",
+        "version": 1
+      }
+    ]
+  }
+}

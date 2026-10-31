@@ -1,8 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["crates/aq-agent-client", "crates/aq-observation-engine", "crates/aq-observation-redb-prototype", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-worker-protocol", "crates/aq-worker"]
+members = ["crates/aq-agent-client", "crates/aq-observation-engine", "crates/aq-observation-redb-prototype", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-terminal-bridge", "crates/aq-worker-protocol", "crates/aq-worker"]
 
-exclude = ["vendor/aq-agent-api-0.1.0"]
+exclude = ["vendor/aq-agent-api-0.1.0", "vendor/aq-terminal-relay-protocol-0.1.0", "vendor/aq-terminal-relay-0.1.0", "vendor/aq-session-api-0.1.0"]
+
+[patch.crates-io]
+aq-lifecycle-protocol = { path = "crates/aq-lifecycle-protocol" }
+aq-session-protocol = { path = "crates/aq-session-protocol" }
+aq-session-api = { path = "vendor/aq-session-api-0.1.0" }
+aq-terminal-relay-protocol = { path = "vendor/aq-terminal-relay-protocol-0.1.0" }
 
 [workspace.package]
 version = "0.1.0"
@@ -10,7 +16,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-aq-session-host = { path = "crates/aq-session-host", version = "=0.1.0" }
+aq-session-host = { path = "crates/aq-session-host", version = "=0.1.1" }
 aq-session-protocol = { path = "crates/aq-session-protocol", version = "=0.1.0" }
 aq-protocol = { path = "crates/aq-protocol", version = "=0.1.0" }
 aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.2.0" }
@@ -39,6 +45,3 @@ libc = "0.2"
 lto = "thin"
 strip = true
 
-[patch.crates-io]
-aq-lifecycle-protocol={path="crates/aq-lifecycle-protocol"}
-aq-session-protocol={path="crates/aq-session-protocol"}

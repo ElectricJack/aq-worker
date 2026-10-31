@@ -1,0 +1,40 @@
+{
+  "contract": "human",
+  "body": {
+    "kind": "status",
+    "body": {
+      "terminal": {
+        "session": {
+          "kind": "central",
+          "authority_id": "00000000-0000-0000-0000-000000000001",
+          "session_id": "00000000-0000-0000-0000-000000000002",
+          "generation": 1
+        },
+        "terminal_id": "00000000-0000-0000-0000-000000000005",
+        "epoch": 1
+      },
+      "session_revision": 1,
+      "generation": 1,
+      "lease": {
+        "terminal": {
+          "session": {
+            "kind": "central",
+            "authority_id": "00000000-0000-0000-0000-000000000001",
+            "session_id": "00000000-0000-0000-0000-000000000002",
+            "generation": 1
+          },
+          "terminal_id": "00000000-0000-0000-0000-000000000005",
+          "epoch": 1
+        },
+        "principal_id": "fixture-principal",
+        "lease_id": "00000000-0000-0000-0000-000000000006",
+        "generation": 1,
+        "issued_at_ms": 100,
+        "expires_at_ms": 10100,
+        "execution_expires_at_ms": 20100
+      },
+      "fence_acknowledged": false,
+      "input_paused": true
+    }
+  }
+}

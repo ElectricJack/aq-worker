@@ -1,0 +1,36 @@
+{
+  "contract": "upload_ack",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-input-epoch",
+    "peer": {
+      "kind": "central",
+      "authority_id": "00000000-0000-0000-0000-000000000001"
+    },
+    "exchange_id": "00000000-0000-0000-0000-000000000015",
+    "cursor": 1,
+    "retirements": [
+      {
+        "permit": {
+          "terminal": {
+            "session": {
+              "kind": "central",
+              "authority_id": "00000000-0000-0000-0000-000000000001",
+              "session_id": "00000000-0000-0000-0000-000000000002",
+              "generation": 3
+            },
+            "terminal_id": "00000000-0000-0000-0000-000000000004",
+            "epoch": 5
+          },
+          "epoch_id": "00000000-0000-0000-0000-000000000006",
+          "lease_id": "00000000-0000-0000-0000-000000000007",
+          "controller_generation": 8,
+          "expires_at_ms": 9,
+          "derivation_version": 1
+        },
+        "retired_through": 1
+      }
+    ],
+    "dropped_output": []
+  }
+}

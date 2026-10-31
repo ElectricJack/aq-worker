@@ -1,0 +1,10 @@
+   Compiling aq-terminal-bridge v0.1.0 (/home/jkern/dev/aq-worker-wrk14/crates/aq-terminal-bridge)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.12s
+     Running tests/local_relay.rs (target/debug/deps/local_relay-cd29cd798ed318e6)
+
+running 2 tests
+test stalled_receipt_network_does_not_hold_guardian_renewal_or_stop ... ok
+test actual_guardian_http_relay_lost_ack_restart_unicode_resize_no_duplicate ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+

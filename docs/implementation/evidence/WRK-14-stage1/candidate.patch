@@ -1,0 +1,1050 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 5eae868..186126d 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2,6 +2,16 @@
+ # It is not intended for manual editing.
+ version = 4
+ 
++[[package]]
++name = "aead"
++version = "0.5.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
++dependencies = [
++ "crypto-common",
++ "generic-array",
++]
++
+ [[package]]
+ name = "aho-corasick"
+ version = "1.1.5"
+@@ -146,16 +156,31 @@ dependencies = [
+ ]
+ 
+ [[package]]
+-name = "aq-session-host"
++name = "aq-session-api"
+ version = "0.1.0"
++dependencies = [
++ "aq-session-protocol",
++ "schemars",
++ "serde",
++ "serde_json",
++ "uuid",
++]
++
++[[package]]
++name = "aq-session-host"
++version = "0.1.1"
+ dependencies = [
+  "anyhow",
+  "aq-session-protocol",
++ "aq-terminal-relay-protocol",
++ "chacha20poly1305",
+  "libc",
++ "rand 0.8.8",
+  "serde",
+  "serde_json",
+  "tempfile",
+  "uuid",
++ "zeroize",
+ ]
+ 
+ [[package]]
+@@ -170,6 +195,53 @@ dependencies = [
+  "uuid",
+ ]
+ 
++[[package]]
++name = "aq-terminal-bridge"
++version = "0.1.0"
++dependencies = [
++ "anyhow",
++ "aq-session-host",
++ "aq-session-protocol",
++ "aq-terminal-relay",
++ "aq-terminal-relay-protocol",
++ "axum",
++ "fs2",
++ "libc",
++ "reqwest",
++ "serde",
++ "serde_json",
++ "tempfile",
++ "tokio",
++ "uuid",
++ "zeroize",
++]
++
++[[package]]
++name = "aq-terminal-relay"
++version = "0.1.0"
++dependencies = [
++ "aq-session-api",
++ "aq-session-protocol",
++ "aq-terminal-relay-protocol",
++ "schemars",
++ "serde",
++ "serde_json",
++ "thiserror",
++ "uuid",
++]
++
++[[package]]
++name = "aq-terminal-relay-protocol"
++version = "0.1.0"
++dependencies = [
++ "aq-session-protocol",
++ "schemars",
++ "serde",
++ "serde_json",
++ "thiserror",
++ "uuid",
++]
++
+ [[package]]
+ name = "aq-worker"
+ version = "0.3.3"
+@@ -334,6 +406,17 @@ version = "0.2.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
+ 
++[[package]]
++name = "chacha20"
++version = "0.9.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c3613f74bd2eac03dad61bd53dbe620703d4371614fe0bc3b9f04dd36fe4e818"
++dependencies = [
++ "cfg-if",
++ "cipher",
++ "cpufeatures 0.2.17",
++]
++
+ [[package]]
+ name = "chacha20"
+ version = "0.10.2"
+@@ -345,6 +428,19 @@ dependencies = [
+  "rand_core 0.10.1",
+ ]
+ 
++[[package]]
++name = "chacha20poly1305"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35"
++dependencies = [
++ "aead",
++ "chacha20 0.9.1",
++ "cipher",
++ "poly1305",
++ "zeroize",
++]
++
+ [[package]]
+ name = "chrono"
+ version = "0.4.45"
+@@ -359,6 +455,17 @@ dependencies = [
+  "windows-link",
+ ]
+ 
++[[package]]
++name = "cipher"
++version = "0.4.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
++dependencies = [
++ "crypto-common",
++ "inout",
++ "zeroize",
++]
++
+ [[package]]
+ name = "clap"
+ version = "4.6.7"
+@@ -436,6 +543,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+ dependencies = [
+  "generic-array",
++ "rand_core 0.6.4",
+  "typenum",
+ ]
+ 
+@@ -838,6 +946,15 @@ dependencies = [
+  "hashbrown",
+ ]
+ 
++[[package]]
++name = "inout"
++version = "0.1.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
++dependencies = [
++ "generic-array",
++]
++
+ [[package]]
+ name = "ipnet"
+ version = "2.12.2"
+@@ -980,6 +1097,12 @@ version = "1.70.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+ 
++[[package]]
++name = "opaque-debug"
++version = "0.3.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
++
+ [[package]]
+ name = "parking_lot"
+ version = "0.12.5"
+@@ -1015,6 +1138,17 @@ version = "0.2.17"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+ 
++[[package]]
++name = "poly1305"
++version = "0.8.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8159bd90725d2df49889a078b54f4f79e87f1f8a8444194cdca81d38f5393abf"
++dependencies = [
++ "cpufeatures 0.2.17",
++ "opaque-debug",
++ "universal-hash",
++]
++
+ [[package]]
+ name = "potential_utf"
+ version = "0.1.6"
+@@ -1130,7 +1264,7 @@ version = "0.10.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
+ dependencies = [
+- "chacha20",
++ "chacha20 0.10.2",
+  "getrandom 0.4.3",
+  "rand_core 0.10.1",
+ ]
+@@ -1853,6 +1987,16 @@ version = "1.0.27"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+ 
++[[package]]
++name = "universal-hash"
++version = "0.5.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea"
++dependencies = [
++ "crypto-common",
++ "subtle",
++]
++
+ [[package]]
+ name = "untrusted"
+ version = "0.9.0"
+diff --git a/Cargo.toml b/Cargo.toml
+index 2e50c98..1ef09b1 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,8 +1,13 @@
+ [workspace]
+ resolver = "3"
+-members = ["crates/aq-agent-client", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-worker-protocol", "crates/aq-worker"]
++members = ["crates/aq-agent-client", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-terminal-bridge", "crates/aq-worker-protocol", "crates/aq-worker"]
+ 
+-exclude = ["vendor/aq-agent-api-0.1.0"]
++exclude = ["vendor/aq-agent-api-0.1.0", "vendor/aq-terminal-relay-protocol-0.1.0", "vendor/aq-terminal-relay-0.1.0", "vendor/aq-session-api-0.1.0"]
++
++[patch.crates-io]
++aq-session-protocol = { path = "crates/aq-session-protocol" }
++aq-session-api = { path = "vendor/aq-session-api-0.1.0" }
++aq-terminal-relay-protocol = { path = "vendor/aq-terminal-relay-protocol-0.1.0" }
+ 
+ [workspace.package]
+ version = "0.1.0"
+@@ -10,7 +15,7 @@ edition = "2024"
+ publish = false
+ 
+ [workspace.dependencies]
+-aq-session-host = { path = "crates/aq-session-host", version = "=0.1.0" }
++aq-session-host = { path = "crates/aq-session-host", version = "=0.1.1" }
+ aq-session-protocol = { path = "crates/aq-session-protocol", version = "=0.1.0" }
+ aq-protocol = { path = "crates/aq-protocol", version = "=0.1.0" }
+ aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.2.0" }
+diff --git a/crates/aq-session-host/Cargo.toml b/crates/aq-session-host/Cargo.toml
+index bca2056..6ff5777 100644
+--- a/crates/aq-session-host/Cargo.toml
++++ b/crates/aq-session-host/Cargo.toml
+@@ -1,16 +1,20 @@
+ [package]
+ name = "aq-session-host"
+-version = "0.1.0"
++version = "0.1.1"
+ edition = "2024"
+ publish = false
+ description = "Linux guarded tmux session host with independent expiring authority"
+ [dependencies]
+ aq-session-protocol = { path = "../aq-session-protocol", version = "=0.1.0" }
++aq-terminal-relay-protocol = { path = "../../vendor/aq-terminal-relay-protocol-0.1.0", version = "=0.1.0" }
+ anyhow = "1"
++chacha20poly1305 = "0.10"
+ libc = "0.2"
++rand = "0.8"
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+ uuid = { version = "1", features = ["v4", "serde"] }
++zeroize = "1"
+ [dev-dependencies]
+ tempfile = "3"
+ 
+diff --git a/crates/aq-session-host/README.md b/crates/aq-session-host/README.md
+index 1a2c101..0655183 100644
+--- a/crates/aq-session-host/README.md
++++ b/crates/aq-session-host/README.md
+@@ -155,3 +155,11 @@ stop-proof gates for checkpoint/report/resource release. AQ-17 must implement th
+ central expiring-authority adapter. Real harnesses, provider credentials, native
+ permission qualification, terminal input transport and full TUI snapshots remain
+ separate work. No new product binary pin or public publication is implied.
++
++Version0.1.1 adds experimental `terminal_io` for an explicitly bound existing
++host. Public launch/guardian/observation and Started callback shapes stay unchanged.
++Guardian-owned literal input/resize use AEAD mailboxes, durable no-replay receipts,
++controller deadlines, retained directory identity and guardian revision highwater.
++`observe_existing` verifies an exact physical host without starting/resuming or
++renewing it; legacy `recover` remains stop-and-preserve. This does not qualify a
++renderer, snapshot barrier or worker scheduler adoption. See WRK-14 stage1.
+diff --git a/crates/aq-session-host/src/lib.rs b/crates/aq-session-host/src/lib.rs
+index a6c4966..309f856 100644
+--- a/crates/aq-session-host/src/lib.rs
++++ b/crates/aq-session-host/src/lib.rs
+@@ -3,6 +3,7 @@
+ pub mod ownership;
+ mod reaper;
+ mod supervisor;
++pub mod terminal_io;
+ use anyhow::{Context, Result, bail, ensure};
+ use aq_session_protocol::{
+     ArtifactRef, Capability, Digest, LaunchManifest, SessionIdentity, Validate, canonical_digest,
+@@ -511,6 +512,45 @@ impl SessionHost {
+         handle.stop()?;
+         Ok(handle)
+     }
++    /// Explicit relay observation of an already-running exact physical guardian.
++    /// This neither resumes a stopped host nor calls record_started or renews a
++    /// permit. Legacy recovery retains its stop-and-preserve behavior above.
++    pub fn observe_existing(root: &Path, expected: &GuardianIdentity) -> Result<SessionHandle> {
++        let directory = std::fs::canonicalize(root)?.join(expected.intent.launch_id.to_string());
++        let _directory_guard = terminal_io::DirectoryGuard::existing(&directory)?;
++        let config: SealedLaunch = read_json(&directory.join("launch.json"))?;
++        ensure!(
++            config.intent()? == expected.intent,
++            "observed host launch mismatch"
++        );
++        let identity: GuardianIdentity = read_json(&directory.join("identity.json"))?;
++        ensure!(identity == *expected, "observed physical guardian mismatch");
++        let handle = SessionHandle {
++            directory,
++            identity,
++        };
++        let state = handle.observe()?;
++        let wall_deadline = config
++            .permit
++            .issued_boot_ms
++            .checked_add(config.manifest.resources.wall_time_ms)
++            .context("observed host wall deadline")?;
++        ensure!(
++            state.phase == HostPhase::Running
++                && ownership::raw_boot_ms() < state.permit_deadline_boot_ms
++                && ownership::raw_boot_ms() < wall_deadline
++                && !handle.directory.join("stop.request").exists(),
++            "observation requires unexpired running host"
++        );
++        let pane = state.pane.as_ref().context("observed host pane missing")?;
++        for process in [&pane.server, &pane.pane] {
++            ensure!(
++                ownership::pidfd_is_live(&ownership::verified_pidfd(process)?)?,
++                "observed host process no longer live"
++            );
++        }
++        Ok(handle)
++    }
+ }
+ impl SessionHandle {
+     pub fn directory(&self) -> &Path {
+@@ -753,7 +793,22 @@ fn durable_replace(path: &Path, bytes: &[u8]) -> Result<()> {
+     Ok(())
+ }
+ fn bounded_command(command: &mut Command) -> Result<Vec<u8>> {
++    bounded_command_input(command, None, Duration::from_millis(250))
++}
++fn bounded_command_input(
++    command: &mut Command,
++    input: Option<&[u8]>,
++    timeout: Duration,
++) -> Result<Vec<u8>> {
+     use std::os::fd::AsRawFd;
++    ensure!(
++        timeout <= Duration::from_millis(250) && !timeout.is_zero(),
++        "local command deadline bounds"
++    );
++    ensure!(
++        input.is_none_or(|v| v.len() <= 65536),
++        "local command input bounds"
++    );
+     // A guardian remains single-threaded and reaps all its command children in
+     // its ownership loop. Other callers reserve parent registry capacity first.
+     let slot = if supervisor::in_guardian() {
+@@ -764,11 +819,27 @@ fn bounded_command(command: &mut Command) -> Result<Vec<u8>> {
+     let mut child = command
+         .env_clear()
+         .env("PATH", "/usr/bin:/bin")
+-        .stdin(Stdio::null())
++        .stdin(if input.is_some() {
++            Stdio::piped()
++        } else {
++            Stdio::null()
++        })
+         .stdout(Stdio::piped())
+         .stderr(Stdio::null())
+         .spawn()?;
+     let result = (|| -> Result<Vec<u8>> {
++        let mut stdin = child.stdin.take();
++        if let Some(stdin) = &stdin {
++            let flags = unsafe { libc::fcntl(stdin.as_raw_fd(), libc::F_GETFL) };
++            ensure!(
++                flags >= 0
++                    && unsafe {
++                        libc::fcntl(stdin.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK)
++                    } == 0,
++                "nonblocking command stdin unavailable"
++            );
++        }
++        let mut written = 0usize;
+         let mut stdout = child.stdout.take().context("command stdout")?;
+         let flags = unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFL) };
+         ensure!(
+@@ -778,12 +849,25 @@ fn bounded_command(command: &mut Command) -> Result<Vec<u8>> {
+                 } == 0,
+             "nonblocking command stdout unavailable"
+         );
+-        let end = Instant::now() + Duration::from_millis(250);
++        let end = Instant::now() + timeout;
+         let mut output = Vec::new();
+         let mut status = None;
+         let mut eof = false;
+         let mut buffer = [0u8; 4096];
+         loop {
++            ensure!(Instant::now() < end, "local tmux command total deadline");
++            if let (Some(bytes), Some(pipe)) = (input, stdin.as_mut()) {
++                match pipe.write(&bytes[written..]) {
++                    Ok(n) => written += n,
++                    Err(e)
++                        if e.kind() == std::io::ErrorKind::WouldBlock
++                            || e.kind() == std::io::ErrorKind::Interrupted => {}
++                    Err(e) => return Err(e.into()),
++                }
++                if written == bytes.len() {
++                    stdin.take();
++                }
++            }
+             loop {
+                 match stdout.read(&mut buffer) {
+                     Ok(0) => {
+@@ -922,6 +1006,27 @@ mod io_tests {
+         assert!(output.windows(60000).any(|w| w.iter().all(|b| *b == b'x')));
+     }
+     #[test]
++    fn command_input_and_output_above_pipe_capacity_progress_under_one_deadline() {
++        let bytes: Vec<_> = (0..60000).map(|n| (n % 251) as u8).collect();
++        let output = bounded_command_input(
++            &mut Command::new("/bin/cat"),
++            Some(&bytes),
++            Duration::from_millis(250),
++        )
++        .unwrap();
++        assert_eq!(output, bytes);
++        let started = Instant::now();
++        assert!(
++            bounded_command_input(
++                Command::new("/bin/sleep").arg("2"),
++                Some(&bytes),
++                Duration::from_millis(50)
++            )
++            .is_err()
++        );
++        assert!(started.elapsed() < Duration::from_secs(1));
++    }
++    #[test]
+     fn nonregular_and_symlink_material_is_refused() {
+         use std::os::unix::{ffi::OsStrExt, fs::symlink};
+         let temp = tempfile::TempDir::new().unwrap();
+diff --git a/crates/aq-session-host/src/supervisor.rs b/crates/aq-session-host/src/supervisor.rs
+index 4468ab6..237813f 100644
+--- a/crates/aq-session-host/src/supervisor.rs
++++ b/crates/aq-session-host/src/supervisor.rs
+@@ -89,6 +89,8 @@ fn pane_status(config: &SealedLaunch, dir: &Path) -> Result<(u32, u32, bool, Str
+ pub(crate) fn run(dir: &Path) -> Result<()> {
+     ownership::become_subreaper()?;
+     IN_GUARDIAN.store(true, Ordering::Relaxed);
++    let directory_guard = terminal_io::DirectoryGuard::open(dir)?;
++    directory_guard.anchor()?;
+     let config: SealedLaunch = read_json(&dir.join("launch.json"))?;
+     config.manifest.validate()?;
+     config.command.validate()?;
+@@ -127,6 +129,8 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
+     let mut root_pid = None;
+     let mut stop_started = None;
+     let mut pane_fd = None;
++    let mut terminal_failed = false;
++    let mut terminal_revision_highwater = 0;
+     let mut last_time = raw_boot_ms();
+     let wall_deadline = config
+         .permit
+@@ -317,6 +321,25 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
+                         state.stop_reason = Some("harness pane exited".into());
+                         save(dir, &state)?;
+                     }
++                    if state.phase == HostPhase::Running
++                        && !terminal_failed
++                        && terminal_io::tick(
++                            dir,
++                            &config,
++                            &state,
++                            wall_deadline,
++                            &directory_guard,
++                            &mut terminal_revision_highwater,
++                        )
++                        .is_err()
++                    {
++                        // Terminal IPC failure must not block independent expiry.
++                        terminal_failed = true;
++                        let _ = durable_new(
++                            &dir.join("terminal.disabled"),
++                            b"terminal effects refused\n",
++                        );
++                    }
+                     Ok(())
+                 })();
+                 if let Err(error) = running {
+@@ -474,6 +497,17 @@ pub(crate) fn fixture(dir: &Path, mode: &str) -> Result<()> {
+     std::io::stdout().flush()?;
+     for line in BufReader::new(std::io::stdin()).lines() {
+         let line = line?;
++        if mode == "terminal-journal" {
++            let mut file = OpenOptions::new()
++                .create(true)
++                .append(true)
++                .mode(0o600)
++                .open(dir.join("fixture-input.jsonl"))?;
++            let mut encoded = serde_json::to_vec(&line)?;
++            encoded.push(b'\n');
++            file.write_all(&encoded)?;
++            file.sync_all()?;
++        }
+         if line == "exit" {
+             break;
+         }
+diff --git a/crates/aq-session-host/tests/local_tmux.rs b/crates/aq-session-host/tests/local_tmux.rs
+index 8801888..90adb38 100644
+--- a/crates/aq-session-host/tests/local_tmux.rs
++++ b/crates/aq-session-host/tests/local_tmux.rs
+@@ -190,6 +190,498 @@ fn terminate(e: &ProcessEvidence) {
+         let _ = ownership::signal(&fd, libc::SIGKILL);
+     }
+ }
++
++fn io_now() -> u64 {
++    std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .unwrap()
++        .as_millis() as u64
++}
++fn io_setup() -> (
++    Case,
++    SessionHandle,
++    terminal_io::TerminalHandle,
++    aq_session_protocol::ControllerLease,
++) {
++    use aq_session_protocol::*;
++    use aq_terminal_relay_protocol::{Effect, Fence};
++    let mut case = Case::new("terminal-journal", false);
++    let host = case.launch(8000).unwrap();
++    wait(|| {
++        case.adapter
++            .dir
++            .join("fixture.claim")
++            .exists()
++            .then_some(())
++    });
++    let terminal = TerminalIdentity {
++        session: case.manifest.bindings.session.clone(),
++        terminal_id: Uuid::new_v4(),
++        epoch: 1,
++    };
++    let io = host.bind_terminal(&terminal).unwrap();
++    let now = io_now();
++    let lease = ControllerLease {
++        terminal: terminal.clone(),
++        principal_id: Text::new("synthetic-owner").unwrap(),
++        lease_id: Uuid::new_v4(),
++        generation: 1,
++        issued_at_ms: now,
++        expires_at_ms: now + 6000,
++        execution_expires_at_ms: now + 7000,
++    };
++    let fence = Fence {
++        terminal,
++        fence_id: Uuid::new_v4(),
++        generation: 1,
++        controller: Some(lease.clone()),
++    };
++    io.submit(
++        &Effect::Fence(fence.clone()),
++        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
++    )
++    .unwrap();
++    let receipt = wait(|| io.receipt(fence.fence_id).ok().flatten());
++    assert!(matches!(receipt, terminal_io::Receipt::Fence(_)));
++    (case, host, io, lease)
++}
++fn io_input(
++    lease: &aq_session_protocol::ControllerLease,
++    bytes: &[u8],
++) -> aq_session_protocol::InputCommand {
++    let now = io_now();
++    aq_session_protocol::InputCommand {
++        operation_id: Uuid::new_v4(),
++        lease: lease.clone(),
++        issued_at_ms: now,
++        deadline_ms: now + 1500,
++        bytes: bytes.to_vec(),
++    }
++}
++fn io_lines(host: &SessionHandle) -> Vec<String> {
++    std::fs::read_to_string(host.directory().join("fixture-input.jsonl"))
++        .unwrap_or_default()
++        .lines()
++        .map(|line| serde_json::from_str(line).unwrap())
++        .collect()
++}
++#[test]
++#[ignore = "requires explicit local tmux 3.4 qualification"]
++fn guarded_literal_unicode_resize_and_durable_duplicate_receipts() {
++    use aq_session_protocol::*;
++    use aq_terminal_relay_protocol::Effect;
++    let (_case, mut host, io, lease) = io_setup();
++    let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
++    let input = io_input(&lease, "literal; $(no-shell) 雪🙂\n".as_bytes());
++    assert!(
++        io.submit(&Effect::Input(input.clone()), clock)
++            .unwrap()
++            .is_none()
++    );
++    let receipt = wait(|| io.receipt(input.operation_id).ok().flatten());
++    assert!(
++        matches!(receipt, terminal_io::Receipt::Input(ref v) if v.disposition == InputDisposition::Applied)
++    );
++    wait(|| (io_lines(&host).len() == 1).then_some(()));
++    assert_eq!(io_lines(&host), ["literal; $(no-shell) 雪🙂"]);
++    let recovered = terminal_io::TerminalHandle::recover(&host, &lease.terminal).unwrap();
++    assert!(
++        matches!(recovered.submit(&Effect::Input(input.clone()), clock).unwrap(),
++        Some(terminal_io::Receipt::Input(v)) if v.disposition == InputDisposition::Applied)
++    );
++    let mut changed = input.clone();
++    changed.bytes = b"different\n".to_vec();
++    assert!(io.submit(&Effect::Input(changed), clock).is_err());
++    let now = io_now();
++    let resize = ResizeCommand {
++        operation_id: Uuid::new_v4(),
++        lease,
++        sequence: 1,
++        issued_at_ms: now,
++        deadline_ms: now + 1500,
++        columns: 100,
++        rows: 35,
++    };
++    io.submit(&Effect::Resize(resize.clone()), clock).unwrap();
++    assert!(
++        matches!(wait(|| io.receipt(resize.operation_id).ok().flatten()),
++        terminal_io::Receipt::Resize(v) if v.applied)
++    );
++    let size = tmux(
++        &host,
++        &[
++            "display-message",
++            "-p",
++            "-t",
++            &io.binding().pane.pane_id,
++            "#{window_width}x#{window_height}",
++        ],
++    );
++    assert_eq!(String::from_utf8(size.stdout).unwrap().trim(), "100x35");
++    assert_eq!(io_lines(&host).len(), 1);
++    host.stop().unwrap();
++    host.wait_stopped(Duration::from_secs(5)).unwrap();
++}
++
++#[test]
++#[ignore = "requires explicit local tmux 3.4 qualification"]
++fn injecting_crash_before_or_after_physical_effect_is_unknown_never_replayed() {
++    use aq_session_protocol::InputDisposition;
++    use aq_terminal_relay_protocol::Effect;
++    for stage in ["before-effect", "after-effect"] {
++        let (_case, host, io, lease) = io_setup();
++        let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
++        durable_new(
++            &host.directory().join(format!("terminal-fault-{stage}.arm")),
++            b"synthetic fault\n",
++        )
++        .unwrap();
++        let input = io_input(&lease, b"exactly-once-or-unknown\n");
++        io.submit(&Effect::Input(input.clone()), clock).unwrap();
++        wait(|| {
++            host.directory()
++                .join("terminal-fault.reached")
++                .exists()
++                .then_some(())
++        });
++        if stage == "after-effect" {
++            wait(|| (io_lines(&host).len() == 1).then_some(()));
++        }
++        terminate(&host.identity().process);
++        wait(|| {
++            (!ownership::verified_pidfd(&host.identity().process)
++                .is_ok_and(|fd| ownership::pidfd_is_live(&fd).unwrap_or(false)))
++            .then_some(())
++        });
++        let receipt = io.receipt(input.operation_id).unwrap().unwrap();
++        assert!(
++            matches!(receipt, terminal_io::Receipt::Input(v) if v.disposition == InputDisposition::DeliveryUnknown)
++        );
++        assert!(matches!(io.submit(&Effect::Input(input), clock).unwrap(),
++            Some(terminal_io::Receipt::Input(v)) if v.disposition == InputDisposition::DeliveryUnknown));
++        assert_eq!(io_lines(&host).len(), usize::from(stage == "after-effect"));
++        assert_eq!(host.observe().unwrap().phase, HostPhase::StopUncertain);
++        // External fixture cleanup is not presented as a guardian stopped proof.
++        terminate(&io.binding().pane.pane);
++        terminate(&io.binding().pane.server);
++    }
++}
++
++#[test]
++#[ignore = "requires explicit local tmux 3.4 qualification"]
++fn encrypted_mailbox_tamper_and_missing_key_refuse_without_stopping_expiry() {
++    use aq_terminal_relay_protocol::Effect;
++    for missing_key in [false, true] {
++        let (_case, mut host, io, lease) = io_setup();
++        let guardian = ownership::verified_pidfd(&host.identity().process).unwrap();
++        ownership::signal(&guardian, libc::SIGSTOP).unwrap();
++        let input = io_input(&lease, b"private-input-must-not-be-in-file\n");
++        io.submit(
++            &Effect::Input(input.clone()),
++            terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
++        )
++        .unwrap();
++        let path = host.directory().join("terminal-effect.request");
++        let encoded = std::fs::read(&path).unwrap();
++        assert!(!encoded.windows(input.bytes.len()).any(|v| v == input.bytes));
++        if missing_key {
++            std::fs::remove_file(host.directory().join("terminal.key")).unwrap();
++            assert!(terminal_io::TerminalHandle::recover(&host, &lease.terminal).is_err());
++        } else {
++            let mut value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
++            let bytes = value["bytes"].as_array_mut().unwrap();
++            let old = bytes[0].as_u64().unwrap();
++            bytes[0] = serde_json::json!(old ^ 1);
++            std::fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
++        }
++        ownership::signal(&guardian, libc::SIGCONT).unwrap();
++        wait(|| {
++            host.directory()
++                .join("terminal.disabled")
++                .exists()
++                .then_some(())
++        });
++        assert!(io_lines(&host).is_empty());
++        assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
++        assert!(
++            io.submit(
++                &Effect::Input(io_input(&lease, b"refused\n")),
++                terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap()
++            )
++            .is_err()
++        );
++        host.stop().unwrap();
++        assert_eq!(
++            host.wait_stopped(Duration::from_secs(5)).unwrap().phase,
++            HostPhase::Stopped
++        );
++    }
++}
++
++#[test]
++#[ignore = "requires explicit local tmux 3.4 qualification"]
++fn paused_injecting_deadline_and_new_controller_cannot_clear_unknown() {
++    use aq_session_protocol::*;
++    use aq_terminal_relay_protocol::{Effect, Fence};
++    let (_case, mut host, io, mut lease) = io_setup();
++    let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
++    durable_new(
++        &host.directory().join("terminal-fault-before-effect.arm"),
++        b"synthetic fault\n",
++    )
++    .unwrap();
++    let mut input = io_input(&lease, b"must-expire-before-effect\n");
++    input.deadline_ms = input.issued_at_ms + 200;
++    io.submit(&Effect::Input(input.clone()), clock).unwrap();
++    wait(|| {
++        host.directory()
++            .join("terminal-fault.reached")
++            .exists()
++            .then_some(())
++    });
++    wait(|| (io_now() >= input.deadline_ms).then_some(()));
++    ownership::signal(
++        &ownership::verified_pidfd(&host.identity().process).unwrap(),
++        libc::SIGCONT,
++    )
++    .unwrap();
++    assert!(
++        matches!(wait(|| io.receipt(input.operation_id).ok().flatten()),
++        terminal_io::Receipt::Input(v) if v.disposition == InputDisposition::DeliveryUnknown)
++    );
++    lease.generation = 2;
++    lease.lease_id = Uuid::new_v4();
++    lease.issued_at_ms = io_now();
++    lease.expires_at_ms = lease.issued_at_ms + 4000;
++    let fence = Fence {
++        terminal: lease.terminal.clone(),
++        fence_id: Uuid::new_v4(),
++        generation: 2,
++        controller: Some(lease.clone()),
++    };
++    io.submit(&Effect::Fence(fence.clone()), clock).unwrap();
++    wait(|| io.receipt(fence.fence_id).ok().flatten());
++    let next = io_input(&lease, b"cannot-clear-unknown-by-takeover\n");
++    io.submit(&Effect::Input(next.clone()), clock).unwrap();
++    assert!(
++        matches!(wait(|| io.receipt(next.operation_id).ok().flatten()),
++        terminal_io::Receipt::Input(v) if v.disposition == InputDisposition::Rejected)
++    );
++    assert!(io_lines(&host).is_empty());
++    host.stop().unwrap();
++    host.wait_stopped(Duration::from_secs(5)).unwrap();
++}
++
++#[test]
++#[ignore = "requires explicit local tmux 3.4 qualification"]
++fn exact_observation_and_unstarted_recovery_never_launch_or_inject() {
++    use aq_session_protocol::{InputDisposition, canonical_digest};
++    use aq_terminal_relay_protocol::Effect;
++    let (case, mut host, io, lease) = io_setup();
++    let started = std::fs::read(case.temp.path().join("caller-started.json")).unwrap();
++    let observed = SessionHost::observe_existing(case.temp.path(), host.identity()).unwrap();
++    assert_eq!(observed.identity(), host.identity());
++    assert_eq!(
++        std::fs::read(case.temp.path().join("caller-started.json")).unwrap(),
++        started
++    );
++    let mut wrong = host.identity().clone();
++    wrong.nonce = Uuid::new_v4();
++    assert!(SessionHost::observe_existing(case.temp.path(), &wrong).is_err());
++    let guardian = ownership::verified_pidfd(&host.identity().process).unwrap();
++    ownership::signal(&guardian, libc::SIGSTOP).unwrap();
++    let input = io_input(&lease, b"cancel-before-physical-intent\n");
++    io.submit(
++        &Effect::Input(input.clone()),
++        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
++    )
++    .unwrap();
++    assert!(
++        io.reject_unstarted_input(
++            input.operation_id,
++            &aq_session_protocol::Digest::of(b"wrong")
++        )
++        .is_err()
++    );
++    let receipt = io
++        .reject_unstarted_input(input.operation_id, &canonical_digest(&input).unwrap())
++        .unwrap();
++    assert!(
++        matches!(receipt, terminal_io::Receipt::Input(v) if v.disposition == InputDisposition::Rejected)
++    );
++    ownership::signal(&guardian, libc::SIGCONT).unwrap();
++    assert!(!host.directory().join("terminal-effect.request").exists());
++    assert!(
++        matches!(io.submit(&Effect::Input(input), terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap()).unwrap(),
++        Some(terminal_io::Receipt::Input(v)) if v.disposition == InputDisposition::Rejected)
++    );
++    assert!(io_lines(&host).is_empty());
++    host.stop().unwrap();
++    host.wait_stopped(Duration::from_secs(5)).unwrap();
++    assert!(SessionHost::observe_existing(case.temp.path(), host.identity()).is_err());
++}
++
++#[test]
++#[ignore = "requires explicit local tmux 3.4 qualification"]
++fn tmux_pane_identifier_reuse_does_not_authorize_the_replacement_process() {
++    use aq_session_protocol::{InputDisposition, canonical_digest};
++    use aq_terminal_relay_protocol::Effect;
++    let (case, mut host, io, lease) = io_setup();
++    let guardian = ownership::verified_pidfd(&host.identity().process).unwrap();
++    ownership::signal(&guardian, libc::SIGSTOP).unwrap();
++    let replacement = host.directory().join("synthetic-replacement");
++    std::fs::create_dir(&replacement).unwrap();
++    let old_pane = io.binding().pane.clone();
++    // Deliberate external fixture tampering, never an exposed bridge command.
++    assert!(
++        tmux(
++            &host,
++            &[
++                "respawn-pane",
++                "-k",
++                "-t",
++                &old_pane.pane_id,
++                "--",
++                env!("CARGO_BIN_EXE_aq-session-host"),
++                "fixture",
++                replacement.to_str().unwrap(),
++                "terminal-journal"
++            ]
++        )
++        .status
++        .success()
++    );
++    wait(|| replacement.join("fixture.claim").exists().then_some(()));
++    let pid = tmux(
++        &host,
++        &[
++            "display-message",
++            "-p",
++            "-t",
++            &old_pane.pane_id,
++            "#{pane_pid}",
++        ],
++    );
++    assert_ne!(
++        String::from_utf8(pid.stdout).unwrap().trim(),
++        old_pane.pane.pid.to_string()
++    );
++    assert!(SessionHost::observe_existing(case.temp.path(), host.identity()).is_err());
++    let input = io_input(&lease, b"must-not-reach-replacement\n");
++    io.submit(
++        &Effect::Input(input.clone()),
++        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
++    )
++    .unwrap();
++    ownership::signal(&guardian, libc::SIGCONT).unwrap();
++    assert_eq!(
++        host.wait_stopped(Duration::from_secs(5)).unwrap().phase,
++        HostPhase::Stopped
++    );
++    assert!(!replacement.join("fixture-input.jsonl").exists());
++    assert!(
++        matches!(io.reject_unstarted_input(input.operation_id, &canonical_digest(&input).unwrap()).unwrap(),
++        terminal_io::Receipt::Input(v) if v.disposition == InputDisposition::Rejected)
++    );
++}
++
++#[test]
++#[ignore = "requires explicit local tmux 3.4 qualification"]
++fn replayed_valid_encrypted_ledger_cannot_repeat_an_applied_input() {
++    use aq_session_protocol::{InputDisposition, canonical_digest};
++    use aq_terminal_relay_protocol::Effect;
++    let (_case, mut host, io, lease) = io_setup();
++    let original = std::fs::read(host.directory().join("terminal-state.json")).unwrap();
++    let input = io_input(&lease, b"one-physical-effect\n");
++    let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
++    io.submit(&Effect::Input(input.clone()), clock).unwrap();
++    assert!(
++        matches!(wait(|| io.receipt(input.operation_id).ok().flatten()),
++        terminal_io::Receipt::Input(v) if v.disposition == InputDisposition::Applied)
++    );
++    wait(|| (io_lines(&host).len() == 1).then_some(()));
++    // This is valid old ciphertext under the same key/AAD, not random damage.
++    std::fs::write(host.directory().join("terminal-state.json"), original).unwrap();
++    io.submit(&Effect::Input(input.clone()), clock).unwrap();
++    wait(|| {
++        host.directory()
++            .join("terminal.disabled")
++            .exists()
++            .then_some(())
++    });
++    assert!(
++        matches!(io.reject_unstarted_input(input.operation_id, &canonical_digest(&input).unwrap()).unwrap(),
++        terminal_io::Receipt::Input(v) if v.disposition == InputDisposition::DeliveryUnknown)
++    );
++    assert_eq!(io_lines(&host), ["one-physical-effect"]);
++    host.stop().unwrap();
++    host.wait_stopped(Duration::from_secs(5)).unwrap();
++}
++
++#[test]
++#[ignore = "requires explicit local tmux 3.4 qualification"]
++fn copied_launch_directory_and_old_mailbox_cannot_reset_physical_input_history() {
++    use aq_session_protocol::InputDisposition;
++    use aq_terminal_relay_protocol::Effect;
++    use std::os::unix::fs::{DirBuilderExt, symlink};
++    let (case, mut host, io, lease) = io_setup();
++    let guardian = ownership::verified_pidfd(&host.identity().process).unwrap();
++    ownership::signal(&guardian, libc::SIGSTOP).unwrap();
++    let original_state = std::fs::read(host.directory().join("terminal-state.json")).unwrap();
++    let input = io_input(&lease, b"cannot-reset-history-by-directory-copy\n");
++    let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
++    io.submit(&Effect::Input(input.clone()), clock).unwrap();
++    let mailbox = std::fs::read(host.directory().join("terminal-effect.request")).unwrap();
++    ownership::signal(&guardian, libc::SIGCONT).unwrap();
++    assert!(
++        matches!(wait(|| io.receipt(input.operation_id).ok().flatten()),
++        terminal_io::Receipt::Input(v) if v.disposition == InputDisposition::Applied)
++    );
++    wait(|| (io_lines(&host).len() == 1).then_some(()));
++    ownership::signal(&guardian, libc::SIGSTOP).unwrap();
++    let retained = case.temp.path().join("retained-launch");
++    std::fs::rename(host.directory(), &retained).unwrap();
++    std::fs::DirBuilder::new()
++        .mode(0o700)
++        .create(host.directory())
++        .unwrap();
++    for name in [
++        "launch.json",
++        "identity.json",
++        "state.json",
++        "directory.json",
++        "terminal-binding.json",
++        "terminal.key",
++    ] {
++        std::fs::copy(retained.join(name), host.directory().join(name)).unwrap();
++    }
++    durable_new(
++        &host.directory().join("terminal-state.json"),
++        &original_state,
++    )
++    .unwrap();
++    durable_new(&host.directory().join("terminal-effect.request"), &mailbox).unwrap();
++    symlink(
++        retained.join("tmux.sock"),
++        host.directory().join("tmux.sock"),
++    )
++    .unwrap();
++    assert!(io.submit(&Effect::Input(input), clock).is_err());
++    assert!(terminal_io::TerminalHandle::recover(&host, &lease.terminal).is_err());
++    assert!(SessionHost::observe_existing(case.temp.path(), host.identity()).is_err());
++    ownership::signal(&guardian, libc::SIGCONT).unwrap();
++    wait(|| {
++        host.directory()
++            .join("terminal.disabled")
++            .exists()
++            .then_some(())
++    });
++    assert!(!host.directory().join("fixture-input.jsonl").exists());
++    let previous = std::fs::read_to_string(retained.join("fixture-input.jsonl")).unwrap();
++    assert_eq!(previous.lines().count(), 1);
++    host.stop().unwrap();
++    host.wait_stopped(Duration::from_secs(5)).unwrap();
++}
+ #[test]
+ #[ignore = "requires explicit local tmux 3.4 qualification"]
+ fn central_and_remote_interaction_stop_and_no_relaunch() {

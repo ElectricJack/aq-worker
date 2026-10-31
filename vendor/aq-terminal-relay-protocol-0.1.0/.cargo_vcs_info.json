@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "c8b7e2452db7a7b1c3106e59c22d5ac5ae916042"
+  },
+  "path_in_vcs": "crates/aq-terminal-relay-protocol"
+}

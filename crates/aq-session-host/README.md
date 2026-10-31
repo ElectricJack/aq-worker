@@ -155,3 +155,11 @@ stop-proof gates for checkpoint/report/resource release. AQ-17 must implement th
 central expiring-authority adapter. Real harnesses, provider credentials, native
 permission qualification, terminal input transport and full TUI snapshots remain
 separate work. No new product binary pin or public publication is implied.
+
+Version0.1.1 adds experimental `terminal_io` for an explicitly bound existing
+host. Public launch/guardian/observation and Started callback shapes stay unchanged.
+Guardian-owned literal input/resize use AEAD mailboxes, durable no-replay receipts,
+controller deadlines, retained directory identity and guardian revision highwater.
+`observe_existing` verifies an exact physical host without starting/resuming or
+renewing it; legacy `recover` remains stop-and-preserve. This does not qualify a
+renderer, snapshot barrier or worker scheduler adoption. See WRK-14 stage1.

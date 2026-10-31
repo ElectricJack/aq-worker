@@ -1,0 +1,31 @@
+   Compiling aq-session-host v0.1.1 (/home/jkern/dev/aq-worker-wrk14/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.13s
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-6c4edfe11947e550)
+
+running 23 tests
+test central_and_remote_interaction_stop_and_no_relaunch ... ok
+test copied_launch_directory_and_old_mailbox_cannot_reset_physical_input_history ... ok
+test caller_crashes_at_durable_start_boundaries_never_relaunch ... ok
+test exact_observation_and_unstarted_recovery_never_launch_or_inject ... ok
+test existing_pane_is_refused_and_never_used_for_the_agent ... ok
+test encrypted_mailbox_tamper_and_missing_key_refuse_without_stopping_expiry ... ok
+test failed_durable_start_and_socket_collision_never_launch_native_child ... ok
+test guarded_literal_unicode_resize_and_durable_duplicate_receipts ... ok
+test guardian_loss_remains_uncertain_even_after_known_processes_disappear ... ok
+test guardian_crashes_across_socket_and_pane_creation_never_claim_stop ... ok
+test injecting_crash_before_or_after_physical_effect_is_unknown_never_replayed ... ok
+test launch_child_fixture ... ok
+test local_configuration_refusals_happen_before_durable_launch_or_process ... ok
+test helper_expiry_survives_caller_death_without_recovery_control ... ok
+test pane_exit_has_no_fallback_and_escaped_descendants_require_kernel_stop ... ok
+test malformed_renewal_stops_and_wall_limit_cannot_be_extended ... ok
+test paused_injecting_deadline_and_new_controller_cannot_clear_unknown ... ok
+test permit_expiry_is_independent_and_late_renewal_cannot_revive ... ok
+test renewals_are_monotonic_and_resource_cost_is_observed ... ok
+test renewal_compare_publish_is_serialized_while_guardian_is_stopped ... ok
+test replayed_valid_encrypted_ledger_cannot_repeat_an_applied_input ... ok
+test sustained_adopted_child_exits_cannot_starve_expiry_or_stop_proof ... ok
+test tmux_pane_identifier_reuse_does_not_authorize_the_replacement_process ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.65s
+

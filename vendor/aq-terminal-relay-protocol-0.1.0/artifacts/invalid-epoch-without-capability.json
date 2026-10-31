@@ -1,0 +1,64 @@
+{
+  "contract": "downstream",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-relay",
+    "peer": {
+      "kind": "central",
+      "authority_id": "00000000-0000-0000-0000-000000000001"
+    },
+    "exchange_id": "00000000-0000-0000-0000-000000000014",
+    "cursor": 1,
+    "effects": [
+      {
+        "kind": "epoch_input",
+        "body": {
+          "permit": {
+            "terminal": {
+              "session": {
+                "kind": "central",
+                "authority_id": "00000000-0000-0000-0000-000000000001",
+                "session_id": "00000000-0000-0000-0000-000000000002",
+                "generation": 3
+              },
+              "terminal_id": "00000000-0000-0000-0000-000000000004",
+              "epoch": 5
+            },
+            "epoch_id": "00000000-0000-0000-0000-000000000006",
+            "lease_id": "00000000-0000-0000-0000-000000000007",
+            "controller_generation": 8,
+            "expires_at_ms": 9,
+            "derivation_version": 1
+          },
+          "sequence": 1,
+          "input": {
+            "operation_id": "8da947e6-212b-8e9c-b631-f670ca25ba73",
+            "lease": {
+              "terminal": {
+                "session": {
+                  "kind": "central",
+                  "authority_id": "00000000-0000-0000-0000-000000000001",
+                  "session_id": "00000000-0000-0000-0000-000000000002",
+                  "generation": 3
+                },
+                "terminal_id": "00000000-0000-0000-0000-000000000004",
+                "epoch": 5
+              },
+              "principal_id": "fixture",
+              "lease_id": "00000000-0000-0000-0000-000000000007",
+              "generation": 8,
+              "issued_at_ms": 1,
+              "expires_at_ms": 9,
+              "execution_expires_at_ms": 10
+            },
+            "issued_at_ms": 2,
+            "deadline_ms": 5,
+            "bytes": [
+              120
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

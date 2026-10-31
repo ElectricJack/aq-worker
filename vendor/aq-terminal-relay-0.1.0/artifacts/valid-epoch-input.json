@@ -1,0 +1,29 @@
+{
+  "contract": "epoch_input",
+  "body": {
+    "version": 1,
+    "capability": "aq.terminal-input-epoch",
+    "epoch_id": "00000000-0000-0000-0000-000000000006",
+    "sequence": 1,
+    "input": {
+      "terminal": {
+        "session": {
+          "kind": "central",
+          "authority_id": "00000000-0000-0000-0000-000000000001",
+          "session_id": "00000000-0000-0000-0000-000000000002",
+          "generation": 3
+        },
+        "terminal_id": "00000000-0000-0000-0000-000000000004",
+        "epoch": 5
+      },
+      "operation_id": "8da947e6-212b-8e9c-b631-f670ca25ba73",
+      "lease_id": "00000000-0000-0000-0000-000000000007",
+      "expected_controller_generation": 8,
+      "expected_session_revision": 1,
+      "expires_at_ms": 5,
+      "bytes": [
+        120
+      ]
+    }
+  }
+}
