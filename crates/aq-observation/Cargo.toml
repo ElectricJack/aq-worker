@@ -1,0 +1,18 @@
+[package]
+name = "aq-observation"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Bounded transcript normalization and independent durable observation spool"
+[dependencies]
+aq-lifecycle-protocol = {path="../aq-lifecycle-protocol",version="=0.1.0"}
+anyhow = "1"
+serde = {version="1",features=["derive"]}
+serde_json = "1"
+schemars = {version="1",features=["uuid1"]}
+sha2 = "0.10"
+uuid = {version="1",features=["serde"]}
+libc = "0.2"
+fs2 = "0.4"
+[dev-dependencies]
+tempfile = "3"

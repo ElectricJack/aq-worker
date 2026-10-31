@@ -1,0 +1,203 @@
+{
+  "provenance": "Sanitized synthetic records constructed from pinned source-format evidence. No installed/released CLI or user transcript qualification.",
+  "codex": [
+    {
+      "type": "session_meta",
+      "payload": {
+        "id": "native-fixture"
+      }
+    },
+    {
+      "type": "turn_context",
+      "payload": {
+        "model": "model-a"
+      }
+    },
+    {
+      "type": "event_msg",
+      "payload": {
+        "type": "token_count",
+        "info": {
+          "total_token_usage": {
+            "input_tokens": 100,
+            "cached_input_tokens": 25,
+            "output_tokens": 10,
+            "reasoning_output_tokens": 4,
+            "total_tokens": 110
+          },
+          "last_token_usage": {
+            "input_tokens": 100,
+            "output_tokens": 10
+          }
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "payload": {
+        "type": "token_count",
+        "info": {
+          "total_token_usage": {
+            "input_tokens": 150,
+            "cached_input_tokens": 25,
+            "output_tokens": 20,
+            "reasoning_output_tokens": 6,
+            "total_tokens": 170
+          },
+          "last_token_usage": {
+            "input_tokens": 50,
+            "output_tokens": 10
+          }
+        }
+      }
+    }
+  ],
+  "claude": [
+    {
+      "type": "assistant",
+      "uuid": "row-1",
+      "sessionId": "native-fixture",
+      "message": {
+        "id": "call-a",
+        "model": "model-a",
+        "content": [
+          {
+            "type": "text",
+            "text": "synthetic assistant text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 5,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 2
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "uuid": "row-2",
+      "sessionId": "native-fixture",
+      "message": {
+        "id": "call-a",
+        "model": "model-a",
+        "content": [
+          {
+            "type": "text",
+            "text": "synthetic second block"
+          }
+        ],
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 5,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 2
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "uuid": "row-3",
+      "sessionId": "native-fixture",
+      "message": {
+        "id": "call-a",
+        "model": "model-a",
+        "content": [
+          {
+            "type": "text",
+            "text": "synthetic final block"
+          }
+        ],
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 8,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 2
+        },
+        "stop_reason": "end_turn"
+      }
+    }
+  ],
+  "gemini": [
+    {
+      "sessionId": "native-fixture",
+      "projectHash": "synthetic-project",
+      "startTime": "2026-10-31T00:00:00Z"
+    },
+    {
+      "id": "gemini-a",
+      "type": "gemini",
+      "timestamp": "2026-10-31T00:00:01Z",
+      "model": "model-a",
+      "content": "synthetic assistant text",
+      "tokens": {
+        "input": 12,
+        "output": 5,
+        "cached": 0,
+        "thoughts": 2,
+        "total": 19
+      }
+    },
+    {
+      "$patch": {
+        "id": "gemini-a",
+        "content": "synthetic patched text"
+      }
+    },
+    {
+      "$rewindTo": "gemini-a"
+    }
+  ],
+  "opencode": [
+    {
+      "id": "msg_synthetic-a",
+      "type": "assistant",
+      "agent": "build",
+      "time": {
+        "created": 1
+      },
+      "model": {
+        "id": "model-a",
+        "providerID": "fixture-provider"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "synthetic assistant text"
+        },
+        {
+          "type": "tool",
+          "id": "tool-a",
+          "name": "fixture-tool",
+          "state": {
+            "status": "completed",
+            "input": {
+              "synthetic": "not-retained"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "synthetic result"
+              }
+            ]
+          },
+          "time": {
+            "created": 1,
+            "completed": 2
+          }
+        }
+      ],
+      "tokens": {
+        "input": 12,
+        "output": 5,
+        "reasoning": 2,
+        "cache": {
+          "read": 0,
+          "write": 1
+        }
+      },
+      "cost": 0.01234,
+      "finish": "stop"
+    }
+  ]
+}

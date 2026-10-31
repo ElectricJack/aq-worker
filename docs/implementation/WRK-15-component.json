@@ -1,0 +1,202 @@
+{
+  "task": "WRK-15",
+  "status": "pure_component_review_candidate_not_runtime_complete",
+  "source_revision": null,
+  "baseline_revision": "36ec3e2ae205203794f601eb29414718e62d43ea",
+  "source_hashes": {
+    "Cargo.toml": "638b46fefd8b10d120865164638b7a55300bc89a19a4f38654644dbad1ea40f0",
+    "Cargo.lock": "690c60d237c2e3ab5f136eea13a2176e4004ea6b310895fd0afe2e0eb8ec47e0",
+    "crates/aq-observation/Cargo.toml": "e83b12734dd0dc72da1f6fb74f6f510b67f0be212f20d3dab51cce7d8618e0a8",
+    "crates/aq-observation/README.md": "ba15258b9dd9224356322c8a596467b73f4e6ea6435e5912f6ced9e3709b1d80",
+    "crates/aq-observation/artifacts/capabilities.json": "bdc596e9f72785f58370398bd92c8e34cd5eaf679c265c9fe6a39ed3c9476ea0",
+    "crates/aq-observation/artifacts/normalized-golden.json": "5dd4d9b3adda4bb14e70861d3ce2e6143c76ff0d75e1f29450e8f4a21e9a11d4",
+    "crates/aq-observation/artifacts/reparse.schema.json": "bd83a77675a770862853fd150375f75d0941fe3fd8a858a82e502c1d4974b6ba",
+    "crates/aq-observation/artifacts/source-formats.json": "ccba9de0bb8fa380e107cabfdc9acfa5a2bd49e563b566b14d4d00f04ed9b237",
+    "crates/aq-observation/artifacts/source.schema.json": "b5c68f3810548282a17b58e147a1e6a310e047200a7b15dcfa1b97e9c0217573",
+    "crates/aq-observation/examples/export.rs": "e88d6d3539f13b1fbe42ad58cfc396b6906d20a063330531be962306e5042628",
+    "crates/aq-observation/examples/measure.rs": "683ef76d15892d3a0a43167ba3e6d25197ad12a54e658a5a6f8db0c51e47efc4",
+    "crates/aq-observation/src/boot.rs": "e4e22550f68ea5cbefa12e21993084bd45ce094b88b79010047d3dff03ff6c1b",
+    "crates/aq-observation/src/capabilities.rs": "75e78fdbc8cdf9a1c7a48d298f117b6936d33625f35f10816aa24a0ee6dea873",
+    "crates/aq-observation/src/discovery.rs": "e6717ded9cd29c5ba0485db1e2600820bd3a005e9d625fcb86fd4a5affc4a110",
+    "crates/aq-observation/src/formats/claude.rs": "246a1162f577df1215aafdb222e2690a84bc1748a8bac0ff2405ca0d5f1f14a7",
+    "crates/aq-observation/src/formats/codex.rs": "9e6c5c5aaa167a785db16dc5950ce4915d4be08f136efb4d3017d3c4835e3b95",
+    "crates/aq-observation/src/formats/gemini.rs": "f2e0ee3b419613d2508ac4d423082135d5780bb655dba6eb8b46ea3f6fc5d120",
+    "crates/aq-observation/src/formats/mod.rs": "a2f981b277afcbd43a4b7bbf96502a15459beab0ff29c9aad9d4a291fa8a6a92",
+    "crates/aq-observation/src/formats/opencode.rs": "187970eba5d5bd97ad73b94b69286d8a6ce35976f62dcea6ad10108ca978b688",
+    "crates/aq-observation/src/framing.rs": "c6667a91fa185ff626e5ae243ffe318843e208585e726ae9ab2af308e6ff336c",
+    "crates/aq-observation/src/json.rs": "b9d23c2c4ee86f26870350227f50fe24291a856005d27c9bf7f7337029f8a166",
+    "crates/aq-observation/src/lib.rs": "28d2240f45cc817a1f1d25ccf89ba630aa3b1987c284d2d8fe3110e8074eb547",
+    "crates/aq-observation/src/normalize.rs": "fe9cbdab0d9d397af93621d029ca9e5c759fec61a5afce3d672f048c24a46b41",
+    "crates/aq-observation/src/reparse.rs": "7fdef2e56ca48b77f9fa3628e2ea6eda58b521c682d2be34e1d8e789419f495d",
+    "crates/aq-observation/src/source.rs": "57df3ee9525687481d4811bbfce3b38ba80e92030bccd49723095ad9efdba154",
+    "crates/aq-observation/src/spool.rs": "8657aeb79bd7a8ae0087a0c678056e436e02258bdfea7175b119553343f13c04",
+    "crates/aq-observation/tests/artifacts.rs": "c34aea64ad8a940ceb4a7b77dd242fc5c2beb4ad90f70e3137ed6d5605b7de2e",
+    "crates/aq-observation/tests/boots.rs": "2cbc5c02e08a362905b8b2816290ef66209da5f398154a5298cdc2383721e0b8",
+    "crates/aq-observation/tests/crash.rs": "ec42e27db39c4711e28184b0567a94b30eafdea0a6669c691be4c10a52340c9f",
+    "crates/aq-observation/tests/discovery.rs": "8461e897100df362a6365ae72beceb6441b9315cc6f80a478e320a16e659bfd0",
+    "crates/aq-observation/tests/fixtures/native-synthetic.json": "46d3f6143a5f0c0b9df5c65bb2d3c811fcc26f12534ea6ed86ff52a07c368134",
+    "crates/aq-observation/tests/normalizers.rs": "ed139ae509a68878d940205b44e786d94385c701e3acf59f9723aa984f4c5efe",
+    "crates/aq-observation/tests/reparse.rs": "9aee0f9eaca720fcbbbc76071eb937bb1f9b520060e8c9bc1b4ba2398e22d42b",
+    "crates/aq-observation/tests/sources.rs": "c499789c733906ae8a3a381dd5a0511125d44dd4a3f2ee01f50396a97aca39e0",
+    "crates/aq-observation/tests/spool.rs": "61b2394220b5e8027944f95f9bd4b4c8fa9443bb76ff7a0df0fa11a0ab606a29",
+    "crates/aq-observation/tests/support/mod.rs": "cbd0bc5657dc16fc2a9243b67cc29df5d8f0a8cfe6a495ba9bed0132c0125295"
+  },
+  "recorded_at_utc": "2026-10-31T10:14:12.151799+00:00",
+  "environment": {
+    "uname": "Linux DESKTOP-EB8UOME 6.18.33.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 18 21:54:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "qualification": {
+    "tests_passed": 35,
+    "includes_child_process_boundary_helper": true,
+    "strict_all_target_clippy": true,
+    "artifact_drift": true,
+    "format": true,
+    "standalone_extracted_package": "pending clean reviewed source commit",
+    "actual_selected_cli_qualification": false,
+    "production_transport_or_worker_runtime_integration": false
+  },
+  "logs": {
+    "tests": "docs/implementation/WRK-15-component/tests.log",
+    "clippy": "docs/implementation/WRK-15-component/clippy.log",
+    "drift": "docs/implementation/WRK-15-component/drift.log",
+    "fmt": "docs/implementation/WRK-15-component/fmt.log",
+    "retained-temp-process-exit": "docs/implementation/WRK-15-component/retained-temp-process-exit.log",
+    "performance-before": "docs/implementation/WRK-15-component/performance-before.json",
+    "performance-after": "docs/implementation/WRK-15-component/performance-after.json"
+  },
+  "performance": {
+    "snapshot_provenance": "synthetic structurally valid private journals; checked by Spool::open; excludes population cost and native CLI evidence",
+    "samples": "single warm-local-filesystem release run;5 idle/partial samples,1 burst/send/ack each; not latency percentiles",
+    "before": {
+      "near": {
+        "ack_ms": 148.76164,
+        "begin_send_ms": 137.469222,
+        "burst_facts": 32,
+        "burst_ms": 680.168946,
+        "burst_records": 32,
+        "fixture": "synthetic valid bounded journal snapshot; excludes fill cost; warm local filesystem",
+        "idle_ms": [
+          16.190873,
+          16.492802,
+          15.573122999999999,
+          19.894254,
+          17.769558
+        ],
+        "initial_journal_bytes": 12740029,
+        "near": true,
+        "partial_ms": [
+          14.846491,
+          18.521758,
+          13.377404,
+          13.132147999999999,
+          10.801223
+        ],
+        "prepare_ms": 170.381059,
+        "queued": 192,
+        "raw_digests_per_seen": 32,
+        "seen_per_source": 640,
+        "sources": 8
+      },
+      "small": {
+        "ack_ms": 5.527380999999999,
+        "begin_send_ms": 7.933529,
+        "burst_facts": 32,
+        "burst_ms": 10.051377,
+        "burst_records": 32,
+        "fixture": "synthetic valid bounded journal snapshot; excludes fill cost; warm local filesystem",
+        "idle_ms": [
+          0.036755,
+          0.02531,
+          0.022536,
+          0.021495999999999998,
+          0.021353
+        ],
+        "initial_journal_bytes": 11228,
+        "near": false,
+        "partial_ms": [
+          0.02779,
+          0.117046,
+          0.024414,
+          0.022487999999999998,
+          0.022545
+        ],
+        "prepare_ms": 41.902172,
+        "queued": 4,
+        "raw_digests_per_seen": 1,
+        "seen_per_source": 4,
+        "sources": 1
+      }
+    },
+    "after": {
+      "near": {
+        "ack_ms": 127.807466,
+        "begin_send_ms": 134.48427600000002,
+        "burst_facts": 32,
+        "burst_ms": 240.386575,
+        "burst_records": 32,
+        "fixture": "synthetic valid bounded journal snapshot; excludes fill cost; warm local filesystem",
+        "idle_ms": [
+          0.04216,
+          0.021185000000000002,
+          0.019726999999999998,
+          0.019413,
+          0.019308
+        ],
+        "initial_journal_bytes": 12740029,
+        "near": true,
+        "partial_ms": [
+          0.027252,
+          0.021785,
+          0.02048,
+          0.020156,
+          0.02027
+        ],
+        "prepare_ms": 230.727837,
+        "queued": 192,
+        "raw_digests_per_seen": 32,
+        "seen_per_source": 640,
+        "sources": 8
+      },
+      "small": {
+        "ack_ms": 5.380847,
+        "begin_send_ms": 8.87643,
+        "burst_facts": 32,
+        "burst_ms": 8.782164,
+        "burst_records": 32,
+        "fixture": "synthetic valid bounded journal snapshot; excludes fill cost; warm local filesystem",
+        "idle_ms": [
+          0.031719,
+          0.024985,
+          0.02388,
+          0.023709,
+          0.023718
+        ],
+        "initial_journal_bytes": 11228,
+        "near": false,
+        "partial_ms": [
+          0.030082,
+          0.025384999999999998,
+          0.024746999999999998,
+          0.024718,
+          0.02469
+        ],
+        "prepare_ms": 41.929301,
+        "queued": 4,
+        "raw_digests_per_seen": 1,
+        "seen_per_source": 4,
+        "sources": 1
+      }
+    },
+    "baseline_source_pin": "pre-optimization working source; not a separately committed release; retained data is comparative local evidence",
+    "remaining_cost": "full metadata clone/canonical hash/serialize/fsync/atomic replacement O(retained history) per commit; active normalizer clone per record"
+  },
+  "runtime_review_gates": [
+    "real harness root/native key admission and version qualification",
+    "runtime journal integration and actual control/renewal scheduling",
+    "authenticated historical boot transport ownership and central ACK",
+    "bounded authenticated raw artifact transfer/retention",
+    "central accounting/parser-category registration and correction reconciliation",
+    "explicit orphan-temp owner recovery; current reopen refuses preserving bytes"
+  ]
+}

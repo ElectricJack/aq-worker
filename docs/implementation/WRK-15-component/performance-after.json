@@ -1,0 +1,60 @@
+{
+  "near": {
+    "ack_ms": 127.807466,
+    "begin_send_ms": 134.48427600000002,
+    "burst_facts": 32,
+    "burst_ms": 240.386575,
+    "burst_records": 32,
+    "fixture": "synthetic valid bounded journal snapshot; excludes fill cost; warm local filesystem",
+    "idle_ms": [
+      0.04216,
+      0.021185000000000002,
+      0.019726999999999998,
+      0.019413,
+      0.019308
+    ],
+    "initial_journal_bytes": 12740029,
+    "near": true,
+    "partial_ms": [
+      0.027252,
+      0.021785,
+      0.02048,
+      0.020156,
+      0.02027
+    ],
+    "prepare_ms": 230.727837,
+    "queued": 192,
+    "raw_digests_per_seen": 32,
+    "seen_per_source": 640,
+    "sources": 8
+  },
+  "small": {
+    "ack_ms": 5.380847,
+    "begin_send_ms": 8.87643,
+    "burst_facts": 32,
+    "burst_ms": 8.782164,
+    "burst_records": 32,
+    "fixture": "synthetic valid bounded journal snapshot; excludes fill cost; warm local filesystem",
+    "idle_ms": [
+      0.031719,
+      0.024985,
+      0.02388,
+      0.023709,
+      0.023718
+    ],
+    "initial_journal_bytes": 11228,
+    "near": false,
+    "partial_ms": [
+      0.030082,
+      0.025384999999999998,
+      0.024746999999999998,
+      0.024718,
+      0.02469
+    ],
+    "prepare_ms": 41.929301,
+    "queued": 4,
+    "raw_digests_per_seen": 1,
+    "seen_per_source": 4,
+    "sources": 1
+  }
+}

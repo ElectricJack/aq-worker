@@ -2,7 +2,7 @@
   "task": "WRK-15",
   "schema_version": 1,
   "worker_baseline_revision": "d2150c1",
-  "runtime_migration": "not authorized before root schema/source fixture review",
+  "runtime_migration": "not performed; independent pure crate and scoped source/spool stages only",
   "published_dependency": {
     "package": "aq-lifecycle-protocol",
     "version": "=0.1.0",
@@ -89,14 +89,29 @@
           "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/core/src/session/message.ts"
         },
         {
+          "path": "packages/protocol/src/groups/experimental.ts",
+          "sha256": "eb193fc7ee1fbe999d8a14dafe0ff2d69c51680892e1de535fe79d8c58e62002",
+          "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/protocol/src/groups/experimental.ts"
+        },
+        {
           "path": "packages/protocol/src/groups/message.ts",
           "sha256": "7c61ce6321ab54ff216061445204374d2f9f7d4c72c5f066e924c014f1e8843c",
           "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/protocol/src/groups/message.ts"
         },
         {
+          "path": "packages/schema/src/model.ts",
+          "sha256": "4726089dc08007fc8545e14989018882d588a69ccc3155793656e0d990cc7261",
+          "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/schema/src/model.ts"
+        },
+        {
           "path": "packages/schema/src/session-message.ts",
           "sha256": "15ed05f87a9ae88ee54157cf3eb50dba70557ad086f0df1f0d66f0fa1f2ba128",
           "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/schema/src/session-message.ts"
+        },
+        {
+          "path": "packages/schema/src/session.ts",
+          "sha256": "ababb9964a090e1d70a0cc7b88d66da048c6c201b2e22aea49075f247dd20fde",
+          "url": "https://github.com/anomalyco/opencode/blob/6c24ec953200c59f4b044ca70f9c549da35c6608/packages/schema/src/session.ts"
         },
         {
           "path": "packages/schema/src/token-usage.ts",
@@ -117,7 +132,8 @@
         "invoice cost; no provider charge receipt"
       ],
       "semantics": "message-native identity; replay suppressed and changed usage produces correction reference; never claim provider API call dedupe without qualified precedence",
-      "boundaries": "source fields absent => unknown; no fabricated zero or token/cost inference from text"
+      "boundaries": "source fields absent => unknown; no fabricated zero or token/cost inference from text",
+      "input_boundary": "individual public Session.Message DTO bound to the exact requested native session; full export envelope adapter not implemented"
     },
     {
       "harness": "claude",
