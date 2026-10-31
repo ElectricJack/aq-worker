@@ -311,6 +311,7 @@ dependencies = [
  "aq-session-protocol",
  "aq-worker-protocol",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "fs2",
@@ -327,6 +328,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
