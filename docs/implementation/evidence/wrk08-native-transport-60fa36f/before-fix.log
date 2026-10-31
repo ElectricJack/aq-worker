@@ -1,0 +1,45 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-native-consumer/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.70s
+     Running tests/native_http.rs (/tmp/aq-native-consumer-target/debug/deps/native_http-d6f3af77ad3c3958)
+
+running 7 tests
+test incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo ... FAILED
+test artifact_headers_ranges_and_exact_assembly_are_checked ... ok
+test native_transport_ignores_ambient_proxy_configuration ... FAILED
+test two_stalled_downloads_do_not_consume_started_reporting_lane ... ok
+test wrong_node_changed_receipt_unknown_fields_and_redirects_refuse ... ok
+test exact_native_started_stopped_result_receipts_and_stable_replay ... ok
+test material_digest_scope_and_full_network_interval_are_checked ... ok
+
+failures:
+
+---- incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo stdout ----
+
+thread 'incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo' (4065266) panicked at crates/aq-worker/tests/native_http.rs:444:62:
+called `Option::unwrap()` on a `None` value
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- native_transport_ignores_ambient_proxy_configuration stdout ----
+
+thread 'native_transport_ignores_ambient_proxy_configuration' (4065268) panicked at crates/aq-worker/tests/native_http.rs:474:5:
+
+running 1 test
+test exact_native_started_stopped_result_receipts_and_stable_replay ... FAILED
+
+failures:
+
+failures:
+    exact_native_started_stopped_result_receipts_and_stable_replay
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+
+
+
+failures:
+    incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo
+    native_transport_ignores_ambient_proxy_configuration
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p aq-worker --test native_http`

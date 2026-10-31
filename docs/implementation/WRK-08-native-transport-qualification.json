@@ -1,0 +1,32 @@
+{
+  "source_revision": "60fa36f72e94bfbfaf95faa395785983941824b9",
+  "qualification": {
+    "native_http_tests": 7,
+    "startup_tests": 6,
+    "strict_worker_all_targets_all_features_clippy": "passed",
+    "format": "passed",
+    "negative_regressions": "old source accepts remote plaintext and inherits unreachable ambient proxy; both fail before fix"
+  },
+  "source_sha256": {
+    "crates/aq-worker/src/native.rs": "79e0bd95dbbe90f54e49ad553c66dcc2d7aa6194bcad3f6efb9f4d197158396d",
+    "crates/aq-worker/src/native/http.rs": "5bfa3141e071ca0219b2d626faac4e49805ef0d3a034689663901902e7958412",
+    "crates/aq-worker/tests/native_http.rs": "75655cdbc07c11ab10719b03c9db99b67811280919da582e24f3effe927b4768",
+    "docs/implementation/WRK-08-native-runtime-plan.md": "51d4cba3daec9c9bf6af6f8aee3e1b90a4ee88ef3e5c2d14ba6cc17f2652a9c3",
+    "Cargo.toml": "4b04c52c2d2a25b5b497f50e9db448459e2133c37945ca6b712fb046c2ea49de",
+    "Cargo.lock": "7f0a57156c5ad17a2c9140d0055a442d9e457e719bc80fd5013061be45c7603e",
+    "crates/aq-worker/Cargo.toml": "b3663e85bc1a242e20579b48c0011ec04c082079c06332ad9931c644bb4b72a7",
+    "crates/aq-worker/tests/native_startup.rs": "d8935a04c07dad8670f0f918c2cbd6b3bdbcc5394a5105bb31b49a9e0222b92f"
+  },
+  "evidence": {
+    "docs/implementation/evidence/wrk08-native-transport-60fa36f/before-fix.log": "6bdf24273ef43c248ed5aee6fffc5363a082b3473172a9e4ac28e8ca3631844d",
+    "docs/implementation/evidence/wrk08-native-transport-60fa36f/clippy.log": "4cfda9f7563a9c40ac396cb741fb3a6caa25e9c345785a2688ae1420e19ec5ca",
+    "docs/implementation/evidence/wrk08-native-transport-60fa36f/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/implementation/evidence/wrk08-native-transport-60fa36f/independent-proxy-negative.log": "7888306b6db39f4093adecf262b2a8d454e473e22d80266229611e2cfadf9221",
+    "docs/implementation/evidence/wrk08-native-transport-60fa36f/tests.log": "dcabb35975a7e90800d36a06a982a7da75bf6f73aa2d8e17a0cee92e9d882c7f"
+  },
+  "limits": [
+    "Synthetic loopback wire tests; actual daemon/provider/native runtime not claimed.",
+    "Current feature graph has no HTTP2/3; explicit retry-never is defensive against future feature unions, not evidence of duplicate current sends.",
+    "Explicit proxy support is not implemented; TLS validation retains reqwest defaults."
+  ]
+}
