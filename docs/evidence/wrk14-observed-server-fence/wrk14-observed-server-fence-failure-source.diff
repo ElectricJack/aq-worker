@@ -1,0 +1,138 @@
+diff --git a/crates/aq-session-host/src/observed/exec.rs b/crates/aq-session-host/src/observed/exec.rs
+index d2856c3..46ff1f3 100644
+--- a/crates/aq-session-host/src/observed/exec.rs
++++ b/crates/aq-session-host/src/observed/exec.rs
+@@ -2,6 +2,17 @@
+ use super::*;
+ use std::{ffi::CString, os::fd::AsRawFd, os::unix::ffi::OsStrExt};
+ 
++/// Incarnation/liveness only; guardian ancestry was established at pane creation.
++/// Both the original server and pane must still exist for terminal exec evidence.
++pub(crate) fn live_pane(pane: &PaneIdentity) -> Result<()> {
++    for process in [&pane.server, &pane.pane] {
++        ensure!(
++            ownership::pidfd_is_live(&ownership::verified_pidfd(process)?)?,
++            "owned terminal process exited"
++        );
++    }
++    Ok(())
++}
+ pub(crate) fn observed_image(process: &ProcessEvidence, image: &ElfIdentity) -> Result<()> {
+     let fd = ownership::verified_pidfd(process)?;
+     ensure!(ownership::pidfd_is_live(&fd)?, "exec process not live");
+@@ -71,6 +82,24 @@ mod tests {
+     use super::*;
+     use std::os::fd::{FromRawFd, OwnedFd};
+     #[test]
++    fn dead_original_server_refuses_even_while_the_pane_identity_is_live() {
++        let mut server = std::process::Command::new("/bin/sleep")
++            .arg("5")
++            .spawn()
++            .unwrap();
++        let pane = PaneIdentity {
++            server: ownership::process_evidence(server.id()).unwrap(),
++            pane: ownership::process_evidence(std::process::id()).unwrap(),
++            pane_id: "%0".into(),
++            session_name: "aq".into(),
++        };
++        live_pane(&pane).unwrap();
++        server.kill().unwrap();
++        server.wait().unwrap();
++        assert!(ownership::process_evidence(pane.pane.pid).is_ok());
++        assert!(live_pane(&pane).is_err());
++    }
++    #[test]
+     fn eof_without_matching_live_image_is_not_exec_proof() {
+         let process = ownership::process_evidence(std::process::id()).unwrap();
+         let mut image = ElfIdentity {
+diff --git a/crates/aq-session-host/src/observed/gate.rs b/crates/aq-session-host/src/observed/gate.rs
+index 01b3ef2..3bb5960 100644
+--- a/crates/aq-session-host/src/observed/gate.rs
++++ b/crates/aq-session-host/src/observed/gate.rs
+@@ -131,6 +131,7 @@ impl Owner {
+         if self.released {
+             let helper = self.helper.as_ref().context("released helper missing")?;
+             if helper.hung_up()? {
++                exec::live_pane(&self.ready.as_ref().context("released pane missing")?.pane)?;
+                 exec::observed_image(
+                     &self
+                         .ready
+@@ -327,6 +328,7 @@ fn verify_closed(
+             && !directory.join("stop.request").exists(),
+         "closed baseline authority/identity changed"
+     );
++    exec::live_pane(&ready.pane)?;
+     ensure!(
+         ownership::process_evidence(ready.pane.pane.pid)? == ready.pane.pane,
+         "closed helper incarnation changed"
+@@ -458,6 +460,7 @@ pub(crate) fn wait_closed(
+     directory: &Path,
+     config: &SealedLaunch,
+     guardian: &GuardianIdentity,
++    server: &ProcessEvidence,
+ ) -> Result<()> {
+     let spec = config
+         .observed
+@@ -523,6 +526,10 @@ pub(crate) fn wait_closed(
+                     && supervisor::guardian_live(guardian),
+                 "authority expired immediately before sealed exec"
+             );
++            ensure!(
++                ownership::pidfd_is_live(&ownership::verified_pidfd(server)?)?,
++                "owned server lost immediately before sealed exec"
++            );
+             return exec::enter(
+                 &file,
+                 &spec.program,
+diff --git a/crates/aq-session-host/src/observed/mod.rs b/crates/aq-session-host/src/observed/mod.rs
+index e53fd32..a51b7aa 100644
+--- a/crates/aq-session-host/src/observed/mod.rs
++++ b/crates/aq-session-host/src/observed/mod.rs
+@@ -363,6 +363,12 @@ impl ReleasedObservedSession {
+                     && supervisor::guardian_live(&handle.identity),
+                 "observed Started authority expired or lost"
+             );
++            exec::live_pane(
++                observation
++                    .pane
++                    .as_ref()
++                    .context("observed Started pane missing")?,
++            )?;
+             exec::observed_image(
+                 &observation
+                     .pane
+diff --git a/crates/aq-session-host/src/supervisor.rs b/crates/aq-session-host/src/supervisor.rs
+index 9a1fdb4..6c52fb1 100644
+--- a/crates/aq-session-host/src/supervisor.rs
++++ b/crates/aq-session-host/src/supervisor.rs
+@@ -424,7 +424,7 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
+         rendered.verify(&config.manifest, &bytes)?;
+     }
+     if config.observed.is_some() {
+-        return observed::gate::wait_closed(dir, &config, &identity);
++        return observed::gate::wait_closed(dir, &config, &identity, &server);
+     }
+     durable_new(
+         &dir.join("pane-exec.claim"),
+diff --git a/crates/aq-session-host/tests/local_tmux.rs b/crates/aq-session-host/tests/local_tmux.rs
+index a7a6c13..a95a712 100644
+--- a/crates/aq-session-host/tests/local_tmux.rs
++++ b/crates/aq-session-host/tests/local_tmux.rs
+@@ -2280,6 +2280,7 @@ fn observed_baseline_durability_reader_and_expiry_fail_closed_without_exec() {
+         "reader-drop",
+         "reader-stop",
+         "helper-death",
++        "server-death",
+         "expiry",
+     ] {
+         let (mut c, pending) = observed_closed_case();
+@@ -2300,6 +2301,9 @@ fn observed_baseline_durability_reader_and_expiry_fail_closed_without_exec() {
+                         })
+                 });
+             }
++            if mode == "server-death" {
++                terminate(&initial.pane.as_ref().unwrap().server);
++            }
+             if mode == "helper-death" {
+                 terminate(&initial.pane.as_ref().unwrap().pane);
+             }

@@ -1,0 +1,83 @@
+   Compiling aq-session-host v0.1.4 (/home/jkern/dev/aq-worker-baseline/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.62s
+     Running unittests src/lib.rs (/tmp/wrk14-baseline-target/debug/deps/aq_session_host-143126d28e918dde)
+
+running 20 tests
+test io_tests::large_stdout_fixture ... ignored, subprocess output fixture invoked by bounded output test
+test reader_lease::tests::queued_old_drain_cannot_extend_from_dequeue_or_revive_expiry ... ok
+test observed::exec::tests::dead_original_server_refuses_even_while_the_pane_identity_is_live ... ok
+test observed::exec::tests::eof_without_matching_live_image_is_not_exec_proof ... ok
+test reaper::tests::reservation_exhaustion_refuses_before_spawning ... ok
+test reader_lease::tests::packet_fd_is_bounded_and_close_on_exec_and_extra_mutation_fields_refuse ... ok
+test terminal_output::tests::chunks_preserve_unicode_ansi_octal_and_literal_backslash_without_interpretation ... ok
+test io_tests::nonregular_and_symlink_material_is_refused ... ok
+test observed::executable::tests::byte_entry_digest_header_and_nonregular_sources_refuse_before_admission ... ok
+test terminal_output::tests::extended_output_and_pause_are_explicit_not_silent_recovery ... ok
+test tests::independent_permit_is_exact_bounded_and_expiring ... ok
+test observed::executable::tests::sealed_actual_bytes_survive_path_change_and_cannot_be_written_or_grown ... ok
+test tests::local_command_bounds_and_protected_environment ... ok
+test rendered_tests::final_payload_is_literal_and_bound_to_exact_single_descriptor ... ok
+test io_tests::command_stdout_above_pipe_capacity_is_drained_before_exit ... ok
+test terminal_output::tests::malformed_foreign_and_oversized_streams_fail_closed ... ok
+test rendered_tests::legacy_sealed_configuration_omits_new_optional_field ... ok
+test terminal_output::tests::bounded_continuation_does_not_widen_line_decoded_byte_or_eof_bounds ... ok
+test io_tests::command_input_and_output_above_pipe_capacity_progress_under_one_deadline ... ok
+test terminal_output::tests::dense_packet_continuation_preserves_every_event_and_escape_boundary ... ok
+
+test result: ok. 19 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running unittests src/main.rs (/tmp/wrk14-baseline-target/debug/deps/aq_session_host-3f0de7ee4877fc66)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_tmux.rs (/tmp/wrk14-baseline-target/debug/deps/local_tmux-92ff75169bcbe83b)
+
+running 36 tests
+test caller_crashes_at_durable_start_boundaries_never_relaunch ... ignored, requires explicit local tmux 3.4 qualification
+test central_and_remote_interaction_stop_and_no_relaunch ... ignored, requires explicit local tmux 3.4 qualification
+test copied_launch_directory_and_old_mailbox_cannot_reset_physical_input_history ... ignored, requires explicit local tmux 3.4 qualification
+test dead_or_stopped_owner_and_lost_ready_or_ack_cannot_leave_a_blocking_reader ... ignored, explicit local tmux independent owner failure qualification
+test encrypted_mailbox_tamper_and_missing_key_refuse_without_stopping_expiry ... ignored, requires explicit local tmux 3.4 qualification
+test exact_observation_and_unstarted_recovery_never_launch_or_inject ... ignored, requires explicit local tmux 3.4 qualification
+test execution_expiry_stops_writers_even_while_observer_client_remains_sigstopped ... ignored, explicit local tmux 3.4 bounded output qualification
+test existing_pane_is_refused_and_never_used_for_the_agent ... ignored, requires explicit local tmux 3.4 qualification
+test failed_durable_start_and_socket_collision_never_launch_native_child ... ignored, requires explicit local tmux 3.4 qualification
+test guarded_literal_unicode_resize_and_durable_duplicate_receipts ... ignored, requires explicit local tmux 3.4 qualification
+test guardian_crashes_across_socket_and_pane_creation_never_claim_stop ... ignored, requires explicit local tmux 3.4 qualification
+test guardian_loss_remains_uncertain_even_after_known_processes_disappear ... ignored, requires explicit local tmux 3.4 qualification
+test helper_expiry_survives_caller_death_without_recovery_control ... ignored, requires explicit local tmux 3.4 qualification
+test injecting_crash_before_or_after_physical_effect_is_unknown_never_replayed ... ignored, requires explicit local tmux 3.4 qualification
+test launch_child_fixture ... ignored, subprocess fixture, called by local crash tests only
+test local_configuration_refusals_happen_before_durable_launch_or_process ... ignored, requires explicit local tmux 3.4 qualification
+test malformed_renewal_stops_and_wall_limit_cannot_be_extended ... ignored, requires explicit local tmux 3.4 qualification
+test observed_baseline_durability_reader_and_expiry_fail_closed_without_exec ... ignored, actual local tmux baseline refusal/reader loss/expiry qualification
+test observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec ... ignored, actual local tmux sealed FD baseline/exec qualification
+test observed_helper_stays_starting_without_exec_or_started_until_original_expiry ... ignored, actual local tmux closed observed gate qualification
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... ignored, actual local tmux missed exec evidence fault qualification
+test pane_exit_has_no_fallback_and_escaped_descendants_require_kernel_stop ... ignored, requires explicit local tmux 3.4 qualification
+test paused_injecting_deadline_and_new_controller_cannot_clear_unknown ... ignored, requires explicit local tmux 3.4 qualification
+test permit_expiry_is_independent_and_late_renewal_cannot_revive ... ignored, requires explicit local tmux 3.4 qualification
+test quiet_drained_reader_renews_but_undrained_reader_expires_without_stopping_harness ... ignored, explicit local tmux guardian read-lease qualification
+test read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart ... ignored, explicit local tmux 3.4 bounded output qualification
+test reader_owner_child_fixture ... ignored, explicit guardian reader-lease process fixture
+test rendered_payload_tampered_after_intent_is_refused_before_native_exec ... ignored, actual local tmux host qualification
+test rendered_startup_reaches_owned_harness_as_one_exact_payload ... ignored, actual local tmux host qualification
+test renewal_compare_publish_is_serialized_while_guardian_is_stopped ... ignored, requires explicit local tmux 3.4 qualification
+test renewals_are_monotonic_and_resource_cost_is_observed ... ignored, requires explicit local tmux 3.4 qualification
+test replayed_valid_encrypted_ledger_cannot_repeat_an_applied_input ... ignored, requires explicit local tmux 3.4 qualification
+test slow_data_only_polls_cannot_renew_an_undrained_reader_forever ... ignored, explicit actual slow-consumer read-lease qualification
+test sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control ... ignored, explicit local tmux 3.4 bounded output qualification
+test sustained_adopted_child_exits_cannot_starve_expiry_or_stop_proof ... ignored, requires explicit local tmux 3.4 qualification
+test tmux_pane_identifier_reuse_does_not_authorize_the_replacement_process ... ignored, requires explicit local tmux 3.4 qualification
+
+test result: ok. 0 passed; 0 failed; 36 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aq_session_host
+
+running 1 test
+test crates/aq-session-host/src/observed/mod.rs - observed::BlankBaselineRecord (line 209) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
