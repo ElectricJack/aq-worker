@@ -1,0 +1,91 @@
+   Compiling tracing-core v0.1.36
+   Compiling log v0.4.35
+   Compiling getrandom v0.2.17
+   Compiling chrono v0.4.45
+   Compiling clap_builder v4.6.7
+   Compiling ring v0.17.14
+   Compiling tracing v0.1.44
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling axum-core v0.5.6
+   Compiling tower-http v0.6.11
+   Compiling aq-agent-api v0.1.0 (/home/jkern/dev/aq-worker/vendor/aq-agent-api-0.1.0)
+   Compiling rustls-webpki v0.103.16
+   Compiling axum v0.8.9
+   Compiling rustls v0.23.46
+   Compiling clap v4.6.7
+   Compiling tokio-rustls v0.26.6
+   Compiling hyper-rustls v0.27.10
+   Compiling reqwest v0.12.28
+   Compiling aq-agent-client v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-agent-client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.29s
+     Running unittests src/lib.rs (/tmp/wrk05-clean-target/debug/deps/aq_agent_client-bb8e69b42bcfa3d0)
+
+running 3 tests
+test journal::tests::restart_cannot_reset_delay_attempts_or_clock_fences ... ok
+test journal::tests::retained_retry_policy_cannot_widen_the_resolved_profile ... ok
+test journal::tests::concurrent_clients_and_full_intent_retention_refuse_without_eviction ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+     Running unittests src/main.rs (/tmp/wrk05-clean-target/debug/deps/aq_agent-ecaad5a4a478790f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (/tmp/wrk05-clean-target/debug/deps/client-3807ed02bc34253c)
+
+running 7 tests
+test required_context_and_access_profile_binding_cannot_be_silently_changed ... ok
+test status_lookup_without_local_intent_still_validates_receipt_scope ... ok
+test published_read_shapes_and_live_context_use_only_session_authority ... ok
+test node_credential_symlink_permissions_and_expiry_are_refused_before_network ... ok
+test response_version_binding_and_offline_state_never_become_applied ... ok
+test actual_cli_preserves_operation_states_and_safe_error_output ... ok
+test lost_response_survives_process_reopen_with_exact_id_bytes_and_receipt ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running tests/contract_artifact.rs (/tmp/wrk05-clean-target/debug/deps/contract_artifact-90826c9bd503adf2)
+
+running 1 test
+test published_archive_and_extracted_dependency_match_the_frozen_inventory ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/provisioning.rs (/tmp/wrk05-clean-target/debug/deps/provisioning-8b91bd8426603f2d)
+
+running 12 tests
+test node_owner_lock_and_conservative_minimum_are_enforced ... ok
+test symlink_permissions_and_unexpected_temp_refuse_before_http ... ok
+test changed_startup_bytes_and_impossible_disk_reservation_refuse ... ok
+test explicit_agent_egress_never_copies_node_cf_identity ... ok
+test allocation_quota_and_binding_survive_restart_without_implicit_reclaim ... ok
+test mismatched_real_response_stays_unknown_and_never_publishes_config ... ok
+test private_atomic_install_has_real_context_and_no_node_credential ... ok
+test explicit_new_intent_can_recover_loss_before_server_commit_at_same_cas_version ... ok
+test lost_reply_never_reissues_plaintext_and_explicit_cas_rotation_recovers ... ok
+test exact_retained_response_recovers_local_install_without_http ... ok
+test explicit_refresh_atomically_replaces_credential_while_agent_journal_is_open ... ok
+test context_bundle_bound_is_distinct_from_one_megabyte_wire_bound ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+
+     Running tests/recovery.rs (/tmp/wrk05-clean-target/debug/deps/recovery-eb02a3086fd7d79a)
+
+running 5 tests
+test bounded_paginated_list_returns_server_cursor_without_new_authority ... ok
+test client_refuses_new_payload_list_retry_and_foreign_request_before_http ... ok
+test known_lookup_and_retry_use_only_retained_ids_and_node_credential ... ok
+test foreign_workspace_duplicate_ids_limit_overrun_and_lookup_cursor_refuse ... ok
+test foreign_response_bindings_ids_status_and_malformed_body_refuse ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests aq_agent_client
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

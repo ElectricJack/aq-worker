@@ -11,3 +11,9 @@ Issuance is durable before HTTP and remains unknown after loss. Reopening cannot
 Root reviewed the implementation independently of the provisioning/recovery subagent and fixed the before-commit recovery case and retained retry-policy validation. The companion JSON binds all source and retained logs to the clean revision. Earlier provisioning-only draft evidence remains historical; this document supersedes it for completion.
 
 Actual provider harness/bootstrap, worker image selection and complete product integration belong to WRK08/release gates. This component grants no process launch and has no automatic state reclamation. The CLI currently serializes access within a session using an exclusive journal owner; separate sessions have independent state. Application byte bounds are not a hostile same-UID disk quota. Messaging, terminal control, suspension and broader API commands are not claimed by this binary.
+
+## HTTP policy follow-up
+
+Revision `23bb6d30a26945f20e9ff34d8096d36cc78a45cb` disables ambient proxies and transparent HTTP retries. The actual CLI test supplies unusable proxy environment variables and still reaches only the configured fake AQ origin. All 28 affected client checks and strict all-target component Clippy pass. The rest of the workspace source is unchanged from the initial qualification; its 160-test run is not relabeled as a new run.
+
+The current clean host package is SHA256 `a732fb30ea5fa81597510a9a8787f0590c1a6362168aaca07ba2c0dbfc7ca751`, with six payload hashes and release version smoke rechecked. The companion JSON records the changed source files, supplemental logs and current artifact separately from the initial package.

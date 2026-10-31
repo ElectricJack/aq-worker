@@ -141,5 +141,38 @@
     "automatic local journal or allocation reclamation",
     "messaging/terminal/suspension commands in aq-agent",
     "complete general AQ API client surface"
-  ]
+  ],
+  "qualified_followups": [
+    {
+      "source_revision": "23bb6d30a26945f20e9ff34d8096d36cc78a45cb",
+      "change": "Disable ambient proxies and transparent transport retries; actual CLI test sets unusable HTTP_PROXY/HTTPS_PROXY/ALL_PROXY and empty NO_PROXY",
+      "changed_source_files": {
+        "crates/aq-agent-client/src/client.rs": "92033fd623fa852075809d49dd2d4b45ca3b2e1806ca989f89f499b43c7120a3",
+        "crates/aq-agent-client/tests/client.rs": "2f2c4100ee52fa43951a0b6f645467a736adc184194e5f39c6a39595dc93677a"
+      },
+      "client_tests_passed": 28,
+      "strict_all_target_component_clippy": "passed",
+      "logs": {
+        "docs/implementation/WRK-05-http-policy-tests.log": "9f4612a13c555c6205f73bf67d71792f7024fdecd5f1a740e5fbe774aa5a6590",
+        "docs/implementation/WRK-05-http-policy-clippy.log": "5cf1b38c052e51903fd72a037626b0e5764ad0f11fdb5ca1cc1580d3552f0072",
+        "docs/implementation/WRK-05-http-policy-package.log": "2144f3fc19a2936156fe8e35f7cce93bebf4835e8202034a1256cb4b907c2047"
+      },
+      "artifact": {
+        "path": "/home/jkern/dev/.aq-qualification/wrk05-http-policy-2026-10-31/wrk05-agent-client-http-policy.tar.gz",
+        "sha256": "a732fb30ea5fa81597510a9a8787f0590c1a6362168aaca07ba2c0dbfc7ca751",
+        "source_revision": "23bb6d30a26945f20e9ff34d8096d36cc78a45cb",
+        "working_tree_dirty": false,
+        "manifest_files_verified": 6,
+        "version_smoke": "aq-agent 0.1.0"
+      }
+    }
+  ],
+  "current_artifact": {
+    "path": "/home/jkern/dev/.aq-qualification/wrk05-http-policy-2026-10-31/wrk05-agent-client-http-policy.tar.gz",
+    "sha256": "a732fb30ea5fa81597510a9a8787f0590c1a6362168aaca07ba2c0dbfc7ca751",
+    "source_revision": "23bb6d30a26945f20e9ff34d8096d36cc78a45cb",
+    "working_tree_dirty": false,
+    "manifest_files_verified": 6,
+    "version_smoke": "aq-agent 0.1.0"
+  }
 }

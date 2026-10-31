@@ -1,0 +1,21 @@
+    Checking tracing-core v0.1.36
+    Checking log v0.4.35
+    Checking getrandom v0.2.17
+    Checking chrono v0.4.45
+    Checking clap_builder v4.6.7
+    Checking ring v0.17.14
+    Checking tracing v0.1.44
+    Checking hyper-util v0.1.21
+    Checking tower v0.5.3
+    Checking axum-core v0.5.6
+    Checking tower-http v0.6.11
+    Checking aq-agent-api v0.1.0 (/home/jkern/dev/aq-worker/vendor/aq-agent-api-0.1.0)
+    Checking rustls-webpki v0.103.16
+    Checking clap v4.6.7
+    Checking rustls v0.23.46
+    Checking axum v0.8.9
+    Checking tokio-rustls v0.26.6
+    Checking hyper-rustls v0.27.10
+    Checking reqwest v0.12.28
+    Checking aq-agent-client v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-agent-client)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.04s

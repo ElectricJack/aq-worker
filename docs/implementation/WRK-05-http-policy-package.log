@@ -1,0 +1,4 @@
+   Compiling aq-agent-api v0.1.0 (/home/jkern/dev/aq-worker/vendor/aq-agent-api-0.1.0)
+   Compiling aq-agent-client v0.1.0 (/home/jkern/dev/aq-worker/crates/aq-agent-client)
+    Finished `release` profile [optimized] target(s) in 6.19s
+{"artifact": "/tmp/wrk05-agent-client-http-policy.tar.gz", "sha256": "a732fb30ea5fa81597510a9a8787f0590c1a6362168aaca07ba2c0dbfc7ca751", "source_revision": "23bb6d30a26945f20e9ff34d8096d36cc78a45cb", "working_tree_dirty": false}
