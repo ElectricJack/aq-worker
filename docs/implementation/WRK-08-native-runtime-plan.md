@@ -165,3 +165,8 @@ identity, server watermark versus local clock provenance, replay and capacity
 rules. It has no cleanup or implicit uncertain-prefix recovery. The durable
 driver must journal its returned digest before sending Prepare and run fsync on
 a bounded blocking lane.
+
+The [native journal and restart plan](WRK-08-native-journal-plan.md) specifies the
+next driver slice, including current-boot admission versus historical cleanup
+reports. New runtime boots cannot inherit old live authority. The initial
+stop-and-preserve profile keeps granted-without-Started recovery explicitly open.
