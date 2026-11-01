@@ -3,10 +3,11 @@ use super::*;
 use crate::native::adapter::{
     codex::{CodexExecInput, CodexExecProfile, PreparedCodexExec},
     native_exec::NativeExecInstallation,
+    responses_transport::{ResponsesScope, ScopedResponsesTransport, UpstreamEndpoint},
 };
 use aq_session_host::{
-    AdapterLaunch, HarnessAdapter, HarnessReadiness, LocalEnvironment, PrivateLaunchInput,
-    ResourcePolicy,
+    AdapterLaunch, HarnessAdapter, HarnessReadiness, LocalEnvironment, OriginalPrivateMaterial,
+    PrivateLaunchInput, ResourcePolicy, ScopedCodexAuthBinding,
     observed::{
         NativeExecObservationProfile, ObservedAdapterQualification, ObservedHarnessAdapter,
         ObservedStartup,
@@ -51,7 +52,7 @@ impl NativeCodexHostProfile {
             "native installed mapper references differ"
         );
         let digest = crate::native::journal::canonical_digest(
-            &serde_json::json!({"schema_version":1,"profile":"codex-native-host-v1","root":root,"installation":installation.digest(),"harness":mapper.harness,"model":mapper.model,"permissions":mapper.permissions_digest,"renderer":mapper.renderer,"columns":columns,"rows":rows}),
+            &serde_json::json!({"schema_version":1,"profile":"codex-scoped-responses-native-host-v1","upstream_policy":"fixed-openai-responses-https-v1","root":root,"installation":installation.digest(),"harness":mapper.harness,"model":mapper.model,"permissions":mapper.permissions_digest,"renderer":mapper.renderer,"columns":columns,"rows":rows}),
         )?;
         Ok(Self {
             root: guard,
@@ -65,7 +66,8 @@ impl NativeCodexHostProfile {
             development_provider: None,
         })
     }
-    /// Isolated fixture endpoint only. This cannot enable the production executor.
+    /// Isolated fixture upstream for the owned transport. This cannot enable
+    /// the production executor or supply a direct provider route to the child.
     #[cfg(any(test, feature = "test-support"))]
     pub fn with_development_provider(mut self, origin: &str) -> Result<Self> {
         let origin = crate::native::adapter::codex::development_origin(origin)?;
@@ -243,14 +245,10 @@ pub(super) fn bootstrap(
     let provider = providers[0];
     let mut installed = lock(&profile.installation)?;
     let handoff = installed.material(provider, &provider.receipt()?, &i.binding)?;
-    drop(crate::native::adapter::codex::api_key_auth(&handoff, m)?);
+    drop(crate::native::adapter::codex::validated_api_key(
+        &handoff, m,
+    )?);
     let lease = &provider.metadata().delivery.lease;
-    let private = PrivateLaunchInput::codex_api_key(
-        provider.source_directory()?,
-        lease.material_digest.clone(),
-        lease.material_bytes,
-        provider.receipt()?.private_binding.digest,
-    )?;
     let recipe = profile.mapper.prepare_native_planned(
         &mut installed,
         CodexExecInput {
@@ -261,15 +259,50 @@ pub(super) fn bootstrap(
             private_home: &home,
         },
     )?;
-    #[cfg(any(test, feature = "test-support"))]
-    let recipe = if let Some(origin) = &profile.development_provider {
-        recipe.with_development_provider(origin)?
-    } else {
-        recipe
-    };
     let image = installed.image()?;
     let installation = installed.installation().clone();
     drop(installed);
+    let upstream = UpstreamEndpoint::openai();
+    #[cfg(any(test, feature = "test-support"))]
+    let upstream = if let Some(origin) = &profile.development_provider {
+        UpstreamEndpoint::development_loopback(origin)?
+    } else {
+        upstream
+    };
+    let transport = tokio::runtime::Handle::try_current()?.block_on(
+        ScopedResponsesTransport::start_retained(
+            ResponsesScope::new(i.binding.clone(), &m.model, scope.deadline.min(scope.hard))?,
+            upstream,
+            provider.retained_copy()?,
+            m,
+        ),
+    )?;
+    let origin = transport.origin().to_owned();
+    let capability = transport.local_capability();
+    {
+        let mut physical = lock(&entry.physical)?;
+        ensure!(
+            physical.transport.is_none(),
+            "native transport already owned"
+        );
+        physical.transport = Some(transport);
+    }
+    let private = PrivateLaunchInput::codex_scoped_capability(
+        provider.source_directory()?,
+        OriginalPrivateMaterial {
+            digest: lease.material_digest.clone(),
+            bytes: lease.material_bytes,
+            record_digest: provider.receipt()?.private_binding.digest,
+        },
+        ScopedCodexAuthBinding {
+            binding: i.binding.clone(),
+            launch_id: i.launch_id,
+            origin: origin.clone(),
+            deadline_boot_ms: scope.deadline.min(scope.hard) / 1_000_000,
+        },
+        capability,
+    )?;
+    let recipe = recipe.with_scoped_provider(&origin)?;
     {
         let owner = lock(owner)?;
         entry.current(&owner)?;

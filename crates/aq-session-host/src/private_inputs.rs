@@ -4,6 +4,73 @@ use super::*;
 use std::os::fd::{AsRawFd, FromRawFd};
 use zeroize::Zeroizing;
 const MAX_MATERIAL: u64 = 65536;
+/// Independent original installed-material pins, never newly installed bytes.
+pub struct OriginalPrivateMaterial {
+    pub digest: Digest,
+    pub bytes: u64,
+    pub record_digest: Digest,
+}
+/// Public metadata binding a fresh local capability to one actual launch.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopedCodexAuthBinding {
+    pub binding: aq_session_protocol::LaunchBinding,
+    pub launch_id: Uuid,
+    pub origin: String,
+    pub deadline_boot_ms: u64,
+}
+impl ScopedCodexAuthBinding {
+    fn validate(&self) -> Result<()> {
+        use aq_session_protocol::Validate;
+        self.binding.validate()?;
+        let port = self
+            .origin
+            .strip_prefix("http://127.0.0.1:")
+            .context("scoped auth numeric loopback origin")?
+            .parse::<u16>()?;
+        ensure!(
+            port > 0
+                && self.origin == format!("http://127.0.0.1:{port}")
+                && !self.launch_id.is_nil()
+                && self.deadline_boot_ms > 0,
+            "scoped auth exact origin/launch/deadline"
+        );
+        Ok(())
+    }
+    fn verify_launch(&self, config: &SealedLaunch) -> Result<()> {
+        self.validate()?;
+        ensure!(
+            self.launch_id == config.launch_id
+                && self.binding.session == config.manifest.bindings.session
+                && self.binding.attempt_id == config.manifest.bindings.attempt_id
+                && self.binding.assignment_generation
+                    == config.manifest.bindings.assignment_generation
+                && self.binding.launch_manifest_digest == canonical_digest(&config.manifest)?
+                && self.binding.graph_access_profile_digest
+                    == config.manifest.bindings.graph_access_profile.digest
+                && self.deadline_boot_ms == config.permit.expires_boot_ms,
+            "scoped auth exact launch binding/deadline"
+        );
+        let setting = format!("openai_base_url=\"{}/v1\"", self.origin);
+        let actual: Vec<_> = config
+            .command
+            .arguments
+            .windows(2)
+            .filter(|v| v[0] == "--config" && v[1].starts_with("openai_base_url="))
+            .collect();
+        ensure!(
+            actual.len() == 1 && actual[0][1] == setting,
+            "scoped auth exact local transport route"
+        );
+        Ok(())
+    }
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScopedAuthPin {
+    scope: ScopedCodexAuthBinding,
+    capability_digest: Digest,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourcePin {
@@ -25,6 +92,8 @@ pub(crate) struct PrivateInputRecord {
     auth_inode: u64,
     auth_bytes: u64,
     auth_digest: Digest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scoped: Option<ScopedAuthPin>,
 }
 impl std::fmt::Debug for PrivateInputRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -37,6 +106,7 @@ pub struct PrivateLaunchInput {
     source: File,
     pin: SourcePin,
     auth: Zeroizing<Vec<u8>>,
+    scoped: Option<ScopedAuthPin>,
 }
 fn directory(file: &File, name: &std::ffi::CStr) -> Result<File> {
     let fd = unsafe {
@@ -135,6 +205,30 @@ fn derive_auth(key: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     out.push(b'}');
     Ok(out)
 }
+fn capability(bytes: &[u8]) -> Result<()> {
+    ensure!(
+        bytes.len() == 77
+            && bytes.starts_with(b"aq-responses-")
+            && bytes[13..]
+                .iter()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b)),
+        "scoped Codex capability format"
+    );
+    Ok(())
+}
+fn verify_scoped_auth(auth: &[u8], pin: &ScopedAuthPin) -> Result<()> {
+    pin.scope.validate()?;
+    let key = auth
+        .strip_prefix(b"{\"OPENAI_API_KEY\":\"")
+        .and_then(|v| v.strip_suffix(b"\"}"))
+        .context("scoped Codex auth encoding")?;
+    capability(key)?;
+    ensure!(
+        Digest::of(key) == pin.capability_digest,
+        "scoped Codex capability changed"
+    );
+    Ok(())
+}
 impl PrivateLaunchInput {
     pub fn codex_api_key(
         source: File,
@@ -154,7 +248,48 @@ impl PrivateLaunchInput {
         };
         let key = read_source(&pin)?;
         let auth = derive_auth(&key)?;
-        Ok(Self { source, pin, auth })
+        Ok(Self {
+            source,
+            pin,
+            auth,
+            scoped: None,
+        })
+    }
+    pub fn codex_scoped_capability(
+        source: File,
+        original: OriginalPrivateMaterial,
+        scope: ScopedCodexAuthBinding,
+        local_capability: Zeroizing<Vec<u8>>,
+    ) -> Result<Self> {
+        scope.validate()?;
+        capability(&local_capability)?;
+        let m = private_directory(&source)?;
+        let pin = SourcePin {
+            owner: ownership::process_evidence(std::process::id())?,
+            directory_fd: source.as_raw_fd(),
+            device: m.dev(),
+            inode: m.ino(),
+            bytes: original.bytes,
+            digest: original.digest,
+            record_digest: original.record_digest,
+        };
+        let original = read_source(&pin)?;
+        ensure!(
+            original.as_slice() != local_capability.as_slice(),
+            "scoped capability must differ from original provider key"
+        );
+        let scoped = ScopedAuthPin {
+            scope,
+            capability_digest: Digest::of(&local_capability),
+        };
+        let auth = derive_auth(&local_capability)?;
+        verify_scoped_auth(&auth, &scoped)?;
+        Ok(Self {
+            source,
+            pin,
+            auth,
+            scoped: Some(scoped),
+        })
     }
 }
 /// Empty files are reserved first; the record enters the existing host intent
@@ -198,6 +333,7 @@ impl Publication {
             auth_inode: a.ino(),
             auth_bytes: input.auth.len() as u64,
             auth_digest: Digest::of(&input.auth),
+            scoped: input.scoped.clone(),
         };
         home.sync_all()?;
         root.sync_all()?;
@@ -213,10 +349,15 @@ impl Publication {
         self.record.clone()
     }
     pub(crate) fn publish(mut self) -> Result<File> {
-        ensure!(
-            derive_auth(&read_source(&self.input.pin)?)?.as_slice() == self.input.auth.as_slice(),
-            "private input changed before publication"
-        );
+        let original = read_source(&self.input.pin)?;
+        if let Some(pin) = &self.input.scoped {
+            verify_scoped_auth(&self.input.auth, pin)?;
+        } else {
+            ensure!(
+                derive_auth(&original)?.as_slice() == self.input.auth.as_slice(),
+                "private input changed before publication"
+            );
+        }
         self.auth.write_all(&self.input.auth)?;
         self.auth.sync_all()?;
         self.home.sync_all()?;
@@ -240,7 +381,12 @@ fn verify_record(root: &File, r: &PrivateInputRecord, original: bool) -> Result<
             && Digest::of(&bytes) == r.auth_digest,
         "private auth replaced or changed"
     );
-    if original {
+    if let Some(pin) = &r.scoped {
+        verify_scoped_auth(&bytes, pin)?;
+        if original {
+            drop(read_source(&r.source)?);
+        }
+    } else if original {
         ensure!(
             derive_auth(&read_source(&r.source)?)?.as_slice() == bytes.as_slice(),
             "private auth/original material mismatch"
@@ -267,6 +413,9 @@ pub(crate) fn verify_at_exec(config: &SealedLaunch, root: &Path) -> Result<()> {
                     ),
             "private input exact native owner/home"
         );
+        if let Some(pin) = &r.scoped {
+            pin.scope.verify_launch(config)?;
+        }
         let root = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW)
@@ -357,6 +506,29 @@ impl SessionHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn scoped() -> (ScopedCodexAuthBinding, LaunchManifest) {
+        let manifest: LaunchManifest =
+            serde_json::from_str(include_str!("../tests/fixtures/manifest.json")).unwrap();
+        let binding = aq_session_protocol::LaunchBinding {
+            schema_version: 1,
+            session: manifest.bindings.session.clone(),
+            offer_id: Uuid::new_v4(),
+            attempt_id: manifest.bindings.attempt_id,
+            assignment_generation: manifest.bindings.assignment_generation,
+            execution_spec_digest: Digest::of(b"offline exact execution"),
+            launch_manifest_digest: canonical_digest(&manifest).unwrap(),
+            graph_access_profile_digest: manifest.bindings.graph_access_profile.digest.clone(),
+        };
+        (
+            ScopedCodexAuthBinding {
+                binding,
+                launch_id: Uuid::new_v4(),
+                origin: "http://127.0.0.1:12345".into(),
+                deadline_boot_ms: 10000,
+            },
+            manifest,
+        )
+    }
     fn source(root: &Path) -> (File, Digest, u64, Digest) {
         let dir = root.join("source");
         std::fs::create_dir(&dir).unwrap();
@@ -456,5 +628,97 @@ mod tests {
             std::fs::read(dir.path().join("source/material.bin")).unwrap(),
             b"sk-private-offline-only"
         );
+    }
+    #[test]
+    fn scoped_auth_contains_only_fresh_capability_and_rechecks_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fd, digest, bytes, record_digest) = source(dir.path());
+        let root = root(dir.path());
+        let (scope, _) = scoped();
+        let cap = Zeroizing::new(format!("aq-responses-{}", "a".repeat(64)).into_bytes());
+        let input = PrivateLaunchInput::codex_scoped_capability(
+            fd,
+            OriginalPrivateMaterial {
+                digest,
+                bytes,
+                record_digest,
+            },
+            scope,
+            cap.clone(),
+        )
+        .unwrap();
+        let publication = Publication::reserve(&root, input).unwrap();
+        assert_eq!(
+            std::fs::metadata(root.join("codex-home/auth.json"))
+                .unwrap()
+                .len(),
+            0
+        );
+        let record = publication.record();
+        let metadata = serde_json::to_string(&record).unwrap();
+        assert!(!metadata.contains("sk-private"));
+        assert!(!metadata.contains(std::str::from_utf8(&cap).unwrap()));
+        let _source = publication.publish().unwrap();
+        let auth = std::fs::read(root.join("codex-home/auth.json")).unwrap();
+        assert_eq!(auth, *derive_auth(&cap).unwrap());
+        assert!(!String::from_utf8_lossy(&auth).contains("sk-private"));
+        verify_record(&File::open(&root).unwrap(), &record, true).unwrap();
+        std::fs::write(
+            dir.path().join("source/record.json"),
+            b"changed original record",
+        )
+        .unwrap();
+        assert!(verify_record(&File::open(&root).unwrap(), &record, true).is_err());
+        verify_record(&File::open(&root).unwrap(), &record, false).unwrap();
+    }
+    #[test]
+    fn scoped_auth_requires_exact_launch_manifest_deadline_and_single_route() {
+        let (scope, manifest) = scoped();
+        let mut config = SealedLaunch {
+            launch_id: scope.launch_id,
+            permit: ExecutionPermit {
+                session: manifest.bindings.session.clone(),
+                manifest_digest: canonical_digest(&manifest).unwrap(),
+                sequence: 1,
+                issued_boot_ms: 1,
+                expires_boot_ms: scope.deadline_boot_ms,
+            },
+            resource_policy: ResourcePolicy::CallerAdmission(manifest.harness.environment.clone()),
+            manifest,
+            workspace: "/work".into(),
+            helper: "/helper".into(),
+            tmux: "/usr/bin/tmux".into(),
+            tmux_version: "tmux 3.4".into(),
+            resource_qualification: None,
+            rendered_startup: None,
+            private_input: None,
+            observed: None,
+            command: LocalCommand {
+                executable: "/opt/codex".into(),
+                arguments: vec![
+                    "--config".into(),
+                    format!("openai_base_url=\"{}/v1\"", scope.origin),
+                ],
+                environment: Default::default(),
+            },
+        };
+        scope.verify_launch(&config).unwrap();
+        config.command.arguments.extend([
+            "--config".into(),
+            format!("openai_base_url=\"{}/v1\"", scope.origin),
+        ]);
+        assert!(scope.verify_launch(&config).is_err());
+        config.command.arguments.truncate(2);
+        config.permit.expires_boot_ms += 1;
+        assert!(scope.verify_launch(&config).is_err());
+        config.permit.expires_boot_ms -= 1;
+        config.launch_id = Uuid::new_v4();
+        assert!(scope.verify_launch(&config).is_err());
+        config.launch_id = scope.launch_id;
+        config.manifest.model.max_output_tokens += 1;
+        assert!(scope.verify_launch(&config).is_err());
+        let mut foreign = scope.clone();
+        foreign.origin = "https://provider.example".into();
+        assert!(foreign.validate().is_err());
     }
 }
