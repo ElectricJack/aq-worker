@@ -82,3 +82,19 @@ tmux inputs at fixed readonly paths. The Rust kernel-premise probe also passes i
 environment marker is rejected outside it before any CLI launch. Every actual CLI
 fixture checks these premises as its first operation. Actual harness execution
 remains paused pending reviewed helper-image assumptions.
+
+## Hardened process and image view
+
+The wrapper has since replaced the whole-host-root bind with a private PID/UTS
+namespace and an explicit trusted OS-image allowlist. `/etc` contains only literal
+private passwd/group/NSS/hosts/timezone files and namespace-local links. Kernel
+probes prove the outside parent's `/proc/<pid>/root` and `/fd` aliases absent,
+PID1's root contains the private image, and accessible provisioning directory FDs
+refer only to visible mounts. Private homes, `/tmp` and host service state remain
+masked. The guard requires these actual premises; its environment marker alone
+cannot establish them. No further actual Codex execution has run yet.
+
+This does not hide the fake worker's material source from its own harness inside
+the fixture. Raw upstream source/proc visibility remains an explicit production
+blocker; the fixture is an operator-host isolation boundary, not a claim of
+production per-harness secret separation.

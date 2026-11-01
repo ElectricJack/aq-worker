@@ -8,7 +8,52 @@ pub(super) fn require_confined_fixture() -> anyhow::Result<()> {
         std::env::var("AQ_NATIVE_FIXTURE_CONFINED").as_deref() == Ok("v1"),
         "{refusal}"
     );
-    let map = fs::read_to_string("/proc/self/uid_map")?;
+    let pid_namespace = fs::read_link("/proc/thread-self/ns/pid")?;
+    let outer_namespace = std::env::var("AQ_NATIVE_OUTER_PIDNS")?;
+    anyhow::ensure!(
+        pid_namespace != Path::new(&outer_namespace),
+        "{refusal}: host PID namespace is shared"
+    );
+    anyhow::ensure!(
+        fs::read_link("/proc/1/ns/pid")? == pid_namespace,
+        "{refusal}: proc namespace differs"
+    );
+    let outer = std::env::var("AQ_NATIVE_OUTER_PID")?.parse::<u32>()?;
+    anyhow::ensure!(
+        !Path::new(&format!("/proc/{outer}/root")).exists()
+            && !Path::new(&format!("/proc/{outer}/fd")).exists(),
+        "{refusal}: outside process aliases visible"
+    );
+    let expected = [
+        "group",
+        "hosts",
+        "localtime",
+        "mtab",
+        "nsswitch.conf",
+        "passwd",
+        "timezone",
+    ];
+    for directory in ["/etc", "/proc/1/root/etc"] {
+        let mut actual: Vec<_> = fs::read_dir(directory)?
+            .map(|p| p.map(|p| p.file_name()))
+            .collect::<Result<_, _>>()?;
+        actual.sort();
+        anyhow::ensure!(
+            actual
+                .iter()
+                .map(|s| s.to_str().unwrap_or(""))
+                .collect::<Vec<_>>()
+                == expected,
+            "{refusal}: operator etc image visible"
+        );
+    }
+    for directory in ["/proc/1/root/home", "/proc/1/root/root"] {
+        anyhow::ensure!(
+            fs::read_dir(directory)?.next().is_none(),
+            "{refusal}: proc root exposes operator homes"
+        );
+    }
+    let map = fs::read_to_string("/proc/thread-self/uid_map")?;
     let rows: Vec<Vec<u64>> = map
         .lines()
         .map(|l| {

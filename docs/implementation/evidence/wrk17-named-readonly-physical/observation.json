@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "authority": "image-only static physical observation; no Codex, provider, model, secret or production isolation qualification",
+  "image": "checked-in named-readonly-peer.c compiled static locally",
+  "image_sha256": "b0cce3fcc2e409a0e3c9f007de6cf5729e4b00f13862736a085d396eb79a58ab",
+  "source_built_host_sha256": "d405e318b95dcdf4f53ee32c86356e5c6ef23a90b5fd739363bf598f43c645b1",
+  "tmux_sha256": "034b15c64035f783d43862f2775eb4828f61571ca62c8199796000b97d556ecd",
+  "elapsed_seconds": 0.7,
+  "kernel_observations": [
+    "actual retained named descriptor exec under tmux",
+    "canonical /proc/self/exe=/opt/aq-qualification/codex",
+    "same-inode symlink helper reexec and successful waitpid",
+    "exact sealed native stdin",
+    "actual blank baseline and Running",
+    "actual stop with kernel ECHILD"
+  ],
+  "fixture_boundary": [
+    "private user/network/PID/UTS namespaces",
+    "explicit trusted /usr /bin /sbin /lib /lib64 readonly image binds",
+    "private literal minimal /etc",
+    "operator homes and host service state absent",
+    "outside parent proc/root/fd aliases absent",
+    "all capability sets empty and no_new_privs",
+    "readonly image ancestor mounts; private tmpfs state outside /tmp",
+    "numeric TEST-NET connect denied; loopback connect works"
+  ],
+  "remaining_boundaries": [
+    "fresh combined helper/auth/mapper candidate review before actual Codex",
+    "fake worker material source remains visible inside fixture; no production key isolation claim",
+    "independent production environment and model/context qualification",
+    "production factory remains refused"
+  ]
+}

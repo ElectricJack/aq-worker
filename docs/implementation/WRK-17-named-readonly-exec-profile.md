@@ -166,3 +166,11 @@ descriptors, while process ownership remains separate. A real `CLONE_FILES` test
 creates a caller-only writable descriptor absent from the leader table and proves
 that the new scan refuses it. Four focused named host cases pass in 0.00s; no actual
 agent execution is involved.
+
+A separate physical integration case now exercises the retained named descriptor
+through the actual observed host and tmux gate. The checked-in static peer sees a
+canonical `/opt/aq-qualification/codex` self path, reexecutes that same inode through
+a private symlink helper, verifies exact sealed stdin, and reaches actual Running
+and ECHILD stop. It passes in 0.70s under the new private-PID/trusted-image fixture;
+see [image-only physical evidence](evidence/wrk17-named-readonly-physical/README.md).
+No Codex, auth, provider, model or secret-isolation qualification is inferred.
