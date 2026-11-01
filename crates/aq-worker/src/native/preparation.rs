@@ -5,7 +5,6 @@ pub(crate) use context::InputContext;
 pub use runner_prepare::{PhasePreparation, PhasePreparationOptions};
 mod execution;
 mod granted;
-#[cfg(any(test, feature = "test-support"))]
 #[path = "launch/mod.rs"]
 pub mod launch;
 pub use execution::{DurablePhaseExecution, PhaseExecutionCommit, RetainedPhaseExecutionHistory};
@@ -43,7 +42,6 @@ pub struct InputPipeline {
     bulk_slots: Arc<Semaphore>,
     client: NativeClient,
     retained: Arc<Mutex<granted::RetainedOwners>>,
-    #[cfg(any(test, feature = "test-support"))]
     launch: Arc<launch::Registry>,
     scoped_presence_owned: std::sync::atomic::AtomicBool,
 }
@@ -59,11 +57,17 @@ impl InputPipeline {
         disk_bytes: u64,
     ) -> Result<Uuid> {
         let retained = self.retained.clone();
+        let launch = self.launch.clone();
         self.storage(move |owner| {
             let mut retained = retained
                 .lock()
                 .map_err(|_| anyhow::anyhow!("retained reservation owner poisoned"))?;
-            retained.reserve(&mut owner.journal, offer, runtime, deadline_ns, disk_bytes)
+            let id =
+                retained.reserve(&mut owner.journal, offer, runtime, deadline_ns, disk_bytes)?;
+            // A registry refusal preserves the durable reservation and all
+            // resource claims; it never permits a launch or frees capacity.
+            launch.admit(id)?;
+            Ok(id)
         })
         .await
     }
@@ -73,7 +77,6 @@ impl InputPipeline {
     }
     pub fn new(journal: Journal, materials: MaterialStore, client: NativeClient) -> Self {
         let retained = granted::RetainedOwners::new(journal.state());
-        #[cfg(any(test, feature = "test-support"))]
         let launch = Arc::new(launch::Registry::new(journal.state()));
         Self {
             owned: Arc::new(Mutex::new(Owned { journal, materials })),
@@ -81,7 +84,6 @@ impl InputPipeline {
             bulk_slots: Arc::new(Semaphore::new(1)),
             client,
             retained: Arc::new(Mutex::new(retained)),
-            #[cfg(any(test, feature = "test-support"))]
             launch,
             scoped_presence_owned: std::sync::atomic::AtomicBool::new(false),
         }

@@ -171,7 +171,6 @@ impl InputPipeline {
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
 pub(super) struct LaunchExecutionScope {
     pub(super) id: Uuid,
     pub(super) digest: Digest,
@@ -179,7 +178,6 @@ pub(super) struct LaunchExecutionScope {
     pub(super) hard: u64,
     pub(super) inputs: Arc<PreparedPhaseInputs>,
 }
-#[cfg(any(test, feature = "test-support"))]
 impl LaunchExecutionScope {
     pub(super) fn check(&self, owner: &Owned) -> Result<()> {
         owner
@@ -195,7 +193,6 @@ impl LaunchExecutionScope {
             .check_phase_execution(self.id, &self.digest, self.deadline, self.hard)
     }
 }
-#[cfg(any(test, feature = "test-support"))]
 impl InputPipeline {
     pub(super) fn launch_scope(
         &self,
