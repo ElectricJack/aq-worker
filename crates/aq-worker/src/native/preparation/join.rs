@@ -66,82 +66,21 @@ impl PreparedInputs {
         &self.artifacts
     }
 }
-pub struct PreparedPhaseInputs {
-    retained_inline_bytes: u64,
-    startup_bytes: u64,
-    request: aq_admission::preparation_v2::PrepareRequest,
-    startup: RenderedStartup,
-    workspace: HydratedWorkspace,
-    artifacts: Vec<VerifiedArtifact>,
-    materials: Vec<InstalledMaterial>,
+mod frozen_inputs {
+    use super::*;
+    crate::native::phase_profile_shared::prepared_inputs! { aq_admission::preparation_v2, PreparedPhaseInputs, phase_prepared }
 }
-impl PreparedPhaseInputs {
-    pub(super) fn retained_inline_bytes(&self) -> u64 {
-        self.retained_inline_bytes
-    }
-    pub(super) fn startup_bytes(&self) -> u64 {
-        self.startup_bytes
-    }
-    pub(super) fn verify_execution_inputs(
-        &self,
-        journal: &Journal,
-        store: &MaterialStore,
-        deadline: u64,
-    ) -> Result<()> {
-        let a = journal
-            .state()
-            .attempts
-            .get(&self.request.original.binding.attempt_id)
-            .context("phase retained attempt absent")?;
-        let p = a
-            .phase_prepared
-            .as_ref()
-            .context("phase retained Prepare absent")?;
-        ensure!(
-            serde_json::to_value(&self.request)? == serde_json::to_value(&p.request)?,
-            "phase retained Prepare changed"
-        );
-        ensure!(
-            self.materials.len() == self.request.original.materials.len(),
-            "phase retained material count"
-        );
-        for material in &self.materials {
-            let r = material.receipt()?;
-            ensure!(
-                self.request
-                    .original
-                    .materials
-                    .iter()
-                    .any(|v| serde_json::to_value(v).ok() == serde_json::to_value(&r).ok()),
-                "phase retained material pin"
-            );
-            drop(material.read_private()?);
-            // Verify the current private installation namespace and actual raw
-            // record against the retained immutable receipt, without replacing
-            // the first owner bundle or extending retrieval/preparation clocks.
-            drop(store.reopen_pinned(&r)?.read_private()?);
-        }
-        self.workspace.revalidate_execution(journal, deadline)
-    }
-    pub fn request(&self) -> &aq_admission::preparation_v2::PrepareRequest {
-        &self.request
-    }
-    pub fn startup(&self) -> &RenderedStartup {
-        &self.startup
-    }
-    pub fn workspace(&self) -> &HydratedWorkspace {
-        &self.workspace
-    }
-    pub fn artifacts(&self) -> &[VerifiedArtifact] {
-        &self.artifacts
-    }
-    pub fn materials(&self) -> &[InstalledMaterial] {
-        &self.materials
-    }
+mod refresh_inputs {
+    use super::*;
+    crate::native::phase_profile_shared::prepared_inputs! { aq_admission::preparation_refresh_v1, PreparedRefreshInputs, refresh_prepared }
 }
+pub use frozen_inputs::PreparedPhaseInputs;
+pub use refresh_inputs::PreparedRefreshInputs;
+
 enum JoinedRequest {
     Legacy(Prepare),
     Phase(aq_admission::preparation_v2::PrepareRequest),
+    Refresh(aq_admission::preparation_refresh_v1::PrepareRequest),
 }
 struct JoinedInputs {
     request: JoinedRequest,
@@ -204,6 +143,36 @@ impl InputPipeline {
             anyhow::bail!("phase join protocol mismatch")
         };
         Ok(PreparedPhaseInputs {
+            retained_inline_bytes: p.retained_inline_bytes,
+            startup_bytes: p.startup_bytes,
+            request,
+            startup: p.startup,
+            workspace: p.workspace,
+            artifacts: p.artifacts,
+            materials: p.materials,
+        })
+    }
+    pub async fn prepare_inputs_refresh(
+        &self,
+        id: Uuid,
+        preparation: Arc<crate::native::http::preparation_refresh_v1::AcceptedPreparation>,
+        artifacts: Vec<VerifiedArtifact>,
+        workspace: HydratedWorkspace,
+        renderer: ArtifactRef,
+    ) -> Result<PreparedRefreshInputs> {
+        let p = self
+            .join_inputs(
+                id,
+                InputContext::Refresh(preparation),
+                artifacts,
+                workspace,
+                renderer,
+            )
+            .await?;
+        let JoinedRequest::Refresh(request) = p.request else {
+            anyhow::bail!("phase join protocol mismatch")
+        };
+        Ok(PreparedRefreshInputs {
             retained_inline_bytes: p.retained_inline_bytes,
             startup_bytes: p.startup_bytes,
             request,
@@ -323,6 +292,9 @@ impl InputPipeline {
                 }
                 InputContext::Phase(p) => {
                     JoinedRequest::Phase(owner.journal.record_phase_prepare(id, p, receipts)?)
+                }
+                InputContext::Refresh(p) => {
+                    JoinedRequest::Refresh(owner.journal.record_refresh_prepare(id, p, receipts)?)
                 }
             };
             ensure!(

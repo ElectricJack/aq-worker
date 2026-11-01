@@ -1,0 +1,1 @@
+crate::native::phase_profile_shared::journal_accept! { aq_admission::preparation_refresh_v1, preparation_refresh_v1, refresh_acceptance, refresh_preparation, refresh_prepared, refresh_execution, phase_acceptance, phase_preparation, phase_prepared, phase_execution, begin_refresh_accept, record_refresh_preparation, check_refresh_preparation }

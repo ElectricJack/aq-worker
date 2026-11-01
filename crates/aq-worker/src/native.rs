@@ -6,6 +6,7 @@ pub mod adapter;
 pub mod http;
 pub mod journal;
 pub mod materials;
+mod phase_profile_shared;
 pub mod preparation;
 pub mod runner;
 pub use preparation::launch;

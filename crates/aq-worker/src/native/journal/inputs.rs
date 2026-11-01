@@ -256,7 +256,7 @@ impl Journal {
             self.state
                 .attempts
                 .get(&id)
-                .is_some_and(|a| a.phase_acceptance.is_none()),
+                .is_some_and(|a| a.phase_acceptance.is_none() && a.refresh_acceptance.is_none()),
             "legacy input on phase attempt"
         );
         let saved = self
@@ -287,7 +287,7 @@ impl Journal {
             self.state
                 .attempts
                 .get(&id)
-                .is_some_and(|a| a.phase_acceptance.is_none()),
+                .is_some_and(|a| a.phase_acceptance.is_none() && a.refresh_acceptance.is_none()),
             "legacy artifact on phase attempt"
         );
         self.artifact_download(id, reference)
@@ -443,7 +443,7 @@ impl Journal {
             self.state
                 .attempts
                 .get(&id)
-                .is_some_and(|a| a.phase_acceptance.is_none()),
+                .is_some_and(|a| a.phase_acceptance.is_none() && a.refresh_acceptance.is_none()),
             "legacy artifact completion on phase attempt"
         );
         self.finish_artifact(id, verified)
@@ -499,7 +499,7 @@ impl Journal {
             self.state
                 .attempts
                 .get(&id)
-                .is_some_and(|a| a.phase_acceptance.is_none()),
+                .is_some_and(|a| a.phase_acceptance.is_none() && a.refresh_acceptance.is_none()),
             "legacy material on phase attempt"
         );
         self.material_download(id, lease)

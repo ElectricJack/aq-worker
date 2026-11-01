@@ -90,14 +90,23 @@ impl LaunchAuthority for Authority {
                 observation: mapped,
             };
             request.validate()?;
-            h.terminal = Some(crate::native::journal::phase_terminal::started(
-                state
-                    .attempts
-                    .get(&i.binding.attempt_id)
-                    .context("phase Started attempt absent")?,
-                request.clone(),
-                revision,
-            )?);
+            let a = state
+                .attempts
+                .get(&i.binding.attempt_id)
+                .context("phase Started attempt absent")?;
+            if a.refresh_acceptance.is_some() {
+                h.refresh_terminal = Some(crate::native::journal::refresh_terminal::started(
+                    a,
+                    request.clone(),
+                    revision,
+                )?);
+            } else {
+                h.terminal = Some(crate::native::journal::phase_terminal::started(
+                    a,
+                    request.clone(),
+                    revision,
+                )?);
+            }
             h.running = Some(crate::native::journal::launch::NativeRunning {
                 observation,
                 request,

@@ -113,6 +113,16 @@ impl InputPipeline {
         self.hydrate_source_context(id, InputContext::Phase(preparation), spec, git)
             .await
     }
+    pub async fn hydrate_source_refresh(
+        &self,
+        id: Uuid,
+        preparation: Arc<crate::native::http::preparation_refresh_v1::AcceptedPreparation>,
+        spec: VerifiedArtifact,
+        git: GitClient,
+    ) -> Result<HydratedWorkspace> {
+        self.hydrate_source_context(id, InputContext::Refresh(preparation), spec, git)
+            .await
+    }
     async fn hydrate_source_context(
         &self,
         id: Uuid,

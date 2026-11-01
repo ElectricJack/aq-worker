@@ -441,3 +441,12 @@ mod hydration_scenarios;
 
 #[path = "preparation_v2_scenarios.rs"]
 mod preparation_v2_scenarios;
+
+#[path = "refresh_scenarios.rs"]
+mod refresh_scenarios;
+
+#[path = "physical_fixture.rs"]
+mod physical_fixture;
+#[allow(dead_code)] // Shared finite fixture exposes legacy fault controls unused by this focused slice.
+#[path = "refresh_physical_scenarios.rs"]
+mod refresh_physical_scenarios;
