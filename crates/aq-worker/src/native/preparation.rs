@@ -1,6 +1,8 @@
 //! Bounded current input collection, never Prepare or execution permission.
 mod context;
+mod runner_prepare;
 pub(crate) use context::InputContext;
+pub use runner_prepare::{PhasePreparation, PhasePreparationOptions};
 mod execution;
 mod granted;
 #[cfg(any(test, feature = "test-support"))]
@@ -46,6 +48,29 @@ pub struct InputPipeline {
     scoped_presence_owned: std::sync::atomic::AtomicBool,
 }
 impl InputPipeline {
+    /// Reserve through the original live journal and install its process-local
+    /// retained-input membership in the same storage job. Cancellation cannot
+    /// cancel an in-flight fsync or publish only half of this handoff.
+    pub async fn reserve(
+        &self,
+        offer: aq_admission::startup::NativeOffer,
+        runtime: super::journal::RuntimeIdentity,
+        deadline_ns: u64,
+        disk_bytes: u64,
+    ) -> Result<Uuid> {
+        let retained = self.retained.clone();
+        self.storage(move |owner| {
+            let mut retained = retained
+                .lock()
+                .map_err(|_| anyhow::anyhow!("retained reservation owner poisoned"))?;
+            retained.reserve(&mut owner.journal, offer, runtime, deadline_ns, disk_bytes)
+        })
+        .await
+    }
+    /// Current capacity only; reopened or poisoned journals refuse polling.
+    pub async fn available(&self) -> Result<super::journal::Limits> {
+        self.storage(|owner| owner.journal.available()).await
+    }
     pub fn new(journal: Journal, materials: MaterialStore, client: NativeClient) -> Self {
         let retained = granted::RetainedOwners::new(journal.state());
         #[cfg(any(test, feature = "test-support"))]
