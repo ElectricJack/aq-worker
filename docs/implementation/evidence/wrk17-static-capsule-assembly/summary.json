@@ -46,7 +46,6 @@
     "format_and_diff": true
   },
   "remaining_gates": [
-    "independent assembled-source review",
     "authenticated mount authorization and actual original/derived auth handoff",
     "two-stage listener/auth publication before exec",
     "named immutable helper compatibility",
@@ -57,5 +56,15 @@
     "checked FD tmpfs attachment and FD-based construction/pivot; no root pathname reuse after anchor",
     "submount-free grant premise enforced through bounded current mountinfo; real unlocked-submount negative",
     "bounded Drop polling followed by existing reaper ownership handoff; no unbounded wait or stop proof"
-  ]
+  ],
+  "independent_review": {
+    "reviewer": "native_runner_v2",
+    "mode": "read-only; no reviewer builds or launches",
+    "commits": [
+      "dd96ed3",
+      "afe4ab8"
+    ],
+    "outcome": "accepted for declared test-support static scope",
+    "production_eligibility_unchanged": true
+  }
 }

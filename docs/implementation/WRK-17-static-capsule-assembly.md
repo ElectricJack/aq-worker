@@ -1,7 +1,7 @@
 # First assembled static capsule candidate
 
 Status: bounded test-support implementation and static evidence; independent
-source review pending.
+read-only review accepted the corrected static scope.
 This is a new isolated mechanism, not a qualified production host profile.
 `PRODUCTION_ELIGIBLE` stays false. No old named/memfd profile, pane identity,
 observed-launch protocol, worker eligibility or package archive changes.
@@ -187,3 +187,10 @@ new immediate-timeout owner test passes without waiting for the five-second
 deadline; it exercises the existing reaper handoff and emits no stopped proof.
 The final host unit run passes 34 tests in 0.19s (three existing fixtures
 ignored), and the unaffected default binary check passes in 0.07s.
+
+Independent Runner review accepted fixes `dd96ed3` and `afe4ab8`: checked
+FD-root attachment/construction/pivot; enforced submount-free supported domain
+and deterministic probes; and retained Child/reaper ownership after timeout.
+The reviewer ran no builds or processes and found no remaining concrete blocker
+in this static scope. This acceptance does not qualify production eligibility,
+real SourcePin/auth handoff, named helpers, tmux, permits or recovery.
