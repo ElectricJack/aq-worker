@@ -15,6 +15,7 @@ use aq_session_host::RenderedStartup;
 use aq_session_protocol::{ArtifactRef, Digest, canonical_bytes};
 
 pub const MAX_INLINE_BYTES: u64 = 2_097_152;
+pub const MAX_INLINE_SET_BYTES: u64 = 8 * 1024 * 1024;
 pub const MAX_CHUNK_BYTES: usize = 262_144;
 
 /// Bounded, ordered download assembly with exact prefix replay. A response may

@@ -2,7 +2,6 @@
 use super::*;
 use aq_admission::transport::Prepare;
 use aq_session_host::RenderedStartup;
-const MAX_JOIN_BYTES: u64 = 8 * 1024 * 1024;
 pub struct PreparedInputs {
     request: Prepare,
     startup: RenderedStartup,
@@ -66,7 +65,8 @@ impl InputPipeline {
                     .checked_add(input.bytes().len() as u64)
                     .context("Prepare input bytes overflow")?;
                 ensure!(
-                    total <= MAX_JOIN_BYTES && identities.insert(input.receipt().artifact.digest),
+                    total <= crate::native::MAX_INLINE_SET_BYTES
+                        && identities.insert(input.receipt().artifact.digest),
                     "Prepare duplicate/oversized inline input"
                 );
                 let expected = offer

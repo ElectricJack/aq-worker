@@ -214,6 +214,7 @@ impl Inputs {
                 Json(ControlReply::Preparation(d))
             }
         };
+        let artifact_mode = mode.clone();
         let artifact_route = move |Json(request): Json<ArtifactFetch>| {
             let (descriptor, bytes) = inline
                 .iter()
@@ -221,6 +222,7 @@ impl Inputs {
                 .unwrap()
                 .clone();
             let root = r1.clone();
+            let artifact_mode = artifact_mode.clone();
             async move {
                 let snapshot: Snapshot =
                     serde_json::from_slice(&fs::read(root.join("journal.json")).unwrap()).unwrap();
@@ -230,6 +232,15 @@ impl Inputs {
                         .values()
                         .any(|d| d.requests.iter().any(|r| same(r, &request).unwrap()))
                 );
+                if artifact_mode.load(Ordering::SeqCst) == 3
+                    && request.artifact.id.as_str() == "instructions"
+                {
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        "synthetic partial inline batch",
+                    )
+                        .into_response();
+                }
                 let end =
                     (request.offset + u64::from(request.length)).min(bytes.len() as u64) as usize;
                 let mut response = bytes[request.offset as usize..end].to_vec().into_response();
@@ -368,16 +379,11 @@ impl Inputs {
         }
     }
     async fn all_inputs(&self) -> Vec<crate::native::VerifiedArtifact> {
-        let state = self.pipeline().snapshot().await.unwrap();
-        let mut inputs = Vec::new();
-        for d in &state.attempts[&self.id].reservation.offer.offered.artifacts {
-            inputs.push(
-                self.pipeline()
-                    .artifact(self.id, self.preparation.clone(), d.artifact.clone())
-                    .await
-                    .unwrap(),
-            );
-        }
+        let inputs = self
+            .pipeline()
+            .artifacts(self.id, self.preparation.clone())
+            .await
+            .unwrap();
         for lease in &self.preparation.plan().materials {
             self.pipeline()
                 .material(self.id, self.preparation.clone(), lease.lease_id)
@@ -1362,4 +1368,134 @@ fn format_three_refusal_preserves_old_journal_and_pending_files() {
         fs::read(root.join("pending")).unwrap(),
         b"unknown old write"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inline_batch_uses_two_durable_commits_and_replay_reuses_every_original_request() {
+    let h = Inputs::new(synthetic()).await;
+    let before = h.pipeline().snapshot().await.unwrap();
+    let first = h
+        .pipeline()
+        .artifacts(h.id, h.preparation.clone())
+        .await
+        .unwrap();
+    let saved = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(saved.revision, before.revision + 2);
+    assert_eq!(
+        first.len(),
+        before.attempts[&h.id]
+            .reservation
+            .offer
+            .offered
+            .artifacts
+            .len()
+    );
+    for op in saved.attempts[&h.id].downloads.values() {
+        assert_eq!(op.created_revision, before.revision);
+        assert!(op.receipt.is_some() && op.completed_ns.is_some());
+    }
+    let second = h
+        .pipeline()
+        .artifacts(h.id, h.preparation.clone())
+        .await
+        .unwrap();
+    assert_eq!(second.len(), first.len());
+    for (a, b) in first.iter().zip(&second) {
+        assert_eq!(a.bytes(), b.bytes());
+    }
+    assert!(same(&saved, &h.pipeline().snapshot().await.unwrap()).unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failed_inline_batch_keeps_exact_plan_without_partial_receipt_completion() {
+    let h = Inputs::new(synthetic()).await;
+    let before = h.pipeline().snapshot().await.unwrap();
+    h.mode.store(3, Ordering::SeqCst);
+    assert!(
+        h.pipeline()
+            .artifacts(h.id, h.preparation.clone())
+            .await
+            .is_err()
+    );
+    let partial = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(partial.revision, before.revision + 1);
+    let plans = &partial.attempts[&h.id].downloads;
+    assert_eq!(
+        plans.len(),
+        before.attempts[&h.id]
+            .reservation
+            .offer
+            .offered
+            .artifacts
+            .len()
+    );
+    assert!(
+        plans
+            .values()
+            .all(|p| p.receipt.is_none() && p.completed_ns.is_none())
+    );
+    h.mode.store(0, Ordering::SeqCst);
+    h.pipeline()
+        .artifacts(h.id, h.preparation.clone())
+        .await
+        .unwrap();
+    let complete = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(complete.revision, before.revision + 2);
+    for (key, p) in plans {
+        let actual = &complete.attempts[&h.id].downloads[key];
+        assert!(same(&p.requests, &actual.requests).unwrap());
+        assert_eq!(p.request_digests, actual.request_digests);
+        assert_eq!(p.created_revision, actual.created_revision);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion() {
+    for completion in [false, true] {
+        for fault in [
+            WriteFault::BeforeWrite,
+            WriteFault::AfterFileSync,
+            WriteFault::AfterRename,
+            WriteFault::AfterDirectorySync,
+        ] {
+            let mut h = Inputs::new(synthetic()).await;
+            if completion {
+                h.mode.store(3, Ordering::SeqCst);
+                assert!(
+                    h.pipeline()
+                        .artifacts(h.id, h.preparation.clone())
+                        .await
+                        .is_err()
+                );
+                h.mode.store(0, Ordering::SeqCst);
+            }
+            let before = h.pipeline().snapshot().await.unwrap();
+            h.pipeline().test_journal_fault(fault).await.unwrap();
+            assert!(
+                h.pipeline()
+                    .artifacts(h.id, h.preparation.clone())
+                    .await
+                    .is_err()
+            );
+            drop(h.pipeline.take());
+            let mut capacity = limits();
+            capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
+            let old = Journal::open(&h.root, identity().node_id, capacity).unwrap();
+            assert!(old.available().is_err());
+            let a = &old.state().attempts[&h.id];
+            let count = a.reservation.offer.offered.artifacts.len();
+            assert!(a.downloads.is_empty() || a.downloads.len() == count);
+            let complete = a.downloads.values().filter(|d| d.receipt.is_some()).count();
+            assert!(complete == 0 || complete == count);
+            assert!(
+                old.state().revision == before.revision
+                    || old.state().revision == before.revision + 1
+            );
+            if completion {
+                for (key, op) in &before.attempts[&h.id].downloads {
+                    assert!(same(&op.requests, &a.downloads[key].requests).unwrap());
+                }
+            }
+        }
+    }
 }
