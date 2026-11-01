@@ -104,6 +104,13 @@ fn exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata
         "features.shell_snapshot=false",
         "features.shell_snapshot_v2=false",
         "allow_login_shell=false",
+        "features.plugins=false",
+        "features.recommended_plugins=false",
+        "features.remote_plugin=false",
+        "features.plugin_discovery_prefetch=false",
+        "features.apps=false",
+        "features.memory_tool=false",
+        "memories.generate_memories=false",
     ] {
         assert!(command.arguments.iter().any(|argument| argument == setting));
     }
