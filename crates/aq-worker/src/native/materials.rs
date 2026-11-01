@@ -32,23 +32,23 @@ fn canonical_bytes(value: &impl Serialize) -> Result<Vec<u8>> {
 fn canonical_digest(value: &impl Serialize) -> Result<Digest> {
     Ok(Digest::of(&canonical_bytes(value)?))
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Record {
-    schema_version: u32,
-    operation_id: Uuid,
-    preparation_digest: Digest,
-    worker: WorkerIdentity,
-    kernel_boot_id: Uuid,
-    clock_source: String,
-    delivery: MaterialDelivery,
-    sent_ns: u64,
-    received_ns: u64,
-    material_synced_ns: u64,
-    retrieval_deadline_ns: u64,
+pub(crate) struct Record {
+    pub(crate) schema_version: u32,
+    pub(crate) operation_id: Uuid,
+    pub(crate) preparation_digest: Digest,
+    pub(crate) worker: WorkerIdentity,
+    pub(crate) kernel_boot_id: Uuid,
+    pub(crate) clock_source: String,
+    pub(crate) delivery: MaterialDelivery,
+    pub(crate) sent_ns: u64,
+    pub(crate) received_ns: u64,
+    pub(crate) material_synced_ns: u64,
+    pub(crate) retrieval_deadline_ns: u64,
 }
 impl Record {
-    fn receipt(&self) -> Result<MaterialReceipt> {
+    pub(crate) fn receipt(&self) -> Result<MaterialReceipt> {
         Ok(MaterialReceipt {
             schema_version: 1,
             operation_id: self.operation_id,
@@ -67,7 +67,7 @@ impl Record {
             received_at_ms: self.delivery.clock.server_time_ms,
         })
     }
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         self.worker.validate()?;
         self.delivery.lease.validate()?;
         self.delivery.clock.validate()?;
@@ -101,6 +101,9 @@ pub struct InstalledMaterial {
     record: Record,
 }
 impl InstalledMaterial {
+    pub(crate) fn metadata(&self) -> &Record {
+        &self.record
+    }
     pub fn receipt(&self) -> Result<MaterialReceipt> {
         self.record.receipt()
     }
@@ -262,6 +265,35 @@ impl MaterialStore {
             ensure!(count <= self.max_leases, "material root exceeds quota");
         }
         Ok(count)
+    }
+    /// Historical filesystem evidence only. The expected pin must come from
+    /// the independent durable journal, never a self-consistent local record.
+    /// This does not refresh retrieval or reconstruct execution authority.
+    pub fn reopen_pinned(&self, expected: &MaterialReceipt) -> Result<InstalledMaterial> {
+        ensure!(
+            self.owner_pid == std::process::id(),
+            "forked material owner"
+        );
+        private_dir(&self.root)?;
+        ensure!(!expected.lease_id.is_nil(), "material pin lease identity");
+        let name = CString::new(expected.lease_id.to_string())?;
+        let dir = directory(&self.root, &name)?;
+        private_dir(&dir)?;
+        let raw = read_member(&dir, c"record.json", MAX_RECORD)?;
+        let record: Record = serde_json::from_slice(&raw)?;
+        record.validate()?;
+        ensure!(
+            canonical_bytes(&record)? == *raw
+                && record.worker == self.identity
+                && same(&record.receipt()?, expected)?,
+            "material independent pin differs"
+        );
+        let installed = InstalledMaterial {
+            directory: dir,
+            record,
+        };
+        installed.read_private()?;
+        Ok(installed)
     }
     #[cfg(any(test, feature = "test-support"))]
     pub fn inject_fault(&mut self, fault: InstallFault) {

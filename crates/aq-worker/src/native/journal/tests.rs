@@ -432,3 +432,6 @@ fn changed_private_root_permissions_refuse_further_capacity_or_writes() {
             .is_err()
     );
 }
+
+#[path = "inputs_scenarios.rs"]
+mod inputs_scenarios;

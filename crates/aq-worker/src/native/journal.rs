@@ -1,5 +1,6 @@
 //! Native no-launch reservations and exact acceptance recovery. No grants or
 //! process permits are reconstructed from disk. Run fsync on a bounded lane.
+mod inputs;
 mod storage;
 use super::http::{boot_ns, control::Preparation};
 use anyhow::{Context, Result, ensure};
@@ -11,6 +12,7 @@ use aq_admission::{
 use aq_session_protocol::{
     ArtifactRef, Capability, Digest, ProfiledAcceptance, SessionIdentity, Validate,
 };
+pub use inputs::{ArtifactDownload, MaterialDownload};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -19,7 +21,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +81,8 @@ pub struct Attempt {
     pub acceptance: Option<Accept>,
     pub acceptance_digest: Option<Digest>,
     pub preparation: Option<RecordedPreparation>,
+    pub downloads: BTreeMap<String, ArtifactDownload>,
+    pub material_downloads: BTreeMap<Uuid, MaterialDownload>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -143,9 +147,23 @@ impl State {
         );
         let mut used = (0u32, 0u64, 0u64, 0u64);
         let mut identities = BTreeSet::new();
+        let mut download_records = 0usize;
+        let mut download_requests = 0usize;
         for (id, attempt) in &self.attempts {
             let r = &attempt.reservation;
             r.offer.validate()?;
+            ensure!(
+                r.offer.offered.artifacts.len() <= 126
+                    && r.offer
+                        .offered
+                        .artifacts
+                        .iter()
+                        .map(|a| a.artifact.digest.as_str())
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                        == r.offer.offered.artifacts.len(),
+                "native inline receipt set cannot satisfy Prepare"
+            );
             for reference in [&r.runtime.runtime, &r.runtime.qualification] {
                 reference.id.validate()?;
                 reference.version.validate()?;
@@ -240,7 +258,25 @@ impl State {
                     "preparation delivery clocks"
                 );
             }
+            inputs::validate(
+                attempt,
+                &self.identity,
+                self.kernel_boot_id,
+                self.revision,
+                &mut identities,
+            )?;
+            download_records += attempt.downloads.len() + attempt.material_downloads.len();
+            download_requests += attempt
+                .downloads
+                .values()
+                .map(|p| p.requests.len())
+                .sum::<usize>()
+                + attempt.material_downloads.len();
         }
+        ensure!(
+            download_records <= inputs::MAX_RECORDS && download_requests <= inputs::MAX_REQUESTS,
+            "native input operation capacity"
+        );
         ensure!(
             used.0 <= limits.slots
                 && used.1 <= limits.memory_bytes
@@ -299,8 +335,13 @@ impl Journal {
             names.iter().any(|n| n == "journal.json"),
             "native journal missing; capacity unknown"
         );
-        let snapshot: Snapshot =
-            serde_json::from_slice(&storage.read(c"journal.json", MAX_BYTES)?)?;
+        let raw = storage.read(c"journal.json", MAX_BYTES)?;
+        let header: serde_json::Value = serde_json::from_slice(&raw)?;
+        ensure!(
+            header["state"]["format"].as_u64() == Some(FORMAT as u64),
+            "unsupported native journal format; preserve original evidence"
+        );
+        let snapshot: Snapshot = serde_json::from_slice(&raw)?;
         ensure!(
             snapshot.digest == canonical_digest(&snapshot.state)?,
             "native journal checksum"
@@ -414,6 +455,18 @@ impl Journal {
     ) -> Result<Uuid> {
         let now = self.live()?;
         offer.validate()?;
+        ensure!(
+            offer.offered.artifacts.len() <= 126
+                && offer
+                    .offered
+                    .artifacts
+                    .iter()
+                    .map(|a| a.artifact.digest.as_str())
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    == offer.offered.artifacts.len(),
+            "native inline receipt set cannot satisfy Prepare"
+        );
         let id = offer.offered.offer.binding.attempt_id;
         ensure!(
             !self.state.attempts.contains_key(&id),
@@ -452,6 +505,8 @@ impl Journal {
                 acceptance: None,
                 acceptance_digest: None,
                 preparation: None,
+                downloads: BTreeMap::new(),
+                material_downloads: BTreeMap::new(),
             },
         );
         self.persist(state)?;

@@ -115,9 +115,9 @@ the product gate still needs an actual daemon, Git owner, worker and selected
 harness on one real task. This document is an implementation plan, not evidence
 that those journal transitions are installed.
 
-## First implemented storage slice
+## Prior qualified format1 storage slice
 
-`native::journal` now provides explicit initialization, exclusive private storage,
+At worker `281f8a4`, `native::journal` provides explicit initialization, exclusive private storage,
 no-launch reservation, stable acceptance and observed preparation persistence.
 It is a separately versioned format1; fixture journal formats are unchanged.
 The first slice holds at most64 attempts and8MiB of encoded state, with configured
@@ -156,3 +156,21 @@ bootstrap recovery and the no-start recovery protocol. No runtime capability is
 advertised by the mere presence of this storage module. Physical ENOSPC, power-loss
 filesystem durability and real process restart recovery need additional system
 qualification; injected durability-boundary failures are component evidence only.
+
+
+## Current input-operation candidate
+
+The separately qualified [durable input slice](WRK-08-native-preparation-slice.md)
+advances native journal storage to format2, refuses old format1 unchanged, and
+retains exact original artifact/material operations plus independent installed
+material pins. Inline artifact bytes remain RAM-only; durable receipt metadata
+never reconstructs bytes or a live permit. Requests are batched before network
+I/O, and material pins follow the filesystem owner's durability boundary.
+Reopened state remains stop-and-preserve. There is still no Prepare gate, Git
+hydration proof, launch callback wiring or runnable registration.
+
+The later native launcher must record its intent before invoking host/adapter
+startup hooks, including adapter.prepare; the existing later callback alone is
+not proof that no physical preparation effect occurred. See the daemon's
+[granted-launch closure plan](../../../agent-q/docs/implementation/AQ-08-granted-launch-closure-plan.md)
+for the still-open granted-without-Started recovery boundary.

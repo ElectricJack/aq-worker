@@ -5,6 +5,7 @@
 pub mod http;
 pub mod journal;
 pub mod materials;
+pub mod preparation;
 
 use anyhow::{Result, ensure};
 use aq_admission::{
