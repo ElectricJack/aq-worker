@@ -13,8 +13,21 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 mod policy;
-pub use aq_responses_transport::UpstreamEndpoint;
 pub use policy::{MAX_REQUEST_BYTES, ResponsesScope};
+
+pub struct UpstreamEndpoint(aq_responses_transport::UpstreamEndpoint);
+impl UpstreamEndpoint {
+    pub fn openai() -> Self {
+        Self(aq_responses_transport::UpstreamEndpoint::openai())
+    }
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn development_loopback(origin: &str) -> Result<Self> {
+        let origin = super::codex::development_origin(origin)?;
+        Ok(Self(
+            aq_responses_transport::UpstreamEndpoint::development_loopback(&origin)?,
+        ))
+    }
+}
 
 struct RetainedCredential {
     original: InstalledMaterial,
@@ -51,7 +64,7 @@ impl ScopedResponsesTransport {
         let listener = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         let origin = format!("http://{}", listener.local_addr()?);
         let core = aq_responses_transport::ScopedResponsesTransport::start_on_listener(
-            listener, &origin, policy, endpoint, credential,
+            listener, &origin, policy, endpoint.0, credential,
         )
         .await?;
         Ok(Self { binding, core })
@@ -70,7 +83,7 @@ impl ScopedResponsesTransport {
             listener,
             &origin,
             policy,
-            endpoint,
+            endpoint.0,
             local_key,
             upstream_key,
         )

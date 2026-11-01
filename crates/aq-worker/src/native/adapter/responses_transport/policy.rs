@@ -58,6 +58,7 @@ impl ResponsesScope {
 pub(super) mod tests {
     use super::*;
     use serde_json::Value;
+    const MAX_NODES: usize = 65536;
     pub fn scope() -> ResponsesScope {
         let fixture: Value = serde_json::from_slice(include_bytes!(
             "../../../../../../vendor/aq-admission-0.1.9/artifacts/startup.fixture.json"
