@@ -174,3 +174,15 @@ a private symlink helper, verifies exact sealed stdin, and reaches actual Runnin
 and ECHILD stop. It passes in 0.70s under the new private-PID/trusted-image fixture;
 see [image-only physical evidence](evidence/wrk17-named-readonly-physical/README.md).
 No Codex, auth, provider, model or secret-isolation qualification is inferred.
+
+
+The first actual named Codex tool attempts now have separate negative evidence.
+An unsupported fixture output-before-tool ordering was corrected; the untraced
+followup reached actual physical Running, terminal registration/uploads and a
+real function-call/output round trip. Its sandbox helper then refused because
+bubblewrap was not discoverable in the empty tool environment. The workspace
+command did not succeed. Exact original-deadline diagnostics and real ECHILD plus
+paired ACK cleanup are recorded in the
+[named negative evidence](evidence/wrk17-named-readonly-physical/README.md).
+A fixed explicit tool PATH is under review; production and private-source gates
+remain closed.

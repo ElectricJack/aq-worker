@@ -50,3 +50,63 @@ Raw diagnostic paths from this failed run: `/tmp/aq-named-owned-codex-process.lo
 and `/tmp/aq-named-owned-codex-trace.log`. These are local diagnostic locations,
 not durable release artifacts. No final tool or production qualification follows
 from this negative result.
+
+
+### Untraced named Codex tool attempt (negative)
+
+After correcting only fixture ordering/diagnostics, one additional root-approved
+untraced attempt ran with identical image/helper/mapper/wrapper, the original
+20-second Grant and the same sandbox. It failed in 17.53 seconds total, including
+7.04 seconds preflight; the actual execute began with 19.82 seconds remaining.
+The [complete bounded diagnostic record](named-codex-bwrap-negative.log) preserves
+the real request structure, stage times and cleanup facts. The earlier
+[output-gate negative](first-codex-output-gate-negative.log) remains separately
+recorded, including its exact failed assertion.
+
+Observed boot-clock sequence (nanoseconds, except the explicitly labeled host
+observation):
+
+| Stage | Boot time |
+| --- | --- |
+| Preflight begin | 216501233489349 |
+| Preflight complete | 216508273252854 |
+| Execute begin | 216510880410370 |
+| Original Grant deadline | 216530702842073 |
+| Physical Running observation (milliseconds) | 216511794 |
+| Terminal registration | 216512233398937 |
+| First terminal upload | 216512516310000 |
+| First finite provider request | 216518230869491 |
+| Tool-result provider request | 216518295271736 |
+
+The owned scoped transport forwarded two finite requests with exact model/cap,
+stream/store policy and distinct synthetic upstream credentials. The actual CLI
+returned the exact controlled `call_aq_local` function-call output, but the local
+command did **not** succeed: its sandbox helper exited 101 because bubblewrap was
+unavailable to its lookup. No workspace proof file or successful tool execution is
+claimed. Output registration and three normal no-Watch uploads were observed;
+the second attempt confirms that the first negative was not an established
+output-transport failure.
+
+The failure handler signaled the existing owner without releasing a second model
+response. The task joined and persisted actual ECHILD, Started ACK and Stopped ACK.
+No lease was extended. The final success-only private-cleanup assertions were not
+reached, so this result does not newly qualify that claim.
+
+Read-only source diagnosis: exact Codex 0.166's
+[shell environment builder](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/shell_environment.rs)
+starts from an empty map for `inherit=none`; the current mapper supplies no fixed
+`set.PATH`. Its
+[sandbox executable lookup](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/sandboxing/src/bwrap.rs)
+requires the helper's PATH, while the
+[launcher](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/linux-sandbox/src/launcher.rs)
+reports the observed failure when neither a system nor bundled helper is selected.
+The trusted fixture contains system bubblewrap 0.9.0 with the required capability
+flags. A fixed explicit tool PATH is the proposed narrow mapper correction;
+ambient inheritance, mutable helper fallback and sandbox relaxation are not
+required. That correction and any future actual launch require separate review.
+
+Fixture-only validation for the corrected ordering: the original-deadline refusal
+regression passed (0.01s), fixture compilation passed (15.73s), and strict host plus
+worker all-target/all-feature lint passed (7.55s). No production runtime, upstream
+source secrecy, real provider or context/model qualification follows from these
+local synthetic-peer observations.
