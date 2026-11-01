@@ -91,6 +91,26 @@ impl InputPipeline {
         spec: VerifiedArtifact,
         git: GitClient,
     ) -> Result<HydratedWorkspace> {
+        self.hydrate_source_context(id, InputContext::Legacy(preparation), spec, git)
+            .await
+    }
+    pub async fn hydrate_source_phase(
+        &self,
+        id: Uuid,
+        preparation: Arc<crate::native::http::preparation_v2::AcceptedPreparation>,
+        spec: VerifiedArtifact,
+        git: GitClient,
+    ) -> Result<HydratedWorkspace> {
+        self.hydrate_source_context(id, InputContext::Phase(preparation), spec, git)
+            .await
+    }
+    async fn hydrate_source_context(
+        &self,
+        id: Uuid,
+        preparation: InputContext,
+        spec: VerifiedArtifact,
+        git: GitClient,
+    ) -> Result<HydratedWorkspace> {
         let _bulk = self
             .bulk_slots
             .clone()
@@ -100,25 +120,33 @@ impl InputPipeline {
         let local = git.clone();
         let plan = self
             .storage(move |owner| {
-                owner.journal.check_preparation(id, &observed)?;
+                observed.check(&owner.journal, id)?;
                 owner.journal.begin_source(id, &spec, &local)
             })
             .await?;
-        let binding = preparation.plan().binding.clone();
+        let binding = preparation.binding().clone();
         let manifest = self
             .client
             .source_status(&binding, plan.admission(), plan.manifest.as_ref())
             .await?;
         let m = manifest.clone();
-        self.storage(move |owner| owner.journal.source_manifest(id, m))
-            .await?;
+        let observed = preparation.clone();
+        self.storage(move |owner| {
+            observed.check(&owner.journal, id)?;
+            owner.journal.source_manifest(id, m)
+        })
+        .await?;
         let root = git.root().to_owned();
         let marker = serde_json::to_vec(
             &json!({"schema_version":1,"attempt":id,"spec":plan.spec_artifact,"manifest":manifest}),
         )?;
         let m = manifest.clone();
+        let observed = preparation.clone();
         let stage = self
-            .storage(move |_| files::Staging::open(&root, &m, &marker))
+            .storage(move |owner| {
+                observed.check(&owner.journal, id)?;
+                files::Staging::open(&root, &m, &marker)
+            })
             .await?;
         let stage = Arc::new(stage);
         loop {
@@ -133,12 +161,16 @@ impl InputPipeline {
             let observed = preparation.clone();
             let range = self
                 .storage(move |owner| {
-                    owner.journal.check_preparation(id, &observed)?;
+                    observed.check(&owner.journal, id)?;
                     owner.journal.source_range(id)
                 })
                 .await?;
             ensure!(
-                boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+                boot_ns()?
+                    < plan
+                        .preparation
+                        .deadline_ns()
+                        .min(preparation.deadline_ns()),
                 "native source preparation expired"
             );
             let chunk = self
@@ -154,7 +186,7 @@ impl InputPipeline {
             let disk = stage.clone();
             let observed = preparation.clone();
             self.storage(move |owner| {
-                owner.journal.check_preparation(id, &observed)?;
+                observed.check(&owner.journal, id)?;
                 disk.append(&range.file, range.offset, &chunk.bytes)?;
                 owner.journal.source_range_synced(id, &range)
             })
@@ -164,7 +196,7 @@ impl InputPipeline {
         let m = manifest.clone();
         let observed = preparation.clone();
         self.storage(move |owner| {
-            owner.journal.check_preparation(id, &observed)?;
+            observed.check(&owner.journal, id)?;
             let verified = disk.verify(&m)?;
             owner.journal.source_verified(id, verified)?;
             disk.publish(&m)
@@ -185,7 +217,7 @@ impl InputPipeline {
         let disk = stage.clone();
         let m = manifest.clone();
         self.storage(move |owner| {
-            owner.journal.check_preparation(id, &preparation)?;
+            preparation.check(&owner.journal, id)?;
             disk.verify(&m)?;
             let s = owner.journal.state().attempts[&id]
                 .source
@@ -200,16 +232,16 @@ impl InputPipeline {
                 .as_ref()
                 .context("create receipt absent")?;
             validate_current(&git, s, imported, created, &retention, &inspect)?;
-            owner.journal.check_preparation(id, &preparation)?;
+            preparation.check(&owner.journal, id)?;
             let workspace: Workspace = serde_json::from_value(created.clone())?;
             let observed_ns = boot_ns()?;
-            let deadline_ns = preparation.deadline_ns().min(s.preparation.deadline_ns);
+            let deadline_ns = preparation.deadline_ns().min(s.preparation.deadline_ns());
             ensure!(observed_ns < deadline_ns, "native source proof expired");
             Ok(HydratedWorkspace {
                 workspace,
                 manifest: m,
                 attempt: id,
-                binding: preparation.plan().binding.clone(),
+                binding: preparation.binding().clone(),
                 observed_ns,
                 deadline_ns,
                 _stage_owner: disk,
@@ -221,12 +253,12 @@ impl InputPipeline {
     async fn native_git(
         &self,
         id: Uuid,
-        preparation: Arc<Preparation>,
+        preparation: InputContext,
         git: GitClient,
         key: &'static str,
     ) -> Result<Value> {
         self.storage(move |owner| {
-            owner.journal.check_preparation(id, &preparation)?;
+            preparation.check(&owner.journal, id)?;
             let op = owner.journal.source_operation(id, key)?;
             // Cached mutation replies are exact historical receipts. Read calls
             // always exchange again; saved JSON cannot become a current proof.
@@ -239,7 +271,7 @@ impl InputPipeline {
             } else {
                 git.exchange(&op.request)?
             };
-            owner.journal.check_preparation(id, &preparation)?;
+            preparation.check(&owner.journal, id)?;
             let source = owner.journal.state().attempts[&id]
                 .source
                 .as_ref()

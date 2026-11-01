@@ -52,7 +52,7 @@ pub(super) fn validate(
     ensure!(
         source.verified.is_some()
             && source.complete()
-            && p.prepared_at_ns < source.preparation.deadline_ns,
+            && p.prepared_at_ns < source.preparation.deadline_ns(),
         "prepared source history absent/expired"
     );
     let expected = receipts(a)?;
@@ -76,7 +76,7 @@ pub(super) fn validate(
     }
     Ok(())
 }
-fn receipts(a: &Attempt) -> Result<Vec<ArtifactReceipt>> {
+pub(super) fn receipts(a: &Attempt) -> Result<Vec<ArtifactReceipt>> {
     let mut receipts = Vec::new();
     for descriptor in &a.reservation.offer.offered.artifacts {
         let d = a

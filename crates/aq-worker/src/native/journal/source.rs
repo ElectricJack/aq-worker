@@ -24,7 +24,7 @@ pub struct SourceRange {
 pub struct SourceDownload {
     pub spec: ProfiledExecutionSpec,
     pub spec_artifact: ArtifactRef,
-    pub preparation: RecordedPreparation,
+    pub preparation: InputOrigin,
     pub created_revision: u64,
     pub created_ns: u64,
     pub root: PathBuf,
@@ -109,13 +109,8 @@ fn request(s: &SourceDownload, key: &str, id: Uuid) -> Result<Value> {
 }
 pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> Result<()> {
     let Some(s) = &a.source else { return Ok(()) };
-    inputs::validate_capture(
-        a,
-        &s.preparation,
-        s.created_revision,
-        s.created_ns,
-        revision,
-    )?;
+    s.preparation
+        .validate(a, s.created_revision, s.created_ns, revision)?;
     s.spec
         .validate_against(&a.reservation.offer.offered.offer)?;
     ensure!(
@@ -138,10 +133,6 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
         input.receipt.is_some() && input.created_revision <= revision,
         "source spec not verified"
     );
-    s.preparation.delivery.validate_for(
-        a.acceptance.as_ref().context("source accept absent")?,
-        s.preparation.delivery.delivery.nonce,
-    )?;
     if let Some(m) = &s.manifest {
         transfer(s, m, a)?;
         ensure!(
@@ -236,16 +227,13 @@ impl Journal {
             .attempts
             .get(&id)
             .context("unknown native attempt")?;
-        let p = a
-            .preparation
-            .as_ref()
-            .context("source preparation absent")?;
-        ensure!(now < p.deadline_ns, "source preparation expired");
+        let p = InputOrigin::capture(a)?;
+        ensure!(now < p.deadline_ns(), "source preparation expired");
         let parsed = aq_admission::execution_spec::decode_profiled_spec(spec.bytes())?;
         parsed.validate_retained(
             &a.reservation.offer.offered.offer,
             &a.reservation.offer.offered.artifacts,
-            p.delivery.original.clock.server_time_ms,
+            p.observed_at_ms(),
         )?;
         ensure!(
             parsed.canonical_bytes()? == spec.bytes()
@@ -401,7 +389,7 @@ impl Journal {
             .as_mut()
             .context("source plan absent")?;
         ensure!(
-            now < s.preparation.deadline_ns,
+            now < s.preparation.deadline_ns(),
             "source preparation expired"
         );
         change(s)?;

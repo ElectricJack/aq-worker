@@ -97,7 +97,9 @@ fn synthetic() -> Export {
 }
 struct Inputs {
     pipeline: Option<Arc<InputPipeline>>,
-    preparation: Arc<Preparation>,
+    preparation: Option<Arc<Preparation>>,
+    phase: Option<Arc<crate::native::http::preparation_v2::AcceptedPreparation>>,
+    phase_window: Arc<AtomicU64>,
     client: NativeClient,
     reference: ArtifactRef,
     id: Uuid,
@@ -131,7 +133,19 @@ impl Inputs {
     fn pipeline(&self) -> &Arc<InputPipeline> {
         self.pipeline.as_ref().unwrap()
     }
-    async fn new(mut export: Export) -> Self {
+    fn preparation(&self) -> &Arc<Preparation> {
+        self.preparation.as_ref().unwrap()
+    }
+    async fn new(export: Export) -> Self {
+        Self::new_mode(export, false).await
+    }
+    async fn new_phase(export: Export) -> Self {
+        Self::new_mode(export, true).await
+    }
+    async fn new_mode(export: Export, phase_mode: bool) -> Self {
+        Self::new_count(export, phase_mode, 0).await
+    }
+    async fn new_count(mut export: Export, phase_mode: bool, count: usize) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("journal");
         let materials = dir.path().join("materials");
@@ -167,6 +181,23 @@ impl Inputs {
         observation.artifact = spec.task_observation.clone();
         observation.bytes = observation.artifact.id.as_str().len() as u64;
         offered.offered.artifacts.push(observation);
+        while offered.offered.artifacts.len() < count {
+            let label = format!("phase-extra-{}", offered.offered.artifacts.len());
+            let mut d = offered.offered.artifacts[0].clone();
+            d.kind = ArtifactKind::Context;
+            d.artifact = ArtifactRef {
+                id: aq_session_protocol::Text::new(&label).unwrap(),
+                version: aq_session_protocol::Text::new("1").unwrap(),
+                digest: Digest::of(label.as_bytes()),
+            };
+            d.bytes = label.len() as u64;
+            offered.offered.artifacts.push(d);
+        }
+        if phase_mode {
+            for d in &mut offered.offered.artifacts {
+                d.retain_until_ms = 30000;
+            }
+        }
         let inline: Vec<_> = offered
             .offered
             .artifacts
@@ -194,11 +225,20 @@ impl Inputs {
             .reserve(
                 offered.clone(),
                 qualification(),
-                boot_ns().unwrap() + 29_000_000_000,
+                boot_ns().unwrap()
+                    + if phase_mode {
+                        1_000_000_000
+                    } else {
+                        29_000_000_000
+                    },
                 32 * 1024 * 1024 * 1024,
             )
             .unwrap();
-        let accept = journal.begin_accept(id, capabilities()).unwrap();
+        let accept = if phase_mode {
+            None
+        } else {
+            Some(journal.begin_accept(id, capabilities()).unwrap())
+        };
         let cap = journal.state().attempts[&id].reservation.deadline_ns;
         export.manifest.resolved_spec_digest = reference.digest.as_str().into();
         let mut delivery: PreparationDelivery =
@@ -209,6 +249,96 @@ impl Inputs {
         delivery.original.materials[0].binding = offered.offered.offer.binding.clone();
         delivery.original.materials[0].expires_at_ms = 30000;
         let material_lease = delivery.original.materials[0].clone();
+        let phase_fixture: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json"
+        ))
+        .unwrap();
+        let mut phase_proposal: aq_admission::preparation_v2::Proposal =
+            serde_json::from_value(phase_fixture["proposal"].clone()).unwrap();
+        phase_proposal.original = offered.clone();
+        phase_proposal.spec = spec.clone();
+        phase_proposal.choice.selection_digest = spec.selection_digest.clone();
+        phase_proposal.choice.model = offered.offered.offer.manifest.model.clone();
+        phase_proposal.choice.harness = offered.offered.offer.manifest.harness.clone();
+        phase_proposal.choice.permission_digest =
+            Digest::of(&canonical_bytes(&offered.offered.offer.manifest.permissions).unwrap());
+        phase_proposal.choice.credential_profile = material_lease.credential_profile.clone();
+        phase_proposal.choice.credential_revision = material_lease.credential_revision;
+        phase_proposal.choice.account_reference =
+            aq_session_protocol::Text::new(material_lease.account_reference.as_str()).unwrap();
+        phase_proposal.choice.endpoint_reference =
+            aq_session_protocol::Text::new(material_lease.endpoint_reference.as_str()).unwrap();
+        phase_proposal.validate().unwrap();
+        let proposed_route = phase_proposal.clone();
+        let accept_proposal = phase_proposal.clone();
+        let phase_material = material_lease.clone();
+        let proposal_route = move || {
+            let p = proposed_route.clone();
+            async move {
+                Json(aq_admission::preparation_v2::Document::Proposal(Box::new(
+                    p,
+                )))
+            }
+        };
+        let phase_window = Arc::new(AtomicU64::new(27300));
+        let window = phase_window.clone();
+        let phase_accept_route = move |headers: HeaderMap,
+                                       Json(document): Json<
+            aq_admission::preparation_v2::Document,
+        >| {
+            let p = accept_proposal.clone();
+            let m = phase_material.clone();
+            let f = phase_fixture.clone();
+            let window = window.clone();
+            async move {
+                use aq_admission::preparation_v2::{AcceptedDelivery, AcceptedReceipt, Document};
+                let Document::Accept(q) = document else {
+                    panic!("phase Accept")
+                };
+                q.validate_for(&p).unwrap();
+                let mut r: AcceptedReceipt = serde_json::from_value(f["accepted"].clone()).unwrap();
+                r.operation_id = q.original.operation_id;
+                r.request_digest = q.digest().unwrap();
+                r.negotiation = q.negotiation.clone();
+                r.lease.identity = q.original.identity.clone();
+                r.lease.binding = q.original.acceptance.binding.clone();
+                r.lease.guardian_id = q.original.guardian_id;
+                r.lease.launch_id = q.original.launch_id;
+                r.lease.hold = q.hold.clone();
+                r.lease.proposal_digest = q.proposal_digest.clone();
+                r.lease.policy_digest = p.policy.digest().unwrap();
+                r.lease.choice_digest = p.choice.digest().unwrap();
+                r.lease.issued_at_ms = 1500;
+                r.lease.expires_at_ms = p
+                    .original
+                    .offered
+                    .artifacts
+                    .iter()
+                    .map(|d| d.retain_until_ms)
+                    .min()
+                    .unwrap()
+                    .min(29000);
+                r.lease.materials = vec![m];
+                let nonce =
+                    Uuid::parse_str(headers["aq-delivery-nonce"].to_str().unwrap()).unwrap();
+                let r_expiry = r.lease.expires_at_ms;
+                let a = AcceptedDelivery {
+                    schema_version: 2,
+                    receipt: r,
+                    delivery: aq_admission::control::DeliveryStamp {
+                        nonce,
+                        clock: DeliveryClock::new(
+                            r_expiry - window.load(Ordering::SeqCst),
+                            r_expiry,
+                        )
+                        .unwrap(),
+                    },
+                };
+                a.validate_for(&q, &p, nonce).unwrap();
+                Json(Document::AcceptedDelivery(Box::new(a)))
+            }
+        };
+
         let mode = Arc::new(AtomicU8::new(0));
         let r1 = root.clone();
         let r2 = root.clone();
@@ -563,6 +693,8 @@ impl Inputs {
             }
         };
         let router = Router::new()
+            .route("/v1/worker/profiled-v2/proposal", post(proposal_route))
+            .route("/v1/worker/profiled-v2/accept", post(phase_accept_route))
             .route("/v1/worker/profiled/inventory-v2", post(inventory_route))
             .route(
                 "/v1/worker/profiled/material-presence",
@@ -585,13 +717,37 @@ impl Inputs {
             cf_client_secret: None,
         })
         .unwrap();
-        let preparation = Arc::new(client.accept(&accept, cap, None).await.unwrap());
-        journal.record_preparation(id, &preparation).unwrap();
+        let (preparation, phase) = if let Some(accept) = accept {
+            let p = Arc::new(client.accept(&accept, cap, None).await.unwrap());
+            journal.record_preparation(id, &p).unwrap();
+            (Some(p), None)
+        } else {
+            let p = client
+                .propose_preparation(&identity(), &offered, &phase_proposal.negotiation, cap)
+                .await
+                .unwrap();
+            let source_profile: ArtifactRef = serde_json::from_value(
+                serde_json::from_slice::<Value>(include_bytes!(
+                    "../../../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json"
+                ))
+                .unwrap()["accept"]["hold"]["source_profile"]
+                    .clone(),
+            )
+            .unwrap();
+            let q = journal
+                .begin_phase_accept(id, &p, capabilities(), source_profile, 30000)
+                .unwrap();
+            let a = Arc::new(client.accept_preparation(&p, &q, None).await.unwrap());
+            journal.record_phase_preparation(id, &a).unwrap();
+            (None, Some(a))
+        };
         let store = MaterialStore::open(&materials, identity(), 32).unwrap();
         let pipeline = Arc::new(InputPipeline::new(journal, store, client.clone()));
         Self {
             pipeline: Some(pipeline),
             preparation,
+            phase,
+            phase_window,
             client,
             reference,
             id,
@@ -614,12 +770,12 @@ impl Inputs {
     async fn all_inputs(&self) -> Vec<crate::native::VerifiedArtifact> {
         let inputs = self
             .pipeline()
-            .artifacts(self.id, self.preparation.clone())
+            .artifacts(self.id, self.preparation().clone())
             .await
             .unwrap();
-        for lease in &self.preparation.plan().materials {
+        for lease in &self.preparation().plan().materials {
             self.pipeline()
-                .material(self.id, self.preparation.clone(), lease.lease_id)
+                .material(self.id, self.preparation().clone(), lease.lease_id)
                 .await
                 .unwrap();
         }
@@ -627,7 +783,7 @@ impl Inputs {
     }
     async fn spec(&self) -> crate::native::VerifiedArtifact {
         self.pipeline()
-            .artifact(self.id, self.preparation.clone(), self.reference.clone())
+            .artifact(self.id, self.preparation().clone(), self.reference.clone())
             .await
             .unwrap()
     }
@@ -813,7 +969,7 @@ async fn actual_native_pipeline_journals_every_external_intent_and_keeps_lost_im
     let spec = h.spec().await;
     assert!(
         h.pipeline()
-            .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+            .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
             .await
             .is_err()
     );
@@ -831,7 +987,7 @@ async fn actual_native_pipeline_journals_every_external_intent_and_keeps_lost_im
     let spec = h.spec().await;
     let proof = h
         .pipeline()
-        .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+        .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
         .await
         .unwrap();
     assert_eq!(proof.attempt_id(), h.id);
@@ -860,14 +1016,14 @@ async fn historical_receipts_cannot_bypass_fresh_retention_or_head_checks() {
     let git = GitPeer::new(h.root.clone(), manifest);
     let spec = h.spec().await;
     h.pipeline()
-        .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+        .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
         .await
         .unwrap();
     git.mode.store(2, Ordering::SeqCst);
     let spec = h.spec().await;
     assert!(
         h.pipeline()
-            .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+            .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
             .await
             .is_err()
     );
@@ -875,7 +1031,7 @@ async fn historical_receipts_cannot_bypass_fresh_retention_or_head_checks() {
     let spec = h.spec().await;
     assert!(
         h.pipeline()
-            .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+            .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
             .await
             .is_err()
     );
@@ -896,7 +1052,7 @@ async fn failed_range_is_exact_pending_and_format_two_is_never_upgraded() {
     let spec = h.spec().await;
     assert!(
         h.pipeline()
-            .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+            .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
             .await
             .is_err()
     );
@@ -920,7 +1076,7 @@ async fn failed_range_is_exact_pending_and_format_two_is_never_upgraded() {
     h.mode.store(0, Ordering::SeqCst);
     let spec = h.spec().await;
     h.pipeline()
-        .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+        .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
         .await
         .unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -969,14 +1125,14 @@ fn git_request(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout"]
 async fn pinned_git_native_source_http_import_retention_and_clean_workspace() {
-    actual_git_hydration(false).await;
+    actual_git_hydration(false, false).await;
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout"]
 async fn pinned_git_received_initial_grant_retains_actual_workspace_and_material_owners() {
-    actual_git_hydration(true).await;
+    actual_git_hydration(true, false).await;
 }
-async fn actual_git_hydration(retain_grant: bool) {
+async fn actual_git_hydration(retain_grant: bool, phase_mode: bool) {
     use std::process::Command;
     let exe =
         PathBuf::from(std::env::var_os("AQ_GIT_TEST_BINARY").expect("explicit public Git binary"));
@@ -1127,16 +1283,37 @@ async fn actual_git_hydration(retain_grant: bool) {
         0,
     );
     let service = crate::source::GitService::start(&exe, &pin, &worker).unwrap();
-    let h = Inputs::new(Export {
-        manifest,
-        manifest_bytes,
-        bundle,
-    })
+    let h = Inputs::new_count(
+        Export {
+            manifest,
+            manifest_bytes,
+            bundle,
+        },
+        phase_mode,
+        if phase_mode { 126 } else { 0 },
+    )
     .await;
+    if phase_mode {
+        let joined = phase_join(&h, service.client.clone()).await;
+        assert_eq!(
+            fs::read(joined.workspace().workspace().path.join("native-input.txt")).unwrap(),
+            b"synthetic native source bytes\n"
+        );
+        assert_eq!(
+            joined.materials()[0].read_private().unwrap().as_slice(),
+            b"synthetic-key"
+        );
+        assert!(
+            h.pipeline().snapshot().await.unwrap().attempts[&h.id]
+                .phase_prepared
+                .is_some()
+        );
+        return;
+    }
     let spec = h.spec().await;
     let proof = h
         .pipeline()
-        .hydrate_source(h.id, h.preparation.clone(), spec, service.client.clone())
+        .hydrate_source(h.id, h.preparation().clone(), spec, service.client.clone())
         .await
         .unwrap();
     assert_eq!(proof.workspace().generation, 1);
@@ -1160,7 +1337,7 @@ async fn actual_git_hydration(retain_grant: bool) {
         .clone();
     let joined = h
         .pipeline()
-        .prepare_inputs(h.id, h.preparation.clone(), all, proof, renderer)
+        .prepare_inputs(h.id, h.preparation().clone(), all, proof, renderer)
         .await
         .unwrap();
     assert!(
@@ -1179,7 +1356,7 @@ async fn actual_git_hydration(retain_grant: bool) {
             .clone();
         let observed = h
             .client
-            .prepare(joined.request(), &h.preparation, &offer, None)
+            .prepare(joined.request(), h.preparation(), &offer, None)
             .await
             .unwrap();
         let committed = h
@@ -1205,7 +1382,7 @@ async fn actual_git_hydration(retain_grant: bool) {
     // cannot silently replace either current retention or the actual clean HEAD.
     let spec = h.spec().await;
     h.pipeline()
-        .hydrate_source(h.id, h.preparation.clone(), spec, service.client.clone())
+        .hydrate_source(h.id, h.preparation().clone(), spec, service.client.clone())
         .await
         .unwrap();
     let handle = Uuid::parse_str(
@@ -1232,7 +1409,7 @@ async fn actual_git_hydration(retain_grant: bool) {
     let spec = h.spec().await;
     assert!(
         h.pipeline()
-            .hydrate_source(h.id, h.preparation.clone(), spec, service.client.clone())
+            .hydrate_source(h.id, h.preparation().clone(), spec, service.client.clone())
             .await
             .is_err()
     );
@@ -1253,7 +1430,7 @@ async fn source_file_sync_and_cursor_commit_faults_reopen_old_or_matching_new_hi
         let spec = h.spec().await;
         assert!(
             h.pipeline()
-                .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+                .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
                 .await
                 .is_err()
         );
@@ -1270,7 +1447,7 @@ async fn source_file_sync_and_cursor_commit_faults_reopen_old_or_matching_new_hi
         h.mode.store(0, Ordering::SeqCst);
         assert!(
             h.pipeline()
-                .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+                .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
                 .await
                 .is_err()
         );
@@ -1319,7 +1496,7 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
     h.mode.store(2, Ordering::SeqCst);
     let spec = h.spec().await;
     let pipeline = h.pipeline().clone();
-    let preparation = h.preparation.clone();
+    let preparation = h.preparation().clone();
     let local = git.client.clone();
     let id = h.id;
     let task =
@@ -1382,7 +1559,7 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
     h.mode.store(0, Ordering::SeqCst);
     let spec = h.spec().await;
     h.pipeline()
-        .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+        .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
         .await
         .unwrap();
 }
@@ -1396,7 +1573,7 @@ async fn oversized_source_geometry_refuses_before_any_range_or_git_mutation() {
     let spec = h.spec().await;
     assert!(
         h.pipeline()
-            .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+            .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
             .await
             .is_err()
     );
@@ -1415,7 +1592,7 @@ async fn missing_native_inspection_capabilities_refuse_without_adopting_source_p
     let spec = h.spec().await;
     assert!(
         h.pipeline()
-            .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+            .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
             .await
             .is_err()
     );
@@ -1435,7 +1612,7 @@ async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for
         .pipeline()
         .hydrate_source(
             h.id,
-            h.preparation.clone(),
+            h.preparation().clone(),
             h.spec().await,
             git.client.clone(),
         )
@@ -1450,7 +1627,7 @@ async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for
         .clone();
     let prepared = h
         .pipeline()
-        .prepare_inputs(h.id, h.preparation.clone(), all, source, renderer.clone())
+        .prepare_inputs(h.id, h.preparation().clone(), all, source, renderer.clone())
         .await
         .unwrap();
     assert_eq!(prepared.request().journal_revision, before.revision);
@@ -1487,7 +1664,7 @@ async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for
         .pipeline()
         .hydrate_source(
             h.id,
-            h.preparation.clone(),
+            h.preparation().clone(),
             h.spec().await,
             git.client.clone(),
         )
@@ -1495,7 +1672,7 @@ async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for
         .unwrap();
     let retry = h
         .pipeline()
-        .prepare_inputs(h.id, h.preparation.clone(), all, source, renderer)
+        .prepare_inputs(h.id, h.preparation().clone(), all, source, renderer)
         .await
         .unwrap();
     assert!(same(&first_request, retry.request()).unwrap());
@@ -1514,7 +1691,7 @@ async fn prepare_join_refuses_missing_inputs_renderer_and_retention_changed_afte
             .pipeline()
             .hydrate_source(
                 h.id,
-                h.preparation.clone(),
+                h.preparation().clone(),
                 h.spec().await,
                 git.client.clone(),
             )
@@ -1535,7 +1712,7 @@ async fn prepare_join_refuses_missing_inputs_renderer_and_retention_changed_afte
             2 => git.mode.store(2, Ordering::SeqCst),
             3 => git.mode.store(3, Ordering::SeqCst),
             _ => {
-                let lease = h.preparation.plan().materials[0].lease_id;
+                let lease = h.preparation().plan().materials[0].lease_id;
                 fs::write(
                     h._dir
                         .path()
@@ -1549,7 +1726,7 @@ async fn prepare_join_refuses_missing_inputs_renderer_and_retention_changed_afte
         }
         assert!(
             h.pipeline()
-                .prepare_inputs(h.id, h.preparation.clone(), all, source, renderer)
+                .prepare_inputs(h.id, h.preparation().clone(), all, source, renderer)
                 .await
                 .is_err(),
             "mode {mode}"
@@ -1577,7 +1754,7 @@ async fn prepare_join_fsync_cuts_retain_original_or_complete_intent_and_reopen_w
             .pipeline()
             .hydrate_source(
                 h.id,
-                h.preparation.clone(),
+                h.preparation().clone(),
                 h.spec().await,
                 git.client.clone(),
             )
@@ -1593,7 +1770,7 @@ async fn prepare_join_fsync_cuts_retain_original_or_complete_intent_and_reopen_w
         h.pipeline().test_journal_fault(fault).await.unwrap();
         assert!(
             h.pipeline()
-                .prepare_inputs(h.id, h.preparation.clone(), all, source, renderer)
+                .prepare_inputs(h.id, h.preparation().clone(), all, source, renderer)
                 .await
                 .is_err()
         );
@@ -1641,7 +1818,7 @@ async fn inline_batch_overlaps_only_two_reads_and_preserves_control_capacity() {
     let before = h.pipeline().snapshot().await.unwrap();
     h.mode.store(4, Ordering::SeqCst);
     let pipeline = h.pipeline().clone();
-    let preparation = h.preparation.clone();
+    let preparation = h.preparation().clone();
     let id = h.id;
     let job = tokio::spawn(async move { pipeline.artifacts(id, preparation).await });
     // Both requests must reach the independently blocked HTTP peer. Sequential
@@ -1666,13 +1843,13 @@ async fn inline_batch_overlaps_only_two_reads_and_preserves_control_capacity() {
         h.client.accept(
             attempt.acceptance.as_ref().unwrap(),
             attempt.reservation.deadline_ns,
-            Some(&h.preparation),
+            Some(h.preparation()),
         ),
     )
     .await
     .unwrap()
     .unwrap();
-    assert!(replay.deadline_ns() <= h.preparation.deadline_ns());
+    assert!(replay.deadline_ns() <= h.preparation().deadline_ns());
     let requests: usize = attempt.downloads.values().map(|d| d.requests.len()).sum();
     h.inline_release.add_permits(requests);
     let inputs = job.await.unwrap().unwrap();
@@ -1690,7 +1867,7 @@ async fn inline_batch_uses_two_durable_commits_and_replay_reuses_every_original_
     let before = h.pipeline().snapshot().await.unwrap();
     let first = h
         .pipeline()
-        .artifacts(h.id, h.preparation.clone())
+        .artifacts(h.id, h.preparation().clone())
         .await
         .unwrap();
     let saved = h.pipeline().snapshot().await.unwrap();
@@ -1710,7 +1887,7 @@ async fn inline_batch_uses_two_durable_commits_and_replay_reuses_every_original_
     }
     let second = h
         .pipeline()
-        .artifacts(h.id, h.preparation.clone())
+        .artifacts(h.id, h.preparation().clone())
         .await
         .unwrap();
     assert_eq!(second.len(), first.len());
@@ -1727,7 +1904,7 @@ async fn failed_inline_batch_keeps_exact_plan_without_partial_receipt_completion
     h.mode.store(3, Ordering::SeqCst);
     assert!(
         h.pipeline()
-            .artifacts(h.id, h.preparation.clone())
+            .artifacts(h.id, h.preparation().clone())
             .await
             .is_err()
     );
@@ -1750,7 +1927,7 @@ async fn failed_inline_batch_keeps_exact_plan_without_partial_receipt_completion
     );
     h.mode.store(0, Ordering::SeqCst);
     h.pipeline()
-        .artifacts(h.id, h.preparation.clone())
+        .artifacts(h.id, h.preparation().clone())
         .await
         .unwrap();
     let complete = h.pipeline().snapshot().await.unwrap();
@@ -1777,7 +1954,7 @@ async fn inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion() {
                 h.mode.store(3, Ordering::SeqCst);
                 assert!(
                     h.pipeline()
-                        .artifacts(h.id, h.preparation.clone())
+                        .artifacts(h.id, h.preparation().clone())
                         .await
                         .is_err()
                 );
@@ -1787,7 +1964,7 @@ async fn inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion() {
             h.pipeline().test_journal_fault(fault).await.unwrap();
             assert!(
                 h.pipeline()
-                    .artifacts(h.id, h.preparation.clone())
+                    .artifacts(h.id, h.preparation().clone())
                     .await
                     .is_err()
             );
@@ -1819,3 +1996,380 @@ mod granted_scenarios;
 
 #[path = "presence_scenarios.rs"]
 mod presence_scenarios;
+
+async fn phase_physical(
+    h: &Inputs,
+    git: GitClient,
+) -> (
+    Arc<crate::native::http::preparation_v2::AcceptedPreparation>,
+    Vec<crate::native::VerifiedArtifact>,
+    crate::native::preparation::HydratedWorkspace,
+    ArtifactRef,
+) {
+    let accepted = h.phase.as_ref().unwrap().clone();
+    let before = h.pipeline().snapshot().await.unwrap();
+    let a = &before.attempts[&h.id];
+    let cap = a.reservation.deadline_ns;
+    while boot_ns().unwrap() <= cap {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let spec = h
+        .pipeline()
+        .artifact_phase(h.id, accepted.clone(), h.reference.clone())
+        .await
+        .unwrap();
+    let workspace = h
+        .pipeline()
+        .hydrate_source_phase(h.id, accepted.clone(), spec, git)
+        .await
+        .unwrap();
+    assert!(workspace.observed_ns() > cap);
+    let all = h
+        .pipeline()
+        .artifacts_phase(h.id, accepted.clone())
+        .await
+        .unwrap();
+    for lease in &accepted.delivery().receipt.lease.materials {
+        h.pipeline()
+            .material_phase(h.id, accepted.clone(), lease.lease_id)
+            .await
+            .unwrap();
+    }
+    let renderer = a.reservation.offer.startup.renderer_qualification.clone();
+    (accepted, all, workspace, renderer)
+}
+async fn phase_join(h: &Inputs, git: GitClient) -> crate::native::preparation::PreparedPhaseInputs {
+    let (accepted, all, workspace, renderer) = phase_physical(h, git).await;
+    let joined = h
+        .pipeline()
+        .prepare_inputs_phase(h.id, accepted.clone(), all, workspace, renderer)
+        .await
+        .unwrap();
+    let state = h.pipeline().snapshot().await.unwrap();
+    let a = &state.attempts[&h.id];
+    joined
+        .request()
+        .validate_for(
+            &accepted.delivery().receipt,
+            &a.phase_acceptance.as_ref().unwrap().request,
+            &a.phase_acceptance.as_ref().unwrap().proposal,
+        )
+        .unwrap();
+    assert!(a.preparation.is_none() && a.prepared.is_none() && a.initial_grant.is_none());
+    assert!(a.phase_prepared.is_some());
+    joined
+}
+#[tokio::test]
+async fn phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry() {
+    let export = synthetic();
+    let manifest = export.manifest.clone();
+    let h = Inputs::new_phase(export).await;
+    let git = GitPeer::new(h.root.clone(), manifest);
+    let joined = phase_join(&h, git.client.clone()).await;
+    assert_eq!(
+        joined.materials()[0].read_private().unwrap().as_slice(),
+        b"synthetic-key"
+    );
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout"]
+async fn pinned_git_phase_inputs_and_prepare_after_original_proposal_expiry() {
+    actual_git_hydration(false, true).await;
+}
+
+async fn shorter_phase(
+    h: &Inputs,
+    ms: u64,
+) -> Arc<crate::native::http::preparation_v2::AcceptedPreparation> {
+    let state = h.pipeline().snapshot().await.unwrap();
+    let a = &state.attempts[&h.id];
+    let intent = a.phase_acceptance.as_ref().unwrap();
+    let p = h
+        .client
+        .propose_preparation(
+            &identity(),
+            &a.reservation.offer,
+            &intent.proposal.negotiation,
+            a.reservation.deadline_ns,
+        )
+        .await
+        .unwrap();
+    h.phase_window.store(ms, Ordering::SeqCst);
+    Arc::new(
+        h.client
+            .accept_preparation(&p, &intent.request, h.phase.as_deref())
+            .await
+            .unwrap(),
+    )
+}
+#[tokio::test]
+async fn phase_input_expiry_and_foreign_observation_refuse_without_intents() {
+    let h = Inputs::new_phase(synthetic()).await;
+    let short = shorter_phase(&h, 50).await;
+    tokio::time::sleep(std::time::Duration::from_millis(70)).await;
+    assert!(
+        h.pipeline()
+            .artifacts_phase(h.id, short.clone())
+            .await
+            .is_err()
+    );
+    let lease = short.delivery().receipt.lease.materials[0].lease_id;
+    assert!(
+        h.pipeline()
+            .material_phase(h.id, short, lease)
+            .await
+            .is_err()
+    );
+    let other = Inputs::new_phase(synthetic()).await;
+    assert!(
+        h.pipeline()
+            .artifacts_phase(h.id, other.phase.as_ref().unwrap().clone())
+            .await
+            .is_err()
+    );
+    let state = h.pipeline().snapshot().await.unwrap();
+    let a = &state.attempts[&h.id];
+    assert!(a.downloads.is_empty() && a.material_downloads.is_empty() && a.source.is_none());
+    assert_eq!(state.attempts.len(), 1);
+}
+#[tokio::test]
+async fn phase_cancelled_artifact_batch_keeps_exact_ids_and_no_partial_completion() {
+    let h = Inputs::new_phase(synthetic()).await;
+    h.mode.store(4, Ordering::SeqCst);
+    let pipeline = h.pipeline().clone();
+    let a = h.phase.as_ref().unwrap().clone();
+    let id = h.id;
+    let task = tokio::spawn(async move { pipeline.artifacts_phase(id, a).await });
+    h.inline_entered.acquire_many(2).await.unwrap().forget();
+    task.abort();
+    assert!(matches!(task.await,Err(error) if error.is_cancelled()));
+    let before = h.pipeline().snapshot().await.unwrap();
+    let original = before.attempts[&id].downloads.clone();
+    assert!(original.values().all(|d| d.receipt.is_none()));
+    h.mode.store(0, Ordering::SeqCst);
+    h.inline_release.add_permits(2);
+    h.pipeline()
+        .artifacts_phase(id, h.phase.as_ref().unwrap().clone())
+        .await
+        .unwrap();
+    let after = h.pipeline().snapshot().await.unwrap();
+    for (key, old) in original {
+        let new = &after.attempts[&id].downloads[&key];
+        assert_eq!(
+            canonical_bytes(&old.requests).unwrap(),
+            canonical_bytes(&new.requests).unwrap()
+        );
+        assert!(new.receipt.is_some());
+    }
+}
+#[tokio::test]
+async fn phase_input_write_cuts_hold_old_or_complete_plan_and_history_only_reopen() {
+    for fault in [
+        WriteFault::BeforeWrite,
+        WriteFault::AfterFileSync,
+        WriteFault::AfterRename,
+        WriteFault::AfterDirectorySync,
+    ] {
+        let mut h = Inputs::new_phase(synthetic()).await;
+        let a = h.phase.as_ref().unwrap().clone();
+        h.pipeline().test_journal_fault(fault).await.unwrap();
+        assert!(h.pipeline().artifacts_phase(h.id, a.clone()).await.is_err());
+        drop(h.pipeline.take());
+        let mut capacity = limits();
+        capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
+        let reopened = Journal::open(&h.root, identity().node_id, capacity).unwrap();
+        assert!(reopened.available().is_err());
+        assert!(reopened.check_phase_preparation(h.id, &a).is_err());
+        let attempt = &reopened.state().attempts[&h.id];
+        assert!(attempt.preparation.is_none() && attempt.initial_grant.is_none());
+        assert!(
+            attempt.downloads.is_empty()
+                || attempt.downloads.len() == attempt.reservation.offer.offered.artifacts.len()
+        );
+        assert!(
+            attempt
+                .downloads
+                .values()
+                .all(|d| matches!(d.preparation, InputOrigin::Phase(_)) && d.receipt.is_none())
+        );
+    }
+}
+#[tokio::test]
+async fn phase_origin_tampering_cannot_be_hidden_by_valid_journal_checksum() {
+    let mut h = Inputs::new_phase(synthetic()).await;
+    h.pipeline()
+        .artifacts_phase(h.id, h.phase.as_ref().unwrap().clone())
+        .await
+        .unwrap();
+    drop(h.pipeline.take());
+    rewrite(&h.root, |s| {
+        let op = s
+            .attempts
+            .get_mut(&h.id)
+            .unwrap()
+            .downloads
+            .values_mut()
+            .next()
+            .unwrap();
+        let InputOrigin::Phase(p) = &mut op.preparation else {
+            panic!()
+        };
+        p.receipt_digest = Digest::of(b"changed accepted receipt");
+    });
+    let mut capacity = limits();
+    capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
+    assert!(Journal::open(&h.root, identity().node_id, capacity).is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn phase_prepare_cancelled_fsync_retains_exact_request_and_replay_does_not_retime() {
+    let export = synthetic();
+    let manifest = export.manifest.clone();
+    let h = Inputs::new_phase(export).await;
+    let git = GitPeer::new(h.root.clone(), manifest);
+    let (a, all, workspace, renderer) = phase_physical(&h, git.client.clone()).await;
+    let pause = WritePause::new();
+    h.pipeline().test_pause_grant_commit(&pause).await.unwrap();
+    let pipeline = h.pipeline().clone();
+    let id = h.id;
+    let task = tokio::spawn(async move {
+        pipeline
+            .prepare_inputs_phase(id, a, all, workspace, renderer)
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !pause.entered() {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await
+        }
+    })
+    .await
+    .unwrap();
+    task.abort();
+    pause.release();
+    assert!(matches!(task.await,Err(e) if e.is_cancelled()));
+    // Snapshot must wait for the admitted fsync owner, not an arbitrary sleep.
+    let first = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            match h.pipeline().snapshot().await {
+                Ok(s) => break s,
+                Err(_) => tokio::task::yield_now().await,
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let original = first.attempts[&id].phase_prepared.clone().unwrap();
+    let joined = phase_join(&h, git.client.clone()).await;
+    assert_eq!(
+        canonical_bytes(joined.request()).unwrap(),
+        canonical_bytes(&original.request).unwrap()
+    );
+    let last = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(
+        canonical_bytes(last.attempts[&id].phase_prepared.as_ref().unwrap()).unwrap(),
+        canonical_bytes(&original).unwrap()
+    );
+    assert!(last.attempts[&id].initial_grant.is_none());
+}
+#[tokio::test]
+async fn phase_shared_malformed_owner_is_rejected_even_when_every_input_copy_matches() {
+    let mut h = Inputs::new_phase(synthetic()).await;
+    h.pipeline()
+        .artifacts_phase(h.id, h.phase.as_ref().unwrap().clone())
+        .await
+        .unwrap();
+    drop(h.pipeline.take());
+    rewrite(&h.root, |state| {
+        let a = state.attempts.get_mut(&h.id).unwrap();
+        let r = a.phase_preparation.as_mut().unwrap();
+        r.delivery.receipt.lease.choice_digest = Digest::of(b"forged shared owner");
+        r.receipt_digest = r.delivery.receipt.digest().unwrap();
+        for op in a.downloads.values_mut() {
+            op.preparation = InputOrigin::Phase(Box::new(r.clone()));
+        }
+    });
+    let mut capacity = limits();
+    capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
+    assert!(Journal::open(&h.root, identity().node_id, capacity).is_err());
+}
+
+#[tokio::test]
+async fn phase_and_legacy_input_provenance_cannot_cross_on_reopen() {
+    let mut phase = Inputs::new_phase(synthetic()).await;
+    phase
+        .pipeline()
+        .artifacts_phase(phase.id, phase.phase.as_ref().unwrap().clone())
+        .await
+        .unwrap();
+    let mut legacy = Inputs::new(synthetic()).await;
+    let _verified = legacy.spec().await;
+    let phase_state = phase.pipeline().snapshot().await.unwrap();
+    let phase_record = phase_state.attempts[&phase.id]
+        .phase_preparation
+        .as_ref()
+        .unwrap()
+        .clone();
+    let legacy_state = legacy.pipeline().snapshot().await.unwrap();
+    let legacy_record = legacy_state.attempts[&legacy.id]
+        .preparation
+        .as_ref()
+        .unwrap()
+        .clone();
+    drop(phase.pipeline.take());
+    drop(legacy.pipeline.take());
+    rewrite(&phase.root, |s| {
+        s.attempts
+            .get_mut(&phase.id)
+            .unwrap()
+            .downloads
+            .values_mut()
+            .next()
+            .unwrap()
+            .preparation = InputOrigin::Legacy(Box::new(legacy_record));
+    });
+    rewrite(&legacy.root, |s| {
+        s.attempts
+            .get_mut(&legacy.id)
+            .unwrap()
+            .downloads
+            .values_mut()
+            .next()
+            .unwrap()
+            .preparation = InputOrigin::Phase(Box::new(phase_record));
+    });
+    let mut capacity = limits();
+    capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
+    assert!(Journal::open(&phase.root, identity().node_id, capacity.clone()).is_err());
+    assert!(Journal::open(&legacy.root, identity().node_id, capacity).is_err());
+}
+#[tokio::test]
+async fn phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reopen() {
+    let export = synthetic();
+    let manifest = export.manifest.clone();
+    let mut h = Inputs::new_phase(export).await;
+    let git = GitPeer::new(h.root.clone(), manifest);
+    let (a, all, workspace, renderer) = phase_physical(&h, git.client.clone()).await;
+    h.pipeline()
+        .test_journal_fault(WriteFault::AfterRename)
+        .await
+        .unwrap();
+    assert!(
+        h.pipeline()
+            .prepare_inputs_phase(h.id, a.clone(), all, workspace, renderer)
+            .await
+            .is_err()
+    );
+    drop(h.pipeline.take());
+    let mut capacity = limits();
+    capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
+    let reopened = Journal::open(&h.root, identity().node_id, capacity).unwrap();
+    assert!(reopened.available().is_err());
+    assert!(reopened.check_phase_preparation(h.id, &a).is_err());
+    let attempt = &reopened.state().attempts[&h.id];
+    assert!(
+        attempt.phase_prepared.is_some()
+            && attempt.prepared.is_none()
+            && attempt.initial_grant.is_none()
+    );
+    assert!(attempt.source.as_ref().unwrap().complete());
+}
