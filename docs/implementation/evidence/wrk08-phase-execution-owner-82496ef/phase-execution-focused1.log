@@ -1,0 +1,15 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 8.64s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-07265dd947b501fa)
+
+running 7 tests
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_expiry_during_fsync_is_history_only_and_keeps_resources ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_is_durable_before_usable_and_preserves_original_bundle_and_caps ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_current_private_record_and_git_changes_refuse_without_erasing_history ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_outlives_preparation_without_retiming_historical_source_proof ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_replay_never_replaces_first_history_or_extends_caps ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_unpolled_and_cancelled_futures_preserve_exclusive_bundle_and_commit ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_write_cuts_reopen_history_only_and_preserve_all_holds ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 93 filtered out; finished in 22.87s
+

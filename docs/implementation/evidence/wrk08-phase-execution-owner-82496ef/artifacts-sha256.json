@@ -1,0 +1,66 @@
+{
+  "phase-execution-actual-git1.log": {
+    "bytes": 485,
+    "sha256": "bf006511aab7c322f0b3cfbdfd4baa4e8ce8fc7f2297b1b2a92b331109661cc0"
+  },
+  "phase-execution-arc-replay.log": {
+    "bytes": 522,
+    "sha256": "b53c44781606aa1d4a325bec45411229da09cdfd197afd8b32f9b0b7a3946302"
+  },
+  "phase-execution-check1.log": {
+    "bytes": 140,
+    "sha256": "88d20169b64f264eae9584e5daaea8ca22de1c57038fc2758494888eb2ac1fbc"
+  },
+  "phase-execution-clippy-arc.log": {
+    "bytes": 195,
+    "sha256": "3c9621cd6ce111d8a9eee7fd264cfcbcedc1ebd5beb56888849f1fc7d389c1ea"
+  },
+  "phase-execution-clippy-final.log": {
+    "bytes": 195,
+    "sha256": "3b57be85752403391b50cbcfada1befa3e259ad15b2825630497e344e9dbaeb4"
+  },
+  "phase-execution-fmt-arc.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "phase-execution-fmt-final.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "phase-execution-focused1.log": {
+    "bytes": 1487,
+    "sha256": "bf8df129a396b58b293ee1565c4657b4e43acdc3b12cd4faef2a9dbcc15bda55"
+  },
+  "phase-execution-focused2.log": {
+    "bytes": 1811,
+    "sha256": "68b6438f02408b89f51cd592bc688f8dc044451034fff308f200e70c07007fa1"
+  },
+  "phase-execution-git-arc.log": {
+    "bytes": 721,
+    "sha256": "ef402a93fb4964773b9df10305222bc6a6bf677143d6703cace8990ffb5b3dbf"
+  },
+  "phase-execution-git-final.log": {
+    "bytes": 721,
+    "sha256": "1999b6d46dcd6625c810ae62de7ab1a1aea296786b59ddb8da6927ea2a57970c"
+  },
+  "phase-execution-package-arc.log": {
+    "bytes": 28169,
+    "sha256": "b98074cc30e133d449cc447b0b446c13d26a0dd935eaa8fdf450c6834e4bd5c9"
+  },
+  "phase-execution-package-final.log": {
+    "bytes": 28169,
+    "sha256": "94a15be034f5a5d82c294286a968e9609b23d598c16ea79a2867891c59377da5"
+  },
+  "phase-execution-positive1.log": {
+    "bytes": 1388,
+    "sha256": "f040064b8f660d74925c384af1c31c045f2f21c7e8e80d940b8b48465286a0b8"
+  },
+  "phase-execution-positive2.log": {
+    "bytes": 523,
+    "sha256": "890866326a96201249526e6ea952b75eefdea565fe29dad0b8b87d13d60f4579"
+  },
+  "source-sha256.json": {
+    "bytes": 150856,
+    "sha256": "2ac12dfd9f55eca7b30d578d249caf0a8884e73a377febb1b5f7ec60d617c7ab"
+  }
+}
