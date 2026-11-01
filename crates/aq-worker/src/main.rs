@@ -74,6 +74,12 @@ enum Cmd {
         #[arg(long, default_value = "crash")]
         fault_action: String,
     },
+    /// Execute one fresh native attempt using an installed qualified executor.
+    /// Until a concrete production executor is installed, refuses before admission.
+    RunNative {
+        #[arg(long)]
+        native_config: PathBuf,
+    },
     /// Print the node id and server (never the credential).
     Status,
 }
@@ -208,6 +214,36 @@ async fn main() -> ExitCode {
             match result {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => usage_err(format!("{e:#}")),
+            }
+        }
+        Cmd::RunNative { native_config } => {
+            let result = async {
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
+                let (signal, shutdown) = tokio::sync::watch::channel(false);
+                let watcher = tokio::spawn(async move {
+                    shutdown_signal().await;
+                    let _ = signal.send(true);
+                });
+                let result = aq_worker::native::runner::run_once(
+                    &worker,
+                    config,
+                    &mut aq_worker::native::runner::UnavailableExecutor,
+                    shutdown,
+                )
+                .await;
+                watcher.abort();
+                result
+            }
+            .await;
+            match result {
+                Ok(disposition) => {
+                    println!("native run: {disposition:?}; retained state preserved");
+                    ExitCode::SUCCESS
+                }
+                Err(_) => usage_err(
+                    "native execution unavailable or outcome unknown; preserve state for reconciliation",
+                ),
             }
         }
         Cmd::Status => match WorkerConfig::load(&path) {

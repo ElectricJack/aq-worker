@@ -1,0 +1,136 @@
+use super::*;
+use crate::native::adapter::{AdapterManifest, FilePin, HandoffKind};
+use aq_admission::preparation_v2::{Negotiation, contract_artifact, required_features};
+use aq_session_protocol::{ArtifactRef, Digest, Text};
+use std::{
+    os::unix::fs::{PermissionsExt, symlink},
+    path::Path,
+};
+fn artifact(id: &str) -> ArtifactRef {
+    ArtifactRef {
+        id: Text::new(id).unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(id.as_bytes()),
+    }
+}
+fn write(path: &Path, bytes: &[u8], mode: u32) {
+    std::fs::write(path, bytes).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+fn config() -> (tempfile::TempDir, NativeConfig) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let pin = |name: &str| {
+        let path = dir.path().join(name);
+        write(&path, name.as_bytes(), 0o500);
+        let mut reference = artifact(name);
+        reference.digest = Digest::of(name.as_bytes());
+        FilePin {
+            path,
+            artifact: reference,
+        }
+    };
+    let manifest = AdapterManifest {
+        schema_version: 1,
+        adapter: artifact("adapter"),
+        runtime: artifact("runtime"),
+        qualification: artifact("qualification"),
+        renderer: artifact("renderer"),
+        handoff: HandoffKind::OpaquePrivateFileV1,
+        executable: pin("program"),
+        helper: pin("helper"),
+        tmux: pin("tmux"),
+    };
+    let manifest_path = dir.path().join("manifest.json");
+    write(
+        &manifest_path,
+        &serde_json::to_vec(&manifest).unwrap(),
+        0o600,
+    );
+    let c = NativeConfig {
+        schema_version: 1,
+        state_dir: dir.path().into(),
+        git_root: dir.path().join("git"),
+        git_socket: dir.path().join("git.sock"),
+        capacity: Limits {
+            slots: 1,
+            memory_bytes: 4096,
+            cpu_millis: 1000,
+            disk_bytes: 4096,
+        },
+        runtime: RuntimeIdentity {
+            runtime: manifest.runtime.clone(),
+            qualification: manifest.qualification.clone(),
+        },
+        adapter: manifest.adapter.clone(),
+        renderer: manifest.renderer.clone(),
+        adapter_manifest: manifest_path,
+        adapter_manifest_digest: manifest.digest().unwrap(),
+        capabilities: vec![],
+        features: vec![],
+        negotiation: Negotiation {
+            contract: contract_artifact().unwrap(),
+            features: required_features(),
+        },
+        source_profile: artifact("source"),
+        maximum_preparation_ms: 1000,
+        inventory_definition: dir.path().join("not-created-inventory-definition"),
+        inventory_reference: artifact("inventory"),
+        inventory_adapter: artifact("inventory-adapter"),
+        inventory_evidence: artifact("inventory-evidence"),
+        harness_qualifications: vec![artifact("harness-qualification")],
+        inventory_ttl_ms: 1000,
+    };
+    (dir, c)
+}
+#[tokio::test]
+async fn unavailable_executor_refuses_before_any_journal_or_network_admission() {
+    let (dir, c) = config();
+    let (_, shutdown) = watch::channel(false);
+    let worker = WorkerConfig {
+        server_url: "http://127.0.0.1:9".into(),
+        node_id: Uuid::new_v4(),
+        credential: "test-node-credential".into(),
+        cf_client_id: None,
+        cf_client_secret: None,
+    };
+    let error = run_once(&worker, c, &mut UnavailableExecutor, shutdown)
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("no qualified native executor installed")
+    );
+    assert!(!dir.path().join("journal").exists());
+    assert!(!dir.path().join("materials").exists());
+    // The absent inventory file/Git socket would fail if any admission setup had run.
+}
+#[test]
+fn private_config_refuses_symlink_public_mode_and_oversize() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config");
+    write(&path, b"{}", 0o600);
+    let link = dir.path().join("link");
+    symlink(&path, &link).unwrap();
+    assert!(config::private_file(&link, 10).is_err());
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(config::private_file(&path, 10).is_err());
+    write(&path, b"too many bytes", 0o600);
+    assert!(config::private_file(&path, 10).is_err());
+}
+#[test]
+fn native_config_rejects_unsupported_capacity_and_changed_executable() {
+    let (_dir, mut c) = config();
+    c.capacity.slots = 2;
+    assert!(c.validate().is_err());
+    c.capacity.slots = 1;
+    assert!(c.installed_adapter().is_ok());
+    std::fs::set_permissions(
+        c.state_dir.join("program"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    write(&c.state_dir.join("program"), b"tampered", 0o500);
+    assert!(c.installed_adapter().is_err());
+}
