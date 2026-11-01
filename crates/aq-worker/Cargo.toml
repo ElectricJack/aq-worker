@@ -1,12 +1,12 @@
 [package]
 name = "aq-worker"
-version = "0.3.3"
+version = "0.3.4"
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
 aq-terminal-relay = { path = "../../vendor/aq-terminal-relay-0.1.0", version = "=0.1.0" }
-aq-terminal-bridge = { path = "../aq-terminal-bridge", version = "=0.1.1" }
+aq-terminal-bridge = { path = "../aq-terminal-bridge", version = "=0.1.2" }
 aq-terminal-relay-protocol = { path = "../../vendor/aq-terminal-relay-protocol-0.1.0", version = "=0.1.0" }
 aq-phase-terminal-protocol = { path = "../../vendor/aq-phase-terminal-protocol-0.1.0", version = "=0.1.0" }
 base64 = "0.22"

@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "aq-session-host"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "aq-session-protocol",
@@ -269,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "aq-terminal-bridge"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "aq-session-host",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "aq-worker"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "aq-admission",
