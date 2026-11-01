@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "source_revision": "5f26e83f4454267baf4d9ec11fb81b4de0f5b0c4",
+  "dependency_adoption": "b54ec5e00c241a2858d628afa0d8cc8ea60bc09c",
+  "admission_archive_sha256": "30f4cfca11ff6840eab325026dfea33dd55c23e25099dedb303b52a1ede75b49",
+  "independently_verified_archive_members": 103,
+  "unchanged_previous_archive_sha256": "46283490c98c5b082aa8dbfd4ccde230db3d97828fcbd71ff5b0526837bae545",
+  "focused_tests": {
+    "passed": 6,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 0.67
+  },
+  "all_feature_package_tests": {
+    "passed": 170,
+    "failed": 0,
+    "ignored": 5,
+    "test_processes": 23,
+    "seconds_sum": 8.78
+  },
+  "actual_git_regression": {
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 4.23,
+    "binary_sha256": "c2ff26f5e63008aec0fbd4082a547e87825e651d4aba0744c4b9fdf752d58c39"
+  },
+  "lint": {
+    "all_targets_all_features": true,
+    "deny_warnings": true,
+    "seconds": 28.3
+  },
+  "format": true,
+  "source_inventory": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "dc4d7ef6aab7a1c3859645f2138c9f7d0c1cf897c562c226a569d722bad1bfae",
+      "bytes": 1986
+    },
+    {
+      "path": "Cargo.lock",
+      "sha256": "640e01b1238cb387a4b4de57453d3a0d436c532be9001aa77ea98523d3124513",
+      "bytes": 61365
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "sha256": "7c37945b5d8da8830358e612979c67df18691132016ad0cd881401029ff255cb",
+      "bytes": 1180
+    },
+    {
+      "path": "crates/aq-worker/src/native/http.rs",
+      "sha256": "120427690fb29268b5b884c048bb7a8d384649a1f0cc303f37e3508f7b21f7c2",
+      "bytes": 13601
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/preparation_v2.rs",
+      "sha256": "b2cdbf37786f2b8db5b9269d91281784f491fc45516bd462b7067f3662c988cb",
+      "bytes": 7534
+    },
+    {
+      "path": "crates/aq-worker/tests/native_preparation_v2.rs",
+      "sha256": "1a5efb994011aa846fd2a00f81c515c44115578169caf5807d41a067f693fcab",
+      "bytes": 11122
+    },
+    {
+      "path": "vendor/aq-admission-019-source.json",
+      "sha256": "4e71703275f2dd5173329275f0890ce026d2465d929e4dc2d3a60caf23587d26",
+      "bytes": 16043
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/evidence/worker-phase-http-5f26e83/tests.log",
+      "sha256": "e66d54bd860c4d43f337ffe167565e1df397be2b9c8b008f1f6192d968c16e8f",
+      "bytes": 7125
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-http-5f26e83/all-tests.log",
+      "sha256": "9f6505379bac87cb1347c72dace7f5573af2b8662654b370a3fbb481e926dc80",
+      "bytes": 21157
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-http-5f26e83/clippy.log",
+      "sha256": "0513c3fa8e2370213e3f1874dc09b2e4b030b36e2d8a29f67298a5b0b8f67c10",
+      "bytes": 5647
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-http-5f26e83/fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-http-5f26e83/actual-git.log",
+      "sha256": "72c02a96c9c709050bcf5489ece6bc8ca076762806c0bd2f280bdc19c0e6c2b5",
+      "bytes": 337
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-http-5f26e83/actual-git-selected.log",
+      "sha256": "f0fac65227938433a247a64c303ceeba5a9b9bdd571e8dc4c55f1d1a26c192cd",
+      "bytes": 542
+    }
+  ],
+  "limitations": [
+    "Phase transport uses actual loopback HTTP with synthetic public fixtures, not actual daemon authorization or disk authority.",
+    "Caller must supply actual Poll/reservation deadline and durably own exact Accept intent before sending; no journal or input pipeline adoption exists yet.",
+    "No legacy Preparation conversion, phase execution issuer, host/provider activation, or automatic retries. Lost/late replies remain unknown and cannot imply release.",
+    "Actual Git regressions qualify existing legacy hydration and durable initial grant after dependency adoption, not v2 cold preparation.",
+    "Initial opt-in Git filter selected zero tests; retained as a nonqualification command, then corrected selection ran two actual tests."
+  ]
+}
