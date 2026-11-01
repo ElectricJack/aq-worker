@@ -6,6 +6,14 @@ regression-only `4ff62a5`; all14 bounded tests passed before factoring
 launch, material owner, helper or admission behavior changes in that baseline.
 No provider request or capsule process is part of qualification.
 
+Final source `56bfa42` passed independent review, fifteen standalone core tests
+in1.45s and the same fourteen worker compatibility tests. Affected strict checks
+and default worker library check passed; exact scope, warm-cache rebuild times
+and limits are retained in the
+[qualification record](evidence/responses-transport-extraction/qualification.json).
+This is the transport extraction only; prepared-host composition remains a
+separate qualification boundary.
+
 ## Component boundary
 
 Add same-workspace `aq-responses-transport`, `publish=false`, depending only on

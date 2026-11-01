@@ -1,0 +1,23 @@
+   Compiling aq-responses-transport v0.1.0 (/tmp/aq-responses-transport-v2/crates/aq-responses-transport)
+    Finished `test` profile [unoptimized] target(s) in 1.44s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_responses_transport-b4f620acced9fd13)
+
+running 15 tests
+test lifecycle_tests::cancelled_initial_reads_hold_physical_admission_and_excess_never_queues ... ok
+test lifecycle_tests::consumed_listener_requires_exact_listening_numeric_loopback_before_credential_read ... ok
+test lifecycle_tests::every_forward_rechecks_credential_and_metadata_pins_remain_original ... ok
+test lifecycle_tests::held_initial_credential_read_is_deadline_bounded_and_late_result_never_serves ... ok
+test lifecycle_tests::held_request_credential_cannot_forward_after_acknowledged_stop_or_expiry ... ok
+test policy::tests::changed_selection_ambiguous_json_stateful_and_unbounded_requests_refuse ... ok
+test policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+test policy::tests::injects_exact_response_cap_preserving_every_other_setting ... ok
+test policy::tests::server_side_references_and_hosted_tools_refuse_before_cap_insertion ... ok
+test tests::bounded_stream_preserves_exact_limit_and_aborts_surplus_without_second_status ... ok
+test tests::endpoint_and_key_scope_refuse_before_serving ... ok
+test tests::exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_preserved_sse ... ok
+test tests::exact_http_route_host_capability_and_framing_refuse_without_forwarding ... ok
+test tests::stop_cancels_pending_upstream_and_ambiguous_http_never_forwards ... ok
+test tests::upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+
