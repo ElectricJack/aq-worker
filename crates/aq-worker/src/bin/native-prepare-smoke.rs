@@ -1,5 +1,5 @@
-//! Explicit test-support process: real input owners through initial Grant only.
-//! Includes durable received Grant history; no host, provider, resume or cleanup.
+//! Explicit test-support process: actual input and Grant owners, with an opt-in
+//! fixed synthetic host probe. No provider, resume or resource release.
 use anyhow::{Context, Result, ensure};
 use aq_admission::{
     ArtifactKind, Resources,
@@ -11,6 +11,10 @@ use aq_worker::{
     native::{
         http::NativeClient,
         journal::{Journal, Limits, RuntimeIdentity},
+        launch::{
+            InstalledFilePin, NativeHostLaunchResult, NativeStopOutcome, SyntheticHostConfig,
+            SyntheticHostProfile, SyntheticMode,
+        },
         materials::MaterialStore,
         preparation::{GrantCommit, InputPipeline, PhaseExecutionCommit},
     },
@@ -57,6 +61,29 @@ struct PhaseConfig {
     prepare_inputs: bool,
     #[serde(default)]
     prepare_execution: bool,
+    synthetic_host: Option<HostConfig>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostPin {
+    path: PathBuf,
+    artifact: ArtifactRef,
+}
+impl From<HostPin> for InstalledFilePin {
+    fn from(pin: HostPin) -> Self {
+        Self {
+            path: pin.path,
+            artifact: pin.artifact,
+        }
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostConfig {
+    helper: HostPin,
+    tmux: HostPin,
+    program: HostPin,
+    renderer: ArtifactRef,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -159,6 +186,10 @@ async fn run(stage: &mut &'static str) -> Result<()> {
             !phase.prepare_execution || phase.prepare_inputs,
             "phase execution requires actual inputs"
         );
+        ensure!(
+            phase.synthetic_host.is_none() || phase.prepare_execution,
+            "synthetic host requires actual phase execution"
+        );
     }
     let held = root(&config.root)?;
     let git = GitClient::new(&config.git_socket, &config.git_root)?;
@@ -260,7 +291,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         let request = journal.begin_phase_accept(
             id,
             &proposed,
-            config.capabilities,
+            config.capabilities.clone(),
             phase.source_profile,
             phase.maximum_preparation_ms,
         )?;
@@ -295,7 +326,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
             "checked_at_ns":boot_ns()?,"deadline_ns":cap});
         if phase.prepare_inputs {
             let preparation = Arc::new(replay);
-            let pipeline = InputPipeline::new(journal, materials, client.clone());
+            let pipeline = Arc::new(InputPipeline::new(journal, materials, client.clone()));
             *stage = "phase_artifacts";
             let artifacts = pipeline.artifacts_phase(id, preparation.clone()).await?;
             *stage = "phase_materials";
@@ -375,6 +406,68 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                 result["execution_hard_deadline_ns"] = json!(grant.hard_deadline_ns());
                 result["execution_checked_at_ns"] = json!(boot_ns()?);
                 result["execution_revision"] = json!(pipeline.snapshot().await?.revision);
+                if let Some(host) = phase.synthetic_host {
+                    *stage = "phase_host_profile";
+                    let host_root = config.root.join("host");
+                    use std::os::unix::fs::DirBuilderExt;
+                    std::fs::DirBuilder::new().mode(0o700).create(&host_root)?;
+                    held.sync_all()?;
+                    let profile = SyntheticHostProfile::new(SyntheticHostConfig {
+                        root: host_root,
+                        helper: host.helper.into(),
+                        tmux: host.tmux.into(),
+                        program: host.program.into(),
+                        harness: offer.offered.offer.manifest.harness.clone(),
+                        capabilities: config.capabilities.clone(),
+                        renderer: host.renderer,
+                        columns: 80,
+                        rows: 24,
+                        mode: SyntheticMode::Wait,
+                    })?;
+                    *stage = "phase_host_launch";
+                    let launched = pipeline.launch_phase_synthetic(&grant, profile).await?;
+                    // Positive exec does not mean the synthetic program has
+                    // finished its first write. Give the fixture a bounded
+                    // observation window; this never extends the host permit.
+                    if matches!(&launched, NativeHostLaunchResult::Running(_)) {
+                        let marker = config
+                            .root
+                            .join("host")
+                            .join(preparation.delivery().receipt.lease.launch_id.to_string());
+                        for _ in 0..50 {
+                            if marker.join("fixture-marker").is_file()
+                                && marker.join("fixture-marker.cwd").is_file()
+                            {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        }
+                    }
+                    // Stop before inspecting/serializing any result, including an
+                    // ambiguous launch. The original guardian cap also remains.
+                    *stage = "phase_host_stop";
+                    ensure!(
+                        matches!(
+                            pipeline.stop_phase_host(id).await?,
+                            NativeStopOutcome::StoppedPendingJournal(_)
+                        ),
+                        "actual stop proof required"
+                    );
+                    pipeline.persist_phase_host_stop(id).await?;
+                    let NativeHostLaunchResult::Running(host) = launched else {
+                        anyhow::bail!("synthetic host lacked positive Running proof");
+                    };
+                    result["host_started"] = json!(host.started_request()?);
+                    let snapshot = pipeline.snapshot().await?;
+                    result["host_revision"] = json!(snapshot.revision);
+                    result["host_stopped"] = json!(
+                        snapshot.attempts[&id]
+                            .native_host
+                            .as_ref()
+                            .context("native host history absent")?
+                            .stopped
+                    );
+                }
                 // Keep original actual network observation and input owner alive
                 // through reporting; diagnostic JSON cannot restore either one.
                 emit(&result)?;
