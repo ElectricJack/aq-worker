@@ -163,6 +163,7 @@ fn validate(plan: &PlanRecord, files: &mut [File]) -> Result<()> {
         targets.contains(&MountTarget::Workspace),
         "capsule workspace absent"
     );
+    prepared::validate_plan(plan, files)?;
     Ok(())
 }
 fn cleanup(init: Option<&OwnedFd>) -> Result<u64> {
@@ -292,7 +293,60 @@ pub(super) fn run(control: wire::Socket) -> Result<()> {
     let harnessfd = ownership::verified_pidfd(&harness)?;
     namespaces(harness.pid, inner_pid, init.pid)?;
     caller_still_waiting(&control)?;
-    inner.send(&Message::Release { nonce: plan.nonce }, None, plan.deadline)?;
+    let was_prepared = plan.prepared.is_some();
+    if was_prepared {
+        let helper = File::open("/proc/self/exe")?;
+        let metadata = helper.metadata()?;
+        verify_image(
+            &harness,
+            &seal::Pin {
+                digest: Digest::of(b"sealed helper identity only"),
+                bytes: metadata.len(),
+                device: metadata.dev(),
+                inode: metadata.ino(),
+                executable: true,
+            },
+        )?;
+        let info = prepared::info(
+            &plan,
+            ownership::process_evidence(std::process::id())?,
+            init.clone(),
+            harness.clone(),
+            origin.clone(),
+        )?;
+        control.send(
+            &Message::Prepared(info.clone()),
+            Some(listener.as_raw_fd()),
+            plan.deadline,
+        )?;
+        let commit = match control.recv::<Message>(plan.deadline) {
+            Ok(packet) if packet.credentials.pid == worker && packet.fd.is_none() => match packet
+                .value
+            {
+                Message::Commit(record) if prepared::validate_record(&record, &info).is_ok() => {
+                    Some(record)
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(commit) = commit else {
+            drop(inner);
+            drop(listener);
+            let reaped = cleanup(Some(&initfd))?;
+            finish_report(
+                &control,
+                worker,
+                plan.nonce,
+                Message::PreparedStopped { info, reaped },
+            )?;
+            return Ok(());
+        };
+        caller_still_waiting(&control)?;
+        inner.send(&Message::Commit(commit), None, plan.deadline)?;
+    } else {
+        inner.send(&Message::Release { nonce: plan.nonce }, None, plan.deadline)?;
+    }
     drop(inner);
     while verify_image(&harness, &plan.program).is_err() {
         caller_still_waiting(&control)?;
@@ -311,7 +365,11 @@ pub(super) fn run(control: wire::Socket) -> Result<()> {
     };
     control.send(
         &Message::Ready(witness),
-        Some(listener.as_raw_fd()),
+        if was_prepared {
+            None
+        } else {
+            Some(listener.as_raw_fd())
+        },
         plan.deadline,
     )?;
     drop(listener);
@@ -345,15 +403,20 @@ pub(super) fn run(control: wire::Socket) -> Result<()> {
     let reaped = cleanup(Some(&initfd))?;
     ensure!(reaped > 0, "capsule owned descendant reap absent");
     // A dropped caller has no receiver; physical cleanup still completed.
+    finish_report(
+        &control,
+        worker,
+        plan.nonce,
+        Message::Stopped {
+            nonce: plan.nonce,
+            reaped,
+        },
+    )?;
+    Ok(())
+}
+fn finish_report(control: &wire::Socket, worker: i32, nonce: Uuid, report: Message) -> Result<()> {
     if control
-        .send(
-            &Message::Stopped {
-                nonce: plan.nonce,
-                reaped,
-            },
-            None,
-            ownership::raw_boot_ms() + 100,
-        )
+        .send(&report, None, ownership::raw_boot_ms() + 100)
         .is_ok()
     {
         // Keep a late Stop from resetting a queued report when the endpoint
@@ -368,8 +431,8 @@ pub(super) fn run(control: wire::Socket) -> Result<()> {
                 "capsule stop ACK sender"
             );
             match packet.value {
-                Message::StoppedAck { nonce } if nonce == plan.nonce => break,
-                Message::Stop { nonce } if nonce == plan.nonce => {}
+                Message::StoppedAck { nonce: received } if received == nonce => break,
+                Message::Stop { nonce: received } if received == nonce => {}
                 _ => bail!("capsule stop ACK binding"),
             }
         }

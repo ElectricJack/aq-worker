@@ -15,10 +15,15 @@
 static void denied(const char *p) { int fd = open(p, O_RDONLY | O_CLOEXEC); CHECK(fd < 0 && (errno == ENOENT || errno == EACCES || errno == EPERM)); }
 static void exact(const char *p, const char *value) { char b[128]; int fd = open(p, O_RDONLY | O_CLOEXEC); CHECK(fd >= 0); ssize_t n = read(fd, b, sizeof(b)); CHECK(n == (ssize_t)strlen(value) && !memcmp(b,value,n)); close(fd); }
 int main(int argc, char **argv) {
- CHECK(argc == 7 && getpid() > 1 && fcntl(3,F_GETFD) < 0 && errno == EBADF);
+ CHECK((argc == 7 || argc == 10) && getpid() > 1 && fcntl(3,F_GETFD) < 0 && errno == EBADF);
  CHECK(getenv("HOME") == NULL && getenv("AQ_SESSION_DIRECTORY") == NULL && getenv("TMPDIR") == NULL);
  const char *expected="capsule exact stdin bytes\n";char input[128];ssize_t n=read(0,input,sizeof(input));CHECK(n==(ssize_t)strlen(expected) && !memcmp(input,expected,n));CHECK(read(0,input,sizeof(input))==0);
- exact("/auth/auth.json","derived-local-canary\n"); exact("/allowed/0/item","allowed-canary\n"); exact("/git-metadata/item","git-canary\n");
+ if(argc==7)exact("/auth/auth.json","derived-local-canary\n");else{
+  char auth[256]={0},cfg[4096]={0};const char *prefix="{\"OPENAI_API_KEY\":\"aq-responses-";int fd=open("/auth/auth.json",O_RDONLY);CHECK(fd>=0);ssize_t n=read(fd,auth,sizeof(auth)-1);close(fd);CHECK(n>0 && !strncmp(auth,prefix,strlen(prefix)));
+  fd=open("/auth/candidate-config.json",O_RDONLY);CHECK(fd>=0);n=read(fd,cfg,sizeof(cfg)-1);close(fd);CHECK(n>0 && strstr(cfg,getenv("AQ_CAPSULE_ENDPOINT")));
+  CHECK(!strncmp(argv[7],"--candidate-origin=",19) && !strcmp(argv[7]+19,getenv("AQ_CAPSULE_ENDPOINT")) && !strncmp(argv[8],"--candidate-preparation=",24) && !strncmp(argv[9],"--candidate-deadline=",21));
+ }
+ exact("/allowed/0/item","allowed-canary\n"); exact("/git-metadata/item","git-canary\n");
  CHECK(open("/auth/auth.json",O_WRONLY | O_CLOEXEC) < 0 && errno == EROFS);
  denied(argv[4]); denied("/.old-root"); denied("/home/operator/.profile"); denied("/var/lib/aq-node/material");
  int sourcefd=atoi(argv[3]); char path[4096];

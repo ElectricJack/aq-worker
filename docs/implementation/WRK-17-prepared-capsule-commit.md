@@ -1,7 +1,8 @@
 # Two-stage static capsule preparation and commit
 
-Status: source-first candidate/API proposal. No implementation or builds are
-authorized by this document. Root review precedes the next static increment.
+Status: host-only synthetic implementation and static checks complete; independent
+implementation review pending. Root approved this bounded increment after the
+source-first design review. This document does not authorize a production join.
 Production eligibility stays false. No real SourcePin, provider credential,
 Codex, tmux, permission/permit bridge or production wire is introduced.
 
@@ -57,17 +58,16 @@ impl CandidatePreparedHandle {
     pub fn abort(self) -> Result<CandidatePreparedStopReport>;
 }
 
-pub struct CandidateFilePin {
-    // Fixed member enum, not a caller-controlled path or parent proc/FD route.
-    member: CandidateDerivedMember, // AuthJson | CandidateConfigJson
+struct FilePin {
+    // Private pins for fixed members, not caller-controlled filesystem routes.
     device: u64,
     inode: u64,
     bytes: u64,
     digest: Digest,
 }
 pub struct CandidatePublishedInputs {
-    auth: CandidateFilePin,
-    config: CandidateFilePin,
+    auth: FilePin, // Fixed auth.json
+    config: FilePin, // Fixed candidate-config.json
     capability_digest: Digest, // never capability bytes in metadata
 }
 pub struct CandidateStaticRecipe { /* closed static fixture argv/env recipe */ }
@@ -240,8 +240,9 @@ and synchronously cancel forwarding before physical abort/stop, including any
 commit failure or dropped preparation. Taking a listener is not cancellation
 integration. Reuse the current worker physical-entry stop fence/transport owner
 when the production join is designed; do not claim the host-only handle owns
-an externally taken proxy task. First synthetic tests use an explicit aggregate
-RAII owner so this obligation is testable without real credentials.
+an externally taken proxy task. The first static increment owns no proxy task;
+an explicit aggregate RAII owner and cancellation evidence are required in the
+later synthetic transport composition.
 
 ## Small implementation sequence and acceptance cases
 
@@ -264,3 +265,40 @@ and publish no running or stopped receipt without its actual evidence.
 Independent source review precedes importing the next implementation. All
 current production, real credential, named-image, tmux/PTY, permit, recovery
 and packaging qualification gates remain separate.
+
+## First implementation evidence
+
+The host-only implementation adds a private optional prepared mode to the
+test-support helper's plan. Legacy plans omit that field and retain the old
+one-stage release, listener and image-witness path. The only change outside
+the candidate module is extracting the existing pure local-capability auth
+format/digest checker; the original SourcePin verifier still calls it after
+its original scope checks.
+
+The fixed synthetic publisher creates both files exclusively through the
+retained directory FD, syncs each file and then the directory, and returns
+exact file pins. The guest stub checks the actual readonly mounted directory
+and files before exec. This is a trusted publisher ownership/fencing contract,
+not a filesystem snapshot or protection against a malicious trusted parent.
+The owner-intent ref and transport-scope digest are caller-supplied metadata;
+this increment has neither a durable authority owner nor a serving transport.
+
+Local Linux static evidence (no Codex, tmux, SourcePin or provider request):
+
+- All 11 capsule integration cases passed in 8.21 seconds, including the
+  existing one-stage process, FD-root/submount and Drop/deadline cases.
+- The final five prepared cases passed in 5.63 seconds after adding the
+  conflicting owner-intent vector. They cover pause without marker/request,
+  exact commit and actual image exec, prepared abort/ECHILD, Drop/control loss,
+  original expiry/late commit, correctly rehashed changed intent/nonce/origin/
+  deadline/closed recipe, and actual auth/config byte, mode, symlink and extra
+  member changes. Rejected cases verify init/stub pidfd exit and no guest
+  marker; refusal alone is not advertised as a stopped receipt.
+- Host unit tests passed (36 passed, three separately qualified fixtures
+  ignored); the two new pure tests verify private publication, absence of
+  capability bytes from commit metadata, and semantic conflict refusal.
+
+The commit API consumes the prepared handle and has no retry method. Raw
+duplicate-commit injection, external transport cancellation, real publication
+history/recovery, Codex helper compatibility and tmux integration are not
+qualified by these static cases. Post-release errors remain uncertain.

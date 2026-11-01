@@ -142,6 +142,9 @@ fn fixture() -> Fixture {
 }
 fn ready(handle: &mut CapsuleHandle) -> std::net::TcpStream {
     let listener = handle.take_listener().unwrap();
+    ready_listener(listener)
+}
+fn ready_listener(listener: std::net::TcpListener) -> std::net::TcpStream {
     let until = Instant::now() + Duration::from_secs(3);
     let mut connection = loop {
         match listener.accept() {
@@ -161,6 +164,227 @@ fn ready(handle: &mut CapsuleHandle) -> std::net::TcpStream {
     assert_eq!(&bytes, b"static-proxy-ready");
     connection.write_all(b"x").unwrap();
     connection
+}
+
+struct PreparedFixture {
+    root: tempfile::TempDir,
+    workspace: PathBuf,
+    _helper: PinnedHelper,
+    _original: File,
+}
+fn prepared_fixture(
+    lifetime: u64,
+) -> (
+    PreparedFixture,
+    CandidatePreparedHandle,
+    std::net::TcpListener,
+) {
+    let fixture = fixture_with_lifetime(lifetime);
+    std::fs::remove_file(fixture._root.path().join("auth/auth.json")).unwrap();
+    // Keep fixture plan ownership separate while reusing the accepted static peer.
+    let Fixture {
+        _root,
+        plan,
+        helper,
+        workspace,
+        _original,
+    } = fixture;
+    let owner = ArtifactRef {
+        id: Text::new("synthetic-owner-intent").unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(b"immutable synthetic owner, no authority"),
+    };
+    let mut prepared = CandidatePreparedHandle::prepare(&helper, plan, owner).unwrap();
+    let listener = prepared.take_listener().unwrap();
+    assert!(!workspace.join("checks-passed").exists());
+    assert!(matches!(listener.accept(),Err(e) if e.kind()==std::io::ErrorKind::WouldBlock));
+    (
+        PreparedFixture {
+            root: _root,
+            _helper: helper,
+            workspace,
+            _original,
+        },
+        prepared,
+        listener,
+    )
+}
+fn publish_commit(
+    fixture: &PreparedFixture,
+    prepared: &CandidatePreparedHandle,
+) -> CandidateCommit {
+    let cap = format!(
+        "aq-responses-{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let published = CandidatePublishedInputs::publish_synthetic(
+        prepared.info(),
+        &fixture.root.path().join("auth"),
+        cap.as_bytes(),
+    )
+    .unwrap();
+    CandidateCommit::new(
+        prepared.info(),
+        published,
+        CandidateStaticRecipe::new(prepared.info()),
+        Digest::of(b"synthetic parent transport scope"),
+    )
+    .unwrap()
+}
+fn changed_commit(
+    commit: CandidateCommit,
+    change: impl FnOnce(&mut serde_json::Value),
+) -> CandidateCommit {
+    let mut value = serde_json::to_value(commit).unwrap();
+    change(&mut value);
+    let mut tuple = serde_json::json!([
+        value["scope"],
+        value["published"],
+        value["recipe"],
+        value["transport_scope_digest"]
+    ]);
+    tuple.sort_all_objects();
+    value["digest"] =
+        serde_json::to_value(Digest::of(&serde_json::to_vec(&tuple).unwrap())).unwrap();
+    serde_json::from_value(value).unwrap()
+}
+fn prepared_pidfds(info: &CandidatePreparedInfo) -> Vec<std::os::fd::OwnedFd> {
+    vec![
+        ownership::verified_pidfd(info.namespace_init()).unwrap(),
+        ownership::verified_pidfd(info.exec_stub()).unwrap(),
+    ]
+}
+fn assert_ended(fds: &[std::os::fd::OwnedFd]) {
+    for fd in fds {
+        assert!(!ownership::pidfd_is_live(fd).unwrap());
+    }
+}
+
+#[test]
+#[ignore = "explicit synthetic prepared static capsule; no real key/provider"]
+fn prepared_pause_publishes_no_guest_execution_then_exact_commit_executes_once() {
+    let (fixture, prepared, listener) = prepared_fixture(8000);
+    let info = prepared.info().clone();
+    let fds = prepared_pidfds(&info);
+    std::thread::sleep(Duration::from_millis(20));
+    assert!(!fixture.workspace.join("checks-passed").exists());
+    assert!(matches!(listener.accept(),Err(e) if e.kind()==std::io::ErrorKind::WouldBlock));
+    let commit = publish_commit(&fixture, &prepared);
+    let running = prepared.commit(commit).unwrap();
+    assert_eq!(running.witness().harness, *info.exec_stub());
+    let _proxy = ready_listener(listener);
+    assert!(fixture.workspace.join("checks-passed").exists());
+    let report = running.stop().unwrap();
+    assert!(report.kernel_echild());
+    assert_ended(&fds);
+}
+
+#[test]
+#[ignore = "explicit missing-commit/control-loss static capsule; no provider"]
+fn prepared_missing_commit_abort_and_drop_kill_the_paused_stub_without_running() {
+    for drop_control in [false, true] {
+        let (fixture, prepared, _listener) = prepared_fixture(8000);
+        let info = prepared.info().clone();
+        let fds = prepared_pidfds(&info);
+        if drop_control {
+            drop(prepared);
+        } else {
+            let report = prepared.abort().unwrap();
+            assert!(report.kernel_echild() && report.reaped_count() > 0);
+            assert_eq!(report.info(), &info);
+        }
+        assert_ended(&fds);
+        assert!(!fixture.workspace.join("checks-passed").exists());
+    }
+}
+
+#[test]
+#[ignore = "explicit original deadline and late commit static capsule; no provider"]
+fn prepared_original_deadline_refuses_late_commit_without_extension() {
+    let (fixture, prepared, _listener) = prepared_fixture(400);
+    let info = prepared.info().clone();
+    let fds = prepared_pidfds(&info);
+    let commit = publish_commit(&fixture, &prepared);
+    while ownership::raw_boot_ms() <= info.deadline_boot_ms() {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(prepared.commit(commit).is_err());
+    assert_ended(&fds);
+    assert!(!fixture.workspace.join("checks-passed").exists());
+}
+
+#[test]
+#[ignore = "explicit conflicting metadata/closed recipe static capsule; no provider"]
+fn prepared_changed_intent_nonce_origin_deadline_and_recipe_are_terminal() {
+    for field in [
+        "owner_intent",
+        "capsule_id",
+        "origin",
+        "original_deadline_boot_ms",
+        "recipe",
+    ] {
+        let (fixture, prepared, _listener) = prepared_fixture(8000);
+        let fds = prepared_pidfds(prepared.info());
+        let commit = publish_commit(&fixture, &prepared);
+        let commit = changed_commit(commit, |value| match field {
+            "owner_intent" => {
+                value["scope"][field]["digest"] =
+                    serde_json::json!(Digest::of(b"conflicting-intent"))
+            }
+            "capsule_id" => value["scope"][field] = serde_json::json!(uuid::Uuid::new_v4()),
+            "origin" => value["scope"][field] = serde_json::json!("http://127.0.0.1:1"),
+            "original_deadline_boot_ms" => {
+                value["scope"][field] =
+                    serde_json::json!(value["scope"][field].as_u64().unwrap() + 1)
+            }
+            _ => value["recipe"]["environment"]["PATH"] = serde_json::json!("/unqualified"),
+        });
+        assert!(prepared.commit(commit).is_err(), "accepted changed {field}");
+        assert_ended(&fds);
+        assert!(!fixture.workspace.join("checks-passed").exists());
+    }
+}
+
+#[test]
+#[ignore = "explicit actual derived-file mutation static capsule; no provider"]
+fn prepared_actual_auth_config_mode_symlink_and_extra_member_are_refused() {
+    for mutation in ["auth", "config", "mode", "symlink", "extra"] {
+        let (fixture, prepared, _listener) = prepared_fixture(8000);
+        let fds = prepared_pidfds(prepared.info());
+        let commit = publish_commit(&fixture, &prepared);
+        let auth = fixture.root.path().join("auth/auth.json");
+        match mutation {
+            "auth" => std::fs::write(&auth, b"changed synthetic auth").unwrap(),
+            "config" => std::fs::write(
+                fixture.root.path().join("auth/candidate-config.json"),
+                b"{}",
+            )
+            .unwrap(),
+            "mode" => {
+                std::fs::set_permissions(&auth, std::fs::Permissions::from_mode(0o644)).unwrap()
+            }
+            "symlink" => {
+                std::fs::remove_file(&auth).unwrap();
+                std::os::unix::fs::symlink(
+                    fixture.root.path().join("private-node/original"),
+                    &auth,
+                )
+                .unwrap();
+            }
+            _ => std::fs::write(
+                fixture.root.path().join("auth/extra"),
+                b"unqualified member",
+            )
+            .unwrap(),
+        }
+        assert!(
+            prepared.commit(commit).is_err(),
+            "accepted changed {mutation}"
+        );
+        assert_ended(&fds);
+        assert!(!fixture.workspace.join("checks-passed").exists());
+    }
 }
 fn descendant(pid: u32) -> ownership::ProcessEvidence {
     let children = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children")).unwrap();
