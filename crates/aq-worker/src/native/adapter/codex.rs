@@ -219,6 +219,9 @@ impl CodexExecProfile {
             "sandbox_workspace_write.exclude_tmpdir_env_var=true".into(),
             "sandbox_workspace_write.network_access=false".into(),
             "shell_environment_policy.inherit=\"none\"".into(),
+            // Codex's tool sandbox helper also needs PATH for trusted OS helpers.
+            // This is an explicit fixed value, never inherited operator context.
+            "shell_environment_policy.set.PATH=\"/usr/bin:/bin\"".into(),
             "features.shell_snapshot=false".into(),
             "features.shell_snapshot_v2=false".into(),
             "allow_login_shell=false".into(),
