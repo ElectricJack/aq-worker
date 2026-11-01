@@ -63,6 +63,8 @@ struct PhaseConfig {
     prepare_execution: bool,
     #[serde(default)]
     history_after_lost_execution: bool,
+    #[serde(default)]
+    report_terminal: bool,
     synthetic_host: Option<HostConfig>,
 }
 impl PhaseConfig {
@@ -79,6 +81,10 @@ impl PhaseConfig {
             !self.history_after_lost_execution
                 || (self.prepare_execution && self.prepare_inputs && self.synthetic_host.is_none()),
             "history-only probe requires inputs/execution and forbids host"
+        );
+        ensure!(
+            !self.report_terminal || self.synthetic_host.is_some(),
+            "terminal reporting requires actual synthetic host proof"
         );
         Ok(())
     }
@@ -533,6 +539,18 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                             .context("native host history absent")?
                             .stopped
                     );
+                    if phase.report_terminal {
+                        // Physical stop and its journal commit happen first, so
+                        // a failed report cannot prevent local cleanup.
+                        *stage = "phase_started_report";
+                        result["phase_started_ack"] =
+                            json!(pipeline.report_phase_terminal_started(id).await?);
+                        *stage = "phase_stopped_report";
+                        result["phase_stopped_ack"] =
+                            json!(pipeline.report_phase_terminal_stopped(id).await?);
+                        result["terminal_ack_revision"] =
+                            json!(pipeline.snapshot().await?.revision);
+                    }
                 }
                 // Keep original actual network observation and input owner alive
                 // through reporting; diagnostic JSON cannot restore either one.
@@ -666,6 +684,7 @@ mod tests {
             prepare_inputs: false,
             prepare_execution: false,
             history_after_lost_execution: true,
+            report_terminal: false,
             synthetic_host: None,
         };
         assert!(p.validate().is_err());
@@ -691,7 +710,10 @@ mod tests {
         });
         assert!(p.validate().is_err());
         p.history_after_lost_execution = false;
+        p.report_terminal = true;
         p.validate().unwrap();
+        p.synthetic_host = None;
+        assert!(p.validate().is_err());
     }
     #[test]
     fn history_probe_accepts_only_explicit503_and_never_success_or_other_errors() {
