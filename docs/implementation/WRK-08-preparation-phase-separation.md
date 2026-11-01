@@ -104,6 +104,16 @@ policy and the new phase's defined current-admission rules. No old selection or
 budget snapshot is relabeled as the new fact. Any missing/changed pin or current
 fact refuses and preserves holds.
 
+A new execution lease also needs an explicit transition clock rule: preparation
+expiry gates **server admission**, while the newly committed execution lease has
+its own fresh delivery/hard deadline. Carrying the old preparation cap into that
+new permit recreates the observed server-200/client-expired edge. This requires
+new negotiated contract semantics; do not remove the frozen 0.1.7 plan cap in
+place. Prove exact accepted revision and issuance before preparation closes,
+never revive a prior expired execution permit, and retain committed-but-unusable
+Grant delivery as unknown/held. A network 200 alone is not a live worker permit;
+a local refusal after 200 is not NeverGranted.
+
 ## Public and worker compatibility
 
 Do not silently change the frozen admission 0.1.7/0.1.8 behavior. Current workers
