@@ -6,6 +6,7 @@ mod pause;
 #[cfg(any(test, feature = "test-support"))]
 pub use pause::WritePause;
 mod inputs;
+pub mod preparation_v2;
 mod prepared;
 mod source;
 mod storage;
@@ -31,7 +32,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 5;
+pub const FORMAT: u32 = 6;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +97,8 @@ pub struct Attempt {
     pub source: Option<SourceDownload>,
     pub prepared: Option<PreparedIntent>,
     pub initial_grant: Option<ReceivedInitialGrant>,
+    pub phase_acceptance: Option<preparation_v2::PhaseAcceptance>,
+    pub phase_preparation: Option<preparation_v2::ReceivedPreparation>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -253,6 +256,7 @@ impl State {
                 attempt.acceptance.is_some() == attempt.acceptance_digest.is_some(),
                 "orphan acceptance digest"
             );
+            preparation_v2::validate(attempt, &self.identity, self.revision)?;
             if let Some(record) = &attempt.preparation {
                 let request = attempt
                     .acceptance
@@ -551,6 +555,8 @@ impl Journal {
                 source: None,
                 prepared: None,
                 initial_grant: None,
+                phase_acceptance: None,
+                phase_preparation: None,
             },
         );
         self.persist(state)?;
@@ -570,6 +576,10 @@ impl Journal {
             .get(&id)
             .context("unknown native attempt")?;
         let r = &attempt.reservation;
+        ensure!(
+            attempt.phase_acceptance.is_none(),
+            "phase attempt cannot use legacy Accept"
+        );
         ensure!(now < r.deadline_ns, "native reservation expired");
         let acceptance = ProfiledAcceptance {
             binding: r.offer.offered.offer.binding.clone(),
@@ -618,6 +628,10 @@ impl Journal {
             .acceptance
             .as_ref()
             .context("acceptance not durable")?;
+        ensure!(
+            attempt.phase_acceptance.is_none(),
+            "phase attempt cannot use a legacy preparation plan"
+        );
         observed
             .message()
             .validate_for(request, observed.message().delivery.nonce)?;

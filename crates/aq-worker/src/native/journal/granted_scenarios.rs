@@ -404,7 +404,7 @@ async fn valid_grant_history_survives_restart_but_changed_associations_are_refus
 #[test]
 fn every_old_format_is_refused_before_rewriting_journal_or_pending_evidence() {
     use std::os::unix::fs::OpenOptionsExt;
-    for format in 1..=4 {
+    for format in 1..FORMAT {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("history");
         drop(create(&root));
