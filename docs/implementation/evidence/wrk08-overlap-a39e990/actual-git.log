@@ -1,0 +1,116 @@
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-86fa455162ad8171)
+
+running 1 test
+test native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out; finished in 3.57s
+
+     Running unittests src/bin/aq-fixture-agent.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_fixture_agent-ab23116045f8331a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-0f1df5d0b03151e8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backoff.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/backoff-bf18a6e751cd2687)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/client.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/client-173552b29255d8a4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+     Running tests/config.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/config-1747a7ddf898f0e1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/driver.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/driver-f91ca3d17b67761e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/execution.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/execution-c04fc79cf059995c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.00s
+
+     Running tests/foundation_fixtures.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/foundation_fixtures-6c9ef6fc36dafcd1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/foundation_lifecycle.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/foundation_lifecycle-6e5175e0c34948f1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/guardian.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/guardian-5aec91b2e507cd51)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/journal_migration.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/journal_migration-d464298ad367b33a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/native_control.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/native_control-12712e76cfe345c5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/native_http.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/native_http-aeb780b7b88f134c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests/native_materials.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/native_materials-1aaaa753775d47c3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_source.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/native_source-1f530c33d72740bd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/native_startup.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/native_startup-cb33108e5a92487b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/source.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/source-00abe2cf817ecc98)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+     Running tests/transfer_client.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/transfer_client-0228e536b8af14c7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+

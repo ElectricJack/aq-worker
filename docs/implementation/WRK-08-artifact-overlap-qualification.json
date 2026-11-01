@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "source_revision": "a39e990eb2fd288aa6edddbb6a9d2e1518abd06c",
+  "native_journal_format": 4,
+  "default_package_passed": 135,
+  "all_features_package_passed": 152,
+  "package_ignored": 4,
+  "actual_git_passed": 1,
+  "default_test_seconds_sum": 7.23,
+  "all_feature_test_seconds_sum": 8.49,
+  "actual_git_seconds": 3.57,
+  "strict_all_target_all_feature_clippy": true,
+  "format": true,
+  "independent_review": "session_contract: no blocking findings; structured read pair, atomic completion and lane isolation confirmed",
+  "release_smoke": {
+    "sha256": "5a5b2c0d22bb2ef4210afba158c83f8f1fa168b6d78c7960da7e7ee9fd7c229f",
+    "build_seconds": 96,
+    "scope": "feature-gated test process, no host launch"
+  },
+  "source_inventory": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "f992996ebb580ad148fd2d60933d582c331c7a54ef15661da3f5b86969581807",
+      "bytes": 61365
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "ab94a646e1a9224b1c83769812d9e10d26ae5c5ecaa8a4e9d77322cc2036af9b",
+      "bytes": 1957
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "sha256": "051de17b8ef8e0a25e79997af237bd0036e3ce852baa6733f79d106e1d66535e",
+      "bytes": 1180
+    },
+    {
+      "path": "crates/aq-worker/src/bin/native-prepare-smoke.rs",
+      "sha256": "44bd15554e180ebf8029e5287bae8804f277fe1da3b9cf42e0e2c9607cd3dc0a",
+      "bytes": 11108
+    },
+    {
+      "path": "crates/aq-worker/src/native/http.rs",
+      "sha256": "36891e7d795cc1fce85909bcecf41cf8efb6ff97b2e68786ee223bb5a94ee39b",
+      "bytes": 13577
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/control.rs",
+      "sha256": "60cc40638a5b1d8c4b29e26af429429c0ba0cddc29b1fd87efbe0ad2a6e36d33",
+      "bytes": 12330
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/source.rs",
+      "sha256": "d70ce9f50dc2bd63a20b7ab1fa2f4f610cbe992ea2b890a119da161a8406b7ab",
+      "bytes": 5970
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration.rs",
+      "sha256": "917b9e23f638c1768fb449b8a5845a8f5f3a76f44d530062b7414d31e911bd7d",
+      "bytes": 12076
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration/files.rs",
+      "sha256": "7b3a555ce4002aacf75c8ff836df5e0ccc9cdfa2f07ee7128686f0e1ee649c7a",
+      "bytes": 19880
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal.rs",
+      "sha256": "0ca37232d9a308d61fc21d290a57353c1bf329d8a7fcba28d0f2b1103ea7f196",
+      "bytes": 22722
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/hydration_scenarios.rs",
+      "sha256": "a61393d9a2e5b296d30194b5d4eaa607917e29b104a98e7ffe49a64599dd3ed6",
+      "bytes": 59978
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs.rs",
+      "sha256": "81e5f9128bbf66e5597c238d78ff64b5030f1bd004b7d80a88b130d0ef4d92d3",
+      "bytes": 18411
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs_scenarios.rs",
+      "sha256": "6829adaaddee541f65bec43ba01c347ea27e521721a075064078c0a6d2574b5c",
+      "bytes": 22720
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/prepared.rs",
+      "sha256": "6d872267fb8662eb3747ab63d1f15da3edadb07563e72f13f54cdbc8cae8f595",
+      "bytes": 5882
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/source.rs",
+      "sha256": "26b21cf92f7c6c8193967d0c690709ae08c4e589997710fde595f4b2e94e0cbd",
+      "bytes": 15394
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/storage.rs",
+      "sha256": "8fcceb7b15dc0e927e1068aff412243984323636a0a8f0d05187a71655f68845",
+      "bytes": 6112
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/tests.rs",
+      "sha256": "372793f1c04fde85f8355825e947cacaf483798944b3cfb7d2cc774c06183048",
+      "bytes": 15928
+    },
+    {
+      "path": "crates/aq-worker/src/native/materials.rs",
+      "sha256": "56f42261dd66de611ca37b8ab3862087c4d8f5cb1bc5885f3efe3f7d189006db",
+      "bytes": 16615
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation.rs",
+      "sha256": "64185871aee8b169b38ff2cb1cdc747d384ea01bd0dc2eb0f5c3c7851b7d98fa",
+      "bytes": 8149
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation/join.rs",
+      "sha256": "4c42567bdeeb1e9d106581003433a304312e104f969c3b49441923550d989401",
+      "bytes": 5415
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/evidence/wrk08-overlap-a39e990/focused.log",
+      "sha256": "6e55edb66dcc970a07cf1964b3a1f850f661d656f1cd7acc45d2375c59c642f9",
+      "bytes": 11364
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-overlap-a39e990/full.log",
+      "sha256": "d0b004269dbe81d2e6c1ca7dfb5d1f3fdc5860fc102dc8ab19391eae3dfdfa30",
+      "bytes": 16755
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-overlap-a39e990/all-features.log",
+      "sha256": "1abd96c64c2680f69a7c15c1e29b49ceca06fc58e53e94200d6815df6f0d3aee",
+      "bytes": 18552
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-overlap-a39e990/actual-git.log",
+      "sha256": "5b9cea4acff5944a299086ec05081ac850d55d52c340e27d48d88d7af7da9174",
+      "bytes": 4561
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-overlap-a39e990/clippy.log",
+      "sha256": "2e6740605757f688f2b9fad2bb01450c8898bfec9e20ed6e3840eacfe8396c98",
+      "bytes": 5695
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-overlap-a39e990/format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-overlap-a39e990/release-build.log",
+      "sha256": "1b31300e064d1e44a56b79cbcf7f727f9a884e927b34cf1798b2dd6ef09b8495",
+      "bytes": 6177
+    }
+  ],
+  "limitations": [
+    "No deadline, byte limit, protocol or existing HTTP slot limit changed.",
+    "Actual artifact overlap and control progress proved with deterministic peer barrier; no latency or fleet throughput benchmark.",
+    "No physical model/harness, durable received Grant, native host driver or cold preparation qualification.",
+    "Independent actual daemon probe separately attributed; component evidence does not imply that probe passed."
+  ]
+}
