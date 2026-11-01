@@ -6,29 +6,30 @@
   "codex_provider_or_tmux_runs": false,
   "real_source_pin_or_provider_key_inputs": false,
   "helper_fixture_pin_provenance": "Locally source-built fixture digest; not independently qualified release provenance.",
-  "helper_bytes": 2288744,
-  "helper_sha256": "304436793ad93871ee8d896de9c8fe4a7c2b051ca46a6fb24e31be353ef0bd39",
+  "helper_bytes": 2354856,
+  "helper_sha256": "c859ff8ed9afcdab0d6a1778be011cd70672608ba4e4a1bb6fd409d43777845d",
   "source_sha256": {
     "crates/aq-session-host/src/capsule/guardian.rs": "0d9af2d9cd5005ef1f2648c4fd9c5e500539d45b14409c6e21b9ff2826a80151",
-    "crates/aq-session-host/src/capsule/mod.rs": "e9a523bcee1e57c9d891c9a106b424a59952a44322c846c3a959b4dfa6c5fdf1",
+    "crates/aq-session-host/src/capsule/mod.rs": "c17cd3539ee93abe2be069d41671d558bb7014c8404aa607145095e4d88315b6",
+    "crates/aq-session-host/src/capsule/mounts.rs": "d844ba25312a12e38f956e358c65f4ee77b4191e446884765db579f290d00238",
     "crates/aq-session-host/src/capsule/seal.rs": "0db8adb17ab127448abee61f03f77275d859d04307d44e2fee2cf9101fc8ea5e",
-    "crates/aq-session-host/src/capsule/setup.rs": "4ddd518eec0455398a4964982f2d5376aac75034b9f500d290c2a2fba4332aac",
+    "crates/aq-session-host/src/capsule/setup.rs": "a1f2e1ebe01163bdcf01e1e54efdf115016427f59a2d32dc1c453c492903f430",
     "crates/aq-session-host/src/capsule/wire.rs": "305dfbfbd7b3c28cd66c7b9df19ca54baf915422792340f3fcd53d23e7c6d48b",
     "crates/aq-session-host/src/bin/aq-session-capsule-candidate.rs": "ff8a8aa62b0efc9ea18f7dc7879712d79bd8cb8f3bffdb1d4be7a1bacb02726b",
-    "crates/aq-session-host/tests/capsule_candidate.rs": "4692385256e402012d35c0ed39bdd9042fad6601c7db4012e2e9e72132725859",
+    "crates/aq-session-host/tests/capsule_candidate.rs": "6ab0baac35ae14035e9d5d76507754cada752f1359a2693fc475467ea818cb97",
     "crates/aq-session-host/tests/fixtures/capsule-static-peer.c": "a0731e0a32c09770f21a3a0c91a74ea1f62b5899127de36ac306d4699851f3fa"
   },
   "checks": {
     "explicit_static_cases": {
-      "passed": 4,
-      "seconds": 2.73,
-      "compile_seconds": 2.85
+      "passed": 5,
+      "seconds": 2.79,
+      "compile_seconds": 0.06
     },
     "unit_cases": {
-      "passed": 33,
+      "passed": 34,
       "ignored_existing": 3,
-      "seconds": 0.27,
-      "compile_seconds": 3.0
+      "seconds": 0.19,
+      "compile_seconds": 2.67
     },
     "non_namespace_refusal": {
       "passed": 1,
@@ -36,11 +37,11 @@
     },
     "strict_all_targets_all_features": {
       "passed": true,
-      "seconds": 2.71
+      "seconds": 3.18
     },
     "default_bins_check": {
       "passed": true,
-      "seconds": 1.3
+      "seconds": 0.07
     },
     "format_and_diff": true
   },
@@ -51,5 +52,10 @@
     "named immutable helper compatibility",
     "tmux/PTY/permit integration",
     "durable recovery and production packaging/eligibility"
+  ],
+  "review_corrections": [
+    "checked FD tmpfs attachment and FD-based construction/pivot; no root pathname reuse after anchor",
+    "submount-free grant premise enforced through bounded current mountinfo; real unlocked-submount negative",
+    "bounded Drop polling followed by existing reaper ownership handoff; no unbounded wait or stop proof"
   ]
 }
