@@ -1,6 +1,7 @@
 //! Native no-launch reservations and exact acceptance recovery. No grants or
 //! process permits are reconstructed from disk. Run fsync on a bounded lane.
 mod inputs;
+mod prepared;
 mod source;
 mod storage;
 use super::http::{boot_ns, control::Preparation};
@@ -14,6 +15,7 @@ use aq_session_protocol::{
     ArtifactRef, Capability, Digest, ProfiledAcceptance, SessionIdentity, Validate,
 };
 pub use inputs::{ArtifactDownload, MaterialDownload};
+pub use prepared::PreparedIntent;
 use serde::{Deserialize, Serialize};
 pub use source::{SourceDownload, SourceRange};
 use std::{
@@ -23,7 +25,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 3;
+pub const FORMAT: u32 = 4;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +88,7 @@ pub struct Attempt {
     pub downloads: BTreeMap<String, ArtifactDownload>,
     pub material_downloads: BTreeMap<Uuid, MaterialDownload>,
     pub source: Option<SourceDownload>,
+    pub prepared: Option<PreparedIntent>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -262,6 +265,7 @@ impl State {
                 );
             }
             source::validate(attempt, self.revision, &mut identities)?;
+            prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
             inputs::validate(
                 attempt,
                 &self.identity,
@@ -512,6 +516,7 @@ impl Journal {
                 downloads: BTreeMap::new(),
                 material_downloads: BTreeMap::new(),
                 source: None,
+                prepared: None,
             },
         );
         self.persist(state)?;

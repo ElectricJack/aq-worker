@@ -16,8 +16,54 @@ pub struct HydratedWorkspace {
     observed_ns: u64,
     deadline_ns: u64,
     _stage_owner: Arc<files::Staging>,
+    git: GitClient,
 }
 impl HydratedWorkspace {
+    pub(super) fn revalidate(&self, journal: &Journal) -> Result<()> {
+        ensure!(boot_ns()? < self.deadline_ns, "native source proof expired");
+        let a = journal
+            .state()
+            .attempts
+            .get(&self.attempt)
+            .context("source attempt absent")?;
+        let s = a.source.as_ref().context("source owner absent")?;
+        ensure!(
+            self.binding == a.reservation.offer.offered.offer.binding
+                && s.manifest.as_ref() == Some(&self.manifest),
+            "source join association"
+        );
+        self._stage_owner.verify(&self.manifest)?;
+        let retention = self.git.exchange(
+            &s.operations
+                .get("retention")
+                .context("retention intent absent")?
+                .request,
+        )?;
+        let inspect = self.git.exchange(
+            &s.operations
+                .get("workspace")
+                .context("workspace intent absent")?
+                .request,
+        )?;
+        let imported = s
+            .operations
+            .get("import")
+            .and_then(|o| o.result.as_ref())
+            .context("import receipt absent")?;
+        let created = s
+            .operations
+            .get("create")
+            .and_then(|o| o.result.as_ref())
+            .context("workspace receipt absent")?;
+        ensure!(
+            serde_json::to_value(&self.workspace)?
+                == serde_json::to_value(serde_json::from_value::<Workspace>(created.clone())?)?,
+            "workspace owner changed"
+        );
+        validate_current(&self.git, s, imported, created, &retention, &inspect)?;
+        ensure!(boot_ns()? < self.deadline_ns, "source join expired");
+        Ok(())
+    }
     pub fn workspace(&self) -> &Workspace {
         &self.workspace
     }
@@ -167,6 +213,7 @@ impl InputPipeline {
                 observed_ns,
                 deadline_ns,
                 _stage_owner: disk,
+                git,
             })
         })
         .await

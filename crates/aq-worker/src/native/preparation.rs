@@ -1,6 +1,7 @@
 //! Bounded current input collection, never Prepare or execution permission.
 #[path = "hydration.rs"]
 mod hydration;
+mod join;
 use super::{
     ArtifactAssembly, VerifiedArtifact,
     http::{NativeClient, boot_ns, control::Preparation},
@@ -11,6 +12,7 @@ use anyhow::{Context, Result, ensure};
 use aq_admission::MaterialReceipt;
 use aq_session_protocol::ArtifactRef;
 pub use hydration::HydratedWorkspace;
+pub use join::PreparedInputs;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Semaphore;
 use uuid::Uuid;

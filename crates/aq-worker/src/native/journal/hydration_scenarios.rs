@@ -13,7 +13,7 @@ use aq_admission::{
     ArtifactKind,
     control::{ControlReply, PreparationDelivery},
     execution_spec::ProfiledExecutionSpec,
-    transport::{ArtifactFetch, DeliveryClock},
+    transport::{ArtifactFetch, DeliveryClock, MaterialDelivery, MaterialFetch},
 };
 use aq_worker_protocol::{
     AttemptRef, ObjectAlgorithm, ObjectId, SourceBinding, SourceRole, TransferManifest,
@@ -150,8 +150,27 @@ impl Inputs {
             .unwrap()
             .clone();
         observation.artifact = spec.task_observation.clone();
-        observation.bytes = 1;
+        observation.bytes = observation.artifact.id.as_str().len() as u64;
         offered.offered.artifacts.push(observation);
+        let inline: Vec<_> = offered
+            .offered
+            .artifacts
+            .iter()
+            .map(|d| {
+                let body = if d.artifact == reference {
+                    bytes.clone()
+                } else if d.artifact == offered.startup.artifact().unwrap() {
+                    canonical_bytes(&offered.startup).unwrap()
+                } else if d.artifact == offered.startup.payload {
+                    b"instructions\n\ntask-context".to_vec()
+                } else {
+                    d.artifact.id.as_str().as_bytes().to_vec()
+                };
+                assert_eq!(Digest::of(&body), d.artifact.digest);
+                assert_eq!(body.len() as u64, d.bytes);
+                (d.clone(), body)
+            })
+            .collect();
         offered.validate().unwrap();
         let mut capacity = limits();
         capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
@@ -174,6 +193,7 @@ impl Inputs {
         delivery.original.binding = offered.offered.offer.binding.clone();
         delivery.original.materials[0].binding = offered.offered.offer.binding.clone();
         delivery.original.materials[0].expires_at_ms = 30000;
+        let material_lease = delivery.original.materials[0].clone();
         let mode = Arc::new(AtomicU8::new(0));
         let r1 = root.clone();
         let r2 = root.clone();
@@ -195,8 +215,11 @@ impl Inputs {
             }
         };
         let artifact_route = move |Json(request): Json<ArtifactFetch>| {
-            let descriptor = descriptor.clone();
-            let bytes = bytes.clone();
+            let (descriptor, bytes) = inline
+                .iter()
+                .find(|(d, _)| d.artifact == request.artifact)
+                .unwrap()
+                .clone();
             let root = r1.clone();
             async move {
                 let snapshot: Snapshot =
@@ -285,9 +308,35 @@ impl Inputs {
                     r
                 }
             };
+        let material_route = move |Json(request): Json<MaterialFetch>| {
+            let lease = material_lease.clone();
+            async move {
+                assert_eq!(request.lease_id, lease.lease_id);
+                let delivery = MaterialDelivery {
+                    lease,
+                    clock: DeliveryClock::new(1700, 30000).unwrap(),
+                };
+                let mut response = b"synthetic-key".to_vec().into_response();
+                response
+                    .headers_mut()
+                    .insert("content-type", "application/octet-stream".parse().unwrap());
+                response
+                    .headers_mut()
+                    .insert("cache-control", "no-store".parse().unwrap());
+                response.headers_mut().insert(
+                    "aq-material-delivery",
+                    URL_SAFE_NO_PAD
+                        .encode(serde_json::to_vec(&delivery).unwrap())
+                        .parse()
+                        .unwrap(),
+                );
+                response
+            }
+        };
         let router = Router::new()
             .route("/v1/worker/profiled/accept", post(accept_route))
             .route("/v1/worker/profiled/artifact", post(artifact_route))
+            .route("/v1/worker/profiled/material", post(material_route))
             .route("/v1/worker/profiled/source/{id}", get(status_route))
             .route("/v1/worker/profiled/source/{id}/{member}", get(range_route));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -317,6 +366,25 @@ impl Inputs {
             mode,
             range_entered,
         }
+    }
+    async fn all_inputs(&self) -> Vec<crate::native::VerifiedArtifact> {
+        let state = self.pipeline().snapshot().await.unwrap();
+        let mut inputs = Vec::new();
+        for d in &state.attempts[&self.id].reservation.offer.offered.artifacts {
+            inputs.push(
+                self.pipeline()
+                    .artifact(self.id, self.preparation.clone(), d.artifact.clone())
+                    .await
+                    .unwrap(),
+            );
+        }
+        for lease in &self.preparation.plan().materials {
+            self.pipeline()
+                .material(self.id, self.preparation.clone(), lease.lease_id)
+                .await
+                .unwrap();
+        }
+        inputs
     }
     async fn spec(&self) -> crate::native::VerifiedArtifact {
         self.pipeline()
@@ -836,7 +904,28 @@ async fn pinned_git_native_source_http_import_retention_and_clean_workspace() {
         fs::read(proof.workspace().path.join("native-input.txt")).unwrap(),
         b"synthetic native source bytes\n"
     );
-    drop(proof);
+    let all = h.all_inputs().await;
+    let renderer = h.pipeline().snapshot().await.unwrap().attempts[&h.id]
+        .reservation
+        .offer
+        .startup
+        .renderer_qualification
+        .clone();
+    let joined = h
+        .pipeline()
+        .prepare_inputs(h.id, h.preparation.clone(), all, proof, renderer)
+        .await
+        .unwrap();
+    assert!(
+        h.pipeline().snapshot().await.unwrap().attempts[&h.id]
+            .prepared
+            .is_some()
+    );
+    assert_eq!(
+        joined.materials()[0].read_private().unwrap().as_slice(),
+        b"synthetic-key"
+    );
+    drop(joined);
     let state = h.pipeline().snapshot().await.unwrap();
     let source = state.attempts[&h.id].source.as_ref().unwrap();
     assert!(source.complete() && source.verified.is_some());
@@ -1062,4 +1151,215 @@ async fn missing_native_inspection_capabilities_refuse_without_adopting_source_p
     let state = h.pipeline().snapshot().await.unwrap();
     assert!(state.attempts[&h.id].source.is_none());
     assert_eq!(git.calls.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for_retry() {
+    let export = synthetic();
+    let manifest = export.manifest.clone();
+    let h = Inputs::new(export).await;
+    let git = GitPeer::new(h.root.clone(), manifest);
+    let all = h.all_inputs().await;
+    let source = h
+        .pipeline()
+        .hydrate_source(
+            h.id,
+            h.preparation.clone(),
+            h.spec().await,
+            git.client.clone(),
+        )
+        .await
+        .unwrap();
+    let before = h.pipeline().snapshot().await.unwrap();
+    let renderer = before.attempts[&h.id]
+        .reservation
+        .offer
+        .startup
+        .renderer_qualification
+        .clone();
+    let prepared = h
+        .pipeline()
+        .prepare_inputs(h.id, h.preparation.clone(), all, source, renderer.clone())
+        .await
+        .unwrap();
+    assert_eq!(prepared.request().journal_revision, before.revision);
+    assert_eq!(
+        prepared.request().journal_digest,
+        canonical_digest(&before).unwrap()
+    );
+    assert_eq!(
+        prepared.request().artifacts.len(),
+        before.attempts[&h.id]
+            .reservation
+            .offer
+            .offered
+            .artifacts
+            .len()
+            + 2
+    );
+    assert_eq!(
+        prepared.materials()[0].read_private().unwrap().as_slice(),
+        b"synthetic-key"
+    );
+    let saved = h.pipeline().snapshot().await.unwrap();
+    assert!(
+        same(
+            &saved.attempts[&h.id].prepared.as_ref().unwrap().request,
+            prepared.request()
+        )
+        .unwrap()
+    );
+    let first_request = prepared.request().clone();
+    drop(prepared);
+    let all = h.all_inputs().await;
+    let source = h
+        .pipeline()
+        .hydrate_source(
+            h.id,
+            h.preparation.clone(),
+            h.spec().await,
+            git.client.clone(),
+        )
+        .await
+        .unwrap();
+    let retry = h
+        .pipeline()
+        .prepare_inputs(h.id, h.preparation.clone(), all, source, renderer)
+        .await
+        .unwrap();
+    assert!(same(&first_request, retry.request()).unwrap());
+    assert_eq!(retry.request().journal_revision, before.revision);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prepare_join_refuses_missing_inputs_renderer_and_retention_changed_after_hydration() {
+    for mode in 0..5 {
+        let export = synthetic();
+        let manifest = export.manifest.clone();
+        let h = Inputs::new(export).await;
+        let git = GitPeer::new(h.root.clone(), manifest);
+        let mut all = h.all_inputs().await;
+        let source = h
+            .pipeline()
+            .hydrate_source(
+                h.id,
+                h.preparation.clone(),
+                h.spec().await,
+                git.client.clone(),
+            )
+            .await
+            .unwrap();
+        let before = h.pipeline().snapshot().await.unwrap();
+        let mut renderer = before.attempts[&h.id]
+            .reservation
+            .offer
+            .startup
+            .renderer_qualification
+            .clone();
+        match mode {
+            0 => {
+                all.pop();
+            }
+            1 => renderer.digest = Digest::of(b"uninstalled renderer"),
+            2 => git.mode.store(2, Ordering::SeqCst),
+            3 => git.mode.store(3, Ordering::SeqCst),
+            _ => {
+                let lease = h.preparation.plan().materials[0].lease_id;
+                fs::write(
+                    h._dir
+                        .path()
+                        .join("materials")
+                        .join(lease.to_string())
+                        .join("material.bin"),
+                    b"corrupt installed key",
+                )
+                .unwrap();
+            }
+        }
+        assert!(
+            h.pipeline()
+                .prepare_inputs(h.id, h.preparation.clone(), all, source, renderer)
+                .await
+                .is_err(),
+            "mode {mode}"
+        );
+        let after = h.pipeline().snapshot().await.unwrap();
+        assert!(same(&before, &after).unwrap());
+        assert!(after.attempts[&h.id].prepared.is_none());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prepare_join_fsync_cuts_retain_original_or_complete_intent_and_reopen_without_authority() {
+    for fault in [
+        WriteFault::BeforeWrite,
+        WriteFault::AfterFileSync,
+        WriteFault::AfterRename,
+        WriteFault::AfterDirectorySync,
+    ] {
+        let export = synthetic();
+        let manifest = export.manifest.clone();
+        let mut h = Inputs::new(export).await;
+        let git = GitPeer::new(h.root.clone(), manifest);
+        let all = h.all_inputs().await;
+        let source = h
+            .pipeline()
+            .hydrate_source(
+                h.id,
+                h.preparation.clone(),
+                h.spec().await,
+                git.client.clone(),
+            )
+            .await
+            .unwrap();
+        let before = h.pipeline().snapshot().await.unwrap();
+        let renderer = before.attempts[&h.id]
+            .reservation
+            .offer
+            .startup
+            .renderer_qualification
+            .clone();
+        h.pipeline().test_journal_fault(fault).await.unwrap();
+        assert!(
+            h.pipeline()
+                .prepare_inputs(h.id, h.preparation.clone(), all, source, renderer)
+                .await
+                .is_err()
+        );
+        assert!(
+            h.pipeline().snapshot().await.unwrap().attempts[&h.id]
+                .reservation
+                .disk_bytes
+                > 0
+        );
+        drop(h.pipeline.take());
+        let mut capacity = limits();
+        capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
+        let reopened = Journal::open(&h.root, identity().node_id, capacity).unwrap();
+        assert!(reopened.recovery_required());
+        assert!(reopened.available().is_err());
+        if let Some(p) = &reopened.state().attempts[&h.id].prepared {
+            assert_eq!(p.request.journal_revision, before.revision);
+            assert_eq!(p.request.journal_digest, canonical_digest(&before).unwrap());
+        } else {
+            assert!(same(reopened.state(), &before).unwrap());
+        }
+    }
+}
+
+#[test]
+fn format_three_refusal_preserves_old_journal_and_pending_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("old-three");
+    let journal = create(&root);
+    drop(journal);
+    rewrite(&root, |s| s.format = 3);
+    let original = fs::read(root.join("journal.json")).unwrap();
+    fs::write(root.join("pending"), b"unknown old write").unwrap();
+    assert!(Journal::open(&root, identity().node_id, limits()).is_err());
+    assert_eq!(fs::read(root.join("journal.json")).unwrap(), original);
+    assert_eq!(
+        fs::read(root.join("pending")).unwrap(),
+        b"unknown old write"
+    );
 }

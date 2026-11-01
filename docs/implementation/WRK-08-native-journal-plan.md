@@ -183,3 +183,8 @@ private staged files. It preserves stop-and-preserve on reopen and refuses old
 formats unchanged. Its conservative default Git disk charge is 21 GiB + 1 MiB;
 production Poll/Reserve must supply a compatible qualified capacity envelope.
 Prepare/launch and physical disk-headroom closure remain pending.
+
+The subsequent [Prepare input join](WRK-08-native-prepare-join.md) adds an immutable
+outbound Prepare intent in format4. Formats1/2/3 are refused unchanged; their
+previous qualification is historical, not a migration claim. A durable intent
+still supplies no grant, process permit or permission to resume after reopening.

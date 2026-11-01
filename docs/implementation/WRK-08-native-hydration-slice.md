@@ -106,3 +106,8 @@ clean confined workspace contents. A later actual retention release must prevent
 another hydration proof despite cached import/create receipts. The coordinator,
 NativeOffer, preparation clocks and other retained input claims remain synthetic.
 No provider, native host, launch/Prepare or supported-container claim follows.
+
+The subsequent [Prepare input join](WRK-08-native-prepare-join.md) consumes the
+opaque hydration owner and repeats current retention/workspace and bounded source
+file verification immediately before recording Prepare. Its format4 remains an
+explicit new layout; the format3 qualification above retains its original pin.
