@@ -130,7 +130,10 @@ production bridge, not a second secret store in this candidate.
 5. Stub independently opens only fixed guest `/auth` members with no-follow
    descriptor operations. It rechecks mode/UID/link count, actual inode/length/
    complete digest, local-capability digest, config intent/origin/deadline and
-   recipe relationship. It verifies exact original time and control liveness.
+   recipe relationship. It authenticates the commit and checks the original
+   deadline again before exec. Guardian owns caller-liveness checks before
+   forwarding and during image observation, and closes the inner socket after
+   forwarding; there is no later independent stub/caller liveness handshake.
    All setup/control/source FDs close before exec, as in the accepted primitive.
 6. Only then does it exec the pinned static image. Guardian independently
    observes the real image/incarnation before returning `CapsuleHandle`.
