@@ -1,5 +1,10 @@
 //! Native no-launch reservations and exact acceptance recovery. No grants or
 //! process permits are reconstructed from disk. Run fsync on a bounded lane.
+mod granted;
+#[cfg(any(test, feature = "test-support"))]
+mod pause;
+#[cfg(any(test, feature = "test-support"))]
+pub use pause::WritePause;
 mod inputs;
 mod prepared;
 mod source;
@@ -14,6 +19,7 @@ use aq_admission::{
 use aq_session_protocol::{
     ArtifactRef, Capability, Digest, ProfiledAcceptance, SessionIdentity, Validate,
 };
+pub use granted::ReceivedInitialGrant;
 pub use inputs::{ArtifactDownload, MaterialDownload};
 pub use prepared::PreparedIntent;
 use serde::{Deserialize, Serialize};
@@ -25,7 +31,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 4;
+pub const FORMAT: u32 = 5;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +95,7 @@ pub struct Attempt {
     pub material_downloads: BTreeMap<Uuid, MaterialDownload>,
     pub source: Option<SourceDownload>,
     pub prepared: Option<PreparedIntent>,
+    pub initial_grant: Option<ReceivedInitialGrant>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -123,6 +130,8 @@ pub struct Journal {
     poisoned: bool,
     #[cfg(any(test, feature = "test-support"))]
     fault: Option<WriteFault>,
+    #[cfg(any(test, feature = "test-support"))]
+    pause: Option<std::sync::Arc<pause::Gate>>,
 }
 fn canonical_bytes(value: &impl Serialize) -> Result<Vec<u8>> {
     let mut value = serde_json::to_value(value)?;
@@ -266,6 +275,14 @@ impl State {
             }
             source::validate(attempt, self.revision, &mut identities)?;
             prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
+            granted::validate(attempt, self.revision)?;
+            ensure!(
+                attempt
+                    .initial_grant
+                    .as_ref()
+                    .is_none_or(|g| g.kernel_boot_id == self.kernel_boot_id),
+                "received grant kernel clock namespace"
+            );
             inputs::validate(
                 attempt,
                 &self.identity,
@@ -329,6 +346,8 @@ impl Journal {
             poisoned: false,
             #[cfg(any(test, feature = "test-support"))]
             fault: None,
+            #[cfg(any(test, feature = "test-support"))]
+            pause: None,
         };
         result.persist(result.state.clone())?;
         Ok(result)
@@ -375,6 +394,8 @@ impl Journal {
             poisoned: false,
             #[cfg(any(test, feature = "test-support"))]
             fault: None,
+            #[cfg(any(test, feature = "test-support"))]
+            pause: None,
         })
     }
     pub fn state(&self) -> &State {
@@ -411,6 +432,14 @@ impl Journal {
     pub fn inject_fault(&mut self, fault: WriteFault) {
         self.fault = Some(fault);
     }
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn pause_after_file_sync(&mut self, pause: &WritePause) {
+        self.pause = Some(pause.gate.clone());
+    }
+    #[cfg(test)]
+    pub(crate) fn set_pause_gate(&mut self, gate: std::sync::Arc<pause::Gate>) {
+        self.pause = Some(gate);
+    }
     fn persist(&mut self, state: State) -> Result<()> {
         ensure!(!self.poisoned, "native journal writer poisoned");
         state.validate(&self.limits)?;
@@ -428,6 +457,10 @@ impl Journal {
             anyhow::bail!("injected before write");
         }
         self.storage.write_new(c"journal.pending", &bytes)?;
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(pause) = self.pause.take() {
+            pause.wait()?;
+        }
         #[cfg(any(test, feature = "test-support"))]
         if matches!(fault, Some(WriteFault::AfterFileSync)) {
             anyhow::bail!("injected after file fsync");
@@ -517,6 +550,7 @@ impl Journal {
                 material_downloads: BTreeMap::new(),
                 source: None,
                 prepared: None,
+                initial_grant: None,
             },
         );
         self.persist(state)?;

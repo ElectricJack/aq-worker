@@ -8,8 +8,48 @@ pub struct PreparedInputs {
     workspace: HydratedWorkspace,
     artifacts: Vec<VerifiedArtifact>,
     materials: Vec<InstalledMaterial>,
+    retained_inline_bytes: u64,
+    startup_bytes: u64,
 }
 impl PreparedInputs {
+    pub(super) fn retained_inline_bytes(&self) -> u64 {
+        self.retained_inline_bytes
+    }
+    pub(super) fn startup_bytes(&self) -> u64 {
+        self.startup_bytes
+    }
+    pub(super) fn verify_current(&self, journal: &Journal) -> Result<()> {
+        let attempt = journal
+            .state()
+            .attempts
+            .get(&self.request.binding.attempt_id)
+            .context("retained input attempt absent")?;
+        let prepared = attempt
+            .prepared
+            .as_ref()
+            .context("retained Prepared intent absent")?;
+        ensure!(
+            serde_json::to_value(&self.request)? == serde_json::to_value(&prepared.request)?,
+            "retained input Prepared request changed"
+        );
+        ensure!(
+            self.materials.len() == self.request.materials.len(),
+            "retained material count changed"
+        );
+        for material in &self.materials {
+            let receipt = material.receipt()?;
+            ensure!(
+                self.request
+                    .materials
+                    .iter()
+                    .any(|r| serde_json::to_value(r).ok() == serde_json::to_value(&receipt).ok()),
+                "retained material owner changed"
+            );
+            drop(material.read_private()?);
+        }
+        self.workspace.revalidate(journal)?;
+        Ok(())
+    }
     pub fn request(&self) -> &Prepare {
         &self.request
     }
@@ -103,6 +143,16 @@ impl InputPipeline {
                     .position(|d| d.receipt().artifact == offer.startup.payload)
                     .context("Prepare startup payload absent")?,
             );
+            let startup_bytes = payload.bytes().len() as u64;
+            let retained_inline_bytes =
+                artifacts.iter().try_fold(startup_bytes, |sum, input| {
+                    sum.checked_add(input.bytes().len() as u64)
+                        .context("retained input byte overflow")
+                })?;
+            ensure!(
+                retained_inline_bytes <= crate::native::MAX_INLINE_SET_BYTES,
+                "retained input byte bound"
+            );
             let startup = crate::native::prepare_startup(offer, &renderer, descriptor, payload)?;
             let mut materials = Vec::new();
             let mut receipts = Vec::new();
@@ -132,6 +182,8 @@ impl InputPipeline {
                 workspace,
                 artifacts,
                 materials,
+                retained_inline_bytes,
+                startup_bytes,
             })
         })
         .await

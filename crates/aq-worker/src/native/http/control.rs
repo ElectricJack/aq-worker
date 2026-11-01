@@ -39,6 +39,9 @@ impl Preparation {
 /// No Deserialize/Serialize. Durable recovery requires its own checked boundary.
 /// These network facts are not actual installed material or physical host proof.
 pub struct Granted {
+    initial_prepare_digest: aq_admission::Digest,
+    initial_sent_ns: u64,
+    initial_received_ns: u64,
     initial: wire::InitialGrantDelivery,
     current: Option<wire::RenewedAuthority>,
     deadline_ns: u64,
@@ -46,6 +49,15 @@ pub struct Granted {
     journal_revision: u64,
 }
 impl Granted {
+    pub fn initial_prepare_digest(&self) -> &aq_admission::Digest {
+        &self.initial_prepare_digest
+    }
+    pub fn initial_sent_ns(&self) -> u64 {
+        self.initial_sent_ns
+    }
+    pub fn initial_received_ns(&self) -> u64 {
+        self.initial_received_ns
+    }
     pub fn initial(&self) -> &wire::InitialGrantDelivery {
         &self.initial
     }
@@ -77,6 +89,11 @@ struct Received {
     nonce: Uuid,
     sent_ns: u64,
     received_ns: u64,
+}
+fn prepare_digest(request: &Prepare) -> Result<aq_admission::Digest> {
+    let mut value = serde_json::to_value(request)?;
+    value.sort_all_objects();
+    Ok(aq_admission::Digest::of(&serde_json::to_vec(&value)?))
 }
 fn same(a: &impl Serialize, b: &impl Serialize) -> Result<bool> {
     Ok(serde_json::to_value(a)? == serde_json::to_value(b)?)
@@ -211,7 +228,12 @@ impl NativeClient {
             "preparation owner differs from accepted plan"
         );
         live(plan.deadline_ns)?;
+        let request_digest = prepare_digest(request)?;
         if let Some(previous) = previous {
+            ensure!(
+                previous.initial_prepare_digest == request_digest,
+                "initial grant retry request changed"
+            );
             previous.initial.validate_for(
                 request,
                 plan.plan(),
@@ -262,6 +284,9 @@ impl NativeClient {
         )?;
         live(deadline_ns)?;
         Ok(Granted {
+            initial_prepare_digest: request_digest,
+            initial_sent_ns: got.sent_ns,
+            initial_received_ns: got.received_ns,
             initial: message,
             current: None,
             deadline_ns,
@@ -305,6 +330,9 @@ impl NativeClient {
         )?;
         live(deadline_ns)?;
         Ok(Granted {
+            initial_prepare_digest: previous.initial_prepare_digest.clone(),
+            initial_sent_ns: previous.initial_sent_ns,
+            initial_received_ns: previous.initial_received_ns,
             initial: previous.initial.clone(),
             current: Some(message),
             deadline_ns,
