@@ -1,0 +1,9 @@
+    Checking aq-session-protocol v0.1.0 (/tmp/aq-native-artifact-batch/crates/aq-session-protocol)
+    Checking aq-protocol v0.1.0 (/tmp/aq-native-artifact-batch/crates/aq-protocol)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-native-artifact-batch/crates/aq-worker-protocol)
+    Checking aq-lifecycle-protocol v0.1.0 (/tmp/aq-native-artifact-batch/crates/aq-lifecycle-protocol)
+    Checking aq-terminal-relay-protocol v0.1.0 (/tmp/aq-native-artifact-batch/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-session-host v0.1.4 (/tmp/aq-native-artifact-batch/crates/aq-session-host)
+    Checking aq-admission v0.1.7 (/tmp/aq-native-artifact-batch/vendor/aq-admission-0.1.7)
+    Checking aq-worker v0.3.3 (/tmp/aq-native-artifact-batch/crates/aq-worker)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.60s

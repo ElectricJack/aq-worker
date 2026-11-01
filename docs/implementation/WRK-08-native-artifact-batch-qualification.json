@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "source_revision": "de8fa629ba450770d2774b278e28f42ca2f02e1c",
+  "native_journal_format": 4,
+  "package_passed": 149,
+  "package_failed": 0,
+  "package_ignored": 4,
+  "actual_git_passed": 1,
+  "strict_all_target_all_feature_clippy": true,
+  "format": true,
+  "independent_review": "No blocking findings",
+  "source_inventory": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "f992996ebb580ad148fd2d60933d582c331c7a54ef15661da3f5b86969581807",
+      "bytes": 61365
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "ab94a646e1a9224b1c83769812d9e10d26ae5c5ecaa8a4e9d77322cc2036af9b",
+      "bytes": 1957
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "sha256": "16dacc0ff567052fa929e343b89fafe38a5342ade13a2bca971e131280ce7b13",
+      "bytes": 1063
+    },
+    {
+      "path": "crates/aq-worker/src/native.rs",
+      "sha256": "e38917966e1dc6fa0f56ea41fe50a443ccb5520db4f7f72f9339f9f6253ed580",
+      "bytes": 5116
+    },
+    {
+      "path": "crates/aq-worker/src/native/http.rs",
+      "sha256": "36891e7d795cc1fce85909bcecf41cf8efb6ff97b2e68786ee223bb5a94ee39b",
+      "bytes": 13577
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/control.rs",
+      "sha256": "60cc40638a5b1d8c4b29e26af429429c0ba0cddc29b1fd87efbe0ad2a6e36d33",
+      "bytes": 12330
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/source.rs",
+      "sha256": "d70ce9f50dc2bd63a20b7ab1fa2f4f610cbe992ea2b890a119da161a8406b7ab",
+      "bytes": 5970
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration.rs",
+      "sha256": "917b9e23f638c1768fb449b8a5845a8f5f3a76f44d530062b7414d31e911bd7d",
+      "bytes": 12076
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration/files.rs",
+      "sha256": "7b3a555ce4002aacf75c8ff836df5e0ccc9cdfa2f07ee7128686f0e1ee649c7a",
+      "bytes": 19880
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal.rs",
+      "sha256": "0ca37232d9a308d61fc21d290a57353c1bf329d8a7fcba28d0f2b1103ea7f196",
+      "bytes": 22722
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/hydration_scenarios.rs",
+      "sha256": "a3f13a7c4f4e4bb1bc70e5b819baaf39655dbfbccbad4d116ff9453a9f90f7a2",
+      "bytes": 56599
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs.rs",
+      "sha256": "81e5f9128bbf66e5597c238d78ff64b5030f1bd004b7d80a88b130d0ef4d92d3",
+      "bytes": 18411
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs_scenarios.rs",
+      "sha256": "6829adaaddee541f65bec43ba01c347ea27e521721a075064078c0a6d2574b5c",
+      "bytes": 22720
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/prepared.rs",
+      "sha256": "6d872267fb8662eb3747ab63d1f15da3edadb07563e72f13f54cdbc8cae8f595",
+      "bytes": 5882
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/source.rs",
+      "sha256": "26b21cf92f7c6c8193967d0c690709ae08c4e589997710fde595f4b2e94e0cbd",
+      "bytes": 15394
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/storage.rs",
+      "sha256": "8fcceb7b15dc0e927e1068aff412243984323636a0a8f0d05187a71655f68845",
+      "bytes": 6112
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/tests.rs",
+      "sha256": "372793f1c04fde85f8355825e947cacaf483798944b3cfb7d2cc774c06183048",
+      "bytes": 15928
+    },
+    {
+      "path": "crates/aq-worker/src/native/materials.rs",
+      "sha256": "56f42261dd66de611ca37b8ab3862087c4d8f5cb1bc5885f3efe3f7d189006db",
+      "bytes": 16615
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation.rs",
+      "sha256": "8b37c9ec06ed8e83e7a9b78b404973430a0f9337b1a4d3f93697cd64533a68b3",
+      "bytes": 7408
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation/join.rs",
+      "sha256": "4c42567bdeeb1e9d106581003433a304312e104f969c3b49441923550d989401",
+      "bytes": 5415
+    },
+    {
+      "path": "crates/aq-worker/src/source.rs",
+      "sha256": "dcdf1262b62b8526f0f795f93576600545b6a63e9219700a8d839beae62ee31f",
+      "bytes": 57140
+    },
+    {
+      "path": "docs/implementation/WRK-08-native-artifact-batch.md",
+      "sha256": "3111c1548c97dfca5e289562cc8ecb09ccd3f058471089a9dc2793a9ec8fd8cd",
+      "bytes": 1663
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/evidence/wrk08-batch-de8fa62/full.log",
+      "sha256": "223a87b6ed8a61306c8523962487506458ee4a320b940da66430ce56253e66a7",
+      "bytes": 17877
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-batch-de8fa62/actual-git.log",
+      "sha256": "26155ea5ce6f1eab97ebad66d7e31820ecebc0ddb760dfbab6fe25d60e31719c",
+      "bytes": 471
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-batch-de8fa62/clippy.log",
+      "sha256": "a481b15f49a813c4ba751007ad9aa4128b5bbe829f0e539666321ee50119f8ea",
+      "bytes": 834
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-batch-de8fa62/format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-batch-de8fa62/preflight.log",
+      "sha256": "8d78ea90d7b60b25626dee5f2f4a6de222645524f32b902baefba4d2a34c707c",
+      "bytes": 5051
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-batch-de8fa62/focused.log",
+      "sha256": "e57c132d9e75ec23c8b6b530445239be0937faf784add525ffc3225685107bdf",
+      "bytes": 638
+    }
+  ],
+  "scope": "Two atomic journal publications for actual verified original inline set; existing individual API and format4 unchanged.",
+  "limits": [
+    "Cold preparation deadline remains unresolved; no old timestamp extended.",
+    "Synthetic coordinator/runtime; actual Git/component join is not full live daemon grant.",
+    "At most8MiB inline set, existing8MiB snapshot bound and finite requests/records."
+  ]
+}

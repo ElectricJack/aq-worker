@@ -1,0 +1,10 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-native-artifact-batch/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.91s
+     Running unittests src/lib.rs (/tmp/aq-wrk08-preparation-target/debug/deps/aq_worker-351e81ae6463e4ac)
+
+running 2 tests
+test native::journal::tests::hydration_scenarios::failed_inline_batch_keeps_exact_plan_without_partial_receipt_completion ... ok
+test native::journal::tests::hydration_scenarios::inline_batch_uses_two_durable_commits_and_replay_reuses_every_original_request ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 41 filtered out; finished in 0.24s
+
