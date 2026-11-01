@@ -88,7 +88,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "aq-admission"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "aq-lifecycle-protocol",
  "aq-session-protocol",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "aq-phase-terminal-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aq-admission",
  "aq-session-protocol",
@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "aq-worker"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "aq-admission",
