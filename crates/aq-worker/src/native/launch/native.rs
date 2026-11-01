@@ -22,6 +22,8 @@ pub struct NativeCodexHostProfile {
     digest: Digest,
     columns: u16,
     rows: u16,
+    #[cfg(any(test, feature = "test-support"))]
+    development_provider: Option<String>,
 }
 impl NativeCodexHostProfile {
     pub fn new(
@@ -59,7 +61,19 @@ impl NativeCodexHostProfile {
             digest,
             columns,
             rows,
+            #[cfg(any(test, feature = "test-support"))]
+            development_provider: None,
         })
+    }
+    /// Isolated fixture endpoint only. This cannot enable the production executor.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_development_provider(mut self, origin: &str) -> Result<Self> {
+        let origin = crate::native::adapter::codex::development_origin(origin)?;
+        self.digest = crate::native::journal::canonical_digest(
+            &serde_json::json!({"profile":self.digest,"development_provider":origin}),
+        )?;
+        self.development_provider = Some(origin);
+        Ok(self)
     }
     pub fn digest(&self) -> &Digest {
         &self.digest
@@ -246,6 +260,12 @@ pub(super) fn bootstrap(
             private_home: &home,
         },
     )?;
+    #[cfg(any(test, feature = "test-support"))]
+    let recipe = if let Some(origin) = &profile.development_provider {
+        recipe.with_development_provider(origin)?
+    } else {
+        recipe
+    };
     let image = installed.image()?;
     let installation = installed.installation().clone();
     drop(installed);
