@@ -69,6 +69,8 @@ struct PhaseConfig {
     report_terminal: bool,
     #[serde(default)]
     relay_output: bool,
+    #[serde(default)]
+    await_synthetic_assessment: bool,
     synthetic_host: Option<HostConfig>,
 }
 impl PhaseConfig {
@@ -93,6 +95,10 @@ impl PhaseConfig {
         ensure!(
             !self.relay_output || self.report_terminal,
             "output relay probe requires terminal reporting"
+        );
+        ensure!(
+            !self.await_synthetic_assessment || self.relay_output,
+            "synthetic assessment pause requires the static output probe"
         );
         Ok(())
     }
@@ -132,6 +138,62 @@ struct HostConfig {
 #[serde(deny_unknown_fields)]
 struct Continue {
     r#continue: bool,
+}
+/// Test-only pause on the already-held input owner. Partial stdin frames and a
+/// silent parent consume the original preparation deadline, never extend it.
+fn continuation_before<R: Read>(reader: &mut BufReader<R>, fd: i32, deadline: u64) -> Result<()> {
+    let mut bytes = Zeroizing::new(Vec::new());
+    loop {
+        let remaining = deadline
+            .checked_sub(boot_ns()?)
+            .filter(|n| *n > 0)
+            .context("synthetic assessment original deadline expired")?;
+        if reader.buffer().is_empty() {
+            let mut descriptor = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let wait_ms = remaining.div_ceil(1_000_000).min(i32::MAX as u64) as i32;
+            let count = unsafe { libc::poll(&mut descriptor, 1, wait_ms) };
+            if count < 0
+                && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+            {
+                continue;
+            }
+            ensure!(
+                count > 0,
+                "synthetic assessment pause expired or unavailable"
+            );
+        }
+        ensure!(
+            boot_ns()? < deadline,
+            "synthetic assessment original deadline expired"
+        );
+        let available = reader.fill_buf()?;
+        ensure!(
+            !available.is_empty(),
+            "synthetic assessment continuation EOF"
+        );
+        let size = available
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(available.len(), |n| n + 1);
+        ensure!(
+            bytes.len() + size <= 1024,
+            "synthetic assessment continuation bound"
+        );
+        bytes.extend_from_slice(&available[..size]);
+        reader.consume(size);
+        if bytes.last() == Some(&b'\n') {
+            let next: Continue = serde_json::from_slice(&bytes)?;
+            ensure!(
+                next.r#continue,
+                "synthetic assessment continuation required"
+            );
+            return Ok(());
+        }
+    }
 }
 fn boot_ns() -> Result<u64> {
     let mut time = libc::timespec {
@@ -415,6 +477,12 @@ async fn run(stage: &mut &'static str) -> Result<()> {
             result["prepared_revision"] = json!(snapshot.revision);
             result["prepared_at_ns"] = json!(boot_ns()?);
             if phase.prepare_execution {
+                if phase.await_synthetic_assessment {
+                    *stage = "phase_synthetic_assessment_pause";
+                    result["phase"] = json!("prepared_inputs_awaiting_synthetic_assessment");
+                    emit(&result)?;
+                    continuation_before(&mut input, libc::STDIN_FILENO, cap)?;
+                }
                 *stage = "phase_execution_http";
                 let observation = client
                     .prepare_execution(&proposed, &request, &preparation, prepared.request(), None)
@@ -681,6 +749,23 @@ async fn main() -> ExitCode {
 mod tests {
     use super::*;
     #[test]
+    fn synthetic_assessment_pause_keeps_the_original_deadline_for_silent_or_partial_parent() {
+        for prefix in [&b""[..], &b"{\"continue\":"[..]] {
+            let (read, mut write) = std::os::unix::net::UnixStream::pair().unwrap();
+            write.write_all(prefix).unwrap();
+            let fd = read.as_raw_fd();
+            let mut reader = BufReader::new(read);
+            let deadline = boot_ns().unwrap() + 20_000_000;
+            assert!(continuation_before(&mut reader, fd, deadline).is_err());
+            assert!(boot_ns().unwrap() >= deadline);
+            drop(write);
+        }
+        let mut reader = BufReader::new(std::io::Cursor::new(b"{\"continue\":true}\n"));
+        reader.fill_buf().unwrap();
+        continuation_before(&mut reader, -1, boot_ns().unwrap() + 1_000_000_000).unwrap();
+        assert!(continuation_before(&mut reader, -1, boot_ns().unwrap()).is_err());
+    }
+    #[test]
     fn input_frames_are_bounded_complete_and_do_not_consume_the_following_frame() {
         let mut r = std::io::Cursor::new(b"{\"continue\":true}\n{\"continue\":false}\n");
         assert!(frame::<Continue>(&mut r, 1024).unwrap().r#continue);
@@ -715,6 +800,7 @@ mod tests {
             history_after_lost_execution: true,
             report_terminal: false,
             relay_output: false,
+            await_synthetic_assessment: false,
             synthetic_host: None,
         };
         assert!(p.validate().is_err());
@@ -741,6 +827,10 @@ mod tests {
         assert!(p.validate().is_err());
         p.history_after_lost_execution = false;
         p.report_terminal = true;
+        p.validate().unwrap();
+        p.await_synthetic_assessment = true;
+        assert!(p.validate().is_err());
+        p.relay_output = true;
         p.validate().unwrap();
         p.synthetic_host = None;
         assert!(p.validate().is_err());
