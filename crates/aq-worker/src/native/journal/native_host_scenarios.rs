@@ -134,6 +134,7 @@ async fn native_phase_host_actual_running_then_stop_retains_typed_history() {
         workspace.path.to_str().unwrap()
     );
     assert!(history.baseline.is_some() && history.running.is_some());
+    assert!(history.terminal.is_some());
     assert!(history.started_receipt.is_none());
     assert!(matches!(
         h.pipeline().stop_phase_host(h.id).await.unwrap(),
@@ -697,4 +698,336 @@ async fn native_phase_host_unadmitted_claim_is_released_but_stop_fence_cannot_be
             .native_host
             .is_none()
     );
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires pinned native synthetic host and actual tmux3.4; phase terminal peer is synthetic"]
+async fn native_phase_terminal_actual_pair_lost_ack_immutable_retry_and_restart_readback() {
+    let (mut h, _git, execution) = ready(5000).await;
+    let NativeHostLaunchResult::Running(host) = h
+        .pipeline()
+        .launch_phase_synthetic(&execution, profile(&h, SyntheticMode::Wait))
+        .await
+        .unwrap()
+    else {
+        panic!("actual Running absent")
+    };
+    let first = h
+        .pipeline()
+        .phase_terminal_history(h.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(first.started.receipt.is_none() && first.stopped.is_none());
+    assert_eq!(
+        first.started.request.original.operation_id,
+        host.started_request().unwrap().operation_id
+    );
+    let before = h.pipeline().snapshot().await.unwrap();
+    let a = &before.attempts[&h.id];
+    assert_eq!(
+        first.started.request.origin.execution_receipt_digest,
+        a.phase_execution
+            .as_ref()
+            .unwrap()
+            .delivery
+            .receipt
+            .digest()
+            .unwrap()
+    );
+    assert_eq!(
+        first.started.request.origin.accepted_receipt_digest,
+        a.phase_preparation.as_ref().unwrap().receipt_digest
+    );
+    h.host_report_mode.store(2, Ordering::SeqCst);
+    assert!(
+        h.pipeline()
+            .report_phase_terminal_started(h.id)
+            .await
+            .is_err()
+    );
+    h.host_report_mode.store(1, Ordering::SeqCst);
+    let started = h
+        .pipeline()
+        .report_phase_terminal_started(h.id)
+        .await
+        .unwrap();
+    started.validate_for(&first.started.request).unwrap();
+    let calls = h.phase_terminal_calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0], calls[1]);
+    assert!(matches!(
+        h.pipeline().stop_phase_host(h.id).await.unwrap(),
+        NativeStopOutcome::StoppedPendingJournal(_)
+    ));
+    h.pipeline().persist_phase_host_stop(h.id).await.unwrap();
+    let pair = h
+        .pipeline()
+        .phase_terminal_history(h.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let stopped = pair.stopped.as_ref().unwrap();
+    stopped
+        .request
+        .original
+        .validate_after(&pair.started.request.original)
+        .unwrap();
+    assert_eq!(stopped.request.origin, pair.started.request.origin);
+    h.host_report_mode.store(2, Ordering::SeqCst);
+    assert!(
+        h.pipeline()
+            .report_phase_terminal_stopped(h.id)
+            .await
+            .is_err()
+    );
+    h.host_report_mode.store(3, Ordering::SeqCst);
+    assert!(
+        h.pipeline()
+            .report_phase_terminal_stopped(h.id)
+            .await
+            .is_err()
+    );
+    h.host_report_mode.store(1, Ordering::SeqCst);
+    let stop_ack = h
+        .pipeline()
+        .report_phase_terminal_stopped(h.id)
+        .await
+        .unwrap();
+    stop_ack.validate_for(&stopped.request).unwrap();
+    let calls = h.phase_terminal_calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 5);
+    assert_eq!(calls[2], calls[3]);
+    assert_eq!(calls[3], calls[4]);
+    drop(host);
+    drop(execution);
+    drop(h.pipeline.take());
+    let mut cap = limits();
+    cap.disk_bytes = 64 * 1024 * 1024 * 1024;
+    let journal = Journal::open(&h.root, identity().node_id, cap).unwrap();
+    assert!(journal.available().is_err());
+    let store = crate::native::materials::MaterialStore::open(
+        &h._dir.path().join("materials"),
+        identity(),
+        32,
+    )
+    .unwrap();
+    let recovered = Arc::new(InputPipeline::new(journal, store, h.client.clone()));
+    let revision = recovered.snapshot().await.unwrap().revision;
+    assert!(
+        same(
+            &recovered.report_phase_terminal_started(h.id).await.unwrap(),
+            &started
+        )
+        .unwrap()
+    );
+    assert!(
+        same(
+            &recovered.report_phase_terminal_stopped(h.id).await.unwrap(),
+            &stop_ack
+        )
+        .unwrap()
+    );
+    assert_eq!(recovered.snapshot().await.unwrap().revision, revision);
+    assert_eq!(h.phase_terminal_calls.lock().unwrap().len(), 5);
+    assert_eq!(recovered.snapshot().await.unwrap().attempts.len(), 1);
+    assert_eq!(recovered.retained_input_stats().unwrap().attempts, 0);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires pinned native synthetic host and actual tmux3.4; historical report after restart only"]
+async fn native_phase_terminal_unacked_restart_retries_without_live_authority_or_discard() {
+    let (mut h, _git, execution) = ready(5000).await;
+    let NativeHostLaunchResult::Running(host) = h
+        .pipeline()
+        .launch_phase_synthetic(&execution, profile(&h, SyntheticMode::Wait))
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    let original = h
+        .pipeline()
+        .phase_terminal_history(h.id)
+        .await
+        .unwrap()
+        .unwrap();
+    h.host_report_mode.store(2, Ordering::SeqCst);
+    assert!(
+        h.pipeline()
+            .report_phase_terminal_started(h.id)
+            .await
+            .is_err()
+    );
+    assert!(matches!(
+        h.pipeline().stop_phase_host(h.id).await.unwrap(),
+        NativeStopOutcome::StoppedPendingJournal(_)
+    ));
+    h.pipeline().persist_phase_host_stop(h.id).await.unwrap();
+    drop(host);
+    drop(execution);
+    drop(h.pipeline.take());
+    let mut cap = limits();
+    cap.disk_bytes = 64 * 1024 * 1024 * 1024;
+    let journal = Journal::open(&h.root, identity().node_id, cap).unwrap();
+    assert!(journal.recovery_required());
+    assert!(journal.available().is_err());
+    let store = crate::native::materials::MaterialStore::open(
+        &h._dir.path().join("materials"),
+        identity(),
+        32,
+    )
+    .unwrap();
+    let recovered = InputPipeline::new(journal, store, h.client.clone());
+    // Unsupported/no matching centrally admitted Started: both queues remain held.
+    h.host_report_mode.store(0, Ordering::SeqCst);
+    assert!(recovered.report_phase_terminal_started(h.id).await.is_err());
+    assert!(recovered.report_phase_terminal_stopped(h.id).await.is_err());
+    let held = recovered
+        .phase_terminal_history(h.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(held.started.receipt.is_none() && held.stopped.as_ref().unwrap().receipt.is_none());
+    assert_eq!(
+        held.started.request.digest().unwrap(),
+        original.started.request.digest().unwrap()
+    );
+    h.host_report_mode.store(1, Ordering::SeqCst);
+    recovered.report_phase_terminal_started(h.id).await.unwrap();
+    recovered.report_phase_terminal_stopped(h.id).await.unwrap();
+    let calls = h.phase_terminal_calls.lock().unwrap();
+    assert_eq!(calls[0], calls[1]);
+    assert_eq!(recovered.retained_input_stats().unwrap().attempts, 0);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires pinned native synthetic host and actual tmux3.4; fsync cut copies are history-only"]
+async fn native_phase_terminal_ack_write_cuts_reopen_old_or_whole_ack_without_freeing_holds() {
+    let (h, _git, execution) = ready(5000).await;
+    let NativeHostLaunchResult::Running(_host) = h
+        .pipeline()
+        .launch_phase_synthetic(&execution, profile(&h, SyntheticMode::Wait))
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(matches!(
+        h.pipeline().stop_phase_host(h.id).await.unwrap(),
+        NativeStopOutcome::StoppedPendingJournal(_)
+    ));
+    h.pipeline().persist_phase_host_stop(h.id).await.unwrap();
+    let initial = h.pipeline().snapshot().await.unwrap();
+    let t = initial.attempts[&h.id]
+        .native_host
+        .as_ref()
+        .unwrap()
+        .terminal
+        .as_ref()
+        .unwrap();
+    h.host_report_mode.store(1, Ordering::SeqCst);
+    let started = h
+        .client
+        .phase_terminal_started(&t.started.request)
+        .await
+        .unwrap();
+    let stopped = h
+        .client
+        .phase_terminal_stopped(&t.stopped.as_ref().unwrap().request)
+        .await
+        .unwrap();
+    for (is_stop, fault) in [
+        (false, WriteFault::BeforeWrite),
+        (false, WriteFault::AfterRename),
+        (true, WriteFault::BeforeWrite),
+        (true, WriteFault::AfterRename),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("journal");
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::copy(h.root.join("journal.json"), root.join("journal.json")).unwrap();
+        fs::set_permissions(root.join("journal.json"), fs::Permissions::from_mode(0o600)).unwrap();
+        let mut cap = limits();
+        cap.disk_bytes = 64 * 1024 * 1024 * 1024;
+        let mut journal = Journal::open(&root, identity().node_id, cap.clone()).unwrap();
+        journal.inject_fault(fault);
+        let result = if is_stop {
+            journal.phase_stopped_receipt(h.id, stopped.clone())
+        } else {
+            journal.phase_started_receipt(h.id, started.clone())
+        };
+        assert!(result.is_err());
+        assert!(journal.recovery_required());
+        drop(journal);
+        let mut reopened = Journal::open(&root, identity().node_id, cap).unwrap();
+        assert!(reopened.available().is_err());
+        assert_eq!(reopened.state().attempts.len(), 1);
+        let saved = reopened.state().attempts[&h.id]
+            .native_host
+            .as_ref()
+            .unwrap()
+            .terminal
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            saved.started.request.digest().unwrap(),
+            t.started.request.digest().unwrap()
+        );
+        assert_eq!(
+            saved.stopped.as_ref().unwrap().request.digest().unwrap(),
+            t.stopped.as_ref().unwrap().request.digest().unwrap()
+        );
+        let present = if is_stop {
+            saved.stopped.as_ref().unwrap().receipt.is_some()
+        } else {
+            saved.started.receipt.is_some()
+        };
+        assert_eq!(present, matches!(fault, WriteFault::AfterRename));
+        if present {
+            let revision = reopened.state().revision;
+            let changed = if is_stop {
+                let mut changed = stopped.clone();
+                changed.original.recorded_at_ms += 1;
+                reopened.phase_stopped_receipt(h.id, changed)
+            } else {
+                let mut changed = started.clone();
+                changed.original.recorded_at_ms += 1;
+                reopened.phase_started_receipt(h.id, changed)
+            };
+            assert!(changed.is_err());
+            assert_eq!(reopened.state().revision, revision);
+        }
+    }
+    // Cancel only the waiter after the ACK writer owns the fsync job. The
+    // pipeline retains that job, immutable outbox and resources through commit.
+    let pause = WritePause::new();
+    h.pipeline().test_pause_grant_commit(&pause).await.unwrap();
+    let pipeline = h.pipeline().clone();
+    let id = h.id;
+    let pending = tokio::spawn(async move { pipeline.report_phase_terminal_stopped(id).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !pause.entered() {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .unwrap();
+    pending.abort();
+    pause.release();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if let Ok(Some(history)) = h.pipeline().phase_terminal_history(h.id).await
+                && history
+                    .stopped
+                    .as_ref()
+                    .is_some_and(|s| s.receipt.is_some())
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
+    assert_eq!(h.pipeline().snapshot().await.unwrap().attempts.len(), 1);
 }

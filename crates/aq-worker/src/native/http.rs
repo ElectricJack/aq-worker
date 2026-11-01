@@ -18,6 +18,8 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 pub mod control;
+#[cfg(any(test, feature = "test-support"))]
+pub mod phase_terminal;
 pub mod preparation_v2;
 mod scoped_presence;
 pub mod source;
@@ -33,6 +35,10 @@ pub struct NativeClient {
     control_slots: Arc<Semaphore>,
     bulk_slots: Arc<Semaphore>,
     renewal_slots: Arc<Semaphore>,
+    #[cfg(any(test, feature = "test-support"))]
+    phase_terminal_safety: reqwest::Client,
+    #[cfg(any(test, feature = "test-support"))]
+    phase_terminal_safety_slots: Arc<Semaphore>,
 }
 #[derive(Debug)]
 pub struct HttpStatus(pub StatusCode);
@@ -187,6 +193,10 @@ impl NativeClient {
             control_slots: Arc::new(Semaphore::new(2)),
             bulk_slots: Arc::new(Semaphore::new(2)),
             renewal_slots: Arc::new(Semaphore::new(1)),
+            #[cfg(any(test, feature = "test-support"))]
+            phase_terminal_safety: client()?,
+            #[cfg(any(test, feature = "test-support"))]
+            phase_terminal_safety_slots: Arc::new(Semaphore::new(1)),
         })
     }
     fn scope(&self, binding: &LaunchBinding) -> Result<()> {

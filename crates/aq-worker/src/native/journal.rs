@@ -13,6 +13,7 @@ pub use input_origin::InputOrigin;
 pub mod launch;
 mod phase_execution;
 mod phase_prepared;
+pub mod phase_terminal;
 pub use phase_execution::ReceivedPhaseExecution;
 pub mod preparation_v2;
 mod prepared;
@@ -41,7 +42,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 9;
+pub const FORMAT: u32 = 10;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,6 +299,7 @@ impl State {
             granted::validate(attempt, self.revision)?;
             phase_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
             launch::validate(attempt, self.revision, &mut identities)?;
+            phase_terminal::validate(attempt, self.revision)?;
             ensure!(
                 attempt
                     .initial_grant
@@ -331,6 +333,20 @@ impl State {
                 && used.3 <= limits.disk_bytes,
             "native capacity exhausted"
         );
+        // Do not add whole-state encoding work to non-host legacy/phase input paths.
+        if self.attempts.values().any(|a| a.native_host.is_some()) {
+            let bytes = canonical_bytes(&Snapshot {
+                state: self.clone(),
+                digest: canonical_digest(self)?,
+            })?
+            .len();
+            ensure!(
+                bytes
+                    .checked_add(phase_terminal::remaining_reserve(self)?)
+                    .is_some_and(|n| n <= MAX_BYTES),
+                "native reserved host/outbox capacity"
+            );
+        }
         Ok(())
     }
 }
