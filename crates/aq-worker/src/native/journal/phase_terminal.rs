@@ -62,7 +62,6 @@ pub(crate) fn with_context<T>(
     context.validate()?;
     f(&context)
 }
-#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn started(
     a: &Attempt,
     q: aq_admission::started::Request,
@@ -86,7 +85,6 @@ pub(crate) fn started(
         })
     })
 }
-#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn stopped(
     a: &Attempt,
     proof: &aq_session_host::StoppedProof,
@@ -214,7 +212,6 @@ pub(super) fn remaining_reserve(state: &State) -> Result<usize> {
     }
     Ok(reserve)
 }
-#[cfg(any(test, feature = "test-support"))]
 impl Journal {
     pub(crate) fn phase_started_receipt(
         &mut self,
