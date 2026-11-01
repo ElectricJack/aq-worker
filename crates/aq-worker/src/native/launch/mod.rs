@@ -212,6 +212,10 @@ impl Registry {
         if let Some(e) = &entry {
             e.stop.store(true, Ordering::SeqCst);
         }
+        drop(state);
+        if let Some(e) = &entry {
+            e.cancel_transport();
+        }
         Ok(entry)
     }
     #[cfg(any(test, feature = "test-support"))]
@@ -305,6 +309,17 @@ impl LocalStoppedHistory {
     }
 }
 impl Entry {
+    fn cancel_transport(&self) {
+        // Safety cancellation remains available if another owner panicked
+        // while holding this mutex. It can revoke IO, never authorize effects.
+        let physical = self
+            .physical
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(transport) = &physical.transport {
+            transport.cancel();
+        }
+    }
     #[cfg(test)]
     fn hook(&self, stage: Checkpoint, journal: &mut Journal) -> Result<()> {
         let mut fault = lock(&self.fault)?;
@@ -357,9 +372,7 @@ impl Entry {
     }
     fn stop_now(&self) -> Result<NativeStopOutcome> {
         self.stop.store(true, Ordering::SeqCst);
-        if let Some(transport) = &lock(&self.physical)?.transport {
-            transport.cancel();
-        }
+        self.cancel_transport();
         let h = lock(&self.history)?
             .clone()
             .context("native host has no durable intent")?;
@@ -878,3 +891,6 @@ fn bootstrap_synthetic(
         std::thread::sleep(Duration::from_millis(2));
     }
 }
+
+#[cfg(test)]
+mod scoped_transport_scenarios;
