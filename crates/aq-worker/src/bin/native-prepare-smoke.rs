@@ -239,17 +239,16 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         *stage = "phase_received_history";
         let first = journal.record_phase_preparation(id, &observed)?;
         journal.check_phase_preparation(id, &observed)?;
-        // Explicit test-only pause proves actual replay after the original local
-        // proposal cap. The separately issued no-launch lease remains unchanged.
-        let pause_ns = deadline
-            .saturating_sub(boot_ns()?)
-            .checked_add(10_000_000)
+        // Wait a full original delivery duration from now, then check the real
+        // replay's server clock. This test pause changes no lease or deadline.
+        let pause_ms = offer
+            .offered
+            .clock
+            .valid_for_ms
+            .checked_add(100)
             .context("phase probe pause overflow")?;
-        ensure!(
-            pause_ns <= 5_000_000_000,
-            "bounded phase probe pause required"
-        );
-        tokio::time::sleep(std::time::Duration::from_nanos(pause_ns)).await;
+        ensure!(pause_ms <= 5000, "bounded phase probe pause required");
+        tokio::time::sleep(std::time::Duration::from_millis(pause_ms)).await;
         *stage = "phase_replay";
         let replay = client
             .accept_preparation(&proposed, &request, Some(&observed))
