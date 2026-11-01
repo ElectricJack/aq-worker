@@ -183,11 +183,26 @@ impl PhaseOutputRelay {
         );
         let ack = network.http.output_upload(&pending.request).await?;
         ensure!(
-            ack.dropped_output
-                .iter()
-                .all(|g| g.terminal == self.owner.terminal
+            ack.dropped_output.iter().all(|g| {
+                let count = g
+                    .last_missing
+                    .checked_sub(g.first_missing)
+                    .and_then(|n| n.checked_add(1));
+                g.terminal == self.owner.terminal
                     && g.first_missing > network.through
-                    && g.last_missing <= pending.through),
+                    && count.is_some_and(|n| {
+                        n <= 64
+                            && pending
+                                .request
+                                .frames
+                                .iter()
+                                .filter(|f| {
+                                    f.sequence >= g.first_missing && f.sequence <= g.last_missing
+                                })
+                                .count() as u64
+                                == n
+                    })
+            }),
             "native output foreign drop range"
         );
         network.through = pending.through;
@@ -404,3 +419,7 @@ async fn drain(outputs: Weak<Mutex<Outputs>>, entry: Weak<Entry>, relay: Weak<Re
         }
     }
 }
+
+#[cfg(all(test, feature = "test-support"))]
+#[path = "output_relay_tests.rs"]
+mod tests;
