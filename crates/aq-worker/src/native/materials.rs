@@ -308,6 +308,35 @@ impl MaterialStore {
         material: PrivateMaterial,
         preparation: &Preparation,
     ) -> Result<InstalledMaterial> {
+        self.install_parts(
+            material,
+            &preparation.plan().binding,
+            &preparation.plan().materials,
+            canonical_digest(preparation.plan())?,
+            preparation.deadline_ns(),
+        )
+    }
+    pub(crate) fn install_context(
+        &mut self,
+        material: PrivateMaterial,
+        preparation: &super::preparation::InputContext,
+    ) -> Result<InstalledMaterial> {
+        self.install_parts(
+            material,
+            preparation.binding(),
+            preparation.materials(),
+            preparation.digest()?,
+            preparation.deadline_ns(),
+        )
+    }
+    fn install_parts(
+        &mut self,
+        material: PrivateMaterial,
+        binding: &aq_session_protocol::LaunchBinding,
+        materials: &[aq_admission::MaterialLease],
+        origin_digest: Digest,
+        deadline_ns: u64,
+    ) -> Result<InstalledMaterial> {
         ensure!(
             self.owner_pid == std::process::id(),
             "forked material owner"
@@ -316,12 +345,8 @@ impl MaterialStore {
         let lease = &material.delivery.lease;
         ensure!(
             matches!(lease.binding.session, aq_session_protocol::SessionIdentity::Remote {node_id, boot_id, ..} if node_id == self.identity.node_id && boot_id == self.identity.boot_id)
-                && lease.binding == preparation.plan().binding
-                && preparation
-                    .plan()
-                    .materials
-                    .iter()
-                    .any(|v| same(v, lease).unwrap_or(false)),
+                && lease.binding == *binding
+                && materials.iter().any(|v| same(v, lease).unwrap_or(false)),
             "material preparation scope"
         );
         let computed = material.delivery.verify_received(
@@ -331,8 +356,7 @@ impl MaterialStore {
             material.received_ns,
         )?;
         ensure!(
-            computed == material.retrieval_deadline_ns
-                && boot_ns()? < computed.min(preparation.deadline_ns()),
+            computed == material.retrieval_deadline_ns && boot_ns()? < computed.min(deadline_ns),
             "material installation expired"
         );
         let name = CString::new(lease.lease_id.to_string())?;
@@ -345,7 +369,7 @@ impl MaterialStore {
                 ensure!(
                     canonical_bytes(&record)? == *raw
                         && record.operation_id == material.operation_id
-                        && record.preparation_digest == canonical_digest(preparation.plan())?
+                        && record.preparation_digest == origin_digest.clone()
                         && record.worker == self.identity
                         && record.kernel_boot_id == self.kernel_boot_id
                         && same(&record.delivery.lease, lease)?,
@@ -367,7 +391,7 @@ impl MaterialStore {
                             .record
                             .retrieval_deadline_ns
                             .min(computed)
-                            .min(preparation.deadline_ns()),
+                            .min(deadline_ns),
                     "material replay cannot revive expiry"
                 );
                 return Ok(result);
@@ -394,7 +418,7 @@ impl MaterialStore {
         let record = Record {
             schema_version: 1,
             operation_id: material.operation_id,
-            preparation_digest: canonical_digest(preparation.plan())?,
+            preparation_digest: origin_digest.clone(),
             worker: self.identity.clone(),
             kernel_boot_id: self.kernel_boot_id,
             clock_source: "CLOCK_BOOTTIME".into(),
@@ -437,7 +461,7 @@ impl MaterialStore {
             anyhow::bail!("injected material publication ACK loss");
         }
         ensure!(
-            boot_ns()? < computed.min(preparation.deadline_ns()),
+            boot_ns()? < computed.min(deadline_ns),
             "material publication expired"
         );
         Ok(InstalledMaterial {

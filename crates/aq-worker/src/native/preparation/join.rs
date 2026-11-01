@@ -66,15 +66,110 @@ impl PreparedInputs {
         &self.artifacts
     }
 }
+pub struct PreparedPhaseInputs {
+    request: aq_admission::preparation_v2::PrepareRequest,
+    startup: RenderedStartup,
+    workspace: HydratedWorkspace,
+    artifacts: Vec<VerifiedArtifact>,
+    materials: Vec<InstalledMaterial>,
+}
+impl PreparedPhaseInputs {
+    pub fn request(&self) -> &aq_admission::preparation_v2::PrepareRequest {
+        &self.request
+    }
+    pub fn startup(&self) -> &RenderedStartup {
+        &self.startup
+    }
+    pub fn workspace(&self) -> &HydratedWorkspace {
+        &self.workspace
+    }
+    pub fn artifacts(&self) -> &[VerifiedArtifact] {
+        &self.artifacts
+    }
+    pub fn materials(&self) -> &[InstalledMaterial] {
+        &self.materials
+    }
+}
+enum JoinedRequest {
+    Legacy(Prepare),
+    Phase(aq_admission::preparation_v2::PrepareRequest),
+}
+struct JoinedInputs {
+    request: JoinedRequest,
+    startup: RenderedStartup,
+    workspace: HydratedWorkspace,
+    artifacts: Vec<VerifiedArtifact>,
+    materials: Vec<InstalledMaterial>,
+    retained_inline_bytes: u64,
+    startup_bytes: u64,
+}
 impl InputPipeline {
     pub async fn prepare_inputs(
         &self,
         id: Uuid,
         preparation: Arc<Preparation>,
-        mut artifacts: Vec<VerifiedArtifact>,
+        artifacts: Vec<VerifiedArtifact>,
         workspace: HydratedWorkspace,
         renderer: ArtifactRef,
     ) -> Result<PreparedInputs> {
+        let p = self
+            .join_inputs(
+                id,
+                InputContext::Legacy(preparation),
+                artifacts,
+                workspace,
+                renderer,
+            )
+            .await?;
+        let JoinedRequest::Legacy(request) = p.request else {
+            anyhow::bail!("legacy join protocol mismatch")
+        };
+        Ok(PreparedInputs {
+            request,
+            startup: p.startup,
+            workspace: p.workspace,
+            artifacts: p.artifacts,
+            materials: p.materials,
+            retained_inline_bytes: p.retained_inline_bytes,
+            startup_bytes: p.startup_bytes,
+        })
+    }
+    pub async fn prepare_inputs_phase(
+        &self,
+        id: Uuid,
+        preparation: Arc<crate::native::http::preparation_v2::AcceptedPreparation>,
+        artifacts: Vec<VerifiedArtifact>,
+        workspace: HydratedWorkspace,
+        renderer: ArtifactRef,
+    ) -> Result<PreparedPhaseInputs> {
+        let p = self
+            .join_inputs(
+                id,
+                InputContext::Phase(preparation),
+                artifacts,
+                workspace,
+                renderer,
+            )
+            .await?;
+        let JoinedRequest::Phase(request) = p.request else {
+            anyhow::bail!("phase join protocol mismatch")
+        };
+        Ok(PreparedPhaseInputs {
+            request,
+            startup: p.startup,
+            workspace: p.workspace,
+            artifacts: p.artifacts,
+            materials: p.materials,
+        })
+    }
+    async fn join_inputs(
+        &self,
+        id: Uuid,
+        preparation: InputContext,
+        mut artifacts: Vec<VerifiedArtifact>,
+        workspace: HydratedWorkspace,
+        renderer: ArtifactRef,
+    ) -> Result<JoinedInputs> {
         // Keep the same finite bulk lane across validation and durable commit.
         let _bulk = self
             .bulk_slots
@@ -82,7 +177,7 @@ impl InputPipeline {
             .try_acquire_owned()
             .context("native Prepare bulk lane overloaded")?;
         self.storage(move |owner| {
-            owner.journal.check_preparation(id, &preparation)?;
+            preparation.check(&owner.journal, id)?;
             let a = owner
                 .journal
                 .state()
@@ -91,7 +186,7 @@ impl InputPipeline {
                 .context("Prepare attempt absent")?;
             let offer = &a.reservation.offer;
             ensure!(
-                workspace.attempt_id() == id && workspace.binding() == &preparation.plan().binding,
+                workspace.attempt_id() == id && workspace.binding() == preparation.binding(),
                 "Prepare source owner mismatch"
             );
             ensure!(
@@ -156,7 +251,7 @@ impl InputPipeline {
             let startup = crate::native::prepare_startup(offer, &renderer, descriptor, payload)?;
             let mut materials = Vec::new();
             let mut receipts = Vec::new();
-            for lease in &preparation.plan().materials {
+            for lease in preparation.materials() {
                 let pin = a
                     .material_downloads
                     .get(&lease.lease_id)
@@ -170,13 +265,20 @@ impl InputPipeline {
                 receipts.push(receipt);
             }
             workspace.revalidate(&owner.journal)?;
-            owner.journal.check_preparation(id, &preparation)?;
-            let request = owner.journal.record_prepare(id, &preparation, receipts)?;
+            preparation.check(&owner.journal, id)?;
+            let request = match &preparation {
+                InputContext::Legacy(p) => {
+                    JoinedRequest::Legacy(owner.journal.record_prepare(id, p, receipts)?)
+                }
+                InputContext::Phase(p) => {
+                    JoinedRequest::Phase(owner.journal.record_phase_prepare(id, p, receipts)?)
+                }
+            };
             ensure!(
                 boot_ns()? < workspace.deadline_ns(),
                 "Prepare source deadline expired after fsync"
             );
-            Ok(PreparedInputs {
+            Ok(JoinedInputs {
                 request,
                 startup,
                 workspace,

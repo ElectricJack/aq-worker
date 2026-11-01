@@ -9,7 +9,7 @@ pub(super) async fn joined(h: &Inputs, git: &GitPeer) -> PreparedInputs {
     let spec = h.spec().await;
     let workspace = h
         .pipeline()
-        .hydrate_source(h.id, h.preparation.clone(), spec, git.client.clone())
+        .hydrate_source(h.id, h.preparation().clone(), spec, git.client.clone())
         .await
         .unwrap();
     let all = h.all_inputs().await;
@@ -20,7 +20,7 @@ pub(super) async fn joined(h: &Inputs, git: &GitPeer) -> PreparedInputs {
         .renderer_qualification
         .clone();
     h.pipeline()
-        .prepare_inputs(h.id, h.preparation.clone(), all, workspace, renderer)
+        .prepare_inputs(h.id, h.preparation().clone(), all, workspace, renderer)
         .await
         .unwrap()
 }
@@ -30,7 +30,7 @@ pub(super) async fn observed(h: &Inputs, request: &aq_admission::transport::Prep
         .offer
         .clone();
     h.client
-        .prepare(request, &h.preparation, &offer, None)
+        .prepare(request, h.preparation(), &offer, None)
         .await
         .unwrap()
 }

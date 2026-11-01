@@ -5,9 +5,13 @@ mod granted;
 mod pause;
 #[cfg(any(test, feature = "test-support"))]
 pub use pause::WritePause;
+mod input_origin;
 mod inputs;
+pub use input_origin::InputOrigin;
+mod phase_prepared;
 pub mod preparation_v2;
 mod prepared;
+pub use phase_prepared::PhasePreparedIntent;
 mod source;
 mod storage;
 use super::http::{boot_ns, control::Preparation};
@@ -32,7 +36,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 6;
+pub const FORMAT: u32 = 7;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +103,7 @@ pub struct Attempt {
     pub initial_grant: Option<ReceivedInitialGrant>,
     pub phase_acceptance: Option<preparation_v2::PhaseAcceptance>,
     pub phase_preparation: Option<preparation_v2::ReceivedPreparation>,
+    pub phase_prepared: Option<PhasePreparedIntent>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -141,7 +146,7 @@ fn canonical_bytes(value: &impl Serialize) -> Result<Vec<u8>> {
     value.sort_all_objects();
     Ok(serde_json::to_vec(&value)?)
 }
-fn canonical_digest(value: &impl Serialize) -> Result<Digest> {
+pub(crate) fn canonical_digest(value: &impl Serialize) -> Result<Digest> {
     Ok(Digest::of(&canonical_bytes(value)?))
 }
 fn kernel_boot_id() -> Result<Uuid> {
@@ -256,6 +261,9 @@ impl State {
                 attempt.acceptance.is_some() == attempt.acceptance_digest.is_some(),
                 "orphan acceptance digest"
             );
+            // Validate the one saved phase owner before checking any physical
+            // input copies. InputOrigin equality relies on this shared check;
+            // repeated proposal validation per input would be quadratic.
             preparation_v2::validate(attempt, &self.identity, self.revision)?;
             if let Some(record) = &attempt.preparation {
                 let request = attempt
@@ -279,6 +287,7 @@ impl State {
             }
             source::validate(attempt, self.revision, &mut identities)?;
             prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
+            phase_prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
             granted::validate(attempt, self.revision)?;
             ensure!(
                 attempt
@@ -557,6 +566,7 @@ impl Journal {
                 initial_grant: None,
                 phase_acceptance: None,
                 phase_preparation: None,
+                phase_prepared: None,
             },
         );
         self.persist(state)?;

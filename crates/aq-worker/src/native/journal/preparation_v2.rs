@@ -41,7 +41,7 @@ fn resources(r: &Reservation) -> Resources {
 pub(super) fn validate(a: &Attempt, identity: &WorkerIdentity, revision: u64) -> Result<()> {
     let Some(p) = &a.phase_acceptance else {
         ensure!(
-            a.phase_preparation.is_none(),
+            a.phase_preparation.is_none() && a.phase_prepared.is_none(),
             "phase receipt without intent"
         );
         return Ok(());
@@ -65,15 +65,10 @@ pub(super) fn validate(a: &Attempt, identity: &WorkerIdentity, revision: u64) ->
                 <= (p.original_deadline_ns - p.created_ns) / 1_000_000,
         "phase intent differs from exact reservation/proposal"
     );
-    // Input adoption is a later owner. This slice cannot authorize any legacy
-    // input, Prepare, or execution path by laundering the new lease into a plan.
+    // Phase physical inputs have explicitly tagged provenance. No legacy
+    // preparation, Prepare or initial execution Grant may appear on this branch.
     ensure!(
-        a.preparation.is_none()
-            && a.downloads.is_empty()
-            && a.material_downloads.is_empty()
-            && a.source.is_none()
-            && a.prepared.is_none()
-            && a.initial_grant.is_none(),
+        a.preparation.is_none() && a.prepared.is_none() && a.initial_grant.is_none(),
         "phase attempt has legacy observations"
     );
     if let Some(record) = &a.phase_preparation {

@@ -1,4 +1,6 @@
 //! Bounded current input collection, never Prepare or execution permission.
+mod context;
+pub(crate) use context::InputContext;
 mod granted;
 #[path = "hydration.rs"]
 mod hydration;
@@ -17,7 +19,7 @@ pub use granted::{
     QualifiedPresenceProfile, RetainedGrantHistory, RetainedInputStats, ScopedPresenceProducer,
 };
 pub use hydration::HydratedWorkspace;
-pub use join::PreparedInputs;
+pub use join::{PreparedInputs, PreparedPhaseInputs};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -99,6 +101,22 @@ impl InputPipeline {
         id: Uuid,
         preparation: Arc<Preparation>,
     ) -> Result<Vec<VerifiedArtifact>> {
+        self.artifacts_context(id, InputContext::Legacy(preparation))
+            .await
+    }
+    pub async fn artifacts_phase(
+        &self,
+        id: Uuid,
+        preparation: Arc<super::http::preparation_v2::AcceptedPreparation>,
+    ) -> Result<Vec<VerifiedArtifact>> {
+        self.artifacts_context(id, InputContext::Phase(preparation))
+            .await
+    }
+    async fn artifacts_context(
+        &self,
+        id: Uuid,
+        preparation: InputContext,
+    ) -> Result<Vec<VerifiedArtifact>> {
         let _bulk = self
             .bulk_slots
             .clone()
@@ -133,12 +151,16 @@ impl InputPipeline {
     async fn planned_artifact(
         &self,
         plan: &super::journal::ArtifactDownload,
-        preparation: &Preparation,
+        preparation: &InputContext,
     ) -> Result<VerifiedArtifact> {
         let mut assembly = ArtifactAssembly::new(plan.descriptor.clone())?;
         for request in &plan.requests {
             ensure!(
-                boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+                boot_ns()?
+                    < plan
+                        .preparation
+                        .deadline_ns()
+                        .min(preparation.deadline_ns()),
                 "native artifact batch expired"
             );
             let response = self.client.artifact(request, &plan.descriptor).await?;
@@ -152,6 +174,24 @@ impl InputPipeline {
         preparation: Arc<Preparation>,
         reference: ArtifactRef,
     ) -> Result<VerifiedArtifact> {
+        self.artifact_context(id, InputContext::Legacy(preparation), reference)
+            .await
+    }
+    pub async fn artifact_phase(
+        &self,
+        id: Uuid,
+        preparation: Arc<super::http::preparation_v2::AcceptedPreparation>,
+        reference: ArtifactRef,
+    ) -> Result<VerifiedArtifact> {
+        self.artifact_context(id, InputContext::Phase(preparation), reference)
+            .await
+    }
+    async fn artifact_context(
+        &self,
+        id: Uuid,
+        preparation: InputContext,
+        reference: ArtifactRef,
+    ) -> Result<VerifiedArtifact> {
         let _bulk = self
             .bulk_slots
             .clone()
@@ -160,14 +200,20 @@ impl InputPipeline {
         let observed = preparation.clone();
         let plan = self
             .storage(move |owner| {
-                owner.journal.check_preparation(id, &observed)?;
-                owner.journal.begin_artifact_download(id, &reference)
+                observed.check(&owner.journal, id)?;
+                owner
+                    .journal
+                    .begin_artifact_context(id, &reference, &observed)
             })
             .await?;
         let mut assembly = ArtifactAssembly::new(plan.descriptor.clone())?;
         for request in &plan.requests {
             ensure!(
-                boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+                boot_ns()?
+                    < plan
+                        .preparation
+                        .deadline_ns()
+                        .min(preparation.deadline_ns()),
                 "native artifact preparation expired"
             );
             let response = self.client.artifact(request, &plan.descriptor).await?;
@@ -175,8 +221,10 @@ impl InputPipeline {
         }
         let verified = assembly.finish()?;
         self.storage(move |owner| {
-            owner.journal.check_preparation(id, &preparation)?;
-            owner.journal.complete_artifact_download(id, &verified)?;
+            preparation.check(&owner.journal, id)?;
+            owner
+                .journal
+                .complete_artifact_context(id, &verified, &preparation)?;
             Ok(verified)
         })
         .await
@@ -187,6 +235,24 @@ impl InputPipeline {
         preparation: Arc<Preparation>,
         lease_id: Uuid,
     ) -> Result<MaterialReceipt> {
+        self.material_context(id, InputContext::Legacy(preparation), lease_id)
+            .await
+    }
+    pub async fn material_phase(
+        &self,
+        id: Uuid,
+        preparation: Arc<super::http::preparation_v2::AcceptedPreparation>,
+        lease_id: Uuid,
+    ) -> Result<MaterialReceipt> {
+        self.material_context(id, InputContext::Phase(preparation), lease_id)
+            .await
+    }
+    async fn material_context(
+        &self,
+        id: Uuid,
+        preparation: InputContext,
+        lease_id: Uuid,
+    ) -> Result<MaterialReceipt> {
         let _bulk = self
             .bulk_slots
             .clone()
@@ -195,26 +261,30 @@ impl InputPipeline {
         let observed = preparation.clone();
         let plan = self
             .storage(move |owner| {
-                owner.journal.check_preparation(id, &observed)?;
-                owner.journal.begin_material_download(id, lease_id)
+                observed.check(&owner.journal, id)?;
+                owner
+                    .journal
+                    .begin_material_context(id, lease_id, &observed)
             })
             .await?;
         let lease = plan
             .preparation
-            .delivery
-            .original
-            .materials
+            .materials()
             .iter()
             .find(|l| l.lease_id == lease_id)
             .context("material lease not original")?;
         ensure!(
-            boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+            boot_ns()?
+                < plan
+                    .preparation
+                    .deadline_ns()
+                    .min(preparation.deadline_ns()),
             "native material preparation expired"
         );
         let private = self.client.material(&plan.request, lease).await?;
         self.storage(move |owner| {
-            owner.journal.check_preparation(id, &preparation)?;
-            let installed = owner.materials.install(private, &preparation)?;
+            preparation.check(&owner.journal, id)?;
+            let installed = owner.materials.install_context(private, &preparation)?;
             owner.journal.pin_installed_material(id, &installed)?;
             installed.receipt()
         })

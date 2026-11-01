@@ -585,7 +585,7 @@ async fn saturated_bulk_reads_do_not_consume_scoped_control_publication() {
     let (h, _git, producer, _grant) = setup().await;
     h.mode.store(4, Ordering::SeqCst);
     let pipeline = h.pipeline().clone();
-    let preparation = h.preparation.clone();
+    let preparation = h.preparation().clone();
     let id = h.id;
     let bulk = tokio::spawn(async move { pipeline.artifacts(id, preparation).await });
     tokio::time::timeout(

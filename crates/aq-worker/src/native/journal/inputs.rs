@@ -16,7 +16,7 @@ pub struct ArtifactDownload {
     pub descriptor: RetainedArtifact,
     pub requests: Vec<ArtifactFetch>,
     pub request_digests: Vec<Digest>,
-    pub preparation: RecordedPreparation,
+    pub preparation: InputOrigin,
     pub created_revision: u64,
     pub created_ns: u64,
     pub receipt: Option<ArtifactReceipt>,
@@ -27,7 +27,7 @@ pub struct ArtifactDownload {
 pub struct MaterialDownload {
     pub request: MaterialFetch,
     pub request_digest: Digest,
-    pub preparation: RecordedPreparation,
+    pub preparation: InputOrigin,
     pub created_revision: u64,
     pub created_ns: u64,
     installation: Option<Record>,
@@ -41,11 +41,8 @@ impl MaterialDownload {
 fn key(reference: &ArtifactRef) -> Result<String> {
     Ok(canonical_digest(reference)?.as_str().into())
 }
-fn capture(attempt: &Attempt) -> Result<&RecordedPreparation> {
-    attempt
-        .preparation
-        .as_ref()
-        .context("preparation delivery not durable")
+fn capture(attempt: &Attempt) -> Result<InputOrigin> {
+    InputOrigin::capture(attempt)
 }
 pub(super) fn validate_capture(
     attempt: &Attempt,
@@ -71,7 +68,15 @@ pub(super) fn validate_capture(
             && p.received_ns <= created_ns
             && created_ns < p.deadline_ns
             && p.deadline_ns <= maximum
-            && same(&p.delivery.original, &capture(attempt)?.delivery.original)?,
+            && same(
+                &p.delivery.original,
+                &attempt
+                    .preparation
+                    .as_ref()
+                    .context("legacy preparation absent")?
+                    .delivery
+                    .original
+            )?,
         "input preparation provenance"
     );
     Ok(())
@@ -88,13 +93,8 @@ pub(super) fn validate(
         "attempt input operation bound"
     );
     for (k, op) in &attempt.downloads {
-        validate_capture(
-            attempt,
-            &op.preparation,
-            op.created_revision,
-            op.created_ns,
-            revision,
-        )?;
+        op.preparation
+            .validate(attempt, op.created_revision, op.created_ns, revision)?;
         op.descriptor.validate()?;
         ensure!(
             k == &key(&op.descriptor.artifact)?
@@ -121,7 +121,7 @@ pub(super) fn validate(
             let offset = i as u64 * crate::native::MAX_CHUNK_BYTES as u64;
             ensure!(
                 request.identity == *identity
-                    && request.binding == op.preparation.delivery.original.binding
+                    && request.binding == *op.preparation.binding()
                     && request.artifact == op.descriptor.artifact
                     && request.offset == offset
                     && request.length as u64
@@ -143,25 +143,18 @@ pub(super) fn validate(
                     && receipt.digest == op.descriptor.artifact.digest
                     && op
                         .completed_ns
-                        .is_some_and(|t| t >= op.created_ns && t < op.preparation.deadline_ns),
+                        .is_some_and(|t| t >= op.created_ns && t < op.preparation.deadline_ns()),
                 "artifact completion differs"
             );
         }
     }
     for (lease_id, op) in &attempt.material_downloads {
-        validate_capture(
-            attempt,
-            &op.preparation,
-            op.created_revision,
-            op.created_ns,
-            revision,
-        )?;
+        op.preparation
+            .validate(attempt, op.created_revision, op.created_ns, revision)?;
         TransportDocument::MaterialFetch(op.request.clone()).validate()?;
         let lease = op
             .preparation
-            .delivery
-            .original
-            .materials
+            .materials()
             .iter()
             .find(|l| l.lease_id == *lease_id)
             .context("material lease not original")?;
@@ -185,14 +178,15 @@ pub(super) fn validate(
                 record.operation_id == op.request.operation_id
                     && record.worker == *identity
                     && record.kernel_boot_id == kernel
-                    && record.preparation_digest
-                        == canonical_digest(&op.preparation.delivery.original)?
+                    && record.preparation_digest == op.preparation.digest()?
                     && same(&record.delivery.lease, lease)?
                     && record.material_synced_ns >= op.created_ns
                     && op
                         .recorded_ns
                         .is_some_and(|t| t >= record.material_synced_ns
-                            && t < record.retrieval_deadline_ns.min(op.preparation.deadline_ns)),
+                            && t < record
+                                .retrieval_deadline_ns
+                                .min(op.preparation.deadline_ns())),
                 "material independent installation pin"
             );
         }
@@ -207,11 +201,11 @@ fn artifact_plan(
     reference: &ArtifactRef,
 ) -> Result<ArtifactDownload> {
     let preparation = capture(attempt)?;
-    ensure!(now < preparation.deadline_ns, "input preparation expired");
+    ensure!(now < preparation.deadline_ns(), "input preparation expired");
     let key = key(reference)?;
     if let Some(old) = attempt.downloads.get(&key) {
         ensure!(
-            now < old.preparation.deadline_ns,
+            now < old.preparation.deadline_ns(),
             "original download expired"
         );
         return Ok(old.clone());
@@ -236,7 +230,7 @@ fn artifact_plan(
             schema_version: 1,
             operation_id: Uuid::new_v4(),
             identity: identity.clone(),
-            binding: preparation.delivery.original.binding.clone(),
+            binding: preparation.binding().clone(),
             artifact: reference.clone(),
             offset,
             length: (descriptor.bytes - offset).min(crate::native::MAX_CHUNK_BYTES as u64) as u32,
@@ -258,12 +252,21 @@ fn artifact_plan(
 impl Journal {
     pub(crate) fn check_preparation(&self, id: Uuid, observed: &Preparation) -> Result<()> {
         let now = self.live()?;
-        let saved = capture(
+        ensure!(
             self.state
                 .attempts
                 .get(&id)
-                .context("unknown native attempt")?,
-        )?;
+                .is_some_and(|a| a.phase_acceptance.is_none()),
+            "legacy input on phase attempt"
+        );
+        let saved = self
+            .state
+            .attempts
+            .get(&id)
+            .context("unknown native attempt")?
+            .preparation
+            .as_ref()
+            .context("legacy preparation absent")?;
         ensure!(
             now < saved.deadline_ns
                 && saved.sent_ns == observed.sent_ns()
@@ -280,6 +283,25 @@ impl Journal {
         id: Uuid,
         reference: &ArtifactRef,
     ) -> Result<ArtifactDownload> {
+        ensure!(
+            self.state
+                .attempts
+                .get(&id)
+                .is_some_and(|a| a.phase_acceptance.is_none()),
+            "legacy artifact on phase attempt"
+        );
+        self.artifact_download(id, reference)
+    }
+    pub(crate) fn begin_artifact_context(
+        &mut self,
+        id: Uuid,
+        reference: &ArtifactRef,
+        context: &crate::native::preparation::InputContext,
+    ) -> Result<ArtifactDownload> {
+        context.check(self, id)?;
+        self.artifact_download(id, reference)
+    }
+    fn artifact_download(&mut self, id: Uuid, reference: &ArtifactRef) -> Result<ArtifactDownload> {
         let now = self.live()?;
         let attempt = self
             .state
@@ -311,9 +333,9 @@ impl Journal {
     pub(crate) fn begin_artifact_batch(
         &mut self,
         id: Uuid,
-        observed: &Preparation,
+        observed: &crate::native::preparation::InputContext,
     ) -> Result<Vec<ArtifactDownload>> {
-        self.check_preparation(id, observed)?;
+        observed.check(self, id)?;
         let now = self.live()?;
         let a = self
             .state
@@ -357,7 +379,7 @@ impl Journal {
         if changed {
             self.persist(next)?;
         }
-        self.check_preparation(id, observed)?;
+        observed.check(self, id)?;
         Ok(plans)
     }
     /// Verified bytes remain in memory. Commit the complete exact receipt set
@@ -365,10 +387,10 @@ impl Journal {
     pub(crate) fn complete_artifact_batch(
         &mut self,
         id: Uuid,
-        observed: &Preparation,
+        observed: &crate::native::preparation::InputContext,
         verified: &[VerifiedArtifact],
     ) -> Result<()> {
-        self.check_preparation(id, observed)?;
+        observed.check(self, id)?;
         let now = self.live()?;
         let a = self
             .state
@@ -387,7 +409,7 @@ impl Journal {
             ensure!(keys.insert(key.clone()), "duplicate inline batch input");
             let op = a.downloads.get(&key).context("inline batch plan absent")?;
             ensure!(
-                now < op.preparation.deadline_ns && same(&op.descriptor, &v.descriptor)?,
+                now < op.preparation.deadline_ns() && same(&op.descriptor, &v.descriptor)?,
                 "inline batch scope/expiry"
             );
             let receipt = v.receipt();
@@ -409,7 +431,7 @@ impl Journal {
         if changed {
             self.persist(next)?;
         }
-        self.check_preparation(id, observed)?;
+        observed.check(self, id)?;
         Ok(())
     }
     pub fn complete_artifact_download(
@@ -417,6 +439,26 @@ impl Journal {
         id: Uuid,
         verified: &VerifiedArtifact,
     ) -> Result<()> {
+        ensure!(
+            self.state
+                .attempts
+                .get(&id)
+                .is_some_and(|a| a.phase_acceptance.is_none()),
+            "legacy artifact completion on phase attempt"
+        );
+        self.finish_artifact(id, verified)
+    }
+    pub(crate) fn complete_artifact_context(
+        &mut self,
+        id: Uuid,
+        verified: &VerifiedArtifact,
+        context: &crate::native::preparation::InputContext,
+    ) -> Result<()> {
+        context.check(self, id)?;
+        self.finish_artifact(id, verified)?;
+        context.check(self, id)
+    }
+    fn finish_artifact(&mut self, id: Uuid, verified: &VerifiedArtifact) -> Result<()> {
         let now = self.live()?;
         let key = key(&verified.receipt().artifact)?;
         let attempt = self
@@ -430,8 +472,8 @@ impl Journal {
             .context("artifact intent not durable")?;
         ensure!(
             now < capture(attempt)?
-                .deadline_ns
-                .min(op.preparation.deadline_ns)
+                .deadline_ns()
+                .min(op.preparation.deadline_ns())
                 && same(&op.descriptor, &verified.descriptor)?,
             "artifact completion scope/expiry"
         );
@@ -453,6 +495,25 @@ impl Journal {
         self.persist(state)
     }
     pub fn begin_material_download(&mut self, id: Uuid, lease: Uuid) -> Result<MaterialDownload> {
+        ensure!(
+            self.state
+                .attempts
+                .get(&id)
+                .is_some_and(|a| a.phase_acceptance.is_none()),
+            "legacy material on phase attempt"
+        );
+        self.material_download(id, lease)
+    }
+    pub(crate) fn begin_material_context(
+        &mut self,
+        id: Uuid,
+        lease: Uuid,
+        context: &crate::native::preparation::InputContext,
+    ) -> Result<MaterialDownload> {
+        context.check(self, id)?;
+        self.material_download(id, lease)
+    }
+    fn material_download(&mut self, id: Uuid, lease: Uuid) -> Result<MaterialDownload> {
         let now = self.live()?;
         let attempt = self
             .state
@@ -460,28 +521,23 @@ impl Journal {
             .get(&id)
             .context("unknown native attempt")?;
         let preparation = capture(attempt)?;
-        ensure!(now < preparation.deadline_ns, "input preparation expired");
+        ensure!(now < preparation.deadline_ns(), "input preparation expired");
         if let Some(old) = attempt.material_downloads.get(&lease) {
             ensure!(
-                now < old.preparation.deadline_ns,
+                now < old.preparation.deadline_ns(),
                 "original material download expired"
             );
             return Ok(old.clone());
         }
         ensure!(
-            preparation
-                .delivery
-                .original
-                .materials
-                .iter()
-                .any(|l| l.lease_id == lease),
+            preparation.materials().iter().any(|l| l.lease_id == lease),
             "material lease not original"
         );
         let request = MaterialFetch {
             schema_version: 1,
             operation_id: Uuid::new_v4(),
             identity: self.state.identity.clone(),
-            binding: preparation.delivery.original.binding.clone(),
+            binding: preparation.binding().clone(),
             lease_id: lease,
         };
         let request_digest = canonical_digest(&request)?;
@@ -522,8 +578,8 @@ impl Journal {
             .context("material intent not durable")?;
         ensure!(
             now < capture(attempt)?
-                .deadline_ns
-                .min(op.preparation.deadline_ns)
+                .deadline_ns()
+                .min(op.preparation.deadline_ns())
                 .min(installed.metadata().retrieval_deadline_ns),
             "material pin expired"
         );
