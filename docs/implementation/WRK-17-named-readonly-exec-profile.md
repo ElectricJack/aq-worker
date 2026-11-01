@@ -127,3 +127,35 @@ writable aliases, and freeze privileged external mutation while owners are activ
 This image profile does not qualify private upstream-key visibility, model context,
 provider transport, shell tools or production admission. Kernel/source validation
 and the paired launch/auth join remain required before any actual CLI execution.
+
+## Initial source and kernel checks
+
+The source-only named profile and typed installation are implemented without
+changing legacy sealed-memfd image verification. Validation so far:
+
+- Host unit suite: 26 passed in 0.21s; three explicit process/image probes remain
+  ignored. This includes the old sealed image policies and the new actual-byte,
+  writable-mount and live writable-descriptor refusal cases.
+- Distinct named-manifest/no-self-attestation-boolean unit: passed in 0.00s.
+- Confined readonly pool probe: passed in 1.12s, checking a real pinned host ELF,
+  digest refusal without budget charge, 32 cache reuses of the same owner, exact
+  mount substitution refusal, noncanonical symlink refusal and entry limits.
+- Confined worker installation probe: passed in 1.10s, checking independently
+  expected environment mismatch, actual cached program and two fixed auxiliary
+  owners, exact byte charging and 16 unchanged revalidations.
+- Strict host+worker all-target/all-feature lint: passed in 12.19s.
+
+These probes only read/hash pinned ELF inputs; none executes Codex or establishes
+shell-tool, provider, private-source or model qualification. The namespace wrapper
+now explicitly drops all capabilities, sets `no_new_privs` and remounts the image
+parent `/opt` readonly. Private state/workspace use distinct tmpfs under masked
+`/var/lib` and `/tmp`. Operator homes and host service state remain hidden and
+external IP egress has no route.
+
+The single-ID user namespace maps root-owned system tmux to an unmapped UID; the
+fixture therefore uses a byte-identical owner0500 copy, retaining the original
+ownership policy and digest. A read-only owner0500 file can refuse a write open
+with EACCES before reaching the mount's EROFS check; the pool independently verifies
+`ST_RDONLY`. Neither issue relaxed an image/environment check. Shared-target stale
+host metadata required a host-source mtime rebuild to expose the new API; frozen
+package archives and versions were not changed.
