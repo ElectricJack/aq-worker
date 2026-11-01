@@ -354,3 +354,53 @@ async fn legacy_protocol_choice_cannot_be_switched_to_phase_after_publication() 
     assert_eq!(journal.state().revision, revision);
     assert!(journal.state().attempts[&id].phase_acceptance.is_none());
 }
+
+#[tokio::test]
+async fn actual_poll_redelivery_and_original_proposal_are_retained_as_distinct_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut journal =
+        Journal::create_identity(&dir.path().join("native"), identity(), phase_limits()).unwrap();
+    let p = proposal();
+    let mut delivered = p.original.clone();
+    delivered.offered.clock = DeliveryClock::new(1600, 2000).unwrap();
+    let cap = boot_ns().unwrap() + 350_000_000;
+    let disk = phase_fixture()["accept"]["hold"]["source_disk_bytes"]
+        .as_u64()
+        .unwrap();
+    let id = journal
+        .reserve(delivered.clone(), qualification(), cap, disk)
+        .unwrap();
+    let (client, _peer) = peer().await;
+    let proposed = client
+        .propose_preparation(&identity(), &delivered, &p.negotiation, cap)
+        .await
+        .unwrap();
+    let q = begin(&mut journal, id, &proposed);
+    let observed = client
+        .accept_preparation(&proposed, &q, None)
+        .await
+        .unwrap();
+    journal.record_phase_preparation(id, &observed).unwrap();
+    let a = &journal.state().attempts[&id];
+    assert_eq!(a.reservation.offer.offered.clock.server_time_ms, 1600);
+    assert_eq!(
+        a.phase_acceptance
+            .as_ref()
+            .unwrap()
+            .proposal
+            .original
+            .offered
+            .clock
+            .server_time_ms,
+        1500
+    );
+    assert!(journal.check_phase_preparation(id, &observed).is_ok());
+    drop(journal);
+    let history = Journal::open(
+        &dir.path().join("native"),
+        identity().node_id,
+        phase_limits(),
+    )
+    .unwrap();
+    assert!(history.recovery_required());
+}

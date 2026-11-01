@@ -95,6 +95,28 @@ fn live(deadline: u64) -> Result<()> {
 fn same(a: &impl Serialize, b: &impl Serialize) -> Result<bool> {
     Ok(serde_json::to_value(a)? == serde_json::to_value(b)?)
 }
+/// Poll may carry a later delivery sample for the same immutable publication.
+/// Compare those two actual records without changing either stored clock or the
+/// driver's previously observed local deadline. Only this sample may differ.
+pub(crate) fn validate_original_delivery(
+    original: &NativeOffer,
+    delivered: &NativeOffer,
+) -> Result<()> {
+    original.validate()?;
+    delivered.validate()?;
+    ensure!(
+        original.offered.clock.expires_at_ms == delivered.offered.clock.expires_at_ms
+            && original.offered.clock.server_time_ms <= delivered.offered.clock.server_time_ms,
+        "phase original/delivered offer clock association"
+    );
+    let mut comparable = delivered.clone();
+    comparable.offered.clock = original.offered.clock.clone();
+    ensure!(
+        same(original, &comparable)?,
+        "phase original/delivered offer content changed"
+    );
+    Ok(())
+}
 struct Received {
     document: Document,
     nonce: Uuid,
@@ -175,9 +197,10 @@ impl NativeClient {
             anyhow::bail!("unexpected phase proposal response");
         };
         proposal.validate()?;
+        validate_original_delivery(&proposal.original, original)?;
         ensure!(
-            same(&proposal.original, original)? && same(&proposal.negotiation, negotiation)?,
-            "phase proposal changed original offer/negotiation"
+            same(&proposal.negotiation, negotiation)?,
+            "phase proposal changed negotiation"
         );
         live(original_deadline_ns)?;
         Ok(ProposedPreparation {
