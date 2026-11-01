@@ -234,7 +234,47 @@ impl CodexExecProfile {
         })
     }
 }
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn development_origin(origin: &str) -> Result<String> {
+    let url = reqwest::Url::parse(origin)?;
+    ensure!(
+        url.scheme() == "http"
+            && url.host_str() == Some("127.0.0.1")
+            && url.port().is_some_and(|p| p > 0)
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.path() == "/"
+            && url.query().is_none()
+            && url.fragment().is_none(),
+        "development provider requires numeric IPv4 loopback origin"
+    );
+    Ok(url.as_str().trim_end_matches('/').to_owned())
+}
 impl PreparedCodexExec {
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn with_development_provider(mut self, origin: &str) -> Result<Self> {
+        let origin = development_origin(origin)?;
+        let position = self.command.arguments.len() - 1;
+        let mut overrides = Vec::new();
+        for setting in [
+            format!(
+                "openai_base_url={}",
+                toml::Value::String(format!("{origin}/v1"))
+            ),
+            "features.api_key_model_discovery=false".into(),
+            "features.responses_websockets=false".into(),
+            "features.responses_websockets_v2=false".into(),
+            "analytics.enabled=false".into(),
+            "otel.exporter=\"none\"".into(),
+            "otel.trace_exporter=\"none\"".into(),
+            "otel.metrics_exporter=\"none\"".into(),
+        ] {
+            overrides.push("--config".into());
+            overrides.push(setting);
+        }
+        self.command.arguments.splice(position..position, overrides);
+        Ok(self)
+    }
     pub fn command(&self) -> &LocalCommand {
         &self.command
     }
