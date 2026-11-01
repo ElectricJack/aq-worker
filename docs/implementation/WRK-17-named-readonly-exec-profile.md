@@ -56,8 +56,9 @@ mount, namespace and writable-root assumptions.
 
 ## Concrete shape before broad implementation
 
-A new `NamedReadonlyExecPool` owns at most two retained image descriptors and a
-bounded total declared/actual installation size. Unlike a memfd pool, it does
+A new `NamedReadonlyExecPool` owns at most two retained program descriptors and
+two fixed auxiliary descriptors per installation (four auxiliaries maximum), all
+charged to one bounded declared/actual installation size. Unlike a memfd pool, it does
 not allocate another copy of those executable bytes. Preflight hashes once before
 registration/poll. The host image identity records the new profile and original
 mount/namespace evidence; the old sealed-image serialization and checks retain
@@ -97,3 +98,30 @@ from a separately confined harness to a parent transport requires an explicit
 local bridge/namespace design; it is not smuggled in as a tunnel or an implicit
 mandatory external service. The production refusal remains until that boundary,
 this named image profile and other declared capabilities are qualified.
+
+## Initial typed implementation seam
+
+The initial source provides opaque `NamedReadonlyEnvironment`,
+`NamedReadonlyExecPool`/`NamedReadonlyExecImage` and bounded readonly auxiliary
+owners, `NamedReadonlyObservationProfile`, and the new observed-startup constructor.
+Worker `NamedExecManifest` has a separate named-readonly tag and independent
+`environment` artifact pin; `NamedExecInstallation::open` compares that pin against
+both its separately supplied expectation and the inspected pool. The old memfd
+manifest/profile remains distinct.
+
+Local environment inspection requires all five capability sets empty and
+`no_new_privs`, retains mount/user namespace descriptors, and checks their live
+identity. Image preflight refuses writable same-device mount aliases, inherited
+writable descriptors, hard links, mutable ancestor routes and noncanonical paths.
+It hashes program and fixed helper files once, then caches actual readonly file
+owners. Revalidation checks kernel/namespace/route/mount/metadata identity without
+reading executable content. The observed gate transfers and executes the retained
+named descriptor; it preserves native sealed stdin and existing physical proof.
+
+These necessary checks are not a complete environment qualification: unprivileged
+namespace creation is possible even with empty capabilities. External provisioning
+must independently qualify mount-locking and namespace transitions, prevent unseen
+writable aliases, and freeze privileged external mutation while owners are active.
+This image profile does not qualify private upstream-key visibility, model context,
+provider transport, shell tools or production admission. Kernel/source validation
+and the paired launch/auth join remain required before any actual CLI execution.

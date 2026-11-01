@@ -25,6 +25,13 @@ pub(crate) fn observed_image(process: &ProcessEvidence, image: &ElfIdentity) -> 
         ownership::process_evidence(process.pid)? == *process && ownership::pidfd_is_live(&fd)?,
         "exec process changed while observed"
     );
+    if matches!(
+        image.profile,
+        Some(executable::ImageProfile::NamedReadonlyExecStdinV1(_))
+    ) {
+        let named = File::open(format!("/proc/{}/exe", process.pid))?;
+        executable::verify_file(&named, image)?;
+    }
     Ok(())
 }
 /// Called only in the dedicated pane helper, after the guardian release packet.
