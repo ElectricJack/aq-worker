@@ -46,6 +46,7 @@ fn production_factory_refuses_plaintext_and_proxy_credentials_before_admission()
     worker.cf_client_secret = Some("fixture-secret".into());
     assert!(CodexExecutor::new(&worker).is_err());
 }
+#[cfg(feature = "test-support")]
 #[test]
 fn concrete_preflight_refuses_missing_settings_and_legacy_installation() {
     let (_dir, mut config) = super::super::tests::config();
@@ -87,6 +88,7 @@ fn production_factory_refuses_unqualified_output_binding_even_with_https() {
         .err()
         .expect("production output bound must remain refused");
     assert!(error.to_string().contains("output bound is not qualified"));
+    #[cfg(feature = "test-support")]
     assert!(
         CodexExecutor::development_loopback(&worker).is_err(),
         "test transport cannot target a remote origin"

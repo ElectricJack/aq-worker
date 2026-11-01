@@ -233,3 +233,6 @@ async fn shutdown_during_delayed_started_ack_stops_physically_and_preserves_unce
     assert!(result.is_err());
     stopped(&h, false).await;
 }
+
+#[path = "codex_process_scenarios.rs"]
+mod codex_process_scenarios;

@@ -1,0 +1,83 @@
+{
+  "authority": "observation only; no runtime/model/tokenizer qualification",
+  "codex_sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+  "implicit_input_digest": "2c6c28cafd3ea691925bf7fc517c345bcfad930941f78fbfc44ca88a4e3afb70",
+  "implicit_input_encoded_bytes": 21905,
+  "inputs": [
+    {
+      "encoded_bytes": 17566,
+      "role": "developer",
+      "text_bytes": 17119,
+      "type": "message"
+    },
+    {
+      "encoded_bytes": 2930,
+      "role": "developer",
+      "text_bytes": 2550,
+      "type": "message"
+    },
+    {
+      "encoded_bytes": 1405,
+      "role": "user",
+      "text_bytes": 1072,
+      "type": "message"
+    },
+    {
+      "encoded_bytes": 315,
+      "role": "user",
+      "text_bytes": 26,
+      "type": "message"
+    }
+  ],
+  "max_output_tokens": 4096,
+  "model": "gpt-5.1-codex-mini",
+  "request_fields": [
+    "client_metadata",
+    "include",
+    "input",
+    "max_output_tokens",
+    "model",
+    "parallel_tool_calls",
+    "prompt_cache_key",
+    "reasoning",
+    "store",
+    "stream",
+    "tool_choice",
+    "tools"
+  ],
+  "schema_version": 1,
+  "sealed_payload_bytes": 26,
+  "tool_definition_bytes": 7295,
+  "tool_definition_digest": "c3c7df2a869a1cc9892462eb55c88364356d6564ebbaca67cbbf64e4bc12c760",
+  "tools": [
+    {
+      "name": "exec_command",
+      "type": "function"
+    },
+    {
+      "name": "write_stdin",
+      "type": "function"
+    },
+    {
+      "name": "request_user_input",
+      "type": "function"
+    },
+    {
+      "name": "view_image",
+      "type": "function"
+    },
+    {
+      "name": "get_goal",
+      "type": "function"
+    },
+    {
+      "name": "create_goal",
+      "type": "function"
+    },
+    {
+      "name": "update_goal",
+      "type": "function"
+    }
+  ],
+  "upstream_request_bytes": 31203
+}

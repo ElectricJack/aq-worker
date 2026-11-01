@@ -80,8 +80,10 @@ actual physical stop. No Started ACK is manufactured and no execution/control
 operation uses the output retry policy.
 
 The first physical lifecycle checks use an actual pinned tmux/ELF host and
-synthetic typed control/relay peers. Full concrete Codex/fake-provider composition
-and real runtime qualification remain WRK-08. An unstarted/unknown native launch
+synthetic typed control/relay peers. The next composition uses actual pinned
+Codex 0.166 under the same executor and real tmux, with a finite loopback provider
+and an attempt-owned scoped Responses transport. Real daemon-owner and production
+runtime/model/tokenizer qualification remain separate. An unstarted/unknown native launch
 requests physical cleanup and preserves closure history; its separate no-Started
 publication owner remains required.
 
@@ -92,7 +94,7 @@ transport. Worst-case JSON byte-array expansion cannot permanently wedge a
 
 ## Verification
 
-The isolated component uses pinned synthetic fixtures and local files; no provider
+The isolated component uses pinned fixtures and local files; no external provider
 requests or existing developer/production state are involved.
 
 - Three reserve tests cover exact membership/capacity, duplicate refusal,
@@ -129,3 +131,30 @@ actual daemon owner qualification. The final composed owner/runtime check remain
 separate. The first dense-output followup exposed an outdated expected frame count
 and a test fixture still installing its old 4-byte framing/seeded-prefix expectations; those fixtures were
 corrected without changing the production byte ceilings or transport policy.
+
+## Actual Codex loopback composition
+
+Three actual-process cases pass against the same `CodexExecutor::execute` path:
+finite successful Responses SSE and zero process status, shutdown during blocked
+output, and shutdown during delayed Started acknowledgment. Each requires actual
+physical `ECHILD`; paired receipts are retained for successful Started, while the
+delayed case retains its unknown Started receipt. The output peer's unwatched 409
+does not terminate the actual running CLI. The tests retain original Grant deadlines
+and actual preparation/material/workspace owners throughout cleanup.
+
+The tests use a preflight-sealed 319MiB image, separately pinned helper and tmux,
+private scoped synthetic local capability, and distinct upstream synthetic key.
+The peer verifies the sealed model/reasoning and exact injected response cap, and
+asserts that neither key nor the Node credential enters model input. Hosted web
+search is explicitly disabled and absent in the observed request. The actual CLI
+adds developer context, environment context and local tool definitions; those are
+recorded separately from the exact 26-byte stdin payload. See the
+[loopback process evidence](evidence/wrk18-codex-loopback/README.md).
+
+This composition found and fixed a real owner join error: preparation consumes
+the startup payload artifact into `RenderedStartup`, so launch now borrows verified
+bytes from that retained owner. It also exposed the finite Git fixture's missing
+repository and the CLI's implicit environment message. No sealed startup assertion,
+material/provider binding, physical proof or production admission gate was relaxed.
+The default unit profile excludes loopback helpers whose dependency requires the
+explicit test-support feature.

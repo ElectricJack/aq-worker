@@ -314,16 +314,24 @@ impl Inputs {
     }
     #[cfg(feature = "test-support")]
     async fn new_phase_output(export: Export) -> Self {
-        Box::pin(Self::new_count_policy(export, true, 0, true)).await
+        Box::pin(Self::new_count_policy(export, true, 0, true, false)).await
+    }
+    #[cfg(feature = "test-support")]
+    async fn new_phase_codex(export: Export) -> Self {
+        Box::pin(Self::new_count_policy(export, true, 0, true, true)).await
     }
     async fn new_count(export: Export, phase_mode: bool, count: usize) -> Self {
-        Box::pin(Self::new_count_policy(export, phase_mode, count, false)).await
+        Box::pin(Self::new_count_policy(
+            export, phase_mode, count, false, false,
+        ))
+        .await
     }
     async fn new_count_policy(
         mut export: Export,
         phase_mode: bool,
         count: usize,
         output_only: bool,
+        codex: bool,
     ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("journal");
@@ -331,6 +339,15 @@ impl Inputs {
         fs::create_dir(&materials).unwrap();
         fs::set_permissions(&materials, fs::Permissions::from_mode(0o700)).unwrap();
         let mut offered = offer();
+        if codex {
+            let m = &mut offered.offered.offer.manifest;
+            m.harness.harness = aq_session_protocol::Text::new("codex").unwrap();
+            m.harness.cli_version = aq_session_protocol::Text::new("0.166.0").unwrap();
+            m.model.provider = aq_session_protocol::Text::new("openai").unwrap();
+            m.model.model = aq_session_protocol::Text::new("gpt-5.1-codex-mini").unwrap();
+            m.model.reasoning = aq_session_protocol::Text::new("medium").unwrap();
+            m.model.spending_budget = None;
+        }
         if output_only {
             offered.offered.offer.manifest.terminal.input_enabled = false;
             offered.offered.offer.binding.launch_manifest_digest =
@@ -432,6 +449,9 @@ impl Inputs {
         delivery.original.binding = offered.offered.offer.binding.clone();
         delivery.original.materials[0].binding = offered.offered.offer.binding.clone();
         delivery.original.materials[0].expires_at_ms = 30000;
+        if codex {
+            delivery.original.materials[0].provider = aq_admission::Label::new("openai").unwrap();
+        }
         let material_lease = delivery.original.materials[0].clone();
         let phase_fixture: Value = serde_json::from_slice(include_bytes!(
             "../../../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json"
