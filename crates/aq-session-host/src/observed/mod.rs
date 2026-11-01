@@ -4,13 +4,26 @@ mod exec;
 mod executable;
 pub(crate) mod gate;
 pub use executable::{
-    MAX_ELF_BYTES, MAX_ELF_POOL_BYTES, MAX_ELF_POOL_ENTRIES, QualifiedElf, SealedElfPool,
+    MAX_ELF_BYTES, MAX_ELF_POOL_BYTES, MAX_ELF_POOL_ENTRIES, MAX_NATIVE_EXEC_BYTES,
+    MAX_NATIVE_EXEC_POOL_BYTES, MAX_NATIVE_EXEC_POOL_ENTRIES, NativeExecImage, NativeExecPool,
+    QualifiedElf, SealedElfPool,
 };
 
 use crate::*;
 use aq_session_protocol::TerminalIdentity;
 use executable::ElfIdentity;
 pub const OBSERVATION_PROFILE: &str = "linux-tmux34-sealed-small-elf-v1";
+pub const NATIVE_EXEC_PROFILE: &str = "linux-tmux34-sealed-native-exec-stdin-v1";
+/// Same bounded literal observer geometry, with an explicitly different native
+/// executable/startup policy. This does not establish renderer or model evidence.
+pub struct NativeExecObservationProfile(ObservationProfile);
+impl NativeExecObservationProfile {
+    pub fn new(renderer: ArtifactRef, columns: u16, rows: u16) -> Result<Self> {
+        Ok(Self(ObservationProfile::small_elf(
+            renderer, columns, rows,
+        )?))
+    }
+}
 /// Closed candidate policy; the renderer reference is an installed qualification,
 /// not an offer's self-assertion. No physical Snapshot is produced here.
 pub struct ObservationProfile {
@@ -102,7 +115,33 @@ impl ObservedStartup {
         })
     }
 }
+impl ObservedStartup {
+    pub fn native_exec(
+        rendered: RenderedStartup,
+        terminal: TerminalIdentity,
+        program: NativeExecImage,
+        profile: NativeExecObservationProfile,
+        hard_deadline_boot_ms: u64,
+    ) -> Result<Self> {
+        ensure!(
+            !rendered.manifest.terminal.input_enabled,
+            "native stdin profile does not support terminal input"
+        );
+        let mut value = Self::new(
+            rendered,
+            terminal,
+            program.0,
+            profile.0,
+            hard_deadline_boot_ms,
+        )?;
+        value.spec.profile = NATIVE_EXEC_PROFILE.into();
+        Ok(value)
+    }
+}
 impl Spec {
+    pub(crate) fn native_exec(&self) -> bool {
+        self.profile == NATIVE_EXEC_PROFILE
+    }
     pub(crate) fn validate(&self, config: &SealedLaunch) -> Result<()> {
         self.terminal.validate()?;
         self.renderer.id.validate()?;
@@ -113,7 +152,15 @@ impl Spec {
             self.owner.pid > 0
                 && self.owner.start_ticks > 0
                 && self.version == 1
-                && self.profile == OBSERVATION_PROFILE
+                && match self.profile.as_str() {
+                    OBSERVATION_PROFILE =>
+                        self.program.profile.is_none() && self.program.bytes <= MAX_ELF_BYTES,
+                    NATIVE_EXEC_PROFILE =>
+                        self.program.profile == Some(executable::ImageProfile::NativeExecStdinV1)
+                            && self.program.bytes <= MAX_NATIVE_EXEC_BYTES
+                            && !config.manifest.terminal.input_enabled,
+                    _ => false,
+                }
                 && !self.baseline_id.is_nil()
                 && self.terminal.session == config.manifest.bindings.session
                 && config.rendered_startup.is_some()
@@ -123,7 +170,7 @@ impl Spec {
                 && self.rows > 0
                 && self.rows <= 120
                 && u32::from(self.columns) * u32::from(self.rows) <= 12000
-                && (64..=MAX_ELF_BYTES).contains(&self.program.bytes)
+                && self.program.bytes >= 64
                 && self.program.inode > 0
                 && self.hard_deadline_boot_ms >= config.permit.expires_boot_ms
                 && self.hard_deadline_boot_ms

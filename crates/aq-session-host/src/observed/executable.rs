@@ -11,6 +11,15 @@ use std::{
 pub const MAX_ELF_BYTES: u64 = 4 * 1024 * 1024;
 pub const MAX_ELF_POOL_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_ELF_POOL_ENTRIES: usize = 4;
+/// Separate admission profile; the legacy 4 MiB image policy stays unchanged.
+pub const MAX_NATIVE_EXEC_BYTES: u64 = 512 * 1024 * 1024;
+pub const MAX_NATIVE_EXEC_POOL_BYTES: u64 = 1024 * 1024 * 1024;
+pub const MAX_NATIVE_EXEC_POOL_ENTRIES: usize = 2;
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ImageProfile {
+    NativeExecStdinV1,
+}
 const SCRATCH: usize = 64 * 1024;
 const SEALS: i32 = libc::F_SEAL_WRITE | libc::F_SEAL_GROW | libc::F_SEAL_SHRINK | libc::F_SEAL_SEAL;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +29,8 @@ pub(crate) struct ElfIdentity {
     pub bytes: u64,
     pub device: u64,
     pub inode: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<ImageProfile>,
 }
 struct Image {
     identity: ElfIdentity,
@@ -34,6 +45,7 @@ struct Pool {
     pid: u32,
     bytes: u64,
     entries: usize,
+    profile: Option<ImageProfile>,
     state: Mutex<PoolState>,
 }
 /// Explicit process-local immutable image store. No eviction or implicit budget
@@ -70,12 +82,20 @@ impl SealedElfPool {
                 pid: std::process::id(),
                 bytes,
                 entries,
+                profile: None,
                 state: Mutex::new(PoolState {
                     bytes: 0,
                     entries: BTreeMap::new(),
                 }),
             }),
         })
+    }
+    fn image_limit(&self) -> u64 {
+        if self.inner.profile.is_some() {
+            MAX_NATIVE_EXEC_BYTES
+        } else {
+            MAX_ELF_BYTES
+        }
     }
     pub fn load_verified(&self, source: &Path, expected: &ArtifactRef) -> Result<QualifiedElf> {
         ensure!(
@@ -116,7 +136,7 @@ impl SealedElfPool {
             .open(source)?;
         let metadata = source_file.metadata()?;
         ensure!(
-            metadata.is_file() && metadata.len() >= 64 && metadata.len() <= MAX_ELF_BYTES,
+            metadata.is_file() && metadata.len() >= 64 && metadata.len() <= self.image_limit(),
             "small ELF byte bound"
         );
         let reserved = state
@@ -146,7 +166,7 @@ impl SealedElfPool {
                 .checked_add(count as u64)
                 .context("ELF length overflow")?;
             ensure!(
-                written <= metadata.len() && written <= MAX_ELF_BYTES,
+                written <= metadata.len() && written <= self.image_limit(),
                 "ELF source changed size"
             );
             if header.len() < 64 {
@@ -192,6 +212,7 @@ impl SealedElfPool {
             bytes: written,
             device: m.dev(),
             inode: m.ino(),
+            profile: self.inner.profile.clone(),
         };
         verify_file(&file, &identity)?;
         let image = Arc::new(Image {
@@ -219,6 +240,52 @@ impl SealedElfPool {
             .bytes)
     }
 }
+/// Independently budgeted immutable installation pool for the new native profile.
+/// Callers must reserve these charged bytes in addition to process/attempt needs.
+#[derive(Clone)]
+pub struct NativeExecPool {
+    pool: SealedElfPool,
+}
+pub struct NativeExecImage(pub(super) QualifiedElf);
+impl NativeExecPool {
+    pub fn new(bytes: u64, entries: usize) -> Result<Self> {
+        ensure!(
+            bytes > 0
+                && bytes <= MAX_NATIVE_EXEC_POOL_BYTES
+                && entries > 0
+                && entries <= MAX_NATIVE_EXEC_POOL_ENTRIES,
+            "native exec pool admission bounds"
+        );
+        Ok(Self {
+            pool: SealedElfPool {
+                inner: Arc::new(Pool {
+                    pid: std::process::id(),
+                    bytes,
+                    entries,
+                    profile: Some(ImageProfile::NativeExecStdinV1),
+                    state: Mutex::new(PoolState {
+                        bytes: 0,
+                        entries: BTreeMap::new(),
+                    }),
+                }),
+            },
+        })
+    }
+    pub fn load_verified(&self, source: &Path, expected: &ArtifactRef) -> Result<NativeExecImage> {
+        Ok(NativeExecImage(self.pool.load_verified(source, expected)?))
+    }
+    pub fn charged_bytes(&self) -> Result<u64> {
+        self.pool.charged_bytes()
+    }
+}
+impl NativeExecImage {
+    pub fn artifact(&self) -> &ArtifactRef {
+        self.0.artifact()
+    }
+    pub fn bytes(&self) -> u64 {
+        self.0.bytes()
+    }
+}
 impl QualifiedElf {
     pub fn artifact(&self) -> &ArtifactRef {
         &self.image.identity.artifact
@@ -244,7 +311,12 @@ pub(crate) fn verify_file(file: &File, expected: &ElfIdentity) -> Result<()> {
             && m.dev() == expected.device
             && m.ino() == expected.inode
             && m.len() == expected.bytes
-            && (64..=MAX_ELF_BYTES).contains(&m.len()),
+            && (64..=if expected.profile.is_some() {
+                MAX_NATIVE_EXEC_BYTES
+            } else {
+                MAX_ELF_BYTES
+            })
+                .contains(&m.len()),
         "sealed ELF identity changed"
     );
     let seals = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GET_SEALS) };
@@ -252,6 +324,13 @@ pub(crate) fn verify_file(file: &File, expected: &ElfIdentity) -> Result<()> {
         seals >= 0 && seals & SEALS == SEALS,
         "ELF must have immutable kernel seals"
     );
+    // Native images were fully hashed before these exact immutable kernel
+    // objects were admitted. A live fd keeps inode identity from reuse, and
+    // mandatory write/grow/shrink/seal seals prevent post-admission mutation.
+    // The original small-ELF verification policy remains unchanged.
+    if expected.profile == Some(ImageProfile::NativeExecStdinV1) {
+        return Ok(());
+    }
     let mut hash = Sha256::new();
     let mut offset = 0;
     let mut scratch = [0u8; SCRATCH];
@@ -330,5 +409,64 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&path, &link).unwrap();
         assert!(pool.load_verified(&link, &reference(&bytes)).is_err());
+    }
+    #[test]
+    fn native_profile_is_explicit_charged_and_keeps_legacy_image_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large-elf");
+        let mut image = bytes();
+        image.resize(MAX_ELF_BYTES as usize + 1, 0);
+        std::fs::write(&path, &image).unwrap();
+        let reference = reference(&image);
+        let legacy = SealedElfPool::new(MAX_ELF_POOL_BYTES, 1).unwrap();
+        assert!(legacy.load_verified(&path, &reference).is_err());
+        assert_eq!(legacy.charged_bytes().unwrap(), 0);
+        let native = NativeExecPool::new(8 * 1024 * 1024, 1).unwrap();
+        let sealed = native.load_verified(&path, &reference).unwrap();
+        assert_eq!(sealed.bytes(), image.len() as u64);
+        assert_eq!(native.charged_bytes().unwrap(), image.len() as u64);
+        assert!(sealed.0.file().write_at(b"x", 0).is_err());
+        assert!(sealed.0.file().set_len(1).is_err());
+        std::fs::write(&path, b"changed mutable installation").unwrap();
+        let again = native.load_verified(&path, &reference).unwrap();
+        assert_eq!(again.0.identity(), sealed.0.identity());
+        assert_eq!(native.charged_bytes().unwrap(), image.len() as u64);
+        assert!(NativeExecPool::new(MAX_NATIVE_EXEC_POOL_BYTES + 1, 1).is_err());
+        assert!(NativeExecPool::new(1024, MAX_NATIVE_EXEC_POOL_ENTRIES + 1).is_err());
+    }
+    #[test]
+    #[ignore = "requires explicitly pinned actual native Codex ELF; never executes it"]
+    fn actual_native_codex_image_is_sealed_and_charged_without_execution() {
+        let path = std::path::PathBuf::from(
+            std::env::var("AQ_TEST_NATIVE_CODEX_ELF").expect("explicit native executable pin"),
+        );
+        let digest: Digest = serde_json::from_value(serde_json::Value::String(
+            std::env::var("AQ_TEST_NATIVE_CODEX_SHA256").expect("explicit executable SHA256"),
+        ))
+        .unwrap();
+        let expected = ArtifactRef {
+            id: aq_session_protocol::Text::new("aq.codex.native-executable").unwrap(),
+            version: aq_session_protocol::Text::new("0.166.0").unwrap(),
+            digest,
+        };
+        let size = std::fs::metadata(&path).unwrap().len();
+        assert!(size > 256 * 1024 * 1024 && size <= MAX_NATIVE_EXEC_BYTES);
+        let pool = NativeExecPool::new(MAX_NATIVE_EXEC_BYTES, 1).unwrap();
+        let started = std::time::Instant::now();
+        let image = pool.load_verified(&path, &expected).unwrap();
+        let first = started.elapsed();
+        assert_eq!(image.bytes(), size);
+        assert_eq!(pool.charged_bytes().unwrap(), size);
+        let started = std::time::Instant::now();
+        let reused = pool.load_verified(&path, &expected).unwrap();
+        let cached = started.elapsed();
+        assert_eq!(image.0.identity(), reused.0.identity());
+        assert_eq!(pool.charged_bytes().unwrap(), size);
+        assert!(image.0.file().write_at(b"x", 0).is_err());
+        eprintln!(
+            "actual native executable: bytes={size}, first_seal_ms={}, cached_verify_us={}; no execution/provider",
+            first.as_millis(),
+            cached.as_micros()
+        );
     }
 }
