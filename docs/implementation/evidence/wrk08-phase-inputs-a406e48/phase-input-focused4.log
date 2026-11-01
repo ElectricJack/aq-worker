@@ -1,0 +1,22 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 8.58s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-07265dd947b501fa)
+
+running 14 tests
+test native::journal::tests::hydration_scenarios::phase_cancelled_artifact_batch_keeps_exact_ids_and_no_partial_completion ... ok
+test native::journal::tests::hydration_scenarios::phase_and_legacy_input_provenance_cannot_cross_on_reopen ... ok
+test native::journal::tests::hydration_scenarios::phase_input_expiry_and_foreign_observation_refuse_without_intents ... ok
+test native::journal::tests::hydration_scenarios::phase_input_write_cuts_hold_old_or_complete_plan_and_history_only_reopen ... ok
+test native::journal::tests::hydration_scenarios::phase_origin_tampering_cannot_be_hidden_by_valid_journal_checksum ... ok
+test native::journal::tests::hydration_scenarios::phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry ... ok
+test native::journal::tests::hydration_scenarios::phase_prepare_cancelled_fsync_retains_exact_request_and_replay_does_not_retime ... ok
+test native::journal::tests::hydration_scenarios::phase_shared_malformed_owner_is_rejected_even_when_every_input_copy_matches ... ok
+test native::journal::tests::hydration_scenarios::pinned_git_phase_inputs_and_prepare_after_original_proposal_expiry ... ignored, requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout
+test native::journal::tests::preparation_v2_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::preparation_v2_scenarios::legacy_protocol_choice_cannot_be_switched_to_phase_after_publication ... ok
+test native::journal::tests::hydration_scenarios::phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reopen ... ok
+test native::journal::tests::preparation_v2_scenarios::phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths ... ok
+test native::journal::tests::preparation_v2_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption ... ok
+
+test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 79 filtered out; finished in 7.20s
+

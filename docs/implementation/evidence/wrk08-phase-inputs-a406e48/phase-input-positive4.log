@@ -1,0 +1,22 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 7.49s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-07265dd947b501fa)
+
+running 1 test
+test native::journal::tests::hydration_scenarios::phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry ... FAILED
+
+failures:
+
+---- native::journal::tests::hydration_scenarios::phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry' (350771) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:1965:10:
+called `Result::unwrap()` on an `Err` value: durable preparation expired
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    native::journal::tests::hydration_scenarios::phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 83 filtered out; finished in 1.03s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

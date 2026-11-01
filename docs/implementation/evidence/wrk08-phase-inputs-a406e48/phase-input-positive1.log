@@ -1,0 +1,45 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+    --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:1971:15
+     |
+1971 |     let git = GitPeer::new(&h).await;
+     |               ^^^^^^^^^^^^----
+     |                           ||
+     |                           |expected `PathBuf`, found `&Inputs`
+     |                           argument #2 of type `aq_worker_protocol::TransferManifest` is missing
+     |
+note: associated function defined here
+    --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:793:8
+     |
+ 793 |     fn new(journal: PathBuf, m: TransferManifest) -> Self {
+     |        ^^^ ----------------  -------------------
+help: provide the argument
+     |
+1971 -     let git = GitPeer::new(&h).await;
+1971 +     let git = GitPeer::new(/* std::path::PathBuf */, /* aq_worker_protocol::TransferManifest */).await;
+     |
+
+error[E0277]: `hydration_scenarios::GitPeer` is not a future
+    --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:1971:32
+     |
+1971 |     let git = GitPeer::new(&h).await;
+     |               ---------------- ^^^^^ `hydration_scenarios::GitPeer` is not a future
+     |               |
+     |               this call returns `hydration_scenarios::GitPeer`
+     |
+help: the trait `std::future::Future` is not implemented for `hydration_scenarios::GitPeer`
+    --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:776:1
+     |
+ 776 | struct GitPeer {
+     | ^^^^^^^^^^^^^^
+     = note: hydration_scenarios::GitPeer must be a future or must implement `IntoFuture` to be awaited
+     = note: required for `hydration_scenarios::GitPeer` to implement `IntoFuture`
+help: remove the `.await`
+     |
+1971 -     let git = GitPeer::new(&h).await;
+1971 +     let git = GitPeer::new(&h);
+     |
+
+Some errors have detailed explanations: E0061, E0277.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `aq-worker` (lib test) due to 2 previous errors

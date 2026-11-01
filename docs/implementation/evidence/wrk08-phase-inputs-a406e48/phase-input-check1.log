@@ -1,0 +1,104 @@
+   Compiling serde_core v1.0.229
+   Compiling serde_json v1.0.154
+    Checking memchr v2.8.3
+    Checking tracing v0.1.44
+    Checking hyper v1.12.0
+    Checking hyper-util v0.1.21
+    Checking serde v1.0.229
+    Checking uuid v1.29.0
+    Checking toml_datetime v0.6.11
+    Checking serde_spanned v0.6.9
+    Checking schemars v1.2.3
+    Checking tower v0.5.3
+    Checking bitflags v2.13.2
+    Checking chrono v0.4.45
+    Checking aq-session-protocol v0.1.0 (/tmp/aq-worker-scoped-presence/crates/aq-session-protocol)
+    Checking serde_urlencoded v0.7.1
+    Checking toml_edit v0.22.27
+    Checking aq-lifecycle-protocol v0.1.0 (/tmp/aq-worker-scoped-presence/crates/aq-lifecycle-protocol)
+    Checking aq-terminal-relay-protocol v0.1.0 (/tmp/aq-worker-scoped-presence/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking tower-http v0.6.11
+    Checking hyper-rustls v0.27.10
+    Checking tracing-subscriber v0.3.23
+    Checking reqwest v0.12.28
+    Checking aq-session-host v0.1.4 (/tmp/aq-worker-scoped-presence/crates/aq-session-host)
+    Checking aq-admission v0.1.9 (/tmp/aq-worker-scoped-presence/vendor/aq-admission-0.1.9)
+    Checking toml v0.8.23
+    Checking aq-protocol v0.1.0 (/tmp/aq-worker-scoped-presence/crates/aq-protocol)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-worker-scoped-presence/crates/aq-worker-protocol)
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+error[E0615]: attempted to take value of method `deadline_ns` on type `input_origin::InputOrigin`
+   --> crates/aq-worker/src/native/hydration.rs:141:47
+    |
+141 |                 boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+    |                                               ^^^^^^^^^^^ method, not a field
+    |
+help: use parentheses to call the method
+    |
+141 |                 boot_ns()? < plan.preparation.deadline_ns().min(preparation.deadline_ns()),
+    |                                                          ++
+
+error[E0615]: attempted to take value of method `deadline_ns` on type `input_origin::InputOrigin`
+   --> crates/aq-worker/src/native/hydration.rs:206:75
+    |
+206 |             let deadline_ns = preparation.deadline_ns().min(s.preparation.deadline_ns);
+    |                                                                           ^^^^^^^^^^^ method, not a field
+    |
+help: use parentheses to call the method
+    |
+206 |             let deadline_ns = preparation.deadline_ns().min(s.preparation.deadline_ns());
+    |                                                                                      ++
+
+error[E0615]: attempted to take value of method `deadline_ns` on type `input_origin::InputOrigin`
+   --> crates/aq-worker/src/native/preparation.rs:141:47
+    |
+141 |                 boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+    |                                               ^^^^^^^^^^^ method, not a field
+    |
+help: use parentheses to call the method
+    |
+141 |                 boot_ns()? < plan.preparation.deadline_ns().min(preparation.deadline_ns()),
+    |                                                          ++
+
+error[E0615]: attempted to take value of method `deadline_ns` on type `input_origin::InputOrigin`
+   --> crates/aq-worker/src/native/preparation.rs:170:47
+    |
+170 |                 boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+    |                                               ^^^^^^^^^^^ method, not a field
+    |
+help: use parentheses to call the method
+    |
+170 |                 boot_ns()? < plan.preparation.deadline_ns().min(preparation.deadline_ns()),
+    |                                                          ++
+
+error[E0609]: no field `delivery` on type `input_origin::InputOrigin`
+   --> crates/aq-worker/src/native/preparation.rs:204:14
+    |
+204 |             .delivery
+    |              ^^^^^^^^ unknown field
+
+error[E0615]: attempted to take value of method `deadline_ns` on type `input_origin::InputOrigin`
+   --> crates/aq-worker/src/native/preparation.rs:211:43
+    |
+211 |             boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+    |                                           ^^^^^^^^^^^ method, not a field
+    |
+help: use parentheses to call the method
+    |
+211 |             boot_ns()? < plan.preparation.deadline_ns().min(preparation.deadline_ns()),
+    |                                                      ++
+
+error[E0615]: attempted to take value of method `deadline_ns` on type `input_origin::InputOrigin`
+  --> crates/aq-worker/src/native/journal/prepared.rs:55:54
+   |
+55 |             && p.prepared_at_ns < source.preparation.deadline_ns,
+   |                                                      ^^^^^^^^^^^ method, not a field
+   |
+help: use parentheses to call the method
+   |
+55 |             && p.prepared_at_ns < source.preparation.deadline_ns(),
+   |                                                                 ++
+
+Some errors have detailed explanations: E0609, E0615.
+For more information about an error, try `rustc --explain E0609`.
+error: could not compile `aq-worker` (lib) due to 7 previous errors
