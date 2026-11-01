@@ -170,3 +170,10 @@ execution is claimed. Its separate diagnostic trace revealed the isolation gaps
 above, and only a startup probe of the nonexistent memfd self-path; that probe is
 not yet established as the exact failed tool executable. See the recorded
 [negative qualification observation](evidence/wrk18-codex-loopback/tool-failure-observation.json).
+
+The qualification wrapper now uses a private PID namespace and an explicit trusted
+OS-image allowlist with literal minimal `/etc`, replacing the whole-host-root
+bind. Its kernel-only guard proves outside parent root/fd aliases absent and the
+private PID1 root's image view. This hardening does not retroactively qualify the
+earlier real-Codex runs, and does not isolate fake worker material from its own
+harness. Production raw-source/proc visibility remains an explicit blocker.
