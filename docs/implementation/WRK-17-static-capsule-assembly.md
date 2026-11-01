@@ -1,6 +1,7 @@
 # First assembled static capsule candidate
 
-Status: bounded test-support implementation contract, approved scope only.
+Status: bounded test-support implementation and static evidence; independent
+source review pending.
 This is a new isolated mechanism, not a qualified production host profile.
 `PRODUCTION_ELIGIBLE` stays false. No old named/memfd profile, pane identity,
 observed-launch protocol, worker eligibility or package archive changes.
@@ -23,7 +24,7 @@ handle.take_listener() -> Result<TcpListener> // exactly once; caller owns this 
 handle.stop() -> Result<CapsuleStopReport>    // candidate-only, actual ECHILD
 ```
 
-The first static program is a sealed x86_64 ELF of at most4MiB, with no
+The first static program is a sealed x86_64 ELF of at most 4MiB, with no
 interpreter; this deliberately excludes Codex and its helper-path compatibility.
 The bounded trusted helper may use the qualified parent OS loader before
 namespace construction; its source is independently digest-pinned and sealed
@@ -34,8 +35,13 @@ store/journal is added.
 
 Grant targets are closed roles: workspace, derived-auth, internal Git metadata,
 bounded allowed-folder indexes, and optional explicit readonly trusted OS image
-roots. Source directories are opened and retained before launch. Binding uses
-the retained descriptors, not a later source-path lookup. Fresh root must be
+roots. Source directories are opened and retained before launch. Linux rejects
+mount operations on a path FD belonging to the original mount namespace after
+unshare, so setup must re-anchor it: open the original canonical path in the
+cloned namespace with openat2(NO_SYMLINKS|NO_MAGICLINKS), require device/inode
+equality with the retained original, then use open_tree/move_mount on that
+newly retained exact object. A missing, replaced or symlinked route refuses;
+there is no unchecked source-path fallback. Fresh root must be
 canonical, owner-private, empty and outside every granted source root.
 
 **Grant selection is caller-trusted.** The primitive does not discover private
@@ -90,7 +96,10 @@ cover worker/guardian/setup failure. No stopped result is inferred from EOF,
 pidfd readability, procfs absence or an untrusted packet.
 
 Explicit `stop()` returns a new candidate-only report after the guardian's
-actual ECHILD and its expected clean exit. Unexpected helper death or bounded
+actual ECHILD and its expected clean exit, retaining the exact witness identity.
+A bounded private delivery ACK prevents a late Stop from resetting a queued
+report during endpoint closure; ACK never grants execution or replaces ECHILD.
+Unexpected helper death or bounded
 cleanup timeout returns uncertainty. Drop may do bounded best-effort cleanup
 but never publishes a stopped proof. A listener FD already taken by the caller
 is caller-owned; this primitive does not claim transport cancellation, key
@@ -112,3 +121,38 @@ qualified immutable named-image transition/self-helper behavior, complete mount
 authorization, nested-tool compatibility, tmux/PTY/signal integration,
 independent permit and durable recovery. Those require subsequent review and
 separate artifacts; the canary mechanism does not imply their completion.
+
+Real auth requires a future two-stage preparation interface: retain the
+namespace/listener while paused, publish exact derived auth/config under the
+existing durable launch intent with the bound origin/digest, then independently
+recheck and release exec. The current automatic static spawn is not that
+handoff and cannot be used to claim it is complete.
+
+## Source-only validation
+
+The explicit static integration command is:
+
+```text
+cargo test -p aq-session-host --all-features --test capsule_candidate --offline -- --ignored --test-threads=1
+```
+
+Final run: four static cases passed in 2.73s (2.85s compile): normal explicit
+stop; dropped control/handle; original BOOTTIME expiry with actual queued
+ECHILD; and replacement of a retained mount route before exec. Cases retain
+actual init/harness/descendant pidfds and verify exit. The static peer proves
+exact stdin, selected canary roots, readonly auth, denied parent PID/TID/proc/
+root/raw-file routes, no original/control FD or ambient HOME/TMPDIR/session
+environment, inherited IPC filter and actual parent-served loopback use.
+
+Host unit tests: 33 passed in 0.27s, three existing explicit fixtures ignored;
+the new cases cover malformed static ELF bounds/interpreter refusal and exact
+sealed input versus unsealed ordinary files. The non-namespace refusal test
+also passed. Strict host all-target/all-feature Clippy passed in 2.71s,
+default `--bins` check passed in 1.30s, and formatting/diff checks passed.
+
+The test helper expectation is derived from the locally source-built fixture
+artifact. This is no independent release-provenance or installed-environment
+qualification. Compiler/static libc are opt-in test tools; the primitive has
+no bwrap runtime or external service dependency. No Codex, provider, tmux or
+actual SourcePin was used. See
+[the bounded evidence summary](evidence/wrk17-static-capsule-assembly/summary.json).

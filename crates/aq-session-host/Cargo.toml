@@ -21,3 +21,8 @@ tempfile = "3"
 
 [features]
 test-support = []
+
+[[bin]]
+name = "aq-session-capsule-candidate"
+path = "src/bin/aq-session-capsule-candidate.rs"
+required-features = ["test-support"]

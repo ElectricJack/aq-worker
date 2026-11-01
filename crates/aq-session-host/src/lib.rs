@@ -1,5 +1,7 @@
 //! Reusable Linux tmux hosting. The caller owns authorization and durable task
 //! state; a dedicated helper owns every tmux/pane descendant and permit expiry.
+#[cfg(feature = "test-support")]
+pub mod capsule;
 mod local_ipc;
 mod private_inputs;
 pub use private_inputs::{
