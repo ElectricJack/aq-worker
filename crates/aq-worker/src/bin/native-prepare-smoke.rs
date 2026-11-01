@@ -35,6 +35,8 @@ use std::{
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
+#[path = "native-prepare-smoke/output.rs"]
+mod output;
 const CONFIG_BYTES: usize = 32768;
 const OUTPUT_BYTES: usize = 262144;
 #[derive(Deserialize)]
@@ -65,6 +67,8 @@ struct PhaseConfig {
     history_after_lost_execution: bool,
     #[serde(default)]
     report_terminal: bool,
+    #[serde(default)]
+    relay_output: bool,
     synthetic_host: Option<HostConfig>,
 }
 impl PhaseConfig {
@@ -85,6 +89,10 @@ impl PhaseConfig {
         ensure!(
             !self.report_terminal || self.synthetic_host.is_some(),
             "terminal reporting requires actual synthetic host proof"
+        );
+        ensure!(
+            !self.relay_output || self.report_terminal,
+            "output relay probe requires terminal reporting"
         );
         Ok(())
     }
@@ -515,8 +523,22 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                         }
                     }
-                    // Stop before inspecting/serializing any result, including an
-                    // ambiguous launch. The original guardian cap also remains.
+                    // Retain failure until after physical stop. The observer drains
+                    // before network reporting, independently of the human Watch.
+                    let output_result = if phase.relay_output {
+                        match &launched {
+                            NativeHostLaunchResult::Running(host) => {
+                                output::run(&pipeline, host, &config.worker, id, &mut input)
+                                    .await
+                                    .map(Some)
+                            }
+                            _ => Err(anyhow::anyhow!("output probe requires actual Running")),
+                        }
+                    } else {
+                        Ok(None)
+                    };
+                    // Stop before inspecting/serializing the final result, including
+                    // a failed relay operation. The original guardian cap remains.
                     *stage = "phase_host_stop";
                     ensure!(
                         matches!(
@@ -526,6 +548,9 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                         "actual stop proof required"
                     );
                     pipeline.persist_phase_host_stop(id).await?;
+                    if let Some(output) = output_result? {
+                        result["phase_output"] = output;
+                    }
                     let NativeHostLaunchResult::Running(host) = launched else {
                         anyhow::bail!("synthetic host lacked positive Running proof");
                     };
@@ -685,6 +710,7 @@ mod tests {
             prepare_execution: false,
             history_after_lost_execution: true,
             report_terminal: false,
+            relay_output: false,
             synthetic_host: None,
         };
         assert!(p.validate().is_err());

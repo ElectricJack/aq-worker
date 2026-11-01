@@ -19,5 +19,15 @@ int main(int argc,char **argv){
  if(snprintf(name,sizeof(name),"%s.cwd",argv[2])>=(int)sizeof(name))return 18;
  if(save(name,cwd,strlen(cwd)))return 19;
  const char message[]="synthetic native fixture running\r\n";if(write(1,message,sizeof(message)-1)<0)return 20;
- for(;;){struct timespec delay={0,10000000};nanosleep(&delay,0);}
+ for(;;){
+  struct timespec delay={0,10000000};nanosleep(&delay,0);
+#ifdef AQ_TEST_PERIODIC_OUTPUT
+  /* Explicit tail-probe build only; normal fixture behavior stays unchanged. */
+  static unsigned ticks=0;
+  if(++ticks%25==0){
+   const char tick[]="synthetic native fixture output tick\r\n";
+   if(write(1,tick,sizeof(tick)-1)<0)return 21;
+  }
+#endif
+ }
 }
