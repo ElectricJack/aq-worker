@@ -13,6 +13,7 @@ struct SourcePin {
     inode: u64,
     bytes: u64,
     digest: Digest,
+    record_digest: Digest,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -109,6 +110,11 @@ fn read_source(pin: &SourcePin) -> Result<Zeroizing<Vec<u8>>> {
         m.dev() == pin.device && m.ino() == pin.inode,
         "private source descriptor changed"
     );
+    let (record, _) = read_member(&dir, c"record.json", 16384)?;
+    ensure!(
+        Digest::of(&record) == pin.record_digest,
+        "private original installation record changed"
+    );
     let (bytes, _) = read_member(&dir, c"material.bin", MAX_MATERIAL)?;
     ensure!(
         bytes.len() as u64 == pin.bytes
@@ -130,7 +136,12 @@ fn derive_auth(key: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     Ok(out)
 }
 impl PrivateLaunchInput {
-    pub fn codex_api_key(source: File, digest: Digest, bytes: u64) -> Result<Self> {
+    pub fn codex_api_key(
+        source: File,
+        digest: Digest,
+        bytes: u64,
+        record_digest: Digest,
+    ) -> Result<Self> {
         let m = private_directory(&source)?;
         let pin = SourcePin {
             owner: ownership::process_evidence(std::process::id())?,
@@ -139,6 +150,7 @@ impl PrivateLaunchInput {
             inode: m.ino(),
             bytes,
             digest,
+            record_digest,
         };
         let key = read_source(&pin)?;
         let auth = derive_auth(&key)?;
@@ -339,5 +351,110 @@ impl SessionHandle {
             auth_removed: true,
             home_removed: removed,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn source(root: &Path) -> (File, Digest, u64, Digest) {
+        let dir = root.join("source");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let key = b"sk-private-offline-only";
+        let record = b"{\"schema_version\":1}";
+        for (name, bytes) in [
+            ("material.bin", key.as_slice()),
+            ("record.json", record.as_slice()),
+        ] {
+            let p = dir.join(name);
+            std::fs::write(&p, bytes).unwrap();
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        (
+            File::open(dir).unwrap(),
+            Digest::of(key),
+            key.len() as u64,
+            Digest::of(record),
+        )
+    }
+    fn root(path: &Path) -> PathBuf {
+        let p = path.join("launch");
+        std::fs::create_dir(&p).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o700)).unwrap();
+        p
+    }
+    #[test]
+    fn reserved_metadata_has_no_auth_bytes_and_original_record_is_rechecked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fd, digest, bytes, record) = source(dir.path());
+        let root = root(dir.path());
+        let input = PrivateLaunchInput::codex_api_key(fd, digest, bytes, record).unwrap();
+        let publication = Publication::reserve(&root, input).unwrap();
+        assert_eq!(
+            std::fs::metadata(root.join("codex-home/auth.json"))
+                .unwrap()
+                .len(),
+            0
+        );
+        let record = publication.record();
+        let metadata = serde_json::to_string(&record).unwrap();
+        assert!(!metadata.contains("sk-private"));
+        let _held = publication.publish().unwrap();
+        let root_fd = File::open(&root).unwrap();
+        verify_record(&root_fd, &record, true).unwrap();
+        std::fs::write(dir.path().join("source/record.json"), b"changed record").unwrap();
+        assert!(verify_record(&root_fd, &record, true).is_err());
+        // Matching stopped cleanup may still verify the derived file independently.
+        verify_record(&root_fd, &record, false).unwrap();
+    }
+    #[test]
+    fn publication_refuses_changed_original_bytes_without_writing_auth() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fd, digest, bytes, record) = source(dir.path());
+        let root = root(dir.path());
+        let publication = Publication::reserve(
+            &root,
+            PrivateLaunchInput::codex_api_key(fd, digest, bytes, record).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("source/material.bin"), b"changed key").unwrap();
+        assert!(publication.publish().is_err());
+        assert_eq!(
+            std::fs::metadata(root.join("codex-home/auth.json"))
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+    #[test]
+    fn symlink_replacement_and_nonprivate_auth_refuse() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fd, digest, bytes, record) = source(dir.path());
+        let root = root(dir.path());
+        let publication = Publication::reserve(
+            &root,
+            PrivateLaunchInput::codex_api_key(fd, digest, bytes, record).unwrap(),
+        )
+        .unwrap();
+        let record = publication.record();
+        let _held = publication.publish().unwrap();
+        std::fs::set_permissions(
+            root.join("codex-home/auth.json"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        assert!(verify_record(&File::open(&root).unwrap(), &record, false).is_err());
+        std::fs::remove_file(root.join("codex-home/auth.json")).unwrap();
+        std::os::unix::fs::symlink(
+            dir.path().join("source/material.bin"),
+            root.join("codex-home/auth.json"),
+        )
+        .unwrap();
+        assert!(verify_record(&File::open(&root).unwrap(), &record, false).is_err());
+        assert_eq!(
+            std::fs::read(dir.path().join("source/material.bin")).unwrap(),
+            b"sk-private-offline-only"
+        );
     }
 }

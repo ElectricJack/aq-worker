@@ -234,6 +234,7 @@ pub(super) fn bootstrap(
         provider.source_directory()?,
         lease.material_digest.clone(),
         lease.material_bytes,
+        provider.receipt()?.private_binding.digest,
     )?;
     let recipe = profile.mapper.prepare_native_planned(
         &mut installed,
