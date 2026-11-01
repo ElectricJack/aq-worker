@@ -54,6 +54,18 @@ async fn exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_prese
                 .is_err()
         );
     }
+    let mut foreign: serde_json::Value = serde_json::from_slice(&policy::tests::body()).unwrap();
+    foreign["input"] = serde_json::json!([{"type":"item_reference","id":"item_foreign"}]);
+    assert!(
+        client
+            .post(format!("{}/v1/responses", owner.origin()))
+            .bearer_auth("local-attempt-capability")
+            .header("content-type", "application/json")
+            .body(serde_json::to_vec(&foreign).unwrap())
+            .send()
+            .await
+            .is_err()
+    );
     assert!(seen.lock().unwrap().is_empty());
     let reply = client
         .post(format!("{}/v1/responses", owner.origin()))

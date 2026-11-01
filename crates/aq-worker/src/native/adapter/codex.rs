@@ -210,6 +210,7 @@ impl CodexExecProfile {
             "shell_environment_policy.inherit=\"none\"".into(),
             "shell_environment_policy.experimental_use_profile=false".into(),
             "agents.enabled=false".into(),
+            "web_search=\"disabled\"".into(),
             format!(
                 "projects.{}.trust_level=\"untrusted\"",
                 toml::Value::String(workspace.to_str().unwrap().into())

@@ -95,6 +95,12 @@ fn exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata
     );
     assert!(command.arguments.iter().any(|s| s == "--no-daemon"));
     assert!(
+        command
+            .arguments
+            .iter()
+            .any(|s| s == "web_search=\"disabled\"")
+    );
+    assert!(
         !serde_json::to_string(command)
             .unwrap()
             .contains(std::str::from_utf8(&payload).unwrap())
