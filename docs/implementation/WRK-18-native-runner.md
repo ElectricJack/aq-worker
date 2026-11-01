@@ -97,8 +97,10 @@ transport. Worst-case JSON byte-array expansion cannot permanently wedge a
 
 ## Verification
 
-The isolated component uses pinned fixtures and local files; no external provider
-requests or existing developer/production state are involved.
+The fixtures route model inference to local peers. Follow-up tracing found
+implicit curated-plugin Git traffic and operator-profile reads by the CLI, so
+those runs do not qualify no-egress or operator-context isolation. Actual launches
+are paused pending hardened mapping and independently confined qualification.
 
 - Three reserve tests cover exact membership/capacity, duplicate refusal,
   post-rename recovery and cancellation at the actual fsync barrier.
@@ -161,3 +163,10 @@ repository and the CLI's implicit environment message. No sealed startup asserti
 material/provider binding, physical proof or production admission gate was relaxed.
 The default unit profile excludes loopback helpers whose dependency requires the
 explicit test-support feature.
+
+The controlled tool followup produced an actual stateless function-call/output
+round trip but failed unified-process creation with ENOENT. No successful tool
+execution is claimed. Its separate diagnostic trace revealed the isolation gaps
+above, and only a startup probe of the nonexistent memfd self-path; that probe is
+not yet established as the exact failed tool executable. See the recorded
+[negative qualification observation](evidence/wrk18-codex-loopback/tool-failure-observation.json).

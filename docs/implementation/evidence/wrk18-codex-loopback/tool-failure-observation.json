@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "authority": "negative qualification observation only; no tool success or isolated-runtime qualification",
+  "codex_sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+  "untraced_tool_attempt": {
+    "elapsed_seconds": 19.51,
+    "second_request_input_types": [
+      "message",
+      "message",
+      "message",
+      "message",
+      "function_call",
+      "function_call_output"
+    ],
+    "call_id": "call_aq_local",
+    "tool": "exec_command",
+    "output": "exec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }",
+    "tool_success": false,
+    "exact_missing_executable": "not established"
+  },
+  "traced_repeat": {
+    "elapsed_seconds": 24.56,
+    "first_provider_request": "not reached before instrumented fixture timeout",
+    "trace_scope": [
+      "execve",
+      "execveat",
+      "openat",
+      "readlink",
+      "readlinkat",
+      "access"
+    ],
+    "trace_excludes": [
+      "read/write contents",
+      "credential values",
+      "operator profile contents"
+    ],
+    "self_exe_probe": "/memfd:aq-observed-elf (deleted)",
+    "self_exe_probe_result": "readlink ENOENT; startup probe is not proven to be failed tool exec",
+    "operator_profile_open": "/home/jkern/.profile; openat returned fd3",
+    "login_snapshot": "/bin/bash -lc",
+    "background_external_git": [
+      "ls-remote https://github.com/openai/plugins.git HEAD",
+      "fetch --depth 1 --no-tags https://github.com/openai/plugins.git +0722921d5542fc593105c27bd52630babd8b8c2a:refs/codex/curated-sync"
+    ],
+    "git_ls_remote_exit_status": 0,
+    "git_fetch_end": "SIGHUP during fixture cleanup"
+  },
+  "next_launch": "paused until explicit mapper hardening plus independent user/network/filesystem confinement and helper strategy review"
+}
