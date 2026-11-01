@@ -40,8 +40,8 @@ impl NamedReadonlyEnvironment {
         reference.id.validate()?;
         reference.version.validate()?;
         privileges()?;
-        let mount = File::open("/proc/self/ns/mnt")?;
-        let user = File::open("/proc/self/ns/user")?;
+        let mount = File::open("/proc/thread-self/ns/mnt")?;
+        let user = File::open("/proc/thread-self/ns/user")?;
         let mount_identity = NamespaceIdentity::of(&mount)?;
         let user_identity = NamespaceIdentity::of(&user)?;
         Ok(Self(Arc::new(Environment {
@@ -78,7 +78,7 @@ impl NamedReadonlyEnvironment {
     }
 }
 fn no_writable_mount_alias(device: u64) -> Result<()> {
-    let mut input = File::open("/proc/self/mountinfo")?.take(MAX_MOUNTINFO + 1);
+    let mut input = File::open("/proc/thread-self/mountinfo")?.take(MAX_MOUNTINFO + 1);
     let mut text = String::new();
     input.read_to_string(&mut text)?;
     ensure!(
@@ -103,7 +103,7 @@ fn no_writable_mount_alias(device: u64) -> Result<()> {
 }
 fn no_writable_descriptor_alias(device: u64, inode: u64) -> Result<()> {
     let mut count = 0;
-    for entry in std::fs::read_dir("/proc/self/fd")? {
+    for entry in std::fs::read_dir("/proc/thread-self/fd")? {
         count += 1;
         ensure!(count <= MAX_FDS, "named descriptor scan bound");
         let entry = entry?;
@@ -132,14 +132,14 @@ fn no_writable_descriptor_alias(device: u64, inode: u64) -> Result<()> {
 pub(super) fn verify_namespace(mount: &NamespaceIdentity, user: &NamespaceIdentity) -> Result<()> {
     privileges()?;
     ensure!(
-        NamespaceIdentity::of(&File::open("/proc/self/ns/mnt")?)? == *mount
-            && NamespaceIdentity::of(&File::open("/proc/self/ns/user")?)? == *user,
+        NamespaceIdentity::of(&File::open("/proc/thread-self/ns/mnt")?)? == *mount
+            && NamespaceIdentity::of(&File::open("/proc/thread-self/ns/user")?)? == *user,
         "named readonly execution namespace changed"
     );
     Ok(())
 }
 fn privileges() -> Result<()> {
-    let mut input = File::open("/proc/self/status")?.take(65537);
+    let mut input = File::open("/proc/thread-self/status")?.take(65537);
     let mut text = String::new();
     input.read_to_string(&mut text)?;
     ensure!(text.len() <= 65536, "named process status bound");
@@ -195,6 +195,36 @@ mod tests {
             .open(root.path().join("other"))
             .unwrap();
         no_writable_descriptor_alias(m.dev(), m.ino()).unwrap();
+        drop(reader);
+    }
+    #[test]
+    fn caller_thread_writer_is_not_hidden_by_leader_descriptor_table() {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("source");
+        std::fs::write(&path, b"fixture").unwrap();
+        let reader = File::open(&path).unwrap();
+        let metadata = reader.metadata().unwrap();
+        std::thread::spawn(move || {
+            assert_eq!(unsafe { libc::unshare(libc::CLONE_FILES) }, 0);
+            let writer = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .unwrap();
+            let fd = unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 256) };
+            assert!(fd >= 256);
+            let _writer = unsafe { File::from_raw_fd(fd) };
+            drop(writer);
+            assert!(
+                std::fs::read_link(format!("/proc/self/fd/{fd}")).is_err(),
+                "leader unexpectedly owns the private calling-thread descriptor"
+            );
+            assert!(std::fs::read_link(format!("/proc/thread-self/fd/{fd}")).is_ok());
+            assert!(no_writable_descriptor_alias(metadata.dev(), metadata.ino()).is_err());
+        })
+        .join()
+        .unwrap();
         drop(reader);
     }
 }
