@@ -255,3 +255,94 @@ fn fatal_or_empty_stream_cannot_report_completion_or_later_readiness() {
     assert!(p.push(&vec![b'x'; MAX_EVENT + 1]).is_err());
     assert!(p.push(events.as_bytes()).is_err());
 }
+
+#[test]
+fn native_mapping_reuses_preflight_image_after_mutable_program_path_changes() {
+    use super::super::native_exec::{NativeExecInstallation, NativeExecKind, NativeExecManifest};
+    use aq_session_host::observed::NativeExecPool;
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let (offer, payload) = fixture();
+    let m = &offer.offered.offer.manifest;
+    let program = root.path().join("native");
+    std::fs::copy(std::fs::canonicalize("/usr/bin/true").unwrap(), &program).unwrap();
+    let image = std::fs::read(&program).unwrap();
+    let pin = FilePin {
+        path: program.clone(),
+        artifact: ArtifactRef {
+            id: Text::new("offline.true").unwrap(),
+            version: Text::new("1").unwrap(),
+            digest: Digest::of(&image),
+        },
+    };
+    let helper = root.path().join("helper");
+    std::fs::write(&helper, b"unexecuted helper fixture").unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let local = FilePin {
+        path: helper,
+        artifact: ArtifactRef {
+            id: Text::new("offline.helper").unwrap(),
+            version: Text::new("1").unwrap(),
+            digest: Digest::of(b"unexecuted helper fixture"),
+        },
+    };
+    let r = m.harness.adapter.clone();
+    let renderer = offer.startup.renderer_qualification.clone();
+    let manifest = NativeExecManifest {
+        schema_version: 1,
+        profile: NativeExecKind::Codex0166ExecStdinV1,
+        executable_bytes: image.len() as u64,
+        installation: AdapterManifest {
+            schema_version: 1,
+            adapter: r.clone(),
+            runtime: r.clone(),
+            qualification: r.clone(),
+            renderer: renderer.clone(),
+            handoff: HandoffKind::OpaquePrivateFileV1,
+            executable: pin,
+            helper: local.clone(),
+            tmux: local,
+        },
+    };
+    let digest = manifest.digest().unwrap();
+    let pool = NativeExecPool::new(1024 * 1024, 1).unwrap();
+    let mut installed = NativeExecInstallation::open(
+        manifest,
+        ExpectedAdapter {
+            manifest_digest: &digest,
+            adapter: &r,
+            runtime: &r,
+            qualification: &r,
+            renderer: &renderer,
+        },
+        &pool,
+    )
+    .unwrap();
+    std::fs::write(
+        &program,
+        b"mutable path changed; sealed image remains exact",
+    )
+    .unwrap();
+    let manifest_digest = crate::native::journal::canonical_digest(m).unwrap();
+    let prepared = profile(&offer)
+        .prepare_native(
+            &mut installed,
+            CodexExecInput {
+                offer: &offer,
+                expected_manifest: &manifest_digest,
+                payload: payload.clone(),
+                workspace: &work,
+                private_home: &home,
+            },
+        )
+        .unwrap();
+    let mut received = Vec::new();
+    prepared.write_startup(&mut received).unwrap();
+    assert_eq!(received, payload);
+    assert_eq!(installed.image().unwrap().bytes(), image.len() as u64);
+    assert_eq!(pool.charged_bytes().unwrap(), image.len() as u64);
+}

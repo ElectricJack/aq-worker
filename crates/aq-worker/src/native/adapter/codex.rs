@@ -18,6 +18,14 @@ pub struct CodexExecProfile {
     pub renderer: ArtifactRef,
 }
 
+/// Exact retained inputs for the native-specific mapper. This owns no lease.
+pub struct CodexExecInput<'a> {
+    pub offer: &'a NativeOffer,
+    pub expected_manifest: &'a Digest,
+    pub payload: Vec<u8>,
+    pub workspace: &'a Path,
+    pub private_home: &'a Path,
+}
 /// No Serialize or Debug: payload and derived authentication are sensitive.
 /// No spawn/exec method: this is input preparation, not launch authority.
 pub struct PreparedCodexExec {
@@ -35,14 +43,55 @@ impl CodexExecProfile {
         workspace: &Path,
         private_home: &Path,
     ) -> Result<PreparedCodexExec> {
+        let prepared = self.prepare_inputs(
+            CodexExecInput {
+                offer,
+                expected_manifest,
+                payload,
+                workspace,
+                private_home,
+            },
+            &installed.files[0].pin.path,
+            &installed.adapter,
+            &installed.renderer,
+        )?;
+        installed.revalidate()?;
+        Ok(prepared)
+    }
+    /// Reuses the independently admitted immutable executable image; no full
+    /// 319MiB executable rehash on an attempt's original execution clock.
+    pub fn prepare_native(
+        &self,
+        installation: &mut super::native_exec::NativeExecInstallation,
+        input: CodexExecInput<'_>,
+    ) -> Result<PreparedCodexExec> {
+        let m = installation.installation();
+        let prepared = self.prepare_inputs(input, &m.executable.path, &m.adapter, &m.renderer)?;
+        installation.revalidate()?;
+        Ok(prepared)
+    }
+    fn prepare_inputs(
+        &self,
+        input: CodexExecInput<'_>,
+        executable: &Path,
+        adapter: &ArtifactRef,
+        renderer: &ArtifactRef,
+    ) -> Result<PreparedCodexExec> {
+        let CodexExecInput {
+            offer,
+            expected_manifest,
+            payload,
+            workspace,
+            private_home,
+        } = input;
         offer.validate()?;
         let manifest = &offer.offered.offer.manifest;
         let descriptor = &offer.startup;
         ensure!(
             super::super::journal::canonical_digest(manifest)? == *expected_manifest
                 && manifest.harness == self.harness
-                && installed.adapter == self.harness.adapter
-                && installed.renderer == self.renderer
+                && *adapter == self.harness.adapter
+                && *renderer == self.renderer
                 && manifest.model == self.model
                 && super::super::journal::canonical_digest(&manifest.permissions)?
                     == self.permissions_digest,
@@ -107,8 +156,7 @@ impl CodexExecProfile {
             std::fs::read_dir(private_home)?.next().is_none(),
             "Codex private home must be fresh and empty"
         );
-        installed.revalidate()?;
-        let executable = installed.files[0].pin.path.clone();
+        let executable = executable.to_owned();
         let mut arguments = vec![
             "--no-daemon".into(),
             "exec".into(),
