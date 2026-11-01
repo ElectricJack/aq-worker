@@ -34,7 +34,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
     },
 };
 struct Export {
@@ -106,6 +106,15 @@ struct Inputs {
     task: tokio::task::JoinHandle<()>,
     mode: Arc<AtomicU8>,
     range_entered: Arc<AtomicBool>,
+    inline_entered: Arc<tokio::sync::Semaphore>,
+    inline_release: Arc<tokio::sync::Semaphore>,
+    inline_max_active: Arc<AtomicUsize>,
+}
+struct ActiveInline(Arc<AtomicUsize>);
+impl Drop for ActiveInline {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 impl Drop for Inputs {
     fn drop(&mut self) {
@@ -205,6 +214,7 @@ impl Inputs {
         let accept_route = move |headers: HeaderMap, Json(request): Json<Accept>| {
             let mut d = delivery.clone();
             async move {
+                assert_eq!(headers["authorization"], "Bearer synthetic-node-secret");
                 d.delivery.nonce =
                     Uuid::parse_str(headers["aq-delivery-nonce"].to_str().unwrap()).unwrap();
                 d.original.operation_id = request.operation_id;
@@ -215,6 +225,15 @@ impl Inputs {
             }
         };
         let artifact_mode = mode.clone();
+        let inline_entered = Arc::new(tokio::sync::Semaphore::new(0));
+        let inline_release = Arc::new(tokio::sync::Semaphore::new(0));
+        let inline_max_active = Arc::new(AtomicUsize::new(0));
+        let active = Arc::new(AtomicUsize::new(0));
+        let inline_signals = (
+            inline_entered.clone(),
+            inline_release.clone(),
+            inline_max_active.clone(),
+        );
         let artifact_route = move |Json(request): Json<ArtifactFetch>| {
             let (descriptor, bytes) = inline
                 .iter()
@@ -223,7 +242,12 @@ impl Inputs {
                 .clone();
             let root = r1.clone();
             let artifact_mode = artifact_mode.clone();
+            let active = active.clone();
+            let (entered, release, maximum) = inline_signals.clone();
             async move {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                let _active = ActiveInline(active);
+                maximum.fetch_max(current, Ordering::SeqCst);
                 let snapshot: Snapshot =
                     serde_json::from_slice(&fs::read(root.join("journal.json")).unwrap()).unwrap();
                 assert!(
@@ -232,6 +256,10 @@ impl Inputs {
                         .values()
                         .any(|d| d.requests.iter().any(|r| same(r, &request).unwrap()))
                 );
+                if artifact_mode.load(Ordering::SeqCst) == 4 {
+                    entered.add_permits(1);
+                    release.acquire().await.unwrap().forget();
+                }
                 if artifact_mode.load(Ordering::SeqCst) == 3
                     && request.artifact.id.as_str() == "instructions"
                 {
@@ -376,6 +404,9 @@ impl Inputs {
             task,
             mode,
             range_entered,
+            inline_entered,
+            inline_release,
+            inline_max_active,
         }
     }
     async fn all_inputs(&self) -> Vec<crate::native::VerifiedArtifact> {
@@ -1367,6 +1398,55 @@ fn format_three_refusal_preserves_old_journal_and_pending_files() {
     assert_eq!(
         fs::read(root.join("pending")).unwrap(),
         b"unknown old write"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inline_batch_overlaps_only_two_reads_and_preserves_control_capacity() {
+    let h = Inputs::new(synthetic()).await;
+    let before = h.pipeline().snapshot().await.unwrap();
+    h.mode.store(4, Ordering::SeqCst);
+    let pipeline = h.pipeline().clone();
+    let preparation = h.preparation.clone();
+    let id = h.id;
+    let job = tokio::spawn(async move { pipeline.artifacts(id, preparation).await });
+    // Both requests must reach the independently blocked HTTP peer. Sequential
+    // fetching cannot satisfy this barrier; no timing benchmark is involved.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        h.inline_entered.acquire_many(2),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .forget();
+    assert_eq!(h.inline_max_active.load(Ordering::SeqCst), 2);
+    let pending = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(pending.revision, before.revision + 1);
+    let attempt = &pending.attempts[&h.id];
+    assert!(attempt.downloads.values().all(|d| d.receipt.is_none()));
+    // Both existing bulk slots are occupied, but authenticated control still
+    // completes on its independent lane. Replaying does not extend the cap.
+    let replay = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        h.client.accept(
+            attempt.acceptance.as_ref().unwrap(),
+            attempt.reservation.deadline_ns,
+            Some(&h.preparation),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(replay.deadline_ns() <= h.preparation.deadline_ns());
+    let requests: usize = attempt.downloads.values().map(|d| d.requests.len()).sum();
+    h.inline_release.add_permits(requests);
+    let inputs = job.await.unwrap().unwrap();
+    assert_eq!(inputs.len(), attempt.downloads.len());
+    assert_eq!(h.inline_max_active.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        h.pipeline().snapshot().await.unwrap().revision,
+        before.revision + 2
     );
 }
 
