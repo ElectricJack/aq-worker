@@ -1,0 +1,8 @@
+{
+  "path": "/tmp/aq-phase-history-worker-pin/native-prepare-smoke",
+  "sha256": "673cde774bc7e03a563a7503cfa67a2812d967e8bea0b88b5b5b2cd8da60f8a3",
+  "bytes": 11004272,
+  "source": "ed21fbe2825142535f74dead475a426fcde8aa46",
+  "mode": "0500",
+  "old_format10_and_format9_pins_untouched": true
+}

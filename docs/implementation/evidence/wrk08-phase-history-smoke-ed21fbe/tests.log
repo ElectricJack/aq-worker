@@ -1,0 +1,12 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-phase-history/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 0.72s
+     Running unittests src/bin/native-prepare-smoke.rs (/tmp/aq-worker-presence-target/debug/deps/native_prepare_smoke-f7ed1d105946c2cb)
+
+running 4 tests
+test tests::history_probe_accepts_only_explicit503_and_never_success_or_other_errors ... ok
+test tests::input_frames_are_bounded_complete_and_do_not_consume_the_following_frame ... ok
+test tests::history_mode_requires_real_inputs_execution_and_excludes_host_before_io ... ok
+test tests::existing_owner_children_and_replaced_scope_are_refused_without_cleanup ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
