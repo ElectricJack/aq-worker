@@ -35,7 +35,7 @@ chrono.workspace = true
 tempfile.workspace = true
 
 [features]
-test-support = ["aq-worker-protocol/test-support"]
+test-support = ["aq-worker-protocol/test-support", "aq-session-host/test-support"]
 
 [[bin]]
 name = "aq-worker-test-host"

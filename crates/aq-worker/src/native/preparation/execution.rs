@@ -140,3 +140,48 @@ impl InputPipeline {
         .await
     }
 }
+
+#[cfg(any(test, feature = "test-support"))]
+pub(super) struct LaunchExecutionScope {
+    pub(super) id: Uuid,
+    pub(super) digest: Digest,
+    pub(super) deadline: u64,
+    pub(super) hard: u64,
+    pub(super) inputs: Arc<PreparedPhaseInputs>,
+}
+#[cfg(any(test, feature = "test-support"))]
+impl LaunchExecutionScope {
+    pub(super) fn check(&self, owner: &Owned) -> Result<()> {
+        owner
+            .journal
+            .check_phase_execution(self.id, &self.digest, self.deadline, self.hard)?;
+        self.inputs.verify_execution_inputs(
+            &owner.journal,
+            &owner.materials,
+            self.deadline.min(self.hard),
+        )?;
+        owner
+            .journal
+            .check_phase_execution(self.id, &self.digest, self.deadline, self.hard)
+    }
+}
+#[cfg(any(test, feature = "test-support"))]
+impl InputPipeline {
+    pub(super) fn launch_scope(
+        &self,
+        grant: &DurablePhaseExecution,
+    ) -> Result<LaunchExecutionScope> {
+        ensure!(
+            Arc::ptr_eq(&self.owned, &grant.history.owner)
+                && Arc::ptr_eq(&self.retained, &grant.history.resources),
+            "phase launch foreign execution owner"
+        );
+        Ok(LaunchExecutionScope {
+            id: grant.history.attempt,
+            digest: grant.history.record_digest.clone(),
+            deadline: grant.deadline_ns,
+            hard: grant.hard_deadline_ns,
+            inputs: grant.history.inputs.clone(),
+        })
+    }
+}

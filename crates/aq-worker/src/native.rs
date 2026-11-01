@@ -6,6 +6,8 @@ pub mod http;
 pub mod journal;
 pub mod materials;
 pub mod preparation;
+#[cfg(any(test, feature = "test-support"))]
+pub use preparation::launch;
 
 use anyhow::{Result, ensure};
 use aq_admission::{

@@ -116,6 +116,8 @@ struct Inputs {
     grant_window_ms: Arc<AtomicU64>,
     scoped_calls: Arc<Mutex<Vec<(String, Value)>>>,
     scoped_mode: Arc<AtomicU8>,
+    host_report_mode: Arc<AtomicU8>,
+    host_report_calls: Arc<Mutex<Vec<aq_admission::started::Request>>>,
     scoped_entered: Arc<tokio::sync::Semaphore>,
     scoped_release: Arc<tokio::sync::Semaphore>,
 }
@@ -884,7 +886,52 @@ impl Inputs {
                     ))
                 }
             };
+        let host_report_mode = Arc::new(AtomicU8::new(0));
+        let host_report_calls = Arc::new(Mutex::new(Vec::new()));
+        let report_mode = host_report_mode.clone();
+        let report_calls = host_report_calls.clone();
+        let host_started_route = move |Json(request): Json<aq_admission::started::Request>| {
+            let mode = report_mode.clone();
+            let calls = report_calls.clone();
+            async move {
+                request.validate().unwrap();
+                let mode = mode.load(Ordering::SeqCst);
+                if mode == 0 {
+                    return (
+                        axum::http::StatusCode::NOT_FOUND,
+                        "synthetic phase Started unsupported",
+                    )
+                        .into_response();
+                }
+                {
+                    let mut calls = calls.lock().unwrap();
+                    assert!(calls.len() < 8);
+                    calls.push(request.clone());
+                }
+                if mode == 2 {
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        "synthetic lost Started ACK",
+                    )
+                        .into_response();
+                }
+                let mut receipt = aq_admission::started::Receipt {
+                    schema_version: 1,
+                    operation_id: request.operation_id,
+                    binding: request.binding.clone(),
+                    grant_id: request.grant_id,
+                    request_digest: request.digest().unwrap(),
+                    recorded_at_ms: 2300,
+                    authority_revision_at_record: 10,
+                };
+                if mode == 3 {
+                    receipt.request_digest = Digest::of(b"wrong Started ACK");
+                }
+                Json(receipt).into_response()
+            }
+        };
         let router = Router::new()
+            .route("/v1/worker/profiled/started", post(host_started_route))
             .route(
                 "/v1/worker/profiled-v2/prepare",
                 post(phase_execution_route),
@@ -962,6 +1009,8 @@ impl Inputs {
             grant_window_ms,
             scoped_calls,
             scoped_mode,
+            host_report_mode,
+            host_report_calls,
             scoped_entered,
             scoped_release,
         }
@@ -2600,3 +2649,6 @@ async fn phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reo
 
 #[path = "phase_execution_scenarios.rs"]
 mod phase_execution_scenarios;
+
+#[path = "native_host_scenarios.rs"]
+mod native_host_scenarios;

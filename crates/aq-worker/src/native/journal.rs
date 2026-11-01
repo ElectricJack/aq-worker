@@ -3,11 +3,14 @@
 mod granted;
 #[cfg(any(test, feature = "test-support"))]
 mod pause;
+#[cfg(test)]
+pub(crate) use pause::Gate as NativePauseGate;
 #[cfg(any(test, feature = "test-support"))]
 pub use pause::WritePause;
 mod input_origin;
 mod inputs;
 pub use input_origin::InputOrigin;
+pub mod launch;
 mod phase_execution;
 mod phase_prepared;
 pub use phase_execution::ReceivedPhaseExecution;
@@ -38,7 +41,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 8;
+pub const FORMAT: u32 = 9;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +110,7 @@ pub struct Attempt {
     pub phase_preparation: Option<preparation_v2::ReceivedPreparation>,
     pub phase_prepared: Option<PhasePreparedIntent>,
     pub phase_execution: Option<ReceivedPhaseExecution>,
+    pub native_host: Option<launch::NativeHostHistory>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -293,6 +297,7 @@ impl State {
             phase_prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
             granted::validate(attempt, self.revision)?;
             phase_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
+            launch::validate(attempt, self.revision, &mut identities)?;
             ensure!(
                 attempt
                     .initial_grant
@@ -572,6 +577,7 @@ impl Journal {
                 phase_preparation: None,
                 phase_prepared: None,
                 phase_execution: None,
+                native_host: None,
             },
         );
         self.persist(state)?;

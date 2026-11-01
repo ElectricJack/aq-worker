@@ -43,7 +43,8 @@ pub(super) fn validate(a: &Attempt, identity: &WorkerIdentity, revision: u64) ->
         ensure!(
             a.phase_preparation.is_none()
                 && a.phase_prepared.is_none()
-                && a.phase_execution.is_none(),
+                && a.phase_execution.is_none()
+                && a.native_host.is_none(),
             "phase receipt without intent"
         );
         return Ok(());
