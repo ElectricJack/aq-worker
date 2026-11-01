@@ -296,3 +296,6 @@ async fn lost_publication_ack_replays_but_post_fsync_expiry_stays_refused() {
     // Even a synthetic peer retiming the same lease cannot revive stored expiry.
     assert!(store.install(short.material().await, &plan).is_err());
 }
+
+#[path = "native_materials/adapter_handoff.rs"]
+mod adapter_handoff;
