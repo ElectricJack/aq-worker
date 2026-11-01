@@ -105,6 +105,7 @@ impl ResponsesScope {
                 == Some(self.reasoning.as_str()),
             "Responses reasoning selection mismatch"
         );
+        super::items::validate(object)?;
         if let Some(existing) = object.get("max_output_tokens") {
             ensure!(
                 existing.as_u64() == Some(self.cap),
@@ -300,5 +301,31 @@ pub(super) mod tests {
         );
         scope.deadline_ns = 0;
         assert!(scope.prepare(&self::body()).is_err());
+    }
+    #[test]
+    fn server_side_references_and_hosted_tools_refuse_before_cap_insertion() {
+        let scope = scope();
+        for item in [
+            serde_json::json!({"id":"item_foreign"}),
+            serde_json::json!({"type":"item_reference","id":"item_foreign"}),
+            serde_json::json!({"type":"message","role":"user","content":[{"type":"input_file","file_id":"file_foreign"}]}),
+            serde_json::json!({"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://foreign.example/image"}]}),
+            serde_json::json!({"type":"additional_tools","role":"developer","tools":[{"type":"web_search"}]}),
+        ] {
+            let mut value: Value = serde_json::from_slice(&body()).unwrap();
+            value["input"] = serde_json::json!([item]);
+            assert!(scope.prepare(&serde_json::to_vec(&value).unwrap()).is_err());
+        }
+        for tool in [
+            "web_search",
+            "file_search",
+            "mcp",
+            "computer_use_preview",
+            "code_interpreter",
+        ] {
+            let mut value: Value = serde_json::from_slice(&body()).unwrap();
+            value["tools"] = serde_json::json!([{"type":tool,"name":"foreign"}]);
+            assert!(scope.prepare(&serde_json::to_vec(&value).unwrap()).is_err());
+        }
     }
 }
