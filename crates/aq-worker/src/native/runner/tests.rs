@@ -17,7 +17,7 @@ fn write(path: &Path, bytes: &[u8], mode: u32) {
     std::fs::write(path, bytes).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
 }
-fn config() -> (tempfile::TempDir, NativeConfig) {
+pub(super) fn config() -> (tempfile::TempDir, NativeConfig) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let pin = |name: &str| {
@@ -80,6 +80,7 @@ fn config() -> (tempfile::TempDir, NativeConfig) {
         inventory_evidence: artifact("inventory-evidence"),
         harness_qualifications: vec![artifact("harness-qualification")],
         inventory_ttl_ms: 1000,
+        executor: None,
     };
     (dir, c)
 }

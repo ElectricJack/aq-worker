@@ -1,8 +1,13 @@
 //! One fresh native attempt. Configuration and executor readiness precede all
 //! network admission. Retained journal/resources are never released on exit.
+mod codex;
 mod config;
+#[cfg(all(test, feature = "test-support"))]
+pub(crate) use codex::drive_running;
+pub use codex::{CodexExecutor, CodexSettings, ExecutorConfig};
 mod heartbeat;
 mod prepare;
+mod publish_output;
 use super::{
     http::NativeClient,
     journal::{Journal, Limits, RuntimeIdentity},

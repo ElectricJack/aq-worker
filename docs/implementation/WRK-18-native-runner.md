@@ -1,11 +1,14 @@
 # Native runner: foreground orchestration boundary
 
 The worker now has a production-compiled `run-native --native-config <file>`
-command and a reusable `native::runner::run_once` orchestrator. This increment
-creates the command, configured preflight and actual phase preparation path. The
-ordinary command deliberately uses `UnavailableExecutor`: it refuses before
-registration, polling, inventory or journal publication until a qualified concrete
-host executor is installed. It does not run a model or promote the synthetic host.
+command, a reusable `native::runner::run_once` orchestrator and a concrete closed
+Codex executor joined to the native host owner. Missing executor settings refuse
+before admission. Production admission also explicitly refuses because effective
+`ModelSettings.max_output_tokens` enforcement has not been qualified for the
+pinned CLI. A binary hash or independent qualification reference cannot supply
+that missing behavior. The concrete factory is available only through explicit
+test-support loopback construction for isolated no-provider qualification. This
+increment does not claim real-provider eligibility.
 
 `NativeConfig::load` reads at most 64 KiB of owner-0600 canonical JSON, rejects
 unknown fields, and verifies private configuration identity/mode/size. It contains
@@ -36,8 +39,11 @@ release, task settlement or arbitrary offer-to-command conversion.
 
 `InputPipeline::reserve` performs the journal reservation and process-local
 retained-membership handoff in one admitted storage job. The resource-map lock is
-acquired before durable publication and no fallible operation follows a successful
-commit. Cancelling the async waiter does not cancel fsync or split the handoff.
+acquired before durable publication. The retained-input membership insert itself
+is infallible after a successful journal commit. Launch-registry membership is
+then installed in the same storage job; a registry refusal retains the durable
+reservation and input claims while refusing launch. Cancelling the async waiter
+does not cancel fsync or split these operations.
 A persistence error leaves the journal poisoned. A published post-rename record is
 retained on disk for recovery and cannot become fresh polling authority.
 
@@ -56,8 +62,33 @@ enrollment-heartbeat refusal also requests stop. Before returning AttemptStopped
 the runner checks retained physical-stop history and both paired acknowledgment
 receipts. It does not infer task completion from that result.
 
-The concrete executor/factory join and real-runtime qualification remain WRK-08.
-No positive full orchestration/real harness claim is made by this increment.
+The native adapter and runner now join through `NativeCodexHostProfile` and
+`launch_phase_native`, with a preflight-sealed immutable image, exact mapper
+settings and original Grant/input validation. `NativeConfig.executor` is an
+optional closed tagged configuration (`kind = codex-0.166-exec-stdin-v1`) carrying
+operator harness/model/permission pins and private host geometry/root. Production
+transport requires HTTPS and currently refuses Cloudflare proxy credentials.
+`--development-loopback` exists only in test-support CLI builds and uses the same
+executor/driver; it cannot enable a production build's missing qualification.
+
+The output publisher is independent of host control. A missing human Watch (409)
+and output network errors preserve exact pending output bytes with bounded
+backoff, while the local drain continues. Dropping the publisher on stop aborts
+network waiting. Shutdown/original expiry can also interrupt a delayed Started
+HTTP wait; the immutable publication remains unknown and cleanup still requires
+actual physical stop. No Started ACK is manufactured and no execution/control
+operation uses the output retry policy.
+
+The first physical lifecycle checks use an actual pinned tmux/ELF host and
+synthetic typed control/relay peers. Full concrete Codex/fake-provider composition
+and real runtime qualification remain WRK-08. An unstarted/unknown native launch
+requests physical cleanup and preserves closure history; its separate no-Started
+publication owner remains required.
+
+The output producer also uses a smaller local frame ceiling within the negotiated
+policy, and a 256 KiB total encoded packet ceiling matching the actual HTTP
+transport. Worst-case JSON byte-array expansion cannot permanently wedge a
+64 KiB high-byte frame. The sealed terminal policy itself remains unchanged.
 
 ## Verification
 
@@ -78,3 +109,23 @@ Initial failed test attempts were fixture errors: changing a frozen offer's boot
 invalidated its bound contract (fixed with the existing journal test-constructor
 pattern), and writing a deliberately read-only fixture required explicit chmod.
 No owner rule, deadline or filesystem permission constraint was relaxed.
+
+## Joined candidate checks
+
+- Seven runner/preflight cases include explicit refusal of production admission
+  with an unqualified output limit, invalid transport/settings and legacy manifest.
+- Three pinned physical lifecycle cases pass: an unwatched 409 keeps the host live
+  with exact pending bytes; a blocked output upload cannot delay stop/ACKs; a
+  delayed Started reply preserves its unknown receipt while actual ECHILD stop
+  and the synthetic peer's stop receipt are retained (16.80 seconds total).
+- Dense high-byte output is tested through the actual RelayHttp client against
+  the local typed HTTP peer, alongside prefix/eviction/replay cases.
+- Strict all-feature and default-production profiles are checked separately.
+  Compilation uses the new host 0.1.5 / bridge 0.1.2 / worker 0.3.4 candidate package pins.
+
+The physical cases do not fabricate a LocalPhaseHost or infer a stop from a JSON
+record. Their synthetic coordinator is explicitly an HTTP fault peer, not an
+actual daemon owner qualification. The final composed owner/runtime check remains
+separate. The first dense-output followup exposed an outdated expected frame count
+and a test fixture still installing its old 4-byte framing/seeded-prefix expectations; those fixtures were
+corrected without changing the production byte ceilings or transport policy.

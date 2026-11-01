@@ -182,3 +182,6 @@ async fn actual_output_attachment_refuses_input_enabled_sealed_policy() {
     h.pipeline().persist_phase_host_stop(h.id).await.unwrap();
     server.abort();
 }
+
+#[path = "runner_lifecycle_scenarios.rs"]
+mod runner_lifecycle_scenarios;

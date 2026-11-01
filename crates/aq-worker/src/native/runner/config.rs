@@ -36,6 +36,8 @@ pub struct NativeConfig {
     pub inventory_evidence: ArtifactRef,
     pub harness_qualifications: Vec<ArtifactRef>,
     pub inventory_ttl_ms: u64,
+    #[serde(default)]
+    pub executor: Option<super::codex::ExecutorConfig>,
 }
 pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     ensure!(
