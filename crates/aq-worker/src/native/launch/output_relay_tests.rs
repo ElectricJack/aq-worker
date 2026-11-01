@@ -256,11 +256,12 @@ async fn no_watch_and_ambiguous_reply_keep_exact_pending_bytes_while_tail_contin
     assert!(handle.upload_once().await.is_err());
     peer.mode.store(1, Ordering::SeqCst);
     handle.upload_once().await.unwrap().unwrap();
-    let uploads = peer.uploads.lock().unwrap();
-    assert_eq!(uploads.len(), 3);
-    assert_eq!(uploads[0], uploads[1]);
-    assert_eq!(uploads[1], uploads[2]);
-    drop(uploads);
+    {
+        let uploads = peer.uploads.lock().unwrap();
+        assert_eq!(uploads.len(), 3);
+        assert_eq!(uploads[0], uploads[1]);
+        assert_eq!(uploads[1], uploads[2]);
+    }
     handle.upload_once().await.unwrap().unwrap();
     let uploads = peer.uploads.lock().unwrap();
     let next: PeerUpload = serde_json::from_slice(&uploads[3]).unwrap();
