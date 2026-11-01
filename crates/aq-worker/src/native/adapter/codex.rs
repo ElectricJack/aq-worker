@@ -83,6 +83,17 @@ impl CodexExecProfile {
         installation.revalidate()?;
         Ok(prepared)
     }
+    pub(crate) fn prepare_named_planned(
+        &self,
+        installation: &mut super::named_exec::NamedExecInstallation,
+        input: CodexExecInput<'_>,
+    ) -> Result<PreparedCodexExec> {
+        let m = installation.installation();
+        let prepared =
+            self.prepare_inputs(input, &m.executable.path, &m.adapter, &m.renderer, true)?;
+        installation.revalidate()?;
+        Ok(prepared)
+    }
     fn prepare_inputs(
         &self,
         input: CodexExecInput<'_>,

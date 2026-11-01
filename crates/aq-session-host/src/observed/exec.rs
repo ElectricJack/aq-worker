@@ -53,18 +53,14 @@ pub(crate) fn enter(
     for arg in &command.arguments {
         args.push(CString::new(arg.as_bytes())?);
     }
-    let mut environment = std::collections::BTreeMap::from([
-        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
-        ("TERM".to_owned(), "xterm-256color".to_owned()),
-        (
-            "AQ_SESSION_DIRECTORY".to_owned(),
-            directory
-                .to_str()
-                .context("session directory UTF-8")?
-                .to_owned(),
-        ),
-    ]);
-    environment.extend(command.environment.clone());
+    let environment = command_environment(
+        command,
+        directory,
+        config
+            .private_input
+            .as_ref()
+            .is_some_and(private_inputs::PrivateInputRecord::scoped),
+    )?;
     let environment: Vec<_> = environment
         .into_iter()
         .map(|(key, value)| CString::new(format!("{key}={value}")))
@@ -106,6 +102,28 @@ pub(crate) fn enter(
     }
     Err(std::io::Error::last_os_error()).context("sealed FD native exec failed; no fallback")
 }
+fn command_environment(
+    command: &LocalCommand,
+    directory: &Path,
+    scoped: bool,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    command.validate()?;
+    let mut environment = std::collections::BTreeMap::from([
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        ("TERM".to_owned(), "xterm-256color".to_owned()),
+    ]);
+    if !scoped {
+        environment.insert(
+            "AQ_SESSION_DIRECTORY".to_owned(),
+            directory
+                .to_str()
+                .context("session directory UTF-8")?
+                .to_owned(),
+        );
+    }
+    environment.extend(command.environment.clone());
+    Ok(environment)
+}
 
 /// Prepare exact bytes from the host's retained descriptor and seal them before
 /// changing FD0. Old small-ELF sessions retain their original PTY stdin behavior.
@@ -144,6 +162,30 @@ pub(crate) fn startup_stdin(config: &SealedLaunch, directory: &Path) -> Result<O
 mod tests {
     use super::*;
     use std::os::fd::{FromRawFd, OwnedFd};
+    #[test]
+    fn scoped_child_environment_omits_private_host_record_route_and_keeps_legacy_contract() {
+        let command = LocalCommand {
+            executable: "/usr/bin/true".into(),
+            arguments: vec![],
+            environment: std::collections::BTreeMap::from([(
+                "CODEX_HOME".into(),
+                "/state/private-home".into(),
+            )]),
+        };
+        let scoped =
+            command_environment(&command, Path::new("/state/private-launch"), true).unwrap();
+        assert_eq!(
+            scoped.get("CODEX_HOME").map(String::as_str),
+            Some("/state/private-home")
+        );
+        assert_eq!(scoped.len(), 3);
+        assert!(!scoped.contains_key("AQ_SESSION_DIRECTORY"));
+        assert!(
+            command_environment(&command, Path::new("/state/private-launch"), false)
+                .unwrap()
+                .contains_key("AQ_SESSION_DIRECTORY")
+        );
+    }
     #[test]
     fn dead_original_server_refuses_even_while_the_pane_identity_is_live() {
         let mut server = std::process::Command::new("/bin/sleep")

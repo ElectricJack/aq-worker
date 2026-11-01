@@ -100,6 +100,11 @@ impl std::fmt::Debug for PrivateInputRecord {
         f.write_str("PrivateInputRecord(<private pins>)")
     }
 }
+impl PrivateInputRecord {
+    pub(crate) fn scoped(&self) -> bool {
+        self.scoped.is_some()
+    }
+}
 /// Constructed from an actual retained material directory. Keeping this input
 /// alive keeps its descriptor pin valid; it grants no material/exec permission.
 pub struct PrivateLaunchInput {
