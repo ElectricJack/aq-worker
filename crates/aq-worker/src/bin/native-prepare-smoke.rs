@@ -133,6 +133,23 @@ fn create_materials(held: &File) -> Result<()> {
     held.sync_all()?;
     Ok(())
 }
+async fn register(
+    client: &NativeClient,
+    config: &Config,
+    identity: &aq_admission::transport::WorkerIdentity,
+) -> Result<()> {
+    client
+        .register(&Register {
+            schema_version: 1,
+            operation_id: Uuid::new_v4(),
+            identity: identity.clone(),
+            runtime: config.runtime.clone(),
+            capabilities: config.capabilities.clone(),
+            features: config.features.clone(),
+        })
+        .await?;
+    Ok(())
+}
 async fn run(stage: &mut &'static str) -> Result<()> {
     let stdin = std::io::stdin();
     let mut input = BufReader::new(stdin.lock());
@@ -162,22 +179,25 @@ async fn run(stage: &mut &'static str) -> Result<()> {
     let materials = MaterialStore::open(&config.root.join("materials"), identity.clone(), 32)?;
     current_root(&config.root, &held)?;
     let client = NativeClient::from_config(&config.worker)?;
+    // Qualified InventoryV2 must observe the actual child's admitted runtime.
+    // Earlier probe modes keep their original ready/continue/register ordering.
+    let registered_before_ready = config
+        .phase_preparation
+        .as_ref()
+        .is_some_and(|p| p.prepare_execution);
+    if registered_before_ready {
+        *stage = "register";
+        register(&client, &config, &identity).await?;
+    }
     emit(&json!({"phase":"ready","identity":identity}))?;
     *stage = "continue";
     let next: Continue = frame(&mut input, 1024)?;
     ensure!(next.r#continue, "explicit continue required");
     current_root(&config.root, &held)?;
-    *stage = "register";
-    client
-        .register(&Register {
-            schema_version: 1,
-            operation_id: Uuid::new_v4(),
-            identity: identity.clone(),
-            runtime: config.runtime.clone(),
-            capabilities: config.capabilities.clone(),
-            features: config.features,
-        })
-        .await?;
+    if !registered_before_ready {
+        *stage = "register";
+        register(&client, &config, &identity).await?;
+    }
     *stage = "poll";
     let available = journal.available()?;
     let mut page = client
