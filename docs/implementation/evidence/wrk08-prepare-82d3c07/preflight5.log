@@ -1,0 +1,11 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-native-prepare-join/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.73s
+     Running unittests src/lib.rs (/tmp/aq-wrk08-preparation-target/debug/deps/aq_worker-351e81ae6463e4ac)
+
+running 3 tests
+test native::journal::tests::hydration_scenarios::prepare_join_retains_exact_request_and_requires_actual_inputs_again_for_retry ... ok
+test native::journal::tests::hydration_scenarios::prepare_join_fsync_cuts_retain_original_or_complete_intent_and_reopen_without_authority ... ok
+test native::journal::tests::hydration_scenarios::prepare_join_refuses_missing_inputs_renderer_and_retention_changed_after_hydration ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 7.63s
+

@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "source_revision": "82d3c07115f9d083a674ed75288c470df2a3f41d",
+  "base_revision": "a95918e",
+  "native_journal_format": 4,
+  "qualification": {
+    "package_passed": 146,
+    "package_ignored": 4,
+    "actual_git_passed": 1,
+    "strict_all_target_all_feature_clippy": true,
+    "format": true,
+    "independent_review": "No blocking issue; historical objects not availability or launch permission"
+  },
+  "source_inventory": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "f992996ebb580ad148fd2d60933d582c331c7a54ef15661da3f5b86969581807",
+      "bytes": 61365
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "ab94a646e1a9224b1c83769812d9e10d26ae5c5ecaa8a4e9d77322cc2036af9b",
+      "bytes": 1957
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "sha256": "16dacc0ff567052fa929e343b89fafe38a5342ade13a2bca971e131280ce7b13",
+      "bytes": 1063
+    },
+    {
+      "path": "crates/aq-worker/src/native.rs",
+      "sha256": "7e9ad472bf66a6ba215fca6c37db42b07881cf78fd926c749b12150b255e8b41",
+      "bytes": 5061
+    },
+    {
+      "path": "crates/aq-worker/src/native/http.rs",
+      "sha256": "36891e7d795cc1fce85909bcecf41cf8efb6ff97b2e68786ee223bb5a94ee39b",
+      "bytes": 13577
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/control.rs",
+      "sha256": "60cc40638a5b1d8c4b29e26af429429c0ba0cddc29b1fd87efbe0ad2a6e36d33",
+      "bytes": 12330
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/source.rs",
+      "sha256": "d70ce9f50dc2bd63a20b7ab1fa2f4f610cbe992ea2b890a119da161a8406b7ab",
+      "bytes": 5970
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration.rs",
+      "sha256": "917b9e23f638c1768fb449b8a5845a8f5f3a76f44d530062b7414d31e911bd7d",
+      "bytes": 12076
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration/files.rs",
+      "sha256": "7b3a555ce4002aacf75c8ff836df5e0ccc9cdfa2f07ee7128686f0e1ee649c7a",
+      "bytes": 19880
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal.rs",
+      "sha256": "0ca37232d9a308d61fc21d290a57353c1bf329d8a7fcba28d0f2b1103ea7f196",
+      "bytes": 22722
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/hydration_scenarios.rs",
+      "sha256": "822f86e181fab54c74ac86f8fa66902ae7936ef4a8a6760f366bd7a2d96fef3a",
+      "bytes": 51655
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs.rs",
+      "sha256": "6ef552e39406f6890bc8659cdfee52f942f8f206dc971867bd34a02f6d7bd391",
+      "bytes": 14644
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs_scenarios.rs",
+      "sha256": "6829adaaddee541f65bec43ba01c347ea27e521721a075064078c0a6d2574b5c",
+      "bytes": 22720
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/prepared.rs",
+      "sha256": "6d872267fb8662eb3747ab63d1f15da3edadb07563e72f13f54cdbc8cae8f595",
+      "bytes": 5882
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/source.rs",
+      "sha256": "26b21cf92f7c6c8193967d0c690709ae08c4e589997710fde595f4b2e94e0cbd",
+      "bytes": 15394
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/storage.rs",
+      "sha256": "8fcceb7b15dc0e927e1068aff412243984323636a0a8f0d05187a71655f68845",
+      "bytes": 6112
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/tests.rs",
+      "sha256": "372793f1c04fde85f8355825e947cacaf483798944b3cfb7d2cc774c06183048",
+      "bytes": 15928
+    },
+    {
+      "path": "crates/aq-worker/src/native/materials.rs",
+      "sha256": "56f42261dd66de611ca37b8ab3862087c4d8f5cb1bc5885f3efe3f7d189006db",
+      "bytes": 16615
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation.rs",
+      "sha256": "05ab7ed7ff0e3470b7e16848996db245330f54354d04bdeb1a3c8a471cc142a5",
+      "bytes": 5931
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation/join.rs",
+      "sha256": "0a0ca86b3ecf2f009b0b0bccd65af06cadc9ae4f7a9d030304978333820d1c17",
+      "bytes": 5415
+    },
+    {
+      "path": "crates/aq-worker/src/source.rs",
+      "sha256": "dcdf1262b62b8526f0f795f93576600545b6a63e9219700a8d839beae62ee31f",
+      "bytes": 57140
+    },
+    {
+      "path": "docs/implementation/WRK-08-native-prepare-join.md",
+      "sha256": "d8304de47da059df3ff396b9fa84a987e7252384923612ebd77167c484432522",
+      "bytes": 2847
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/full.log",
+      "sha256": "4afd18a4cbcb95489408bc222ba7d3e4741083061dd94d71db4a97d718959d52",
+      "bytes": 17489,
+      "role": "qualification"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/actual-git.log",
+      "sha256": "0ee6c2a4057bbf8ffdd34b42481c5c14e8374404c993b5575a768cd2896e8d87",
+      "bytes": 417,
+      "role": "qualification"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/clippy.log",
+      "sha256": "a5a38b360405a2f0e3003ead6ec0ec33999bb7ba315f4341826c078e317db47e",
+      "bytes": 819,
+      "role": "qualification"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "role": "qualification"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/check.log",
+      "sha256": "553ee198300ac4995cd03580c52c60b38a923c2c961e7433c855482223db2f50",
+      "bytes": 818,
+      "role": "development"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/preflight.log",
+      "sha256": "156b9ae138551f67c6ed774283b785c88d9efb9237fbff97cb8f206d413ec2d6",
+      "bytes": 1871,
+      "role": "development"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/preflight2.log",
+      "sha256": "c1bf0de530dcf3965e5638fd3a116687128a0d01311043685545532120f4880f",
+      "bytes": 1371,
+      "role": "development"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/preflight3.log",
+      "sha256": "c88367a7458373fd6ca442a8e1f4dafeadd148ca93eed4fdd6fcf13e3ee351eb",
+      "bytes": 1080,
+      "role": "development"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/preflight4.log",
+      "sha256": "8d7c140d5291a9c5189d49ea56936cdcf63b1207bca5b177d178028dc3b0bd8a",
+      "bytes": 1583,
+      "role": "development"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-prepare-82d3c07/preflight5.log",
+      "sha256": "aa05550bfb4c8c607d3087cc727cd612c33e734c6ada16fa25b5e74cd0816772",
+      "bytes": 792,
+      "role": "development"
+    }
+  ],
+  "git_binary_sha256": "c2ff26f5e63008aec0fbd4082a547e87825e651d4aba0744c4b9fdf752d58c39",
+  "scope": "Actual local files/journal/material installation plus pinned actual Git and synthetic coordinator; durable Prepare intent, no host or grant delivery in these component tests.",
+  "limits": [
+    "Format1/2/3 refused unchanged; historical reopen cannot prepare.",
+    "At most8MiB actual inline inputs at join; existing8MiBjournal bound remains.",
+    "Default21GiB+1MiB logical Git reservation is not physical free-space qualification.",
+    "No default runtime or production capability enabled."
+  ]
+}

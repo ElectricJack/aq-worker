@@ -1,0 +1,26 @@
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-native-prepare-join/crates/aq-session-protocol)
+   Compiling aq-protocol v0.1.0 (/tmp/aq-native-prepare-join/crates/aq-protocol)
+   Compiling aq-worker-protocol v0.2.0 (/tmp/aq-native-prepare-join/crates/aq-worker-protocol)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/aq-native-prepare-join/crates/aq-lifecycle-protocol)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-native-prepare-join/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-admission v0.1.7 (/tmp/aq-native-prepare-join/vendor/aq-admission-0.1.7)
+   Compiling aq-session-host v0.1.4 (/tmp/aq-native-prepare-join/crates/aq-session-host)
+   Compiling aq-worker v0.3.3 (/tmp/aq-native-prepare-join/crates/aq-worker)
+error[E0560]: struct `aq_admission::transport::MaterialDelivery` has no field named `schema_version`
+   --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:300:51
+    |
+300 | ...   let delivery = MaterialDelivery { schema_version: 1, operation_id: request.operation_id, lease, clock: DeliveryClock::new(170...
+    |                                         ^^^^^^^^^^^^^^ `aq_admission::transport::MaterialDelivery` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `aq_admission::transport::MaterialDelivery` has no field named `operation_id`
+   --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:300:70
+    |
+300 | ...y { schema_version: 1, operation_id: request.operation_id, lease, clock: DeliveryClock::new(1700,30000).unwrap() };
+    |                           ^^^^^^^^^^^^ `aq_admission::transport::MaterialDelivery` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+For more information about this error, try `rustc --explain E0560`.
+error: could not compile `aq-worker` (lib test) due to 2 previous errors

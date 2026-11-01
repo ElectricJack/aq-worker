@@ -1,0 +1,23 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-native-prepare-join/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.44s
+     Running unittests src/lib.rs (/tmp/aq-wrk08-preparation-target/debug/deps/aq_worker-351e81ae6463e4ac)
+
+running 2 tests
+test native::journal::tests::hydration_scenarios::prepare_join_retains_exact_request_and_requires_actual_inputs_again_for_retry ... FAILED
+test native::journal::tests::hydration_scenarios::prepare_join_refuses_missing_inputs_renderer_and_retention_changed_after_hydration ... ok
+
+failures:
+
+---- native::journal::tests::hydration_scenarios::prepare_join_retains_exact_request_and_requires_actual_inputs_again_for_retry stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::prepare_join_retains_exact_request_and_requires_actual_inputs_again_for_retry' (174907) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:1110:110:
+called `Result::unwrap()` on an `Err` value: workspace owner changed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    native::journal::tests::hydration_scenarios::prepare_join_retains_exact_request_and_requires_actual_inputs_again_for_retry
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 4.38s
+
+error: test failed, to rerun pass `-p aq-worker --lib`
