@@ -79,7 +79,7 @@ enum Cmd {
     RunNative {
         #[arg(long)]
         native_config: PathBuf,
-        /// Explicit local transport for independent integration fixtures only.
+        /// Reserved fixture flag; refuses until scoped provider CLI integration exists.
         #[cfg(feature = "test-support")]
         #[arg(long)]
         development_loopback: bool,
@@ -161,22 +161,9 @@ async fn shutdown_signal() {
 fn configured_native_executor(
     worker: &WorkerConfig,
     config: &aq_worker::native::runner::NativeConfig,
-    development_loopback: bool,
 ) -> anyhow::Result<Option<aq_worker::native::runner::CodexExecutor>> {
     if config.executor.is_none() {
-        anyhow::ensure!(
-            !development_loopback,
-            "fixture transport requires concrete executor settings"
-        );
         return Ok(None);
-    }
-    if development_loopback {
-        #[cfg(feature = "test-support")]
-        return Ok(Some(
-            aq_worker::native::runner::CodexExecutor::development_loopback(worker)?,
-        ));
-        #[cfg(not(feature = "test-support"))]
-        anyhow::bail!("development transport is unavailable in this build");
     }
     Ok(Some(aq_worker::native::runner::CodexExecutor::new(worker)?))
 }
@@ -250,10 +237,15 @@ async fn main() -> ExitCode {
         } => {
             #[cfg(not(feature = "test-support"))]
             let development_loopback = false;
+            if development_loopback {
+                return usage_err(
+                    "native fixture CLI unavailable: a numeric Node origin does not isolate provider traffic; scoped provider transport is not joined",
+                );
+            }
             let result = async {
                 let worker = WorkerConfig::load(&path)?;
                 let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
-                let executor = configured_native_executor(&worker, &config, development_loopback)?;
+                let executor = configured_native_executor(&worker, &config)?;
                 let (signal, shutdown) = tokio::sync::watch::channel(false);
                 let watcher = tokio::spawn(async move {
                     shutdown_signal().await;
