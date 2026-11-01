@@ -54,7 +54,9 @@ impl ScopedResponsesTransport {
 }
 ```
 
-The consumed listener is independently checked as a listening TCP socket whose
+The consumed listener is independently checked through exact-length kernel
+SO_TYPE=SOCK_STREAM, SO_PROTOCOL=IPPROTO_TCP and SO_ACCEPTCONN observations as a
+listening TCP socket whose
 local address is exactly numeric IPv4 `127.0.0.1:<nonzero>`. Expected origin must
 be exactly its canonical `http://127.0.0.1:<port>` form. No DNS, caller path,
 wildcard/IPv6 address, rebinding or network-namespace transition is performed.
@@ -75,7 +77,13 @@ synthetic keys so existing worker tests/public test-support API remain usable.
 `RetainedUpstreamCredential` supplies already-authorized parent-only bytes. The
 core invokes it through bounded `spawn_blocking`, once initially and before
 every forwarded request, and compares the current key with the original key.
-Check original deadline before and after each read and immediately before
+One component-shared eight-read admission uses nonwaiting `try_acquire_owned`
+before spawning. The blocking closure owns its permit through actual completion,
+including after timeout/cancel; excess callbacks never enter a hidden waiter
+queue. An internal controlled-admission seam isolates the saturation regression
+from unrelated tests without exposing a production bypass.
+Check original deadline before enqueue, inside the blocking callback, after each
+read and immediately before
 forwarding. The callback must preserve its owner's bounded regular-file,
 original-record and source identity checks; it cannot mint authority or extend
 expiry. No upstream key is serialized, debugged, returned in metadata or sent

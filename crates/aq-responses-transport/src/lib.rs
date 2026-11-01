@@ -6,7 +6,7 @@ use std::{
     net::{Ipv4Addr, TcpListener as StdTcpListener},
     os::fd::AsRawFd,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -14,7 +14,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::watch,
+    sync::{Semaphore, watch},
     task::JoinHandle,
 };
 use zeroize::Zeroizing;
@@ -24,6 +24,19 @@ pub use policy::{MAX_REQUEST_BYTES, ResponsesPolicy};
 const MAX_HEAD: usize = 16384;
 const MAX_STREAM: usize = 16 * 1024 * 1024;
 const MAX_REQUESTS: usize = 64;
+const MAX_CREDENTIAL_READS: usize = 8;
+
+#[derive(Clone)]
+struct CredentialReader {
+    credential: Arc<dyn RetainedUpstreamCredential>,
+    admission: Arc<Semaphore>,
+}
+fn shared_read_admission() -> Arc<Semaphore> {
+    static READS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    READS
+        .get_or_init(|| Arc::new(Semaphore::new(MAX_CREDENTIAL_READS)))
+        .clone()
+}
 
 /// An already-authorized retained source. Implementations must perform bounded
 /// regular-file/source/original-record checks. Calls run on the blocking pool;
@@ -64,7 +77,7 @@ struct State {
     endpoint: UpstreamEndpoint,
     local_key: Zeroizing<Vec<u8>>,
     upstream_key: Zeroizing<Vec<u8>>,
-    credential: Arc<dyn RetainedUpstreamCredential>,
+    credential: CredentialReader,
     client: reqwest::Client,
     authority: String,
     denied: Arc<AtomicBool>,
@@ -90,6 +103,25 @@ impl ScopedResponsesTransport {
         policy: ResponsesPolicy,
         endpoint: UpstreamEndpoint,
         credential: Arc<dyn RetainedUpstreamCredential>,
+    ) -> Result<Self> {
+        Self::start_with_reader(
+            listener,
+            expected_origin,
+            policy,
+            endpoint,
+            CredentialReader {
+                credential,
+                admission: shared_read_admission(),
+            },
+        )
+        .await
+    }
+    async fn start_with_reader(
+        listener: StdTcpListener,
+        expected_origin: &str,
+        policy: ResponsesPolicy,
+        endpoint: UpstreamEndpoint,
+        credential: CredentialReader,
     ) -> Result<Self> {
         let listener = checked_listener(listener, expected_origin)?;
         let denied = Arc::new(AtomicBool::new(false));
@@ -123,7 +155,10 @@ impl ScopedResponsesTransport {
         upstream_key: Zeroizing<Vec<u8>>,
     ) -> Result<Self> {
         let listener = checked_listener(listener, expected_origin)?;
-        let credential = Arc::new(FixedCredential(upstream_key.clone()));
+        let credential = CredentialReader {
+            credential: Arc::new(FixedCredential(upstream_key.clone())),
+            admission: shared_read_admission(),
+        };
         Self::start_inner(
             listener,
             expected_origin,
@@ -143,7 +178,7 @@ impl ScopedResponsesTransport {
         endpoint: UpstreamEndpoint,
         local_key: Zeroizing<Vec<u8>>,
         upstream_key: Zeroizing<Vec<u8>>,
-        credential: Arc<dyn RetainedUpstreamCredential>,
+        credential: CredentialReader,
         denied: Arc<AtomicBool>,
     ) -> Result<Self> {
         policy.remaining()?;
@@ -286,6 +321,19 @@ fn checked_listener(listener: StdTcpListener, expected_origin: &str) -> Result<T
             && expected_origin == format!("http://{address}"),
         "scoped listener exact numeric IPv4 origin mismatch"
     );
+    ensure!(
+        socket_option(&listener, libc::SO_TYPE)? == libc::SOCK_STREAM
+            && socket_option(&listener, libc::SO_PROTOCOL)? == libc::IPPROTO_TCP,
+        "scoped descriptor is not a TCP stream socket"
+    );
+    ensure!(
+        socket_option(&listener, libc::SO_ACCEPTCONN)? == 1,
+        "scoped descriptor is not a listening TCP socket"
+    );
+    listener.set_nonblocking(true)?;
+    Ok(TcpListener::from_std(listener)?)
+}
+fn socket_option(listener: &StdTcpListener, option: libc::c_int) -> Result<libc::c_int> {
     let mut accepting: libc::c_int = 0;
     let mut length = std::mem::size_of_val(&accepting) as libc::socklen_t;
     ensure!(
@@ -293,17 +341,15 @@ fn checked_listener(listener: StdTcpListener, expected_origin: &str) -> Result<T
             libc::getsockopt(
                 listener.as_raw_fd(),
                 libc::SOL_SOCKET,
-                libc::SO_ACCEPTCONN,
+                option,
                 (&mut accepting as *mut libc::c_int).cast(),
                 &mut length,
             )
         } == 0
-            && length == std::mem::size_of_val(&accepting) as libc::socklen_t
-            && accepting == 1,
-        "scoped descriptor is not a listening TCP socket"
+            && length == std::mem::size_of_val(&accepting) as libc::socklen_t,
+        "scoped socket option unavailable"
     );
-    listener.set_nonblocking(true)?;
-    Ok(TcpListener::from_std(listener)?)
+    Ok(accepting)
 }
 fn check_live(policy: &ResponsesPolicy, denied: &AtomicBool) -> Result<Duration> {
     ensure!(
@@ -314,14 +360,31 @@ fn check_live(policy: &ResponsesPolicy, denied: &AtomicBool) -> Result<Duration>
 }
 async fn read_current(
     policy: &ResponsesPolicy,
-    credential: &Arc<dyn RetainedUpstreamCredential>,
-    denied: &AtomicBool,
+    credential: &CredentialReader,
+    denied: &Arc<AtomicBool>,
 ) -> Result<Zeroizing<Vec<u8>>> {
     let remaining = check_live(policy, denied)?;
-    let credential = credential.clone();
+    // Nonwaiting admission happens before enqueueing any blocking work. The
+    // closure owns the permit until actual physical completion, even after an
+    // async timeout/cancel drops its JoinHandle and result receiver.
+    let permit = credential
+        .admission
+        .clone()
+        .try_acquire_owned()
+        .context("scoped credential read capacity unavailable")?;
+    let credential = credential.credential.clone();
+    let read_denied = denied.clone();
+    let deadline = policy.original_deadline_boot_ns();
     let current = tokio::time::timeout(
         remaining,
-        tokio::task::spawn_blocking(move || credential.read_current()),
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            ensure!(
+                !read_denied.load(Ordering::SeqCst) && boot_ns()? < deadline,
+                "scoped authority lost before credential read"
+            );
+            credential.read_current()
+        }),
     )
     .await???;
     check_live(policy, denied)?;
