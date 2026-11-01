@@ -1,8 +1,9 @@
 # Finite prepared capsule and scoped Responses composition
 
-Status: integration-only synthetic source plan. Production eligibility remains
-false. This branch composes the independently accepted host candidate and
-neutral transport; it does not introduce a production launch/history bridge.
+Status: integration-only synthetic implementation; source review pending.
+Production eligibility remains false. This branch composes the independently
+accepted host candidate and neutral transport; it does not introduce a
+production launch/history bridge.
 
 ## Closed scope
 
@@ -55,12 +56,26 @@ requires the appropriate actual ECHILD receipt before releasing fixture roots.
 A normal guest exit is not itself the ECHILD receipt; its namespace init and
 descendants still belong to the outer guardian.
 
+An additive candidate-only `commit_retaining` consumes its prepared handle
+and returns either the existing running handle or an opaque noncloneable
+`CandidateCommitFailure` that still owns the physical child and original image.
+It exposes only an error reference; it has no retry, abort, stopped-receipt or
+secret-bearing Debug API. The legacy `commit` method delegates and drops a
+failure, preserving its old behavior. The aggregate retains a failed owner
+until transport stop has joined, then drops it through the accepted bounded
+cleanup/reaper path without manufacturing a physical proof. Ordering concerns
+parent-initiated cleanup through its owner; a child may independently exit or
+its guardian may independently refuse earlier.
+
 Drop cannot await. It synchronously denies transport forwarding, drops its
 task owner (abort requested), then drops the physical owner into its existing
 bounded wait/reaper path. Drop produces neither a completed transport-closure
-claim nor a stopped proof. Exceptional async shutdown failure retains the
-remaining physical owner until normal bounded Drop cleanup; it does not turn
-an error into release authority.
+claim nor a stopped proof. Cancellation of the async shutdown future retains
+the remaining physical owner until normal bounded Drop cleanup. An awaited
+transport stop may record a serving error such as expiry, but its serving task
+has joined before physical cleanup proceeds; that error does not create any
+execution or stopped authority. Deliberately uncertain paths retain the tiny
+synthetic private roots instead of removing them under an implicit receipt.
 
 Negative vectors use wrong model, wrong derived capability, original expiry,
 and cancellation while the second retained read is paused. Wrong selection or
@@ -78,3 +93,35 @@ response. Use the original bounded lifetime for all stages.
 Independent source review and local static execution are separate evidence.
 No real SourcePin, provider credential, Codex, tmux, production permit/history,
 recovery, output accounting or packaging qualification follows from this test.
+
+## Implemented bounded cases
+
+The separate static peer accepts only five fixed fixture modes and the exact
+existing prepared recipe. After the real running-image witness, a fresh
+workspace marker permits its one request; no request can occur while the
+trusted stub is paused. Its response parser supports only bounded HTTP 200,
+chunked framing and the one finite expected SSE body. It writes separate
+ready, request-attempt, response-complete/refused and error-line markers.
+It receives no original key, source path or descriptor, additional environment
+or filesystem grant. The fake upstream is a parent numeric-loopback listener.
+
+Five explicit integration tests exercise six executed guest sessions plus a paused
+commit failure: successful finite SSE, wrong model, wrong local capability,
+complete request held in retained callback then cancellation, original expiry
+in the same stage, aggregate Drop with late callback release, and retaining
+commit failure while the stub is still physically live. They assert zero
+upstream requests for all negative cases; the positive checks one actual
+upstream request, distinct parent key, selected cap/model/reasoning, exact
+finite SSE and actual ECHILD. Drop/failure tests check actual init/stub pidfd
+exit but return no ECHILD receipt and retain private roots. They do not claim
+forced blocking-read cancellation or general async Drop completion.
+
+Source `7827d4f` passed the five composed cases in 4.31 seconds, standalone
+capsule cases (11) in 8.38 seconds, host units (36 passed, three explicit
+fixtures ignored) in 0.18 seconds, and transport units (15) in 1.07 seconds.
+Strict all-target/all-feature Clippy and default host binaries passed. The
+normal host dependency graph contains neither transport nor Tokio; these are
+dev-dependencies only. The qualified transport source is byte-unchanged.
+See [the qualification record](evidence/prepared-responses-composition/qualification.json)
+for commands, source hashes and remaining gates. Independent source review
+has not yet accepted this composed increment.

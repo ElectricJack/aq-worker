@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-01",
+  "scope": "test-support-only finite synthetic prepared static capsule and neutral Responses core composition",
+  "source_commit": "7827d4f",
+  "worker_base": "45420eb",
+  "prepared_source": ["dd3f0ba", "b7f8068", "1c0061f"],
+  "qualified_transport_source": ["4ff62a5", "8bcd1ad", "ca44aa6", "baf2b2f", "56bfa42", "d49ac9e"],
+  "transport_source_unchanged": true,
+  "source_sha256": {
+    "crates/aq-session-host/src/capsule/prepared.rs": "a61fd26707c66c35acf4bc6ea7ae8ad545fdb977451605596410214a34a0d581",
+    "crates/aq-session-host/tests/prepared_responses.rs": "230855ac8a38dd46db2e4948fe6a3521792bf730d1fbcd3e424700259d42faa3",
+    "crates/aq-session-host/tests/fixtures/capsule-responses-peer.c": "3cebf7eff977113bb8469a7edeada2098396524f8c2a9ef232d6af504bb2b294"
+  },
+  "build_environment": {
+    "target": "/tmp/aq-worker-artifact-overlap-target",
+    "jobs": 2,
+    "incremental": false,
+    "debug": 0,
+    "offline": true
+  },
+  "checks": [
+    {"command": "cargo check -p aq-session-host --all-features --all-targets --offline", "exit_code": 0, "seconds": 3.52},
+    {"command": "cargo test -p aq-session-host --all-features --offline --test prepared_responses -- --ignored --test-threads=1", "exit_code": 0, "passed": 5, "seconds": 4.31},
+    {"command": "cargo clippy -p aq-session-host --all-features --all-targets --offline -- -D warnings", "exit_code": 0, "seconds": 4.39},
+    {"command": "cargo test -p aq-session-host -p aq-responses-transport --all-features --offline --lib", "exit_code": 0, "host_passed": 36, "host_explicitly_ignored": 3, "host_seconds": 0.18, "transport_passed": 15, "transport_seconds": 1.07},
+    {"command": "cargo test -p aq-session-host --all-features --offline --test capsule_candidate -- --include-ignored --test-threads=1", "exit_code": 0, "passed": 11, "seconds": 8.38},
+    {"command": "cargo check -p aq-session-host --bins --offline", "exit_code": 0, "seconds": 2.33},
+    {"command": "cargo tree -p aq-session-host --edges normal --offline", "exit_code": 0, "transport_and_tokio_are_normal_host_dependencies": false}
+  ],
+  "positive": {
+    "actual_child_netns_listener_consumed": true,
+    "guest_paused_before_commit": true,
+    "guest_auth_contains_only_fresh_local_capability": true,
+    "upstream_key_distinct_and_parent_only": true,
+    "same_prepared_origin_and_original_deadline": true,
+    "exact_selected_model_reasoning_and_injected_cap": true,
+    "upstream_requests": 1,
+    "finite_chunked_sse_verified_by_actual_guest": true,
+    "transport_join_precedes_parent_physical_stop": true,
+    "actual_echild_receipt": true
+  },
+  "negative_cases": [
+    "wrong model: guest request-attempt and refusal markers, zero upstream",
+    "wrong local capability: guest request-attempt and refusal markers, zero upstream",
+    "cancellation while complete guest request waits on retained read: await transport join, physical ECHILD, release/drain callback, zero upstream",
+    "original deadline while complete guest request waits on retained read: joined serving task, physical ECHILD, release/drain callback, zero upstream",
+    "aggregate Drop: synchronous denial and bounded physical cleanup, late callback zero upstream, private roots retained, no closure or stopped receipt claimed",
+    "commit validation failure: opaque owner retains live init/stub until core stop joins; subsequent bounded Drop, roots retained, no stopped receipt claimed"
+  ],
+  "limitations": [
+    "author executed checks; independent source review is separate and pending",
+    "started blocking callback is cooperatively released and drained, never claimed forcibly canceled",
+    "parent cleanup ordering does not prevent independent child exit or guardian refusal",
+    "unknown Drop/failure cleanup does not authorize auth or workspace release",
+    "no real SourcePin, original-material store, provider credential, external provider request, Codex, tmux, production permit/history/recovery/packaging join",
+    "no production eligibility change"
+  ]
+}
