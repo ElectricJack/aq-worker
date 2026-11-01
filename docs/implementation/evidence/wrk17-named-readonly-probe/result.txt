@@ -2,7 +2,7 @@ exit 0
 inactive_named_write_errno: 30
 descendant_remount_exit: 32 detail: mount: /opt/aq-image: permission denied.
        dmesg(1) may have more information after failed mount system call.
-path:/opt/aq-image/codex canonical:/opt/aq-image/codex argc:1 readonly:1 dev:2096 ino:4643457 mount:5682
+path:/opt/aq-image/codex canonical:/opt/aq-image/codex argc:1 readonly:1 dev:2096 ino:4651745 mount:5376
 named_write_open:-1 errno:26
 fd_alias_write_open:-1 errno:26
 remount_rw:-1 errno:1
@@ -11,7 +11,8 @@ CapPrm:	0000000000000000
 CapEff:	0000000000000000
 CapBnd:	0000000000000000
 CapAmb:	0000000000000000
-path:/opt/aq-image/codex canonical:/opt/aq-image/codex argc:4 readonly:1 dev:2096 ino:4643457 mount:5682
+NoNewPrivs:	1
+path:/opt/aq-image/codex canonical:/opt/aq-image/codex argc:4 readonly:1 dev:2096 ino:4651745 mount:5376
 named_write_open:-1 errno:26
 fd_alias_write_open:-1 errno:26
 remount_rw:-1 errno:1
@@ -20,3 +21,4 @@ CapPrm:	0000000000000000
 CapEff:	0000000000000000
 CapBnd:	0000000000000000
 CapAmb:	0000000000000000
+NoNewPrivs:	1

@@ -24,7 +24,8 @@ Assertions in the final successful run:
   enters another user/mount namespace but its remount command is also denied;
   the test requires the mount-stage permission failure, not an earlier failure
   to create/map the descendant namespace.
-- Inheritable/permitted/effective/bounding/ambient capability sets are all zero.
+- Inheritable/permitted/effective/bounding/ambient capability sets are all zero,
+  and NoNewPrivs is explicitly set and asserted to be one.
 - A private helper alias re-execs the stable named path; the second invocation
   verifies that its device/inode exactly matches the first invocation.
 

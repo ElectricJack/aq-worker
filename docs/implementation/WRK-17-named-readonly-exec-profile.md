@@ -7,7 +7,9 @@ has not qualified stock Codex tool execution. No production executor is enabled.
 
 Pinned Codex 0.166 initializes its self/helper paths from
 `std::env::current_exe()`. An anonymous executable memfd produces a deleted
-pseudo-path; stock self-helper spawning then fails. Its release build also
+pseudo-path that is incompatible with ordinary helper-path resolution. The
+observed tool flow returned ENOENT, but its exact failing exec syscall and sole
+cause have not yet been established. Its release build also
 refuses creating helper aliases when CODEX_HOME is under the process's temporary
 directory. A stable path on a separately qualified read-only image addresses
 both boundaries without copying 319 MiB for every attempt.
