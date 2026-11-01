@@ -104,6 +104,9 @@ impl InstalledMaterial {
     pub(crate) fn metadata(&self) -> &Record {
         &self.record
     }
+    pub(crate) fn source_directory(&self) -> Result<File> {
+        Ok(self.directory.try_clone()?)
+    }
     pub fn receipt(&self) -> Result<MaterialReceipt> {
         self.record.receipt()
     }

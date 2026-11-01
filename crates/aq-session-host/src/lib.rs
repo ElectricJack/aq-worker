@@ -1,6 +1,8 @@
 //! Reusable Linux tmux hosting. The caller owns authorization and durable task
 //! state; a dedicated helper owns every tmux/pane descendant and permit expiry.
 mod local_ipc;
+mod private_inputs;
+pub use private_inputs::{PrivateCleanup, PrivateLaunchInput};
 pub mod observed;
 pub mod ownership;
 mod reader_lease;
@@ -122,6 +124,10 @@ pub enum HarnessReadiness {
 pub trait HarnessAdapter {
     fn prepare(&self, manifest: &LaunchManifest, workspace: &Path) -> Result<AdapterLaunch>;
     fn readiness(&self, observation: &HostObservation) -> Result<HarnessReadiness>;
+    /// Optional closed private input; bytes remain outside serialized commands.
+    fn private_input(&self, _: &LaunchManifest, _: &Path) -> Result<Option<PrivateLaunchInput>> {
+        Ok(None)
+    }
 }
 #[derive(Clone, Debug)]
 pub struct ContextMaterial {
@@ -305,6 +311,8 @@ struct SealedLaunch {
     rendered_startup: Option<RenderedBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     observed: Option<observed::Spec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    private_input: Option<private_inputs::PrivateInputRecord>,
 }
 impl SealedLaunch {
     fn wall_deadline(&self) -> Result<u64> {
@@ -393,6 +401,7 @@ pub struct SessionHost;
 pub struct SessionHandle {
     directory: PathBuf,
     identity: GuardianIdentity,
+    private_source: Option<File>,
 }
 impl SessionHost {
     pub fn launch(
@@ -509,6 +518,7 @@ impl SessionHost {
             );
         }
         prepared.command.validate()?;
+        let private_input = adapter.private_input(manifest, &local.workspace)?;
         ensure!(
             local.context_material.len() <= 128,
             "context material bounds"
@@ -576,6 +586,9 @@ impl SessionHost {
             "tmux socket path too long"
         );
         File::open(&root)?.sync_all()?;
+        let publication = private_input
+            .map(|input| private_inputs::Publication::reserve(&directory, input))
+            .transpose()?;
         let config = SealedLaunch {
             launch_id,
             manifest: manifest.clone(),
@@ -588,6 +601,7 @@ impl SessionHost {
             resource_policy: local.resource_policy.clone(),
             resource_qualification: prepared.resource_qualification,
             rendered_startup,
+            private_input: publication.as_ref().map(|p| p.record()),
             observed: match &startup {
                 StartupInput::Observed(r) => Some(r.spec.clone()),
                 _ => None,
@@ -595,6 +609,20 @@ impl SessionHost {
         };
         if let Some(spec) = &config.observed {
             spec.validate(&config)?;
+        }
+        if config.private_input.is_some() {
+            ensure!(
+                config.observed.as_ref().is_some_and(|s| s.native_exec())
+                    && config.command.environment.get("CODEX_HOME")
+                        == Some(
+                            &directory
+                                .join("codex-home")
+                                .to_str()
+                                .context("private home UTF8")?
+                                .to_owned()
+                        ),
+                "private input requires exact native home"
+            );
         }
         let intent = config.intent()?;
         durable_new(
@@ -606,6 +634,8 @@ impl SessionHost {
         }
         authority.record_launch_intent(&intent)?;
         authority.checkpoint("launch-intent-durable")?;
+        let private_source = publication.map(|p| p.publish()).transpose()?;
+        private_inputs::verify_at_exec(&config, &directory)?;
         let mut command = Command::new(&config.helper);
         command
             .arg("guardian")
@@ -650,6 +680,7 @@ impl SessionHost {
         let handle = SessionHandle {
             directory,
             identity,
+            private_source,
         };
         authority.record_guardian(&handle.identity)?;
         authority.checkpoint("guardian-identity-durable")?;
@@ -713,6 +744,7 @@ impl SessionHost {
         let handle = SessionHandle {
             directory,
             identity,
+            private_source: None,
         };
         handle.stop()?;
         Ok(handle)
@@ -733,6 +765,7 @@ impl SessionHost {
         let handle = SessionHandle {
             directory,
             identity,
+            private_source: None,
         };
         let state = handle.observe()?;
         let wall_deadline = config.wall_deadline()?;
@@ -1323,6 +1356,7 @@ mod rendered_tests {
             resource_qualification: None,
             rendered_startup: None,
             observed: None,
+            private_input: None,
         };
         let bytes = serde_json::to_vec(&sealed).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
