@@ -83,6 +83,13 @@ an undocumented enum reinterpretation. Use CON03's separate parking domain.
    is a review decision under the no-new-dependencies constraint; no package,
    version, registry dependency or duplicated contract structs are added here.
 
+8. **Bounded local history.** Native roots currently cap retained attempts at64
+   and have no suspension-specific retirement path. Slot release alone cannot
+   promise unlimited subsequent admissions. Add an explicit receipt-bound local
+   retirement/archive decision through the same journal owner after source and
+   required history are centrally retained/released; never timed-GC an active
+   continuation. The first slice must report this metadata bound honestly.
+
 These are ownership joins, not reasons to invent another workflow engine.
 The first fake coordinator can demonstrate the worker mechanics while each
 missing real central authority remains explicitly unqualified.
@@ -172,10 +179,14 @@ approved by Runner before mutation. Derive public disposition from these facts:
    chunk descriptors before send, then advance existing source-transfer steps.
    Send the same report/receipt request after loss, not a new operation. Upload
    progress is not retention. Keep control/safety lanes independent of bulk.
-6. Persist verified source+summary central receipts, authoritative effects
+6. Persist verified source+summary central receipts (exact artifact/digest/role,
+   not merely one receipt of each role), authoritative effects
    reconciliation and parking report acknowledgment independently. Only these
    prerequisites yield RetainedSuspended/migratable. Report delivery failure or
    early outcome cannot clear retained source or relaunch the predecessor.
+   The first slice requires a supplied bounded summary for automatic migration;
+   an explicit Missing claim enters held recovery, not fabricated context or
+   automatic RetainedSuspended.
 7. Compute release projects only from the committed suspension fence and actual
    stopped proof. Disk remains charged for workspace, pending bytes, Git handles
    and shared repository pool until exact explicit central release and aq-git
