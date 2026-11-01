@@ -20,7 +20,16 @@ pub struct HydratedWorkspace {
 }
 impl HydratedWorkspace {
     pub(super) fn revalidate(&self, journal: &Journal) -> Result<()> {
-        ensure!(boot_ns()? < self.deadline_ns, "native source proof expired");
+        self.revalidate_until(journal, self.deadline_ns)
+    }
+    // Only the durable execution owner supplies this independent authority cap.
+    // The original preparation proof deadline remains unchanged. Current local
+    // Git retention/workspace inspection is required again; no export is renewed.
+    pub(super) fn revalidate_execution(&self, journal: &Journal, deadline: u64) -> Result<()> {
+        self.revalidate_until(journal, deadline)
+    }
+    fn revalidate_until(&self, journal: &Journal, deadline: u64) -> Result<()> {
+        ensure!(boot_ns()? < deadline, "native source proof expired");
         let a = journal
             .state()
             .attempts
@@ -61,7 +70,7 @@ impl HydratedWorkspace {
             "workspace owner changed"
         );
         validate_current(&self.git, s, imported, created, &retention, &inspect)?;
-        ensure!(boot_ns()? < self.deadline_ns, "source join expired");
+        ensure!(boot_ns()? < deadline, "source join expired");
         Ok(())
     }
     pub fn workspace(&self) -> &Workspace {

@@ -1,7 +1,9 @@
 //! Bounded current input collection, never Prepare or execution permission.
 mod context;
 pub(crate) use context::InputContext;
+mod execution;
 mod granted;
+pub use execution::{DurablePhaseExecution, PhaseExecutionCommit, RetainedPhaseExecutionHistory};
 #[path = "hydration.rs"]
 mod hydration;
 mod join;

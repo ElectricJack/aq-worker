@@ -19,6 +19,7 @@ async fn execution_outlasts_accepted_preparation_and_retry_preserves_first_obser
         .unwrap();
     assert!(first.deadline_ns() > accepted.deadline_ns() + 5_000_000_000);
     assert!(first.hard_deadline_ns() >= first.deadline_ns());
+    assert_eq!(first.first_send_deadline_ns(), accepted.deadline_ns());
     assert_eq!(first.request_digest(), &q.digest().unwrap());
     assert_eq!(
         first.accepted_digest(),
@@ -39,6 +40,11 @@ async fn execution_outlasts_accepted_preparation_and_retry_preserves_first_obser
         .await
         .unwrap();
     assert!(replay.deadline_ns() <= first.deadline_ns());
+    assert_eq!(
+        replay.first_send_deadline_ns(),
+        first.first_send_deadline_ns()
+    );
+    assert_ne!(replay.first_send_deadline_ns(), first.deadline_ns());
     assert!(replay.hard_deadline_ns() <= first.hard_deadline_ns());
     assert_ne!(
         replay.delivery().delivery.nonce,

@@ -41,7 +41,9 @@ fn resources(r: &Reservation) -> Resources {
 pub(super) fn validate(a: &Attempt, identity: &WorkerIdentity, revision: u64) -> Result<()> {
     let Some(p) = &a.phase_acceptance else {
         ensure!(
-            a.phase_preparation.is_none() && a.phase_prepared.is_none(),
+            a.phase_preparation.is_none()
+                && a.phase_prepared.is_none()
+                && a.phase_execution.is_none(),
             "phase receipt without intent"
         );
         return Ok(());

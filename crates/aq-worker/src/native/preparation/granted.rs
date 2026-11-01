@@ -7,17 +7,19 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) struct RetainedOwners {
     admitted: BTreeSet<Uuid>,
     bundles: BTreeMap<Uuid, Arc<PreparedInputs>>,
+    phase_bundles: BTreeMap<Uuid, Arc<PreparedPhaseInputs>>,
 }
 impl RetainedOwners {
     pub(super) fn new(state: &State) -> Self {
         Self {
             admitted: state.attempts.keys().copied().collect(),
             bundles: BTreeMap::new(),
+            phase_bundles: BTreeMap::new(),
         }
     }
     fn stats(&self) -> Result<RetainedInputStats> {
         let mut stats = RetainedInputStats {
-            attempts: self.bundles.len(),
+            attempts: self.bundles.len() + self.phase_bundles.len(),
             inline_bytes: 0,
             startup_bytes: 0,
         };
@@ -31,9 +33,19 @@ impl RetainedOwners {
                 .checked_add(bundle.startup_bytes())
                 .context("retained startup byte overflow")?;
         }
+        for bundle in self.phase_bundles.values() {
+            stats.inline_bytes = stats
+                .inline_bytes
+                .checked_add(bundle.retained_inline_bytes())
+                .context("phase input byte overflow")?;
+            stats.startup_bytes = stats
+                .startup_bytes
+                .checked_add(bundle.startup_bytes())
+                .context("phase startup byte overflow")?;
+        }
         ensure!(
             self.admitted.len() <= 64
-                && self.bundles.len() <= self.admitted.len()
+                && stats.attempts <= self.admitted.len()
                 && stats.inline_bytes
                     <= self.admitted.len() as u64 * crate::native::MAX_INLINE_SET_BYTES
                 && stats.startup_bytes <= stats.inline_bytes,
@@ -48,7 +60,7 @@ impl RetainedOwners {
             "input owner belongs to another pipeline"
         );
         ensure!(
-            !self.bundles.contains_key(&id),
+            !self.bundles.contains_key(&id) && !self.phase_bundles.contains_key(&id),
             "input owner already retained; use initial grant retry"
         );
         ensure!(
@@ -60,6 +72,33 @@ impl RetainedOwners {
         self.bundles.insert(id, bundle.clone());
         self.stats()?;
         Ok(bundle)
+    }
+    pub(super) fn retain_phase(
+        &mut self,
+        inputs: PreparedPhaseInputs,
+    ) -> Result<Arc<PreparedPhaseInputs>> {
+        let id = inputs.request().original.binding.attempt_id;
+        ensure!(
+            self.admitted.contains(&id)
+                && !self.bundles.contains_key(&id)
+                && !self.phase_bundles.contains_key(&id),
+            "phase resource owner absent/already retained"
+        );
+        ensure!(
+            inputs.retained_inline_bytes() <= crate::native::MAX_INLINE_SET_BYTES
+                && inputs.startup_bytes() <= inputs.retained_inline_bytes(),
+            "phase retained byte shape"
+        );
+        let inputs = Arc::new(inputs);
+        self.phase_bundles.insert(id, inputs.clone());
+        self.stats()?;
+        Ok(inputs)
+    }
+    pub(super) fn phase(&self, id: Uuid) -> Result<Arc<PreparedPhaseInputs>> {
+        self.phase_bundles
+            .get(&id)
+            .cloned()
+            .context("phase retained owner absent")
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
