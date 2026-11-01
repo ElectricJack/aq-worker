@@ -1,0 +1,43 @@
+{
+  "source_revision": "4eef2949c366013929eb196fefb23078012417a4",
+  "executable": "/tmp/aq-native-prepare-smoke-artifact/release/native-prepare-smoke",
+  "sha256": "bd1d24b49469a4b997b64fcb730a7fb967c3dc1112eb3e44075be70c37679bb7",
+  "bytes": 7337592,
+  "profile": "release",
+  "profile_config": {
+    "lto": "thin",
+    "strip": true
+  },
+  "command": "CARGO_TARGET_DIR=/tmp/aq-wrk08-preparation-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo build -p aq-worker --bin native-prepare-smoke --features test-support --release --locked --offline",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "negative_process_checks": [
+    {
+      "case": "malformed",
+      "exit_code": 1,
+      "stdout": {
+        "phase": "refused",
+        "stage": "startup"
+      },
+      "stderr_empty": true
+    },
+    {
+      "case": "oversized",
+      "exit_code": 1,
+      "stdout": {
+        "phase": "refused",
+        "stage": "startup"
+      },
+      "stderr_empty": true
+    },
+    {
+      "case": "unterminated",
+      "exit_code": 1,
+      "stdout": {
+        "phase": "refused",
+        "stage": "startup"
+      },
+      "stderr_empty": true
+    }
+  ],
+  "actual_daemon_qualification": "pending; no cold-preparation closure claim"
+}

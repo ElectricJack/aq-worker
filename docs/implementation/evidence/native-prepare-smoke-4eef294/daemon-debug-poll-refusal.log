@@ -1,0 +1,22 @@
+   Compiling aq-server v0.1.0 (/tmp/aq-native-worker-assembly/crates/aq-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.09s
+     Running tests/native_initial_grant.rs (/home/jkern/dev/agent-q/target/debug/deps/native_initial_grant-fe0d68512c7bfa0b)
+
+running 1 test
+bounded worker timing: {"completed_count":0,"deadline_ns":null,"download_count":0,"last_completion_ns":null,"preparation_clock":null,"received_ns":null,"sent_ns":null,"server_now_ms":1793496859992}
+
+thread 'published::actual_git::worker_assembly::actual_worker_downloads_installs_hydrates_and_prepares_against_real_daemon' (188095) panicked at crates/aq-server/tests/native_initial_grant/published/actual_git/worker_assembly.rs:141:5:
+assertion `left == right` failed: {"phase":"refused","stage":"poll"}; HTTP statuses: [("/v1/worker/profiled/register", 200), ("/v1/worker/profiled/poll", 409)]
+  left: String("refused")
+ right: "granted"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test published::actual_git::worker_assembly::actual_worker_downloads_installs_hydrates_and_prepares_against_real_daemon ... FAILED
+
+failures:
+
+failures:
+    published::actual_git::worker_assembly::actual_worker_downloads_installs_hydrates_and_prepares_against_real_daemon
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 5.40s
+
+error: test failed, to rerun pass `-p aq-server --test native_initial_grant`

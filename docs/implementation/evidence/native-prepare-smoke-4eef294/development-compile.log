@@ -1,0 +1,62 @@
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-native-prepare-smoke/crates/aq-session-protocol)
+   Compiling aq-protocol v0.1.0 (/tmp/aq-native-prepare-smoke/crates/aq-protocol)
+   Compiling aq-worker-protocol v0.2.0 (/tmp/aq-native-prepare-smoke/crates/aq-worker-protocol)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-native-prepare-smoke/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/aq-native-prepare-smoke/crates/aq-lifecycle-protocol)
+   Compiling aq-admission v0.1.7 (/tmp/aq-native-prepare-smoke/vendor/aq-admission-0.1.7)
+   Compiling aq-session-host v0.1.4 (/tmp/aq-native-prepare-smoke/crates/aq-session-host)
+   Compiling aq-worker v0.3.3 (/tmp/aq-native-prepare-smoke/crates/aq-worker)
+error[E0603]: function `boot_ns` is private
+   --> crates/aq-worker/src/bin/native-prepare-smoke.rs:12:30
+    |
+ 12 |         http::{NativeClient, boot_ns},
+    |                              ^^^^^^^ private function
+    |
+note: the function `boot_ns` is defined here
+   --> crates/aq-worker/src/native/http.rs:103:1
+    |
+103 | pub(super) fn boot_ns() -> Result<u64> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `validate` found for struct `ArtifactRef` in the current scope
+   --> crates/aq-worker/src/bin/native-prepare-smoke.rs:112:20
+    |
+112 |     config.runtime.validate()?;
+    |                    ^^^^^^^^ method not found in `ArtifactRef`
+    |
+help: some of the expressions' fields have a method of the same name
+    |
+112 |     config.runtime.id.validate()?;
+    |                    +++
+112 |     config.runtime.version.validate()?;
+    |                    ++++++++
+
+error[E0599]: no method named `validate` found for struct `ArtifactRef` in the current scope
+   --> crates/aq-worker/src/bin/native-prepare-smoke.rs:113:26
+    |
+113 |     config.qualification.validate()?;
+    |                          ^^^^^^^^ method not found in `ArtifactRef`
+    |
+help: some of the expressions' fields have a method of the same name
+    |
+113 |     config.qualification.id.validate()?;
+    |                          +++
+113 |     config.qualification.version.validate()?;
+    |                          ++++++++
+
+error[E0599]: no method named `validate` found for struct `ArtifactRef` in the current scope
+   --> crates/aq-worker/src/bin/native-prepare-smoke.rs:114:21
+    |
+114 |     config.renderer.validate()?;
+    |                     ^^^^^^^^ method not found in `ArtifactRef`
+    |
+help: some of the expressions' fields have a method of the same name
+    |
+114 |     config.renderer.id.validate()?;
+    |                     +++
+114 |     config.renderer.version.validate()?;
+    |                     ++++++++
+
+Some errors have detailed explanations: E0599, E0603.
+For more information about an error, try `rustc --explain E0599`.
+error: could not compile `aq-worker` (bin "native-prepare-smoke" test) due to 4 previous errors

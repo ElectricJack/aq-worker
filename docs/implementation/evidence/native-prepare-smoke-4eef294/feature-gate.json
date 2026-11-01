@@ -1,0 +1,9 @@
+{
+  "name": "native-prepare-smoke",
+  "kind": [
+    "bin"
+  ],
+  "required-features": [
+    "test-support"
+  ]
+}

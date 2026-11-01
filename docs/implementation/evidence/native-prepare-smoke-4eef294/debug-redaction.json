@@ -1,0 +1,45 @@
+{
+  "executable": "/tmp/aq-native-prepare-smoke-artifact/native-prepare-smoke",
+  "cases": [
+    {
+      "case": "malformed",
+      "exit_code": 1,
+      "stdout": {
+        "phase": "refused",
+        "stage": "startup"
+      },
+      "stderr_empty": true,
+      "synthetic_secret_absent": true
+    },
+    {
+      "case": "oversized",
+      "exit_code": 1,
+      "stdout": {
+        "phase": "refused",
+        "stage": "startup"
+      },
+      "stderr_empty": true,
+      "synthetic_secret_absent": true
+    },
+    {
+      "case": "unterminated",
+      "exit_code": 1,
+      "stdout": {
+        "phase": "refused",
+        "stage": "startup"
+      },
+      "stderr_empty": true,
+      "synthetic_secret_absent": true
+    },
+    {
+      "case": "invalid-private-scope",
+      "exit_code": 1,
+      "stdout": {
+        "phase": "refused",
+        "stage": "startup"
+      },
+      "stderr_empty": true,
+      "synthetic_secret_absent": true
+    }
+  ]
+}

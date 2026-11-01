@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "status": "test utility framing/private-scope qualified; actual-daemon initial Grant NOT achieved by these frozen binaries",
+  "source_revision": "4eef2949c366013929eb196fefb23078012417a4",
+  "base_revision": "82d3c07115f9d083a674ed75288c470df2a3f41d",
+  "phase_design_revision": "419f98462332d7a211cbcea58d04929bab0eaeb4",
+  "recorded_at": "2026-11-01T01:43:34.626606+00:00",
+  "qualification": {
+    "unit_passed": 2,
+    "debug_negative_process_cases": 4,
+    "release_negative_process_cases": 3,
+    "feature_gate": "required-features=test-support verified by cargo metadata",
+    "strict_binary_clippy": true,
+    "format_and_source_diff": true,
+    "actual_daemon_positive_passes": 0,
+    "debug_and_release_probe_result": "safe refusals at artifact/hydration deadline or Poll409; no authority lifetimes changed",
+    "source_association": "all source bytes verified against frozen source_revision; profile buildflags differ, code/TTL unchanged"
+  },
+  "binaries": [
+    {
+      "profile": "debug",
+      "path_at_qualification": "/tmp/aq-native-prepare-smoke-artifact/native-prepare-smoke",
+      "bytes": 115982520,
+      "sha256": "f476e42e681768138db8d69e35bffa76443e4fe567afcaa2dc50eba73f498ab6"
+    },
+    {
+      "profile": "release",
+      "path_at_qualification": "/tmp/aq-native-prepare-smoke-artifact/release/native-prepare-smoke",
+      "bytes": 7337592,
+      "sha256": "bd1d24b49469a4b997b64fcb730a7fb967c3dc1112eb3e44075be70c37679bb7"
+    }
+  ],
+  "build": {
+    "target": "/tmp/aq-wrk08-preparation-target",
+    "incremental": 0,
+    "jobs": 2,
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "debug_command": "cargo build -p aq-worker --bin native-prepare-smoke --features test-support --locked --offline",
+    "release_command": "cargo build -p aq-worker --bin native-prepare-smoke --features test-support --release --locked --offline",
+    "release_configuration": {
+      "lto": "thin",
+      "strip": true
+    }
+  },
+  "observed_release": {
+    "original_selection_and_budget_window_ms": 2000,
+    "preparation_valid_for_ms": 1328,
+    "poll_handler_ms": 471,
+    "accept_handler_ms": 67,
+    "original_artifact_completed_count": 36,
+    "material_response_status": 200,
+    "source_status_manifest_bundle_response_status": 200,
+    "refusal_stage": "hydrate",
+    "server_time_after_original_preparation_expiry_ms": 43,
+    "no_actual_initial_grant_success": true
+  },
+  "daemon_fixture_snapshot": {
+    "base_revision": "876b60b07c1a8d6720b4106db292a1a6d32b529d",
+    "uncommitted_test_diagnostics": true,
+    "qualification": "negative probes of independently running actual daemon; current test snapshot is not a frozen daemon source publication",
+    "files": [
+      {
+        "path": "crates/aq-server/tests/native_initial_grant/published/actual_git.rs",
+        "bytes": 10910,
+        "sha256": "059cbfe2b44b5fb9921045e7e846824fe53823962f3ebcd7cd07993e75b31457"
+      },
+      {
+        "path": "crates/aq-server/tests/native_initial_grant/published/actual_git/worker_assembly.rs",
+        "bytes": 9963,
+        "sha256": "2049f65798c44754f913e08970fa38ecd78755e5fa2ff7b789fb821b772e8694"
+      }
+    ]
+  },
+  "development": [
+    "Initial binary compile used private library boot_ns and a nonexistent ArtifactRef::validate; fixed with local checked CLOCK_BOOTTIME and typed field deserialization before source freeze.",
+    "One diagnostic fixture assumed a local attempt existed; Poll refusal made that assumption false. Later diagnostic handles missing attempts.",
+    "Debug and optimized release failures are retained negative cross-component evidence, never passing cold-preparation qualification."
+  ],
+  "limitations": [
+    "no production runtime activation or host/provider",
+    "no grant persistence, resume, Started, settlement or task completion",
+    "logical64GiB/2slot/120000CPU fixture envelope is not measured physical capacity",
+    "cold preparation not closed by release optimization",
+    "batch source changes and separately versioned preparation authority are future separate checkpoints"
+  ],
+  "source_inventory": [
+    {
+      "path": "Cargo.toml",
+      "bytes": 1957,
+      "sha256": "ab94a646e1a9224b1c83769812d9e10d26ae5c5ecaa8a4e9d77322cc2036af9b"
+    },
+    {
+      "path": "Cargo.lock",
+      "bytes": 61365,
+      "sha256": "f992996ebb580ad148fd2d60933d582c331c7a54ef15661da3f5b86969581807"
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "bytes": 1180,
+      "sha256": "051de17b8ef8e0a25e79997af237bd0036e3ce852baa6733f79d106e1d66535e"
+    },
+    {
+      "path": "crates/aq-worker/src/bin/native-prepare-smoke.rs",
+      "bytes": 11288,
+      "sha256": "b864af431c984671d6c14298f086df2976d1ed41ead310718a53ad85dcacccc8"
+    },
+    {
+      "path": "crates/aq-worker/src/native.rs",
+      "bytes": 5061,
+      "sha256": "7e9ad472bf66a6ba215fca6c37db42b07881cf78fd926c749b12150b255e8b41"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http.rs",
+      "bytes": 13577,
+      "sha256": "36891e7d795cc1fce85909bcecf41cf8efb6ff97b2e68786ee223bb5a94ee39b"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/control.rs",
+      "bytes": 12330,
+      "sha256": "60cc40638a5b1d8c4b29e26af429429c0ba0cddc29b1fd87efbe0ad2a6e36d33"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/source.rs",
+      "bytes": 5970,
+      "sha256": "d70ce9f50dc2bd63a20b7ab1fa2f4f610cbe992ea2b890a119da161a8406b7ab"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal.rs",
+      "bytes": 22722,
+      "sha256": "0ca37232d9a308d61fc21d290a57353c1bf329d8a7fcba28d0f2b1103ea7f196"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/storage.rs",
+      "bytes": 6112,
+      "sha256": "8fcceb7b15dc0e927e1068aff412243984323636a0a8f0d05187a71655f68845"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs.rs",
+      "bytes": 14644,
+      "sha256": "6ef552e39406f6890bc8659cdfee52f942f8f206dc971867bd34a02f6d7bd391"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/prepared.rs",
+      "bytes": 5882,
+      "sha256": "6d872267fb8662eb3747ab63d1f15da3edadb07563e72f13f54cdbc8cae8f595"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/source.rs",
+      "bytes": 15394,
+      "sha256": "26b21cf92f7c6c8193967d0c690709ae08c4e589997710fde595f4b2e94e0cbd"
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation.rs",
+      "bytes": 5931,
+      "sha256": "05ab7ed7ff0e3470b7e16848996db245330f54354d04bdeb1a3c8a471cc142a5"
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation/join.rs",
+      "bytes": 5415,
+      "sha256": "0a0ca86b3ecf2f009b0b0bccd65af06cadc9ae4f7a9d030304978333820d1c17"
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration.rs",
+      "bytes": 12076,
+      "sha256": "917b9e23f638c1768fb449b8a5845a8f5f3a76f44d530062b7414d31e911bd7d"
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration/files.rs",
+      "bytes": 19880,
+      "sha256": "7b3a555ce4002aacf75c8ff836df5e0ccc9cdfa2f07ee7128686f0e1ee649c7a"
+    },
+    {
+      "path": "crates/aq-worker/src/native/materials.rs",
+      "bytes": 16615,
+      "sha256": "56f42261dd66de611ca37b8ab3862087c4d8f5cb1bc5885f3efe3f7d189006db"
+    },
+    {
+      "path": "crates/aq-worker/src/source.rs",
+      "bytes": 57140,
+      "sha256": "dcdf1262b62b8526f0f795f93576600545b6a63e9219700a8d839beae62ee31f"
+    },
+    {
+      "path": "docs/implementation/WRK-08-native-prepare-smoke.md",
+      "bytes": 3344,
+      "sha256": "54157cb1275253db7c6b295bf6f22661d97b00304084608d812d623e98b1f24b"
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/checks.json",
+      "bytes": 431,
+      "sha256": "70e5a64d8726510c3a0e1c36bc7e5b446487aa7c486e396cfca750b4b4d22c30"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/clippy.log",
+      "bytes": 881,
+      "sha256": "ca0c1b4a4ec31c7f82d8487bc2c208f96c51eaee2d0af058d20df3d396b8dc01"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/daemon-debug-poll-refusal.log",
+      "bytes": 1461,
+      "sha256": "46d0d43c0d39376d54caa6fad96ee73f95102f8959fe351f9ca35f2fe616d599"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/daemon-debug-preflight.log",
+      "bytes": 1178,
+      "sha256": "cdded2da48fad002b7c2ff19dcb9cebd1a43adb461fd4c357d0df5dac25d035a"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/daemon-debug-status.log",
+      "bytes": 1750,
+      "sha256": "c41278c193e16d7552dda2f60761b21bf266284f479cfdd1085c1c83fa5a280d"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/daemon-diagnostic-failure.log",
+      "bytes": 1104,
+      "sha256": "2e9dc074ffa78a3128da1135ac6315d8bcf2dbfbe399b4554e1e7d4787de1be8"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/daemon-release-refusal.log",
+      "bytes": 3694,
+      "sha256": "5e379fc5ac1d6c8d0482be868bdb16c18e713f546465d3991d0ce4eece759011"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/debug-build.log",
+      "bytes": 1476,
+      "sha256": "44919b2fe3b66bcedd6baa3e8251f3346436fcb98a9c03349333e2b9351c334d"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/debug-redaction.json",
+      "bytes": 953,
+      "sha256": "0035300b068d63315b62b19f7df34122a3cdb9e99923cccd65eae19f9d66c5f3"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/development-compile.log",
+      "bytes": 2928,
+      "sha256": "193169a6f1644f534c28cabb251347e8911c2df99f76474a4f3b2b892e7fca6b"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/feature-gate.json",
+      "bytes": 113,
+      "sha256": "784900ebd3226469f34dce605232e7aa630a53179593737e77d4718ef2c79f07"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/release-artifact.json",
+      "bytes": 1232,
+      "sha256": "bf5103b1d37a8147e8fb0957c9b0e1a142170afd06a5d2dd3efd81c2f0aeefb6"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/release-build.log",
+      "bytes": 6153,
+      "sha256": "b87bbfd26c439cec4515ab943e81ce88159b45eef4eddb3bcd17b37b8d1cdae8"
+    },
+    {
+      "path": "docs/implementation/evidence/native-prepare-smoke-4eef294/unit.log",
+      "bytes": 585,
+      "sha256": "7d87c4db83d7ef18ac6c8bf525a3bba80cf3d5d95f8244f01e780fe8c9481001"
+    }
+  ]
+}

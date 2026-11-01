@@ -1,0 +1,27 @@
+{
+  "source_revision": "4eef2949c366013929eb196fefb23078012417a4",
+  "checks": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--package",
+        "aq-worker",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}
