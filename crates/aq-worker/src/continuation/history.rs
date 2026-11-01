@@ -169,6 +169,14 @@ pub struct ParkingHistory {
     pub retention: Option<ParkingRetentionHistory>,
 }
 impl ParkingHistory {
+    pub fn digest(&self) -> Result<Digest> {
+        Ok(aq_session_protocol::canonical_digest(self)?)
+    }
+    /// Finite data association only; the native owner still supplies live proof,
+    /// response authentication, exact CAS and actual fsync.
+    pub fn validate_advance(&self, next: &Self) -> Result<()> {
+        super::advance::validate_advance(self, next)
+    }
     /// Shape/association checks only. The native owner must additionally compare
     /// actual retained execution, host proof, filesystem pins and synced revision.
     pub fn validate(&self) -> Result<()> {
@@ -376,6 +384,18 @@ impl ParkingHistory {
                 .exported
                 .as_ref()
                 .context("parking receipt without actual export")?;
+            let upload = self
+                .source
+                .upload
+                .as_ref()
+                .context("parking receipt without uploader")?;
+            ensure!(
+                upload.begun
+                    && upload.pending.is_none()
+                    && upload.manifest_offset == transfer.manifest_bytes
+                    && upload.bundle_offset == transfer.bundle_bytes,
+                "parking receipt before completed upload"
+            );
             crate::source_transfer::steps::validate_retention_claim(
                 receipt,
                 transfer,
@@ -469,5 +489,12 @@ impl aq_session_protocol::Validate for ParkingIntent {
     fn validate(&self) -> std::result::Result<(), aq_session_protocol::ContractError> {
         ParkingIntent::validate(self)
             .map_err(|_| aq_session_protocol::ContractError::Invalid("worker parking intent"))
+    }
+}
+
+impl aq_session_protocol::Validate for ParkingHistory {
+    fn validate(&self) -> std::result::Result<(), aq_session_protocol::ContractError> {
+        ParkingHistory::validate(self)
+            .map_err(|_| aq_session_protocol::ContractError::Invalid("worker parking history"))
     }
 }
