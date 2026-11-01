@@ -133,7 +133,11 @@ Focused offline validation of this increment:
 Actual installed mapping, implicit-output/counting and provider qualification
 remain separate. In particular `max_output_tokens` is compared to the exact model
 selection but this CLI mapping does not enforce that output bound; a runtime
-qualification must refuse unsupported promises. Physical Running is kernel exec
+qualification must refuse unsupported promises. The separately tested
+[scoped Responses transport candidate](WRK-17-responses-output-bound.md) supplies
+that request parameter without treating the context reservation as enforcement;
+its production credential/owner join and provider qualification remain gated.
+Physical Running is kernel exec
 evidence, not a Codex ThreadStarted/TurnStarted or provider readiness assertion.
 Neither a manifest, input recipe, offline peer nor these tests grants execution
 eligibility. Frozen package archives require a fresh source snapshot for this

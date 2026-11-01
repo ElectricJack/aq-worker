@@ -32,9 +32,9 @@ The current input mapping supports OpenAI API-key material, the exact pinned CLI
 version, low/medium/high reasoning, a noninteractive session and no spending
 budget. It refuses unsupported mandatory capability, model/harness/permissions
 changes and malformed payload. Max-output enforcement, implicit prompt/counting
-semantics, effective tool authorization, sandbox resource strength, real CLI
-standalone ownership and protected auth publication still require the concrete
-qualified executor. The production runner must remain ineligible until those
+semantics, effective tool authorization and sandbox resource strength still
+require qualification. The concrete native host now implements intent-bound
+private auth publication and kernel process ownership, as described below. The production runner must remain ineligible until those
 requirements are established; flags alone do not prove isolation.
 
 Validation: 10 adapter tests passed in 0.04 s (6 new Codex tests plus 4 retained
@@ -51,15 +51,17 @@ Authoritative interface references were inspected directly: installed `codex
 [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 No operator authentication files or provider services were inspected.
 
-Next host seam is explicit: the observed native Codex installation is about
-319 MiB, exceeding the old InstalledAdapter 256 MiB and observed small-ELF 4 MiB
-profiles. New named installation/image/observation profiles must account for its
-actual bytes and exact stdin before WRK-18 can join a concrete host executor.
-The existing small-ELF profile and frozen archives remain unchanged.
+The [explicit native exec profile](WRK-17-native-exec-profile.md) implements
+large-ELF installation accounting, immutable preflight image reuse, exact sealed
+stdin, intent-bound private auth publication and matching ECHILD cleanup. The
+old small-ELF profile and frozen archives retain their identities. Use
+`CodexExecProfile::prepare_native` with the separately admitted installation to
+avoid rehashing a large executable during each attempt.
 
-The next [explicit native exec profile](WRK-17-native-exec-profile.md) is now
-implemented as a separate candidate: real large-ELF installation accounting,
-immutable preflight image reuse and exact sealed stdin at the actual observed
-host gate. Use `CodexExecProfile::prepare_native` with that installation to avoid
-rehashing a large executable during every attempt. Product packaging, private
-configuration publication and concrete executor qualification still remain.
+The [scoped Responses transport candidate](WRK-17-responses-output-bound.md)
+records the frozen output-cap interpretation, exact-version config/catalog
+finding, bounded cap injection and remaining production qualification. The closed
+mapper explicitly disables hosted web search; actual request observation must
+verify the effective tool set. Product packaging must snapshot the final source
+and exact component pins. Production execution remains refused until the
+remaining concrete provider/limit/owner join is qualified.
