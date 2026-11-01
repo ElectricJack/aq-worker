@@ -1,0 +1,19 @@
+   Compiling aq-worker v0.3.3 (/home/jkern/dev/aq-worker/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 5.67s
+     Running tests/native_preparation_v2.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/native_preparation_v2-5d2880d92ef9c1b2)
+
+running 11 tests
+test expired_original_scope_and_bad_negotiation_refuse_before_send ... ok
+test changed_or_unexpected_proposal_cannot_refresh_historical_offer ... ok
+test cancelling_a_waiter_releases_the_bounded_control_slot ... ok
+test redelivered_offer_preserves_original_publication_and_local_cap ... ok
+test execution::expired_execution_observation_never_resurrects_on_retry ... ok
+test malformed_wrong_nonce_changed_receipt_late_and_oversized_responses_refuse ... ok
+test execution::execution_refuses_wrong_nonce_kind_history_late_large_redirect_and_changed_request ... ok
+test delayed_proposal_does_not_resample_the_original_clock ... ok
+test execution::canceled_execution_reply_remains_unknown_and_cannot_enable_late_first_send ... ok
+test actual_accepted_delivery_outlasts_proposal_and_exact_retry_never_extends_it ... ok
+test execution::execution_outlasts_accepted_preparation_and_retry_preserves_first_observation ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+
