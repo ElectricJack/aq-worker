@@ -1,7 +1,8 @@
 # Scoped Responses transport extraction
 
 Source-first seam frozen before extraction. Baseline is worker `45420eb` plus
-the regression-only commit containing this document. No production transport,
+regression-only `4ff62a5`; all14 bounded tests passed before factoring
+([record](evidence/responses-transport-extraction/baseline.json)). No production transport,
 launch, material owner, helper or admission behavior changes in that baseline.
 No provider request or capsule process is part of qualification.
 
@@ -79,6 +80,9 @@ original-record and source identity checks; it cannot mint authority or extend
 expiry. No upstream key is serialized, debugged, returned in metadata or sent
 to the local caller.
 
+`cancel()` triggers a synchronous local deny latch and wakes serving shutdown;
+it is not completed closure or a stop receipt. Awaited `stop()`/serving-task
+completion must close forwarding before the aggregate claims closure.
 Cancellation drops the serving future while a blocking read may finish later.
 That late value is zeroizing and cannot resume forwarding. Stop/drop fences
 before any physical capsule stop; an in-progress filesystem read itself is not

@@ -1,0 +1,61 @@
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-responses-transport-v2/crates/aq-session-protocol)
+   Compiling aq-protocol v0.1.0 (/tmp/aq-responses-transport-v2/crates/aq-protocol)
+   Compiling aq-worker-protocol v0.2.0 (/tmp/aq-responses-transport-v2/crates/aq-worker-protocol)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-responses-transport-v2/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/aq-responses-transport-v2/crates/aq-lifecycle-protocol)
+   Compiling aq-session-api v0.1.0 (/tmp/aq-responses-transport-v2/vendor/aq-session-api-0.1.0)
+   Compiling aq-terminal-relay v0.1.0 (/tmp/aq-responses-transport-v2/vendor/aq-terminal-relay-0.1.0)
+   Compiling aq-admission v0.1.9 (/tmp/aq-responses-transport-v2/vendor/aq-admission-0.1.9)
+   Compiling aq-session-host v0.1.5 (/tmp/aq-responses-transport-v2/crates/aq-session-host)
+   Compiling aq-phase-terminal-protocol v0.1.0 (/tmp/aq-responses-transport-v2/vendor/aq-phase-terminal-protocol-0.1.0)
+   Compiling aq-terminal-bridge v0.1.2 (/tmp/aq-responses-transport-v2/crates/aq-terminal-bridge)
+   Compiling aq-codex-mapper v0.1.0 (/tmp/aq-responses-transport-v2/crates/aq-codex-mapper)
+   Compiling aq-worker v0.3.4 (/tmp/aq-responses-transport-v2/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 21.77s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-66b17750efd124f1)
+
+running 9 tests
+test native::adapter::responses_transport::policy::tests::changed_selection_ambiguous_json_stateful_and_unbounded_requests_refuse ... ok
+test native::adapter::responses_transport::policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+test native::adapter::responses_transport::policy::tests::injects_exact_response_cap_preserving_every_other_setting ... ok
+test native::adapter::responses_transport::policy::tests::server_side_references_and_hosted_tools_refuse_before_cap_insertion ... ok
+test native::adapter::responses_transport::tests::endpoint_and_key_scope_refuse_before_serving ... ok
+test native::adapter::responses_transport::tests::exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_preserved_sse ... ok
+test native::adapter::responses_transport::tests::exact_http_route_host_capability_and_framing_refuse_without_forwarding ... ok
+test native::adapter::responses_transport::tests::stop_cancels_pending_upstream_and_ambiguous_http_never_forwards ... ok
+test native::adapter::responses_transport::tests::upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 152 filtered out; finished in 0.04s
+
+
+Command: cargo test --offline -p aq-worker --lib retained_transport -- --test-threads=1
+    Finished `test` profile [unoptimized] target(s) in 0.11s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-66b17750efd124f1)
+
+running 2 tests
+test native::materials::scoped_transport_tests::retained_transport_generates_fresh_cap_and_refuses_changed_original_before_forwarding ... ok
+test native::materials::scoped_transport_tests::retained_transport_refuses_manifest_substitution_without_starting_upstream ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.32s
+
+
+Command: cargo test --offline -p aq-worker --lib logical_stop_fence -- --test-threads=1
+    Finished `test` profile [unoptimized] target(s) in 0.11s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-66b17750efd124f1)
+
+running 1 test
+test native::preparation::launch::scoped_transport_scenarios::logical_stop_fence_closes_transport_before_any_async_physical_stop_poll ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 160 filtered out; finished in 0.00s
+
+
+Command: cargo test --offline -p aq-worker --lib extracted_mapper_preserves_complete -- --test-threads=1
+    Finished `test` profile [unoptimized] target(s) in 0.10s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-66b17750efd124f1)
+
+running 2 tests
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_base_command_golden ... ok
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_scoped_command_golden ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.01s
+
