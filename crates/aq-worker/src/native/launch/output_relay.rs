@@ -388,15 +388,15 @@ async fn drain(outputs: Weak<Mutex<Outputs>>, entry: Weak<Entry>, relay: Weak<Re
                 continue;
             };
             let stopped = matches!(physical.outcome, Outcome::Stopped | Outcome::Unknown);
-            let Some(observer) = physical.observer.as_mut() else {
+            if physical.observer.is_none() {
                 relay.draining.store(false, Ordering::SeqCst);
                 return;
-            };
+            }
             let Ok(tail) = outputs.tails.tail_mut(&relay.terminal) else {
                 relay.draining.store(false, Ordering::SeqCst);
                 return;
             };
-            match observer.poll() {
+            match physical.poll_output() {
                 Ok(events) => {
                     let empty = events.is_empty();
                     for event in events {
