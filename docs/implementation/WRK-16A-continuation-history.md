@@ -83,3 +83,29 @@ independent sibling modules on worker0.3.4 baseline; it does not qualify the
 separate worker0.5/FORMAT12 integration, private live stopped-workspace bridge,
 actual tmux/Git, coordinator exchange or capacity projection. The five tests use
 explicitly synthetic history/summary/source records and do not mint proof.
+
+## Finite journal advancement follow-up
+
+`ParkingHistory::digest` uses the existing canonical session-protocol digest.
+`ParkingHistory::validate_advance` accepts an exact idempotent replay or one
+finite source/upload step. It preserves original intent/stop/source facts and
+requires checkpoint/export requests before their results, keeps pending chunk
+UUID/recipe stable, and advances only that exact acknowledged range. A newly
+pending range must follow the shared planner's deterministic bounded next-range
+recipe. Neither matching JSON nor this validator supplies actual response,
+filesystem, stop or coordinator authority. Native `parking_commit` must still
+hold the opaque physical owner, compare the current digest and fsync the update.
+The actual stopped anchor is inserted only by the separate physical bridge;
+this finite helper cannot introduce/change it.
+
+The focused follow-up tests reject bypassed fsync stages, changed intent/root/
+stop pins, offset jumps without pending requests, replaced pending UUIDs and
+shortened next-range recipes. They also exercise the valid one-step sequence
+and stable digest/idempotent replay. Upload completion is required before even
+a structurally valid source-retention receipt can appear in history.
+
+Follow-up Target2 gate:7 pure continuation tests passed in0.02s after11.04s
+compilation,164 filtered and0 skipped/failed. Affected `--lib` Clippy first
+rejected two unnecessary unwraps; explicit absence errors replaced those calls
+and strict rerun passed5.54s. No physical, coordinator or native integration gate
+was run. Target2 was released after the focused gate.

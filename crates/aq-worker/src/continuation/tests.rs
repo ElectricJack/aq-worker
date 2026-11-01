@@ -215,3 +215,94 @@ fn source_budget_and_origin_projection_cannot_be_omitted_or_overstated() {
     changed.source.observed_workspace_bytes = Some(changed.intent.reserved_disk_bytes);
     assert!(changed.completed_source_claim().is_err());
 }
+
+#[test]
+fn finite_advance_requires_each_frozen_git_step_and_immutable_stop_intent() {
+    let h = stopped_history();
+    let planned = plan_checkpoint(&h, object('a'), 4096).unwrap();
+    h.validate_advance(&planned).unwrap();
+    planned.validate_advance(&planned).unwrap();
+    assert_ne!(h.digest().unwrap(), planned.digest().unwrap());
+    let checkpoint = record_checkpoint(&planned, json!({"workspace_id":h.intent.workspace.workspace_id,"workspace_generation":2,"source":object('b'),"retention_handle":id(300),"unchanged":false})).unwrap();
+    planned.validate_advance(&checkpoint).unwrap();
+    assert!(
+        h.validate_advance(&checkpoint).is_err(),
+        "cannot bypass durable checkpoint intent"
+    );
+    let exported_intent = plan_export(&checkpoint).unwrap();
+    checkpoint.validate_advance(&exported_intent).unwrap();
+    let completed = complete();
+    exported_intent.validate_advance(&completed).unwrap();
+    let transferred = plan_transfer(&completed).unwrap();
+    completed.validate_advance(&transferred).unwrap();
+    let mut changed = planned.clone();
+    changed.intent.pins.workspace.inode += 1;
+    assert!(h.validate_advance(&changed).is_err());
+    let mut changed = planned;
+    changed.stop.as_mut().unwrap().proof_digest = Digest::of(b"changed proof");
+    assert!(h.validate_advance(&changed).is_err());
+}
+
+#[test]
+fn finite_upload_advances_preserve_pending_recipe_and_reject_unearned_offsets() {
+    use aq_worker_protocol::{TransferChunkRequest, TransferFile};
+    let initial = plan_transfer(&complete()).unwrap();
+    let mut begun = initial.clone();
+    begun.source.upload.as_mut().unwrap().begun = true;
+    initial.validate_advance(&begun).unwrap();
+    let size = begun.source.transfer.as_ref().unwrap().manifest_bytes;
+    let mut jumped = begun.clone();
+    jumped.source.upload.as_mut().unwrap().manifest_offset = size;
+    assert!(
+        begun.validate_advance(&jumped).is_err(),
+        "offsets need an exact pending request"
+    );
+    let mut pending = begun.clone();
+    let upload = pending.source.upload.as_mut().unwrap();
+    upload.pending = Some(TransferChunkRequest {
+        identity: upload.identity.clone(),
+        operation_id: id(400),
+        transfer_id: pending.intent.operations.transfer,
+        file: TransferFile::Manifest,
+        offset: 0,
+        length: size as u32,
+        digest: "d".repeat(64),
+    });
+    begun.validate_advance(&pending).unwrap();
+    let mut short = pending.clone();
+    short
+        .source
+        .upload
+        .as_mut()
+        .unwrap()
+        .pending
+        .as_mut()
+        .unwrap()
+        .length -= 1;
+    assert!(
+        begun.validate_advance(&short).is_err(),
+        "chunk recipe uses the full bounded next range"
+    );
+    let mut changed = pending.clone();
+    changed
+        .source
+        .upload
+        .as_mut()
+        .unwrap()
+        .pending
+        .as_mut()
+        .unwrap()
+        .operation_id = id(401);
+    assert!(
+        pending.validate_advance(&changed).is_err(),
+        "pending operation cannot be replaced"
+    );
+    let mut wrong = pending.clone();
+    wrong.source.upload.as_mut().unwrap().manifest_offset = size - 1;
+    wrong.source.upload.as_mut().unwrap().pending = None;
+    assert!(pending.validate_advance(&wrong).is_err());
+    pending.validate_advance(&jumped).unwrap();
+    let mut changed = jumped.clone();
+    changed.source.upload.as_mut().unwrap().begun = false;
+    assert!(jumped.validate_advance(&changed).is_err());
+}
