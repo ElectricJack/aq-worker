@@ -45,6 +45,14 @@ struct Config {
     capabilities: Vec<Capability>,
     features: Vec<Feature>,
     renderer: ArtifactRef,
+    phase_preparation: Option<PhaseConfig>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PhaseConfig {
+    negotiation: aq_admission::preparation_v2::Negotiation,
+    source_profile: ArtifactRef,
+    maximum_preparation_ms: u64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -208,6 +216,56 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         deadline,
         disk,
     )?;
+    if let Some(phase) = config.phase_preparation {
+        *stage = "phase_proposal";
+        let proposed = client
+            .propose_preparation(
+                &journal.state().identity,
+                &offer,
+                &phase.negotiation,
+                deadline,
+            )
+            .await?;
+        *stage = "phase_accept_intent";
+        let request = journal.begin_phase_accept(
+            id,
+            &proposed,
+            config.capabilities,
+            phase.source_profile,
+            phase.maximum_preparation_ms,
+        )?;
+        *stage = "phase_accept";
+        let observed = client.accept_preparation(&proposed, &request, None).await?;
+        *stage = "phase_received_history";
+        let first = journal.record_phase_preparation(id, &observed)?;
+        journal.check_phase_preparation(id, &observed)?;
+        // Explicit test-only pause proves actual replay after the original local
+        // proposal cap. The separately issued no-launch lease remains unchanged.
+        let pause_ns = deadline
+            .saturating_sub(boot_ns()?)
+            .checked_add(10_000_000)
+            .context("phase probe pause overflow")?;
+        ensure!(
+            pause_ns <= 5_000_000_000,
+            "bounded phase probe pause required"
+        );
+        tokio::time::sleep(std::time::Duration::from_nanos(pause_ns)).await;
+        *stage = "phase_replay";
+        let replay = client
+            .accept_preparation(&proposed, &request, Some(&observed))
+            .await?;
+        let retained = journal.record_phase_preparation(id, &replay)?;
+        let cap = journal.check_phase_preparation(id, &replay)?;
+        current_root(&config.root, &held)?;
+        emit(
+            &json!({"phase":"accepted_preparation","request":request,"proposal":proposed.proposal(),
+            "initial_delivery":observed.delivery(),"replay_delivery":replay.delivery(),
+            "history":retained,"first_history":first,"journal_revision":journal.state().revision,
+            "journal_format":journal.state().format,"original_deadline_ns":deadline,
+            "checked_at_ns":boot_ns()?,"deadline_ns":cap}),
+        )?;
+        return Ok(());
+    }
     let accept = journal.begin_accept(id, config.capabilities)?;
     *stage = "accept";
     let preparation = Arc::new(client.accept(&accept, deadline, None).await?);
