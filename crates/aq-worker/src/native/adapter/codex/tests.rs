@@ -23,6 +23,68 @@ fn fixture() -> (NativeOffer, Vec<u8>) {
     )
 }
 const PEER: &[u8] = b"#!/usr/bin/python3\nimport sys,json,hashlib,os\np=sys.stdin.buffer.read(1048577)\nprint(json.dumps({'bytes':len(p),'digest':hashlib.sha256(p).hexdigest(),'args':sys.argv[1:],'ambient_secret':os.environ.get('AQ_TEST_AMBIENT_SECRET')}))\n";
+fn normalized_recipe_golden(scoped: bool) -> Vec<u8> {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let (offer, payload) = fixture();
+    let digest = crate::native::journal::canonical_digest(&offer.offered.offer.manifest).unwrap();
+    let mut adapter = installed(root.path(), &offer);
+    let mut prepared = profile(&offer)
+        .prepare(&mut adapter, &offer, &digest, payload, &work, &home)
+        .unwrap();
+    if scoped {
+        prepared = prepared
+            .with_scoped_provider("http://127.0.0.1:32123")
+            .unwrap();
+    }
+    let mut bytes = serde_json::to_string_pretty(prepared.command())
+        .unwrap()
+        .replace(root.path().to_str().unwrap(), "<fixture>")
+        .into_bytes();
+    bytes.push(b'\n');
+    bytes
+}
+#[test]
+fn extracted_mapper_preserves_complete_base_command_golden() {
+    assert_eq!(
+        normalized_recipe_golden(false),
+        include_bytes!("goldens/base.json")
+    );
+}
+#[test]
+fn extracted_mapper_preserves_complete_scoped_command_golden() {
+    assert_eq!(
+        normalized_recipe_golden(true),
+        include_bytes!("goldens/scoped.json")
+    );
+}
+#[test]
+fn scoped_provider_retains_closed_origin_validation() {
+    assert_eq!(
+        scoped_origin("http://127.0.0.1:32123/").unwrap(),
+        "http://127.0.0.1:32123"
+    );
+    for origin in [
+        "http://localhost:32123",
+        "https://127.0.0.1:32123",
+        "http://127.0.0.1",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:32123/v1",
+        "http://user@127.0.0.1:32123",
+        "http://127.0.0.1:32123?query=1",
+        "http://127.0.0.1:32123#fragment",
+        "http://192.0.2.1:32123",
+    ] {
+        assert!(
+            scoped_origin(origin).is_err(),
+            "unexpected origin acceptance: {origin}"
+        );
+    }
+}
 fn installed(dir: &Path, offer: &NativeOffer) -> InstalledAdapter {
     let path = dir.join("executable");
     std::fs::write(&path, PEER).unwrap();

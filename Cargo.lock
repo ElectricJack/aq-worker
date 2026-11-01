@@ -132,6 +132,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-codex-mapper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aq-session-protocol",
+ "toml",
+]
+
+[[package]]
 name = "aq-lifecycle-protocol"
 version = "0.1.0"
 dependencies = [
@@ -330,6 +339,7 @@ version = "0.3.4"
 dependencies = [
  "anyhow",
  "aq-admission",
+ "aq-codex-mapper",
  "aq-phase-terminal-protocol",
  "aq-protocol",
  "aq-session-host",

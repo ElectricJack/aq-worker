@@ -5,9 +5,9 @@ use anyhow::Context;
 use aq_admission::startup::NativeOffer;
 use aq_session_host::LocalCommand;
 use aq_session_protocol::{HarnessSettings, ModelSettings};
-use std::{collections::BTreeMap, io::Write, path::Path};
+use std::{io::Write, path::Path};
 
-pub const CODEX_CLI_VERSION: &str = "0.166.0";
+pub use aq_codex_mapper::CODEX_CLI_VERSION;
 const MAX_EVENT: usize = 32768;
 
 /// Operator-selected exact settings, not settings inferred from an offer.
@@ -122,28 +122,11 @@ impl CodexExecProfile {
                     == self.permissions_digest,
             "Codex exact installed settings mismatch"
         );
-        ensure!(
-            self.harness.harness.as_str() == "codex"
-                && self.harness.cli_version.as_str() == CODEX_CLI_VERSION
-                && self.model.provider.as_str() == "openai"
-                && self.model.spending_budget.is_none()
-                && matches!(self.model.reasoning.as_str(), "low" | "medium" | "high")
-                && !manifest.terminal.input_enabled,
-            "Codex exec unsupported settings"
-        );
-        for cap in &self.harness.required_capabilities {
-            ensure!(
-                matches!(
-                    cap.id.as_str(),
-                    "aq.profiled-launch"
-                        | "aq.terminal"
-                        | "aq.harness.startup-context"
-                        | "aq.harness.confined-worktree"
-                        | "aq.harness.stop"
-                ) && cap.version == 1,
-                "Codex exec unsupported mandatory capability"
-            );
-        }
+        aq_codex_mapper::validate_settings(aq_codex_mapper::Settings {
+            harness: &self.harness,
+            model: &self.model,
+            terminal_input_enabled: manifest.terminal.input_enabled,
+        })?;
         descriptor.validate()?;
         descriptor.verify_payload(&payload)?;
         ensure!(
@@ -189,76 +172,23 @@ impl CodexExecProfile {
                 "Codex private home must be fresh and empty"
             );
         }
-        let executable = executable.to_owned();
-        let mut arguments = vec![
-            "--no-daemon".into(),
-            "exec".into(),
-            "--ignore-user-config".into(),
-            "--ignore-rules".into(),
-            "--ephemeral".into(),
-            "--json".into(),
-            "--color".into(),
-            "never".into(),
-            "--sandbox".into(),
-            "workspace-write".into(),
-            "--model".into(),
-            self.model.model.as_str().into(),
-            "--cd".into(),
-            workspace.to_str().context("Codex workspace UTF8")?.into(),
-        ];
-        let overrides = [
-            format!(
-                "model_reasoning_effort={}",
-                toml::Value::String(self.model.reasoning.as_str().into())
-            ),
-            "approval_policy=\"never\"".into(),
-            "project_doc_max_bytes=0".into(),
-            "project_doc_fallback_filenames=[]".into(),
-            "sandbox_workspace_write.writable_roots=[]".into(),
-            "sandbox_workspace_write.exclude_slash_tmp=true".into(),
-            "sandbox_workspace_write.exclude_tmpdir_env_var=true".into(),
-            "sandbox_workspace_write.network_access=false".into(),
-            "shell_environment_policy.inherit=\"none\"".into(),
-            // Codex's tool sandbox helper also needs PATH for trusted OS helpers.
-            // This is an explicit fixed value, never inherited operator context.
-            "shell_environment_policy.set.PATH=\"/usr/bin:/bin\"".into(),
-            "features.shell_snapshot=false".into(),
-            "features.shell_snapshot_v2=false".into(),
-            "allow_login_shell=false".into(),
-            "shell_environment_policy.experimental_use_profile=false".into(),
-            "agents.enabled=false".into(),
-            "features.plugins=false".into(),
-            "features.recommended_plugins=false".into(),
-            "features.remote_plugin=false".into(),
-            "features.plugin_discovery_prefetch=false".into(),
-            "features.plugin_hooks=false".into(),
-            "features.plugin_sharing=false".into(),
-            "features.apps=false".into(),
-            "features.enable_mcp_apps=false".into(),
-            "features.codex_apps_mcp_2026_07_28=false".into(),
-            "features.external_agent_memory_import=false".into(),
-            "features.memory_tool=false".into(),
-            "memories.use_memories=false".into(),
-            "memories.generate_memories=false".into(),
-            "web_search=\"disabled\"".into(),
-            format!(
-                "projects.{}.trust_level=\"untrusted\"",
-                toml::Value::String(workspace.to_str().unwrap().into())
-            ),
-        ];
-        for value in overrides {
-            arguments.push("--config".into());
-            arguments.push(value);
-        }
-        arguments.push("-".into());
+        let recipe = aq_codex_mapper::map(
+            aq_codex_mapper::Settings {
+                harness: &self.harness,
+                model: &self.model,
+                terminal_input_enabled: manifest.terminal.input_enabled,
+            },
+            aq_codex_mapper::Paths {
+                executable,
+                workspace,
+                private_home,
+            },
+        )?;
         Ok(PreparedCodexExec {
             command: LocalCommand {
-                executable,
-                arguments,
-                environment: BTreeMap::from([(
-                    "CODEX_HOME".into(),
-                    private_home.to_str().context("Codex home UTF8")?.into(),
-                )]),
+                executable: recipe.executable,
+                arguments: recipe.arguments,
+                environment: recipe.environment,
             },
             startup: Zeroizing::new(payload),
             manifest_digest: expected_manifest.clone(),
@@ -289,19 +219,11 @@ impl PreparedCodexExec {
         let origin = scoped_origin(origin)?;
         let position = self.command.arguments.len() - 1;
         let mut overrides = Vec::new();
-        for setting in [
-            format!(
-                "openai_base_url={}",
-                toml::Value::String(format!("{origin}/v1"))
-            ),
-            "features.api_key_model_discovery=false".into(),
-            "features.responses_websockets=false".into(),
-            "features.responses_websockets_v2=false".into(),
-            "analytics.enabled=false".into(),
-            "otel.exporter=\"none\"".into(),
-            "otel.trace_exporter=\"none\"".into(),
-            "otel.metrics_exporter=\"none\"".into(),
-        ] {
+        let port = reqwest::Url::parse(&origin)?
+            .port()
+            .context("Codex scoped port")?;
+        let endpoint = aq_codex_mapper::LoopbackResponsesEndpoint::new(port)?;
+        for setting in aq_codex_mapper::responses_overrides(endpoint) {
             overrides.push("--config".into());
             overrides.push(setting);
         }
