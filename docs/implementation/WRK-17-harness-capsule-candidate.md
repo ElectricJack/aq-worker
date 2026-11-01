@@ -33,7 +33,7 @@ or forbidden namespace setup rather than fall back to shared views.
 Use a dedicated single-threaded helper, not `unshare` in the asynchronous
 worker. It creates a single-ID user namespace mapping the current host UID
 and GID, a private mount namespace with private propagation, network namespace,
-PID namespace and UTS namespace. No root worker, subordinate IDs, setuid
+PID namespace, IPC namespace and UTS namespace. No root worker, subordinate IDs, setuid
 `newuidmap`, privileged service, or runtime bwrap dependency is required for
 this shape. Host policy may disable rootless user namespaces; such a node is
 ineligible until an independently reviewed alternative exists.
@@ -60,13 +60,60 @@ mount an external folder necessarily grants the contents reachable inside it.
 Mount only the derived auth/config home, not its parent launch directory or
 original material directory. Close every descriptor except the exact terminal,
 sealed stdin, narrowly scoped setup channel and selected executable owner;
-close setup/executable descriptors at final exec where appropriate. Explicit
+close all setup/listener-transfer control descriptors before untrusted exec,
+and mark retained executable descriptors close-on-exec. Explicit
 environment construction omits worker/private-record/session metadata. Drop
 all capability sets and bounding capabilities and set `NoNewPrivs` before
 untrusted code. Parent namespace handles and source descriptors are never
 transferred. Descendants cannot regain a view of an ancestor PID namespace
 by creating their own user namespace. Exact mount-lock/remount and alternate
 namespace attack cases still require qualification for the new profile.
+
+## IPC policy: a private network namespace alone is insufficient
+
+Network namespaces isolate IP resources and the abstract Unix socket
+namespace. They do not make a pathname Unix socket inaccessible if its inode
+is exposed through a mounted workspace, allowed folder or internal Git root.
+Readonly/nosuid/nodev binds do not prevent that connection, and scanning a
+writable workspace for sockets races future creation. The separate negative
+canary below actually connects to an outer pathname listener after entering
+a new network namespace. See the primary Linux
+[network namespace documentation](https://www.man7.org/linux/man-pages/man7/network_namespaces.7.html)
+and [Unix socket documentation](https://www.man7.org/linux/man-pages/man7/unix.7.html).
+
+The next **candidate** is an inherited kernel syscall policy installed by
+trusted setup before any untrusted exec, combined with the private filesystem,
+network and IPC views. The bounded x86_64 canary tests this subset:
+
+- New sockets permit only reviewed `AF_INET`/`AF_INET6` families; a fresh
+  `AF_UNIX` socket is denied, including stream and seqpacket sockets. Unknown
+  families are refused instead of assuming they obey IP namespace isolation.
+- Anonymous `AF_UNIX` stream/seqpacket socketpairs with protocol 0 are allowed
+  for local parent/child helper IPC. Datagram socketpairs are refused: the
+  negative control demonstrates retargeting one to an outer pathname service.
+- `io_uring_setup`, `io_uring_enter` and `io_uring_register` are refused so
+  socket creation does not escape the reviewed syscall path. Unexpected
+  syscall architectures and x32 encodings are rejected; more architectures
+  require their own closed qualification.
+- No externally connected Unix socket, setup socket or namespace handle is
+  inherited. A permitted pair can exchange descriptors only with its locally
+  created peer; that is safe only if the original FD whitelist is already
+  closed and no outside control endpoint can inject descriptors.
+- A private IPC namespace excludes original System V shared-memory IDs.
+  Original POSIX IPC filesystems are not mounted. Shared workspace files are
+  intentional shared data, not a claim of preventing all communication.
+
+On the tested kernel, stream and seqpacket pairs refuse connect and reconnect
+to an outer pathname listener, including AF_UNSPEC and closed-peer/shutdown
+variants. Destination-bearing sendto/sendmsg either fail or deliver only to
+the original pair peer. Bind/listen can report success, so a return code alone
+is insufficient: SO_ACCEPTCONN remains 0, accept fails with EINVAL and an
+actual outer client is refused. This is finite kernel evidence, not a proof
+against every possible socket operation on every supported kernel. Keep the
+exact policy, kernel support, bypass analysis and nested helper compatibility
+as review/qualification gates. The policy deliberately removes behavior;
+unsupported applications must refuse rather than run with a weaker filter.
+No filter is installed in the actual AQ runtime by this increment.
 
 ## Secret and local transport sequencing
 
@@ -97,6 +144,11 @@ The following are proposed ownership seams, not exported APIs:
    channel using `SCM_RIGHTS`. The worker receives an FD bound to the child's
    network namespace without joining it. It can accept and serve connections
    on that FD while its upstream client remains in the worker network view.
+   The receiver verifies the trusted post-setup peer, nonce and stage and the
+   received FD's socket family/type, listening state and exact bound numeric
+   loopback origin. Trusted setup transfers it before untrusted exec and
+   closes its copy and all control-channel descriptors at that transition.
+   Never accept a listener or readiness claim supplied by the harness itself.
 4. The existing in-process Responses transport consumes this retained listener
    rather than binding its own parent loopback listener. Generate its fresh
    per-launch capability and publish derived auth/config under the existing
@@ -201,3 +253,15 @@ transition evidence, terminal ownership and crash recovery. Actual harness
 qualification waits for those boundaries and independent egress/filesystem
 confinement; disabling implicit plugin/login/snapshot settings alone is not
 sufficient.
+
+The first view/teardown canary intentionally retains a cooperative observation
+channel in its canary process. It proves FD transfer and process mechanics,
+**not** a secure final control protocol or listener join. Complementary run
+`python3 tools/qualification/probe-harness-ipc.py` demonstrates the actual
+pathname-socket gap, datagram retarget gap, the inherited syscall subset and
+private System V IPC exclusion. In this second canary, trusted pre-exec setup
+creates/transfers the TCP listener, the receiver checks the peer and FD, and
+the setup control FD is closed before clean canary exec. The filter survives
+both exec and a tested forked descendant. Neither canary is the composed
+production capsule, and neither invokes an agent or provider. Evidence is in
+[the kernel canary evidence folder](evidence/wrk17-harness-capsule/README.md).

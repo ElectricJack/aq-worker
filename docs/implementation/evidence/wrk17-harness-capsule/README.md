@@ -22,3 +22,16 @@ recovery, actual harness behavior or upstream provider semantics. All runtime
 profiles and factory gates remain unchanged. See
 [the candidate design](../../WRK-17-harness-capsule-candidate.md) for those
 requirements and the proposed distinct profile.
+
+`ipc-result.txt` separately records
+`python3 tools/qualification/probe-harness-ipc.py`. Its deliberate negative
+controls show that an outer pathname Unix socket remains reachable through
+the shared filesystem after netns setup, and a datagram pair can retarget to
+an outside endpoint. Its subsequent x86_64 syscall-policy canary denies new
+Unix/other socket families, datagram pairs and io_uring; allowed anonymous
+stream/seqpacket pairs do not retarget in the tested operations. A private IPC
+namespace also denies the original System V shared-memory ID. Trusted setup
+creates/transfers a child-netns TCP listener; its control FD closes before the
+canary exec. This corrects the cooperative-control limitation of the first
+probe rather than promoting that channel lifetime into a runtime pattern.
+There is no composed runtime filter or actual nested-tool compatibility proof.

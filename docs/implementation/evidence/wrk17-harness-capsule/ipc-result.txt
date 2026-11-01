@@ -1,0 +1,10 @@
+Kernel-only IPC policy canary, 2026-11-01
+command: python3 tools/qualification/probe-harness-ipc.py
+exit: 0
+elapsed_seconds: 0.26
+sha256 tools/qualification/harness-ipc-peer.c: 1e14eee0f97043022e1fa950628f20d22fd08042d1e6c26701abd43271f7a242
+sha256 tools/qualification/probe-harness-ipc.py: e890fdaaa6227ebe18b138cd1c7737a6649be577a27b65a235910eb453c6bd2e
+PASS inherited seccomp after clean exec denies new Unix/other socket families, datagram pairs and io_uring; anonymous stream/seqpacket pairs cannot retarget
+PASS setup control FD closed before canary exec; trusted setup's transferred child-netns listener still serves TCP
+PASS negative control: netns alone reaches outer pathname Unix stream socket; datagram socketpair retarget reaches outer service
+PASS private IPC namespace denies original System V shared memory ID; receiver verifies trusted peer and transferred listener family/type/accepting/origin
