@@ -1,0 +1,29 @@
+{
+  "revision": "85ba8096d2419c207545ab6e807191bdbe2c1f3b",
+  "files": {
+    "crates/aq-worker/src/native/http.rs": {
+      "sha256": "88fd4f2d7c0762287aafd8c17560f5f1b304bcf12920d7f22da31bb24496b7f8",
+      "bytes": 14126
+    },
+    "crates/aq-worker/src/native/http/phase_history.rs": {
+      "sha256": "fcd3bc30a05434572237bb2a002c65815c3a89abf880d53867b6da1d8816fefc",
+      "bytes": 2059
+    },
+    "crates/aq-worker/tests/native_phase_history.rs": {
+      "sha256": "b5cc1b0185118ec210f0b0e85bb1412b4e883bda5498345f8e23052f6987cc2d",
+      "bytes": 8610
+    },
+    "Cargo.toml": {
+      "sha256": "a2664e052ac3c2f22451ef304962e67a4d09ad6a52ff07ff61cafb2e08886a92",
+      "bytes": 2083
+    },
+    "Cargo.lock": {
+      "sha256": "f530f6795ed4e61021d1c875b5e069d350e14a5534ed0b32d2d34f81cfa6635f",
+      "bytes": 61584
+    },
+    "vendor/aq-phase-terminal-protocol-0.1.0.crate": {
+      "sha256": "1b3e4afbd9356f6d7027b0a4be3fe37e2231b55bdfa10269c87a84bf9568f0bb",
+      "bytes": 43951
+    }
+  }
+}
