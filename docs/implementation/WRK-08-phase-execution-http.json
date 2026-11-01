@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "source": "21404a2",
+  "archive_sha256": "30f4cfca11ff6840eab325026dfea33dd55c23e25099dedb303b52a1ede75b49",
+  "tests_passed": 11,
+  "tests_failed": 0,
+  "tests_ignored": 0,
+  "seconds": 0.85,
+  "clippy_seconds": 6.96,
+  "files": [
+    {
+      "path": "crates/aq-worker/src/native/http/preparation_v2.rs",
+      "sha256": "b6f2c3eb03af65149ceb7a14eed18fb7dfa29475d26bedfbe32acb483b5f0e9f"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/preparation_v2/execution.rs",
+      "sha256": "d5599b5a630282a610a09cb0e6b705d9ab9f04374e1fed875645235a456d0275"
+    },
+    {
+      "path": "crates/aq-worker/tests/native_preparation_v2.rs",
+      "sha256": "722fbe06360d493f1aa936698f66e13bb98f02a822ae2f1d772f105dc69489ec"
+    },
+    {
+      "path": "crates/aq-worker/tests/native_preparation_v2/execution.rs",
+      "sha256": "903bfb27a95cf90c27696244c195d1cb5e35f9d2f31f03727e37025257f63162"
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/evidence/wrk08-phase-execution-http-21404a2/tests.log",
+      "sha256": "8bd72a4897090723b43bd8bf03f278f6f407d21b49d54e2ddee9bb4e3c884604",
+      "bytes": 1300
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-phase-execution-http-21404a2/clippy.log",
+      "sha256": "eedd541d102ab6bffaed2de5d70b919f5e42c5ceafa90ea342435fda2cb6555b",
+      "bytes": 222
+    }
+  ],
+  "limitations": [
+    "Loopback frozen contract fixtures; server execution route remains unmounted.",
+    "Actual opaque network observations only: no durable phase grant owner, continuing renewal, host launch or recovery adoption.",
+    "Unknown or canceled first delivery cannot authorize retry after accepted preparation expires."
+  ]
+}

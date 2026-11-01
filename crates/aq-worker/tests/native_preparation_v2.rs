@@ -86,6 +86,11 @@ async fn handler(
             json!({"identity":data["accept"]["original"]["identity"],"binding":data["proposal"]["original"]["offered"]["offer"]["binding"],"negotiation":data["proposal"]["negotiation"]})
         );
         json!({"kind":"proposal","body":data["proposal"]})
+    } else if path == "prepare" {
+        assert_eq!(body, json!({"kind":"prepare","body":data["prepare"]}));
+        let mut delivery = data["delivery"].clone();
+        delivery["delivery"]["nonce"] = json!(nonce);
+        json!({"kind":"execution_delivery","body":delivery})
     } else {
         assert_eq!(path, "accept");
         assert_eq!(body, json!({"kind":"accept","body":data["accept"]}));
@@ -100,7 +105,9 @@ async fn handler(
         .unwrap()
     };
     match mode {
-        1 if path == "accept" => response["body"]["delivery"]["nonce"] = json!(Uuid::new_v4()),
+        1 if path == "accept" || path == "prepare" => {
+            response["body"]["delivery"]["nonce"] = json!(Uuid::new_v4())
+        }
         2 => response = json!({"kind":"execution_delivery","body":data["delivery"]}),
         3 => response["unexpected"] = json!(true),
         4 if path == "accept" => {
@@ -110,6 +117,27 @@ async fn handler(
             response["body"]["delivery"]["clock"] =
                 serde_json::to_value(DeliveryClock::new(31499, 31500).unwrap()).unwrap();
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        10 if path == "accept" => {
+            response["body"]["delivery"]["clock"] =
+                json!(DeliveryClock::new(31000, 31500).unwrap());
+        }
+        11 if path == "prepare" => {
+            response["body"]["delivery"]["clock"] =
+                json!(DeliveryClock::new(49999, 50000).unwrap());
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        12 if path == "prepare" => response = json!({"kind":"execution","body":data["execution"]}),
+        13 if path == "prepare" => {
+            response["body"]["receipt"]["grant"]["grant_id"] = json!(Uuid::new_v4())
+        }
+        14 if path == "prepare" => {
+            response["body"]["receipt"]["request_digest"] =
+                json!(aq_admission::Digest::of(b"changed"))
+        }
+        15 if path == "prepare" => {
+            response["body"]["delivery"]["clock"] =
+                json!(DeliveryClock::new(49900, 50000).unwrap());
         }
         9 if path == "proposal" => {
             response["body"]["original"]["offered"]["clock"]["server_time_ms"] = json!(1499)
@@ -368,3 +396,6 @@ async fn redelivered_offer_preserves_original_publication_and_local_cap() {
             .is_err()
     );
 }
+
+#[path = "native_preparation_v2/execution.rs"]
+mod execution;

@@ -53,6 +53,8 @@ struct PhaseConfig {
     negotiation: aq_admission::preparation_v2::Negotiation,
     source_profile: ArtifactRef,
     maximum_preparation_ms: u64,
+    #[serde(default)]
+    prepare_inputs: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -256,13 +258,61 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         let retained = journal.record_phase_preparation(id, &replay)?;
         let cap = journal.check_phase_preparation(id, &replay)?;
         current_root(&config.root, &held)?;
-        emit(
-            &json!({"phase":"accepted_preparation","request":request,"proposal":proposed.proposal(),
+        let mut result = json!({"phase":"accepted_preparation","request":request,"proposal":proposed.proposal(),
             "initial_delivery":observed.delivery(),"replay_delivery":replay.delivery(),
             "history":retained,"first_history":first,"journal_revision":journal.state().revision,
             "journal_format":journal.state().format,"original_deadline_ns":deadline,
-            "checked_at_ns":boot_ns()?,"deadline_ns":cap}),
-        )?;
+            "checked_at_ns":boot_ns()?,"deadline_ns":cap});
+        if phase.prepare_inputs {
+            let preparation = Arc::new(replay);
+            let pipeline = InputPipeline::new(journal, materials, client.clone());
+            *stage = "phase_artifacts";
+            let artifacts = pipeline.artifacts_phase(id, preparation.clone()).await?;
+            *stage = "phase_materials";
+            for lease in &preparation.delivery().receipt.lease.materials {
+                pipeline
+                    .material_phase(id, preparation.clone(), lease.lease_id)
+                    .await?;
+            }
+            let spec = offer
+                .offered
+                .artifacts
+                .iter()
+                .find(|d| {
+                    d.kind == ArtifactKind::Composition
+                        && d.artifact.id.as_str() == "aq.profiled-execution-spec"
+                        && d.artifact.digest == offer.offered.offer.binding.execution_spec_digest
+                })
+                .context("original typed phase spec absent")?;
+            *stage = "phase_hydrate";
+            let spec = pipeline
+                .artifact_phase(id, preparation.clone(), spec.artifact.clone())
+                .await?;
+            let workspace = pipeline
+                .hydrate_source_phase(id, preparation.clone(), spec, git)
+                .await?;
+            *stage = "phase_prepare_inputs";
+            let prepared = pipeline
+                .prepare_inputs_phase(id, preparation, artifacts, workspace, config.renderer)
+                .await?;
+            current_root(&config.root, &held)?;
+            // Actual opaque owners remain alive through observation. Emitted DTOs
+            // are diagnostic history and cannot create execution authority.
+            let snapshot = pipeline.snapshot().await?;
+            result["phase"] = json!("prepared_phase_inputs");
+            result["prepare_request"] = json!(prepared.request());
+            result["workspace_path"] = json!(prepared.workspace().workspace().path);
+            result["material_receipts"] = json!(
+                prepared
+                    .materials()
+                    .iter()
+                    .map(|m| m.receipt())
+                    .collect::<Result<Vec<_>>>()?
+            );
+            result["prepared_revision"] = json!(snapshot.revision);
+            result["prepared_at_ns"] = json!(boot_ns()?);
+        }
+        emit(&result)?;
         return Ok(());
     }
     let accept = journal.begin_accept(id, config.capabilities)?;
