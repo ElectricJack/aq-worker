@@ -1,5 +1,6 @@
 //! Separate durable no-launch phase provenance. Disk history grants no permission.
 use super::*;
+use crate::native::http::preparation_v2::validate_original_delivery;
 use crate::native::http::preparation_v2::{AcceptedPreparation, ProposedPreparation};
 use aq_admission::{
     Resources,
@@ -47,10 +48,10 @@ pub(super) fn validate(a: &Attempt, identity: &WorkerIdentity, revision: u64) ->
     };
     let r = &a.reservation;
     p.request.validate_for(&p.proposal)?;
+    validate_original_delivery(&p.proposal.original, &r.offer)?;
     ensure!(
         p.proposal_digest == p.proposal.digest()?
             && p.request_digest == p.request.digest()?
-            && same(&p.proposal.original, &r.offer)?
             && p.request.original.identity == *identity
             && a.acceptance
                 .as_ref()
@@ -125,10 +126,10 @@ impl Journal {
             .get(&id)
             .context("phase attempt absent")?;
         let r = &a.reservation;
+        validate_original_delivery(&proposed.proposal().original, &r.offer)?;
         ensure!(
-            same(&proposed.proposal().original, &r.offer)?
-                && proposed.original_deadline_ns() <= r.deadline_ns,
-            "phase proposal differs from reserved offer/cap"
+            proposed.original_deadline_ns() <= r.deadline_ns,
+            "phase proposal differs from reserved cap"
         );
         let cap = proposed.original_deadline_ns();
         let acceptance = ProfiledAcceptance {

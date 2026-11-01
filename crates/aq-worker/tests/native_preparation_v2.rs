@@ -324,3 +324,47 @@ async fn delayed_proposal_does_not_resample_the_original_clock() {
     s.peer.release.add_permits(1);
     assert!(task.await.unwrap().is_err());
 }
+
+#[tokio::test]
+async fn redelivered_offer_preserves_original_publication_and_local_cap() {
+    let s = Server::new().await;
+    let p: Proposal = serde_json::from_value(fixture()["proposal"].clone()).unwrap();
+    let q = s.request();
+    let mut delivered = p.original.clone();
+    delivered.offered.clock = DeliveryClock::new(1600, 2000).unwrap();
+    let cap = boot_ns() + 350_000_000;
+    let proposed = s
+        .client
+        .propose_preparation(&q.original.identity, &delivered, &p.negotiation, cap)
+        .await
+        .unwrap();
+    assert_eq!(
+        proposed.proposal().original.offered.clock.server_time_ms,
+        1500
+    );
+    assert_eq!(delivered.offered.clock.server_time_ms, 1600);
+    assert_eq!(proposed.original_deadline_ns(), cap);
+    let mut earlier = delivered.clone();
+    earlier.offered.clock = DeliveryClock::new(1400, 2000).unwrap();
+    assert!(
+        s.client
+            .propose_preparation(&q.original.identity, &earlier, &p.negotiation, cap)
+            .await
+            .is_err()
+    );
+    let mut changed = delivered.clone();
+    changed.offered.clock = DeliveryClock::new(1600, 1999).unwrap();
+    assert!(
+        s.client
+            .propose_preparation(&q.original.identity, &changed, &p.negotiation, cap)
+            .await
+            .is_err()
+    );
+    delivered.offered.reservation_ttl_ms = 499;
+    assert!(
+        s.client
+            .propose_preparation(&q.original.identity, &delivered, &p.negotiation, cap)
+            .await
+            .is_err()
+    );
+}
