@@ -100,6 +100,13 @@ fn exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata
             .iter()
             .any(|s| s == "web_search=\"disabled\"")
     );
+    for setting in [
+        "features.shell_snapshot=false",
+        "features.shell_snapshot_v2=false",
+        "allow_login_shell=false",
+    ] {
+        assert!(command.arguments.iter().any(|argument| argument == setting));
+    }
     assert!(
         !serde_json::to_string(command)
             .unwrap()
