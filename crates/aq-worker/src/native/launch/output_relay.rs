@@ -9,7 +9,15 @@ use aq_terminal_bridge::{
 use aq_terminal_relay_protocol::{self as wire, Peer, PeerUpload, Register, UploadAck};
 use std::sync::Weak;
 
-const MAX_UPLOAD: usize = 512 * 1024;
+// Match RelayHttp::output_upload's fixed wire-body limit. JSON byte arrays
+// need up to four bytes per raw byte, plus the fixed identity/envelope fields.
+const MAX_UPLOAD: usize = 256 * 1024;
+const MAX_LOCAL_FRAME_BYTES: u32 = ((MAX_UPLOAD - 16 * 1024) / 4) as u32;
+fn local_framing(policy: &TerminalPolicy) -> TerminalPolicy {
+    let mut local = policy.clone();
+    local.max_frame_bytes = local.max_frame_bytes.min(MAX_LOCAL_FRAME_BYTES);
+    local
+}
 #[derive(Default)]
 pub(super) struct Outputs {
     tails: OutputTails,
@@ -339,7 +347,9 @@ impl InputPipeline {
             !outputs.owners.contains_key(&host.entry.id),
             "native output already attached; no sequence reset"
         );
-        outputs.tails.attach(terminal.clone(), &policy)?;
+        outputs
+            .tails
+            .attach(terminal.clone(), &local_framing(&policy))?;
         let relay = Arc::new(Relay {
             terminal: terminal.clone(),
             attempt: host.entry.id,
