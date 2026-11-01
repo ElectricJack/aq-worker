@@ -6,6 +6,7 @@
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/filter.h>
+#include <linux/if_ether.h>
 #include <linux/seccomp.h>
 #include <net/if.h>
 #include <poll.h>
@@ -37,10 +38,24 @@ static void policy(void) {
         REJECT_SYSCALL(__NR_io_uring_setup),
         REJECT_SYSCALL(__NR_io_uring_enter),
         REJECT_SYSCALL(__NR_io_uring_register),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 5),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 19),
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_INET, 2, 0),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_INET6, 1, 0),
+        BPF_STMT(BPF_RET | BPF_K, DENY),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
+        BPF_STMT(BPF_ALU | BPF_AND | BPF_K, ~(SOCK_CLOEXEC | SOCK_NONBLOCK)),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOCK_STREAM, 0, 5),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 2, 0),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_TCP, 1, 0),
+        BPF_STMT(BPF_RET | BPF_K, DENY),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOCK_DGRAM, 1, 0),
+        BPF_STMT(BPF_RET | BPF_K, DENY),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 2, 0),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_UDP, 1, 0),
         BPF_STMT(BPF_RET | BPF_K, DENY),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socketpair, 0, 12),
@@ -124,9 +139,13 @@ static void trusted_setup(int control, const char *base, const char *self, int s
     REQUIRE(syscall(SYS_close_range, 3u, (unsigned)control - 1, 0) == 0);
     REQUIRE(syscall(SYS_close_range, (unsigned)control + 1, ~0u, 0) == 0);
     REQUIRE(close(control) == 0);
+    /* Distinguish filter refusal from cap-only refusal of the legacy PF_INET rewrite. */
+    int raw = socket(AF_INET, SOCK_PACKET | SOCK_CLOEXEC, htons(ETH_P_ALL)); REQUIRE(raw >= 0); close(raw);
+    policy();
+    REQUIRE(socket(AF_INET, SOCK_PACKET | SOCK_CLOEXEC, htons(ETH_P_ALL)) < 0 && errno == EPERM);
     for (int i = 0; i <= CAP_LAST_CAP; i++) REQUIRE(prctl(PR_CAPBSET_DROP, i, 0, 0, 0) == 0);
     struct __user_cap_header_struct header = {_LINUX_CAPABILITY_VERSION_3, 0}; struct __user_cap_data_struct caps[2] = {{0}}; REQUIRE(syscall(SYS_capset, &header, caps) == 0);
-    policy(); char p[20], fd[20]; snprintf(p, sizeof(p), "%d", port); snprintf(fd, sizeof(fd), "%d", control);
+    char p[20], fd[20]; snprintf(p, sizeof(p), "%d", port); snprintf(fd, sizeof(fd), "%d", control);
     char *argv[] = {(char *)self, "--untrusted-canary", (char *)base, p, fd, NULL}; char *env[] = {"PATH=/usr/bin:/bin", NULL}; execve(self, argv, env); REQUIRE(0);
 }
 int main(int argc, char **argv) {
@@ -134,6 +153,9 @@ int main(int argc, char **argv) {
         REQUIRE(fcntl(atoi(argv[4]), F_GETFD) < 0 && errno == EBADF);
         REQUIRE(socket(AF_UNIX, SOCK_STREAM, 0) < 0 && errno == EPERM);
         REQUIRE(socket(AF_NETLINK, SOCK_RAW, 0) < 0 && errno == EPERM);
+        REQUIRE(socket(AF_INET, SOCK_PACKET, htons(ETH_P_ALL)) < 0 && errno == EPERM);
+        REQUIRE(socket(AF_INET, SOCK_RAW, IPPROTO_RAW) < 0 && errno == EPERM);
+        REQUIRE(socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP) < 0 && errno == EPERM);
         int forbidden[2]; REQUIRE(socketpair(AF_UNIX, SOCK_DGRAM, 0, forbidden) < 0 && errno == EPERM);
         REQUIRE(syscall(SYS_io_uring_setup, 1, NULL) < 0 && errno == EPERM);
         pid_t descendant = fork(); REQUIRE(descendant >= 0);
@@ -178,5 +200,6 @@ int main(int argc, char **argv) {
     REQUIRE(write(tcp, "x", 1) == 1); close(tcp); close(listener); close(control[0]);
     int status; REQUIRE(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0); REQUIRE(shmdt(original_mapping) == 0);
     puts("PASS negative control: netns alone reaches outer pathname Unix stream socket; datagram socketpair retarget reaches outer service");
+    puts("PASS legacy AF_INET/SOCK_PACKET succeeds with namespace raw capability before filter and is denied by filter before capability drop");
     puts("PASS private IPC namespace denies original System V shared memory ID; receiver verifies trusted peer and transferred listener family/type/accepting/origin"); return 0;
 }

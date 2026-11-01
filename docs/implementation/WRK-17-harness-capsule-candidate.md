@@ -88,6 +88,12 @@ network and IPC views. The bounded x86_64 canary tests this subset:
 - New sockets permit only reviewed `AF_INET`/`AF_INET6` families; a fresh
   `AF_UNIX` socket is denied, including stream and seqpacket sockets. Unknown
   families are refused instead of assuming they obey IP namespace isolation.
+  Types are closed to stream/default-or-TCP and datagram/default-or-UDP after
+  stripping only CLOEXEC/NONBLOCK flags. Family alone is insufficient:
+  Linux rewrites legacy `AF_INET` plus `SOCK_PACKET` to packet-family creation.
+  The negative control actually creates that legacy socket while namespace
+  raw capability is still held, then observes filter denial **before** the
+  capability drop, distinguishing the policy from an incidental cap denial.
 - Anonymous `AF_UNIX` stream/seqpacket socketpairs with protocol 0 are allowed
   for local parent/child helper IPC. Datagram socketpairs are refused: the
   negative control demonstrates retargeting one to an outer pathname service.
