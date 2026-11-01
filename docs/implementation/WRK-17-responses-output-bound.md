@@ -110,22 +110,29 @@ valid CLI interaction; refusal does not broaden the granted policy.
 
 ## Proof so far and remaining join
 
-Six focused cases passed in 0.02 seconds: exact cap and unchanged other settings,
+Seven focused cases passed in 0.05 seconds: exact cap and unchanged other settings,
 changed selection/stateful/ambiguous/oversized JSON refusals, real loopback
 credential substitution plus unchanged SSE, ambiguous HTTP refusal, active
-upstream cancellation, and invalid endpoint/key scope refusal. Strict all-target,
+upstream cancellation, invalid endpoint/key scope refusal, and server-side references/hosted-tool refusal. Strict all-target,
 all-feature worker Clippy passed. No external provider request was made.
 
-The independent runner lane owns an actual pinned Codex -> transport -> finite
-loopback peer test using the same physical host/output/stop driver. Its initial
-composed run observed a real HTTP request with the exact injected cap of 4,096
-and a distinct upstream synthetic key. It also exposed the CLI's implicit hosted
-web-search declaration; the closed mapper now explicitly supplies the supported
-`web_search="disabled"` setting and the transport refuses any hosted declaration.
-Final composed evidence must confirm its actual absence. The fixture
-must supply a real Git workspace, actual original installed material, the exact
-retained final RenderedStartup owner, and distinct synthetic local/upstream keys.
-Direct CLI observation or successful static peers do not replace that proof.
+The independent runner lane completed the actual pinned Codex -> scoped
+transport -> finite loopback peer case through the same physical host/output/stop
+driver and the tightened policy. The peer observed the exact injected cap of
+4,096 and a distinct upstream synthetic key. The final request advertised exactly
+seven local functions and no hosted web search; the mapper explicitly supplies
+`web_search="disabled"`. The request body contained none of the three synthetic
+credentials. The lifecycle reached genuine physical Running and matching ECHILD
+with paired terminal receipts; no external provider was called.
+
+The captured body was 31,203 bytes: two implicit developer messages contained
+17,119 and 2,550 text bytes, the implicit environment message contained 1,072,
+the exact sealed stdin contained 26, and tool definitions encoded to 7,295.
+These are one bounded fixture's measured bytes, not token counts or universal
+CLI overhead. They demonstrate why final startup counting must include the
+actual implicit context/tool configuration before production eligibility.
+Evidence artifacts are in `/tmp/aq-codex-process-evidence-final`; the runner lane
+owns its independently pinned executable/helper and physical lifecycle evidence.
 
 Production still needs an owner-reviewed join from original InstalledMaterial to
 provider credentials held only by this transport, publication of a distinct
