@@ -7,7 +7,7 @@ publish.workspace = true
 [dependencies]
 base64 = "0.22"
 zeroize = "1"
-aq-admission = { path = "../../vendor/aq-admission-0.1.7", version = "=0.1.7" }
+aq-admission = { path = "../../vendor/aq-admission-0.1.9", version = "=0.1.9" }
 aq-session-protocol.workspace = true
 aq-session-host.workspace = true
 aq-protocol.workspace = true
