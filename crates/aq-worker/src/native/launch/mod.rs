@@ -113,6 +113,7 @@ struct Physical {
     observer: Option<aq_session_host::terminal_output::OutputObserver>,
     pending_output: Vec<aq_session_host::terminal_output::ControlEvent>,
     stopped: Option<StoppedProof>,
+    transport: Option<crate::native::adapter::responses_transport::ScopedResponsesTransport>,
     outcome: Outcome,
 }
 impl Physical {
@@ -159,6 +160,7 @@ impl Registry {
                             observer: None,
                             pending_output: Vec::new(),
                             stopped: None,
+                            transport: None,
                             outcome: Outcome::Unknown,
                         }),
                     }),
@@ -245,6 +247,7 @@ impl Registry {
                 observer: None,
                 pending_output: Vec::new(),
                 stopped: None,
+                transport: None,
                 outcome: Outcome::Pending,
             }),
         });
@@ -354,6 +357,9 @@ impl Entry {
     }
     fn stop_now(&self) -> Result<NativeStopOutcome> {
         self.stop.store(true, Ordering::SeqCst);
+        if let Some(transport) = &lock(&self.physical)?.transport {
+            transport.cancel();
+        }
         let h = lock(&self.history)?
             .clone()
             .context("native host has no durable intent")?;
@@ -380,6 +386,24 @@ impl Entry {
         Ok(NativeStopOutcome::StoppedPendingJournal(Box::new(
             observation,
         )))
+    }
+    async fn finish_stopped_transport(&self) -> Result<()> {
+        let transport = {
+            let mut physical = lock(&self.physical)?;
+            if physical.stopped.is_none() {
+                return Ok(());
+            }
+            physical.transport.take()
+        };
+        if let Some(transport) = transport {
+            // Cancellation of this wait still aborts the serving task. This
+            // closes local IO; it proves no rollback of upstream effects.
+            let stopped = tokio::time::timeout(Duration::from_secs(1), transport.stop()).await;
+            if !matches!(stopped, Ok(Ok(()))) {
+                tracing::warn!(attempt_id=%self.id,"stopped transport task ended without a clean acknowledgement");
+            }
+        }
+        Ok(())
     }
 }
 impl InputPipeline {
@@ -518,6 +542,7 @@ impl InputPipeline {
                 }
                 Err(_) => {
                     let _ = returned.stop_now();
+                    returned.finish_stopped_transport().await?;
                     let stopped = lock(&returned.history)?
                         .as_ref()
                         .is_some_and(|h| h.stopped.is_some() && h.running.is_none());
@@ -552,12 +577,15 @@ impl InputPipeline {
             let permit = slots
                 .try_acquire_owned()
                 .context("native stop lane overloaded")?;
-            tokio::task::spawn_blocking(move || {
+            let stopping = entry.clone();
+            let outcome = tokio::task::spawn_blocking(move || {
                 let _permit = permit;
-                Ok(entry.stop_now().unwrap_or(NativeStopOutcome::Unknown))
+                stopping.stop_now().unwrap_or(NativeStopOutcome::Unknown)
             })
             .await
-            .context("native stop worker failed")?
+            .context("native stop worker failed")?;
+            entry.finish_stopped_transport().await?;
+            Ok(outcome)
         }
     }
     pub async fn persist_phase_host_uncertain(&self, id: Uuid) -> Result<()> {

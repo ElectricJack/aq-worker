@@ -107,11 +107,26 @@ impl InstalledMaterial {
     pub(crate) fn source_directory(&self) -> Result<File> {
         Ok(self.directory.try_clone()?)
     }
+    /// Another descriptor owner over the original installation, not another
+    /// installation, journal record, resource claim or retrieval lifetime.
+    pub(crate) fn retained_copy(&self) -> Result<Self> {
+        drop(self.read_private()?);
+        Ok(Self {
+            directory: self.directory.try_clone()?,
+            record: self.record.clone(),
+        })
+    }
     pub fn receipt(&self) -> Result<MaterialReceipt> {
         self.record.receipt()
     }
     /// An explicit bounded local read, never a renewed retrieval/execution lease.
     pub fn read_private(&self) -> Result<Zeroizing<Vec<u8>>> {
+        private_dir(&self.directory)?;
+        let record = read_member(&self.directory, c"record.json", MAX_RECORD)?;
+        ensure!(
+            record.as_slice() == canonical_bytes(&self.record)?.as_slice(),
+            "installed material original record changed"
+        );
         let bytes = read_member(&self.directory, c"material.bin", MAX_MATERIAL)?;
         ensure!(
             bytes.len() as u64 == self.record.delivery.lease.material_bytes
@@ -482,3 +497,6 @@ impl MaterialStore {
         *self.observation_hook.get_mut().unwrap() = Some(hook);
     }
 }
+
+#[cfg(test)]
+mod scoped_transport_tests;

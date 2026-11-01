@@ -39,6 +39,7 @@ struct State {
     upstream_key: Zeroizing<Vec<u8>>,
     client: reqwest::Client,
     authority: String,
+    original: Option<std::sync::Arc<InstalledMaterial>>,
 }
 /// Opaque process-local owner. Dropping or stopping it closes active forwarding;
 /// it is not a physical process stopped proof or a durable grant receipt.
@@ -47,13 +48,53 @@ pub struct ScopedResponsesTransport {
     binding: LaunchBinding,
     stop: watch::Sender<bool>,
     task: Option<JoinHandle<Result<()>>>,
+    capability: Zeroizing<Vec<u8>>,
 }
 impl ScopedResponsesTransport {
+    /// Production input join over the original retained installation. This
+    /// constructor still grants no execution/admission authority.
+    pub(crate) async fn start_retained(
+        scope: ResponsesScope,
+        endpoint: UpstreamEndpoint,
+        original: InstalledMaterial,
+        manifest: &aq_session_protocol::LaunchManifest,
+    ) -> Result<Self> {
+        scope.validate_manifest(manifest)?;
+        let receipt = original.receipt()?;
+        let handoff = super::material_handoff(&original, &receipt, scope.binding())?;
+        let upstream_key = super::codex::validated_api_key(&handoff, manifest)?;
+        let capability = Zeroizing::new(
+            format!(
+                "aq-responses-{}{}",
+                uuid::Uuid::new_v4().simple(),
+                uuid::Uuid::new_v4().simple()
+            )
+            .into_bytes(),
+        );
+        Self::start_inner(
+            scope,
+            endpoint,
+            capability,
+            upstream_key,
+            Some(std::sync::Arc::new(original)),
+        )
+        .await
+    }
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn start(
         scope: ResponsesScope,
         endpoint: UpstreamEndpoint,
         local_key: Zeroizing<Vec<u8>>,
         upstream_key: Zeroizing<Vec<u8>>,
+    ) -> Result<Self> {
+        Self::start_inner(scope, endpoint, local_key, upstream_key, None).await
+    }
+    async fn start_inner(
+        scope: ResponsesScope,
+        endpoint: UpstreamEndpoint,
+        local_key: Zeroizing<Vec<u8>>,
+        upstream_key: Zeroizing<Vec<u8>>,
+        original: Option<std::sync::Arc<InstalledMaterial>>,
     ) -> Result<Self> {
         scope.remaining()?;
         for key in [&local_key, &upstream_key] {
@@ -75,6 +116,7 @@ impl ScopedResponsesTransport {
             .pool_max_idle_per_host(0)
             .build()?;
         let binding = scope.binding().clone();
+        let capability = local_key.clone();
         let state = State {
             scope,
             endpoint,
@@ -85,6 +127,7 @@ impl ScopedResponsesTransport {
                 .strip_prefix("http://")
                 .expect("fixed local origin")
                 .into(),
+            original,
         };
         let (stop, mut stopped) = watch::channel(false);
         let task = tokio::spawn(async move {
@@ -112,6 +155,7 @@ impl ScopedResponsesTransport {
             binding,
             stop,
             task: Some(task),
+            capability,
         })
     }
     pub fn origin(&self) -> &str {
@@ -120,11 +164,20 @@ impl ScopedResponsesTransport {
     pub fn binding(&self) -> &LaunchBinding {
         &self.binding
     }
-    pub async fn stop(mut self) -> Result<()> {
+    pub(crate) fn local_capability(&self) -> Zeroizing<Vec<u8>> {
+        self.capability.clone()
+    }
+    pub(crate) fn cancel(&self) {
         let _ = self.stop.send(true);
-        if let Some(task) = self.task.take() {
+    }
+    pub async fn stop(mut self) -> Result<()> {
+        self.cancel();
+        // Keep the handle owned while awaiting: cancellation of this future
+        // must still abort the serving task through Drop.
+        if let Some(task) = self.task.as_mut() {
             task.await??;
         }
+        self.task.take();
         Ok(())
     }
 }
@@ -219,6 +272,14 @@ async fn serve(state: &State, stream: &mut TcpStream) -> Result<()> {
     let mut incoming = Zeroizing::new(vec![0; length]);
     tokio::time::timeout(Duration::from_secs(10), stream.read_exact(&mut incoming)).await??;
     let body = state.scope.prepare(&incoming)?;
+    if let Some(original) = &state.original {
+        let original = original.clone();
+        let current = tokio::task::spawn_blocking(move || original.read_private()).await??;
+        ensure!(
+            key_matches(&current, &state.upstream_key),
+            "scoped original provider material changed"
+        );
+    }
     state.scope.remaining()?;
     let mut upstream = state
         .client

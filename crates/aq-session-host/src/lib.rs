@@ -2,7 +2,9 @@
 //! state; a dedicated helper owns every tmux/pane descendant and permit expiry.
 mod local_ipc;
 mod private_inputs;
-pub use private_inputs::{PrivateCleanup, PrivateLaunchInput};
+pub use private_inputs::{
+    OriginalPrivateMaterial, PrivateCleanup, PrivateLaunchInput, ScopedCodexAuthBinding,
+};
 pub mod observed;
 pub mod ownership;
 mod reader_lease;
