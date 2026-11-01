@@ -109,3 +109,11 @@ compilation,164 filtered and0 skipped/failed. Affected `--lib` Clippy first
 rejected two unnecessary unwraps; explicit absence errors replaced those calls
 and strict rerun passed5.54s. No physical, coordinator or native integration gate
 was run. Target2 was released after the focused gate.
+
+The subsequent predicate hardening makes the public settled/completed methods
+validate the entire history themselves rather than relying on every caller to
+remember a prior validation. Retention shape validation uses a private finite
+facts helper to avoid recursive validation. A direct malformed-base/operation-ID
+regression accompanies this change. At source freeze its focused gate is
+pending the physical-bridge owner's coordinated hostless compile lease; the
+previous seven-test result does not claim to cover this new vector.

@@ -306,3 +306,18 @@ fn finite_upload_advances_preserve_pending_recipe_and_reject_unearned_offsets() 
     changed.source.upload.as_mut().unwrap().begun = false;
     assert!(jumped.validate_advance(&changed).is_err());
 }
+
+#[test]
+fn capacity_predicate_rejects_malformed_history_even_without_prior_caller_validation() {
+    let mut h = complete();
+    h.source.exported.as_mut().unwrap().manifest.base = object('c');
+    assert!(h.settled_source_claim().is_err());
+    assert!(h.completed_source_claim().is_err());
+    let mut h = complete();
+    h.source
+        .operations
+        .get_mut("checkpoint")
+        .unwrap()
+        .operation_id = id(999);
+    assert!(h.settled_source_claim().is_err());
+}
