@@ -87,17 +87,18 @@ impl InputPipeline {
             .storage(move |owner| owner.journal.begin_artifact_batch(id, &observed))
             .await?;
         let mut verified = Vec::with_capacity(plans.len());
-        for plan in plans {
-            let mut assembly = ArtifactAssembly::new(plan.descriptor.clone())?;
-            for request in &plan.requests {
-                ensure!(
-                    boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
-                    "native artifact batch expired"
-                );
-                let response = self.client.artifact(request, &plan.descriptor).await?;
-                assembly.append(response.offset, &response.bytes)?;
+        // Use only the client's existing two bulk slots. Structured futures
+        // cannot leave detached downloads after cancellation or a failed pair.
+        // Preserve original input order and publish no partial completion set.
+        for pair in plans.chunks(2) {
+            let first = self.planned_artifact(&pair[0], &preparation);
+            if let Some(second) = pair.get(1) {
+                let (first, second) =
+                    tokio::try_join!(first, self.planned_artifact(second, &preparation),)?;
+                verified.extend([first, second]);
+            } else {
+                verified.push(first.await?);
             }
-            verified.push(assembly.finish()?);
         }
         self.storage(move |owner| {
             owner
@@ -106,6 +107,22 @@ impl InputPipeline {
             Ok(verified)
         })
         .await
+    }
+    async fn planned_artifact(
+        &self,
+        plan: &super::journal::ArtifactDownload,
+        preparation: &Preparation,
+    ) -> Result<VerifiedArtifact> {
+        let mut assembly = ArtifactAssembly::new(plan.descriptor.clone())?;
+        for request in &plan.requests {
+            ensure!(
+                boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+                "native artifact batch expired"
+            );
+            let response = self.client.artifact(request, &plan.descriptor).await?;
+            assembly.append(response.offset, &response.bytes)?;
+        }
+        assembly.finish()
     }
     pub async fn artifact(
         &self,
