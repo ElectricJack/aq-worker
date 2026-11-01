@@ -12,6 +12,8 @@ use std::{
 };
 use zeroize::Zeroizing;
 
+pub mod codex;
+
 const MAX_MANIFEST: usize = 16_384;
 const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -125,6 +127,8 @@ impl PinnedFile {
 /// No Serialize/Debug, launch method, command or credential-bearing environment.
 pub struct InstalledAdapter {
     digest: Digest,
+    adapter: ArtifactRef,
+    renderer: ArtifactRef,
     files: [PinnedFile; 3],
 }
 impl AdapterManifest {
@@ -169,6 +173,8 @@ impl InstalledAdapter {
         );
         Ok(Self {
             digest,
+            adapter: manifest.adapter,
+            renderer: manifest.renderer,
             files: [
                 PinnedFile::open(manifest.executable)?,
                 PinnedFile::open(manifest.helper)?,
