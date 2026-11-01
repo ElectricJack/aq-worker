@@ -419,7 +419,11 @@ impl ParkingHistory {
                         aq_lifecycle_protocol::EffectsObservation::Reconciled { .. }
                     )
                     && self.source.receipt.is_some()
-                    && self.completed_source_claim()?,
+                    && matches!(
+                        self.intent.checkpoint.claim,
+                        CheckpointClaim::Supplied { .. }
+                    )
+                    && self.settled_source_facts()?,
                 "parking migration claims incomplete"
             );
             retained.report_ack.id.validate()?;
@@ -434,6 +438,10 @@ impl ParkingHistory {
     /// Conservative capacity HISTORY predicate, not a constructor of physical proof.
     /// The journal owner must also verify the exact actual stopped anchor.
     pub fn settled_source_claim(&self) -> Result<bool> {
+        self.validate()?;
+        self.settled_source_facts()
+    }
+    fn settled_source_facts(&self) -> Result<bool> {
         if self.stop.is_none() {
             return Ok(false);
         }
@@ -478,10 +486,11 @@ impl ParkingHistory {
     /// Summary-bearing source completion is necessary for migration, but does
     /// not itself prove summary/source retention, effects reconciliation or ack.
     pub fn completed_source_claim(&self) -> Result<bool> {
+        self.validate()?;
         Ok(matches!(
             self.intent.checkpoint.claim,
             CheckpointClaim::Supplied { .. }
-        ) && self.settled_source_claim()?)
+        ) && self.settled_source_facts()?)
     }
 }
 
