@@ -1,0 +1,37 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-wrk08-preparation/crates/aq-worker)
+warning: unused import: `RetainedArtifact`
+ --> crates/aq-worker/src/native/journal/inputs_scenarios.rs:9:5
+  |
+9 |     RetainedArtifact,
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0502]: cannot borrow `state.attempts` as immutable because it is also borrowed as mutable
+   --> crates/aq-worker/src/native/journal/inputs_scenarios.rs:495:36
+    |
+486 |           let request = &mut state
+    |  ____________________________-
+487 | |             .attempts
+    | |_____________________- mutable borrow occurs here
+...
+495 |               request.operation_id = state.attempts[&h.id].reservation.accept_operation_id;
+    |               -----------------------^^^^^^^^^^^^^^---------------------------------------
+    |               |                      |
+    |               |                      immutable borrow occurs here
+    |               mutable borrow later used here
+    |
+help: try adding a local storing this...
+   --> crates/aq-worker/src/native/journal/inputs_scenarios.rs:495:50
+    |
+495 |             request.operation_id = state.attempts[&h.id].reservation.accept_operation_id;
+    |                                                  ^^^^^^^
+help: ...and then using that local here
+   --> crates/aq-worker/src/native/journal/inputs_scenarios.rs:495:13
+    |
+495 |             request.operation_id = state.attempts[&h.id].reservation.accept_operation_id;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0502`.
+warning: `aq-worker` (lib test) generated 1 warning
+error: could not compile `aq-worker` (lib test) due to 1 previous error; 1 warning emitted

@@ -1,0 +1,30 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-wrk08-preparation/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.50s
+     Running unittests src/lib.rs (/tmp/aq-wrk08-preparation-target/debug/deps/aq_worker-ad839c90df1112e9)
+
+running 22 tests
+test native::journal::tests::capacity_and_clock_limits_refuse_before_any_new_durable_record ... ok
+test native::journal::tests::changed_private_root_permissions_refuse_further_capacity_or_writes ... ok
+test native::journal::tests::actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap ... ok
+test native::journal::tests::different_kernel_boot_is_historical_without_comparing_local_clocks ... ok
+test native::journal::tests::exclusive_owner_and_unsafe_paths_refuse ... ok
+test native::journal::tests::checksum_and_structural_association_are_both_checked_on_reopen ... ok
+test native::journal::tests::expired_reservation_is_still_held_and_cannot_reaccept ... ok
+test native::journal::tests::inputs_scenarios::artifact_requests_are_durable_batched_exact_and_retry_keeps_ids ... ok
+test native::journal::tests::inputs_scenarios::installed_material_pin_is_independent_durable_and_has_no_plaintext ... ok
+test native::journal::tests::inputs_scenarios::old_format_refusal_does_not_rewrite_or_discard_pending ... ok
+test native::journal::tests::inputs_scenarios::original_request_associations_and_metadata_bounds_are_rechecked ... ok
+test native::journal::tests::inputs_scenarios::postrename_pin_survives_but_is_historical_and_never_recreates_material ... ok
+test native::journal::tests::inputs_scenarios::unknown_journal_write_prevents_http_and_reopen_never_reauthorizes ... ok
+test native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses ... ok
+test native::journal::tests::missing_corrupt_newer_and_wrong_node_journals_are_not_empty_nodes ... ok
+test native::journal::tests::new_initialization_has_new_logical_boot_and_cannot_overwrite_existing_root ... ok
+test native::journal::tests::inputs_scenarios::expired_download_stays_pending_and_bulk_does_not_occupy_control ... ok
+test native::journal::tests::oversized_member_and_unknown_root_member_fail_closed ... ok
+test native::journal::tests::root_replacement_cannot_redirect_an_open_writers_effects ... ok
+test native::journal::tests::reservation_acceptance_survive_restart_without_restoring_live_authority ... ok
+test native::journal::tests::symlink_hardlink_and_nonprivate_members_refuse ... ok
+test native::journal::tests::unknown_attempts_and_changed_acceptance_retries_do_not_consume_revision ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 1.20s
+

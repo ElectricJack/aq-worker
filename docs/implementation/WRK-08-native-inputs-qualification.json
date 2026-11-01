@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "task": "WRK-08",
+  "status": "qualified durable input component; full native driver remains incomplete",
+  "source_revision": "ec41ad77ee3ef1a3b53d2ac1ab4325cb1993b715",
+  "base_revision": "281f8a4e79e7e0ac2bd27be0a599a97d8f0acf9a",
+  "recorded_at": "2026-11-01T00:36:53.083085+00:00",
+  "native_journal_format": 2,
+  "format1_policy": "refuse unchanged without pending cleanup or reseed; prior qualified inspector remains historical recovery tool",
+  "scope": [
+    "durable exact batched inline ArtifactFetch plans and verified receipt metadata",
+    "durable exact MaterialFetch operation and independent private installation pin",
+    "bounded blocking storage and bulk lanes; no Prepare, Git hydration, launch or runnable registration"
+  ],
+  "qualification": {
+    "focused_journal_tests": 22,
+    "new_input_tests": 7,
+    "worker_all_targets_all_features": {
+      "passed": 129,
+      "failed": 0,
+      "ignored": 3
+    },
+    "strict_all_target_all_feature_clippy": true,
+    "format": true,
+    "commands": [
+      "CARGO_TARGET_DIR=/tmp/aq-wrk08-preparation-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test -p aq-worker --all-targets --all-features --locked --offline -- --test-threads=2",
+      "CARGO_TARGET_DIR=/tmp/aq-wrk08-preparation-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test -p aq-worker --lib native::journal --locked --offline -- --test-threads=2",
+      "CARGO_TARGET_DIR=/tmp/aq-wrk08-preparation-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo clippy -p aq-worker --all-targets --all-features --locked --offline -- -D warnings",
+      "cargo fmt --package aq-worker --check",
+      "git diff --check"
+    ],
+    "environment": "isolated target; Linux actual private filesystem; synthetic loopback HTTP peers; no daemon/provider/service deployment",
+    "existing_ignores": "Three preexisting actual Git-binary source-transfer cases remain ignored in ordinary package run. Legacy Git owner unchanged; earlier WRK07 real-Git qualification is separate prior evidence, not rerun here."
+  },
+  "development_failures": [
+    "Record needed Clone for retained non-secret installation metadata; added before successful compilation.",
+    "A mutation-validation test initially had conflicting mutable/immutable borrows and an unused import; corrected.",
+    "Clippy required lexical MutexGuard scopes around test assertions rather than explicit drop before awaits; corrected, final strict lint passes."
+  ],
+  "source_inventory": [
+    {
+      "path": "Cargo.lock",
+      "bytes": 61365,
+      "sha256": "f992996ebb580ad148fd2d60933d582c331c7a54ef15661da3f5b86969581807"
+    },
+    {
+      "path": "Cargo.toml",
+      "bytes": 1957,
+      "sha256": "ab94a646e1a9224b1c83769812d9e10d26ae5c5ecaa8a4e9d77322cc2036af9b"
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "bytes": 1063,
+      "sha256": "16dacc0ff567052fa929e343b89fafe38a5342ade13a2bca971e131280ce7b13"
+    },
+    {
+      "path": "crates/aq-worker/src/native.rs",
+      "bytes": 5061,
+      "sha256": "7e9ad472bf66a6ba215fca6c37db42b07881cf78fd926c749b12150b255e8b41"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http.rs",
+      "bytes": 13577,
+      "sha256": "36891e7d795cc1fce85909bcecf41cf8efb6ff97b2e68786ee223bb5a94ee39b"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/control.rs",
+      "bytes": 12330,
+      "sha256": "60cc40638a5b1d8c4b29e26af429429c0ba0cddc29b1fd87efbe0ad2a6e36d33"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/source.rs",
+      "bytes": 5970,
+      "sha256": "d70ce9f50dc2bd63a20b7ab1fa2f4f610cbe992ea2b890a119da161a8406b7ab"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal.rs",
+      "bytes": 22309,
+      "sha256": "f8800643fa3efb0376f30f1586d4dcfe8711a91bbad47e050fff833b9a57befc"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs.rs",
+      "bytes": 14633,
+      "sha256": "5f3944c9fc41ab7cbbd9444a1a2ffa3058d1e92da6d6dfae25efa0a429c6bd2a"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs_scenarios.rs",
+      "bytes": 22720,
+      "sha256": "6829adaaddee541f65bec43ba01c347ea27e521721a075064078c0a6d2574b5c"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/tests.rs",
+      "bytes": 15867,
+      "sha256": "c05aabf5019e869b8b0275f6d5b5324c9f8e3905bd6991d534f70c587036f948"
+    },
+    {
+      "path": "crates/aq-worker/src/native/materials.rs",
+      "bytes": 16615,
+      "sha256": "56f42261dd66de611ca37b8ab3862087c4d8f5cb1bc5885f3efe3f7d189006db"
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation.rs",
+      "bytes": 5561,
+      "sha256": "c5c1edfcb63c56e09c65f5965de86fb0945f8033c45b47d7a4602eb88ba1951a"
+    },
+    {
+      "path": "crates/aq-worker/src/source.rs",
+      "bytes": 56414,
+      "sha256": "ee864b680ebb7ac899b558be405ec6ee62eba842b2e266ed1eb39f64e00c842d"
+    },
+    {
+      "path": "docs/implementation/WRK-08-native-journal-plan.md",
+      "bytes": 11219,
+      "sha256": "fb2ba5762fadd2dcb92d2f4086c37f0daf47b4d1ac2ac6407506594244ae3006"
+    },
+    {
+      "path": "docs/implementation/WRK-08-native-preparation-slice.md",
+      "bytes": 3911,
+      "sha256": "41856bc1c2b40bad7e587393fbbdf050d8157c09bddde189ca32da3b69be33b7"
+    },
+    {
+      "path": "vendor/aq-admission-0.1.7/src/lib.rs",
+      "bytes": 18814,
+      "sha256": "231f5c76fbdb198bd78f84e3ede3f1bd5210de9aa7dc8fea7426a9202de3d23c"
+    },
+    {
+      "path": "vendor/aq-admission-0.1.7/src/transport.rs",
+      "bytes": 35252,
+      "sha256": "4f19c6c0bb728e781fb6349c4a994e28c31b0ff665fe11628c70169df9ceea50"
+    }
+  ],
+  "logs": {
+    "worker": {
+      "path": "docs/implementation/evidence/wrk08-inputs-ec41ad7/worker.log",
+      "sha256": "98ea0c541258f42ac79fa1d640c91cec7561d1d0cabf9a0f5dd2e3da196d3271"
+    },
+    "focused": {
+      "path": "docs/implementation/evidence/wrk08-inputs-ec41ad7/focused.log",
+      "sha256": "26bd43968fc13a6911ea2a266dbe754f6374e99a43571ae663f6f475fefc1a56"
+    },
+    "clippy": {
+      "path": "docs/implementation/evidence/wrk08-inputs-ec41ad7/clippy.log",
+      "sha256": "994408324da01dfa47e0557053b8a489a5deabf2b905ccdc659f579e1e577534"
+    },
+    "checks": {
+      "path": "docs/implementation/evidence/wrk08-inputs-ec41ad7/checks.log",
+      "sha256": "663e0d7ce132b9cf9a10e514052554b6d479a40e669f31406e55ea636f90dbe3"
+    },
+    "development-record-clone-compile": {
+      "path": "docs/implementation/evidence/wrk08-inputs-ec41ad7/development-record-clone-compile.log",
+      "sha256": "f672ca30a549cae8049d6645ebea4825714e723789ef2267c516a5fcfc58a2c0"
+    },
+    "development-test-borrow-compile": {
+      "path": "docs/implementation/evidence/wrk08-inputs-ec41ad7/development-test-borrow-compile.log",
+      "sha256": "789e914fb4d8bc620f0a7f00d452fbc41c2e99ddf41d17e2724d1c242f3947f7"
+    },
+    "development-test-guard-lint": {
+      "path": "docs/implementation/evidence/wrk08-inputs-ec41ad7/development-test-guard-lint.log",
+      "sha256": "b70edba1c90907fb3a5a1aeee7a30da0d0c175e69ece27ad8e202ec70fb98081"
+    }
+  },
+  "limits": [
+    "Only metadata is durable for inline artifacts; bytes stay in RAM and must be re-downloaded/reverified after loss. A receipt is not durable payload storage.",
+    "Material bytes remain exclusively in existing private material owner; journal stores no provider/private bytes or node credentials.",
+    "Reopening is historical stop-and-preserve; no grant/lease reconstruction or capacity release.",
+    "Logical1024-record/4096-request/8MiB snapshot bounds may refuse later input after acceptance; holds remain charged.",
+    "Snapshot rewrite cost, physical headroom, ENOSPC and power-loss guarantees are not qualified.",
+    "Actual public Git import/workspace proof and exact126-inline-plus2-source receipt gate remain later work; Prepare is not exposed.",
+    "No new runtime dependency, frozen public package edit or runnable capability advertisement."
+  ]
+}

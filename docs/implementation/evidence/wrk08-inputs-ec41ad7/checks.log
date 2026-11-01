@@ -1,0 +1,4 @@
+$ cargo fmt --package aq-worker --check
+exit=0
+$ git diff --check
+exit=0
