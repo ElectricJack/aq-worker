@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized] target(s) in 0.14s
+     Running tests/native_preparation_v2.rs (/tmp/aq-worker-phase-http-target/debug/deps/native_preparation_v2-5d2880d92ef9c1b2)
+
+running 7 tests
+test expired_original_scope_and_bad_negotiation_refuse_before_send ... ok
+test changed_or_unexpected_proposal_cannot_refresh_historical_offer ... ok
+test cancelling_a_waiter_releases_the_bounded_control_slot ... ok
+test redelivered_offer_preserves_original_publication_and_local_cap ... ok
+test malformed_wrong_nonce_changed_receipt_late_and_oversized_responses_refuse ... ok
+test delayed_proposal_does_not_resample_the_original_clock ... ok
+test actual_accepted_delivery_outlasts_proposal_and_exact_retry_never_extends_it ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
