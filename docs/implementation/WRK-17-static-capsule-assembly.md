@@ -101,7 +101,12 @@ A bounded private delivery ACK prevents a late Stop from resetting a queued
 report during endpoint closure; ACK never grants execution or replaces ECHILD.
 Unexpected helper death or bounded
 cleanup timeout returns uncertainty. Drop may do bounded best-effort cleanup
-but never publishes a stopped proof. A listener FD already taken by the caller
+but never publishes a stopped proof. It reserves an existing host reaper slot
+before spawning. After its polling deadline, it sends best-effort SIGKILL and
+transfers the still-owned Child into that existing nonblocking reaper; it never
+calls an unbounded wait after kill. Unknown cleanup keeps the reserved capacity
+until the helper is actually reaped. This is ownership bookkeeping, not ECHILD
+or stop evidence. A listener FD already taken by the caller
 is caller-owned; this primitive does not claim transport cancellation, key
 revocation, durable cleanup or resource release for that external owner.
 

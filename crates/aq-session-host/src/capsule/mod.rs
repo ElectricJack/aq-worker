@@ -288,15 +288,27 @@ impl CapsuleStopReport {
     }
 }
 struct ChildOwner {
-    child: Option<Child>,
+    guardian: Option<(Child, crate::reaper::Slot)>,
     control: Option<wire::Socket>,
 }
 impl ChildOwner {
+    fn cleanup_until(&mut self, until: u64) {
+        self.control.take();
+        if self.guardian.is_some() && self.wait(until).is_err() {
+            // Never block on wait after the deadline, nor turn this handoff
+            // into stop evidence. Existing reaper ownership/capacity remains
+            // reserved until the unknown helper is actually reaped.
+            if let Some((mut child, slot)) = self.guardian.take() {
+                let _ = child.kill();
+                let _ = slot.track(child);
+            }
+        }
+    }
     fn wait(&mut self, until: u64) -> Result<()> {
-        let child = self.child.as_mut().context("capsule guardian absent")?;
+        let (child, _) = self.guardian.as_mut().context("capsule guardian absent")?;
         loop {
             if let Some(status) = child.try_wait()? {
-                self.child = None;
+                self.guardian = None;
                 ensure!(
                     status.success(),
                     "capsule guardian exited without clean report"
@@ -313,14 +325,7 @@ impl ChildOwner {
 }
 impl Drop for ChildOwner {
     fn drop(&mut self) {
-        self.control.take();
-        if self.child.is_some() && self.wait(ownership::raw_boot_ms() + CLEANUP_MS).is_err() {
-            // Best effort only. No stopped proof is manufactured on this path.
-            if let Some(child) = &mut self.child {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
+        self.cleanup_until(ownership::raw_boot_ms() + CLEANUP_MS);
     }
 }
 pub struct CapsuleHandle {
@@ -332,6 +337,7 @@ pub struct CapsuleHandle {
 }
 impl CapsuleHandle {
     pub fn spawn(helper: &PinnedHelper, plan: StaticCapsulePlan) -> Result<Self> {
+        let reaper = crate::reaper::Slot::reserve()?;
         let (control, child_socket) = wire::Socket::pair()?;
         let child_fd = child_socket.raw();
         let helper_fd = helper.file.as_raw_fd();
@@ -371,7 +377,7 @@ impl CapsuleHandle {
         let guardian_pid = child.id();
         drop(child_socket);
         let owner = ChildOwner {
-            child: Some(child),
+            guardian: Some((child, reaper)),
             control: Some(control),
         };
         let socket = owner.control.as_ref().unwrap();
@@ -471,4 +477,35 @@ pub fn helper_main() -> Result<()> {
     );
     let control = wire::Socket(unsafe { OwnedFd::from_raw_fd(3) });
     guardian::run(control)
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::*;
+    #[test]
+    fn cleanup_timeout_hands_child_to_existing_reaper_without_blocking_wait_or_stop_proof() {
+        let slot = crate::reaper::Slot::reserve().unwrap();
+        let child = Command::new("/usr/bin/sleep")
+            .arg("30")
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pidfd = ownership::pidfd(child.id()).unwrap();
+        let mut owner = ChildOwner {
+            guardian: Some((child, slot)),
+            control: None,
+        };
+        let started = std::time::Instant::now();
+        owner.cleanup_until(ownership::raw_boot_ms());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(owner.guardian.is_none());
+        let until = std::time::Instant::now() + Duration::from_secs(1);
+        while ownership::pidfd_is_live(&pidfd).unwrap() {
+            assert!(std::time::Instant::now() < until);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
 }
