@@ -1,0 +1,10 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-native-prepare-smoke/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.78s
+     Running unittests src/bin/native-prepare-smoke.rs (/tmp/aq-wrk08-preparation-target/debug/deps/native_prepare_smoke-c766b7d9834197b9)
+
+running 2 tests
+test tests::input_frames_are_bounded_complete_and_do_not_consume_the_following_frame ... ok
+test tests::existing_owner_children_and_replaced_scope_are_refused_without_cleanup ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
