@@ -253,6 +253,9 @@ impl CodexExecProfile {
 }
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn development_origin(origin: &str) -> Result<String> {
+    scoped_origin(origin)
+}
+pub(crate) fn scoped_origin(origin: &str) -> Result<String> {
     let url = reqwest::Url::parse(origin)?;
     ensure!(
         url.scheme() == "http"
@@ -268,9 +271,8 @@ pub(crate) fn development_origin(origin: &str) -> Result<String> {
     Ok(url.as_str().trim_end_matches('/').to_owned())
 }
 impl PreparedCodexExec {
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn with_development_provider(mut self, origin: &str) -> Result<Self> {
-        let origin = development_origin(origin)?;
+    pub(crate) fn with_scoped_provider(mut self, origin: &str) -> Result<Self> {
+        let origin = scoped_origin(origin)?;
         let position = self.command.arguments.len() - 1;
         let mut overrides = Vec::new();
         for setting in [
@@ -313,6 +315,12 @@ pub fn api_key_auth(
     material: &MaterialHandoff<'_>,
     manifest: &aq_session_protocol::LaunchManifest,
 ) -> Result<Zeroizing<Vec<u8>>> {
+    auth_bytes(&validated_api_key(material, manifest)?)
+}
+pub(crate) fn validated_api_key(
+    material: &MaterialHandoff<'_>,
+    manifest: &aq_session_protocol::LaunchManifest,
+) -> Result<Zeroizing<Vec<u8>>> {
     manifest.validate()?;
     let lease = &material.installed.metadata().delivery.lease;
     ensure!(
@@ -325,7 +333,12 @@ pub fn api_key_auth(
                     && r.purpose.as_str() == lease.purpose.as_str()),
         "Codex private material provider/profile binding"
     );
-    auth_bytes(&material.read_private()?)
+    let key = material.read_private()?;
+    ensure!(
+        !key.is_empty() && key.len() <= 4096 && key.iter().all(|b| b.is_ascii_graphic()),
+        "Codex API key format"
+    );
+    Ok(key)
 }
 fn auth_bytes(key: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     ensure!(

@@ -38,6 +38,29 @@ impl ResponsesScope {
     pub fn binding(&self) -> &LaunchBinding {
         &self.binding
     }
+    pub(super) fn validate_manifest(
+        &self,
+        manifest: &aq_session_protocol::LaunchManifest,
+    ) -> Result<()> {
+        manifest.validate()?;
+        ensure!(
+            self.binding.launch_manifest_digest
+                == crate::native::journal::canonical_digest(manifest)?
+                && self.binding.session == manifest.bindings.session
+                && self.binding.attempt_id == manifest.bindings.attempt_id
+                && self.binding.assignment_generation == manifest.bindings.assignment_generation
+                && self.binding.graph_access_profile_digest
+                    == manifest.bindings.graph_access_profile.digest
+                && manifest.model.provider.as_str() == "openai"
+                && manifest.model.model.as_str() == self.model
+                && manifest.model.reasoning.as_str() == self.reasoning
+                && manifest.model.max_output_tokens == self.cap
+                && manifest.model.spending_budget.is_none(),
+            "scoped Responses exact retained manifest selection"
+        );
+        self.remaining()?;
+        Ok(())
+    }
     pub(super) fn remaining(&self) -> Result<Duration> {
         let now = crate::native::http::boot_ns()?;
         ensure!(now < self.deadline_ns, "scoped Responses authority expired");
