@@ -464,6 +464,7 @@ impl TerminalHandle {
         let host = SessionHandle {
             directory: self.directory.clone(),
             identity: self.binding.guardian.clone(),
+            private_source: None,
         };
         let observation = host.observe()?;
         ensure!(
