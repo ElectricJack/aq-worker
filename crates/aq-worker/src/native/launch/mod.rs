@@ -21,9 +21,11 @@ pub enum Checkpoint {
     Started,
 }
 mod authority;
+mod output_relay;
 mod synthetic;
 use crate::native::journal::launch::{LaunchFailure, NativeHostHistory, NativeLaunchIntent};
 use execution::LaunchExecutionScope;
+pub use output_relay::{PhaseOutputRelay, PhaseOutputStatus};
 use synthetic::{Adapter, RootGuard};
 pub use synthetic::{InstalledFilePin, SyntheticHostConfig, SyntheticHostProfile, SyntheticMode};
 fn lock<T>(m: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
@@ -35,6 +37,7 @@ type PauseHook = Arc<Mutex<Option<(Checkpoint, Arc<crate::native::journal::Nativ
 #[cfg(test)]
 type FaultHook = Arc<Mutex<Option<(Checkpoint, crate::native::journal::WriteFault)>>>;
 pub(super) struct Registry {
+    output: Arc<Mutex<output_relay::Outputs>>,
     #[cfg(test)]
     hook: PauseHook,
     #[cfg(test)]
@@ -129,6 +132,7 @@ impl Registry {
             hook,
             #[cfg(test)]
             fault,
+            output: Arc::new(Mutex::new(output_relay::Outputs::default())),
             admitted: state.attempts.keys().copied().collect(),
             entries: Mutex::new(RegistryEntries {
                 entries,
@@ -582,6 +586,11 @@ impl InputPipeline {
             Arc::ptr_eq(&self.owned, &host.owner)
                 && Arc::ptr_eq(&self.launch.entry(host.entry.id)?, &host.entry),
             "native output foreign owner"
+        );
+        let outputs = lock(&self.launch.output)?;
+        ensure!(
+            !outputs.attached(host.entry.id),
+            "native output already has an exclusive drain owner"
         );
         let mut state = lock(&host.entry.physical)?;
         state
