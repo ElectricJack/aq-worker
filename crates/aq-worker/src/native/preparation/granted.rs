@@ -10,6 +10,25 @@ pub(super) struct RetainedOwners {
     phase_bundles: BTreeMap<Uuid, Arc<PreparedPhaseInputs>>,
 }
 impl RetainedOwners {
+    pub(super) fn reserve(
+        &mut self,
+        journal: &mut Journal,
+        offer: aq_admission::startup::NativeOffer,
+        runtime: super::super::journal::RuntimeIdentity,
+        deadline_ns: u64,
+        disk_bytes: u64,
+    ) -> Result<Uuid> {
+        let id = offer.offered.offer.binding.attempt_id;
+        ensure!(
+            self.admitted.len() < 64 && !self.admitted.contains(&id),
+            "retained attempt already admitted or capacity exhausted"
+        );
+        // The durable owner publishes first. No fallible operation follows its
+        // successful commit while this resource-map lock remains held.
+        journal.reserve(offer, runtime, deadline_ns, disk_bytes)?;
+        self.admitted.insert(id);
+        Ok(id)
+    }
     pub(super) fn new(state: &State) -> Self {
         Self {
             admitted: state.attempts.keys().copied().collect(),
@@ -264,3 +283,6 @@ pub use presence::{
     AcknowledgedInventory, InventoryOperation, PresenceOperation, QualifiedPresenceProfile,
     ScopedPresenceProducer,
 };
+
+#[cfg(test)]
+mod reservation_tests;

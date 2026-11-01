@@ -363,6 +363,14 @@ impl Journal {
             limits,
         )
     }
+    #[cfg(test)]
+    pub(crate) fn create_with_identity_for_test(
+        root: &Path,
+        identity: WorkerIdentity,
+        limits: Limits,
+    ) -> Result<Self> {
+        Self::create_identity(root, identity, limits)
+    }
     fn create_identity(root: &Path, identity: WorkerIdentity, limits: Limits) -> Result<Self> {
         identity.validate()?;
         limits.validate()?;
