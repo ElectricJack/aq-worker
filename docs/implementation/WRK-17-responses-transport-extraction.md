@@ -62,7 +62,8 @@ Set nonblocking and consume that same descriptor into Tokio; do not bind a
 replacement. This seam can later receive a prepared listener without importing
 or implementing that capsule profile.
 
-The scope digest is the canonical closed recipe digest of version1, opaque
+The scope digest is the canonical closed recipe digest of
+`contract=aq.responses-policy-1`, opaque
 owner-scope digest, full shared ModelSettings and original deadline. It is
 nonsecret metadata, not a grant. The local capability is newly generated for
 each production constructor and remains zeroizing parent data; metadata only
