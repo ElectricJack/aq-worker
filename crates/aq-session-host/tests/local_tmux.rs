@@ -87,6 +87,23 @@ impl LaunchAuthority for Authority {
         )
     }
     fn checkpoint(&mut self, s: &str) -> Result<()> {
+        if s == "launch-intent-durable" {
+            let auth = self
+                .root
+                .join(Uuid::from_u128(2).to_string())
+                .join("codex-home/auth.json");
+            if auth.exists() {
+                anyhow::ensure!(
+                    self.root.join("caller-intent.json").exists()
+                        && std::fs::metadata(auth)?.len() == 0,
+                    "private auth published before durable intent"
+                );
+                durable_new(
+                    &self.root.join("auth-order.checked"),
+                    b"durable intent precedes private publication",
+                )?;
+            }
+        }
         if self.pause.as_deref() == Some(s) {
             durable_new(&self.root.join("caller-checkpoint"), s.as_bytes())?;
             loop {
@@ -1896,6 +1913,7 @@ struct ObservedAdapter {
     arguments: Vec<String>,
     executable: aq_session_protocol::ArtifactRef,
     renderer: aq_session_protocol::ArtifactRef,
+    private_source: Option<PathBuf>,
 }
 impl HarnessAdapter for ObservedAdapter {
     fn prepare(&self, m: &LaunchManifest, _: &Path) -> Result<AdapterLaunch> {
@@ -1909,9 +1927,40 @@ impl HarnessAdapter for ObservedAdapter {
             command: LocalCommand {
                 executable: self.program.clone(),
                 arguments: self.arguments.clone(),
-                environment: Default::default(),
+                environment: self
+                    .private_source
+                    .as_ref()
+                    .map(|_| {
+                        std::collections::BTreeMap::from([(
+                            "CODEX_HOME".into(),
+                            self.program
+                                .parent()
+                                .unwrap()
+                                .join(Uuid::from_u128(2).to_string())
+                                .join("codex-home")
+                                .to_str()
+                                .unwrap()
+                                .into(),
+                        )])
+                    })
+                    .unwrap_or_default(),
             },
         })
+    }
+    fn private_input(&self, _: &LaunchManifest, _: &Path) -> Result<Option<PrivateLaunchInput>> {
+        self.private_source
+            .as_ref()
+            .map(|source| {
+                let key = std::fs::read(source.join("material.bin"))?;
+                let record = std::fs::read(source.join("record.json"))?;
+                PrivateLaunchInput::codex_api_key(
+                    std::fs::File::open(source)?,
+                    aq_session_protocol::Digest::of(&key),
+                    key.len() as u64,
+                    aq_session_protocol::Digest::of(&record),
+                )
+            })
+            .transpose()
     }
     fn readiness(&self, _: &HostObservation) -> Result<HarnessReadiness> {
         Ok(HarnessReadiness::Unknown)
@@ -1966,6 +2015,7 @@ fn observed_helper_stays_starting_without_exec_or_started_until_original_expiry(
         program,
         executable,
         renderer,
+        private_source: None,
     };
     let permit = ExecutionPermit {
         session: c.manifest.bindings.session.clone(),
@@ -2102,6 +2152,7 @@ fn observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec() {
         program,
         executable,
         renderer,
+        private_source: None,
     };
     let permit = ExecutionPermit {
         session: c.manifest.bindings.session.clone(),
@@ -2211,6 +2262,7 @@ fn observed_closed_case_mode(short: bool) -> (Case, observed::PendingObservedSes
         program,
         executable,
         renderer,
+        private_source: None,
     };
     let permit = ExecutionPermit {
         session: c.manifest.bindings.session.clone(),
@@ -2429,6 +2481,14 @@ fn observed_short_exec_without_live_kernel_evidence_never_records_started() {
 #[test]
 #[ignore = "actual native-exec profile: requires local cc/static ELF and tmux"]
 fn native_exec_profile_delivers_exact_sealed_stdin_under_actual_guardian() {
+    native_private_input_case(false);
+}
+#[test]
+#[ignore = "actual native-exec original material preexec refusal: requires cc/static ELF and tmux"]
+fn native_exec_refuses_original_record_changed_after_private_publication() {
+    native_private_input_case(true);
+}
+fn native_private_input_case(tamper_record: bool) {
     use aq_session_protocol::{ArtifactRef, Digest, TerminalIdentity, Text};
     use std::io::Write;
     let mut c = Case::new("unused", false);
@@ -2436,6 +2496,18 @@ fn native_exec_profile_delivers_exact_sealed_stdin_under_actual_guardian() {
     c.manifest.context.startup_byte_budget = 1_048_576;
     c.manifest.terminal.input_enabled = false;
     let rendered = rendered_material(&mut c, &payload);
+    use std::os::unix::fs::PermissionsExt;
+    let source = c.temp.path().join("retained-provider");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o700)).unwrap();
+    for (name, bytes) in [
+        ("material.bin", b"sk-private-offline-only".as_slice()),
+        ("record.json", b"{\"schema_version\":1}".as_slice()),
+    ] {
+        let path = source.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
     let program = c.temp.path().join("native-stdin-peer");
     let mut cc = Command::new("/usr/bin/cc")
         .args(["-O2", "-static", "-x", "c", "-o"])
@@ -2450,8 +2522,16 @@ fn native_exec_profile_delivers_exact_sealed_stdin_under_actual_guardian() {
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 const unsigned char image_padding[5*1024*1024]={1};
 int main(int argc,char **argv) {
+ char path[4096], auth[128]={0}; const char *home=getenv("CODEX_HOME");
+ if(!home || snprintf(path,sizeof(path),"%s/auth.json",home)<0)return 83;
+ int fd=open(path,O_RDONLY|O_NOFOLLOW); if(fd<0)return 84;
+ ssize_t got=read(fd,auth,sizeof(auth));close(fd);
+ if(got!=44 || memcmp(auth,"{\"OPENAI_API_KEY\":\"sk-private-offline-only\"}",44))return 85;
+ puts("AUTH:exact-private-file");
  if((fcntl(0,F_GET_SEALS)&(F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL))!=(F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL))return 82;
  unsigned char b[8192]; uint64_t hash=14695981039346656037ULL, n=0; ssize_t count;
  while((count=read(0,b,sizeof(b)))>0){for(ssize_t i=0;i<count;i++){hash^=b[i];hash*=1099511628211ULL;}n+=count;}
@@ -2502,6 +2582,7 @@ int main(int argc,char **argv) {
         program,
         executable,
         renderer,
+        private_source: Some(source.clone()),
     };
     let permit = ExecutionPermit {
         session: c.manifest.bindings.session.clone(),
@@ -2520,11 +2601,50 @@ int main(int argc,char **argv) {
         &mut c.authority,
     )
     .unwrap();
+    assert!(c.temp.path().join("caller-intent.json").exists());
+    assert!(c.temp.path().join("auth-order.checked").exists());
+    let auth = c.adapter.dir.join("codex-home/auth.json");
+    assert_eq!(
+        std::fs::read(&auth).unwrap(),
+        b"{\"OPENAI_API_KEY\":\"sk-private-offline-only\"}"
+    );
+    assert!(
+        !std::fs::read_to_string(c.adapter.dir.join("launch.json"))
+            .unwrap()
+            .contains("sk-private")
+    );
     assert_eq!(pending.observe().unwrap().phase, HostPhase::Starting);
+    let intent = pending.observe().unwrap().guardian.intent;
     let (mut output, baseline) = pending.open_baseline_observer().unwrap();
+    if tamper_record {
+        std::fs::write(
+            source.join("record.json"),
+            b"changed original record after auth publication",
+        )
+        .unwrap();
+    }
     let mut released = pending
         .release_after_baseline(&baseline, &mut c.authority)
         .unwrap();
+    if tamper_record {
+        let observed = wait_named("changed original material stops before exec", || {
+            let observation = released.observe().unwrap();
+            assert_ne!(observation.phase, HostPhase::Running);
+            (observation.phase == HostPhase::Stopped).then_some(observation)
+        });
+        assert!(observed.kernel_wait_echild);
+        assert!(!c.temp.path().join("caller-started.json").exists());
+        assert!(auth.exists());
+        let mut recovered = SessionHost::recover(c.temp.path(), &intent).unwrap();
+        let proof = recovered.stopped_proof().unwrap();
+        assert!(
+            recovered
+                .cleanup_private_inputs(&proof)
+                .unwrap()
+                .home_removed
+        );
+        return;
+    }
     let mut handle = wait_named("native sealed exec", || {
         released.poll_started(&mut c.authority).unwrap()
     });
@@ -2543,9 +2663,27 @@ int main(int argc,char **argv) {
             .contains(&expected)
             .then_some(())
     });
+    assert!(String::from_utf8_lossy(&literal).contains("AUTH:exact-private-file"));
+    assert!(handle.stopped_proof().is_err());
     assert_eq!(handle.observe().unwrap().phase, HostPhase::Running);
     handle.stop().unwrap();
     let stopped = handle.wait_stopped(Duration::from_secs(3)).unwrap();
     assert_eq!(stopped.phase, HostPhase::Stopped);
     assert!(stopped.kernel_wait_echild);
+    let generated = auth.parent().unwrap().join("runtime-file");
+    std::fs::write(&generated, b"keep unknown generated files").unwrap();
+    let proof = handle.stopped_proof().unwrap();
+    let cleaned = handle.cleanup_private_inputs(&proof).unwrap();
+    assert!(cleaned.auth_removed && !cleaned.home_removed);
+    assert_eq!(
+        std::fs::read(&generated).unwrap(),
+        b"keep unknown generated files"
+    );
+    std::fs::remove_file(generated).unwrap();
+    assert!(!auth.exists());
+    assert_eq!(
+        std::fs::read(source.join("material.bin")).unwrap(),
+        b"sk-private-offline-only"
+    );
+    assert!(handle.cleanup_private_inputs(&proof).unwrap().home_removed);
 }
