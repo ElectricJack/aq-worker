@@ -219,3 +219,9 @@ impl InputPipeline {
         .await
     }
 }
+
+mod presence;
+pub use presence::{
+    AcknowledgedInventory, InventoryOperation, PresenceOperation, QualifiedPresenceProfile,
+    ScopedPresenceProducer,
+};

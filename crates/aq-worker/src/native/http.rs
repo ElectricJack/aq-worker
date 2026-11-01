@@ -19,6 +19,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 pub mod control;
 pub mod preparation_v2;
+mod scoped_presence;
 pub mod source;
 
 #[derive(Clone)]

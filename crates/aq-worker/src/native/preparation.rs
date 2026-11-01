@@ -12,7 +12,10 @@ use super::{
 use anyhow::{Context, Result, ensure};
 use aq_admission::MaterialReceipt;
 use aq_session_protocol::ArtifactRef;
-pub use granted::{DurableInitialGrant, GrantCommit, RetainedGrantHistory, RetainedInputStats};
+pub use granted::{
+    AcknowledgedInventory, DurableInitialGrant, GrantCommit, InventoryOperation, PresenceOperation,
+    QualifiedPresenceProfile, RetainedGrantHistory, RetainedInputStats, ScopedPresenceProducer,
+};
 pub use hydration::HydratedWorkspace;
 pub use join::PreparedInputs;
 use std::sync::{Arc, Mutex};
@@ -31,6 +34,7 @@ pub struct InputPipeline {
     bulk_slots: Arc<Semaphore>,
     client: NativeClient,
     retained: Arc<Mutex<granted::RetainedOwners>>,
+    scoped_presence_owned: std::sync::atomic::AtomicBool,
 }
 impl InputPipeline {
     pub fn new(journal: Journal, materials: MaterialStore, client: NativeClient) -> Self {
@@ -41,6 +45,7 @@ impl InputPipeline {
             bulk_slots: Arc::new(Semaphore::new(1)),
             client,
             retained: Arc::new(Mutex::new(retained)),
+            scoped_presence_owned: std::sync::atomic::AtomicBool::new(false),
         }
     }
     async fn storage<T: Send + 'static>(
