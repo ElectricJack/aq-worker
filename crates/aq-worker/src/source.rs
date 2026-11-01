@@ -19,6 +19,7 @@ pub struct GitClient {
     maximum_source_disk_bytes: u64,
     maximum_artifact_bytes: u64,
     maximum_pool_bytes: u64,
+    native_inspection: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -219,6 +220,7 @@ impl GitClient {
             maximum_source_disk_bytes: 0,
             maximum_artifact_bytes: 0,
             maximum_pool_bytes: 0,
+            native_inspection: false,
         };
         let capabilities=client.exchange(&json!({"protocol_version":1,"request_id":Uuid::new_v4().to_string(),"operation":"capabilities","params":{}}))?;
         ensure!(
@@ -245,6 +247,9 @@ impl GitClient {
             .all(|op| operations.iter().any(|v| v == op)),
             "aq-git lacks required workspace operations"
         );
+        client.native_inspection = ["workspace.inspect", "retention.inspect"]
+            .iter()
+            .all(|op| operations.iter().any(|v| v == op));
         let expanded = capabilities["limits"]["artifact"]["max_expanded_bytes"]
             .as_u64()
             .context("aq-git must advertise expanded source bound")?;
@@ -273,6 +278,17 @@ impl GitClient {
     }
     pub(crate) fn transfer_byte_limit(&self) -> u64 {
         self.maximum_artifact_bytes
+    }
+    /// Conservative native charge: workspace + retained object pool + full artifact.
+    /// This is a logical admission bound, not a physical free-space guarantee.
+    pub fn native_reservation_bytes(&self) -> Result<u64> {
+        ensure!(
+            self.native_inspection,
+            "aq-git lacks native inspection capabilities"
+        );
+        self.maximum_source_disk_bytes
+            .checked_add(self.maximum_pool_bytes)
+            .context("native source reservation overflow")
     }
     pub fn exchange(&self, request: &Value) -> Result<Value> {
         let mut stream = UnixStream::connect(&self.socket)

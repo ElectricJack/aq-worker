@@ -47,7 +47,7 @@ fn capture(attempt: &Attempt) -> Result<&RecordedPreparation> {
         .as_ref()
         .context("preparation delivery not durable")
 }
-fn validate_capture(
+pub(super) fn validate_capture(
     attempt: &Attempt,
     p: &RecordedPreparation,
     created_revision: u64,

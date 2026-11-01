@@ -174,3 +174,12 @@ startup hooks, including adapter.prepare; the existing later callback alone is
 not proof that no physical preparation effect occurred. See the daemon's
 [granted-launch closure plan](../../../agent-q/docs/implementation/AQ-08-granted-launch-closure-plan.md)
 for the still-open granted-without-Started recovery boundary.
+
+## Bounded native source owner checkpoint
+
+The follow-up [hydration slice](WRK-08-native-hydration-slice.md) adds format-3
+source range and finite Git intents, actual fresh retention/workspace proof and
+private staged files. It preserves stop-and-preserve on reopen and refuses old
+formats unchanged. Its conservative default Git disk charge is 21 GiB + 1 MiB;
+production Poll/Reserve must supply a compatible qualified capacity envelope.
+Prepare/launch and physical disk-headroom closure remain pending.

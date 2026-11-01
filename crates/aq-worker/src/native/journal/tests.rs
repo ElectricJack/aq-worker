@@ -435,3 +435,6 @@ fn changed_private_root_permissions_refuse_further_capacity_or_writes() {
 
 #[path = "inputs_scenarios.rs"]
 mod inputs_scenarios;
+
+#[path = "hydration_scenarios.rs"]
+mod hydration_scenarios;

@@ -54,4 +54,8 @@ freed on that refusal. The journal still rewrites its bounded snapshot per plan
 and per completion, so this slice makes no history-insensitive throughput or
 physical disk/headroom claim. Artifact payloads are limited to 2 MiB in RAM and
 chunks to 256 KiB; actual Git bundles remain a separate streaming owner. Private
-material limits remain those of the existing material owner. No migration from format 1 to 2,, blanket cleanup, new service or runtime dependency is added.
+material limits remain those of the existing material owner. No migration from format 1 to 2, blanket cleanup, new service or runtime dependency is added.
+
+The subsequent [native hydration slice](WRK-08-native-hydration-slice.md) uses a
+new explicit format 3; this format-2 qualification remains a frozen historical
+checkpoint rather than an upgrade or current-format compatibility claim.

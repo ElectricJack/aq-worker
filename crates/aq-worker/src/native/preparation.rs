@@ -1,4 +1,6 @@
 //! Bounded current input collection, never Prepare or execution permission.
+#[path = "hydration.rs"]
+mod hydration;
 use super::{
     ArtifactAssembly, VerifiedArtifact,
     http::{NativeClient, boot_ns, control::Preparation},
@@ -8,6 +10,7 @@ use super::{
 use anyhow::{Context, Result, ensure};
 use aq_admission::MaterialReceipt;
 use aq_session_protocol::ArtifactRef;
+pub use hydration::HydratedWorkspace;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -52,6 +55,14 @@ impl InputPipeline {
         })
         .await
         .context("native input storage worker failed")?
+    }
+    #[cfg(test)]
+    pub(crate) async fn test_journal_fault(&self, fault: super::journal::WriteFault) -> Result<()> {
+        self.storage(move |owner| {
+            owner.journal.inject_fault(fault);
+            Ok(())
+        })
+        .await
     }
     pub async fn snapshot(&self) -> Result<State> {
         self.storage(|owner| Ok(owner.journal.state().clone()))

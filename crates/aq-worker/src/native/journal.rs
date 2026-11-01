@@ -1,6 +1,7 @@
 //! Native no-launch reservations and exact acceptance recovery. No grants or
 //! process permits are reconstructed from disk. Run fsync on a bounded lane.
 mod inputs;
+mod source;
 mod storage;
 use super::http::{boot_ns, control::Preparation};
 use anyhow::{Context, Result, ensure};
@@ -14,6 +15,7 @@ use aq_session_protocol::{
 };
 pub use inputs::{ArtifactDownload, MaterialDownload};
 use serde::{Deserialize, Serialize};
+pub use source::{SourceDownload, SourceRange};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
@@ -21,7 +23,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +85,7 @@ pub struct Attempt {
     pub preparation: Option<RecordedPreparation>,
     pub downloads: BTreeMap<String, ArtifactDownload>,
     pub material_downloads: BTreeMap<Uuid, MaterialDownload>,
+    pub source: Option<SourceDownload>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -258,6 +261,7 @@ impl State {
                     "preparation delivery clocks"
                 );
             }
+            source::validate(attempt, self.revision, &mut identities)?;
             inputs::validate(
                 attempt,
                 &self.identity,
@@ -507,6 +511,7 @@ impl Journal {
                 preparation: None,
                 downloads: BTreeMap::new(),
                 material_downloads: BTreeMap::new(),
+                source: None,
             },
         );
         self.persist(state)?;
