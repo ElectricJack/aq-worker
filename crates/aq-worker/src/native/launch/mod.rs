@@ -1,10 +1,13 @@
-//! Explicit test-support synthetic host owner. No provider/default adoption.
+//! Owned native host launch and test-support synthetic process fixtures.
 //! ```compile_fail
 //! let _: aq_worker::native::launch::LocalPhaseHost = serde_json::from_str("{}").unwrap();
 //! ```
 use super::*;
 use aq_session_host::{ExecutionPermit, HostObservation, SessionHandle, SessionHost, StoppedProof};
-use aq_session_protocol::{Digest, Validate};
+use aq_session_protocol::Digest;
+#[cfg(any(test, feature = "test-support"))]
+use aq_session_protocol::Validate;
+#[cfg(any(test, feature = "test-support"))]
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},

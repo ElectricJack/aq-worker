@@ -87,11 +87,57 @@ Raw local logs: `/tmp/aq-native-exec-host-final-process.log`,
 `/tmp/aq-native-exec-install-final-tests.log`,
 `/tmp/aq-native-exec-final-clippy.log`.
 
-Next integration remains concrete: stopped-writer-aware publication of derived
-private Codex auth/configuration, actual installed mapping/implicit-output/counting
-qualification, and joining the production pipeline's opaque grant to this host
-owner. The runner must stay ineligible until those owners join; neither a manifest,
-input recipe, offline peer nor this physical-host test grants execution authority.
+## Retained native launch and private home
+
+`NativeCodexHostProfile` joins the separately verified installation/mapper to the
+production pipeline's opaque durable execution. The pipeline resolves its own
+retained startup, workspace, original installed provider material, actual Grant
+and original deadlines; callers cannot supply reconstructed secret bytes or
+substitute a fresh offer. Native and explicit synthetic launches share the
+existing launch registry, outer intent/history and physical stop owner. The
+registry must admit a newly reserved ID only after that reservation is durable;
+a failed post-fsync registry handoff keeps the durable reservation held.
+
+Codex auth is one closed derived input, not a second material store. A nonserializable
+owner clones the original InstalledMaterial directory descriptor, pins its exact
+record digest and material digest/byte count, and derives auth in zeroizing memory.
+The host reserves a new private `codex-home/auth.json` with owner-only permissions.
+Its existing launch intent binds the source process/descriptor, original record,
+new directory/file identities and derived auth digest; it never contains the key.
+The authority must persist that intent before any auth bytes are published.
+Publication rechecks the original retained files, writes/syncs the exact auth, and
+keeps the source descriptor alive. The helper repeats the original-source and
+derived-file checks immediately before the final permit/liveness check and exec.
+No alternate credential journal or secret-bearing argv/environment is introduced.
+
+Private auth cleanup requires an opaque matching guardian/configuration proof with
+kernel ECHILD. It verifies the same home/auth identities and exact derived bytes,
+then removes only that auth file. Unknown generated home files remain; an empty
+matching home can be removed. Replaced/symlinked/changed auth refuses cleanup. The
+original MaterialStore input is never deleted here. A post-grant failure with no
+genuine Running still retains its intent and holds for existing recovery; it does
+not invent Started, successful closure or an unrelated cleanup authority.
+
+Focused offline validation of this increment:
+
+- Three private filesystem cases passed in 0.02 s: empty reservation/secret-free
+  metadata, changed original record/key refusal, private permissions and symlink
+  replacement refusal.
+- Two actual native-profile tmux cases passed in 1.15 s. The >4 MiB static peer
+  receives exact sealed stdin and private auth after durable intent; no live
+  stopped proof is available. After physical ECHILD, cleanup preserves unknown
+  generated home files and the original material, and empty-home cleanup is
+  idempotent. Changing the original record after publication prevents exec and
+  Started; only its actual stopped proof permits derived auth cleanup.
+
+Actual installed mapping, implicit-output/counting and provider qualification
+remain separate. In particular `max_output_tokens` is compared to the exact model
+selection but this CLI mapping does not enforce that output bound; a runtime
+qualification must refuse unsupported promises. Physical Running is kernel exec
+evidence, not a Codex ThreadStarted/TurnStarted or provider readiness assertion.
+Neither a manifest, input recipe, offline peer nor these tests grants execution
+eligibility. Frozen package archives require a fresh source snapshot for this
+new host code before downstream consumption.
 
 Final strict all-target/all-feature Clippy passed for aq-worker and aq-session-host
 in 10.03 s; default/no-default-feature worker library check passed in 3.93 s.
