@@ -268,7 +268,7 @@ pub(super) mod tests {
             ("max_output_tokens", Value::from(99)),
             ("previous_response_id", Value::from("resp_foreign")),
             ("background", Value::from(true)),
-            ("access_programs", serde_json::json!({"cyber":true})),
+            ("access_programs", serde_json::json!({"cyber":"standard"})),
             ("reasoning", serde_json::json!({"effort":"high"})),
         ] {
             let mut body: Value = serde_json::from_slice(&body()).unwrap();
