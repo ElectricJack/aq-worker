@@ -199,6 +199,62 @@ pub(super) fn validate(
     }
     Ok(())
 }
+fn artifact_plan(
+    attempt: &Attempt,
+    identity: &WorkerIdentity,
+    revision: u64,
+    now: u64,
+    reference: &ArtifactRef,
+) -> Result<ArtifactDownload> {
+    let preparation = capture(attempt)?;
+    ensure!(now < preparation.deadline_ns, "input preparation expired");
+    let key = key(reference)?;
+    if let Some(old) = attempt.downloads.get(&key) {
+        ensure!(
+            now < old.preparation.deadline_ns,
+            "original download expired"
+        );
+        return Ok(old.clone());
+    }
+    let descriptor = attempt
+        .reservation
+        .offer
+        .offered
+        .artifacts
+        .iter()
+        .find(|d| d.artifact == *reference)
+        .context("artifact not in original offer")?
+        .clone();
+    ensure!(
+        descriptor.bytes <= crate::native::MAX_INLINE_BYTES,
+        "inline artifact bound"
+    );
+    let mut requests = vec![];
+    let mut request_digests = vec![];
+    for offset in (0..descriptor.bytes).step_by(crate::native::MAX_CHUNK_BYTES) {
+        let request = ArtifactFetch {
+            schema_version: 1,
+            operation_id: Uuid::new_v4(),
+            identity: identity.clone(),
+            binding: preparation.delivery.original.binding.clone(),
+            artifact: reference.clone(),
+            offset,
+            length: (descriptor.bytes - offset).min(crate::native::MAX_CHUNK_BYTES as u64) as u32,
+        };
+        request_digests.push(canonical_digest(&request)?);
+        requests.push(request);
+    }
+    Ok(ArtifactDownload {
+        descriptor,
+        requests,
+        request_digests,
+        preparation: preparation.clone(),
+        created_revision: revision,
+        created_ns: now,
+        receipt: None,
+        completed_ns: None,
+    })
+}
 impl Journal {
     pub(crate) fn check_preparation(&self, id: Uuid, observed: &Preparation) -> Result<()> {
         let now = self.live()?;
@@ -218,7 +274,7 @@ impl Journal {
         );
         Ok(())
     }
-    /// Plans all<=8 chunk requests atomically before the first network read.
+    /// Plans one exact descriptor before I/O; use the batch owner for full sets.
     pub fn begin_artifact_download(
         &mut self,
         id: Uuid,
@@ -230,55 +286,17 @@ impl Journal {
             .attempts
             .get(&id)
             .context("unknown native attempt")?;
-        let preparation = capture(attempt)?;
-        ensure!(now < preparation.deadline_ns, "input preparation expired");
+        let op = artifact_plan(
+            attempt,
+            &self.state.identity,
+            self.state.revision,
+            now,
+            reference,
+        )?;
         let key = key(reference)?;
-        if let Some(old) = attempt.downloads.get(&key) {
-            ensure!(
-                now < old.preparation.deadline_ns,
-                "original download expired"
-            );
-            return Ok(old.clone());
+        if attempt.downloads.contains_key(&key) {
+            return Ok(op);
         }
-        let descriptor = attempt
-            .reservation
-            .offer
-            .offered
-            .artifacts
-            .iter()
-            .find(|d| d.artifact == *reference)
-            .context("artifact not in original offer")?
-            .clone();
-        ensure!(
-            descriptor.bytes <= crate::native::MAX_INLINE_BYTES,
-            "inline artifact bound"
-        );
-        let mut requests = vec![];
-        let mut request_digests = vec![];
-        for offset in (0..descriptor.bytes).step_by(crate::native::MAX_CHUNK_BYTES) {
-            let request = ArtifactFetch {
-                schema_version: 1,
-                operation_id: Uuid::new_v4(),
-                identity: self.state.identity.clone(),
-                binding: preparation.delivery.original.binding.clone(),
-                artifact: reference.clone(),
-                offset,
-                length: (descriptor.bytes - offset).min(crate::native::MAX_CHUNK_BYTES as u64)
-                    as u32,
-            };
-            request_digests.push(canonical_digest(&request)?);
-            requests.push(request);
-        }
-        let op = ArtifactDownload {
-            descriptor,
-            requests,
-            request_digests,
-            preparation: preparation.clone(),
-            created_revision: self.state.revision,
-            created_ns: now,
-            receipt: None,
-            completed_ns: None,
-        };
         let mut state = self.next()?;
         state
             .attempts
@@ -288,6 +306,111 @@ impl Journal {
             .insert(key, op.clone());
         self.persist(state)?;
         Ok(op)
+    }
+    /// Whole original inline set, exact IDs durably planned in one transaction.
+    pub(crate) fn begin_artifact_batch(
+        &mut self,
+        id: Uuid,
+        observed: &Preparation,
+    ) -> Result<Vec<ArtifactDownload>> {
+        self.check_preparation(id, observed)?;
+        let now = self.live()?;
+        let a = self
+            .state
+            .attempts
+            .get(&id)
+            .context("unknown native attempt")?;
+        let total = a
+            .reservation
+            .offer
+            .offered
+            .artifacts
+            .iter()
+            .try_fold(0u64, |sum, d| sum.checked_add(d.bytes))
+            .context("inline set overflow")?;
+        ensure!(
+            total <= crate::native::MAX_INLINE_SET_BYTES,
+            "inline set exceeds bounded batch"
+        );
+        let mut plans = Vec::new();
+        let mut next = self.next()?;
+        let mut changed = false;
+        for d in &a.reservation.offer.offered.artifacts {
+            let op = artifact_plan(
+                a,
+                &self.state.identity,
+                self.state.revision,
+                now,
+                &d.artifact,
+            )?;
+            let key = key(&d.artifact)?;
+            if !a.downloads.contains_key(&key) {
+                next.attempts
+                    .get_mut(&id)
+                    .unwrap()
+                    .downloads
+                    .insert(key, op.clone());
+                changed = true;
+            }
+            plans.push(op);
+        }
+        if changed {
+            self.persist(next)?;
+        }
+        self.check_preparation(id, observed)?;
+        Ok(plans)
+    }
+    /// Verified bytes remain in memory. Commit the complete exact receipt set
+    /// once; a failed download never fabricates a partially complete batch.
+    pub(crate) fn complete_artifact_batch(
+        &mut self,
+        id: Uuid,
+        observed: &Preparation,
+        verified: &[VerifiedArtifact],
+    ) -> Result<()> {
+        self.check_preparation(id, observed)?;
+        let now = self.live()?;
+        let a = self
+            .state
+            .attempts
+            .get(&id)
+            .context("unknown native attempt")?;
+        ensure!(
+            verified.len() == a.reservation.offer.offered.artifacts.len(),
+            "incomplete inline batch"
+        );
+        let mut keys = BTreeSet::new();
+        let mut next = self.next()?;
+        let mut changed = false;
+        for v in verified {
+            let key = key(&v.receipt().artifact)?;
+            ensure!(keys.insert(key.clone()), "duplicate inline batch input");
+            let op = a.downloads.get(&key).context("inline batch plan absent")?;
+            ensure!(
+                now < op.preparation.deadline_ns && same(&op.descriptor, &v.descriptor)?,
+                "inline batch scope/expiry"
+            );
+            let receipt = v.receipt();
+            if let Some(old) = &op.receipt {
+                ensure!(same(old, &receipt)?, "changed inline batch completion");
+            } else {
+                let op = next
+                    .attempts
+                    .get_mut(&id)
+                    .unwrap()
+                    .downloads
+                    .get_mut(&key)
+                    .unwrap();
+                op.receipt = Some(receipt);
+                op.completed_ns = Some(now);
+                changed = true;
+            }
+        }
+        if changed {
+            self.persist(next)?;
+        }
+        self.check_preparation(id, observed)?;
+        Ok(())
     }
     pub fn complete_artifact_download(
         &mut self,

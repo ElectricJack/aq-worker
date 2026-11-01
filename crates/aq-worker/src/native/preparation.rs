@@ -70,6 +70,43 @@ impl InputPipeline {
         self.storage(|owner| Ok(owner.journal.state().clone()))
             .await
     }
+    /// Collect all original inline inputs with one durable plan and completion.
+    /// Lost payloads are downloaded again under the original IDs and deadlines.
+    pub async fn artifacts(
+        &self,
+        id: Uuid,
+        preparation: Arc<Preparation>,
+    ) -> Result<Vec<VerifiedArtifact>> {
+        let _bulk = self
+            .bulk_slots
+            .clone()
+            .try_acquire_owned()
+            .context("native input bulk lane overloaded")?;
+        let observed = preparation.clone();
+        let plans = self
+            .storage(move |owner| owner.journal.begin_artifact_batch(id, &observed))
+            .await?;
+        let mut verified = Vec::with_capacity(plans.len());
+        for plan in plans {
+            let mut assembly = ArtifactAssembly::new(plan.descriptor.clone())?;
+            for request in &plan.requests {
+                ensure!(
+                    boot_ns()? < plan.preparation.deadline_ns.min(preparation.deadline_ns()),
+                    "native artifact batch expired"
+                );
+                let response = self.client.artifact(request, &plan.descriptor).await?;
+                assembly.append(response.offset, &response.bytes)?;
+            }
+            verified.push(assembly.finish()?);
+        }
+        self.storage(move |owner| {
+            owner
+                .journal
+                .complete_artifact_batch(id, &preparation, &verified)?;
+            Ok(verified)
+        })
+        .await
+    }
     pub async fn artifact(
         &self,
         id: Uuid,
