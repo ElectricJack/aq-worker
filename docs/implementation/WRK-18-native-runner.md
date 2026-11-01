@@ -68,8 +68,11 @@ settings and original Grant/input validation. `NativeConfig.executor` is an
 optional closed tagged configuration (`kind = codex-0.166-exec-stdin-v1`) carrying
 operator harness/model/permission pins and private host geometry/root. Production
 transport requires HTTPS and currently refuses Cloudflare proxy credentials.
-`--development-loopback` exists only in test-support CLI builds and uses the same
-executor/driver; it cannot enable a production build's missing qualification.
+`--development-loopback` is reserved in test-support CLI builds and explicitly
+refuses before reading enrollment/native configuration: a numeric Node origin
+cannot isolate provider traffic. The ordinary CLI requires a future explicit
+scoped-provider join; the actual-process tests provide their owned loopback
+transport to the same executor/driver through a test-only constructor.
 
 The output publisher is independent of host control. A missing human Watch (409)
 and output network errors preserve exact pending output bytes with bounded
