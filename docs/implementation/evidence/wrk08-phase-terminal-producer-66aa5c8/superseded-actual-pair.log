@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized] target(s) in 0.11s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-df2ede32661e8d1a)
+
+running 3 tests
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_ack_write_cuts_reopen_old_or_whole_ack_without_freeing_holds ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_actual_pair_lost_ack_immutable_retry_and_restart_readback ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_unacked_restart_retries_without_live_authority_or_discard ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 118 filtered out; finished in 15.24s
+

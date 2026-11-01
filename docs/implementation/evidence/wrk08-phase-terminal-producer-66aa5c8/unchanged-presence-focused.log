@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-df2ede32661e8d1a)
+
+running 1 test
+test native::journal::tests::hydration_scenarios::presence_scenarios::expired_initial_token_never_reads_or_publishes_positive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 120 filtered out; finished in 0.82s
+

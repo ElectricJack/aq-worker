@@ -1,0 +1,4 @@
+    Checking aq-session-host v0.1.4 (/tmp/aq-worker-phase-terminal/crates/aq-session-host)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-worker-phase-terminal/crates/aq-worker-protocol)
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-phase-terminal/crates/aq-worker)
+    Finished `dev` profile [unoptimized] target(s) in 4.05s

@@ -1,0 +1,22 @@
+    Checking aq-session-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/crates/aq-session-protocol)
+    Checking aq-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/crates/aq-protocol)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-worker-phase-terminal/crates/aq-worker-protocol)
+    Checking aq-lifecycle-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/crates/aq-lifecycle-protocol)
+    Checking aq-terminal-relay-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-session-host v0.1.4 (/tmp/aq-worker-phase-terminal/crates/aq-session-host)
+    Checking aq-admission v0.1.9 (/tmp/aq-worker-phase-terminal/vendor/aq-admission-0.1.9)
+    Checking aq-phase-terminal-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/vendor/aq-phase-terminal-protocol-0.1.0)
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-phase-terminal/crates/aq-worker)
+error: this assertion has a constant value
+   --> crates/aq-worker/src/native/journal/phase_terminal.rs:296:9
+    |
+296 |         assert!(BASE_HISTORY_MAX + 4 * wire::MAX_BYTES + 1024 < HOST_HISTORY_BUDGET);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider moving this into a const block: `const { assert!(..) }`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#assertions_on_constants
+    = note: `-D clippy::assertions-on-constants` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::assertions_on_constants)]`
+
+error: could not compile `aq-worker` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
