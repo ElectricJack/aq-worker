@@ -103,7 +103,7 @@ impl CodexExecutor {
         // missing capability; ordinary production admission remains refused.
         anyhow::bail!("native Codex model output bound is not qualified; no admission attempted")
     }
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(feature = "test-support")]
     pub fn development_loopback(worker: &WorkerConfig) -> Result<Self> {
         ensure!(
             worker.cf_client_id.is_none() && worker.cf_client_secret.is_none(),
@@ -125,7 +125,18 @@ impl CodexExecutor {
             &credential,
         )?)
     }
-    #[cfg(any(test, feature = "test-support"))]
+    /// Joins a separately preflighted, real installed host to the same executor
+    /// path for finite loopback qualification; unavailable in production builds.
+    #[cfg(all(test, feature = "test-support"))]
+    pub(crate) fn development_preflighted(
+        relay: RelayHttp,
+        profile: Arc<NativeCodexHostProfile>,
+    ) -> Result<Self> {
+        let mut executor = Self::from_relay(relay)?;
+        executor.profile = Some(profile);
+        Ok(executor)
+    }
+    #[cfg(feature = "test-support")]
     fn from_relay(relay: RelayHttp) -> Result<Self> {
         Ok(Self {
             relay,

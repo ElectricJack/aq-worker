@@ -131,7 +131,7 @@ the exact sealed stdin contained 26, and tool definitions encoded to 7,295.
 These are one bounded fixture's measured bytes, not token counts or universal
 CLI overhead. They demonstrate why final startup counting must include the
 actual implicit context/tool configuration before production eligibility.
-Evidence artifacts are in `/tmp/aq-codex-process-evidence-final`; the runner lane
+Evidence artifacts are in the [recorded loopback evidence](evidence/wrk18-codex-loopback/README.md); the runner lane
 owns its independently pinned executable/helper and physical lifecycle evidence.
 
 Production still needs an owner-reviewed join from original InstalledMaterial to
