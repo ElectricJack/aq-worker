@@ -528,7 +528,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                     let output_result = if phase.relay_output {
                         match &launched {
                             NativeHostLaunchResult::Running(host) => {
-                                output::run(&pipeline, host, &config.worker, id, &mut input)
+                                output::run(&pipeline, host, &config.worker, id, &mut input, stage)
                                     .await
                                     .map(Some)
                             }
@@ -537,6 +537,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                     } else {
                         Ok(None)
                     };
+                    let output_stage = *stage;
                     // Stop before inspecting/serializing the final result, including
                     // a failed relay operation. The original guardian cap remains.
                     *stage = "phase_host_stop";
@@ -548,6 +549,9 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                         "actual stop proof required"
                     );
                     pipeline.persist_phase_host_stop(id).await?;
+                    if output_result.is_err() {
+                        *stage = output_stage;
+                    }
                     if let Some(output) = output_result? {
                         result["phase_output"] = output;
                     }
