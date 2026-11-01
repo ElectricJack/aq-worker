@@ -1,0 +1,35 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+warning: unused import: `Checkpoint`
+ --> crates/aq-worker/src/native/journal/native_host_scenarios.rs:5:9
+  |
+5 |         Checkpoint, InstalledFilePin, NativeHostLaunchResult, NativeStopOutcome,
+  |         ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `HostPhase`
+ --> crates/aq-worker/src/native/launch/mod.rs:4:39
+  |
+4 |     ExecutionPermit, HostObservation, HostPhase, SessionHandle, SessionHost, StoppedProof,
+  |                                       ^^^^^^^^^
+
+warning: method `test_pause_native` is never used
+   --> crates/aq-worker/src/native/launch/mod.rs:246:19
+    |
+244 | impl InputPipeline {
+    | ------------------ method in this implementation
+245 |     #[cfg(test)]
+246 |     pub(crate) fn test_pause_native(
+    |                   ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aq-worker` (lib test) generated 3 warnings (run `cargo fix --lib -p aq-worker --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 9.53s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-07265dd947b501fa)
+
+running 1 test
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_actual_running_then_stop_retains_typed_history ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 3.77s
+

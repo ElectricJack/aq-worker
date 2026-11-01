@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on build directory
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 15.49s
+  Executable unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-b0d59a83a716ae68)

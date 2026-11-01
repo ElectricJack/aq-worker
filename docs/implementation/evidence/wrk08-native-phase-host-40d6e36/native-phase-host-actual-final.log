@@ -1,0 +1,25 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 9.10s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-b0d59a83a716ae68)
+
+running 11 tests
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_actual_running_then_stop_retains_typed_history ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_cancelled_waiter_keeps_one_exact_admitted_job ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_guardian_loss_is_unknown_never_a_stopped_proof ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_invalid_sealed_program_never_falls_back_to_shell ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_original_expiry_stops_guardian_while_baseline_writer_is_paused ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_reopen_only_stops_exact_existing_host_and_never_restores_execution ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_root_replacement_after_intent_never_switches_namespace ... ok
+
+running 1 test
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_short_exec_without_positive_guardian_proof_has_no_started ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 3.69s
+
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_short_exec_without_positive_guardian_proof_has_no_started ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_started_outbox_never_fakes_ack_and_replays_exact_fact ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_stop_progresses_while_baseline_writer_is_paused ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_every_permission_write_cut_is_unknown_and_never_relaunched ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 44.61s
+

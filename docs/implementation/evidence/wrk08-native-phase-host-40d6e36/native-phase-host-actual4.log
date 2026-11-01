@@ -1,0 +1,14 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 8.36s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-07265dd947b501fa)
+
+running 6 tests
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_actual_running_then_stop_retains_typed_history ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_cancelled_waiter_keeps_one_exact_admitted_job ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_original_expiry_stops_guardian_while_baseline_writer_is_paused ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_reopen_only_stops_exact_existing_host_and_never_restores_execution ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_stop_progresses_while_baseline_writer_is_paused ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_every_permission_write_cut_is_unknown_and_never_relaunched ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 43.68s
+
