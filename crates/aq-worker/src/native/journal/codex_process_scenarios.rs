@@ -108,6 +108,7 @@ async fn provider_mode(tool_flow: bool) -> Provider {
                     all.push(request);
                     index
                 };
+                eprintln!("fixture provider request index={index} boot_ns={}", crate::native::http::boot_ns().unwrap());
                 signal.notify_one();
                 let _permit = gate.acquire().await.unwrap();
                 if index == 0 {record_observation(&saved.lock().unwrap()[0], body.len(), tool_flow);}
@@ -295,7 +296,15 @@ async fn codex_prepared(
     Arc<NativeCodexHostProfile>,
     aq_session_protocol::TerminalPolicy,
 ) {
+    eprintln!(
+        "fixture preflight begin boot_ns={}",
+        crate::native::http::boot_ns().unwrap()
+    );
     let installed = preflight_fixture(kind);
+    eprintln!(
+        "fixture preflight complete boot_ns={}",
+        crate::native::http::boot_ns().unwrap()
+    );
     let export = synthetic();
     let source_manifest = export.manifest.clone();
     let h = Inputs::new_phase_codex(export).await;
@@ -394,7 +403,13 @@ async fn begin_fixture_execution(
     if delayed_started {
         h.host_report_mode.store(4, Ordering::SeqCst);
     }
-    let (http, output) = output_peer(policy, slow_output).await;
+    let (http, mut output) = output_peer(policy, slow_output).await;
+    output.execution_deadline_ns = Some(grant.deadline_ns());
+    eprintln!(
+        "fixture execute begin boot_ns={} original_deadline_ns={}",
+        crate::native::http::boot_ns().unwrap(),
+        grant.deadline_ns()
+    );
     let mut executor = CodexExecutor::development_preflighted(http, profile).unwrap();
     let (tx, rx) = watch::channel(false);
     let pipeline = h.pipeline().clone();
@@ -405,6 +420,19 @@ async fn assert_private_auth(h: &Inputs) -> String {
     let state = h.pipeline().snapshot().await.unwrap();
     let history = state.attempts[&h.id].native_host.as_ref().unwrap();
     assert!(history.baseline.is_some() && history.running.is_some());
+    eprintln!(
+        "fixture physical Running observed_boot_ms={} started_ack={}",
+        history
+            .running
+            .as_ref()
+            .unwrap()
+            .observation
+            .observed_boot_ms,
+        history
+            .terminal
+            .as_ref()
+            .is_some_and(|v| v.started.receipt.is_some())
+    );
     let auth = history
         .intent
         .host_root
@@ -672,96 +700,141 @@ async fn actual_codex_exec_command_round_trip_uses_confined_workspace_and_actual
 #[ignore = "explicit named-readonly qualification; requires private fixture, exact pins and root-approved paired source"]
 async fn actual_named_readonly_codex_exec_command_round_trip_has_owned_cap_and_physical_cleanup() {
     let peer = provider_mode(true).await;
-    let (h, _git, _tx, task, output) =
+    let (h, _git, tx, mut task, output) =
         begin_fixture_execution(&peer, false, false, FixtureImage::NamedReadonly).await;
-    tokio::time::timeout(std::time::Duration::from_secs(12), peer.entered.notified())
-        .await
-        .unwrap();
-    let capability = assert_private_auth(&h).await;
-    {
-        let requests = peer.requests.lock().unwrap();
-        assert!(
-            !serde_json::to_string(&requests[0])
-                .unwrap()
-                .contains(&capability),
-            "child capability entered model input"
-        );
-    }
-    tokio::time::timeout(std::time::Duration::from_secs(3), output.entered.notified())
-        .await
-        .unwrap();
-    assert!(
-        !task.is_finished(),
-        "no current Watch must not stop a named agent"
-    );
-    {
-        let uploads = output.uploads.lock().unwrap();
-        let request: PeerUpload = serde_json::from_slice(&uploads[0]).unwrap();
-        let literal: Vec<u8> = request
-            .frames
-            .iter()
-            .flat_map(|f| f.bytes.clone())
-            .collect();
-        let literal = String::from_utf8_lossy(&literal);
-        assert!(
-            literal.contains("thread.started") && literal.contains("turn.started"),
-            "genuine named CLI readiness must be observed"
-        );
-        assert!(!literal.contains(&capability) && !literal.contains("synthetic-upstream-key"));
-    }
-    {
-        let requests = peer.requests.lock().unwrap();
-        assert!(
-            requests[0]["tools"]
+    let deadline = output.execution_deadline_ns.unwrap();
+    // Every qualification stage shares the original Grant deadline. No new
+    // wall-clock budget starts when an earlier stage happens to finish.
+    let mut joined = false;
+    let progress = async {
+        original_deadline_stage(deadline, "first provider request", async {
+            while peer.requests.lock().unwrap().is_empty() {
+                peer.entered.notified().await;
+            }
+        })
+        .await?;
+        let capability = assert_private_auth(&h).await;
+        {
+            let requests = peer.requests.lock().unwrap();
+            anyhow::ensure!(
+                !serde_json::to_string(&requests[0])
+                    .unwrap()
+                    .contains(&capability),
+                "child capability entered model input"
+            );
+        }
+        {
+            let requests = peer.requests.lock().unwrap();
+            anyhow::ensure!(
+                requests[0]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v["type"] == "function" && v["name"] == "exec_command")
+            );
+        }
+        peer.release.add_permits(1);
+        original_deadline_stage(deadline, "real tool result request", async {
+            while peer.requests.lock().unwrap().len() < 2 {
+                peer.entered.notified().await;
+            }
+        })
+        .await?;
+        {
+            let requests = peer.requests.lock().unwrap();
+            let outputs: Vec<_> = requests[1]["input"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|v| v["type"] == "function" && v["name"] == "exec_command")
-        );
-    }
-    peer.release.add_permits(1);
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while peer.requests.lock().unwrap().len() < 2 {
-            peer.entered.notified().await;
+                .filter(|v| v["type"] == "function_call_output" && v["call_id"] == "call_aq_local")
+                .collect();
+            anyhow::ensure!(
+                outputs.len() == 1,
+                "actual CLI must return the exact controlled tool call"
+            );
+            let output = serde_json::to_string(&outputs[0]["output"]).unwrap();
+            anyhow::ensure!(
+                output.contains("aq-local-tool-proof"),
+                "actual local tool did not produce expected output: {output}"
+            );
         }
-    })
-    .await
-    .unwrap();
-    {
-        let requests = peer.requests.lock().unwrap();
-        let outputs: Vec<_> = requests[1]["input"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|v| v["type"] == "function_call_output" && v["call_id"] == "call_aq_local")
-            .collect();
-        assert_eq!(
-            outputs.len(),
-            1,
-            "actual CLI must return the exact controlled tool call"
+        let state = h.pipeline().snapshot().await.unwrap();
+        let created = state.attempts[&h.id].source.as_ref().unwrap().operations["create"]
+            .result
+            .as_ref()
+            .unwrap();
+        let workspace: crate::source::Workspace = serde_json::from_value(created.clone()).unwrap();
+        anyhow::ensure!(
+            fs::read(workspace.path.join("aq-local-tool-proof.txt"))? == b"aq-local-tool-proof",
+            "real workspace tool file differs"
         );
-        let output = serde_json::to_string(&outputs[0]["output"]).unwrap();
-        assert!(
-            output.contains("aq-local-tool-proof"),
-            "actual local tool did not produce expected output: {output}"
+        // Output delivery is independent of inference. Hold the second response
+        // while checking it; do not demand an upload before releasing the tool call.
+        original_deadline_stage(deadline, "terminal readiness upload", async {
+            while output.uploads.lock().unwrap().is_empty() {
+                output.entered.notified().await;
+            }
+        })
+        .await?;
+        anyhow::ensure!(
+            !task.is_finished(),
+            "no current Watch must not stop a named agent"
+        );
+        {
+            let uploads = output.uploads.lock().unwrap();
+            let request: PeerUpload = serde_json::from_slice(&uploads[0]).unwrap();
+            let literal: Vec<u8> = request
+                .frames
+                .iter()
+                .flat_map(|f| f.bytes.clone())
+                .collect();
+            let literal = String::from_utf8_lossy(&literal);
+            anyhow::ensure!(
+                literal.contains("thread.started") && literal.contains("turn.started"),
+                "genuine named CLI readiness must be observed"
+            );
+            assert!(!literal.contains(&capability) && !literal.contains("synthetic-upstream-key"));
+        }
+        peer.release.add_permits(1);
+        let completion =
+            original_deadline_stage(deadline, "natural physical completion", &mut task).await?;
+        joined = true;
+        completion??;
+        Ok::<String, anyhow::Error>(capability)
+    }
+    .await;
+    if let Err(error) = &progress {
+        // Always ask the real owner to stop and persist proof on a stage timeout.
+        // Cleanup is allowed to finish after the Grant has stopped admission.
+        let _ = tx.send(true);
+        let cleanup_joined = joined
+            || tokio::time::timeout(std::time::Duration::from_secs(10), &mut task)
+                .await
+                .is_ok();
+        let state = h.pipeline().snapshot().await.unwrap();
+        let history = state.attempts[&h.id].native_host.as_ref();
+        eprintln!(
+            "fixture failure: {error}; cleanup_joined={} provider_requests={} registrations={} uploads={} running_observed_boot_ms={:?} echild={} started_ack={} stopped_ack={}",
+            cleanup_joined,
+            peer.requests.lock().unwrap().len(),
+            output.registrations.lock().unwrap().len(),
+            output.uploads.lock().unwrap().len(),
+            history
+                .and_then(|v| v.running.as_ref())
+                .map(|v| v.observation.observed_boot_ms),
+            history
+                .and_then(|v| v.stopped.as_ref())
+                .is_some_and(|v| v.observation.kernel_wait_echild),
+            history
+                .and_then(|v| v.terminal.as_ref())
+                .is_some_and(|v| v.started.receipt.is_some()),
+            history
+                .and_then(|v| v.terminal.as_ref())
+                .and_then(|v| v.stopped.as_ref())
+                .is_some_and(|v| v.receipt.is_some())
         );
     }
-    let state = h.pipeline().snapshot().await.unwrap();
-    let created = state.attempts[&h.id].source.as_ref().unwrap().operations["create"]
-        .result
-        .as_ref()
-        .unwrap();
-    let workspace: crate::source::Workspace = serde_json::from_value(created.clone()).unwrap();
-    assert_eq!(
-        fs::read(workspace.path.join("aq-local-tool-proof.txt")).unwrap(),
-        b"aq-local-tool-proof"
-    );
-    peer.release.add_permits(1);
-    tokio::time::timeout(std::time::Duration::from_secs(5), task)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
+    let capability = progress.unwrap();
     stopped(&h, true).await;
     let state = h.pipeline().snapshot().await.unwrap();
     assert_eq!(
@@ -795,4 +868,49 @@ async fn actual_named_readonly_codex_exec_command_round_trip_has_owned_cap_and_p
                 .contains(&capability)
         );
     }
+}
+
+async fn original_deadline_stage<T>(
+    deadline_ns: u64,
+    stage: &str,
+    operation: impl std::future::Future<Output = T>,
+) -> anyhow::Result<T> {
+    let now = crate::native::http::boot_ns()?;
+    eprintln!(
+        "fixture stage={stage} boot_ns={now} remaining_ns={}",
+        deadline_ns.saturating_sub(now)
+    );
+    anyhow::ensure!(now < deadline_ns, "original Grant expired before {stage}");
+    let result = tokio::time::timeout(
+        std::time::Duration::from_nanos(deadline_ns - now),
+        operation,
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("original Grant expired during {stage}"))?;
+    eprintln!(
+        "fixture stage={stage} complete boot_ns={}",
+        crate::native::http::boot_ns()?
+    );
+    Ok(result)
+}
+
+#[tokio::test]
+async fn qualification_stage_does_not_reset_or_poll_expired_original_deadline() {
+    let polled = std::sync::atomic::AtomicBool::new(false);
+    let expired = crate::native::http::boot_ns().unwrap().saturating_sub(1);
+    assert!(
+        original_deadline_stage(expired, "expired", async {
+            polled.store(true, Ordering::SeqCst);
+        })
+        .await
+        .is_err()
+    );
+    assert!(!polled.load(Ordering::SeqCst));
+    let deadline = crate::native::http::boot_ns().unwrap() + 5_000_000;
+    assert!(
+        original_deadline_stage(deadline, "pending", std::future::pending::<()>())
+            .await
+            .is_err()
+    );
+    assert!(crate::native::http::boot_ns().unwrap() >= deadline);
 }
