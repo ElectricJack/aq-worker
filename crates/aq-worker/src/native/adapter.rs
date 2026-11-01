@@ -13,6 +13,7 @@ use std::{
 use zeroize::Zeroizing;
 
 pub mod codex;
+pub mod named_exec;
 pub mod native_exec;
 pub mod responses_transport;
 
