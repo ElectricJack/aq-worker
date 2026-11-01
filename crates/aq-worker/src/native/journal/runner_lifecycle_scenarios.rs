@@ -4,6 +4,8 @@ use aq_terminal_relay_protocol::PeerUpload;
 use axum::response::IntoResponse;
 use tokio::sync::{Notify, Semaphore, watch};
 struct OutputPeer {
+    registrations: Arc<Mutex<Vec<u64>>>,
+    execution_deadline_ns: Option<u64>,
     uploads: Arc<Mutex<Vec<Vec<u8>>>>,
     entered: Arc<Notify>,
     release: Arc<Semaphore>,
@@ -18,6 +20,8 @@ async fn output_peer(
     policy: aq_session_protocol::TerminalPolicy,
     slow: bool,
 ) -> (RelayHttp, OutputPeer) {
+    let registrations = Arc::new(Mutex::new(Vec::new()));
+    let registered = registrations.clone();
     let uploads = Arc::new(Mutex::new(Vec::new()));
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Semaphore::new(0));
@@ -29,8 +33,12 @@ async fn output_peer(
             "/v1/terminal-relay/register",
             post(move |Json(q): Json<Register>| {
                 let policy = policy.clone();
+                let registered = registered.clone();
                 async move {
                     q.validate().unwrap();
+                    let now = crate::native::http::boot_ns().unwrap();
+                    registered.lock().unwrap().push(now);
+                    eprintln!("fixture terminal registration boot_ns={now}");
                     Json(MutationReply::Registered {
                         operation_id: q.operation_id,
                         info: TerminalInfo {
@@ -63,6 +71,10 @@ async fn output_peer(
                 async move {
                     let q: PeerUpload = serde_json::from_slice(&body).unwrap();
                     q.validate().unwrap();
+                    eprintln!(
+                        "fixture terminal upload boot_ns={}",
+                        crate::native::http::boot_ns().unwrap()
+                    );
                     saved.lock().unwrap().push(body.to_vec());
                     signal.notify_one();
                     if slow {
@@ -83,6 +95,8 @@ async fn output_peer(
     (
         http,
         OutputPeer {
+            registrations,
+            execution_deadline_ns: None,
             uploads,
             entered,
             release,
