@@ -5,7 +5,7 @@ use crate::native::{
     http::control::Granted,
     preparation::{GrantCommit, PreparedInputs},
 };
-async fn joined(h: &Inputs, git: &GitPeer) -> PreparedInputs {
+pub(super) async fn joined(h: &Inputs, git: &GitPeer) -> PreparedInputs {
     let spec = h.spec().await;
     let workspace = h
         .pipeline()
@@ -24,7 +24,7 @@ async fn joined(h: &Inputs, git: &GitPeer) -> PreparedInputs {
         .await
         .unwrap()
 }
-async fn observed(h: &Inputs, request: &aq_admission::transport::Prepare) -> Granted {
+pub(super) async fn observed(h: &Inputs, request: &aq_admission::transport::Prepare) -> Granted {
     let offer = h.pipeline().snapshot().await.unwrap().attempts[&h.id]
         .reservation
         .offer

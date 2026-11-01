@@ -7,9 +7,10 @@ accepted-preparation v2, a host, provider, renewal driver or runtime scheduler.
 
 ## API and scope
 
-A trusted `QualifiedPresenceProfile` constructor verifies canonical actual
+A trusted `QualifiedPresenceProfile` constructor verifies actual raw
 qualification body bytes against the pinned Definition reference and configured
-adapter/evidence references. Every inventory/report must match original admitted
+adapter/evidence references. Formatted Definition JSON is accepted up to the
+server owner’s8192-byte limit; the raw hash, not a reserialization, pins it. Every inventory/report must match original admitted
 runtime and runtime qualification. A DTO/capability string is not qualification.
 `InputPipeline::scoped_presence` creates a bounded process owner from the current
 original journal and trusted installed harness qualification references. It takes
@@ -74,3 +75,7 @@ record/bytes/scope, unsafe file types/modes/links, expiry/cancellation, immutabl
 retry/highwaters, control-vs-bulk progress and full upgraded package regression.
 Synthetic runtime/provider qualifications remain explicit; production activation
 and durable renewal/phase adoption remain separate.
+
+Exactly one producer may be constructed per InputPipeline lifetime. Failed
+construction releases its claim; a successfully established owner never allows
+a new independent counter/map, even after the caller drops that producer.

@@ -9,7 +9,7 @@ pub(crate) struct Gate {
     wake: Condvar,
 }
 impl Gate {
-    pub(super) fn wait(&self) -> anyhow::Result<()> {
+    pub(crate) fn wait(&self) -> anyhow::Result<()> {
         self.entered.store(true, Ordering::SeqCst);
         let mut released = self
             .released

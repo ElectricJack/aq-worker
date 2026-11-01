@@ -111,6 +111,10 @@ struct Inputs {
     inline_max_active: Arc<AtomicUsize>,
     grant_mode: Arc<AtomicU8>,
     grant_window_ms: Arc<AtomicU64>,
+    scoped_calls: Arc<Mutex<Vec<(String, Value)>>>,
+    scoped_mode: Arc<AtomicU8>,
+    scoped_entered: Arc<tokio::sync::Semaphore>,
+    scoped_release: Arc<tokio::sync::Semaphore>,
 }
 struct ActiveInline(Arc<AtomicUsize>);
 impl Drop for ActiveInline {
@@ -208,6 +212,7 @@ impl Inputs {
         let mode = Arc::new(AtomicU8::new(0));
         let r1 = root.clone();
         let r2 = root.clone();
+        let presence_root = root.clone();
         let m = export.manifest.clone();
         let status = m.clone();
         let range_mode = mode.clone();
@@ -409,7 +414,160 @@ impl Inputs {
                 response
             }
         };
+        let scoped_calls = Arc::new(Mutex::new(Vec::new()));
+        let scoped_mode = Arc::new(AtomicU8::new(0));
+        let scoped_entered = Arc::new(tokio::sync::Semaphore::new(0));
+        let scoped_release = Arc::new(tokio::sync::Semaphore::new(0));
+        let inventory_saved = Arc::new(Mutex::new(std::collections::BTreeMap::<
+            Uuid,
+            aq_admission::scoped_presence::InventoryReceipt,
+        >::new()));
+        let inventory_calls = scoped_calls.clone();
+        let inventory_mode = scoped_mode.clone();
+        let inventory_route =
+            move |Json(request): Json<aq_admission::scoped_presence::InventoryV2>| {
+                let saved = inventory_saved.clone();
+                let calls = inventory_calls.clone();
+                let mode = inventory_mode.clone();
+                async move {
+                    request.validate().unwrap();
+                    assert!(request.provisionable_only.is_empty());
+                    calls
+                        .lock()
+                        .unwrap()
+                        .push(("inventory".into(), serde_json::to_value(&request).unwrap()));
+                    let (receipt, first) = {
+                        let mut saved = saved.lock().unwrap();
+                        if let Some(old) = saved.get(&request.operation_id) {
+                            old.validate_for(&request).unwrap();
+                            (old.clone(), false)
+                        } else {
+                            let receipt = aq_admission::scoped_presence::InventoryReceipt {
+                                schema_version: 1,
+                                identity: request.identity.clone(),
+                                negotiation: request.negotiation.clone(),
+                                inventory: aq_admission::scoped_presence::InventoryIdentity {
+                                    operation_id: request.operation_id,
+                                    sequence: request.sequence,
+                                    revision: request.sequence + 10,
+                                    request_digest: request.digest().unwrap(),
+                                    snapshot_digest: Digest::of(
+                                        b"synthetic server-owned normalized provisionable bindings",
+                                    ),
+                                },
+                                recorded_at_ms: 2100,
+                                expires_at_ms: 2100 + request.ttl_ms,
+                            };
+                            saved.insert(request.operation_id, receipt.clone());
+                            (receipt, true)
+                        }
+                    };
+                    if first && mode.load(Ordering::SeqCst) == 1 {
+                        return (
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                            "synthetic lost inventory acknowledgement",
+                        )
+                            .into_response();
+                    }
+                    Json(receipt).into_response()
+                }
+            };
+        let presence_saved = Arc::new(Mutex::new(std::collections::BTreeMap::<
+            Uuid,
+            aq_admission::scoped_presence::PresenceReceipt,
+        >::new()));
+        let presence_calls = scoped_calls.clone();
+        let presence_mode = scoped_mode.clone();
+        let entered = scoped_entered.clone();
+        let release = scoped_release.clone();
+        let presence_route = move |Json(request): Json<
+            aq_admission::scoped_presence::PresenceReport,
+        >| {
+            let saved = presence_saved.clone();
+            let calls = presence_calls.clone();
+            let mode = presence_mode.clone();
+            let root = presence_root.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            async move {
+                request.validate().unwrap();
+                let snapshot: Snapshot =
+                    serde_json::from_slice(&fs::read(root.join("journal.json")).unwrap()).unwrap();
+                let a = &snapshot.state.attempts[&request.binding.attempt_id];
+                let original = &a.initial_grant.as_ref().unwrap().delivery;
+                request
+                    .validate_against(
+                        &original.original.materials[0],
+                        &a.prepared.as_ref().unwrap().request.materials[0],
+                    )
+                    .unwrap();
+                calls
+                    .lock()
+                    .unwrap()
+                    .push(("presence".into(), serde_json::to_value(&request).unwrap()));
+                let (mut receipt, first) = {
+                    let mut saved = saved.lock().unwrap();
+                    if let Some(old) = saved.get(&request.operation_id) {
+                        old.validate_for(&request).unwrap();
+                        (old.clone(), false)
+                    } else {
+                        let expiry = if request.presence.is_present() {
+                            aq_admission::scoped_presence::positive_expiry(
+                                original.original.clock.server_time_ms,
+                                2200,
+                                request.ttl_ms,
+                                30000,
+                                original.execution_deadline_ms,
+                            )
+                            .unwrap()
+                        } else {
+                            2200 + request.ttl_ms
+                        };
+                        let receipt = aq_admission::scoped_presence::PresenceReceipt {
+                            schema_version: 1,
+                            operation_id: request.operation_id,
+                            identity: request.identity.clone(),
+                            negotiation: request.negotiation.clone(),
+                            binding: request.binding.clone(),
+                            grant_id: request.grant_id,
+                            lease_id: request.lease_id,
+                            sequence: request.sequence,
+                            request_digest: request.digest().unwrap(),
+                            inventory_at_record: request.inventory.clone(),
+                            recorded_at_ms: 2200,
+                            expires_at_ms: expiry,
+                            disposition: aq_admission::scoped_presence::Disposition::Recorded,
+                        };
+                        saved.insert(request.operation_id, receipt.clone());
+                        (receipt, true)
+                    }
+                };
+                if first && mode.load(Ordering::SeqCst) == 2 {
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        "synthetic lost presence acknowledgement",
+                    )
+                        .into_response();
+                }
+                if first && mode.load(Ordering::SeqCst) == 5 {
+                    entered.add_permits(1);
+                    release.acquire().await.unwrap().forget();
+                }
+                if mode.load(Ordering::SeqCst) == 3 {
+                    receipt.request_digest = Digest::of(b"wrong request digest")
+                }
+                if mode.load(Ordering::SeqCst) == 4 {
+                    return "x".repeat(5000).into_response();
+                }
+                Json(receipt).into_response()
+            }
+        };
         let router = Router::new()
+            .route("/v1/worker/profiled/inventory-v2", post(inventory_route))
+            .route(
+                "/v1/worker/profiled/material-presence",
+                post(presence_route),
+            )
             .route("/v1/worker/profiled/accept", post(accept_route))
             .route("/v1/worker/profiled/prepare", post(prepare_route))
             .route("/v1/worker/profiled/artifact", post(artifact_route))
@@ -447,6 +605,10 @@ impl Inputs {
             inline_max_active,
             grant_mode,
             grant_window_ms,
+            scoped_calls,
+            scoped_mode,
+            scoped_entered,
+            scoped_release,
         }
     }
     async fn all_inputs(&self) -> Vec<crate::native::VerifiedArtifact> {
@@ -1654,3 +1816,6 @@ async fn inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion() {
 
 #[path = "granted_scenarios.rs"]
 mod granted_scenarios;
+
+#[path = "presence_scenarios.rs"]
+mod presence_scenarios;

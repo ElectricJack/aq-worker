@@ -126,6 +126,8 @@ pub struct MaterialStore {
     max_leases: usize,
     #[cfg(any(test, feature = "test-support"))]
     next_fault: Option<InstallFault>,
+    #[cfg(test)]
+    observation_hook: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 #[cfg(any(test, feature = "test-support"))]
 #[derive(Clone, Copy)]
@@ -242,6 +244,8 @@ impl MaterialStore {
             max_leases,
             #[cfg(any(test, feature = "test-support"))]
             next_fault: None,
+            #[cfg(test)]
+            observation_hook: std::sync::Mutex::new(None),
         };
         ensure!(store.count()? <= max_leases, "material root exceeds quota");
         Ok(store)
@@ -440,5 +444,14 @@ impl MaterialStore {
             directory: dir,
             record,
         })
+    }
+}
+
+mod observation;
+
+#[cfg(test)]
+impl MaterialStore {
+    pub(crate) fn test_observation_hook(&mut self, hook: Box<dyn FnOnce() + Send>) {
+        *self.observation_hook.get_mut().unwrap() = Some(hook);
     }
 }
