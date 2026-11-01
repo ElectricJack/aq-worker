@@ -1,0 +1,55 @@
+# Native phase launch-intent and observed host proposal
+
+Design only. Format9 implementation requires review. Scope is an explicit local synthetic-harness component over actual retained phase inputs/execution observation; no provider, driver activation, deployed service, host renewal, source cleanup, task completion, Snapshot or production capability advertisement.
+
+## Exact process-local inputs and result
+
+Proposed `InputPipeline::launch_phase_synthetic(&Arc<Self>, &DurablePhaseExecution, SyntheticHostProfile)` returns a bounded `NativeHostLaunchResult`: Running(LocalPhaseHost), StoppedBeforeStarted(LocalStoppedHistory), or Unknown(HeldLaunchHistory). The durable execution token must belong to this pipeline/resource map; its exact retained PreparedPhaseInputs remain the exclusive bundle. A separate current check runs before admission and before every effect-authorizing callback. Raw JSON/history, a legacy Grant, or a server receipt alone cannot enter this API.
+
+SyntheticHostProfile is explicit installed configuration: exact sealed small-ELF artifact, helper/tmux installation pins and tmux3.4 qualification, actual host component/runtime qualification, exact observed baseline profile, fixed geometry, canonical private host root and fixed bounded arguments. It cannot select a command from an offer or fall back to a shell. `ResourcePolicy::SyntheticAdmissionOnly` is explicit; this component does not claim CPU/memory/process ceilings. Helper/tmux trusted installation assumptions must be recorded rather than rehashing a mutable path and calling that immutability. The harness itself uses the existing bounded kernel-sealed ELF pool and positive FD-exec proof.
+
+The first synthetic fixture reads the unchanged staged context bytes, verifies its actual Git cwd/base fixture, writes a bounded private marker and remains alive until stop/expiry. It receives no node credential or provider secret and makes no external calls. Actual kernel exec is distinct from model/harness readiness.
+
+## Durable ordering and format9 rationale
+
+Host launch_inner currently creates/fsyncs the per-launch directory/config/context before its record_launch_intent callback. Therefore the worker MUST fsync an outer NativePhaseLaunchIntent before calling **any** host/adapter hook, ELF-load hook or per-attempt filesystem/process preparation. That outer intent binds the received execution record digest, original runtime/qualification, original Accepted/Prepare/grant/manifest/startup descriptor+payload pins, exact original logical reservation/guardian/launch/session identity, immutable local/hard caps, terminal identity/epoch, installed profile/environment pins, fixed started/stopped operation IDs and selected host root. No path reuse or new terminal under the same execution attempt is allowed.
+
+Format9 is needed for durable private launch lifecycle records on Attempt. Proposed NativePhaseHostHistory holds the outer intent; actual Host LaunchIntent/configuration digest; actual GuardianIdentity; durable start intent; verified blank-baseline receipt/digest and release decision; first actual Running observation + immutable typed Started request; optional exact Started receipt; stop intent; actual stopped evidence + post-Started Stopped request/receipt where qualified. These are separate from legacy records and the existing phase execution receipt. Formats1–8 refuse unchanged; no migration/reinterpretation of old journals. State validation joins every step to the same outer intent, actual execution history and monotonic local revision, with strict shapes and existing8MiB bounds.
+
+Ordering is one-way:
+
+1. Reserve bounded bootstrap/observer resources and current execution scope; fsync outer intent before any hook/effect.
+2. Use `SessionHost::prepare_observed` only. Host callbacks fsync actual configuration intent before guardian spawn, then exact physical guardian and start intent before its start request.
+3. `open_baseline_observer` establishes the actual closed-helper blank premise. Persist the exact VerifiedBlankBaseline and release decision. Recheck the actual execution cap after fsync and before release. The guardian independently checks reader lease/helper identity, cancellation, original permit and hard deadline immediately before FD-exec.
+4. Keep draining bounded output while `poll_started` obtains actual positive FD-exec/image/PID evidence. Only its real record_started callback may persist Running and the typed Started outbox. EOF, Starting, an attach ACK, capture_text, short exit or a marker alone cannot mint Started.
+5. Send the frozen Started request outside journal/host callbacks; persist its exact immutable receipt separately. No report/replay extends execution. Phase32 server origin consumers remain unsupported in the first local/loopback scope; remote acceptance needs independent qualification.
+
+Logical guardian_id comes from the original reservation/Accepted lease. The host's physical guardian nonce is distinct and obtained from the actual helper. Host permit sequence1 and physical terminal epoch1 are independent counters, not server authority or worker journal revisions. Millisecond permits/hard deadlines are rounded DOWN from the existing nanosecond caps, never reset by readiness; original issued/hard metadata stays historical.
+
+## Writer, ownership and stop boundary
+
+Callbacks are synchronous, so they cannot recursively call async InputPipeline.storage while holding Owned. Proposed first slice reserves one existing storage-writer admission and one new bounded bootstrap slot before intent; the bounded blocking job owns them through bootstrap, acquires Owned only for current checks/fsync callbacks, and never holds Owned around tmux waits. Other input journal calls refuse busy rather than queue without bound. The network control lane and guardian expiry remain independent. This deliberately narrow one-bootstrap profile must be documented and measured, not presented as large concurrent startup capacity.
+
+A process-local registry retains each admitted bootstrap/host handle, observer, original physical bundle and one-way stage before any awaited return can be abandoned. A canceled waiter does not cancel or renew the admitted job, release resources, or spawn another launch. Explicit safety stop is separate from waiter cancellation: set a process-local stop fence, refuse all future release/Started callbacks, and issue stop to the exact known host without waiting for the journal writer. Journal failure cannot disable the independent original guardian permit expiry. Stop persistence is conservative; no Stopped state is inferred until actual opaque ECHILD proof is obtained and durably recorded.
+
+The bootstrap writer reservation may block other journal work for the finite original bootstrap window; it must never be held for the lifetime of the harness or while waiting for remote Started ACK. The first qualification must prove explicit stop/expiry while the writer/bootstrap is paused. If safely publishing a handle for independent stop requires a narrow additional host callback/token seam, send that API for review instead of exposing arbitrary PIDs or reconstructing handles from JSON.
+
+## Unknown, stopped and recovery
+
+Once an outer intent is durable or any host effect may have occurred, an ambiguous failure is Unknown/held. No suppression, NeverGranted, task success, cleanup or blind same-ID relaunch is inferred. The current host API has no fresh qualified ECHILD proof when intent exists but no guardian identity was ever obtainable; that case remains Unknown, even when the directory looks empty. An fsync error poisons the writer and preserves evidence.
+
+Post-Running stop records actual `SessionHandle::stopped_proof`, preserves exact guardian/pane linkage and may produce the existing typed Stopped report only after a local real Started history. Pre-Running stopped evidence may legitimately lack pane/root status/reaps and cannot be squeezed into the post-Started DTO. Store its actual host shape for the separately qualified granted-noStarted closure boundary; do not synthesize Started to make stopped reporting work. If Started was locally durable but never centrally admitted, retain that distinction and fence delayed Started before any future closure flow. No closure/settlement sender is part of this slice.
+
+Reopen is stop-and-preserve only, using exact persisted host intent/guardian with SessionHost recovery. It never returns live execution, calls prepare again, resumes the pane, renews the permit or recreates a terminal. Missing identity, guardian loss, foreign boot/namespace, absent stopped receipt or uncertain writer state remains Unknown. A boot change is not an invented ECHILD proof.
+
+## Output and bounded costs
+
+The actual guardian-owned reader lease and bounded dense parser remain required. Keep the sole observer draining during baseline/exec; observer failure/loss is explicit discontinuity, never silent same-terminal reattach. No capture_text snapshot, renderer completeness, resize ordering/barrier, Unicode/alternate-screen compatibility or daemon terminal registration is claimed. Blank-baseline renderer/profile pins are distinct from the startup UTF8 renderer/token-budget qualification. Fixed geometry/synthetic repertoire is explicit.
+
+Bounds: at most64 admitted launch registry entries; one bootstrap job/writer; at most one terminal/observer per attempt; existing per-tail/aggregate sealed terminal-policy limits; existing4-entry/16MiB sealed ELF pool with4MiB individual ELF ceiling. The unavoidable RenderedStartup/context clone is transient under the single bootstrap slot (two bounded2MiB copies), not an unaccounted retained per-attempt body. Existing input bundle/journal budgets remain; these are logical admission bounds, not a qualified hard RSS/cgroup ceiling.
+
+## Files and qualification
+
+Proposed ownership: new native/launch/{mod,authority,history,synthetic}.rs and journal/launch.rs; narrow journal.rs format9 + Attempt field, preparation execution-owner private resource lookup, and focused new native launch tests. No binaries, server, public admission package or host core edits without a separately reviewed seam. Root owns smoke/probes. Host0.1.4 wire shapes stay unchanged.
+
+Required actual local qualification: timely real phase inputs/execution owner to actual tmux3.4 closed gate/baseline/FD-exec and durable Started; unchanged payload hash/cwd; original cap expiry while baseline/writer paused; explicit stop independent of blocked bootstrap; guardian death; short/failed exec remains no-Started Unknown; faults at every outer/host/baseline/Started write; lost waiter/ACK retains one exact job/request; sameID changed profile/bytes refuses; post-start actual ECHILD; pre-start optional stopped shape; restart stop-only/no relaunch; observer stall/loss remains bounded and explicit. Qualify trusted synthetic installation assumptions and declare load/thread profile. Keep actual vs synthetic issuer/provider evidence separate.
