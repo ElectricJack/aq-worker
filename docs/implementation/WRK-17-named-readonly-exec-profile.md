@@ -159,3 +159,12 @@ with EACCES before reaching the mount's EROFS check; the pool independently veri
 `ST_RDONLY`. Neither issue relaxed an image/environment check. Shared-target stale
 host metadata required a host-source mtime rebuild to expose the new API; frozen
 package archives and versions were not changed.
+
+Independent source review identified a calling-thread context bug before any named
+agent execution: `/proc/self` refers to the thread-group leader even when a caller
+has unshared credentials, namespaces or file tables. Named checks now use
+`/proc/thread-self` consistently for status, namespaces, mount topology and file
+descriptors, while process ownership remains separate. A real `CLONE_FILES` test
+creates a caller-only writable descriptor absent from the leader table and proves
+that the new scan refuses it. Four focused named host cases pass in 0.00s; no actual
+agent execution is involved.
