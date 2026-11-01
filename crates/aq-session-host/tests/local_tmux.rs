@@ -1914,6 +1914,7 @@ struct ObservedAdapter {
     executable: aq_session_protocol::ArtifactRef,
     renderer: aq_session_protocol::ArtifactRef,
     private_source: Option<PathBuf>,
+    scoped_auth: Option<ScopedCodexAuthBinding>,
 }
 impl HarnessAdapter for ObservedAdapter {
     fn prepare(&self, m: &LaunchManifest, _: &Path) -> Result<AdapterLaunch> {
@@ -1926,7 +1927,16 @@ impl HarnessAdapter for ObservedAdapter {
             resource_qualification: None,
             command: LocalCommand {
                 executable: self.program.clone(),
-                arguments: self.arguments.clone(),
+                arguments: {
+                    let mut args = self.arguments.clone();
+                    if let Some(scope) = &self.scoped_auth {
+                        args.extend([
+                            "--config".into(),
+                            format!("openai_base_url=\"{}/v1\"", scope.origin),
+                        ]);
+                    }
+                    args
+                },
                 environment: self
                     .private_source
                     .as_ref()
@@ -1953,12 +1963,25 @@ impl HarnessAdapter for ObservedAdapter {
             .map(|source| {
                 let key = std::fs::read(source.join("material.bin"))?;
                 let record = std::fs::read(source.join("record.json"))?;
-                PrivateLaunchInput::codex_api_key(
-                    std::fs::File::open(source)?,
-                    aq_session_protocol::Digest::of(&key),
-                    key.len() as u64,
-                    aq_session_protocol::Digest::of(&record),
-                )
+                if let Some(scope) = &self.scoped_auth {
+                    PrivateLaunchInput::codex_scoped_capability(
+                        std::fs::File::open(source)?,
+                        OriginalPrivateMaterial {
+                            digest: aq_session_protocol::Digest::of(&key),
+                            bytes: key.len() as u64,
+                            record_digest: aq_session_protocol::Digest::of(&record),
+                        },
+                        scope.clone(),
+                        scoped_capability(),
+                    )
+                } else {
+                    PrivateLaunchInput::codex_api_key(
+                        std::fs::File::open(source)?,
+                        aq_session_protocol::Digest::of(&key),
+                        key.len() as u64,
+                        aq_session_protocol::Digest::of(&record),
+                    )
+                }
             })
             .transpose()
     }
@@ -2016,6 +2039,7 @@ fn observed_helper_stays_starting_without_exec_or_started_until_original_expiry(
         executable,
         renderer,
         private_source: None,
+        scoped_auth: None,
     };
     let permit = ExecutionPermit {
         session: c.manifest.bindings.session.clone(),
@@ -2153,6 +2177,7 @@ fn observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec() {
         executable,
         renderer,
         private_source: None,
+        scoped_auth: None,
     };
     let permit = ExecutionPermit {
         session: c.manifest.bindings.session.clone(),
@@ -2263,6 +2288,7 @@ fn observed_closed_case_mode(short: bool) -> (Case, observed::PendingObservedSes
         executable,
         renderer,
         private_source: None,
+        scoped_auth: None,
     };
     let permit = ExecutionPermit {
         session: c.manifest.bindings.session.clone(),
@@ -2481,14 +2507,27 @@ fn observed_short_exec_without_live_kernel_evidence_never_records_started() {
 #[test]
 #[ignore = "actual native-exec profile: requires local cc/static ELF and tmux"]
 fn native_exec_profile_delivers_exact_sealed_stdin_under_actual_guardian() {
-    native_private_input_case(false);
+    native_private_input_case(false, false);
 }
 #[test]
 #[ignore = "actual native-exec original material preexec refusal: requires cc/static ELF and tmux"]
 fn native_exec_refuses_original_record_changed_after_private_publication() {
-    native_private_input_case(true);
+    native_private_input_case(true, false);
 }
-fn native_private_input_case(tamper_record: bool) {
+#[test]
+#[ignore = "actual scoped private auth/ECHILD: static ELF and tmux only, no agent/provider"]
+fn native_exec_scoped_capability_is_published_under_intent_and_cleaned_after_echild() {
+    native_private_input_case(false, true);
+}
+#[test]
+#[ignore = "actual scoped original-source refusal: static ELF and tmux only, no agent/provider"]
+fn native_exec_scoped_auth_refuses_changed_original_record_at_exec() {
+    native_private_input_case(true, true);
+}
+fn scoped_capability() -> zeroize::Zeroizing<Vec<u8>> {
+    zeroize::Zeroizing::new(format!("aq-responses-{}", "a".repeat(64)).into_bytes())
+}
+fn native_private_input_case(tamper_record: bool, scoped: bool) {
     use aq_session_protocol::{ArtifactRef, Digest, TerminalIdentity, Text};
     use std::io::Write;
     let mut c = Case::new("unused", false);
@@ -2530,12 +2569,14 @@ int main(int argc,char **argv) {
  if(!home || snprintf(path,sizeof(path),"%s/auth.json",home)<0)return 83;
  int fd=open(path,O_RDONLY|O_NOFOLLOW); if(fd<0)return 84;
  ssize_t got=read(fd,auth,sizeof(auth));close(fd);
- if(got!=44 || memcmp(auth,"{\"OPENAI_API_KEY\":\"sk-private-offline-only\"}",44))return 85;
+ const char *expected=argc==3 ? "{\"OPENAI_API_KEY\":\"aq-responses-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}" : "{\"OPENAI_API_KEY\":\"sk-private-offline-only\"}";
+ if(got!=(ssize_t)strlen(expected) || memcmp(auth,expected,strlen(expected)))return 85;
+ if(argc==3 && getenv("AQ_SESSION_DIRECTORY"))return 86;
  puts("AUTH:exact-private-file");
  if((fcntl(0,F_GET_SEALS)&(F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL))!=(F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL))return 82;
  unsigned char b[8192]; uint64_t hash=14695981039346656037ULL, n=0; ssize_t count;
  while((count=read(0,b,sizeof(b)))>0){for(ssize_t i=0;i<count;i++){hash^=b[i];hash*=1099511628211ULL;}n+=count;}
- if(count<0 || argc!=1 || image_padding[argc]!=0)return 80;
+ if(count<0 || (argc!=1 && argc!=3) || image_padding[argc]!=0)return 80;
  printf("STDIN:%llu:%016llx\n",(unsigned long long)n,(unsigned long long)hash);fflush(stdout);
  for(;;)pause();
 }
@@ -2583,6 +2624,26 @@ int main(int argc,char **argv) {
         executable,
         renderer,
         private_source: Some(source.clone()),
+        scoped_auth: scoped.then(|| ScopedCodexAuthBinding {
+            launch_id: c.id,
+            origin: "http://127.0.0.1:12345".into(),
+            deadline_boot_ms: now + 8000,
+            binding: aq_session_protocol::LaunchBinding {
+                schema_version: 1,
+                session: c.manifest.bindings.session.clone(),
+                offer_id: Uuid::new_v4(),
+                attempt_id: c.manifest.bindings.attempt_id,
+                assignment_generation: c.manifest.bindings.assignment_generation,
+                execution_spec_digest: Digest::of(b"static peer only"),
+                launch_manifest_digest: canonical_digest(&c.manifest).unwrap(),
+                graph_access_profile_digest: c
+                    .manifest
+                    .bindings
+                    .graph_access_profile
+                    .digest
+                    .clone(),
+            },
+        }),
     };
     let permit = ExecutionPermit {
         session: c.manifest.bindings.session.clone(),
@@ -2604,10 +2665,24 @@ int main(int argc,char **argv) {
     assert!(c.temp.path().join("caller-intent.json").exists());
     assert!(c.temp.path().join("auth-order.checked").exists());
     let auth = c.adapter.dir.join("codex-home/auth.json");
-    assert_eq!(
-        std::fs::read(&auth).unwrap(),
-        b"{\"OPENAI_API_KEY\":\"sk-private-offline-only\"}"
-    );
+    let expected_auth = if scoped {
+        format!(
+            "{{\"OPENAI_API_KEY\":\"{}\"}}",
+            std::str::from_utf8(&scoped_capability()).unwrap()
+        )
+        .into_bytes()
+    } else {
+        b"{\"OPENAI_API_KEY\":\"sk-private-offline-only\"}".to_vec()
+    };
+    assert_eq!(std::fs::read(&auth).unwrap(), expected_auth);
+    if scoped {
+        assert!(!String::from_utf8_lossy(&expected_auth).contains("sk-private"));
+        assert!(
+            !std::fs::read_to_string(c.adapter.dir.join("launch.json"))
+                .unwrap()
+                .contains(std::str::from_utf8(&scoped_capability()).unwrap())
+        );
+    }
     assert!(
         !std::fs::read_to_string(c.adapter.dir.join("launch.json"))
             .unwrap()

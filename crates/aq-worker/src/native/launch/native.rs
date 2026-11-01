@@ -2,6 +2,7 @@
 use super::*;
 use crate::native::adapter::{
     codex::{CodexExecInput, CodexExecProfile, PreparedCodexExec},
+    named_exec::NamedExecInstallation,
     native_exec::NativeExecInstallation,
     responses_transport::{ResponsesScope, ScopedResponsesTransport, UpstreamEndpoint},
 };
@@ -9,6 +10,7 @@ use aq_session_host::{
     AdapterLaunch, HarnessAdapter, HarnessReadiness, LocalEnvironment, OriginalPrivateMaterial,
     PrivateLaunchInput, ResourcePolicy, ScopedCodexAuthBinding,
     observed::{
+        NamedReadonlyExecImage, NamedReadonlyObservationProfile, NativeExecImage,
         NativeExecObservationProfile, ObservedAdapterQualification, ObservedHarnessAdapter,
         ObservedStartup,
     },
@@ -18,7 +20,7 @@ use std::path::PathBuf;
 pub struct NativeCodexHostProfile {
     pub(super) root: RootGuard,
     root_path: PathBuf,
-    installation: Mutex<NativeExecInstallation>,
+    installation: Mutex<Installation>,
     mapper: CodexExecProfile,
     digest: Digest,
     columns: u16,
@@ -29,7 +31,48 @@ pub struct NativeCodexHostProfile {
 impl NativeCodexHostProfile {
     pub fn new(
         root: PathBuf,
-        mut installation: NativeExecInstallation,
+        installation: NativeExecInstallation,
+        mapper: CodexExecProfile,
+        columns: u16,
+        rows: u16,
+    ) -> Result<Self> {
+        Self::build(
+            root,
+            Installation::Sealed(installation),
+            mapper,
+            columns,
+            rows,
+        )
+    }
+    pub fn new_named(
+        root: PathBuf,
+        installation: NamedExecInstallation,
+        mapper: CodexExecProfile,
+        columns: u16,
+        rows: u16,
+    ) -> Result<Self> {
+        // The final CLI environment contains no TMPDIR override, so its release
+        // helper-alias policy uses /tmp, not the worker's test TMPDIR.
+        ensure!(
+            !root.starts_with("/tmp"),
+            "named native state root must be outside CLI temporary root"
+        );
+        ensure!(
+            installation.environment() == &mapper.harness.environment,
+            "named image environment differs from selected harness"
+        );
+        NamedReadonlyObservationProfile::new(mapper.renderer.clone(), columns, rows)?;
+        Self::build(
+            root,
+            Installation::Named(installation),
+            mapper,
+            columns,
+            rows,
+        )
+    }
+    fn build(
+        root: PathBuf,
+        mut installation: Installation,
         mapper: CodexExecProfile,
         columns: u16,
         rows: u16,
@@ -42,6 +85,7 @@ impl NativeCodexHostProfile {
                     == crate::native::adapter::codex::CODEX_CLI_VERSION
                 && mapper.model.provider.as_str() == "openai"
                 && mapper.model.spending_budget.is_none()
+                && (16..=1_048_576).contains(&mapper.model.max_output_tokens)
                 && matches!(mapper.model.reasoning.as_str(), "low" | "medium" | "high"),
             "unsupported native Codex settings"
         );
@@ -52,7 +96,7 @@ impl NativeCodexHostProfile {
             "native installed mapper references differ"
         );
         let digest = crate::native::journal::canonical_digest(
-            &serde_json::json!({"schema_version":1,"profile":"codex-scoped-responses-native-host-v1","upstream_policy":"fixed-openai-responses-https-v1","root":root,"installation":installation.digest(),"harness":mapper.harness,"model":mapper.model,"permissions":mapper.permissions_digest,"renderer":mapper.renderer,"columns":columns,"rows":rows}),
+            &serde_json::json!({"schema_version":1,"profile":"codex-scoped-responses-native-host-v1","image_profile":installation.kind(),"upstream_policy":"fixed-openai-responses-https-v1","root":root,"installation":installation.digest(),"harness":mapper.harness,"model":mapper.model,"permissions":mapper.permissions_digest,"renderer":mapper.renderer,"columns":columns,"rows":rows}),
         )?;
         Ok(Self {
             root: guard,
@@ -79,6 +123,95 @@ impl NativeCodexHostProfile {
     }
     pub fn digest(&self) -> &Digest {
         &self.digest
+    }
+}
+enum Installation {
+    Sealed(NativeExecInstallation),
+    Named(NamedExecInstallation),
+}
+impl Installation {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Sealed(_) => "sealed-native-v1",
+            Self::Named(_) => "named-readonly-native-v1",
+        }
+    }
+    fn digest(&self) -> &Digest {
+        match self {
+            Self::Sealed(i) => i.digest(),
+            Self::Named(i) => i.digest(),
+        }
+    }
+    fn installation(&self) -> &crate::native::adapter::AdapterManifest {
+        match self {
+            Self::Sealed(i) => i.installation(),
+            Self::Named(i) => i.installation(),
+        }
+    }
+    fn revalidate(&mut self) -> Result<()> {
+        match self {
+            Self::Sealed(i) => i.revalidate(),
+            Self::Named(i) => i.revalidate(),
+        }
+    }
+    fn material<'a>(
+        &self,
+        input: &'a crate::native::materials::InstalledMaterial,
+        receipt: &aq_admission::MaterialReceipt,
+        binding: &aq_session_protocol::LaunchBinding,
+    ) -> Result<crate::native::adapter::MaterialHandoff<'a>> {
+        match self {
+            Self::Sealed(i) => i.material(input, receipt, binding),
+            Self::Named(i) => i.material(input, receipt, binding),
+        }
+    }
+    fn prepare(
+        &mut self,
+        mapper: &CodexExecProfile,
+        input: CodexExecInput<'_>,
+    ) -> Result<PreparedCodexExec> {
+        match self {
+            Self::Sealed(i) => mapper.prepare_native_planned(i, input),
+            Self::Named(i) => mapper.prepare_named_planned(i, input),
+        }
+    }
+    fn image(&self) -> Result<Image> {
+        match self {
+            Self::Sealed(i) => Ok(Image::Sealed(i.image()?)),
+            Self::Named(i) => Ok(Image::Named(i.image()?)),
+        }
+    }
+}
+enum Image {
+    Sealed(NativeExecImage),
+    Named(NamedReadonlyExecImage),
+}
+impl Image {
+    fn startup(
+        self,
+        rendered: aq_session_host::RenderedStartup,
+        terminal: aq_session_protocol::TerminalIdentity,
+        renderer: ArtifactRef,
+        columns: u16,
+        rows: u16,
+        hard_ms: u64,
+    ) -> Result<ObservedStartup> {
+        match self {
+            Self::Sealed(image) => ObservedStartup::native_exec(
+                rendered,
+                terminal,
+                image,
+                NativeExecObservationProfile::new(renderer, columns, rows)?,
+                hard_ms,
+            ),
+            Self::Named(image) => ObservedStartup::named_readonly_exec(
+                rendered,
+                terminal,
+                image,
+                NamedReadonlyObservationProfile::new(renderer, columns, rows)?,
+                hard_ms,
+            ),
+        }
     }
 }
 struct Adapter {
@@ -249,8 +382,8 @@ pub(super) fn bootstrap(
         &handoff, m,
     )?);
     let lease = &provider.metadata().delivery.lease;
-    let recipe = profile.mapper.prepare_native_planned(
-        &mut installed,
+    let recipe = installed.prepare(
+        &profile.mapper,
         CodexExecInput {
             offer: &offer,
             expected_manifest: &i.binding.launch_manifest_digest,
@@ -285,6 +418,9 @@ pub(super) fn bootstrap(
             physical.transport.is_none(),
             "native transport already owned"
         );
+        if entry.stop.load(Ordering::SeqCst) {
+            transport.cancel();
+        }
         physical.transport = Some(transport);
     }
     let private = PrivateLaunchInput::codex_scoped_capability(
@@ -307,11 +443,12 @@ pub(super) fn bootstrap(
         let owner = lock(owner)?;
         entry.current(&owner)?;
     }
-    let startup = ObservedStartup::native_exec(
+    let startup = image.startup(
         scope.inputs.startup().clone(),
         i.terminal.clone(),
-        image,
-        NativeExecObservationProfile::new(i.renderer.clone(), i.columns, i.rows)?,
+        i.renderer.clone(),
+        i.columns,
+        i.rows,
         scope.hard / 1_000_000,
     )?;
     let permit = ExecutionPermit {

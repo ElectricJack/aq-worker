@@ -134,15 +134,12 @@ actual implicit context/tool configuration before production eligibility.
 Evidence artifacts are in the [recorded loopback evidence](evidence/wrk18-codex-loopback/README.md); the runner lane
 owns its independently pinned executable/helper and physical lifecycle evidence.
 
-Production still needs an owner-reviewed join from original InstalledMaterial to
-provider credentials held only by this transport, publication of a distinct
-fresh per-attempt local capability into the private Codex home under the existing
-launch intent, and stop/recovery coordination. The current private auth publisher
-derives the original provider key; it must not be silently repurposed as that
-capability publisher. Effective CLI HTTP transport and provider semantics must be
-qualified before changing the production refusal. Context counting, tool grants,
-filesystem isolation, cumulative budgets and provider eligibility remain separate
-qualification requirements.
+The [owned scoped-auth candidate](WRK-17-owned-scoped-auth.md) now implements
+original-material rechecks, fresh local capability publication under the existing
+intent and stop/recovery retention. This is not a production admission proof.
+Credential-source/proc visibility isolation, exact named-image/tool behavior,
+context counting and upstream provider qualification remain gated. The production
+factory continues to refuse execution until those requirements are established.
 
 Follow-up syscall metadata exposed implicit shell-profile reads and curated-plugin
 Git traffic outside the fake model endpoint. The process observations above do
