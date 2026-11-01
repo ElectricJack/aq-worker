@@ -3,6 +3,9 @@ mod context;
 pub(crate) use context::InputContext;
 mod execution;
 mod granted;
+#[cfg(any(test, feature = "test-support"))]
+#[path = "launch/mod.rs"]
+pub mod launch;
 pub use execution::{DurablePhaseExecution, PhaseExecutionCommit, RetainedPhaseExecutionHistory};
 #[path = "hydration.rs"]
 mod hydration;
@@ -38,17 +41,23 @@ pub struct InputPipeline {
     bulk_slots: Arc<Semaphore>,
     client: NativeClient,
     retained: Arc<Mutex<granted::RetainedOwners>>,
+    #[cfg(any(test, feature = "test-support"))]
+    launch: Arc<launch::Registry>,
     scoped_presence_owned: std::sync::atomic::AtomicBool,
 }
 impl InputPipeline {
     pub fn new(journal: Journal, materials: MaterialStore, client: NativeClient) -> Self {
         let retained = granted::RetainedOwners::new(journal.state());
+        #[cfg(any(test, feature = "test-support"))]
+        let launch = Arc::new(launch::Registry::new(journal.state()));
         Self {
             owned: Arc::new(Mutex::new(Owned { journal, materials })),
             storage_slots: Arc::new(Semaphore::new(1)),
             bulk_slots: Arc::new(Semaphore::new(1)),
             client,
             retained: Arc::new(Mutex::new(retained)),
+            #[cfg(any(test, feature = "test-support"))]
+            launch,
             scoped_presence_owned: std::sync::atomic::AtomicBool::new(false),
         }
     }
