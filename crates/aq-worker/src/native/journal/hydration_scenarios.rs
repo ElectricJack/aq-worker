@@ -971,6 +971,11 @@ impl Inputs {
                     if mode == 2 {
                         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
                     }
+                    if mode == 4 && path == "started" {
+                        // Delayed reply after receiving the immutable request:
+                        // the worker must preserve an unknown Started outcome.
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
                     let mut receipt = match path.as_str() {
                         "started" => {
                             let q: aq_phase_terminal_protocol::StartedRequest =

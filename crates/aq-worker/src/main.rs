@@ -79,6 +79,10 @@ enum Cmd {
     RunNative {
         #[arg(long)]
         native_config: PathBuf,
+        /// Explicit local transport for independent integration fixtures only.
+        #[cfg(feature = "test-support")]
+        #[arg(long)]
+        development_loopback: bool,
     },
     /// Print the node id and server (never the credential).
     Status,
@@ -154,6 +158,29 @@ async fn shutdown_signal() {
     tokio::select! { _ = ctrl_c => {}, _ = term => {} }
 }
 
+fn configured_native_executor(
+    worker: &WorkerConfig,
+    config: &aq_worker::native::runner::NativeConfig,
+    development_loopback: bool,
+) -> anyhow::Result<Option<aq_worker::native::runner::CodexExecutor>> {
+    if config.executor.is_none() {
+        anyhow::ensure!(
+            !development_loopback,
+            "fixture transport requires concrete executor settings"
+        );
+        return Ok(None);
+    }
+    if development_loopback {
+        #[cfg(feature = "test-support")]
+        return Ok(Some(
+            aq_worker::native::runner::CodexExecutor::development_loopback(worker)?,
+        ));
+        #[cfg(not(feature = "test-support"))]
+        anyhow::bail!("development transport is unavailable in this build");
+    }
+    Ok(Some(aq_worker::native::runner::CodexExecutor::new(worker)?))
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -216,22 +243,34 @@ async fn main() -> ExitCode {
                 Err(e) => usage_err(format!("{e:#}")),
             }
         }
-        Cmd::RunNative { native_config } => {
+        Cmd::RunNative {
+            native_config,
+            #[cfg(feature = "test-support")]
+            development_loopback,
+        } => {
+            #[cfg(not(feature = "test-support"))]
+            let development_loopback = false;
             let result = async {
                 let worker = WorkerConfig::load(&path)?;
                 let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
+                let executor = configured_native_executor(&worker, &config, development_loopback)?;
                 let (signal, shutdown) = tokio::sync::watch::channel(false);
                 let watcher = tokio::spawn(async move {
                     shutdown_signal().await;
                     let _ = signal.send(true);
                 });
-                let result = aq_worker::native::runner::run_once(
-                    &worker,
-                    config,
-                    &mut aq_worker::native::runner::UnavailableExecutor,
-                    shutdown,
-                )
-                .await;
+                let result = if let Some(mut executor) = executor {
+                    aq_worker::native::runner::run_once(&worker, config, &mut executor, shutdown)
+                        .await
+                } else {
+                    aq_worker::native::runner::run_once(
+                        &worker,
+                        config,
+                        &mut aq_worker::native::runner::UnavailableExecutor,
+                        shutdown,
+                    )
+                    .await
+                };
                 watcher.abort();
                 result
             }
