@@ -101,6 +101,8 @@ fn exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata
             .any(|s| s == "web_search=\"disabled\"")
     );
     for setting in [
+        "shell_environment_policy.inherit=\"none\"",
+        "shell_environment_policy.set.PATH=\"/usr/bin:/bin\"",
         "features.shell_snapshot=false",
         "features.shell_snapshot_v2=false",
         "allow_login_shell=false",
@@ -126,6 +128,37 @@ fn exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata
     let mut out = Vec::new();
     prepared.write_startup(&mut out).unwrap();
     assert_eq!(out, payload);
+}
+#[test]
+fn tool_environment_config_starts_empty_and_adds_only_fixed_trusted_path() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let (offer, payload) = fixture();
+    let digest = crate::native::journal::canonical_digest(&offer.offered.offer.manifest).unwrap();
+    let mut adapter = installed(root.path(), &offer);
+    let prepared = profile(&offer)
+        .prepare(&mut adapter, &offer, &digest, payload, &work, &home)
+        .unwrap();
+    let config = prepared
+        .command()
+        .arguments
+        .windows(2)
+        .filter(|pair| pair[0] == "--config" && pair[1].starts_with("shell_environment_policy."))
+        .map(|pair| pair[1].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let config: toml::Value = toml::from_str(&config).unwrap();
+    let policy = config["shell_environment_policy"].as_table().unwrap();
+    assert_eq!(policy.len(), 3);
+    assert_eq!(policy["inherit"].as_str(), Some("none"));
+    assert_eq!(policy["experimental_use_profile"].as_bool(), Some(false));
+    let set = policy["set"].as_table().unwrap();
+    assert_eq!(set.len(), 1);
+    assert_eq!(set["PATH"].as_str(), Some("/usr/bin:/bin"));
 }
 #[test]
 fn changed_payload_settings_private_mode_and_hard_budget_are_refused() {
