@@ -18,6 +18,7 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 pub mod control;
+mod phase_history;
 #[cfg(any(test, feature = "test-support"))]
 pub mod phase_terminal;
 pub mod preparation_v2;
