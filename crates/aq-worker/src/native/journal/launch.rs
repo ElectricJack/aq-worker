@@ -69,6 +69,7 @@ pub struct NativeHostHistory {
     pub stopped: Option<NativeStopped>,
     pub uncertain: Option<LaunchFailure>,
     pub terminal: Option<super::phase_terminal::PhaseTerminalHistory>,
+    pub refresh_terminal: Option<super::refresh_terminal::PhaseTerminalHistory>,
 }
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -94,23 +95,16 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
         ids.insert(i.started_operation_id) && ids.insert(i.stopped_operation_id),
         "native report operation ID reused"
     );
-    let execution = a
-        .phase_execution
-        .as_ref()
-        .context("native host without phase execution")?;
-    let accepted = a
-        .phase_preparation
-        .as_ref()
-        .context("native host without Accepted")?;
+    let execution = a.phase_scope()?;
     let r = &a.reservation;
     i.binding.validate()?;
     i.terminal.validate()?;
     ensure!(
-        i.execution_digest == execution.digest()?
+        i.execution_digest == execution.digest
             && i.binding == r.offer.offered.offer.binding
-            && i.grant_id == execution.delivery.receipt.grant.grant_id
-            && i.logical_guardian_id == accepted.delivery.receipt.lease.guardian_id
-            && i.launch_id == accepted.delivery.receipt.lease.launch_id
+            && i.grant_id == execution.grant.grant_id
+            && i.logical_guardian_id == execution.guardian_id
+            && i.launch_id == execution.launch_id
             && i.reservation_id == r.reservation_id
             && same(&i.runtime, &r.runtime)?
             && i.terminal.session == i.binding.session
@@ -256,7 +250,7 @@ impl Journal {
         id: Uuid,
         intent: NativeLaunchIntent,
     ) -> Result<()> {
-        self.check_phase_execution(
+        self.check_native_execution(
             id,
             &intent.execution_digest,
             intent.deadline_ns,
@@ -281,6 +275,7 @@ impl Journal {
             stopped: None,
             uncertain: None,
             terminal: None,
+            refresh_terminal: None,
         });
         self.persist(next)
     }
@@ -363,7 +358,16 @@ impl Journal {
             );
             return Ok(());
         }
-        let publication = super::phase_terminal::stopped(old, proof, revision, &self.state)?;
+        let publication = if old.phase_acceptance.is_some() {
+            super::phase_terminal::stopped(old, proof, revision, &self.state)?
+        } else {
+            None
+        };
+        let refresh_publication = if old.refresh_acceptance.is_some() {
+            super::refresh_terminal::stopped(old, proof, revision, &self.state)?
+        } else {
+            None
+        };
         let h = next
             .attempts
             .get_mut(&id)
@@ -384,6 +388,9 @@ impl Journal {
         h.stopped = Some(stopped);
         if let Some(t) = h.terminal.as_mut() {
             t.stopped = publication;
+        }
+        if let Some(t) = h.refresh_terminal.as_mut() {
+            t.stopped = refresh_publication;
         }
         self.persist(next)
     }

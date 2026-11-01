@@ -461,7 +461,7 @@ fn old_format_refusal_does_not_rewrite_or_discard_pending() {
     drop(create(&root));
     let file = root.join("journal.json");
     let mut old: Snapshot = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
-    old.state.format = 1;
+    old.state.format = 10;
     old.digest = canonical_digest(&old.state).unwrap();
     let bytes = canonical_bytes(&old).unwrap();
     fs::write(&file, &bytes).unwrap();

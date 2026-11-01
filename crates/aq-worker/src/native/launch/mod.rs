@@ -657,56 +657,6 @@ impl InputPipeline {
         .await?;
         Ok(receipt)
     }
-    /// Durable facts/readback only; valid after restart, never a live host permit.
-    pub async fn phase_terminal_history(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<crate::native::journal::phase_terminal::PhaseTerminalHistory>> {
-        let state = self.snapshot().await?;
-        Ok(state
-            .attempts
-            .get(&id)
-            .and_then(|a| a.native_host.as_ref())
-            .and_then(|h| h.terminal.clone()))
-    }
-    pub async fn report_phase_terminal_started(
-        &self,
-        id: Uuid,
-    ) -> Result<aq_phase_terminal_protocol::StartedReceipt> {
-        let h = self
-            .phase_terminal_history(id)
-            .await?
-            .context("phase Started outbox absent")?;
-        if let Some(receipt) = h.started.receipt {
-            return Ok(receipt);
-        }
-        let receipt = self
-            .client
-            .phase_terminal_started(&h.started.request)
-            .await?;
-        let saved = receipt.clone();
-        self.storage(move |owner| owner.journal.phase_started_receipt(id, saved))
-            .await?;
-        Ok(receipt)
-    }
-    pub async fn report_phase_terminal_stopped(
-        &self,
-        id: Uuid,
-    ) -> Result<aq_phase_terminal_protocol::StoppedReceipt> {
-        let h = self
-            .phase_terminal_history(id)
-            .await?
-            .and_then(|h| h.stopped)
-            .context("phase Stopped outbox absent")?;
-        if let Some(receipt) = h.receipt {
-            return Ok(receipt);
-        }
-        let receipt = self.client.phase_terminal_stopped(&h.request).await?;
-        let saved = receipt.clone();
-        self.storage(move |owner| owner.journal.phase_stopped_receipt(id, saved))
-            .await?;
-        Ok(receipt)
-    }
     pub fn poll_phase_output(
         &self,
         host: &LocalPhaseHost,
@@ -748,8 +698,8 @@ fn bootstrap_synthetic(
         entry.current(&owner)?;
         let state = owner.journal.state();
         let a = &state.attempts[&entry.id];
-        let grant = &a.phase_execution.as_ref().unwrap().delivery.receipt.grant;
-        let accepted = &a.phase_preparation.as_ref().unwrap().delivery.receipt.lease;
+        let accepted = a.phase_scope()?;
+        let grant = accepted.grant;
         ensure!(
             a.reservation.offer.startup.payload_bytes <= 4096,
             "synthetic startup ceiling"
@@ -761,7 +711,7 @@ fn bootstrap_synthetic(
             grant_id: grant.grant_id,
             logical_guardian_id: accepted.guardian_id,
             launch_id: accepted.launch_id,
-            reservation_id: accepted.hold.reservation.reservation_id,
+            reservation_id: accepted.reservation_id,
             runtime: a.reservation.runtime.clone(),
             terminal: aq_session_protocol::TerminalIdentity {
                 session: grant.binding.session.clone(),
@@ -894,3 +844,12 @@ fn bootstrap_synthetic(
 
 #[cfg(test)]
 mod scoped_transport_scenarios;
+
+mod frozen_terminal_reports {
+    use super::*;
+    crate::native::phase_profile_shared::report_terminal! { aq_phase_terminal_protocol, crate::native::journal::phase_terminal::PhaseTerminalHistory, phase_terminal_history, terminal, report_phase_terminal_started, report_phase_terminal_stopped, phase_terminal_started, phase_terminal_stopped, phase_started_receipt, phase_stopped_receipt }
+}
+mod refresh_terminal_reports {
+    use super::*;
+    crate::native::phase_profile_shared::report_terminal! { aq_phase_terminal_protocol::refresh_v1, crate::native::journal::refresh_terminal::PhaseTerminalHistory, refresh_terminal_history, refresh_terminal, report_refresh_terminal_started, report_refresh_terminal_stopped, refresh_terminal_started, refresh_terminal_stopped, refresh_started_receipt, refresh_stopped_receipt }
+}

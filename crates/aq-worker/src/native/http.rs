@@ -20,7 +20,10 @@ use zeroize::Zeroizing;
 pub mod control;
 mod phase_history;
 pub mod phase_terminal;
+pub mod preparation_refresh_v1;
 pub mod preparation_v2;
+mod refresh_history;
+mod refresh_terminal;
 mod scoped_presence;
 pub mod source;
 
@@ -371,3 +374,6 @@ impl NativeClient {
         })
     }
 }
+
+#[cfg(test)]
+mod refresh_terminal_tests;

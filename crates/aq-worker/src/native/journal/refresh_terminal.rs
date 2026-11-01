@@ -1,0 +1,1 @@
+crate::native::phase_profile_shared::journal_terminal! { aq_phase_terminal_protocol::refresh_v1, refresh_acceptance, refresh_preparation, refresh_prepared, refresh_execution, refresh_terminal, refresh_started_receipt, refresh_stopped_receipt }

@@ -8,6 +8,7 @@ pub(super) struct RetainedOwners {
     admitted: BTreeSet<Uuid>,
     bundles: BTreeMap<Uuid, Arc<PreparedInputs>>,
     phase_bundles: BTreeMap<Uuid, Arc<PreparedPhaseInputs>>,
+    refresh_bundles: BTreeMap<Uuid, Arc<PreparedRefreshInputs>>,
 }
 impl RetainedOwners {
     pub(super) fn reserve(
@@ -34,11 +35,12 @@ impl RetainedOwners {
             admitted: state.attempts.keys().copied().collect(),
             bundles: BTreeMap::new(),
             phase_bundles: BTreeMap::new(),
+            refresh_bundles: BTreeMap::new(),
         }
     }
     fn stats(&self) -> Result<RetainedInputStats> {
         let mut stats = RetainedInputStats {
-            attempts: self.bundles.len() + self.phase_bundles.len(),
+            attempts: self.bundles.len() + self.phase_bundles.len() + self.refresh_bundles.len(),
             inline_bytes: 0,
             startup_bytes: 0,
         };
@@ -53,6 +55,16 @@ impl RetainedOwners {
                 .context("retained startup byte overflow")?;
         }
         for bundle in self.phase_bundles.values() {
+            stats.inline_bytes = stats
+                .inline_bytes
+                .checked_add(bundle.retained_inline_bytes())
+                .context("phase input byte overflow")?;
+            stats.startup_bytes = stats
+                .startup_bytes
+                .checked_add(bundle.startup_bytes())
+                .context("phase startup byte overflow")?;
+        }
+        for bundle in self.refresh_bundles.values() {
             stats.inline_bytes = stats
                 .inline_bytes
                 .checked_add(bundle.retained_inline_bytes())
@@ -79,7 +91,9 @@ impl RetainedOwners {
             "input owner belongs to another pipeline"
         );
         ensure!(
-            !self.bundles.contains_key(&id) && !self.phase_bundles.contains_key(&id),
+            !self.bundles.contains_key(&id)
+                && !self.phase_bundles.contains_key(&id)
+                && !self.refresh_bundles.contains_key(&id),
             "input owner already retained; use initial grant retry"
         );
         ensure!(
@@ -100,7 +114,8 @@ impl RetainedOwners {
         ensure!(
             self.admitted.contains(&id)
                 && !self.bundles.contains_key(&id)
-                && !self.phase_bundles.contains_key(&id),
+                && !self.phase_bundles.contains_key(&id)
+                && !self.refresh_bundles.contains_key(&id),
             "phase resource owner absent/already retained"
         );
         ensure!(
@@ -115,6 +130,34 @@ impl RetainedOwners {
     }
     pub(super) fn phase(&self, id: Uuid) -> Result<Arc<PreparedPhaseInputs>> {
         self.phase_bundles
+            .get(&id)
+            .cloned()
+            .context("phase retained owner absent")
+    }
+    pub(super) fn retain_refresh(
+        &mut self,
+        inputs: PreparedRefreshInputs,
+    ) -> Result<Arc<PreparedRefreshInputs>> {
+        let id = inputs.request().original.binding.attempt_id;
+        ensure!(
+            self.admitted.contains(&id)
+                && !self.bundles.contains_key(&id)
+                && !self.phase_bundles.contains_key(&id)
+                && !self.refresh_bundles.contains_key(&id),
+            "phase resource owner absent/already retained"
+        );
+        ensure!(
+            inputs.retained_inline_bytes() <= crate::native::MAX_INLINE_SET_BYTES
+                && inputs.startup_bytes() <= inputs.retained_inline_bytes(),
+            "phase retained byte shape"
+        );
+        let inputs = Arc::new(inputs);
+        self.refresh_bundles.insert(id, inputs.clone());
+        self.stats()?;
+        Ok(inputs)
+    }
+    pub(super) fn refresh(&self, id: Uuid) -> Result<Arc<PreparedRefreshInputs>> {
+        self.refresh_bundles
             .get(&id)
             .cloned()
             .context("phase retained owner absent")

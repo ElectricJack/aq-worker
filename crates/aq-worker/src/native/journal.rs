@@ -12,8 +12,16 @@ mod inputs;
 pub use input_origin::InputOrigin;
 pub mod launch;
 mod phase_execution;
+mod phase_view;
+pub mod preparation_refresh_v1;
+mod refresh_execution;
+mod refresh_prepared;
+pub use refresh_execution::ReceivedPhaseExecution as ReceivedRefreshExecution;
+pub use refresh_prepared::PhasePreparedIntent as RefreshPreparedIntent;
 mod phase_prepared;
 pub mod phase_terminal;
+mod phase_terminal_budget;
+pub mod refresh_terminal;
 pub use phase_execution::ReceivedPhaseExecution;
 pub mod preparation_v2;
 mod prepared;
@@ -42,7 +50,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 10;
+pub const FORMAT: u32 = 11;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +119,10 @@ pub struct Attempt {
     pub phase_preparation: Option<preparation_v2::ReceivedPreparation>,
     pub phase_prepared: Option<PhasePreparedIntent>,
     pub phase_execution: Option<ReceivedPhaseExecution>,
+    pub refresh_acceptance: Option<preparation_refresh_v1::PhaseAcceptance>,
+    pub refresh_preparation: Option<preparation_refresh_v1::ReceivedPreparation>,
+    pub refresh_prepared: Option<RefreshPreparedIntent>,
+    pub refresh_execution: Option<ReceivedRefreshExecution>,
     pub native_host: Option<launch::NativeHostHistory>,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -273,6 +285,13 @@ impl State {
             // input copies. InputOrigin equality relies on this shared check;
             // repeated proposal validation per input would be quadratic.
             preparation_v2::validate(attempt, &self.identity, self.revision)?;
+            preparation_refresh_v1::validate(attempt, &self.identity, self.revision)?;
+            ensure!(
+                attempt.native_host.is_none()
+                    || attempt.phase_execution.is_some()
+                    || attempt.refresh_execution.is_some(),
+                "host without actual phase execution"
+            );
             if let Some(record) = &attempt.preparation {
                 let request = attempt
                     .acceptance
@@ -296,10 +315,22 @@ impl State {
             source::validate(attempt, self.revision, &mut identities)?;
             prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
             phase_prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
+            refresh_prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
             granted::validate(attempt, self.revision)?;
             phase_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
+            refresh_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
             launch::validate(attempt, self.revision, &mut identities)?;
             phase_terminal::validate(attempt, self.revision)?;
+            refresh_terminal::validate(attempt, self.revision)?;
+            if let Some(h) = &attempt.native_host {
+                let mut base = h.clone();
+                base.terminal = None;
+                base.refresh_terminal = None;
+                ensure!(
+                    canonical_bytes(&base)?.len() <= phase_terminal_budget::BASE_HISTORY_MAX,
+                    "native base host history bound"
+                );
+            }
             ensure!(
                 attempt
                     .initial_grant
@@ -601,6 +632,10 @@ impl Journal {
                 phase_preparation: None,
                 phase_prepared: None,
                 phase_execution: None,
+                refresh_acceptance: None,
+                refresh_preparation: None,
+                refresh_prepared: None,
+                refresh_execution: None,
                 native_host: None,
             },
         );
@@ -622,7 +657,7 @@ impl Journal {
             .context("unknown native attempt")?;
         let r = &attempt.reservation;
         ensure!(
-            attempt.phase_acceptance.is_none(),
+            attempt.phase_acceptance.is_none() && attempt.refresh_acceptance.is_none(),
             "phase attempt cannot use legacy Accept"
         );
         ensure!(now < r.deadline_ns, "native reservation expired");
@@ -674,7 +709,7 @@ impl Journal {
             .as_ref()
             .context("acceptance not durable")?;
         ensure!(
-            attempt.phase_acceptance.is_none(),
+            attempt.phase_acceptance.is_none() && attempt.refresh_acceptance.is_none(),
             "phase attempt cannot use a legacy preparation plan"
         );
         observed

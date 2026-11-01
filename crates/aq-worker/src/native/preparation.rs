@@ -1,8 +1,10 @@
 //! Bounded current input collection, never Prepare or execution permission.
 mod context;
 mod runner_prepare;
+mod runner_refresh;
 pub(crate) use context::InputContext;
 pub use runner_prepare::{PhasePreparation, PhasePreparationOptions};
+pub use runner_refresh::{RefreshPreparation, RefreshPreparationOptions};
 mod execution;
 mod granted;
 #[path = "launch/mod.rs"]
@@ -25,7 +27,7 @@ pub use granted::{
     QualifiedPresenceProfile, RetainedGrantHistory, RetainedInputStats, ScopedPresenceProducer,
 };
 pub use hydration::HydratedWorkspace;
-pub use join::{PreparedInputs, PreparedPhaseInputs};
+pub use join::{PreparedInputs, PreparedPhaseInputs, PreparedRefreshInputs};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -150,6 +152,14 @@ impl InputPipeline {
         self.artifacts_context(id, InputContext::Phase(preparation))
             .await
     }
+    pub async fn artifacts_refresh(
+        &self,
+        id: Uuid,
+        preparation: Arc<super::http::preparation_refresh_v1::AcceptedPreparation>,
+    ) -> Result<Vec<VerifiedArtifact>> {
+        self.artifacts_context(id, InputContext::Refresh(preparation))
+            .await
+    }
     async fn artifacts_context(
         &self,
         id: Uuid,
@@ -224,6 +234,15 @@ impl InputPipeline {
         self.artifact_context(id, InputContext::Phase(preparation), reference)
             .await
     }
+    pub async fn artifact_refresh(
+        &self,
+        id: Uuid,
+        preparation: Arc<super::http::preparation_refresh_v1::AcceptedPreparation>,
+        reference: ArtifactRef,
+    ) -> Result<VerifiedArtifact> {
+        self.artifact_context(id, InputContext::Refresh(preparation), reference)
+            .await
+    }
     async fn artifact_context(
         &self,
         id: Uuid,
@@ -283,6 +302,15 @@ impl InputPipeline {
         lease_id: Uuid,
     ) -> Result<MaterialReceipt> {
         self.material_context(id, InputContext::Phase(preparation), lease_id)
+            .await
+    }
+    pub async fn material_refresh(
+        &self,
+        id: Uuid,
+        preparation: Arc<super::http::preparation_refresh_v1::AcceptedPreparation>,
+        lease_id: Uuid,
+    ) -> Result<MaterialReceipt> {
+        self.material_context(id, InputContext::Refresh(preparation), lease_id)
             .await
     }
     async fn material_context(

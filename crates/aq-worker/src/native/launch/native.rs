@@ -278,20 +278,8 @@ pub(super) fn bootstrap(
         let state = owner.journal.state();
         let a = &state.attempts[&entry.id];
         let offer = a.reservation.offer.clone();
-        let grant = &a
-            .phase_execution
-            .as_ref()
-            .context("native grant absent")?
-            .delivery
-            .receipt
-            .grant;
-        let accepted = &a
-            .phase_preparation
-            .as_ref()
-            .context("native accept absent")?
-            .delivery
-            .receipt
-            .lease;
+        let accepted = a.phase_scope()?;
+        let grant = accepted.grant;
         let (device, inode) = profile.root.identity();
         let m = lock(&profile.installation)?.installation().clone();
         ensure!(
@@ -305,7 +293,7 @@ pub(super) fn bootstrap(
             grant_id: grant.grant_id,
             logical_guardian_id: accepted.guardian_id,
             launch_id: accepted.launch_id,
-            reservation_id: accepted.hold.reservation.reservation_id,
+            reservation_id: accepted.reservation_id,
             runtime: a.reservation.runtime.clone(),
             terminal: aq_session_protocol::TerminalIdentity {
                 session: grant.binding.session.clone(),
