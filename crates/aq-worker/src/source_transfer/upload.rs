@@ -210,60 +210,19 @@ impl<C: Clock> Runtime<C> {
             .context("upload intent missing")?
             .clone();
         upload.validate(&m, self.journal.state().identity.node_id)?;
-        if !upload.begun {
-            return Ok(Some(UploadAction::Begin {
-                identity: upload.identity,
-                operation_id: upload.begin_operation,
-                manifest: m,
-            }));
+        if upload.begun {
+            source
+                .managed_root
+                .as_ref()
+                .context("source root missing")?;
         }
-        let root = source
-            .managed_root
-            .as_ref()
-            .context("source root missing")?;
-        if let Some(request) = upload.pending {
-            let size = if request.file == TransferFile::Manifest {
-                m.manifest_bytes
-            } else {
-                m.bundle_bytes
-            };
-            let bytes = read_range(
-                root,
-                m.artifact_id,
-                &request.file,
-                request.offset,
-                request.length as usize,
-                size,
-            )?;
-            ensure!(
-                format!("{:x}", Sha256::digest(&bytes)) == request.digest,
-                "pending artifact bytes changed; preserved without replay"
-            );
-            return Ok(Some(UploadAction::Chunk { request, bytes }));
-        }
-        let remaining = if upload.manifest_offset < m.manifest_bytes {
-            Some((
-                TransferFile::Manifest,
-                upload.manifest_offset,
-                m.manifest_bytes,
-            ))
-        } else if upload.bundle_offset < m.bundle_bytes {
-            Some((TransferFile::Bundle, upload.bundle_offset, m.bundle_bytes))
-        } else {
-            None
-        };
-        if let Some((file, offset, size)) = remaining {
-            let length = (size - offset).min(MAX_CHUNK_BYTES as u64) as usize;
-            let bytes = read_range(root, m.artifact_id, &file, offset, length, size)?;
-            let request = TransferChunkRequest {
-                identity: upload.identity,
-                operation_id: Uuid::new_v4(),
-                transfer_id: m.transfer_id,
-                file,
-                offset,
-                length: length as u32,
-                digest: format!("{:x}", Sha256::digest(&bytes)),
-            };
+        let proposed = super::steps::propose_upload(
+            &upload,
+            &m,
+            source.managed_root.as_deref(),
+            self.journal.state().identity.node_id,
+        )?;
+        if proposed.state.pending != upload.pending {
             self.journal.transaction(|s| {
                 s.attempts
                     .get_mut(&id)
@@ -271,19 +230,11 @@ impl<C: Clock> Runtime<C> {
                     .source
                     .as_mut()
                     .unwrap()
-                    .upload
-                    .as_mut()
-                    .unwrap()
-                    .pending = Some(request.clone());
+                    .upload = Some(proposed.state);
                 Ok(())
             })?;
-            return Ok(Some(UploadAction::Chunk { request, bytes }));
         }
-        Ok(Some(UploadAction::Finalize(TransferStatusRequest {
-            identity: upload.identity,
-            operation_id: upload.finalize_operation,
-            transfer_id: m.transfer_id,
-        })))
+        Ok(Some(proposed.action))
     }
 
     pub fn acknowledge_source_upload(
@@ -292,7 +243,6 @@ impl<C: Clock> Runtime<C> {
         action: &UploadAction,
         status: TransferStatus,
     ) -> Result<()> {
-        status.validate()?;
         let source = self
             .journal
             .state()
@@ -300,74 +250,23 @@ impl<C: Clock> Runtime<C> {
             .get(&id)
             .and_then(|r| r.source.as_ref())
             .context("source missing")?;
-        let m = source
+        let manifest = source
             .transfer
             .as_ref()
             .context("transport manifest missing")?;
         let upload = source.upload.as_ref().context("upload missing")?;
-        upload.validate(m, self.journal.state().identity.node_id)?;
-        ensure!(
-            status.transfer_id == m.transfer_id,
-            "upload response transfer mismatch"
-        );
-        let mut next = upload.clone();
-        match action {
-            UploadAction::Begin {
-                identity,
-                operation_id,
-                manifest,
-            } => {
-                ensure!(
-                    !upload.begun
-                        && identity == &upload.identity
-                        && operation_id == &upload.begin_operation
-                        && manifest == m
-                        && status.manifest_offset == 0
-                        && status.bundle_offset == 0
-                        && status.receipt.is_none(),
-                    "unexpected begin receipt"
-                );
-                next.begun = true;
+        let next = match super::steps::acknowledge_upload(
+            upload,
+            manifest,
+            action,
+            status,
+            self.journal.state().identity.node_id,
+        )? {
+            super::steps::UploadAcknowledgment::Progress(next) => next,
+            super::steps::UploadAcknowledgment::RetentionClaim(receipt) => {
+                return self.acknowledge_source(id, receipt);
             }
-            UploadAction::Chunk { request, bytes } => {
-                ensure!(
-                    upload.pending.as_ref() == Some(request)
-                        && bytes.len() == request.length as usize
-                        && format!("{:x}", Sha256::digest(bytes)) == request.digest
-                        && status.receipt.is_none(),
-                    "unexpected chunk receipt"
-                );
-                match request.file {
-                    TransferFile::Manifest => next.manifest_offset += u64::from(request.length),
-                    TransferFile::Bundle => next.bundle_offset += u64::from(request.length),
-                }
-                ensure!(
-                    status.manifest_offset == next.manifest_offset
-                        && status.bundle_offset == next.bundle_offset,
-                    "unexpected chunk progress"
-                );
-                next.pending = None;
-            }
-            UploadAction::Finalize(request) => {
-                ensure!(
-                    request.identity == upload.identity
-                        && request.operation_id == upload.finalize_operation
-                        && request.transfer_id == m.transfer_id
-                        && upload.begun
-                        && upload.pending.is_none()
-                        && upload.manifest_offset == m.manifest_bytes
-                        && upload.bundle_offset == m.bundle_bytes
-                        && status.manifest_offset == m.manifest_bytes
-                        && status.bundle_offset == m.bundle_bytes,
-                    "unexpected finalize receipt"
-                );
-                return self.acknowledge_source(
-                    id,
-                    status.receipt.context("central retention unconfirmed")?,
-                );
-            }
-        }
-        next.validate(m, self.journal.state().identity.node_id)?;
+        };
         self.journal.transaction(|s| {
             s.attempts
                 .get_mut(&id)
