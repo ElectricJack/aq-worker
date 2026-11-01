@@ -1,0 +1,68 @@
+{
+  "source": "66aa5c8c5839e440c401c11705f48aad6fca873e",
+  "base": "3954b07",
+  "archive": {
+    "path": "vendor/aq-phase-terminal-protocol-0.1.0.crate",
+    "sha256": "1b3e4afbd9356f6d7027b0a4be3fe37e2231b55bdfa10269c87a84bf9568f0bb",
+    "unmodified_extracted_members": 18
+  },
+  "journal_format": 10,
+  "old_formats_refused_unchanged": "1..9",
+  "logical_snapshot_cap_bytes": 8388608,
+  "per_host_reserved_bytes": 1048576,
+  "private_base_history_cap_bytes": 524288,
+  "package": {
+    "passed": 227,
+    "ignored": 21,
+    "test_threads": 2,
+    "lib_test_process_seconds": 56.53
+  },
+  "actual_host": {
+    "passed_top_level": 15,
+    "test_threads": 1,
+    "test_process_seconds": 95.73,
+    "isolated_child_passed": 1,
+    "isolated_child_seconds": 3.78,
+    "synthetic_coordinator_and_git_peer": true
+  },
+  "actual_git": {
+    "passed": 3,
+    "test_threads": 1,
+    "test_process_seconds": 16.79,
+    "paired_with_actual_tmux_or_daemon": false
+  },
+  "strict_clippy_seconds": 8.27,
+  "default_check_seconds": 4.05,
+  "fmt": "pass",
+  "source_inventory_files": 1299,
+  "superseded_negative": {
+    "default_parallel_package": {
+      "passed": 102,
+      "failed": 1,
+      "ignored": 18,
+      "lib_test_process_seconds": 13.67,
+      "failure": "existing expired_initial_token_never_reads_or_publishes_positive failed setup_window(100) before target negative read; unchanged focused rerun passes; no TTL or retry changes"
+    },
+    "clippy": "constant test assertion changed to const block, no runtime change"
+  },
+  "source_equivalence": {
+    "package_product_code": "matches frozen source",
+    "after_package_changes": [
+      "ignored ACK test coverage expanded to canceled waiter and changed valid ACK",
+      "constant test assertion moved into const block for strict Clippy"
+    ],
+    "after_actual_changes": [
+      "constant test assertion style only; budget test rerun plus strict Clippy passed"
+    ]
+  },
+  "limitations": [
+    "test-support synthetic profile only; no default capability",
+    "no real provider, phase renewal or cleanup/release",
+    "no no-Started closure publisher: missing original driver-intent checkpoint remains held",
+    "never-admitted Started after expiry may refuse; both queues preserved",
+    "no matched actual daemon+Git+tmux phase terminal proof in this evidence",
+    "logical quota reservation is not physical ENOSPC/fsync progress guarantee",
+    "no default-parallel full-suite green claim",
+    "shared WSL2 host; coordinated quiet window, not performance/scale qualification"
+  ]
+}

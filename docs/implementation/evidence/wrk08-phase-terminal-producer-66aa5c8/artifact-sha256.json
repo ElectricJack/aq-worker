@@ -1,0 +1,80 @@
+{
+  "files": {
+    "actual-git.log": {
+      "sha256": "59a14fc2929984fcbeb61b996c6f2c0a74f83a439dc60edf07e827be3934ede7",
+      "bytes": 666
+    },
+    "actual-host-final.log": {
+      "sha256": "36812eb79a4e65e8daeacc5dbdaebeb2554b833e10972dc05eb264916800ab9e",
+      "bytes": 2945
+    },
+    "budget-tests-final.log": {
+      "sha256": "3d9a719ae8ac52368d477649bac5d5518ce831406b21234e1ab59e5baf4e005a",
+      "bytes": 587
+    },
+    "clippy-final.log": {
+      "sha256": "bd11432df02eac9f69dd36eacc41decfa955bc0887e9b385f8392ba4a775fa54",
+      "bytes": 139
+    },
+    "commands.json": {
+      "sha256": "a15740c84bef5b151c8b1c517af466c664d75a7c998100adc839634d5aeec3a0",
+      "bytes": 1454
+    },
+    "compile.log": {
+      "sha256": "253742a6313bf33b83e4346474d8b95ea76c05551f9457b7c0592823a60671d9",
+      "bytes": 941
+    },
+    "default-check.log": {
+      "sha256": "9c6569e36038c3dc8e95b06780fc7e04f358766a3f556d4b6e31ed446b672310",
+      "bytes": 327
+    },
+    "environment.txt": {
+      "sha256": "b853743bf259c65ede66e5f4dce8f15f24ba836b8504abf291e54ea7e7990a0c",
+      "bytes": 211
+    },
+    "fmt-final.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "frozen-dependency-equality.json": {
+      "sha256": "b5061017af50e3735ff9ba4265cbda55cc162049393b151e6753a73a75c0491f",
+      "bytes": 458
+    },
+    "http-initial.log": {
+      "sha256": "95c9960588835a4d29931d19127955000208f4779fa60b00d988028cc3236bd9",
+      "bytes": 1476
+    },
+    "local-pins.json": {
+      "sha256": "958cbbd756a69ed07227fa44da09517c0c4485d4356ed8997a1c2f39ea158fdc",
+      "bytes": 435
+    },
+    "negative-default-parallel-package.log": {
+      "sha256": "4db9d1505b1431f38db9342b9b2d4805d2638f44e04f312ad26271bdc98131c9",
+      "bytes": 18943
+    },
+    "package-two-threads.log": {
+      "sha256": "8a94c7fe20810451ce42d0b52cbfc021c249fca5c4b5169f6e1a0c26c2370da0",
+      "bytes": 32809
+    },
+    "report.json": {
+      "sha256": "3811290ab8d68f276869075927abd4a092a279f90d6d46bd1b666f45a36207b6",
+      "bytes": 2549
+    },
+    "source-sha256.json": {
+      "sha256": "3b676c3872c27bcfe0efa34c0ff89a724991403f505fc6e0acfc831be3a9e8f2",
+      "bytes": 233180
+    },
+    "superseded-actual-pair.log": {
+      "sha256": "0c2560159ab69d53ce549fcc95f55fdd072f023b52ca8273cf078ee22b123e27",
+      "bytes": 765
+    },
+    "superseded-clippy-constant-assert.log": {
+      "sha256": "0dcc785da9c4ebfac60904d8dd075403b1f0beba6ae29674b6a60e1fdd01edfb",
+      "bytes": 1684
+    },
+    "unchanged-presence-focused.log": {
+      "sha256": "c41703cb3f24dd898d46cb3219e036ee24cb2c076e1da384a3f74a433ce73f17",
+      "bytes": 413
+    }
+  }
+}

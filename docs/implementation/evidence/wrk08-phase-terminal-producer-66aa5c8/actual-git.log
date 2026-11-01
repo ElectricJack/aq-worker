@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-df2ede32661e8d1a)
+
+running 3 tests
+test native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace ... ok
+test native::journal::tests::hydration_scenarios::pinned_git_phase_inputs_and_prepare_after_original_proposal_expiry ... ok
+test native::journal::tests::hydration_scenarios::pinned_git_received_initial_grant_retains_actual_workspace_and_material_owners ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 118 filtered out; finished in 16.79s
+

@@ -1,0 +1,22 @@
+{
+  "environment": {
+    "CARGO_TARGET_DIR": "/tmp/aq-worker-presence-target",
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0"
+  },
+  "package": "RUST_TEST_THREADS=2 cargo test -p aq-worker --all-features --locked --offline",
+  "actual_host": "cargo test -p aq-worker --all-features --locked --offline --lib native_host_scenarios -- --ignored --test-threads=1 --nocapture",
+  "clippy": "cargo clippy -p aq-worker --all-targets --all-features --locked --offline -- -D warnings",
+  "default": "cargo check -p aq-worker --no-default-features --locked --offline",
+  "git": "AQ_GIT_TEST_BINARY=/tmp/aq-wrk08-git-pin/aq-git AQ_GIT_TEST_SHA256=c2ff26f5e63008aec0fbd4082a547e87825e651d4aba0744c4b9fdf752d58c39 cargo test -p aq-worker --all-features --locked --offline --lib pinned_git -- --ignored --test-threads=1 --nocapture",
+  "fmt": "cargo fmt -p aq-worker -- --check",
+  "actual_host_environment": {
+    "AQ_NATIVE_HOST_BINARY": "/tmp/aq-native-host-test-pin/aq-session-host",
+    "AQ_NATIVE_HOST_SHA256": "120fad0ddf224c033312db70571de0fc78619ad3a2afac0c82322ab6e46624ad",
+    "AQ_NATIVE_TMUX_BINARY": "/usr/bin/tmux",
+    "AQ_NATIVE_TMUX_SHA256": "034b15c64035f783d43862f2775eb4828f61571ca62c8199796000b97d556ecd",
+    "AQ_NATIVE_SYNTHETIC_ELF": "/tmp/aq-native-host-pin/aq-native-synthetic-harness",
+    "AQ_NATIVE_SYNTHETIC_SHA256": "c624ae59154f3623c2b026fb0a1dc34e896263ce1eb6423b541f31c681011e81"
+  }
+}

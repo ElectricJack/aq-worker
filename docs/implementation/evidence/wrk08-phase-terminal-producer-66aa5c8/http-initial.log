@@ -1,0 +1,20 @@
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/crates/aq-session-protocol)
+   Compiling aq-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/crates/aq-protocol)
+   Compiling aq-worker-protocol v0.2.0 (/tmp/aq-worker-phase-terminal/crates/aq-worker-protocol)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/crates/aq-lifecycle-protocol)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-admission v0.1.9 (/tmp/aq-worker-phase-terminal/vendor/aq-admission-0.1.9)
+   Compiling aq-session-host v0.1.4 (/tmp/aq-worker-phase-terminal/crates/aq-session-host)
+   Compiling aq-phase-terminal-protocol v0.1.0 (/tmp/aq-worker-phase-terminal/vendor/aq-phase-terminal-protocol-0.1.0)
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-phase-terminal/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 14.02s
+     Running tests/native_phase_terminal.rs (/tmp/aq-worker-presence-target/debug/deps/native_phase_terminal-29ad1100752baf27)
+
+running 4 tests
+test phase_terminal_failure_never_automatically_retries_or_falls_back ... ok
+test phase_terminal_wrong_ack_oversize_and_version_refuse ... ok
+test phase_terminal_exact_started_stopped_without_delivery_clock ... ok
+test phase_terminal_stopped_lane_progresses_while_started_slots_blocked ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

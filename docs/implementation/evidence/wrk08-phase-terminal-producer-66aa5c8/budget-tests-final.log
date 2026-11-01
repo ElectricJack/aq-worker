@@ -1,0 +1,10 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-phase-terminal/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 10.51s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-df2ede32661e8d1a)
+
+running 2 tests
+test native::journal::phase_terminal::tests::worst_case_four_envelopes_and_base_fit_reserved_host_budget ... ok
+test native::journal::phase_terminal::tests::revision_growth_cannot_spend_reserved_host_or_safety_capacity ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 119 filtered out; finished in 0.00s
+
