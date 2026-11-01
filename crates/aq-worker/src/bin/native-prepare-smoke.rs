@@ -1,5 +1,5 @@
 //! Explicit test-support process: real input owners through initial Grant only.
-//! No host, provider, grant persistence, resume, cleanup or production activation.
+//! Includes durable received Grant history; no host, provider, resume or cleanup.
 use anyhow::{Context, Result, ensure};
 use aq_admission::{
     ArtifactKind, Resources,
@@ -12,7 +12,7 @@ use aq_worker::{
         http::NativeClient,
         journal::{Journal, Limits, RuntimeIdentity},
         materials::MaterialStore,
-        preparation::InputPipeline,
+        preparation::{GrantCommit, InputPipeline},
     },
     source::GitClient,
 };
@@ -255,16 +255,33 @@ async fn run(stage: &mut &'static str) -> Result<()> {
     let grant = client
         .prepare(prepared.request(), &preparation, &offer, None)
         .await?;
-    // PreparedInputs and its exclusive physical input owners remain held across
-    // the actual Grant call and serialization. Nothing records or launches it.
     let receipts = prepared
         .materials()
         .iter()
         .map(|m| m.receipt())
         .collect::<Result<Vec<_>>>()?;
-    emit(
-        &json!({"phase":"granted","request":prepared.request(),"grant":grant.initial(),"workspace_path":prepared.workspace().workspace().path,"material_receipts":receipts}),
-    )?;
+    // Capture bounded diagnostic DTOs before transferring the actual exclusive
+    // input owners. These serialized values never confer live authority.
+    let mut result = json!({"phase":"granted","request":prepared.request(),"grant":grant.initial(),"workspace_path":prepared.workspace().workspace().path,"material_receipts":receipts});
+    *stage = "durable_initial_grant";
+    let committed = pipeline.record_initial_grant(prepared, grant).await?;
+    let durable = match committed {
+        GrantCommit::Usable(durable) => durable,
+        GrantCommit::HistoryOnly(_) => {
+            anyhow::bail!("received Grant retained as history only");
+        }
+    };
+    *stage = "check_durable_initial_grant";
+    pipeline.check_initial_grant(&durable).await?;
+    current_root(&config.root, &held)?;
+    result["durable_grant"] = json!({
+        "attempt_id":durable.history().attempt_id(),
+        "record_digest":durable.history().record_digest(),
+        "observed_after_sync_ns":durable.history().observed_after_sync_ns(),
+        "deadline_ns":durable.deadline_ns(),
+        "hard_deadline_ns":durable.hard_deadline_ns()
+    });
+    emit(&result)?;
     Ok(())
 }
 #[tokio::main]
