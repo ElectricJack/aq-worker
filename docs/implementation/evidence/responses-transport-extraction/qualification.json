@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "status": "independent_source_accepted_and_focused_offline_qualification_passed",
+  "base_commit": "45420eb",
+  "api_and_regression_baseline": "4ff62a5",
+  "pre_extraction_baseline_evidence": "8bcd1ad",
+  "source_commit": "56bfa421cc7aa09e6c141f9ed41191cf026f1217",
+  "source_chain": [
+    "ca44aa6",
+    "baf2b2f",
+    "56bfa42"
+  ],
+  "component": {
+    "name": "aq-responses-transport",
+    "version": "0.1.0",
+    "publish": false,
+    "same_workspace": true,
+    "new_external_dependency_versions": 0,
+    "normal_graph_excludes": [
+      "aq-worker",
+      "aq-worker-protocol",
+      "aq-admission",
+      "aq-session-host",
+      "aq-protocol"
+    ],
+    "shared_contract_dependency": "aq-session-protocol Digest and ModelSettings",
+    "worker_public_wrapper_api_preserved": true,
+    "worker_real_launch_manifest_binding_material_record_and_key_joins_preserved": true,
+    "request_item_owner_code_byte_identical_move": true,
+    "worker_transport_regression_test_file_unchanged_after_baseline": true,
+    "capped_request_golden_sha256": "75ba72153333f5e1dade8558b71bdf37efd0b9661a646cbe6ead2ba87217a82c"
+  },
+  "independent_review": {
+    "accepted_source": "56bfa42",
+    "reviewer_ran_builds_or_provider_requests": false,
+    "closed_findings": [
+      "Finite nonwaiting process-shared eight-read admission acquired before enqueue; owned permit stays inside actual blocking callback after cancel/timeout",
+      "Independent exact-length SO_TYPE=STREAM, SO_PROTOCOL=TCP, SO_ACCEPTCONN checks before adopting consumed listener or reading credential"
+    ]
+  },
+  "checks": {
+    "core": {
+      "passed": 15,
+      "runtime_seconds": 1.45,
+      "rebuild_seconds": 1.44
+    },
+    "worker_transport_policy": {
+      "passed": 9,
+      "runtime_seconds": 0.05,
+      "rebuild_seconds": 12.8
+    },
+    "worker_original_retained_material": {
+      "passed": 2,
+      "runtime_seconds": 0.03
+    },
+    "worker_logical_stop_fence": {
+      "passed": 1,
+      "runtime_seconds": 0.0
+    },
+    "worker_base_and_scoped_command_goldens": {
+      "passed": 2,
+      "runtime_seconds": 0.01
+    },
+    "core_all_targets_strict_seconds": 0.62,
+    "worker_lib_strict_seconds": 5.31,
+    "default_worker_lib_check_seconds": 3.88,
+    "affected_rustfmt_and_diff_clean": true,
+    "existing_warm_target": true,
+    "offline_jobs2_devdebug0_incremental0": true
+  },
+  "meaningful_new_core_vectors": [
+    "Exact consumed listener origin and kernel TCP checks, wildcard/wrong-origin/connected/UDP refusal before credential read",
+    "Held initial credential callback cancellation and original deadline timeout; late completion cannot serve or forward",
+    "Held per-request callback acknowledged stop and original expiry; late result cannot forward",
+    "Two-slot controlled admission, two canceled held initial reads, three excess attempts with zero callback starts, capacity returns only after real completion",
+    "Current source key rechecked before every forward; immutable scope/deadline/capability digest metadata",
+    "Exact 16MiB SSE body is preserved; surplus aborts the existing chunked response without appending a second status"
+  ],
+  "sctp_negative": "Conditional on already registered kernel SCTP; absent on qualification host, no module load requested. Mandatory UDP/connected negatives and TCP positives ran.",
+  "limits_and_remaining_scope": [
+    "Cancel triggers deny/shutdown; completed closure requires awaited stop/serving-task completion",
+    "An already-started blocking callback may outlive async cancellation; physical admission remains charged",
+    "Per-response cap is not aggregate cost/token accounting",
+    "No real provider semantics, prepared-host composition, admission eligibility or process stopped proof qualified",
+    "Package is workspace-only; no standalone published-package qualification claimed"
+  ],
+  "provider_calls": 0,
+  "harness_or_capsule_processes": 0,
+  "database_or_live_fixture_changes": 0,
+  "network": "Finite explicit numeric-loopback HTTP fixture peers only",
+  "source_sha256": {
+    "Cargo.toml": "22fd76a9c0dfc8142b7070294084525ef5dffd8a0e6f5c24955abdcca9f8ceba",
+    "Cargo.lock": "dda4f79ee54fddf55a6d14a310a654b9ba77e8e6e11aaedf6567b4f36966bf55",
+    "crates/aq-worker/Cargo.toml": "bc6fc489304328a392a764cdbcb5162a286d596d3ca0df8c64beac5f2d8bb193",
+    "crates/aq-worker/src/native/adapter/responses_transport.rs": "66b023ad9ca337ff1d003236aed3f1feb7ba44681deeb5b377bd92f45e9ca69e",
+    "crates/aq-worker/src/native/adapter/responses_transport/policy.rs": "11a58adae64df30726beacc4e51bdb962e0f08cd1446acd98982261c5e184cbb",
+    "crates/aq-responses-transport/src/items.rs": "2e4c096598a4d7b78e9262fa46c5c408347eab92a733f67aea650826b1e0e1d8",
+    "crates/aq-responses-transport/src/lib.rs": "aea4a2cd7b99c65d7094b7ef526ba7fb05282a96309c1abbfc638e40b90c330b",
+    "crates/aq-responses-transport/src/lifecycle_tests.rs": "204b7ff9bffd16b8155af953c41b1e5a5ba3dcbbc557a12e582737317c4ec703",
+    "crates/aq-responses-transport/src/policy.rs": "df1f395d2d92e1e816bf607a1993f423d261ed22897723d5e5a3868c0da3f857",
+    "crates/aq-responses-transport/src/tests.rs": "b5d6a70dba2a79ac4a3e51346c9559a86c4bd665ba6aa127009d0eba8a708c1b"
+  }
+}
