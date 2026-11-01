@@ -1,0 +1,12 @@
+Kernel-only capsule canary, 2026-11-01
+command: python3 tools/qualification/probe-harness-capsule.py
+exit: 0
+elapsed_seconds: 0.31
+sha256 tools/qualification/harness-capsule-peer.c: e7bb38e18746c88327c920142e7210f3d81893915d01da9ce86124e358ec26b2
+sha256 tools/qualification/probe-harness-capsule.py: 36b129a71f6a63094b9bb79ff7f5ed1c6a37949539767e939a92a85953f8da35
+PASS same-host-uid; random original canary read before clean setup exec; parent PID/TID/root/fd/path denied; no inherited source FD/env
+PASS derived-auth/allowed-folder/internal-git visible; workspace writable; remount denied
+PASS post-namespace SCM_CREDENTIALS outer init/harness/descendant PIDs pinned with pidfds; no socketpair SO_PEERCRED identity claim
+PASS child-netns loopback listener SCM_RIGHTS to parent; parent accepts without joining network namespace
+PASS PID1 SIGKILL stops harness+descendant; all three pidfds exited; dedicated subreaper reaches kernel ECHILD
+PASS parent original material unchanged; no external connections or agent executable used
