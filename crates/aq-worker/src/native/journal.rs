@@ -8,7 +8,9 @@ pub use pause::WritePause;
 mod input_origin;
 mod inputs;
 pub use input_origin::InputOrigin;
+mod phase_execution;
 mod phase_prepared;
+pub use phase_execution::ReceivedPhaseExecution;
 pub mod preparation_v2;
 mod prepared;
 pub use phase_prepared::PhasePreparedIntent;
@@ -36,7 +38,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 7;
+pub const FORMAT: u32 = 8;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +106,7 @@ pub struct Attempt {
     pub phase_acceptance: Option<preparation_v2::PhaseAcceptance>,
     pub phase_preparation: Option<preparation_v2::ReceivedPreparation>,
     pub phase_prepared: Option<PhasePreparedIntent>,
+    pub phase_execution: Option<ReceivedPhaseExecution>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -289,6 +292,7 @@ impl State {
             prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
             phase_prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
             granted::validate(attempt, self.revision)?;
+            phase_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
             ensure!(
                 attempt
                     .initial_grant
@@ -567,6 +571,7 @@ impl Journal {
                 phase_acceptance: None,
                 phase_preparation: None,
                 phase_prepared: None,
+                phase_execution: None,
             },
         );
         self.persist(state)?;

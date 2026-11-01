@@ -12,6 +12,7 @@ pub struct ExecutionObservation {
     sample: DeadlineSample,
     sent_ns: u64,
     received_ns: u64,
+    first_send_deadline_ns: u64,
     first: Option<Arc<FirstExecutionTransmission>>,
 }
 struct FirstExecutionTransmission {
@@ -42,6 +43,9 @@ impl ExecutionObservation {
     }
     pub fn received_ns(&self) -> u64 {
         self.received_ns
+    }
+    pub fn first_send_deadline_ns(&self) -> u64 {
+        self.first_send_deadline_ns
     }
     /// Exact first network observation, including its original local clocks.
     /// Retrying before durable recording must not replace the first send time.
@@ -150,6 +154,7 @@ impl NativeClient {
             sample,
             sent_ns: got.sent_ns,
             received_ns: got.received_ns,
+            first_send_deadline_ns: previous.map_or(send_by, |p| p.first_send_deadline_ns),
             first,
         })
     }

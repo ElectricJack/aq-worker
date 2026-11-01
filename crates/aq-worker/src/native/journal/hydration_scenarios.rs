@@ -100,6 +100,7 @@ struct Inputs {
     preparation: Option<Arc<Preparation>>,
     phase: Option<Arc<crate::native::http::preparation_v2::AcceptedPreparation>>,
     phase_window: Arc<AtomicU64>,
+    proposed: Option<crate::native::http::preparation_v2::ProposedPreparation>,
     client: NativeClient,
     reference: ArtifactRef,
     id: Uuid,
@@ -128,6 +129,169 @@ impl Drop for Inputs {
     fn drop(&mut self) {
         self.task.abort()
     }
+}
+fn phase_execution_delivery(
+    a: &Attempt,
+    q: &aq_admission::preparation_v2::PrepareRequest,
+    nonce: Uuid,
+    window: u64,
+) -> aq_admission::preparation_v2::ExecutionDelivery {
+    use aq_admission::preparation_v2::{ExecutionDelivery, FactValue, OwnerFact};
+    let fixture: Value = serde_json::from_slice(include_bytes!(
+        "../../../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json"
+    ))
+    .unwrap();
+    let mut d: ExecutionDelivery = serde_json::from_value(fixture["delivery"].clone()).unwrap();
+    let intent = a.phase_acceptance.as_ref().unwrap();
+    let p = &intent.proposal;
+    let accepted = &a.phase_preparation.as_ref().unwrap().delivery.receipt;
+    let c = &p.choice;
+    let r = &mut d.receipt;
+    r.operation_id = q.original.operation_id;
+    r.request_digest = q.digest().unwrap();
+    r.accepted_receipt_digest = accepted.digest().unwrap();
+    r.negotiation = q.negotiation.clone();
+    r.issued_at_ms = 2000;
+    r.grant.binding = q.original.binding.clone();
+    r.grant.expires_at_ms = 2000 + window;
+    r.execution_deadline_ms = 22000;
+    r.versions.record_revision = accepted.versions.record_revision + 1;
+    r.versions.authority_revision = accepted.versions.authority_revision + 1;
+    r.versions.grant_revision = 1;
+    r.confirmation.prepare_digest = q.digest().unwrap();
+    r.confirmation.accepted_receipt_digest = accepted.digest().unwrap();
+    r.confirmation.checked_at_ms = 2000;
+    for f in &mut r.confirmation.facts {
+        f.body.binding = q.original.binding.clone();
+        f.body.choice_digest = accepted.lease.choice_digest.clone();
+        f.body.observed_at_ms = 2000;
+        f.body.expires_at_ms = 2000 + p.policy.maximum_observation_ms;
+        f.body.authority = p
+            .owners
+            .iter()
+            .find(|o| o.kind == f.body.value.kind())
+            .unwrap()
+            .authority
+            .clone();
+        match &mut f.body.value {
+            FactValue::Project {
+                project_id,
+                revision,
+                catalog,
+                permissions_digest,
+            } => {
+                *project_id = p.spec.lifecycle.project_id;
+                *revision = p.spec.project_revision;
+                *catalog = p.original.offered.offer.manifest.catalog.clone();
+                *permissions_digest = c.permission_digest.clone();
+            }
+            FactValue::Registry {
+                registry,
+                credential_profile,
+                credential_revision,
+            } => {
+                *registry = c.registry.clone();
+                *credential_profile = c.credential_profile.clone();
+                *credential_revision = c.credential_revision;
+            }
+            FactValue::Principal { principal, scope } => {
+                *principal = c.principal.clone();
+                *scope = p.spec.graph_access_profile.clone();
+            }
+            FactValue::Inventory {
+                node_id,
+                boot_id,
+                model,
+                harness,
+                capabilities,
+                credential_profile,
+                credential_revision,
+                ..
+            } => {
+                *node_id = accepted.lease.identity.node_id;
+                *boot_id = accepted.lease.identity.boot_id;
+                *model = c.model.clone();
+                *harness = c.harness.clone();
+                *capabilities = p.original.offered.offer.required_capabilities.clone();
+                *credential_profile = c.credential_profile.clone();
+                *credential_revision = c.credential_revision;
+            }
+            FactValue::Availability {
+                provider,
+                account_reference,
+                endpoint_reference,
+                ..
+            } => {
+                *provider = c.model.provider.clone();
+                *account_reference = c.account_reference.clone();
+                *endpoint_reference = c.endpoint_reference.clone();
+            }
+            FactValue::Budget {
+                lineage_id,
+                maximum_lineage_elapsed_ms,
+                ..
+            } => {
+                *lineage_id = p.spec.lifecycle.lineage_id;
+                *maximum_lineage_elapsed_ms = c.maximum_lineage_elapsed_ms;
+            }
+            FactValue::Context {
+                task,
+                context,
+                full_context_digest,
+                graph_policy,
+            } => {
+                *task = p.spec.task.clone();
+                *context = p.spec.task_context.clone();
+                *full_context_digest = p.full_context_digest.clone();
+                *graph_policy = p.spec.graph_access_profile.clone();
+            }
+            FactValue::Git {
+                repository_id,
+                binding_generation,
+                base,
+                policy,
+                manifest,
+                bundle,
+                ..
+            } => {
+                *repository_id = p.spec.source.repository_id;
+                *binding_generation = p.spec.source.repository_binding_generation;
+                *base = p.spec.source.resolved_object.clone();
+                *policy = p.spec.source.policy.clone();
+                *manifest = q
+                    .original
+                    .artifacts
+                    .iter()
+                    .find(|x| x.artifact.id.as_str().starts_with("aq.source-manifest/"))
+                    .unwrap()
+                    .clone();
+                *bundle = q
+                    .original
+                    .artifacts
+                    .iter()
+                    .find(|x| x.artifact.id.as_str().starts_with("aq.source-bundle/"))
+                    .unwrap()
+                    .clone();
+            }
+            FactValue::PrivateMaterialBacking {
+                lease_id,
+                backing_digest,
+                installation_receipt_digest,
+            } => {
+                *lease_id = accepted.lease.materials[0].lease_id;
+                *backing_digest = accepted.lease.materials[0].material_digest.clone();
+                *installation_receipt_digest =
+                    Digest::of(&canonical_bytes(&q.original.materials[0]).unwrap());
+            }
+        }
+        f.record.digest = OwnerFact::record_digest(&f.body).unwrap();
+        f.record.version = aq_session_protocol::Text::new(f.body.revision.to_string()).unwrap();
+    }
+    d.delivery.nonce = nonce;
+    d.delivery.clock = DeliveryClock::new(2000, 2000 + window).unwrap();
+    d.validate_for(q, accepted, &intent.request, p, nonce)
+        .unwrap();
+    d
 }
 impl Inputs {
     fn pipeline(&self) -> &Arc<InputPipeline> {
@@ -692,7 +856,39 @@ impl Inputs {
                 Json(receipt).into_response()
             }
         };
+        let phase_execution_root = dir.path().join("journal");
+        let phase_execution_window = grant_window_ms.clone();
+        let phase_execution_mode = grant_mode.clone();
+        let phase_execution_route =
+            move |headers: HeaderMap, Json(doc): Json<aq_admission::preparation_v2::Document>| {
+                let root = phase_execution_root.clone();
+                let window = phase_execution_window.clone();
+                let mode = phase_execution_mode.clone();
+                async move {
+                    let aq_admission::preparation_v2::Document::Prepare(q) = doc else {
+                        panic!("phase Prepare")
+                    };
+                    let snapshot: Snapshot =
+                        serde_json::from_slice(&fs::read(root.join("journal.json")).unwrap())
+                            .unwrap();
+                    let a = &snapshot.state.attempts[&q.original.binding.attempt_id];
+                    let nonce =
+                        Uuid::parse_str(headers["aq-delivery-nonce"].to_str().unwrap()).unwrap();
+                    let mut delivery =
+                        phase_execution_delivery(a, &q, nonce, window.load(Ordering::SeqCst));
+                    if mode.load(Ordering::SeqCst) == 1 {
+                        delivery.receipt.grant.grant_id = Uuid::new_v4();
+                    }
+                    Json(aq_admission::preparation_v2::Document::ExecutionDelivery(
+                        Box::new(delivery),
+                    ))
+                }
+            };
         let router = Router::new()
+            .route(
+                "/v1/worker/profiled-v2/prepare",
+                post(phase_execution_route),
+            )
             .route("/v1/worker/profiled-v2/proposal", post(proposal_route))
             .route("/v1/worker/profiled-v2/accept", post(phase_accept_route))
             .route("/v1/worker/profiled/inventory-v2", post(inventory_route))
@@ -717,6 +913,7 @@ impl Inputs {
             cf_client_secret: None,
         })
         .unwrap();
+        let mut proposed = None;
         let (preparation, phase) = if let Some(accept) = accept {
             let p = Arc::new(client.accept(&accept, cap, None).await.unwrap());
             journal.record_preparation(id, &p).unwrap();
@@ -739,6 +936,7 @@ impl Inputs {
                 .unwrap();
             let a = Arc::new(client.accept_preparation(&p, &q, None).await.unwrap());
             journal.record_phase_preparation(id, &a).unwrap();
+            proposed = Some(p);
             (None, Some(a))
         };
         let store = MaterialStore::open(&materials, identity(), 32).unwrap();
@@ -748,6 +946,7 @@ impl Inputs {
             preparation,
             phase,
             phase_window,
+            proposed,
             client,
             reference,
             id,
@@ -1308,6 +1507,31 @@ async fn actual_git_hydration(retain_grant: bool, phase_mode: bool) {
                 .phase_prepared
                 .is_some()
         );
+        h.grant_window_ms.store(5000, Ordering::SeqCst);
+        let state = h.pipeline().snapshot().await.unwrap();
+        let a = &state.attempts[&h.id];
+        let intent = a.phase_acceptance.as_ref().unwrap();
+        let observed = h
+            .client
+            .prepare_execution(
+                h.proposed.as_ref().unwrap(),
+                &intent.request,
+                h.phase.as_ref().unwrap(),
+                joined.request(),
+                None,
+            )
+            .await
+            .unwrap();
+        let crate::native::preparation::PhaseExecutionCommit::Usable(owner) = h
+            .pipeline()
+            .record_phase_execution(joined, observed)
+            .await
+            .unwrap()
+        else {
+            panic!("actual Git phase execution observation not usable")
+        };
+        h.pipeline().check_phase_execution(&owner).await.unwrap();
+        assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
         return;
     }
     let spec = h.spec().await;
@@ -2373,3 +2597,6 @@ async fn phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reo
     );
     assert!(attempt.source.as_ref().unwrap().complete());
 }
+
+#[path = "phase_execution_scenarios.rs"]
+mod phase_execution_scenarios;

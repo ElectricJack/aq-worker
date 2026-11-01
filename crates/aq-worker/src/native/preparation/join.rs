@@ -67,6 +67,8 @@ impl PreparedInputs {
     }
 }
 pub struct PreparedPhaseInputs {
+    retained_inline_bytes: u64,
+    startup_bytes: u64,
     request: aq_admission::preparation_v2::PrepareRequest,
     startup: RenderedStartup,
     workspace: HydratedWorkspace,
@@ -74,6 +76,53 @@ pub struct PreparedPhaseInputs {
     materials: Vec<InstalledMaterial>,
 }
 impl PreparedPhaseInputs {
+    pub(super) fn retained_inline_bytes(&self) -> u64 {
+        self.retained_inline_bytes
+    }
+    pub(super) fn startup_bytes(&self) -> u64 {
+        self.startup_bytes
+    }
+    pub(super) fn verify_execution_inputs(
+        &self,
+        journal: &Journal,
+        store: &MaterialStore,
+        deadline: u64,
+    ) -> Result<()> {
+        let a = journal
+            .state()
+            .attempts
+            .get(&self.request.original.binding.attempt_id)
+            .context("phase retained attempt absent")?;
+        let p = a
+            .phase_prepared
+            .as_ref()
+            .context("phase retained Prepare absent")?;
+        ensure!(
+            serde_json::to_value(&self.request)? == serde_json::to_value(&p.request)?,
+            "phase retained Prepare changed"
+        );
+        ensure!(
+            self.materials.len() == self.request.original.materials.len(),
+            "phase retained material count"
+        );
+        for material in &self.materials {
+            let r = material.receipt()?;
+            ensure!(
+                self.request
+                    .original
+                    .materials
+                    .iter()
+                    .any(|v| serde_json::to_value(v).ok() == serde_json::to_value(&r).ok()),
+                "phase retained material pin"
+            );
+            drop(material.read_private()?);
+            // Verify the current private installation namespace and actual raw
+            // record against the retained immutable receipt, without replacing
+            // the first owner bundle or extending retrieval/preparation clocks.
+            drop(store.reopen_pinned(&r)?.read_private()?);
+        }
+        self.workspace.revalidate_execution(journal, deadline)
+    }
     pub fn request(&self) -> &aq_admission::preparation_v2::PrepareRequest {
         &self.request
     }
@@ -155,6 +204,8 @@ impl InputPipeline {
             anyhow::bail!("phase join protocol mismatch")
         };
         Ok(PreparedPhaseInputs {
+            retained_inline_bytes: p.retained_inline_bytes,
+            startup_bytes: p.startup_bytes,
             request,
             startup: p.startup,
             workspace: p.workspace,
