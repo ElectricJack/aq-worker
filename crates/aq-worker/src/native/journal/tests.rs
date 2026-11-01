@@ -438,3 +438,6 @@ mod inputs_scenarios;
 
 #[path = "hydration_scenarios.rs"]
 mod hydration_scenarios;
+
+#[path = "preparation_v2_scenarios.rs"]
+mod preparation_v2_scenarios;
