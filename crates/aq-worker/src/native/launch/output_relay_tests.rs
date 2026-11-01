@@ -67,7 +67,10 @@ fn bounded_tail_packet_preserves_literal_sequences_and_explicit_eviction_gap() {
 }
 #[test]
 fn worst_case_json_bytes_are_bounded_and_prefix_never_skips_unselected_frames() {
-    let mut tail = OutputTail::new(terminal(), &policy(65536, 1048576)).unwrap();
+    let negotiated = policy(65536, 1048576);
+    let framing = local_framing(&negotiated);
+    assert!(framing.max_frame_bytes < negotiated.max_frame_bytes);
+    let mut tail = OutputTail::new(terminal(), &framing).unwrap();
     for _ in 0..16 {
         tail.accept(&ControlEvent::Bytes(vec![255; 65536])).unwrap()
     }
@@ -79,8 +82,17 @@ fn worst_case_json_bytes_are_bounded_and_prefix_never_skips_unselected_frames() 
         seen.extend(p.request.frames.iter().map(|f| f.sequence));
         through = p.through;
     }
-    assert_eq!(seen, (1..=16).collect::<Vec<_>>());
-    assert_eq!(tail.next_sequence(), 17);
+    assert_eq!(seen, (1..tail.next_sequence()).collect::<Vec<_>>());
+    assert_eq!(
+        tail.frames().map(|f| f.bytes.len()).sum::<usize>(),
+        16 * 65536
+    );
+    assert_eq!(
+        MAX_UPLOAD,
+        256 * 1024,
+        "must fit the actual RelayHttp transport ceiling"
+    );
+    assert_eq!(tail.next_sequence(), 33);
 }
 #[test]
 fn unknown_producer_discontinuity_does_not_invent_an_exact_gap_or_restart() {
@@ -98,6 +110,7 @@ fn unknown_producer_discontinuity_does_not_invent_an_exact_gap_or_restart() {
 }
 #[derive(Default)]
 struct PeerState {
+    policy: Option<TerminalPolicy>,
     mode: AtomicU8,
     registrations: Mutex<Vec<Vec<u8>>>,
     uploads: Mutex<Vec<Vec<u8>>>,
@@ -115,7 +128,7 @@ async fn register_peer(
         terminal: q.terminal.clone(),
         session_revision: q.expected_authority_revision,
         input_mode: q.input_mode,
-        terminal_policy: policy(4, 8),
+        terminal_policy: s.policy.clone().unwrap_or_else(|| policy(4, 8)),
         control: aq_terminal_relay::draft::ControlStatus {
             terminal: q.terminal,
             session_revision: q.expected_authority_revision,
@@ -167,7 +180,20 @@ async fn transport_fixture() -> (
     Arc<PeerState>,
     tokio::task::JoinHandle<()>,
 ) {
-    let s = Arc::new(PeerState::default());
+    transport_fixture_policy(policy(4, 8)).await
+}
+async fn transport_fixture_policy(
+    negotiated: TerminalPolicy,
+) -> (
+    PhaseOutputRelay,
+    Arc<Mutex<Outputs>>,
+    Arc<PeerState>,
+    tokio::task::JoinHandle<()>,
+) {
+    let s = Arc::new(PeerState {
+        policy: Some(negotiated.clone()),
+        ..PeerState::default()
+    });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let app = Router::new()
@@ -203,7 +229,7 @@ async fn transport_fixture() -> (
         journal: Weak::new(),
         peer: peer(),
         started: serde_json::from_value(f["started_request"].clone()).unwrap(),
-        policy: policy(4, 8),
+        policy: negotiated.clone(),
         network: tokio::sync::Mutex::new(Network {
             http,
             registration: Some(q),
@@ -217,7 +243,9 @@ async fn transport_fixture() -> (
     let outputs = Arc::new(Mutex::new(Outputs::default()));
     {
         let mut o = outputs.lock().unwrap();
-        o.tails.attach(terminal(), &policy(4, 8)).unwrap();
+        o.tails
+            .attach(terminal(), &local_framing(&negotiated))
+            .unwrap();
         o.tails
             .tail_mut(&terminal())
             .unwrap()
@@ -280,5 +308,38 @@ async fn dropped_pipeline_tail_owner_cannot_be_reconstructed_from_transport_hist
     assert!(handle.register().await.is_err());
     assert!(handle.upload_once().await.is_err());
     assert!(handle.status().is_err());
+    server.abort();
+}
+
+#[tokio::test]
+async fn high_byte_frames_fit_actual_http_transport_without_losing_sequences() {
+    let (relay, outputs, peer, server) = transport_fixture_policy(policy(65536, 1048576)).await;
+    peer.mode.store(1, Ordering::SeqCst);
+    {
+        let mut outputs = outputs.lock().unwrap();
+        let tail = outputs.tails.tail_mut(&terminal()).unwrap();
+        for _ in 0..4 {
+            tail.accept(&ControlEvent::Bytes(vec![255; 65536])).unwrap();
+        }
+    }
+    for _ in 0..16 {
+        if relay.upload_once().await.unwrap().is_none() {
+            break;
+        }
+    }
+    let uploads = peer.uploads.lock().unwrap();
+    let mut bytes = 0;
+    let mut sequences = vec![];
+    for encoded in uploads.iter() {
+        assert!(encoded.len() <= 256 * 1024);
+        let request: PeerUpload = serde_json::from_slice(encoded).unwrap();
+        for frame in request.frames {
+            bytes += frame.bytes.len();
+            sequences.push(frame.sequence);
+        }
+    }
+    // The transport fixture already has one eight-byte literal prefix.
+    assert_eq!(bytes, 4 * 65536 + 8);
+    assert_eq!(sequences, (1..=9).collect::<Vec<_>>());
     server.abort();
 }
