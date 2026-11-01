@@ -1,0 +1,83 @@
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+warning: unused import: `MaterialReceipt`
+ --> crates/aq-worker/src/native/preparation/granted/presence.rs:3:20
+  |
+3 | use aq_admission::{MaterialReceipt, scoped_presence as wire, transport::WorkerIdentity};
+  |                    ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no method named `validate` found for struct `Text` in the current scope
+  --> crates/aq-worker/src/native/preparation/granted/presence.rs:53:22
+   |
+53 |         reference.id.validate()?;
+   |                      ^^^^^^^^ method not found in `Text`
+   |
+  ::: crates/aq-session-protocol/src/lib.rs:36:8
+   |
+36 |     fn validate(&self) -> Result<(), ContractError>;
+   |        -------- the method is available for `Text` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `Validate` which provides `validate` is implemented but not in scope; perhaps you want to import it
+   |
+ 2 + use aq_session_protocol::Validate;
+   |
+
+error[E0599]: no method named `validate` found for struct `Text` in the current scope
+  --> crates/aq-worker/src/native/preparation/granted/presence.rs:54:27
+   |
+54 |         reference.version.validate()?;
+   |                           ^^^^^^^^ method not found in `Text`
+   |
+  ::: crates/aq-session-protocol/src/lib.rs:36:8
+   |
+36 |     fn validate(&self) -> Result<(), ContractError>;
+   |        -------- the method is available for `Text` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `Validate` which provides `validate` is implemented but not in scope; perhaps you want to import it
+   |
+ 2 + use aq_session_protocol::Validate;
+   |
+
+error[E0599]: no method named `validate` found for struct `aq_session_protocol::Text` in the current scope
+  --> crates/aq-worker/src/native/preparation/granted/presence.rs:53:22
+   |
+53 |         reference.id.validate()?;
+   |                      ^^^^^^^^ method not found in `aq_session_protocol::Text`
+   |
+  ::: crates/aq-session-protocol/src/lib.rs:36:8
+   |
+36 |     fn validate(&self) -> Result<(), ContractError>;
+   |        -------- the method is available for `aq_session_protocol::Text` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `Validate` which provides `validate` is implemented but not in scope; perhaps you want to import it
+   |
+ 2 + use aq_session_protocol::Validate;
+   |
+
+error[E0599]: no method named `validate` found for struct `aq_session_protocol::Text` in the current scope
+  --> crates/aq-worker/src/native/preparation/granted/presence.rs:54:27
+   |
+54 |         reference.version.validate()?;
+   |                           ^^^^^^^^ method not found in `aq_session_protocol::Text`
+   |
+  ::: crates/aq-session-protocol/src/lib.rs:36:8
+   |
+36 |     fn validate(&self) -> Result<(), ContractError>;
+   |        -------- the method is available for `aq_session_protocol::Text` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `Validate` which provides `validate` is implemented but not in scope; perhaps you want to import it
+   |
+ 2 + use aq_session_protocol::Validate;
+   |
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `aq-worker` (lib) generated 1 warning
+error: could not compile `aq-worker` (lib) due to 2 previous errors; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...
+warning: `aq-worker` (lib test) generated 1 warning (1 duplicate)
+error: could not compile `aq-worker` (lib test) due to 2 previous errors; 1 warning emitted

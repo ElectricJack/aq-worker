@@ -1,0 +1,70 @@
+{
+  "source-sha256.json": {
+    "bytes": 147709,
+    "sha256": "3b1ceedb25c3c3dcdb9e18a70062a0506fec8758451e96bbe6a6c2e32e7cc8db"
+  },
+  "worker-presence-019-check.log": {
+    "bytes": 6467,
+    "sha256": "5cc28b3f078902cea8999c9ff3b247e95ea42d0f26b251e04680e83967b28a1d"
+  },
+  "worker-presence-019-lock.log": {
+    "bytes": 235,
+    "sha256": "f6413592d4462a245d9bfa93b7af9ae562015ba17dff4cc2d04ad78415eed7c5"
+  },
+  "worker-presence-complete-tests.log": {
+    "bytes": 2883,
+    "sha256": "5a605b6f8629d6711d550f29913ba3eae613a6f5d319c4306af941ff02141d99"
+  },
+  "worker-presence-final-clippy.log": {
+    "bytes": 140,
+    "sha256": "9d8bbce1a87ec4ddefb335b2bfecc882855042603720fb54e77e5b1914e01191"
+  },
+  "worker-presence-final-fmt.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "worker-presence-final-focused.log": {
+    "bytes": 2803,
+    "sha256": "881f7b7defb5502a9ba0522a1f6c352f0716865880fc4c29022daecd68433b4a"
+  },
+  "worker-presence-final-git.log": {
+    "bytes": 675,
+    "sha256": "d4f5d684a9f738bf3b0c51ec4fe1115ca90d0699c9e0e77b08977cee8c77ccff"
+  },
+  "worker-presence-first-check.log": {
+    "bytes": 3700,
+    "sha256": "08cb85a642e37543bc15bf449423e8d2225c937fa4728999ce93dac32d50fb84"
+  },
+  "worker-presence-first-runtime.log": {
+    "bytes": 1763,
+    "sha256": "178cff681b742af2802de8a774ee012c6f8e269b0d169f1bda6338afb57249d8"
+  },
+  "worker-presence-first-tests.log": {
+    "bytes": 6920,
+    "sha256": "f6bd4575e3e2b91e65ee8414ca88deffaa45bae6ab7d2713d12aa8fbb712ed0e"
+  },
+  "worker-presence-focused-runtime.log": {
+    "bytes": 2137,
+    "sha256": "bbfb331b5b2eea37df5e5e61edeaf4732e93374eef423967ce770ec7e857b455"
+  },
+  "worker-presence-focused-tests.log": {
+    "bytes": 826,
+    "sha256": "1f43e46ded05b9cb25471210461ec991d3a0b09b38dbbafdaa701c147810ba44"
+  },
+  "worker-presence-package-clippy.log": {
+    "bytes": 2204,
+    "sha256": "371f91a69aab03f7d6ea05a4ff3c3b7340781700151a1962da2d5f17e73765cc"
+  },
+  "worker-presence-package-fmt.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "worker-presence-package-tests.log": {
+    "bytes": 24883,
+    "sha256": "d82bfee3a178f6dff37dfd7731d587ef418c2ec55c3295b1bbf2b1c43c84b41c"
+  },
+  "worker-presence-second-check.log": {
+    "bytes": 643,
+    "sha256": "b1cfb3598a17548b324c803f35de5a3eb47106fb1d412f32edcf9263c958df98"
+  }
+}

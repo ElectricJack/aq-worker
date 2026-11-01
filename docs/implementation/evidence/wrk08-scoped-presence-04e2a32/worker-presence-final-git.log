@@ -1,0 +1,11 @@
+    Blocking waiting for file lock on build directory
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 13.92s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-07265dd947b501fa)
+
+running 2 tests
+test native::journal::tests::hydration_scenarios::pinned_git_received_initial_grant_retains_actual_workspace_and_material_owners ... ok
+test native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 4.41s
+

@@ -1,0 +1,41 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+warning: fields `scoped_mode`, `scoped_entered`, and `scoped_release` are never read
+   --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:115:5
+    |
+ 98 | struct Inputs {
+    |        ------ fields in this struct
+...
+115 |     scoped_mode: Arc<AtomicU8>,
+    |     ^^^^^^^^^^^
+116 |     scoped_entered: Arc<tokio::sync::Semaphore>,
+    |     ^^^^^^^^^^^^^^
+117 |     scoped_release: Arc<tokio::sync::Semaphore>,
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `test_observation_hook` is never used
+   --> crates/aq-worker/src/native/materials.rs:454:19
+    |
+453 | impl MaterialStore {
+    | ------------------ method in this implementation
+454 |     pub(crate) fn test_observation_hook(&mut self, hook: Box<dyn FnOnce() + Send>) {
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `test_pause_read` is never used
+   --> crates/aq-worker/src/native/preparation/granted/presence.rs:653:25
+    |
+652 | impl ScopedPresenceProducer {
+    | --------------------------- method in this implementation
+653 |     pub(crate) async fn test_pause_read(
+    |                         ^^^^^^^^^^^^^^^
+
+warning: `aq-worker` (lib test) generated 3 warnings
+    Finished `test` profile [unoptimized] target(s) in 8.12s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-07265dd947b501fa)
+
+running 1 test
+test native::journal::tests::hydration_scenarios::presence_scenarios::actual_private_read_publishes_exact_initial_scope_without_global_installation_claim ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 66 filtered out; finished in 0.61s
+
