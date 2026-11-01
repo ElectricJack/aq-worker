@@ -23,6 +23,7 @@ use uuid::Uuid;
 
 mod download;
 mod files;
+pub(crate) mod steps;
 mod upload;
 pub use download::*;
 pub(crate) use files::discard_incoming;
