@@ -236,6 +236,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-responses-transport"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aq-session-protocol",
+ "axum",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "aq-session-api"
 version = "0.1.0"
 dependencies = [
@@ -342,6 +358,7 @@ dependencies = [
  "aq-codex-mapper",
  "aq-phase-terminal-protocol",
  "aq-protocol",
+ "aq-responses-transport",
  "aq-session-host",
  "aq-session-protocol",
  "aq-terminal-bridge",
