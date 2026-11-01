@@ -2,6 +2,7 @@
 //! First Accept must be sent within the original locally observed offer window.
 //! Its separate preparation lease is not capped by that old window. Exact retries
 //! require a still-live opaque observation and can only shorten its local cap.
+mod execution;
 use super::*;
 use aq_admission::{
     Digest,
@@ -12,6 +13,7 @@ use aq_admission::{
     startup::NativeOffer,
     transport::WorkerIdentity,
 };
+pub use execution::ExecutionObservation;
 
 pub struct ProposedPreparation {
     proposal: Proposal,
