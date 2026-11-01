@@ -35,6 +35,13 @@ pub struct AcceptedPreparation {
     sample: DeadlineSample,
     sent_ns: u64,
     received_ns: u64,
+    first: Option<Arc<FirstAcceptedTransmission>>,
+}
+struct FirstAcceptedTransmission {
+    delivery: AcceptedDelivery,
+    sent_ns: u64,
+    received_ns: u64,
+    deadline_ns: u64,
 }
 impl AcceptedPreparation {
     pub fn delivery(&self) -> &AcceptedDelivery {
@@ -54,6 +61,24 @@ impl AcceptedPreparation {
     }
     pub fn received_ns(&self) -> u64 {
         self.received_ns
+    }
+    pub(crate) fn first_transmission(&self) -> (&AcceptedDelivery, u64, u64, u64) {
+        self.first.as_ref().map_or(
+            (
+                &self.delivery,
+                self.sent_ns,
+                self.received_ns,
+                self.deadline_ns(),
+            ),
+            |first| {
+                (
+                    &first.delivery,
+                    first.sent_ns,
+                    first.received_ns,
+                    first.deadline_ns,
+                )
+            },
+        )
     }
 }
 
@@ -210,6 +235,16 @@ impl NativeClient {
             previous.map(|v| &v.sample),
         )?;
         live(sample.deadline_ns())?;
+        let first = previous.map(|old| {
+            old.first.clone().unwrap_or_else(|| {
+                Arc::new(FirstAcceptedTransmission {
+                    delivery: old.delivery.clone(),
+                    sent_ns: old.sent_ns,
+                    received_ns: old.received_ns,
+                    deadline_ns: old.deadline_ns(),
+                })
+            })
+        });
         Ok(AcceptedPreparation {
             delivery: *delivery,
             request_digest,
@@ -217,6 +252,7 @@ impl NativeClient {
             sample,
             sent_ns: got.sent_ns,
             received_ns: got.received_ns,
+            first,
         })
     }
 }
