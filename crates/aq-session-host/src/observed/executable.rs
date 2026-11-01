@@ -19,6 +19,7 @@ pub const MAX_NATIVE_EXEC_POOL_ENTRIES: usize = 2;
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ImageProfile {
     NativeExecStdinV1,
+    NamedReadonlyExecStdinV1(Box<super::named_image::NamedReadonlyIdentity>),
 }
 const SCRATCH: usize = 64 * 1024;
 const SEALS: i32 = libc::F_SEAL_WRITE | libc::F_SEAL_GROW | libc::F_SEAL_SHRINK | libc::F_SEAL_SEAL;
@@ -304,6 +305,12 @@ impl QualifiedElf {
     }
 }
 pub(crate) fn verify_file(file: &File, expected: &ElfIdentity) -> Result<()> {
+    if matches!(
+        expected.profile,
+        Some(ImageProfile::NamedReadonlyExecStdinV1(_))
+    ) {
+        return super::named_image::verify_received(file, expected);
+    }
     let m = file.metadata()?;
     ensure!(
         m.is_file()

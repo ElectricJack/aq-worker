@@ -359,7 +359,7 @@ impl Client {
     pub(crate) fn admit(
         directory: &Path,
         guardian: &GuardianIdentity,
-        program: &QualifiedElf,
+        program: &ObservedProgram,
         deadline: u64,
     ) -> Result<Self> {
         let socket = Socket::connect(&directory.join(NAME))?;
