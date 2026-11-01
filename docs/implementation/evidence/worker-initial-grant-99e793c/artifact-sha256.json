@@ -1,0 +1,14 @@
+{
+  "actual-git.log": "3281a9d67d7d4621d86ec3c75d17eb187a72e5c19697ef06707c7e78e02524de",
+  "complete-focused.log": "5f34ecff1adb9b56ad65b2282c2f6c12c32a14389ae7191ab5f0857e9a224090",
+  "first-check.log": "c1e001958d62fe672c2761bdf7e66a8848c5e6cb1895c220c12fbf1e11a8d64a",
+  "first-runtime-tests.log": "bbb0ebdff18e46488ea635db7cefbdf0ecba47a44eead675eda617d04f985c7f",
+  "first-tests.log": "f4e5d5d8c76513a4943b5a136e3f9d993a4bf105a24c6d39f5d8898785ac8e7e",
+  "frozen-contract.json": "8545e159f8a82ec2e3935e7913278702beb6b431e41db4b49238fb3d1259877a",
+  "owner-check.log": "12d15c27befdf8da8fbeb0b98e880e54b94d9cbf91fd8e48c94210e050f12548",
+  "package-clippy.log": "2ae02d96e44515d7307c1a87845bf864763649b94342b573c1e57106e813a1d0",
+  "package-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "package-tests.log": "fba230684a7ecdd7d17ad21af18ed855ab1d598e9198f5662ee04d2036bd2e73",
+  "qualification.json": "de2b39235e0ef0ba91f5936be2e48f0e8fbf5199b936290dba048a59b8d48377",
+  "source-sha256.json": "d008684113f913695c5d1a166cc3bb33076891d51fba17194e0bdb77fed66bb9"
+}

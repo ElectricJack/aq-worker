@@ -1,0 +1,15 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-grant-owner/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 6.42s
+     Running unittests src/lib.rs (/tmp/aq-worker-grant-target/debug/deps/aq_worker-86fa455162ad8171)
+
+running 7 tests
+test native::journal::tests::hydration_scenarios::granted_scenarios::abandoned_unpolled_commit_future_already_retains_inputs_without_grant_history ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::cancelled_fsync_waiter_retains_bundle_and_completion_for_explicit_retry ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_prepare_network_association_refuses_but_retains_inputs_for_narrow_retry ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_same_operation_grant_cannot_replace_first_receipt_or_owner ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::expiry_during_fsync_retains_history_and_never_yields_usable_wrapper ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::receipt_expiring_before_commit_is_history_only_without_releasing_inputs ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::received_grant_is_durable_before_usable_and_replay_preserves_first_clocks_and_bundle ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 45 filtered out; finished in 2.73s
+
