@@ -154,6 +154,12 @@ async fn run(stage: &mut &'static str) -> Result<()> {
     let stdin = std::io::stdin();
     let mut input = BufReader::new(stdin.lock());
     let config: Config = frame(&mut input, CONFIG_BYTES)?;
+    if let Some(phase) = &config.phase_preparation {
+        ensure!(
+            !phase.prepare_execution || phase.prepare_inputs,
+            "phase execution requires actual inputs"
+        );
+    }
     let held = root(&config.root)?;
     let git = GitClient::new(&config.git_socket, &config.git_root)?;
     ensure!(
@@ -241,10 +247,6 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         disk,
     )?;
     if let Some(phase) = config.phase_preparation {
-        ensure!(
-            !phase.prepare_execution || phase.prepare_inputs,
-            "phase execution requires actual inputs"
-        );
         *stage = "phase_proposal";
         let proposed = client
             .propose_preparation(
@@ -267,16 +269,18 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         *stage = "phase_received_history";
         let first = journal.record_phase_preparation(id, &observed)?;
         journal.check_phase_preparation(id, &observed)?;
-        // Wait a full original delivery duration from now, then check the real
-        // replay's server clock. This test pause changes no lease or deadline.
-        let pause_ms = offer
-            .offered
-            .clock
-            .valid_for_ms
-            .checked_add(100)
-            .context("phase probe pause overflow")?;
-        ensure!(pause_ms <= 5000, "bounded phase probe pause required");
-        tokio::time::sleep(std::time::Duration::from_millis(pause_ms)).await;
+        if !phase.prepare_execution {
+            // Wait a full original delivery duration from now, then check the real
+            // replay's server clock. This test pause changes no lease or deadline.
+            let pause_ms = offer
+                .offered
+                .clock
+                .valid_for_ms
+                .checked_add(100)
+                .context("phase probe pause overflow")?;
+            ensure!(pause_ms <= 5000, "bounded phase probe pause required");
+            tokio::time::sleep(std::time::Duration::from_millis(pause_ms)).await;
+        }
         *stage = "phase_replay";
         let replay = client
             .accept_preparation(&proposed, &request, Some(&observed))
