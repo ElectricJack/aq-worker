@@ -423,6 +423,21 @@ pub struct CandidatePreparedHandle {
     listener: Option<TcpListener>,
     program: File,
 }
+/// Owns an uncertain/failed commit until its caller has fenced external work.
+/// No retry, stopped receipt, or prepared-abort claim can be derived from it.
+pub struct CandidateCommitFailure {
+    _owner: ChildOwner,
+    _program: File,
+    error: anyhow::Error,
+}
+impl CandidateCommitFailure {
+    pub fn error(&self) -> &anyhow::Error {
+        &self.error
+    }
+    fn into_error(self) -> anyhow::Error {
+        self.error
+    }
+}
 impl CandidatePreparedHandle {
     pub fn prepare(
         helper: &PinnedHelper,
@@ -491,6 +506,31 @@ impl CandidatePreparedHandle {
             .context("prepared listener already taken")
     }
     pub fn commit(self, commit: CandidateCommit) -> Result<CapsuleHandle> {
+        self.commit_retaining(commit)
+            .map_err(CandidateCommitFailure::into_error)
+    }
+    /// A failure retains physical ownership, including after a possibly sent
+    /// release. Fence and await external work before dropping that owner.
+    pub fn commit_retaining(
+        self,
+        commit: CandidateCommit,
+    ) -> std::result::Result<CapsuleHandle, CandidateCommitFailure> {
+        match self.finalize(commit) {
+            Ok(witness) => Ok(CapsuleHandle {
+                owner: self.owner,
+                witness,
+                listener: None,
+                deadline: self.info.original_deadline_boot_ms,
+                _program: self.program,
+            }),
+            Err(error) => Err(CandidateCommitFailure {
+                _owner: self.owner,
+                _program: self.program,
+                error,
+            }),
+        }
+    }
+    fn finalize(&self, commit: CandidateCommit) -> Result<CapsuleWitness> {
         ensure!(
             self.listener.is_none(),
             "prepared listener must be handed off before commit"
@@ -529,13 +569,7 @@ impl CandidatePreparedHandle {
                 executable: true,
             },
         )?;
-        Ok(CapsuleHandle {
-            owner: self.owner,
-            witness,
-            listener: None,
-            deadline: self.info.original_deadline_boot_ms,
-            _program: self.program,
-        })
+        Ok(witness)
     }
     pub fn abort(mut self) -> Result<CandidatePreparedStopReport> {
         self.listener.take();

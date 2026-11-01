@@ -4,8 +4,8 @@ mod guardian;
 mod mounts;
 mod prepared;
 pub use prepared::{
-    CandidateCommit, CandidatePreparedHandle, CandidatePreparedInfo, CandidatePreparedStopReport,
-    CandidatePublishedInputs, CandidateStaticRecipe,
+    CandidateCommit, CandidateCommitFailure, CandidatePreparedHandle, CandidatePreparedInfo,
+    CandidatePreparedStopReport, CandidatePublishedInputs, CandidateStaticRecipe,
 };
 mod seal;
 mod setup;
