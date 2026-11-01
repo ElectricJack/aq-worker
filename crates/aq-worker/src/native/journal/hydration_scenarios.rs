@@ -451,6 +451,8 @@ impl Inputs {
         delivery.original.materials[0].expires_at_ms = 30000;
         if codex {
             delivery.original.materials[0].provider = aq_admission::Label::new("openai").unwrap();
+            delivery.original.materials[0].material_bytes = b"synthetic-upstream-key".len() as u64;
+            delivery.original.materials[0].material_digest = Digest::of(b"synthetic-upstream-key");
         }
         let material_lease = delivery.original.materials[0].clone();
         let phase_fixture: Value = serde_json::from_slice(include_bytes!(
@@ -731,7 +733,12 @@ impl Inputs {
                     lease,
                     clock: DeliveryClock::new(1700, 30000).unwrap(),
                 };
-                let mut response = b"synthetic-key".to_vec().into_response();
+                let bytes = if codex {
+                    b"synthetic-upstream-key".as_slice()
+                } else {
+                    b"synthetic-key".as_slice()
+                };
+                let mut response = bytes.to_vec().into_response();
                 response
                     .headers_mut()
                     .insert("content-type", "application/octet-stream".parse().unwrap());

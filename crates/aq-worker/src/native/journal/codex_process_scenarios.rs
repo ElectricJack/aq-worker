@@ -5,13 +5,13 @@ use crate::native::{
     adapter::{
         AdapterManifest, ExpectedAdapter, FilePin, HandoffKind,
         codex::CodexExecProfile,
+        named_exec::{NamedExecInstallation, NamedExecKind, NamedExecManifest},
         native_exec::{NativeExecInstallation, NativeExecKind, NativeExecManifest},
-        responses_transport::{ResponsesScope, ScopedResponsesTransport, UpstreamEndpoint},
     },
     launch::NativeCodexHostProfile,
     runner::{CodexExecutor, NativeExecutor},
 };
-use aq_session_host::observed::NativeExecPool;
+use aq_session_host::observed::{NamedReadonlyEnvironment, NamedReadonlyExecPool, NativeExecPool};
 use axum::http::{HeaderMap, StatusCode};
 
 #[path = "codex_process_guard.rs"]
@@ -192,17 +192,20 @@ fn installed_pin(binary: &str, hash: &str, id: &str) -> FilePin {
         artifact: p.artifact,
     }
 }
-async fn codex_prepared(
-    peer: &Provider,
-) -> (
-    Inputs,
-    GitPeer,
-    DurablePhaseExecution,
-    Arc<NativeCodexHostProfile>,
-    aq_session_protocol::TerminalPolicy,
-    ScopedResponsesTransport,
-) {
-    // Preload/hash the actual 319MiB image before starting an admission deadline.
+enum FixtureImage {
+    Sealed,
+    NamedReadonly,
+}
+enum FixtureInstallation {
+    Sealed(NativeExecInstallation),
+    NamedReadonly(NamedExecInstallation),
+}
+fn preflight_fixture(kind: FixtureImage) -> FixtureInstallation {
+    // Independently selected fixture pins are installed before any admission
+    // deadline. A named case never retries/falls back through a sealed owner.
+    let original = offer();
+    let m = &original.offered.offer.manifest;
+    let runtime = qualification();
     let executable = installed_pin(
         "AQ_NATIVE_CODEX_BINARY",
         "AQ_NATIVE_CODEX_SHA256",
@@ -210,10 +213,89 @@ async fn codex_prepared(
     );
     assert_eq!(executable.artifact.digest.as_str(), CODEX_SHA256);
     assert_eq!(fs::metadata(&executable.path).unwrap().len(), CODEX_BYTES);
-    let pool = NativeExecPool::new(512 * 1024 * 1024, 1).unwrap();
-    let _image = pool
-        .load_verified(&executable.path, &executable.artifact)
-        .unwrap();
+    let installation = AdapterManifest {
+        schema_version: 1,
+        adapter: m.harness.adapter.clone(),
+        runtime: runtime.runtime.clone(),
+        qualification: runtime.qualification.clone(),
+        renderer: original.startup.renderer_qualification.clone(),
+        handoff: HandoffKind::OpaquePrivateFileV1,
+        executable,
+        helper: installed_pin(
+            "AQ_NATIVE_HOST_BINARY",
+            "AQ_NATIVE_HOST_SHA256",
+            "aq.fixture.source-host",
+        ),
+        tmux: installed_pin(
+            "AQ_NATIVE_TMUX_BINARY",
+            "AQ_NATIVE_TMUX_SHA256",
+            "aq.fixture.tmux-3.4",
+        ),
+    };
+    match kind {
+        FixtureImage::Sealed => {
+            let manifest = NativeExecManifest {
+                schema_version: 1,
+                profile: NativeExecKind::Codex0166ExecStdinV1,
+                executable_bytes: CODEX_BYTES,
+                installation,
+            };
+            let pool = NativeExecPool::new(512 * 1024 * 1024, 1).unwrap();
+            FixtureInstallation::Sealed(
+                NativeExecInstallation::open(
+                    manifest.clone(),
+                    ExpectedAdapter {
+                        manifest_digest: &manifest.digest().unwrap(),
+                        adapter: &m.harness.adapter,
+                        runtime: &runtime.runtime,
+                        qualification: &runtime.qualification,
+                        renderer: &original.startup.renderer_qualification,
+                    },
+                    &pool,
+                )
+                .unwrap(),
+            )
+        }
+        FixtureImage::NamedReadonly => {
+            let manifest = NamedExecManifest {
+                schema_version: 1,
+                profile: NamedExecKind::Codex0166NamedReadonlyExecStdinV1,
+                executable_bytes: CODEX_BYTES,
+                environment: m.harness.environment.clone(),
+                installation,
+            };
+            let environment =
+                NamedReadonlyEnvironment::inspect(m.harness.environment.clone()).unwrap();
+            let pool = NamedReadonlyExecPool::new(512 * 1024 * 1024, 1, environment).unwrap();
+            FixtureInstallation::NamedReadonly(
+                NamedExecInstallation::open(
+                    manifest.clone(),
+                    ExpectedAdapter {
+                        manifest_digest: &manifest.digest().unwrap(),
+                        adapter: &m.harness.adapter,
+                        runtime: &runtime.runtime,
+                        qualification: &runtime.qualification,
+                        renderer: &original.startup.renderer_qualification,
+                    },
+                    &m.harness.environment,
+                    &pool,
+                )
+                .unwrap(),
+            )
+        }
+    }
+}
+async fn codex_prepared(
+    peer: &Provider,
+    kind: FixtureImage,
+) -> (
+    Inputs,
+    GitPeer,
+    DurablePhaseExecution,
+    Arc<NativeCodexHostProfile>,
+    aq_session_protocol::TerminalPolicy,
+) {
+    let installed = preflight_fixture(kind);
     let export = synthetic();
     let source_manifest = export.manifest.clone();
     let h = Inputs::new_phase_codex(export).await;
@@ -224,42 +306,6 @@ async fn codex_prepared(
     let a = &snapshot.attempts[&h.id];
     let m = &a.reservation.offer.offered.offer.manifest;
     let renderer = a.reservation.offer.startup.renderer_qualification.clone();
-    let native_manifest = NativeExecManifest {
-        schema_version: 1,
-        profile: NativeExecKind::Codex0166ExecStdinV1,
-        executable_bytes: CODEX_BYTES,
-        installation: AdapterManifest {
-            schema_version: 1,
-            adapter: m.harness.adapter.clone(),
-            runtime: a.reservation.runtime.runtime.clone(),
-            qualification: a.reservation.runtime.qualification.clone(),
-            renderer: renderer.clone(),
-            handoff: HandoffKind::OpaquePrivateFileV1,
-            executable,
-            helper: installed_pin(
-                "AQ_NATIVE_HOST_BINARY",
-                "AQ_NATIVE_HOST_SHA256",
-                "aq.fixture.host-0.1.5",
-            ),
-            tmux: installed_pin(
-                "AQ_NATIVE_TMUX_BINARY",
-                "AQ_NATIVE_TMUX_SHA256",
-                "aq.fixture.tmux-3.4",
-            ),
-        },
-    };
-    let installation = NativeExecInstallation::open(
-        native_manifest.clone(),
-        ExpectedAdapter {
-            manifest_digest: &native_manifest.digest().unwrap(),
-            adapter: &m.harness.adapter,
-            runtime: &a.reservation.runtime.runtime,
-            qualification: &a.reservation.runtime.qualification,
-            renderer: &renderer,
-        },
-        &pool,
-    )
-    .unwrap();
     let mapper = CodexExecProfile {
         harness: m.harness.clone(),
         model: m.model.clone(),
@@ -270,7 +316,15 @@ async fn codex_prepared(
     let host_root = h._dir.path().join("codex-host");
     fs::create_dir(&host_root).unwrap();
     fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
-    let profile = NativeCodexHostProfile::new(host_root, installation, mapper, 160, 40).unwrap();
+    let profile = match installed {
+        FixtureInstallation::Sealed(installation) => {
+            NativeCodexHostProfile::new(host_root, installation, mapper, 160, 40)
+        }
+        FixtureInstallation::NamedReadonly(installation) => {
+            NativeCodexHostProfile::new_named(host_root, installation, mapper, 160, 40)
+        }
+    }
+    .unwrap();
     let inputs = phase_join(&h, git.client.clone()).await;
     // The finite Git socket peer provisions a placeholder workspace. Codex exec
     // requires an actual repository, so initialize only this owned fixture path.
@@ -306,27 +360,10 @@ async fn codex_prepared(
     else {
         panic!("actual CLI fixture grant expired")
     };
-    let scope = ResponsesScope::new(
-        a.reservation.offer.offered.offer.binding.clone(),
-        &m.model,
-        grant.deadline_ns(),
-    )
-    .unwrap();
-    let transport = ScopedResponsesTransport::start(
-        scope,
-        UpstreamEndpoint::development_loopback(&peer.origin).unwrap(),
-        zeroize::Zeroizing::new(b"synthetic-key".to_vec()),
-        zeroize::Zeroizing::new(b"synthetic-upstream-key".to_vec()),
-    )
-    .await
-    .unwrap();
-    let profile = Arc::new(
-        profile
-            .with_development_provider(transport.origin())
-            .unwrap(),
-    );
-    (h, git, grant, profile, policy, transport)
+    let profile = Arc::new(profile.with_development_provider(&peer.origin).unwrap());
+    (h, git, grant, profile, policy)
 }
+
 async fn begin_execution(
     peer: &Provider,
     slow_output: bool,
@@ -338,7 +375,22 @@ async fn begin_execution(
     tokio::task::JoinHandle<anyhow::Result<()>>,
     OutputPeer,
 ) {
-    let (h, git, grant, profile, policy, transport) = codex_prepared(peer).await;
+    begin_fixture_execution(peer, slow_output, delayed_started, FixtureImage::Sealed).await
+}
+async fn begin_fixture_execution(
+    peer: &Provider,
+    slow_output: bool,
+    delayed_started: bool,
+    kind: FixtureImage,
+) -> (
+    Inputs,
+    GitPeer,
+    watch::Sender<bool>,
+    tokio::task::JoinHandle<anyhow::Result<()>>,
+    OutputPeer,
+) {
+    let (h, git, grant, profile, policy) = codex_prepared(peer, kind).await;
+
     if delayed_started {
         h.host_report_mode.store(4, Ordering::SeqCst);
     }
@@ -346,15 +398,10 @@ async fn begin_execution(
     let mut executor = CodexExecutor::development_preflighted(http, profile).unwrap();
     let (tx, rx) = watch::channel(false);
     let pipeline = h.pipeline().clone();
-    let task = tokio::spawn(async move {
-        let result = executor.execute(pipeline, grant, rx).await;
-        let closed = transport.stop().await;
-        result?;
-        closed
-    });
+    let task = tokio::spawn(async move { executor.execute(pipeline, grant, rx).await });
     (h, git, tx, task, output)
 }
-async fn assert_private_auth(h: &Inputs) {
+async fn assert_private_auth(h: &Inputs) -> String {
     let state = h.pipeline().snapshot().await.unwrap();
     let history = state.attempts[&h.id].native_host.as_ref().unwrap();
     assert!(history.baseline.is_some() && history.running.is_some());
@@ -368,7 +415,13 @@ async fn assert_private_auth(h: &Inputs) {
         0o600
     );
     let private: Value = serde_json::from_slice(&fs::read(auth).unwrap()).unwrap();
-    assert_eq!(private["OPENAI_API_KEY"], "synthetic-key");
+    let capability = private["OPENAI_API_KEY"].as_str().unwrap().to_owned();
+    assert!(capability.len() >= 16 && capability.bytes().all(|b| b.is_ascii_graphic()));
+    assert!(
+        capability != "synthetic-upstream-key" && capability != "synthetic-key",
+        "child capability must be fresh, not an upstream/source credential"
+    );
+    capability
 }
 
 fn user_input(request: &Value) -> Vec<&str> {
@@ -613,4 +666,133 @@ async fn actual_codex_exec_command_round_trip_uses_confined_workspace_and_actual
         Some(0)
     );
     assert_eq!(peer.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "explicit named-readonly qualification; requires private fixture, exact pins and root-approved paired source"]
+async fn actual_named_readonly_codex_exec_command_round_trip_has_owned_cap_and_physical_cleanup() {
+    let peer = provider_mode(true).await;
+    let (h, _git, _tx, task, output) =
+        begin_fixture_execution(&peer, false, false, FixtureImage::NamedReadonly).await;
+    tokio::time::timeout(std::time::Duration::from_secs(12), peer.entered.notified())
+        .await
+        .unwrap();
+    let capability = assert_private_auth(&h).await;
+    {
+        let requests = peer.requests.lock().unwrap();
+        assert!(
+            !serde_json::to_string(&requests[0])
+                .unwrap()
+                .contains(&capability),
+            "child capability entered model input"
+        );
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(3), output.entered.notified())
+        .await
+        .unwrap();
+    assert!(
+        !task.is_finished(),
+        "no current Watch must not stop a named agent"
+    );
+    {
+        let uploads = output.uploads.lock().unwrap();
+        let request: PeerUpload = serde_json::from_slice(&uploads[0]).unwrap();
+        let literal: Vec<u8> = request
+            .frames
+            .iter()
+            .flat_map(|f| f.bytes.clone())
+            .collect();
+        let literal = String::from_utf8_lossy(&literal);
+        assert!(
+            literal.contains("thread.started") && literal.contains("turn.started"),
+            "genuine named CLI readiness must be observed"
+        );
+        assert!(!literal.contains(&capability) && !literal.contains("synthetic-upstream-key"));
+    }
+    {
+        let requests = peer.requests.lock().unwrap();
+        assert!(
+            requests[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["type"] == "function" && v["name"] == "exec_command")
+        );
+    }
+    peer.release.add_permits(1);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while peer.requests.lock().unwrap().len() < 2 {
+            peer.entered.notified().await;
+        }
+    })
+    .await
+    .unwrap();
+    {
+        let requests = peer.requests.lock().unwrap();
+        let outputs: Vec<_> = requests[1]["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v["type"] == "function_call_output" && v["call_id"] == "call_aq_local")
+            .collect();
+        assert_eq!(
+            outputs.len(),
+            1,
+            "actual CLI must return the exact controlled tool call"
+        );
+        let output = serde_json::to_string(&outputs[0]["output"]).unwrap();
+        assert!(
+            output.contains("aq-local-tool-proof"),
+            "actual local tool did not produce expected output: {output}"
+        );
+    }
+    let state = h.pipeline().snapshot().await.unwrap();
+    let created = state.attempts[&h.id].source.as_ref().unwrap().operations["create"]
+        .result
+        .as_ref()
+        .unwrap();
+    let workspace: crate::source::Workspace = serde_json::from_value(created.clone()).unwrap();
+    assert_eq!(
+        fs::read(workspace.path.join("aq-local-tool-proof.txt")).unwrap(),
+        b"aq-local-tool-proof"
+    );
+    peer.release.add_permits(1);
+    tokio::time::timeout(std::time::Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    stopped(&h, true).await;
+    let state = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(
+        state.attempts[&h.id]
+            .native_host
+            .as_ref()
+            .unwrap()
+            .stopped
+            .as_ref()
+            .unwrap()
+            .observation
+            .root_status,
+        Some(0)
+    );
+    assert_eq!(peer.requests.lock().unwrap().len(), 2);
+    let history = state.attempts[&h.id].native_host.as_ref().unwrap();
+    let auth = history
+        .intent
+        .host_root
+        .join(history.intent.launch_id.to_string())
+        .join("codex-home/auth.json");
+    assert!(
+        !auth.exists(),
+        "matching private capability cleanup follows physical stop"
+    );
+    assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
+    for request in peer.requests.lock().unwrap().iter() {
+        assert!(
+            !serde_json::to_string(request)
+                .unwrap()
+                .contains(&capability)
+        );
+    }
 }
