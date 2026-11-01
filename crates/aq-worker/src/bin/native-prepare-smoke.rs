@@ -482,6 +482,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                     result["phase"] = json!("prepared_inputs_awaiting_synthetic_assessment");
                     emit(&result)?;
                     continuation_before(&mut input, libc::STDIN_FILENO, cap)?;
+                    current_root(&config.root, &held)?;
                 }
                 *stage = "phase_execution_http";
                 let observation = client
