@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 
 pub mod codex;
 pub mod native_exec;
+pub mod responses_transport;
 
 const MAX_MANIFEST: usize = 16_384;
 const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
