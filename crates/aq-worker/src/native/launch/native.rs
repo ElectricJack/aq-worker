@@ -215,11 +215,12 @@ pub(super) fn bootstrap(
         .join("codex-home");
     let payload = scope
         .inputs
-        .artifacts()
-        .iter()
-        .find(|a| a.receipt().artifact == offer.startup.payload)
-        .context("native retained startup payload absent")?
-        .bytes()
+        .startup()
+        .verified_payload(
+            &offer.offered.offer.manifest,
+            &offer.startup.artifact()?,
+            &offer.startup.payload,
+        )?
         .to_vec();
     let m = &offer.offered.offer.manifest;
     let providers: Vec<_> = scope

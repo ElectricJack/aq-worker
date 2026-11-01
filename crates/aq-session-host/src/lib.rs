@@ -151,6 +151,23 @@ struct RenderedBinding {
     bytes: u64,
 }
 impl RenderedStartup {
+    /// Borrow the exact retained final payload after checking the caller's
+    /// expected manifest/descriptor/payload. No constituent reconstruction.
+    pub fn verified_payload(
+        &self,
+        manifest: &LaunchManifest,
+        descriptor: &ArtifactRef,
+        payload: &ArtifactRef,
+    ) -> Result<&[u8]> {
+        ensure!(
+            canonical_digest(manifest)? == canonical_digest(&self.manifest)?
+                && descriptor == &self.binding.descriptor
+                && payload == &self.binding.payload,
+            "retained startup identity changed"
+        );
+        self.binding.verify(manifest, &self.bytes)?;
+        Ok(&self.bytes)
+    }
     pub fn new(
         manifest: LaunchManifest,
         descriptor: ArtifactRef,
