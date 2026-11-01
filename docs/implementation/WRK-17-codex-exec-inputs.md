@@ -56,3 +56,10 @@ Next host seam is explicit: the observed native Codex installation is about
 profiles. New named installation/image/observation profiles must account for its
 actual bytes and exact stdin before WRK-18 can join a concrete host executor.
 The existing small-ELF profile and frozen archives remain unchanged.
+
+The next [explicit native exec profile](WRK-17-native-exec-profile.md) is now
+implemented as a separate candidate: real large-ELF installation accounting,
+immutable preflight image reuse and exact sealed stdin at the actual observed
+host gate. Use `CodexExecProfile::prepare_native` with that installation to avoid
+rehashing a large executable during every attempt. Product packaging, private
+configuration publication and concrete executor qualification still remain.

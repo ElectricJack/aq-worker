@@ -13,6 +13,7 @@ use std::{
 use zeroize::Zeroizing;
 
 pub mod codex;
+pub mod native_exec;
 
 const MAX_MANIFEST: usize = 16_384;
 const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
@@ -53,9 +54,13 @@ struct PinnedFile {
     file: File,
     device: u64,
     inode: u64,
+    max_bytes: u64,
 }
 impl PinnedFile {
     fn open(pin: FilePin) -> Result<Self> {
+        Self::open_bounded(pin, MAX_EXECUTABLE)
+    }
+    fn open_bounded(pin: FilePin, max_bytes: u64) -> Result<Self> {
         pin.artifact.id.validate()?;
         pin.artifact.version.validate()?;
         ensure!(
@@ -74,6 +79,7 @@ impl PinnedFile {
             file,
             device: meta.dev(),
             inode: meta.ino(),
+            max_bytes,
         };
         value.verify()?;
         Ok(value)
@@ -83,7 +89,7 @@ impl PinnedFile {
         ensure!(
             before.is_file()
                 && before.len() > 0
-                && before.len() <= MAX_EXECUTABLE
+                && before.len() <= self.max_bytes
                 && before.mode() & 0o111 != 0
                 && before.mode() & 0o6022 == 0
                 && (before.uid() == 0 || before.uid() == unsafe { libc::geteuid() }),
@@ -198,19 +204,26 @@ impl InstalledAdapter {
         expected: &MaterialReceipt,
         binding: &LaunchBinding,
     ) -> Result<MaterialHandoff<'a>> {
-        binding.validate()?;
-        ensure!(
-            expected.binding == *binding
-                && super::journal::canonical_digest(&installed.receipt()?)?
-                    == super::journal::canonical_digest(expected)?,
-            "adapter material independent pin"
-        );
-        drop(installed.read_private()?);
-        Ok(MaterialHandoff {
-            installed,
-            receipt: expected.clone(),
-        })
+        material_handoff(installed, expected, binding)
     }
+}
+fn material_handoff<'a>(
+    installed: &'a InstalledMaterial,
+    expected: &MaterialReceipt,
+    binding: &LaunchBinding,
+) -> Result<MaterialHandoff<'a>> {
+    binding.validate()?;
+    ensure!(
+        expected.binding == *binding
+            && super::journal::canonical_digest(&installed.receipt()?)?
+                == super::journal::canonical_digest(expected)?,
+        "adapter material independent pin"
+    );
+    drop(installed.read_private()?);
+    Ok(MaterialHandoff {
+        installed,
+        receipt: expected.clone(),
+    })
 }
 /// Borrowed installed owner only. No new durable state, expiry or live authority.
 pub struct MaterialHandoff<'a> {

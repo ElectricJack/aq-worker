@@ -530,12 +530,15 @@ pub(crate) fn wait_closed(
                 ownership::pidfd_is_live(&ownership::verified_pidfd(server)?)?,
                 "owned server lost immediately before sealed exec"
             );
+            let startup_stdin = exec::startup_stdin(config, directory)?;
             return exec::enter(
                 &file,
                 &spec.program,
-                &config.command,
                 directory,
-                &config.workspace,
+                config,
+                guardian,
+                server,
+                startup_stdin.as_ref(),
             );
         }
         std::thread::sleep(Duration::from_millis(5));
