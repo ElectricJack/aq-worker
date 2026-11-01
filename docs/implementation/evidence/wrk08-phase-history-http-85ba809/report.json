@@ -1,0 +1,33 @@
+{
+  "source": "85ba8096d2419c207545ab6e807191bdbe2c1f3b",
+  "base": "e805bb4",
+  "api": "NativeClient::phase_terminal_history(&HistoryRequest)->Result<HistoryReceipt>",
+  "path": "/v1/worker/profiled-v2/history",
+  "header": "aq-phase-terminal-api-version:1 exactly once",
+  "wire_bound": 65536,
+  "all_features_tests": {
+    "passed": 6,
+    "seconds": 0.02
+  },
+  "no_default_features_tests": {
+    "passed": 5,
+    "seconds": 0.02
+  },
+  "strict_all_target_all_feature_clippy_seconds": 13.16,
+  "fmt": "pass",
+  "no_mutations": [
+    "Cargo/manifests/archives",
+    "private journal",
+    "opaque permission types",
+    "worker runtime driver",
+    "smoke binary"
+  ],
+  "limitations": [
+    "synthetic loopback transport only",
+    "No daemon history owner or physical proof qualified here",
+    "No full package rerun; targeted tests + all-target strict compile",
+    "History absence may advance to known, never NeverGranted",
+    "No clock sampling/permit/renew/record/host/release conversion",
+    "Ordinary control slots only; Stopped reserve independent; test confirms dispatch to absent route404 under blocked reads"
+  ]
+}

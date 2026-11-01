@@ -1,0 +1,28 @@
+{
+  "files": {
+    "clippy.log": {
+      "sha256": "5a2216050797fa6f3ec1d83d2260010d03e4d7ebe603d302e8ddf7313067b840",
+      "bytes": 933
+    },
+    "default-tests.log": {
+      "sha256": "0b2f796ca9e707201d4035ad12717430053b6b2e8d946dd0f1bcc89bcbc23f7f",
+      "bytes": 848
+    },
+    "fmt.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "report.json": {
+      "sha256": "af96346510b3d51c594095b615f034a3884e6af5553ff06b649088d7fe07dfd1",
+      "bytes": 1134
+    },
+    "source-sha256.json": {
+      "sha256": "1a0fee2273d821686cf30a4ec9b0c6b642bed309d657593ea57f44a0df62045c",
+      "bytes": 1002
+    },
+    "tests.log": {
+      "sha256": "6bbcb254e14236940fb079858aa5c105f0a5e60e4a2fad22dee6106fd501bf0b",
+      "bytes": 1623
+    }
+  }
+}

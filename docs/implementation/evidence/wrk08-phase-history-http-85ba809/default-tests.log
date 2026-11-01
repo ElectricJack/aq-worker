@@ -1,0 +1,14 @@
+   Compiling aq-session-host v0.1.4 (/tmp/aq-worker-phase-history/crates/aq-session-host)
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-phase-history/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 7.15s
+     Running tests/native_phase_history.rs (/tmp/aq-worker-presence-target/debug/deps/native_phase_history-c02ec047c218bf5d)
+
+running 5 tests
+test invalid_or_foreign_lookup_refuses_before_network ... ok
+test known_keys_return_history_without_delivery_clock_or_local_permission ... ok
+test failed_history_read_is_not_automatically_retried_or_adopted ... ok
+test absence_can_advance_to_known_for_same_lookup_and_never_means_nevergranted ... ok
+test strict_history_version_scope_required_nullable_extra_and_byte_bounds ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
