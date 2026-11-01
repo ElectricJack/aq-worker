@@ -105,6 +105,10 @@ impl ResponsesScope {
                 == Some(self.reasoning.as_str()),
             "Responses reasoning selection mismatch"
         );
+        ensure!(
+            object.get("access_programs").is_none_or(Value::is_null),
+            "unqualified Responses access program"
+        );
         super::items::validate(object)?;
         if let Some(existing) = object.get("max_output_tokens") {
             ensure!(
@@ -264,6 +268,7 @@ pub(super) mod tests {
             ("max_output_tokens", Value::from(99)),
             ("previous_response_id", Value::from("resp_foreign")),
             ("background", Value::from(true)),
+            ("access_programs", serde_json::json!({"cyber":true})),
             ("reasoning", serde_json::json!({"effort":"high"})),
         ] {
             let mut body: Value = serde_json::from_slice(&body()).unwrap();
