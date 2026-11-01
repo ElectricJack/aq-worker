@@ -312,13 +312,29 @@ impl Inputs {
     async fn new_mode(export: Export, phase_mode: bool) -> Self {
         Self::new_count(export, phase_mode, 0).await
     }
-    async fn new_count(mut export: Export, phase_mode: bool, count: usize) -> Self {
+    async fn new_phase_output(export: Export) -> Self {
+        Box::pin(Self::new_count_policy(export, true, 0, true)).await
+    }
+    async fn new_count(export: Export, phase_mode: bool, count: usize) -> Self {
+        Box::pin(Self::new_count_policy(export, phase_mode, count, false)).await
+    }
+    async fn new_count_policy(
+        mut export: Export,
+        phase_mode: bool,
+        count: usize,
+        output_only: bool,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("journal");
         let materials = dir.path().join("materials");
         fs::create_dir(&materials).unwrap();
         fs::set_permissions(&materials, fs::Permissions::from_mode(0o700)).unwrap();
         let mut offered = offer();
+        if output_only {
+            offered.offered.offer.manifest.terminal.input_enabled = false;
+            offered.offered.offer.binding.launch_manifest_digest =
+                aq_session_protocol::canonical_digest(&offered.offered.offer.manifest).unwrap();
+        }
         offered.offered.reservation_ttl_ms = 30000;
         let mut spec: ProfiledExecutionSpec = serde_json::from_value(
             serde_json::from_slice::<Value>(include_bytes!(

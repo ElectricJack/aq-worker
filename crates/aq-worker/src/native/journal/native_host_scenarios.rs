@@ -1031,3 +1031,7 @@ async fn native_phase_terminal_ack_write_cuts_reopen_old_or_whole_ack_without_fr
     assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
     assert_eq!(h.pipeline().snapshot().await.unwrap().attempts.len(), 1);
 }
+
+#[cfg(feature = "test-support")]
+#[path = "output_relay_scenarios.rs"]
+mod output_relay_scenarios;
