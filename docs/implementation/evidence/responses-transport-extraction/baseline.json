@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "source_commit": "4ff62a5",
+  "pre_extraction": true,
+  "production_source_changed": false,
+  "tests": {
+    "transport_policy": { "passed": 9, "seconds": 0.04 },
+    "original_retained_material": { "passed": 2, "seconds": 0.32 },
+    "logical_stop_fence": { "passed": 1, "seconds": 0.0 },
+    "codex_base_and_scoped_command_goldens": { "passed": 2, "seconds": 0.01 },
+    "total": 14,
+    "build_seconds": 21.77
+  },
+  "environment": "Existing shared Target2, jobs2/debug0/incremental0/offline",
+  "provider_calls": 0,
+  "capsule_or_harness_processes": 0,
+  "network": "Explicit fixture numeric loopback HTTP only"
+}
