@@ -7,6 +7,7 @@ pub mod http;
 pub mod journal;
 pub mod materials;
 pub mod preparation;
+pub mod runner;
 #[cfg(any(test, feature = "test-support"))]
 pub use preparation::launch;
 
