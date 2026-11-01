@@ -90,6 +90,14 @@ impl LaunchAuthority for Authority {
                 observation: mapped,
             };
             request.validate()?;
+            h.terminal = Some(crate::native::journal::phase_terminal::started(
+                state
+                    .attempts
+                    .get(&i.binding.attempt_id)
+                    .context("phase Started attempt absent")?,
+                request.clone(),
+                revision,
+            )?);
             h.running = Some(crate::native::journal::launch::NativeRunning {
                 observation,
                 request,

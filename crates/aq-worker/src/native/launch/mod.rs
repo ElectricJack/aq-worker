@@ -524,6 +524,56 @@ impl InputPipeline {
         .await?;
         Ok(receipt)
     }
+    /// Durable facts/readback only; valid after restart, never a live host permit.
+    pub async fn phase_terminal_history(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<crate::native::journal::phase_terminal::PhaseTerminalHistory>> {
+        let state = self.snapshot().await?;
+        Ok(state
+            .attempts
+            .get(&id)
+            .and_then(|a| a.native_host.as_ref())
+            .and_then(|h| h.terminal.clone()))
+    }
+    pub async fn report_phase_terminal_started(
+        &self,
+        id: Uuid,
+    ) -> Result<aq_phase_terminal_protocol::StartedReceipt> {
+        let h = self
+            .phase_terminal_history(id)
+            .await?
+            .context("phase Started outbox absent")?;
+        if let Some(receipt) = h.started.receipt {
+            return Ok(receipt);
+        }
+        let receipt = self
+            .client
+            .phase_terminal_started(&h.started.request)
+            .await?;
+        let saved = receipt.clone();
+        self.storage(move |owner| owner.journal.phase_started_receipt(id, saved))
+            .await?;
+        Ok(receipt)
+    }
+    pub async fn report_phase_terminal_stopped(
+        &self,
+        id: Uuid,
+    ) -> Result<aq_phase_terminal_protocol::StoppedReceipt> {
+        let h = self
+            .phase_terminal_history(id)
+            .await?
+            .and_then(|h| h.stopped)
+            .context("phase Stopped outbox absent")?;
+        if let Some(receipt) = h.receipt {
+            return Ok(receipt);
+        }
+        let receipt = self.client.phase_terminal_stopped(&h.request).await?;
+        let saved = receipt.clone();
+        self.storage(move |owner| owner.journal.phase_stopped_receipt(id, saved))
+            .await?;
+        Ok(receipt)
+    }
     pub fn poll_phase_output(
         &self,
         host: &LocalPhaseHost,

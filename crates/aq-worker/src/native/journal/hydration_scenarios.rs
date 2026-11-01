@@ -118,6 +118,7 @@ struct Inputs {
     scoped_mode: Arc<AtomicU8>,
     host_report_mode: Arc<AtomicU8>,
     host_report_calls: Arc<Mutex<Vec<aq_admission::started::Request>>>,
+    phase_terminal_calls: Arc<Mutex<Vec<(String, Value)>>>,
     scoped_entered: Arc<tokio::sync::Semaphore>,
     scoped_release: Arc<tokio::sync::Semaphore>,
 }
@@ -930,8 +931,86 @@ impl Inputs {
                 Json(receipt).into_response()
             }
         };
+        let phase_terminal_calls = Arc::new(Mutex::new(Vec::new()));
+        let phase_calls = phase_terminal_calls.clone();
+        let phase_mode = host_report_mode.clone();
+        let phase_terminal_route =
+            move |HttpPath(path): HttpPath<String>,
+                  headers: HeaderMap,
+                  Json(request): Json<Value>| {
+                let calls = phase_calls.clone();
+                let mode = phase_mode.clone();
+                async move {
+                    assert_eq!(headers["aq-phase-terminal-api-version"], "1");
+                    let mode = mode.load(Ordering::SeqCst);
+                    if mode == 0 {
+                        return axum::http::StatusCode::NOT_FOUND.into_response();
+                    }
+                    {
+                        let mut calls = calls.lock().unwrap();
+                        assert!(calls.len() < 16);
+                        calls.push((path.clone(), request.clone()));
+                    }
+                    if mode == 2 {
+                        return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+                    }
+                    let mut receipt = match path.as_str() {
+                        "started" => {
+                            let q: aq_phase_terminal_protocol::StartedRequest =
+                                serde_json::from_value(request).unwrap();
+                            q.validate().unwrap();
+                            serde_json::to_value(aq_phase_terminal_protocol::StartedReceipt {
+                                schema_version: 1,
+                                negotiation: q.negotiation.clone(),
+                                origin: q.origin.clone(),
+                                request_digest: q.digest().unwrap(),
+                                original: aq_admission::started::Receipt {
+                                    schema_version: 1,
+                                    operation_id: q.original.operation_id,
+                                    binding: q.original.binding.clone(),
+                                    grant_id: q.original.grant_id,
+                                    request_digest: q.original.digest().unwrap(),
+                                    recorded_at_ms: 2300,
+                                    authority_revision_at_record: 10,
+                                },
+                            })
+                            .unwrap()
+                        }
+                        "stopped" => {
+                            let q: aq_phase_terminal_protocol::StoppedRequest =
+                                serde_json::from_value(request).unwrap();
+                            q.validate().unwrap();
+                            serde_json::to_value(aq_phase_terminal_protocol::StoppedReceipt {
+                                schema_version: 1,
+                                negotiation: q.negotiation.clone(),
+                                origin: q.origin.clone(),
+                                request_digest: q.digest().unwrap(),
+                                original: aq_admission::stopped::Receipt {
+                                    schema_version: 1,
+                                    operation_id: q.original.evidence.stop_operation_id,
+                                    binding: q.original.evidence.binding.clone(),
+                                    grant_id: q.original.grant_id().unwrap(),
+                                    request_digest: q.original.digest().unwrap(),
+                                    recorded_at_ms: 2400,
+                                    authority_revision_at_record: 11,
+                                },
+                            })
+                            .unwrap()
+                        }
+                        _ => return axum::http::StatusCode::NOT_FOUND.into_response(),
+                    };
+                    if mode == 3 {
+                        receipt["request_digest"] = json!(Digest::of(b"wrong phase ACK"));
+                    }
+                    ([("aq-phase-terminal-api-version", "1")], Json(receipt)).into_response()
+                }
+            };
         let router = Router::new()
             .route("/v1/worker/profiled/started", post(host_started_route))
+            .route(
+                "/v1/worker/profiled-v2/{terminal_path}",
+                post(phase_terminal_route),
+            )
             .route(
                 "/v1/worker/profiled-v2/prepare",
                 post(phase_execution_route),
@@ -1011,6 +1090,7 @@ impl Inputs {
             scoped_mode,
             host_report_mode,
             host_report_calls,
+            phase_terminal_calls,
             scoped_entered,
             scoped_release,
         }

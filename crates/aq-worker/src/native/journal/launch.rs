@@ -68,6 +68,7 @@ pub struct NativeHostHistory {
     pub started_receipt: Option<aq_admission::started::Receipt>,
     pub stopped: Option<NativeStopped>,
     pub uncertain: Option<LaunchFailure>,
+    pub terminal: Option<super::phase_terminal::PhaseTerminalHistory>,
 }
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -280,6 +281,7 @@ impl Journal {
             started_receipt: None,
             stopped: None,
             uncertain: None,
+            terminal: None,
         });
         self.persist(next)
     }
@@ -350,6 +352,19 @@ impl Journal {
         ensure!(!self.poisoned, "native writer poisoned");
         let mut next = self.next()?;
         let revision = next.revision;
+        let old = self
+            .state
+            .attempts
+            .get(&id)
+            .context("native stopped attempt absent")?;
+        if let Some(stopped) = old.native_host.as_ref().and_then(|h| h.stopped.as_ref()) {
+            ensure!(
+                stopped.proof_digest == canonical_digest(proof)?,
+                "changed stopped proof"
+            );
+            return Ok(());
+        }
+        let publication = super::phase_terminal::stopped(old, proof, revision, &self.state)?;
         let h = next
             .attempts
             .get_mut(&id)
@@ -368,6 +383,9 @@ impl Journal {
             return Ok(());
         }
         h.stopped = Some(stopped);
+        if let Some(t) = h.terminal.as_mut() {
+            t.stopped = publication;
+        }
         self.persist(next)
     }
 }
