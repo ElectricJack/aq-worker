@@ -21,12 +21,19 @@ pub enum Checkpoint {
     Started,
 }
 mod authority;
+mod native;
 mod output_relay;
+mod root;
+#[cfg(any(test, feature = "test-support"))]
 mod synthetic;
 use crate::native::journal::launch::{LaunchFailure, NativeHostHistory, NativeLaunchIntent};
 use execution::LaunchExecutionScope;
+pub use native::NativeCodexHostProfile;
 pub use output_relay::{PhaseOutputRelay, PhaseOutputStatus};
-use synthetic::{Adapter, RootGuard};
+use root::RootGuard;
+#[cfg(any(test, feature = "test-support"))]
+use synthetic::Adapter;
+#[cfg(any(test, feature = "test-support"))]
 pub use synthetic::{InstalledFilePin, SyntheticHostConfig, SyntheticHostProfile, SyntheticMode};
 fn lock<T>(m: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
     m.lock()
@@ -42,10 +49,11 @@ pub(super) struct Registry {
     hook: PauseHook,
     #[cfg(test)]
     fault: FaultHook,
-    admitted: BTreeSet<Uuid>,
+    admitted: Mutex<BTreeSet<Uuid>>,
     entries: Mutex<RegistryEntries>,
     bootstrap: Arc<Semaphore>,
     stop_slots: Arc<Semaphore>,
+    #[cfg(any(test, feature = "test-support"))]
     pool: aq_session_host::observed::SealedElfPool,
 }
 struct RegistryEntries {
@@ -78,16 +86,42 @@ struct Entry {
     fault: FaultHook,
     id: Uuid,
     scope: Option<Arc<LaunchExecutionScope>>,
-    profile: Option<Arc<SyntheticHostProfile>>,
+    profile: Option<Profile>,
     history: Mutex<Option<NativeHostHistory>>,
     stop: AtomicBool,
     physical: Mutex<Physical>,
 }
+enum Profile {
+    #[cfg(any(test, feature = "test-support"))]
+    Synthetic(Arc<SyntheticHostProfile>),
+    Native(Arc<NativeCodexHostProfile>),
+}
+impl Profile {
+    fn root(&self) -> &RootGuard {
+        match self {
+            #[cfg(any(test, feature = "test-support"))]
+            Self::Synthetic(p) => &p.root,
+            Self::Native(p) => &p.root,
+        }
+    }
+}
 struct Physical {
     handle: Option<SessionHandle>,
     observer: Option<aq_session_host::terminal_output::OutputObserver>,
+    pending_output: Vec<aq_session_host::terminal_output::ControlEvent>,
     stopped: Option<StoppedProof>,
     outcome: Outcome,
+}
+impl Physical {
+    fn poll_output(&mut self) -> Result<Vec<aq_session_host::terminal_output::ControlEvent>> {
+        if !self.pending_output.is_empty() {
+            return Ok(std::mem::take(&mut self.pending_output));
+        }
+        self.observer
+            .as_mut()
+            .context("native observer absent")?
+            .poll()
+    }
 }
 #[derive(Clone, Copy)]
 enum Outcome {
@@ -120,6 +154,7 @@ impl Registry {
                         physical: Mutex::new(Physical {
                             handle: None,
                             observer: None,
+                            pending_output: Vec::new(),
                             stopped: None,
                             outcome: Outcome::Unknown,
                         }),
@@ -133,16 +168,26 @@ impl Registry {
             #[cfg(test)]
             fault,
             output: Arc::new(Mutex::new(output_relay::Outputs::default())),
-            admitted: state.attempts.keys().copied().collect(),
+            admitted: Mutex::new(state.attempts.keys().copied().collect()),
             entries: Mutex::new(RegistryEntries {
                 entries,
                 fenced: BTreeSet::new(),
             }),
             bootstrap: Arc::new(Semaphore::new(1)),
             stop_slots: Arc::new(Semaphore::new(1)),
+            #[cfg(any(test, feature = "test-support"))]
             pool: aq_session_host::observed::SealedElfPool::new(16 * 1024 * 1024, 4)
                 .expect("fixed bounded ELF pool"),
         }
+    }
+    pub(super) fn admit(&self, id: Uuid) -> Result<()> {
+        let mut admitted = lock(&self.admitted)?;
+        ensure!(
+            admitted.contains(&id) || admitted.len() < 64,
+            "native registry admission capacity"
+        );
+        admitted.insert(id);
+        Ok(())
     }
     fn entry(&self, id: Uuid) -> Result<Arc<Entry>> {
         lock(&self.entries)?
@@ -152,7 +197,10 @@ impl Registry {
             .context("native host attempt absent")
     }
     fn fence(&self, id: Uuid) -> Result<Option<Arc<Entry>>> {
-        ensure!(self.admitted.contains(&id), "native stop not admitted");
+        ensure!(
+            lock(&self.admitted)?.contains(&id),
+            "native stop not admitted"
+        );
         let mut state = lock(&self.entries)?;
         state.fenced.insert(id);
         let entry = state.entries.get(&id).cloned();
@@ -161,13 +209,17 @@ impl Registry {
         }
         Ok(entry)
     }
+    #[cfg(any(test, feature = "test-support"))]
     fn claim(
         &self,
         scope: LaunchExecutionScope,
         profile: SyntheticHostProfile,
     ) -> Result<Arc<Entry>> {
+        self.claim_profile(scope, Profile::Synthetic(Arc::new(profile)))
+    }
+    fn claim_profile(&self, scope: LaunchExecutionScope, profile: Profile) -> Result<Arc<Entry>> {
         ensure!(
-            self.admitted.contains(&scope.id),
+            lock(&self.admitted)?.contains(&scope.id),
             "native host not admitted"
         );
         let mut state = lock(&self.entries)?;
@@ -182,12 +234,13 @@ impl Registry {
             fault: self.fault.clone(),
             id: scope.id,
             scope: Some(Arc::new(scope)),
-            profile: Some(Arc::new(profile)),
+            profile: Some(profile),
             history: Mutex::new(None),
             stop: AtomicBool::new(false),
             physical: Mutex::new(Physical {
                 handle: None,
                 observer: None,
+                pending_output: Vec::new(),
                 stopped: None,
                 outcome: Outcome::Pending,
             }),
@@ -219,6 +272,13 @@ pub enum NativeStopOutcome {
 impl LocalPhaseHost {
     pub fn attempt_id(&self) -> Uuid {
         self.entry.id
+    }
+    pub fn observe(&self) -> Result<HostObservation> {
+        lock(&self.entry.physical)?
+            .handle
+            .as_ref()
+            .context("native physical handle absent")?
+            .observe()
     }
     pub fn started_request(&self) -> Result<aq_admission::started::Request> {
         lock(&self.entry.history)?
@@ -261,7 +321,7 @@ impl Entry {
         self.profile
             .as_ref()
             .context("recovery cannot authorize host")?
-            .root
+            .root()
             .verify()?;
         self.scope
             .as_ref()
@@ -270,7 +330,7 @@ impl Entry {
         self.profile
             .as_ref()
             .context("recovery has no profile")?
-            .root
+            .root()
             .verify()?;
         ensure!(
             !self.stop.load(Ordering::SeqCst),
@@ -307,6 +367,9 @@ impl Entry {
         handle.wait_stopped(Duration::from_secs(2))?;
         let proof = handle.stopped_proof()?;
         let observation = proof.observation().clone();
+        if handle.cleanup_private_inputs(&proof).is_err() {
+            tracing::warn!(attempt_id=%self.id,"stopped private runtime data retained after cleanup refusal");
+        }
         let mut state = lock(&self.physical)?;
         state.stopped = Some(proof);
         state.handle = Some(handle);
@@ -356,6 +419,22 @@ impl InputPipeline {
         Ok(())
     }
 
+    pub fn launch_phase_native(
+        self: &Arc<Self>,
+        execution: &DurablePhaseExecution,
+        profile: Arc<NativeCodexHostProfile>,
+    ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
+        let claimed = self
+            .launch_scope(execution)
+            .and_then(|scope| self.launch.claim_profile(scope, Profile::Native(profile)))
+            .map(|entry| ClaimGuard {
+                registry: self.launch.clone(),
+                entry,
+                admitted: false,
+            });
+        self.launch_claimed(claimed)
+    }
+    #[cfg(any(test, feature = "test-support"))]
     pub fn launch_phase_synthetic(
         self: &Arc<Self>,
         execution: &DurablePhaseExecution,
@@ -369,6 +448,12 @@ impl InputPipeline {
                 entry,
                 admitted: false,
             });
+        self.launch_claimed(claimed)
+    }
+    fn launch_claimed(
+        self: &Arc<Self>,
+        claimed: Result<ClaimGuard>,
+    ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
         let pipeline = self.clone();
         async move {
             let mut claim = claimed?;
@@ -593,16 +678,27 @@ impl InputPipeline {
             "native output already has an exclusive drain owner"
         );
         let mut state = lock(&host.entry.physical)?;
-        state
-            .observer
-            .as_mut()
-            .context("native observer absent")?
-            .poll()
+        state.poll_output()
     }
 }
-fn bootstrap(owner: &Arc<Mutex<Owned>>, registry: &Registry, entry: &Arc<Entry>) -> Result<()> {
+fn bootstrap(owner: &Arc<Mutex<Owned>>, _registry: &Registry, entry: &Arc<Entry>) -> Result<()> {
+    match entry.profile.as_ref().context("native profile absent")? {
+        Profile::Native(profile) => native::bootstrap(owner, entry, profile),
+        #[cfg(any(test, feature = "test-support"))]
+        Profile::Synthetic(_) => bootstrap_synthetic(owner, _registry, entry),
+    }
+}
+#[cfg(any(test, feature = "test-support"))]
+fn bootstrap_synthetic(
+    owner: &Arc<Mutex<Owned>>,
+    registry: &Registry,
+    entry: &Arc<Entry>,
+) -> Result<()> {
     let scope = entry.scope.as_ref().context("native launch scope absent")?;
-    let profile = entry.profile.as_ref().context("native profile absent")?;
+    let Profile::Synthetic(profile) = entry.profile.as_ref().context("native profile absent")?
+    else {
+        anyhow::bail!("synthetic profile required")
+    };
     {
         let mut owner = lock(owner)?;
         entry.current(&owner)?;

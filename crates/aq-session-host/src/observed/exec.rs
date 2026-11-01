@@ -73,6 +73,7 @@ pub(crate) fn enter(
             "native exact startup stdin unavailable"
         );
     }
+    private_inputs::verify_at_exec(config, directory)?;
     config.permit.validate_at(
         &guardian.intent.session,
         &guardian.intent.manifest_digest,

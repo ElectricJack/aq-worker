@@ -54,6 +54,7 @@ impl CodexExecProfile {
             &installed.files[0].pin.path,
             &installed.adapter,
             &installed.renderer,
+            false,
         )?;
         installed.revalidate()?;
         Ok(prepared)
@@ -66,7 +67,19 @@ impl CodexExecProfile {
         input: CodexExecInput<'_>,
     ) -> Result<PreparedCodexExec> {
         let m = installation.installation();
-        let prepared = self.prepare_inputs(input, &m.executable.path, &m.adapter, &m.renderer)?;
+        let prepared =
+            self.prepare_inputs(input, &m.executable.path, &m.adapter, &m.renderer, false)?;
+        installation.revalidate()?;
+        Ok(prepared)
+    }
+    pub(crate) fn prepare_native_planned(
+        &self,
+        installation: &mut super::native_exec::NativeExecInstallation,
+        input: CodexExecInput<'_>,
+    ) -> Result<PreparedCodexExec> {
+        let m = installation.installation();
+        let prepared =
+            self.prepare_inputs(input, &m.executable.path, &m.adapter, &m.renderer, true)?;
         installation.revalidate()?;
         Ok(prepared)
     }
@@ -76,6 +89,7 @@ impl CodexExecProfile {
         executable: &Path,
         adapter: &ArtifactRef,
         renderer: &ArtifactRef,
+        planned: bool,
     ) -> Result<PreparedCodexExec> {
         let CodexExecInput {
             offer,
@@ -138,24 +152,32 @@ impl CodexExecProfile {
                 && workspace.is_dir()
                 && std::fs::canonicalize(workspace)? == workspace
                 && private_home.is_absolute()
-                && private_home.is_dir()
-                && std::fs::canonicalize(private_home)? == private_home
+                && (planned
+                    || (private_home.is_dir()
+                        && std::fs::canonicalize(private_home)? == private_home))
                 && private_home != workspace
                 && !private_home.starts_with(workspace),
             "Codex private configuration/workspace paths"
         );
-        use std::os::unix::fs::MetadataExt;
-        let meta = std::fs::symlink_metadata(private_home)?;
-        ensure!(
-            meta.is_dir()
-                && meta.uid() == unsafe { libc::geteuid() }
-                && meta.mode() & 0o777 == 0o700,
-            "Codex private home ownership/mode"
-        );
-        ensure!(
-            std::fs::read_dir(private_home)?.next().is_none(),
-            "Codex private home must be fresh and empty"
-        );
+        if planned {
+            ensure!(
+                matches!(std::fs::symlink_metadata(private_home),Err(ref e) if e.kind()==std::io::ErrorKind::NotFound),
+                "private planned home already exists"
+            );
+        } else {
+            use std::os::unix::fs::MetadataExt;
+            let meta = std::fs::symlink_metadata(private_home)?;
+            ensure!(
+                meta.is_dir()
+                    && meta.uid() == unsafe { libc::geteuid() }
+                    && meta.mode() & 0o777 == 0o700,
+                "Codex private home ownership/mode"
+            );
+            ensure!(
+                std::fs::read_dir(private_home)?.next().is_none(),
+                "Codex private home must be fresh and empty"
+            );
+        }
         let executable = executable.to_owned();
         let mut arguments = vec![
             "--no-daemon".into(),

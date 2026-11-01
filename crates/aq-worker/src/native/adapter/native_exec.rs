@@ -121,7 +121,7 @@ impl NativeExecInstallation {
     ) -> Result<MaterialHandoff<'a>> {
         super::material_handoff(installed, expected, binding)
     }
-    pub(super) fn installation(&self) -> &AdapterManifest {
+    pub(crate) fn installation(&self) -> &AdapterManifest {
         &self.manifest.installation
     }
 }

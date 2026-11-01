@@ -250,7 +250,6 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
     }
     Ok(())
 }
-#[cfg(any(test, feature = "test-support"))]
 impl Journal {
     pub(crate) fn begin_native_launch(
         &mut self,
