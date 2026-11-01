@@ -1,0 +1,17 @@
+qualification guard: private PID/proc roots; trusted image/minimal etc; loopback only; private state
+
+running 1 test
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::actual_named_readonly_codex_exec_command_round_trip_has_owned_cap_and_physical_cleanup ... actual CLI request structure: {"input_types":["message","message","message","message"],"tools":[{"name":"exec_command","type":"function"},{"name":"write_stdin","type":"function"},{"name":"request_user_input","type":"function"},{"name":"view_image","type":"function"},{"name":"get_goal","type":"function"},{"name":"create_goal","type":"function"},{"name":"update_goal","type":"function"}]}
+
+thread 'native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::actual_named_readonly_codex_exec_command_round_trip_has_owned_cap_and_physical_cleanup' (4) panicked at crates/aq-worker/src/native/journal/codex_process_scenarios.rs:692:10:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::actual_named_readonly_codex_exec_command_round_trip_has_owned_cap_and_physical_cleanup
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 173 filtered out; finished in 24.74s
+
