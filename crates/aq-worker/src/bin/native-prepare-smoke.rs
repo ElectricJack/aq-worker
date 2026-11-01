@@ -214,14 +214,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
     journal.record_preparation(id, &preparation)?;
     let pipeline = InputPipeline::new(journal, materials, client.clone());
     *stage = "artifacts";
-    let mut artifacts = Vec::new();
-    for descriptor in &offer.offered.artifacts {
-        artifacts.push(
-            pipeline
-                .artifact(id, preparation.clone(), descriptor.artifact.clone())
-                .await?,
-        );
-    }
+    let artifacts = pipeline.artifacts(id, preparation.clone()).await?;
     *stage = "materials";
     for lease in &preparation.plan().materials {
         pipeline
