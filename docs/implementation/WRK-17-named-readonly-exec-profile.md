@@ -186,3 +186,14 @@ paired ACK cleanup are recorded in the
 [named negative evidence](evidence/wrk17-named-readonly-physical/README.md).
 A fixed explicit tool PATH is under review; production and private-source gates
 remain closed.
+
+
+After the reviewed fixed explicit tool PATH mapper, a separately authorized
+untraced named Codex case passed (18.27s total; 8.25s execute to physical cleanup).
+It proves the controlled actual tool result and exact workspace file, natural
+CLI exit0, ECHILD, paired ACKs and matching child-auth cleanup before the original
+Grant expired. Three output publication attempts received409/no Watch; they do
+not prove accepted output or terminal delivery. See the linked
+[positive and retained negative evidence](evidence/wrk17-named-readonly-physical/README.md).
+Production source/proc credential privacy, real provider and context qualification
+remain open; this does not promote the factory gate.

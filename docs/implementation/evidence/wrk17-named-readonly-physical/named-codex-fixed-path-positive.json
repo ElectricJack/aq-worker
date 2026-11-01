@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "authority": "isolated local actual-tool/process observation; no production credential isolation/provider/context qualification",
+  "source_binary_bundle": {
+    "source_snapshot_git": "66422eb",
+    "mapper_canonical_commit": "2f70e14",
+    "paired_scoped_host_join_canonical_commit": "634e37f",
+    "named_thread_context_commit": "c75969d",
+    "hardened_wrapper_commit": "a323ac4",
+    "fixture_sequence_commit": "f9fcf17",
+    "source_files_sha256": {
+      "Cargo.lock": "b722ec06160a30599f64acac09ee0c9526f6405119da81846a16b02fa826e17b",
+      "scripts/qualify-native-loopback.sh": "0d75fb607a1a6627fbbed5cfb1a0d34ac0960755d0abc14ad5b01094a7603995",
+      "crates/aq-worker/src/native/adapter/codex.rs": "b55733a1cf40bf1f4faca61157f12f430a67b1fdb3d814ee5d95275e1cbb0360",
+      "crates/aq-worker/src/native/adapter/codex/tests.rs": "021ae35ebd0e1b9ad7daf2a216017ddce6fd301bb4062bb83b8b3feb1fdf101d",
+      "crates/aq-worker/src/native/journal/codex_process_scenarios.rs": "83d56ec093ad401991323c77490ce81b69be8bce24268f24e0216263049a9011",
+      "crates/aq-worker/src/native/journal/codex_process_guard.rs": "a2d5fc5a630ada3e559a6324d916fc38e7cdf8ec2d6926123022db4cabf9038b",
+      "crates/aq-worker/src/native/journal/runner_lifecycle_scenarios.rs": "8bfcca1e317fdc9485525fa79f548143a6f6643f1ed4b6c5dafb9a43e6260840",
+      "vendor/aq-admission-0.1.7/artifacts/control.fixture.json": "da31ccc3e14c3ea0c5fbc535ddb487d1adab60ecf20387cd8680d567db57cbbe"
+    },
+    "binaries_sha256": {
+      "worker_test_binary": "aa3a4b4076d3524af5e42b5d72573f7923df300d7d3823a69d2aacd04486e046",
+      "aq_session_host": "96aaafcc295b45e95accf67d06f9a90d5a1caf9dad09ebdd09034f7cf8ad9044",
+      "codex_0_166_0": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+      "tmux_3_4": "034b15c64035f783d43862f2775eb4828f61571ca62c8199796000b97d556ecd",
+      "system_bwrap_0_9_0": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71"
+    }
+  },
+  "source_binary_bundle_sha256": "18c2f81f84a14954fe437f7eb448e2a032f93ace6ed335e8f0c8799443fad7a8",
+  "bundle_digest_format": "SHA256 of compact sorted-key UTF8 JSON source_binary_bundle; not a published package archive",
+  "test": "actual_named_readonly_codex_exec_command_round_trip_has_owned_cap_and_physical_cleanup",
+  "profile": "codex-0.166-named-readonly-exec-stdin-v1",
+  "observed_host_profile": "linux-tmux34-named-readonly-native-exec-stdin-v1",
+  "model": "gpt-5.1-codex-mini",
+  "max_output_tokens": 4096,
+  "original_grant_ms": 20000,
+  "elapsed_seconds_total": 18.27,
+  "boot_times_ns": {
+    "preflight_begin": 216956816399375,
+    "preflight_complete": 216964119938945,
+    "execute_begin": 216966833505402,
+    "original_grant_deadline": 216986633525935,
+    "terminal_registration": 216968268014244,
+    "first_terminal_upload": 216968655208995,
+    "first_provider_request": 216974507367253,
+    "tool_result_provider_request": 216974598086643,
+    "natural_completion": 216975079151319
+  },
+  "physical_running_observed_boot_ms": 216967754,
+  "elapsed_seconds_preflight": 7.30353957,
+  "elapsed_seconds_execute_to_completion": 8.245645917,
+  "remaining_grant_seconds_at_completion": 11.554374616,
+  "assertions_passed": [
+    "actual named retained-descriptor launch under real tmux",
+    "actual physical Running and exact Started ACK",
+    "fresh child capability differs from original synthetic upstream key",
+    "exact model and output cap, stream=true/store=false",
+    "two finite local provider requests, no hosted web search",
+    "exact controlled call_aq_local function_call_output contains aq-local-tool-proof",
+    "real workspace aq-local-tool-proof.txt bytes exactly aq-local-tool-proof",
+    "finite peer observed attempted publication of genuine thread.started/turn.started bytes excluding child/upstream credentials",
+    "all three observed output publication attempts received409 no current Watch; running agent continued",
+    "natural CLI root exit0",
+    "physical stop kernel ECHILD",
+    "paired Started and Stopped ACKs each published once",
+    "matching codex-home/auth.json removed after physical stop",
+    "retained preparation inputs remain owned"
+  ],
+  "fixture_boundary": [
+    "private user/network/PID/UTS namespaces",
+    "trusted readonly /usr /bin /sbin /lib /lib64; literal private minimal /etc",
+    "operator homes and outside parent proc/root/fd aliases absent",
+    "empty capability sets and no_new_privs",
+    "private tmpfs state outside child /tmp",
+    "independent no-external-route probe plus working loopback",
+    "synthetic credentials and finite loopback Responses peer only"
+  ],
+  "qualification_limits": [
+    "worker raw material source remains visible inside fixture; no source/proc credential secrecy claim",
+    "environment/renderer/adapter artifact references are synthetic fixture pins, not production qualifications",
+    "real provider behavior, model/context/token bounds and per-harness capsule topology remain unqualified",
+    "production executor factory remains refused",
+    "bwrap is selected readonly OS image dependency; installer does not independently pin it",
+    "no release package or frozen package archive was changed"
+  ],
+  "terminal_publication": {
+    "attempts_observed": 3,
+    "http_status": 409,
+    "accepted_upload_ack": false,
+    "durable_accepted_output_proved": false,
+    "human_terminal_delivery_proved": false,
+    "pending_bytes": "retained by relay after refusal"
+  },
+  "fixture_artifact_references": {
+    "authority": "synthetic selected fixture refs; no production qualification",
+    "adapter": {
+      "digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+      "id": "fixture",
+      "version": "1"
+    },
+    "environment": {
+      "digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+      "id": "fixture",
+      "version": "1"
+    },
+    "renderer_qualification": {
+      "digest": "ea6e4282b6cd603ae302a1a2ade03005557cdf3ae7f3b64a89206cf96b7d0f09",
+      "id": "synthetic-renderer-qualification",
+      "version": "1"
+    },
+    "sealed_payload": {
+      "digest": "70c9c88d7a865190f65b658fbd808da9c727a2e62feb34f362b58088c509397a",
+      "id": "rendered-startup",
+      "version": "1"
+    },
+    "runtime": {
+      "id": "synthetic.runtime",
+      "version": "1",
+      "digest": "d50fa1b5c9299e5f5b8ecd359ee4c479446017f0a82a02d7766d15ae225da36e"
+    },
+    "qualification": {
+      "id": "synthetic.qualification",
+      "version": "1",
+      "digest": "3724c738db7624a3724227cba1bddca675fce8622126290d63fc5a62717d0db8"
+    }
+  },
+  "elapsed_seconds_controlled_tool_request_to_result_request": 0.09071939,
+  "elapsed_seconds_first_provider_request_to_physical_cleanup": 0.571784066
+}

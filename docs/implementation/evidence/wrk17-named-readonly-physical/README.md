@@ -15,7 +15,8 @@ establish Codex tool compatibility or production eligibility.
 Build the static source with local `cc -O2 -static` outside the fixture, build the
 current host/test executables from source, and select their explicit image/helper/
 tmux digest pins using `scripts/qualify-native-loopback.sh`. Only opt-in tests use
-cc/bwrap; neither becomes a mandatory production dependency.
+cc/bwrap; neither is required by the generic AQ host. The selected Codex Linux
+tool profile requires trusted bwrap provisioning as documented below.
 
 
 ### First actual Codex named-profile attempt (negative, 2026-11-01)
@@ -83,7 +84,8 @@ stream/store policy and distinct synthetic upstream credentials. The actual CLI
 returned the exact controlled `call_aq_local` function-call output, but the local
 command did **not** succeed: its sandbox helper exited 101 because bubblewrap was
 unavailable to its lookup. No workspace proof file or successful tool execution is
-claimed. Output registration and three normal no-Watch uploads were observed;
+claimed. Output registration and three attempted publications receiving HTTP409
+(no current Watch) were observed; no UploadAck or accepted output was proved;
 the second attempt confirms that the first negative was not an established
 output-transport failure.
 
@@ -110,3 +112,60 @@ regression passed (0.01s), fixture compilation passed (15.73s), and strict host 
 worker all-target/all-feature lint passed (7.55s). No production runtime, upstream
 source secrecy, real provider or context/model qualification follows from these
 local synthetic-peer observations.
+
+
+### Fixed-PATH actual named Codex tool qualification (positive)
+
+The single additional root-approved untraced attempt **passed**, after importing
+only the fixed explicit tool PATH mapper `2f70e14` (local `66422eb`). The existing
+hardened wrapper, workspace-write sandbox, network denial, output cap4096 and
+original 20-second Grant remained unchanged. Both negative attempts above remain
+part of this evidence; this result does not replace or reinterpret them.
+
+The [complete positive diagnostic record](named-codex-fixed-path-positive.log)
+and [machine-readable observation and exact source/binary pins](named-codex-fixed-path-positive.json)
+record the paired case. Its source/binary bundle digest is
+`18c2f81f84a14954fe437f7eb448e2a032f93ace6ed335e8f0c8799443fad7a8`,
+computed over the JSON's compact sorted-key `source_binary_bundle` object. This
+identifies the local qualification inputs; it is not a published release package
+or a rewritten package archive. The JSON pins worker test binary, source-built
+host helper, Codex0.166.0, tmux3.4, bwrap0.9.0, wrapper, fixture and mapper sources.
+
+Total test time was **18.27s**, including **7.30s** preflight before admission.
+Execute-to-natural-completion took **8.25s**. The execute began at boot time
+`216966833505402ns` with deadline `216986633525935ns`; natural physical completion
+finished at `216975079151319ns`, leaving **11.55s** of the original Grant.
+The controlled first-request to real tool-result-request round trip took
+**90.72ms**; this is local synthetic-response timing, not model inference latency.
+Physical Running was observed at `216967754ms`, with the exact Started ACK present.
+The first finite request arrived at `216974507367253ns`; the actual tool result
+request arrived at `216974598086643ns`. No stage obtained a renewed deadline.
+
+Successful assertions prove an actual `exec_command` round trip with controlled
+`call_aq_local`: the returned `function_call_output` contains
+`aq-local-tool-proof`, and the real owned workspace file
+`aq-local-tool-proof.txt` contains exactly those bytes. The fake peer received two
+streaming/stateless requests with the exact selected model/cap, no hosted web
+search and distinct synthetic upstream credentials. A generated child capability
+was different from the upstream key and absent from the observed model inputs.
+
+Terminal registration succeeded, then **three HTTP publication attempts reached
+the peer and each received409 `no current Watch`**. The observed request bytes
+contained genuine `thread.started`/`turn.started` output without child or upstream
+credentials, and the agent remained running while the second model response was
+held. No UploadAck was accepted, pending bytes remained retained, and **neither
+durable accepted output nor human terminal delivery was proved**.
+
+After releasing the finite final response, the real owner observed natural CLI
+root exit0, persisted physical stop with kernel ECHILD, and held exact Started
+and Stopped ACKs with each report published once. Matching `codex-home/auth.json`
+was removed after physical stop, while retained preparation input ownership
+remained. All these success-only assertions were reached in this positive case.
+
+This is isolated local actual-tool/process qualification with synthetic secrets
+and a finite loopback Responses peer. The fixture still exposes the original
+worker material source inside its shared same-UID filesystem/proc view. It does
+not qualify production upstream-key secrecy, per-harness capsule isolation,
+external provider behavior, model/context/token bounds or production admission.
+The production executor factory remains refused. No further actual launches were
+performed after this accepted positive result.
