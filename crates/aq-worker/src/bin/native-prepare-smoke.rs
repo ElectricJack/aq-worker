@@ -9,7 +9,7 @@ use aq_session_protocol::{ArtifactRef, Capability};
 use aq_worker::{
     config::WorkerConfig,
     native::{
-        http::NativeClient,
+        http::{HttpStatus, NativeClient},
         journal::{Journal, Limits, RuntimeIdentity},
         launch::{
             InstalledFilePin, NativeHostLaunchResult, NativeStopOutcome, SyntheticHostConfig,
@@ -61,7 +61,36 @@ struct PhaseConfig {
     prepare_inputs: bool,
     #[serde(default)]
     prepare_execution: bool,
+    #[serde(default)]
+    history_after_lost_execution: bool,
     synthetic_host: Option<HostConfig>,
+}
+impl PhaseConfig {
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.prepare_execution || self.prepare_inputs,
+            "phase execution requires actual inputs"
+        );
+        ensure!(
+            self.synthetic_host.is_none() || self.prepare_execution,
+            "synthetic host requires actual phase execution"
+        );
+        ensure!(
+            !self.history_after_lost_execution
+                || (self.prepare_execution && self.prepare_inputs && self.synthetic_host.is_none()),
+            "history-only probe requires inputs/execution and forbids host"
+        );
+        Ok(())
+    }
+}
+fn expected_lost_execution_reply(error: Option<&anyhow::Error>) -> Result<()> {
+    ensure!(
+        error
+            .and_then(|e| e.downcast_ref::<HttpStatus>())
+            .is_some_and(|s| s.0 == reqwest::StatusCode::SERVICE_UNAVAILABLE),
+        "history-only probe requires actual503 execution reply"
+    );
+    Ok(())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -182,14 +211,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
     let mut input = BufReader::new(stdin.lock());
     let config: Config = frame(&mut input, CONFIG_BYTES)?;
     if let Some(phase) = &config.phase_preparation {
-        ensure!(
-            !phase.prepare_execution || phase.prepare_inputs,
-            "phase execution requires actual inputs"
-        );
-        ensure!(
-            phase.synthetic_host.is_none() || phase.prepare_execution,
-            "synthetic host requires actual phase execution"
-        );
+        phase.validate()?;
     }
     let held = root(&config.root)?;
     let git = GitClient::new(&config.git_socket, &config.git_root)?;
@@ -380,17 +402,61 @@ async fn run(stage: &mut &'static str) -> Result<()> {
             result["prepared_at_ns"] = json!(boot_ns()?);
             if phase.prepare_execution {
                 *stage = "phase_execution_http";
-                let observation = Arc::new(
-                    client
-                        .prepare_execution(
-                            &proposed,
-                            &request,
-                            &preparation,
-                            prepared.request(),
-                            None,
-                        )
-                        .await?,
-                );
+                let observation = client
+                    .prepare_execution(&proposed, &request, &preparation, prepared.request(), None)
+                    .await;
+                if phase.history_after_lost_execution {
+                    expected_lost_execution_reply(observation.as_ref().err())?;
+                    *stage = "phase_execution_history_only";
+                    let q = aq_phase_terminal_protocol::HistoryRequest {
+                        schema_version: 1,
+                        negotiation: aq_phase_terminal_protocol::Negotiation::current()?,
+                        operation_id: Uuid::new_v4(),
+                        binding: prepared.request().original.binding.clone(),
+                        accepted_receipt_digest: preparation.delivery().receipt.digest()?,
+                        prepare_operation_id: prepared.request().original.operation_id,
+                    };
+                    let receipt = client.phase_terminal_history(&q).await?;
+                    let known = receipt
+                        .identity
+                        .as_ref()
+                        .context("actual issued execution history required")?;
+                    let lease = &preparation.delivery().receipt.lease;
+                    ensure!(
+                        known.prepare_request_digest == prepared.request().digest()?
+                            && known.guardian_id == lease.guardian_id
+                            && known.launch_id == lease.launch_id
+                            && known.reservation_id == lease.hold.reservation.reservation_id,
+                        "history differs from actual Prepared/Accepted pins"
+                    );
+                    current_root(&config.root, &held)?;
+                    let snapshot = pipeline.snapshot().await?;
+                    let attempt = snapshot
+                        .attempts
+                        .get(&id)
+                        .context("retained phase attempt absent")?;
+                    ensure!(
+                        known.runtime == attempt.reservation.runtime.runtime
+                            && known.qualification == attempt.reservation.runtime.qualification
+                            && attempt.phase_execution.is_none()
+                            && attempt.native_host.is_none()
+                            && snapshot.revision
+                                == result["prepared_revision"]
+                                    .as_u64()
+                                    .context("prepared revision absent")?,
+                        "history must not adopt execution or mutate journal"
+                    );
+                    result["phase"] = json!("phase_history_only");
+                    result["history_request"] = json!(q);
+                    result["history_receipt"] = json!(receipt);
+                    result["history_revision"] = json!(snapshot.revision);
+                    // No record_phase_execution, host or renewal call. Keep the
+                    // actual exclusive Prepared owner through the final emit.
+                    emit(&result)?;
+                    drop(prepared);
+                    return Ok(());
+                }
+                let observation = Arc::new(observation?);
                 result["execution_delivery"] = json!(observation.delivery());
                 *stage = "phase_execution_durable";
                 let PhaseExecutionCommit::Usable(grant) = pipeline
@@ -585,6 +651,57 @@ mod tests {
         let mut r = std::io::Cursor::new(vec![b'x'; 10000]);
         assert!(frame::<Continue>(&mut r, 32).is_err());
         assert_eq!(r.position(), 33);
+    }
+    #[test]
+    fn history_mode_requires_real_inputs_execution_and_excludes_host_before_io() {
+        let f: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json"
+        ))
+        .unwrap();
+        let mut p = PhaseConfig {
+            negotiation: serde_json::from_value(f["proposal"]["negotiation"].clone()).unwrap(),
+            source_profile: serde_json::from_value(f["accept"]["hold"]["source_profile"].clone())
+                .unwrap(),
+            maximum_preparation_ms: 30000,
+            prepare_inputs: false,
+            prepare_execution: false,
+            history_after_lost_execution: true,
+            synthetic_host: None,
+        };
+        assert!(p.validate().is_err());
+        p.prepare_inputs = true;
+        assert!(p.validate().is_err());
+        p.prepare_execution = true;
+        p.validate().unwrap();
+        let r = p.source_profile.clone();
+        p.synthetic_host = Some(HostConfig {
+            helper: HostPin {
+                path: "/not-executed/helper".into(),
+                artifact: r.clone(),
+            },
+            tmux: HostPin {
+                path: "/not-executed/tmux".into(),
+                artifact: r.clone(),
+            },
+            program: HostPin {
+                path: "/not-executed/program".into(),
+                artifact: r.clone(),
+            },
+            renderer: r,
+        });
+        assert!(p.validate().is_err());
+        p.history_after_lost_execution = false;
+        p.validate().unwrap();
+    }
+    #[test]
+    fn history_probe_accepts_only_explicit503_and_never_success_or_other_errors() {
+        let expected: anyhow::Error = HttpStatus(reqwest::StatusCode::SERVICE_UNAVAILABLE).into();
+        expected_lost_execution_reply(Some(&expected)).unwrap();
+        let other: anyhow::Error = HttpStatus(reqwest::StatusCode::CONFLICT).into();
+        assert!(expected_lost_execution_reply(Some(&other)).is_err());
+        let transport = anyhow::anyhow!("transport unknown");
+        assert!(expected_lost_execution_reply(Some(&transport)).is_err());
+        assert!(expected_lost_execution_reply(None).is_err());
     }
     #[test]
     fn existing_owner_children_and_replaced_scope_are_refused_without_cleanup() {
