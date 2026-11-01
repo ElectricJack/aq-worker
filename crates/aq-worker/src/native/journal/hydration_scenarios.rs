@@ -34,7 +34,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
     },
 };
 struct Export {
@@ -109,6 +109,8 @@ struct Inputs {
     inline_entered: Arc<tokio::sync::Semaphore>,
     inline_release: Arc<tokio::sync::Semaphore>,
     inline_max_active: Arc<AtomicUsize>,
+    grant_mode: Arc<AtomicU8>,
+    grant_window_ms: Arc<AtomicU64>,
 }
 struct ActiveInline(Arc<AtomicUsize>);
 impl Drop for ActiveInline {
@@ -211,6 +213,41 @@ impl Inputs {
         let range_mode = mode.clone();
         let range_entered = Arc::new(AtomicBool::new(false));
         let entered = range_entered.clone();
+        let grant_plan = delivery.original.clone();
+        let grant_mode = Arc::new(AtomicU8::new(0));
+        let grant_window_ms = Arc::new(AtomicU64::new(1_000));
+        let grant_case = grant_mode.clone();
+        let grant_window = grant_window_ms.clone();
+        let grant_id = Uuid::new_v4();
+        let prepare_route =
+            move |headers: HeaderMap, Json(request): Json<aq_admission::transport::Prepare>| {
+                let plan = grant_plan.clone();
+                let mode = grant_case.clone();
+                let window = grant_window.clone();
+                async move {
+                    let mut grant: aq_admission::control::InitialGrantDelivery =
+                        serde_json::from_value(fixture()["replies"][2]["body"].clone()).unwrap();
+                    grant.operation_id = request.operation_id;
+                    grant.original.grant.binding = request.binding.clone();
+                    grant.original.grant.grant_id = if mode.load(Ordering::SeqCst) == 1 {
+                        Uuid::new_v4()
+                    } else {
+                        grant_id
+                    };
+                    grant.original.guardian_id = request.guardian_id;
+                    grant.original.launch_id = request.launch_id;
+                    grant.original.reservation_id = request.reservation.reservation_id;
+                    grant.original.materials = plan.materials;
+                    grant.original.clock =
+                        DeliveryClock::new(2_000, 2_000 + window.load(Ordering::SeqCst)).unwrap();
+                    grant.original.grant.expires_at_ms = grant.original.clock.expires_at_ms;
+                    grant.execution_deadline_ms = 22_000;
+                    grant.delivery.clock = grant.original.clock.clone();
+                    grant.delivery.nonce =
+                        Uuid::parse_str(headers["aq-delivery-nonce"].to_str().unwrap()).unwrap();
+                    Json(ControlReply::InitialGrant(grant))
+                }
+            };
         let accept_route = move |headers: HeaderMap, Json(request): Json<Accept>| {
             let mut d = delivery.clone();
             async move {
@@ -374,6 +411,7 @@ impl Inputs {
         };
         let router = Router::new()
             .route("/v1/worker/profiled/accept", post(accept_route))
+            .route("/v1/worker/profiled/prepare", post(prepare_route))
             .route("/v1/worker/profiled/artifact", post(artifact_route))
             .route("/v1/worker/profiled/material", post(material_route))
             .route("/v1/worker/profiled/source/{id}", get(status_route))
@@ -407,6 +445,8 @@ impl Inputs {
             inline_entered,
             inline_release,
             inline_max_active,
+            grant_mode,
+            grant_window_ms,
         }
     }
     async fn all_inputs(&self) -> Vec<crate::native::VerifiedArtifact> {
@@ -767,6 +807,14 @@ fn git_request(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout"]
 async fn pinned_git_native_source_http_import_retention_and_clean_workspace() {
+    actual_git_hydration(false).await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout"]
+async fn pinned_git_received_initial_grant_retains_actual_workspace_and_material_owners() {
+    actual_git_hydration(true).await;
+}
+async fn actual_git_hydration(retain_grant: bool) {
     use std::process::Command;
     let exe =
         PathBuf::from(std::env::var_os("AQ_GIT_TEST_BINARY").expect("explicit public Git binary"));
@@ -962,6 +1010,30 @@ async fn pinned_git_native_source_http_import_retention_and_clean_workspace() {
         joined.materials()[0].read_private().unwrap().as_slice(),
         b"synthetic-key"
     );
+    if retain_grant {
+        let offer = h.pipeline().snapshot().await.unwrap().attempts[&h.id]
+            .reservation
+            .offer
+            .clone();
+        let observed = h
+            .client
+            .prepare(joined.request(), &h.preparation, &offer, None)
+            .await
+            .unwrap();
+        let committed = h
+            .pipeline()
+            .record_initial_grant(joined, observed)
+            .await
+            .unwrap();
+        let crate::native::preparation::GrantCommit::Usable(owner) = committed else {
+            panic!("actual Git initial grant expired or changed before commit")
+        };
+        h.pipeline().check_initial_grant(&owner).await.unwrap();
+        let state = h.pipeline().snapshot().await.unwrap();
+        assert!(state.attempts[&h.id].initial_grant.is_some());
+        assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
+        return;
+    }
     drop(joined);
     let state = h.pipeline().snapshot().await.unwrap();
     let source = state.attempts[&h.id].source.as_ref().unwrap();
@@ -1579,3 +1651,6 @@ async fn inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion() {
         }
     }
 }
+
+#[path = "granted_scenarios.rs"]
+mod granted_scenarios;

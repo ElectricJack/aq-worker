@@ -1,7 +1,9 @@
 # Durable received initial Grant owner
 
-Base: worker `acac50d`. This component consumes existing exact admission0.1.7
-contracts. It does not adopt the proposed accepted-preparation0.1.9 semantics,
+Status: implemented component candidate, not runtime adoption.
+
+Base: worker `acac50d`. This component consumes existing exact admission 0.1.7
+contracts. It does not adopt the proposed accepted-preparation 0.1.9 semantics,
 remove the original preparation cap, launch a host, renew permission, settle
 source/effects, release resource holds or resume a journal after restart.
 
@@ -14,7 +16,7 @@ read-only accessors. Keep renewal samples distinct; this owner refuses a
 renewal-bearing observation. No wire/Serde conversion is added to the opaque
 network object.
 
-Journal format5 adds one `ReceivedInitialGrant` per admitted attempt. It retains
+Journal format 5 adds one `ReceivedInitialGrant` per admitted attempt. It retains
 actual initial response, canonical Prepared request association, initial network
 samples, original lease and hard caps and an observation sampled before the
 write. A timestamp serialized before fsync is not described as post-fsync.
@@ -30,9 +32,9 @@ original prepared/reservation caps. The original immutable grant, versions and
 hard deadline cannot be substituted or extended by replay.
 
 The existing descriptor-relative private writer, canonical checksum, eight-MiB
-journal bound, file+directory fsync and poison-on-uncertainty remain. Formats1–4
+journal bound, file+directory fsync and poison-on-uncertainty remain. Formats 1–4
 are refused before pending cleanup or rewriting; there is no migration/reseed.
-An old/reopened format5 record is inspection/stop-and-preserve history only,
+An old/reopened format 5 record is inspection/stop-and-preserve history only,
 never a fresh network observation or usable execution handle.
 
 ## Retained resource owner
@@ -44,10 +46,12 @@ storage job. One admitted attempt owns at most one bundle; replay never replaces
 it. `retry_initial_grant(attempt_id, fresh_opaque_grant)` uses that existing
 bundle, rather than demanding a second exclusive workspace/source owner.
 
-The map is bounded by admitted attempts/slots (maximum64) and measured actual
+The map is bounded by admitted attempts/slots (maximum 64) and measured actual
 remaining artifact+startup bytes. Each bundle remains within the existing
-8MiB inline-set bound, hence at most admitted-slots×8MiB (theoretical512MiB),
-plus separately bounded metadata and one initial response per attempt. This is
+8MiB inline-set bound, hence at most admitted-slots×8MiB (theoretical 512MiB),
+plus separately bounded metadata and one initial response per attempt. The
+existing control envelope limit is 4MiB; aggregate persisted journal metadata
+remains within its unchanged 8MiB cap. This is
 a logical retained-byte bound, not an RSS guarantee or a production capacity
 qualification. No additional replay bundle/network copies or arbitrary new
 quota is introduced. Existing journal capacity may refuse a commit safely.
@@ -78,3 +82,11 @@ owners, restart inspection and byte-preserving formats1–4 refusal. Reuse the
 explicit actual-Git fixture where feasible. Keep synthetic coordinator/model
 qualification separate from real Git ownership and from any provider/host claim.
 No services or network providers are required for normal tests.
+
+The initial receipt has the existing 4MiB control envelope bound; persisted
+metadata is still bounded by the existing 8MiB whole journal. Storage admission
+failure retains the actual input bundle but does not create a durable inbox for
+that abandoned network reply: a fresh opaque observation is required for narrow
+retry. Lost/late responses before opaque construction, busy or uncertain commits
+remain held/unknown, never NeverGranted. This candidate does not claim every
+ever-issued response is locally pinned.

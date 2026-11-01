@@ -1,4 +1,5 @@
 //! Bounded current input collection, never Prepare or execution permission.
+mod granted;
 #[path = "hydration.rs"]
 mod hydration;
 mod join;
@@ -11,6 +12,7 @@ use super::{
 use anyhow::{Context, Result, ensure};
 use aq_admission::MaterialReceipt;
 use aq_session_protocol::ArtifactRef;
+pub use granted::{DurableInitialGrant, GrantCommit, RetainedGrantHistory, RetainedInputStats};
 pub use hydration::HydratedWorkspace;
 pub use join::PreparedInputs;
 use std::sync::{Arc, Mutex};
@@ -28,14 +30,17 @@ pub struct InputPipeline {
     storage_slots: Arc<Semaphore>,
     bulk_slots: Arc<Semaphore>,
     client: NativeClient,
+    retained: Arc<Mutex<granted::RetainedOwners>>,
 }
 impl InputPipeline {
     pub fn new(journal: Journal, materials: MaterialStore, client: NativeClient) -> Self {
+        let retained = granted::RetainedOwners::new(journal.state());
         Self {
             owned: Arc::new(Mutex::new(Owned { journal, materials })),
             storage_slots: Arc::new(Semaphore::new(1)),
             bulk_slots: Arc::new(Semaphore::new(1)),
             client,
+            retained: Arc::new(Mutex::new(retained)),
         }
     }
     async fn storage<T: Send + 'static>(
@@ -62,6 +67,18 @@ impl InputPipeline {
     pub(crate) async fn test_journal_fault(&self, fault: super::journal::WriteFault) -> Result<()> {
         self.storage(move |owner| {
             owner.journal.inject_fault(fault);
+            Ok(())
+        })
+        .await
+    }
+    #[cfg(test)]
+    pub(crate) async fn test_pause_grant_commit(
+        &self,
+        pause: &super::journal::WritePause,
+    ) -> Result<()> {
+        let gate = pause.clone_gate();
+        self.storage(move |owner| {
+            owner.journal.set_pause_gate(gate);
             Ok(())
         })
         .await
