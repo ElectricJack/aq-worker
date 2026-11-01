@@ -1,0 +1,36 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-wrk08-preparation/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.14s
+     Running unittests src/lib.rs (/tmp/aq-wrk08-preparation-target/debug/deps/aq_worker-351e81ae6463e4ac)
+
+running 3 tests
+test native::journal::tests::hydration_scenarios::actual_native_pipeline_journals_every_external_intent_and_keeps_lost_import_id ... FAILED
+test native::journal::tests::hydration_scenarios::failed_range_is_exact_pending_and_format_two_is_never_upgraded ... FAILED
+test native::journal::tests::hydration_scenarios::historical_receipts_cannot_bypass_fresh_retention_or_head_checks ... FAILED
+
+failures:
+
+---- native::journal::tests::hydration_scenarios::actual_native_pipeline_journals_every_external_intent_and_keeps_lost_import_id stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::actual_native_pipeline_journals_every_external_intent_and_keeps_lost_import_id' (152643) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:391:58:
+called `Option::unwrap()` on a `None` value
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- native::journal::tests::hydration_scenarios::failed_range_is_exact_pending_and_format_two_is_never_upgraded stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::failed_range_is_exact_pending_and_format_two_is_never_upgraded' (152644) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:477:10:
+called `Option::unwrap()` on a `None` value
+
+---- native::journal::tests::hydration_scenarios::historical_receipts_cannot_bypass_fresh_retention_or_head_checks stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::historical_receipts_cannot_bypass_fresh_retention_or_head_checks' (152645) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:435:10:
+called `Result::unwrap()` on an `Err` value: input preparation provenance
+
+
+failures:
+    native::journal::tests::hydration_scenarios::actual_native_pipeline_journals_every_external_intent_and_keeps_lost_import_id
+    native::journal::tests::hydration_scenarios::failed_range_is_exact_pending_and_format_two_is_never_upgraded
+    native::journal::tests::hydration_scenarios::historical_receipts_cannot_bypass_fresh_retention_or_head_checks
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.12s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

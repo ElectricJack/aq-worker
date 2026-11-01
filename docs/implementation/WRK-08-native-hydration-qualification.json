@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "task": "WRK-08",
+  "status": "qualified bounded native source hydration component; Prepare and production native driver remain withheld",
+  "source_revision": "f14694e2c5da546018526ccb2d66f146fed24696",
+  "base_revision": "238c2ceaccc986892ab7b4947050ecfd86010198",
+  "recorded_at": "2026-11-01T01:07:46.393604+00:00",
+  "native_journal_format": 3,
+  "older_format_policy": "formats1/2 refused unchanged before pending cleanup; no migration, reseed or live restart recovery",
+  "scope": [
+    "original verified typed execution-spec and captured preparation admission",
+    "bounded source discovery/ranges, private fsynced staged members, whole digest verification",
+    "finite durable repository/import/create/retention/workspace requests and opaque fresh local proof",
+    "no Prepare, grant, host launch, runnable registration or automatic cleanup"
+  ],
+  "qualification": {
+    "worker_package_all_features": {
+      "passed": 142,
+      "failed": 0,
+      "ignored": 4,
+      "result_processes_including_empty_and_doctests": 21
+    },
+    "new_ordinary_tests": 13,
+    "explicit_pinned_actual_git_tests": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "four_source_cursor_commit_fault_cuts": [
+      "BeforeWrite",
+      "AfterFileSync",
+      "AfterRename",
+      "AfterDirectorySync"
+    ],
+    "strict_all_target_all_feature_clippy": true,
+    "format_and_diff": true,
+    "commands": [
+      "CARGO_TARGET_DIR=/tmp/aq-wrk08-preparation-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test -p aq-worker --all-features --locked --offline",
+      "AQ_GIT_TEST_BINARY=/tmp/aq-wrk08-git-pin/aq-git AQ_GIT_TEST_SHA256=c2ff26f5e63008aec0fbd4082a547e87825e651d4aba0744c4b9fdf752d58c39 CARGO_TARGET_DIR=/tmp/aq-wrk08-preparation-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test -p aq-worker --lib pinned_git_native_source_http_import_retention_and_clean_workspace --all-features --locked --offline -- --ignored --nocapture",
+      "CARGO_TARGET_DIR=/tmp/aq-wrk08-preparation-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo clippy -p aq-worker --all-targets --all-features --locked --offline -- -D warnings",
+      "cargo fmt --package aq-worker --check",
+      "git diff --check"
+    ],
+    "source_association": "qualified bytes frozen unchanged into source_revision; every listed source byte verified via git show at that revision",
+    "ordinary_ignores": "three existing legacy actual-Git fixtures plus the new explicit pinned actual-Git test; new one separately run; old three remain prior independent qualification only",
+    "actual_git_boundary": "real Git public publisher/export and worker import/retention/workspace with actual checked-out file and released-retention refusal; HTTP coordinator, NativeOffer, preparation clocks and other input claims synthetic; no daemon/native host/provider/container qualification",
+    "diff_check_scope": "source diff passed before evidence retention; exact raw cargo logs preserve trailing blank lines, so staged evidence-only diff reports new blank line at EOF in worker.log and actual-git.log"
+  },
+  "git_producer": {
+    "repository": "aq-git",
+    "source_revision": "2035654eeda57ded8880ea3f518ff0b4d324fa49",
+    "binary_path_at_qualification": "/tmp/aq-wrk08-git-pin/aq-git",
+    "binary_sha256": "c2ff26f5e63008aec0fbd4082a547e87825e651d4aba0744c4b9fdf752d58c39",
+    "git_executable": "/usr/bin/git",
+    "git_version": "2.43.0",
+    "artifact_limits_customized": false,
+    "default_bundle_bytes": 1073741824,
+    "default_expanded_bytes": 10737418240,
+    "native_logical_reservation_bytes": 22549626880
+  },
+  "limits": {
+    "source_plans_per_attempt": 1,
+    "source_range_count_per_attempt": 512,
+    "chunk_bytes": 262144,
+    "manifest_bytes": 1048576,
+    "source_bundle_hard_verifier_bytes": 134217728,
+    "geometry_note": "manifest and bundle range ceilings must together be <=512, so a full128MiB bundle is refused",
+    "git_operations_per_attempt": 5,
+    "git_result_bytes_each": 32768,
+    "attempts": 64,
+    "journal_encoded_bytes": 8388608,
+    "default_git_reservation_formula": "2 * max_expanded_bytes + max_bundle_bytes + 1MiB",
+    "fixture_only_logical_reserved_bytes": 34359738368,
+    "default_capacity_integration": "eventual driver must derive Poll/Reserve envelope from qualified configured Git profile;2MiB fixture disk is incompatible; not wired here"
+  },
+  "review_findings_and_development_failures": [
+    "First real Git fixture reserved2GiB but unchanged default Git profile requires21GiB+1MiB; fixture logical reservation raised, no limits lowered and no physical capacity claim.",
+    "Actual fresh worker repository had no artifacts directory; owner now safely creates only documented private artifacts/incoming parents.",
+    "Source capture initially recorded the following revision rather than the prior captured revision expected by the common provenance validator; corrected before passing tests.",
+    "Static review found read-until-EOF after length sampling; replaced by exact admitted-length+one EOF read, final metadata/named fd checks, with growing-reader regression.",
+    "One full run exposed immediate snapshot overload after async cancellation; fixture now waits for actual held HTTP response entry and bounded retained blocking-owner drain; production fail-fast lanes unchanged.",
+    "Clippy collapsible-if development failure corrected; final strict lint passes."
+  ],
+  "not_qualified": [
+    "Prepare/input/source proof join",
+    "production native Poll/Reserve capacity advertisement",
+    "native host/process/Started/settlement",
+    "complete restart recovery or legacy format migration",
+    "physical ENOSPC, contention, power-loss or complete disk headroom",
+    "history-insensitive throughput or PB04 latency",
+    "supported packaged container deployment",
+    "provider or external notification delivery"
+  ],
+  "source_inventory": [
+    {
+      "path": "Cargo.lock",
+      "bytes": 61365,
+      "sha256": "f992996ebb580ad148fd2d60933d582c331c7a54ef15661da3f5b86969581807"
+    },
+    {
+      "path": "Cargo.toml",
+      "bytes": 1957,
+      "sha256": "ab94a646e1a9224b1c83769812d9e10d26ae5c5ecaa8a4e9d77322cc2036af9b"
+    },
+    {
+      "path": "crates/aq-worker-protocol/src/lib.rs",
+      "bytes": 24473,
+      "sha256": "c3c7cf66aa40d2d6a52009187231ae8e8e857c41c4c1c69ed327c5a600c72905"
+    },
+    {
+      "path": "crates/aq-worker-protocol/src/m4.rs",
+      "bytes": 6452,
+      "sha256": "89b5285310ae431908f630eba1ce9d99b793b73a2043af09745267c3fce2e4f7"
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "bytes": 1063,
+      "sha256": "16dacc0ff567052fa929e343b89fafe38a5342ade13a2bca971e131280ce7b13"
+    },
+    {
+      "path": "crates/aq-worker/src/native.rs",
+      "bytes": 5061,
+      "sha256": "7e9ad472bf66a6ba215fca6c37db42b07881cf78fd926c749b12150b255e8b41"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http.rs",
+      "bytes": 13577,
+      "sha256": "36891e7d795cc1fce85909bcecf41cf8efb6ff97b2e68786ee223bb5a94ee39b"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/control.rs",
+      "bytes": 12330,
+      "sha256": "60cc40638a5b1d8c4b29e26af429429c0ba0cddc29b1fd87efbe0ad2a6e36d33"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/source.rs",
+      "bytes": 5970,
+      "sha256": "d70ce9f50dc2bd63a20b7ab1fa2f4f610cbe992ea2b890a119da161a8406b7ab"
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration.rs",
+      "bytes": 10306,
+      "sha256": "20cbc7bc398f954dc60eac211905551707cd73ed1dcc3022a16e4194698b2cf8"
+    },
+    {
+      "path": "crates/aq-worker/src/native/hydration/files.rs",
+      "bytes": 19880,
+      "sha256": "7b3a555ce4002aacf75c8ff836df5e0ccc9cdfa2f07ee7128686f0e1ee649c7a"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal.rs",
+      "bytes": 22510,
+      "sha256": "df361ccd81d8f7f0f3c7acdf779335dbdec63d52296e44c53365e106fdabeb2d"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/hydration_scenarios.rs",
+      "bytes": 41158,
+      "sha256": "f51dd71b4ae3178726271fdd2ae0e41c39f278eb3dc35e57b4bc4df4a1904ff0"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs.rs",
+      "bytes": 14644,
+      "sha256": "6ef552e39406f6890bc8659cdfee52f942f8f206dc971867bd34a02f6d7bd391"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/inputs_scenarios.rs",
+      "bytes": 22720,
+      "sha256": "6829adaaddee541f65bec43ba01c347ea27e521721a075064078c0a6d2574b5c"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/source.rs",
+      "bytes": 15394,
+      "sha256": "26b21cf92f7c6c8193967d0c690709ae08c4e589997710fde595f4b2e94e0cbd"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/storage.rs",
+      "bytes": 6112,
+      "sha256": "8fcceb7b15dc0e927e1068aff412243984323636a0a8f0d05187a71655f68845"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/tests.rs",
+      "bytes": 15928,
+      "sha256": "372793f1c04fde85f8355825e947cacaf483798944b3cfb7d2cc774c06183048"
+    },
+    {
+      "path": "crates/aq-worker/src/native/materials.rs",
+      "bytes": 16615,
+      "sha256": "56f42261dd66de611ca37b8ab3862087c4d8f5cb1bc5885f3efe3f7d189006db"
+    },
+    {
+      "path": "crates/aq-worker/src/native/preparation.rs",
+      "bytes": 5891,
+      "sha256": "9eabdeb36e0c72a36a0b4e18ee03faa2a02cafde3d8adf314c06bcf54789cf01"
+    },
+    {
+      "path": "crates/aq-worker/src/source.rs",
+      "bytes": 57140,
+      "sha256": "dcdf1262b62b8526f0f795f93576600545b6a63e9219700a8d839beae62ee31f"
+    },
+    {
+      "path": "docs/implementation/WRK-08-native-hydration-slice.md",
+      "bytes": 7011,
+      "sha256": "4ec9ea2fca483b2b77717191e20f3b2805e8868d0a2692e6d0f77eba5e6f8611"
+    },
+    {
+      "path": "docs/implementation/WRK-08-native-journal-plan.md",
+      "bytes": 11725,
+      "sha256": "45e703722aa53f6e9bbb504222732b0dd8b321cec4d78d2665a91d55cd38a4b7"
+    },
+    {
+      "path": "docs/implementation/WRK-08-native-preparation-slice.md",
+      "bytes": 4144,
+      "sha256": "6d48a3fdf9da131cf5f4ed8bf1a209321e695b6610eaf6f5e16681007914839c"
+    },
+    {
+      "path": "vendor/aq-admission-0.1.7/src/execution_spec.rs",
+      "bytes": 6905,
+      "sha256": "b99b12222e4cf6becf3aa914b4295485fec588a504c6f529977cd3c3a4c10c89"
+    },
+    {
+      "path": "vendor/aq-admission-0.1.7/src/lib.rs",
+      "bytes": 18814,
+      "sha256": "231f5c76fbdb198bd78f84e3ede3f1bd5210de9aa7dc8fea7426a9202de3d23c"
+    },
+    {
+      "path": "vendor/aq-admission-0.1.7/src/startup.rs",
+      "bytes": 12182,
+      "sha256": "590d7c86ecc92a4d049c37fbba7818d01766b736eb51d58cf3a22d07182f8ba9"
+    },
+    {
+      "path": "vendor/aq-admission-0.1.7/src/transport.rs",
+      "bytes": 35252,
+      "sha256": "4f19c6c0bb728e781fb6349c4a994e28c31b0ff665fe11628c70169df9ceea50"
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/actual-git.log",
+      "bytes": 417,
+      "sha256": "4135bd59ae3c2100340d34429f2741a8e8f67cb8d824d7f354b7e6ca42b02a0d",
+      "role": "qualification"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/checks.json",
+      "bytes": 665,
+      "sha256": "bb03b418359487b8f59fc585fc1936ddfa876f8eb1ee911228a9776d742ab3ba",
+      "role": "qualification"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/clippy.log",
+      "bytes": 147,
+      "sha256": "920324713dd59f2f668f01cea887ef120243c7b5b4a35ba9a9a05f403bd559a8",
+      "role": "qualification"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/development-capacity-refusal.log",
+      "bytes": 1073,
+      "sha256": "e57faf8257706f7a5965f07c2c29d8f24334fa142c75484e676a2eca53aae04a",
+      "role": "development_failure"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/development-capture-revision.log",
+      "bytes": 2467,
+      "sha256": "85e55f2d13b11892adea1c81b839f7990a1a24f6bbd857bd0b6dd8d997e5ee67",
+      "role": "development_failure"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/development-clippy.log",
+      "bytes": 1281,
+      "sha256": "81a5021d0e4c1aa5eca9ceb22dd8bf9174f54f7240fcecb050bde2b33b03b0e3",
+      "role": "development_failure"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/development-missing-artifacts-dir.log",
+      "bytes": 1115,
+      "sha256": "f32e50204c5c548c49a8fdd3d555f39e1347cfaabcec00bf1cfe137583e363ac",
+      "role": "development_failure"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/development-test-synchronization.log",
+      "bytes": 5385,
+      "sha256": "78565805766235747b3a5bbf71d92bb6a116d8979e19d61a98f3eeeac4892222",
+      "role": "development_failure"
+    },
+    {
+      "path": "docs/implementation/evidence/wrk08-hydration-f14694e/worker.log",
+      "bytes": 16948,
+      "sha256": "50aec37b7f9c6c72d79cbcf0ff2e6906ddb36f9f45b6bec8867571a3fe2458bc",
+      "role": "qualification"
+    }
+  ]
+}

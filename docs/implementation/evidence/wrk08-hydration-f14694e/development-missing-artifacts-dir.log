@@ -1,0 +1,20 @@
+    Blocking waiting for file lock on package cache
+   Compiling aq-worker v0.3.3 (/tmp/aq-wrk08-preparation/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.05s
+     Running unittests src/lib.rs (/tmp/aq-wrk08-preparation-target/debug/deps/aq_worker-351e81ae6463e4ac)
+
+running 1 test
+
+thread 'native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace' (156811) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:689:10:
+called `Result::unwrap()` on an `Err` value: native source directory unavailable
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace ... FAILED
+
+failures:
+
+failures:
+    native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 31 filtered out; finished in 3.75s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

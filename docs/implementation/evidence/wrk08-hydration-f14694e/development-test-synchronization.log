@@ -1,0 +1,61 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-wrk08-preparation/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.66s
+     Running unittests src/lib.rs (/tmp/aq-wrk08-preparation-target/debug/deps/aq_worker-351e81ae6463e4ac)
+
+running 37 tests
+test native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace ... ignored, requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout
+test journal::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+test native::journal::tests::changed_private_root_permissions_refuse_further_capacity_or_writes ... ok
+test native::journal::tests::inputs_scenarios::old_format_refusal_does_not_rewrite_or_discard_pending ... ok
+test native::journal::tests::exclusive_owner_and_unsafe_paths_refuse ... ok
+test native::journal::tests::new_initialization_has_new_logical_boot_and_cannot_overwrite_existing_root ... ok
+test native::journal::tests::different_kernel_boot_is_historical_without_comparing_local_clocks ... ok
+test native::journal::tests::oversized_member_and_unknown_root_member_fail_closed ... ok
+test native::journal::tests::capacity_and_clock_limits_refuse_before_any_new_durable_record ... ok
+test native::journal::tests::expired_reservation_is_still_held_and_cannot_reaccept ... ok
+test native::journal::tests::root_replacement_cannot_redirect_an_open_writers_effects ... ok
+test native::journal::tests::missing_corrupt_newer_and_wrong_node_journals_are_not_empty_nodes ... ok
+test native::preparation::hydration::files::tests::growing_reader_is_bounded_and_metadata_changes_are_refused ... ok
+test native::journal::tests::reservation_acceptance_survive_restart_without_restoring_live_authority ... ok
+test native::journal::tests::symlink_hardlink_and_nonprivate_members_refuse ... ok
+test native::journal::tests::unknown_attempts_and_changed_acceptance_retries_do_not_consume_revision ... ok
+test native::journal::tests::actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap ... ok
+test native::preparation::hydration::files::tests::symlinks_and_special_members_are_never_followed ... ok
+test native::preparation::hydration::files::tests::marker_and_directory_replacement_stop_owned_writes ... ok
+test native::journal::tests::hydration_scenarios::missing_native_inspection_capabilities_refuse_without_adopting_source_plan ... ok
+test native::preparation::hydration::files::tests::empty_marker_and_foreign_published_artifact_are_held ... ok
+test native::journal::tests::inputs_scenarios::unknown_journal_write_prevents_http_and_reopen_never_reauthorizes ... ok
+test native::journal::tests::checksum_and_structural_association_are_both_checked_on_reopen ... ok
+test native::preparation::hydration::files::tests::digest_missing_prefix_and_unowned_tail_refuse_without_overwrite ... ok
+test native::journal::tests::inputs_scenarios::postrename_pin_survives_but_is_historical_and_never_recreates_material ... ok
+test native::journal::tests::hydration_scenarios::oversized_source_geometry_refuses_before_any_range_or_git_mutation ... ok
+test native::journal::tests::inputs_scenarios::installed_material_pin_is_independent_durable_and_has_no_plaintext ... ok
+test native::journal::tests::inputs_scenarios::original_request_associations_and_metadata_bounds_are_rechecked ... ok
+test native::preparation::hydration::files::tests::fsynced_tail_replays_exactly_and_complete_publish_reopens ... ok
+test native::journal::tests::inputs_scenarios::artifact_requests_are_durable_batched_exact_and_retry_keeps_ids ... ok
+test native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses ... ok
+test native::journal::tests::hydration_scenarios::held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range ... FAILED
+test native::journal::tests::hydration_scenarios::failed_range_is_exact_pending_and_format_two_is_never_upgraded ... ok
+test native::journal::tests::hydration_scenarios::actual_native_pipeline_journals_every_external_intent_and_keeps_lost_import_id ... ok
+test native::journal::tests::hydration_scenarios::historical_receipts_cannot_bypass_fresh_retention_or_head_checks ... ok
+test native::journal::tests::inputs_scenarios::expired_download_stays_pending_and_bulk_does_not_occupy_control ... ok
+test native::journal::tests::hydration_scenarios::source_file_sync_and_cursor_commit_faults_reopen_old_or_matching_new_history ... ok
+
+failures:
+
+---- native::journal::tests::hydration_scenarios::held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range' (165575) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:1003:47:
+called `Result::unwrap()` on an `Err` value: native input storage lane overloaded
+
+Caused by:
+    no permits available
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    native::journal::tests::hydration_scenarios::held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range
+
+test result: FAILED. 35 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+error: test failed, to rerun pass `-p aq-worker --lib`
