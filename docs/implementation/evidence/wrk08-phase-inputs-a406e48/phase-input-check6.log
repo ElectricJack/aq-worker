@@ -1,0 +1,19 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+error[E0308]: mismatched types
+   --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:246:51
+    |
+246 |         phase_proposal.choice.account_reference = material_lease.account_reference.clone();
+    |         ---------------------------------------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Text`, found `Label`
+    |         |
+    |         expected due to the type of this binding
+
+error[E0308]: mismatched types
+   --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:247:52
+    |
+247 |         phase_proposal.choice.endpoint_reference = material_lease.endpoint_reference.clone();
+    |         ----------------------------------------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Text`, found `Label`
+    |         |
+    |         expected due to the type of this binding
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `aq-worker` (lib test) due to 2 previous errors

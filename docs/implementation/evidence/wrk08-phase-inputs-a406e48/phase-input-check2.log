@@ -1,0 +1,28 @@
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+error[E0603]: function `canonical_digest` is private
+   --> crates/aq-worker/src/native/preparation/context.rs:30:56
+    |
+ 30 |             Self::Legacy(p) => crate::native::journal::canonical_digest(p.plan()),
+    |                                                        ^^^^^^^^^^^^^^^^ private function
+    |
+note: the function `canonical_digest` is defined here
+   --> crates/aq-worker/src/native/journal.rs:146:1
+    |
+146 | fn canonical_digest(value: &impl Serialize) -> Result<Digest> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `check` found for struct `std::sync::Arc<http::control::Preparation>` in the current scope
+   --> crates/aq-worker/src/native/preparation.rs:185:26
+    |
+185 |                 observed.check(&owner.journal, id)?;
+    |                          ^^^^^ method not found in `std::sync::Arc<http::control::Preparation>`
+
+error[E0599]: no method named `check` found for struct `std::sync::Arc<http::control::Preparation>` in the current scope
+   --> crates/aq-worker/src/native/preparation.rs:204:25
+    |
+204 |             preparation.check(&owner.journal, id)?;
+    |                         ^^^^^ method not found in `std::sync::Arc<http::control::Preparation>`
+
+Some errors have detailed explanations: E0599, E0603.
+For more information about an error, try `rustc --explain E0599`.
+error: could not compile `aq-worker` (lib) due to 3 previous errors

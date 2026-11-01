@@ -1,0 +1,21 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+error[E0433]: cannot find `http` in `super`
+   --> crates/aq-worker/src/native/hydration.rs:100:33
+    |
+100 |         preparation: Arc<super::http::preparation_v2::AcceptedPreparation>,
+    |                                 ^^^^ could not find `http` in `super`
+    |
+help: consider importing one of these modules
+    |
+  2 + use crate::native::http::preparation_v2;
+    |
+  2 + use crate::native::journal::preparation_v2;
+    |
+help: if you import `preparation_v2`, refer to it directly
+    |
+100 -         preparation: Arc<super::http::preparation_v2::AcceptedPreparation>,
+100 +         preparation: Arc<preparation_v2::AcceptedPreparation>,
+    |
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `aq-worker` (lib test) due to 1 previous error
