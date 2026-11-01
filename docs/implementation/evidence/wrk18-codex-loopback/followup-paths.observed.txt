@@ -1,0 +1,13 @@
+Diagnostic startup trace only; no failed tool exec syscall was observed in this instrumented repeat.
+Read/write bodies and environment values were not traced. Operator profile open resumed with fd3.
+
+710953 readlink("/proc/self/exe", "/memfd:aq-observed-elf (deleted)", 256) = 32
+710953 readlink("/memfd:aq-observed-elf (deleted)",  <unfinished ...>
+710953 readlink("/memfd:aq-observed-elf (deleted)", 0x7ffc83ad8c30, 4096) = -1 ENOENT (No such file or directory)
+710953 readlink("/proc/self/exe",  <unfinished ...>
+711010 execve("/usr/bin/git", ["/usr/bin/git", "-c", "safe.bareRepository=explicit", "ls-remote", "https://github.com/openai/plugins.git", "HEAD"], 0x7e83d20140a0 /* 8 vars */ <unfinished ...>
+711037 execve("/bin/bash", ["/bin/bash", "-lc", "if [ -z \"${BASH_ENV-}\" ] && [ -n \"${HOME-}\" ] && [ -r \"$HOME/.bashrc\" ]; then\n  . \"$HOME/.bashrc\"\nfi\necho '# Snapshot file'\necho '# Unset all aliases to avoid conflicts with functi"...], 0x7e83db669d10 /* 4 vars */ <unfinished ...>
+711037 openat(AT_FDCWD, "/home/jkern/.profile", O_RDONLY <unfinished ...>
+711024 +++ exited with 0 +++
+711073 execve("/usr/bin/git", ["/usr/bin/git", "-c", "safe.bareRepository=explicit", "-C", "/tmp/.tmpFCLf5C/codex-host/b4753c41-2cda-443a-8127-6312cf5b38ed/codex-home/.tmp/plugins-clone-DcCAlL", "fetch", "--depth", "1", "--no-tags", "https://github.com/openai/plugins.git", "+0722921d5542fc593105c27bd52630babd8b8c2a:refs/codex/curated-sync"], 0x7e83d2001080 /* 7 vars */) = 0
+711075 execve("/usr/lib/git-core/git-remote-https", ["/usr/lib/git-core/git-remote-https", "https://github.com/openai/plugins.git", "https://github.com/openai/plugins.git"], 0x59a5cff70390 /* 11 vars */) = 0

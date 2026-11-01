@@ -14,6 +14,9 @@ use crate::native::{
 use aq_session_host::observed::NativeExecPool;
 use axum::http::{HeaderMap, StatusCode};
 
+#[path = "codex_process_guard.rs"]
+mod confinement;
+
 const CODEX_SHA256: &str = "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8";
 const CODEX_BYTES: u64 = 319_346_888;
 const FINAL_TEXT: &str = "aq-local-response-proof";
@@ -47,7 +50,23 @@ fn completed(model: &str) -> String {
         event(json!({"type":"response.completed","response":{"id":"resp_aq_local","model":model,"status":"completed","output":[item],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}})),
     ].concat()
 }
+fn tool_call(model: &str) -> String {
+    let args =
+        json!({"cmd":"/usr/bin/printf aq-local-tool-proof | /usr/bin/tee aq-local-tool-proof.txt",
+        "login":false,"yield_time_ms":1000,"max_output_tokens":1000})
+        .to_string();
+    let item = json!({"type":"function_call","id":"fc_aq_local","call_id":"call_aq_local",
+        "name":"exec_command","arguments":args,"status":"completed"});
+    [event(json!({"type":"response.created","response":{"id":"resp_aq_tool","model":model,"status":"in_progress","output":[]}})),
+        event(json!({"type":"response.output_item.done","output_index":0,"item":item})),
+        event(json!({"type":"response.completed","response":{"id":"resp_aq_tool","model":model,"status":"completed","output":[item],
+            "usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}))].concat()
+}
 async fn provider() -> Provider {
+    provider_mode(false).await
+}
+async fn provider_mode(tool_flow: bool) -> Provider {
+    confinement::require_confined_fixture().expect("refuse unconfined real CLI qualification");
     let requests = Arc::new(Mutex::new(Vec::new()));
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Semaphore::new(0));
@@ -82,21 +101,23 @@ async fn provider() -> Provider {
                     "input_types":request["input"].as_array().unwrap().iter().map(|v|v["type"].clone()).collect::<Vec<_>>(),
                     "tools":request["tools"].as_array().unwrap().iter().map(|v|json!({"type":v["type"],"name":v["name"]})).collect::<Vec<_>>()
                 }));
-                {
+                let index = {
                     let mut all = saved.lock().unwrap();
-                    assert!(all.is_empty(), "one finite response only");
+                    let index = all.len();
+                    assert!(index < if tool_flow {2} else {1}, "finite provider request count");
                     all.push(request);
-                }
+                    index
+                };
                 signal.notify_one();
                 let _permit = gate.acquire().await.unwrap();
-                record_observation(&saved.lock().unwrap()[0], body.len());
+                if index == 0 {record_observation(&saved.lock().unwrap()[0], body.len(), tool_flow);}
                 (
                     StatusCode::OK,
                     [
                         ("content-type", "text/event-stream"),
                         ("cache-control", "no-store"),
                     ],
-                    completed(&model),
+                    if tool_flow && index == 0 {tool_call(&model)} else {completed(&model)},
                 )
             }
         }),
@@ -112,7 +133,7 @@ async fn provider() -> Provider {
         task,
     }
 }
-fn record_observation(request: &Value, upstream_bytes: usize) {
+fn record_observation(request: &Value, upstream_bytes: usize, tool_flow: bool) {
     let input = request["input"].as_array().unwrap();
     let implicit = &input[..input.len() - 1];
     let tools = &request["tools"];
@@ -152,7 +173,11 @@ fn record_observation(request: &Value, upstream_bytes: usize) {
                 .write(true)
                 .create_new(true)
                 .mode(0o600)
-                .open(root.join(name))
+                .open(root.join(if tool_flow {
+                    format!("tool-flow-{name}")
+                } else {
+                    name.to_owned()
+                }))
                 .unwrap();
             f.write_all(&serde_json::to_vec_pretty(&value).unwrap())
                 .unwrap();
@@ -509,4 +534,83 @@ async fn actual_codex_shutdown_during_delayed_started_keeps_unknown_receipt_afte
     stopped(&h, false).await;
     assert!(output.uploads.lock().unwrap().is_empty());
     assert!(peer.requests.lock().unwrap().len() <= 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "qualification probe: unified exec currently ENOENT; requires independently confined runtime and admitted helper route"]
+async fn actual_codex_exec_command_round_trip_uses_confined_workspace_and_actual_tool_output() {
+    let peer = provider_mode(true).await;
+    let (h, _git, _tx, task, _output) = begin_execution(&peer, false, false).await;
+    tokio::time::timeout(std::time::Duration::from_secs(12), peer.entered.notified())
+        .await
+        .unwrap();
+    assert_private_auth(&h).await;
+    {
+        let requests = peer.requests.lock().unwrap();
+        assert!(
+            requests[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["type"] == "function" && v["name"] == "exec_command")
+        );
+    }
+    peer.release.add_permits(1);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while peer.requests.lock().unwrap().len() < 2 {
+            peer.entered.notified().await;
+        }
+    })
+    .await
+    .unwrap();
+    {
+        let requests = peer.requests.lock().unwrap();
+        let outputs: Vec<_> = requests[1]["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v["type"] == "function_call_output" && v["call_id"] == "call_aq_local")
+            .collect();
+        assert_eq!(
+            outputs.len(),
+            1,
+            "actual CLI must return the exact controlled tool call"
+        );
+        let output = serde_json::to_string(&outputs[0]["output"]).unwrap();
+        assert!(
+            output.contains("aq-local-tool-proof"),
+            "actual local tool did not produce expected output: {output}"
+        );
+    }
+    let state = h.pipeline().snapshot().await.unwrap();
+    let created = state.attempts[&h.id].source.as_ref().unwrap().operations["create"]
+        .result
+        .as_ref()
+        .unwrap();
+    let workspace: crate::source::Workspace = serde_json::from_value(created.clone()).unwrap();
+    assert_eq!(
+        fs::read(workspace.path.join("aq-local-tool-proof.txt")).unwrap(),
+        b"aq-local-tool-proof"
+    );
+    peer.release.add_permits(1);
+    tokio::time::timeout(std::time::Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    stopped(&h, true).await;
+    let state = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(
+        state.attempts[&h.id]
+            .native_host
+            .as_ref()
+            .unwrap()
+            .stopped
+            .as_ref()
+            .unwrap()
+            .observation
+            .root_status,
+        Some(0)
+    );
+    assert_eq!(peer.requests.lock().unwrap().len(), 2);
 }
