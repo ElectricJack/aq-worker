@@ -1,0 +1,36 @@
+{
+  "files": {
+    "binary-pin.json": {
+      "sha256": "a79e0612d3b6ca635ab5a6ca36c99f38d9b35bb009a1b7c2acf4b5904b72c73e",
+      "bytes": 296
+    },
+    "clippy.log": {
+      "sha256": "1fef5fded567953a66166009969dc61c48d37cdfc93dfae2d3e85a2423f837c2",
+      "bytes": 138
+    },
+    "fmt.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "release.log": {
+      "sha256": "e1a18f9cc02a5621c8d982ff63fae4148489a968cfcc8dc173f5750d13489514",
+      "bytes": 935
+    },
+    "report.json": {
+      "sha256": "5f109691b84292ed69dde33657da5672018a3b0b8311edac0dc1aabf07ed4a17",
+      "bytes": 1343
+    },
+    "source-sha256.json": {
+      "sha256": "a2bfe9f63cba5e04c4294679d08e754afce01210639872fa632cd74b9c14cf61",
+      "bytes": 313
+    },
+    "superseded-test-fixture-path.log": {
+      "sha256": "85eab5d67f081c7d018a8298df0ec14fe2f1dab29f8ae49a0abf7a342f4de312",
+      "bytes": 892
+    },
+    "tests.log": {
+      "sha256": "23f6ceb6c542eb7205307b3bd91bc47d1e7db0c6299c70064711657284377dde",
+      "bytes": 754
+    }
+  }
+}

@@ -1,0 +1,16 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-phase-history/crates/aq-worker)
+error: couldn't read `crates/aq-worker/src/bin/../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json`: No such file or directory (os error 2)
+   --> crates/aq-worker/src/bin/native-prepare-smoke.rs:657:59
+    |
+657 |           let f: serde_json::Value = serde_json::from_slice(include_bytes!(
+    |  ___________________________________________________________^
+658 | |             "../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json"
+659 | |         ))
+    | |_________^
+    |
+help: there is a file with the same name in a different directory
+    |
+658 |             "../../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json"
+    |                       +++
+
+error: could not compile `aq-worker` (bin "native-prepare-smoke" test) due to 1 previous error

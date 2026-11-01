@@ -1,0 +1,34 @@
+{
+  "source": "ed21fbe2825142535f74dead475a426fcde8aa46",
+  "base": "64e5296",
+  "scope": "opt-in native-prepare-smoke test-support binary only",
+  "flag": "phase_preparation.history_after_lost_execution=true",
+  "prerequisites": [
+    "prepare_inputs",
+    "prepare_execution",
+    "synthetic_host absent"
+  ],
+  "allowed_trigger": "actual HttpStatus503 only; success/other status/transport errors refuse",
+  "result": "phase_history_only with history_request/history_receipt/history_revision",
+  "guarantees": [
+    "actual exclusive Prepared owner retained through emit",
+    "known Prepare digest/guardian/launch/reservation/runtime/qualification checked",
+    "journal revision unchanged",
+    "phase_execution and native_host remain absent",
+    "no execution_delivery or local permission constructed",
+    "no record_phase_execution/host/renewal/cleanup path"
+  ],
+  "unit_tests": {
+    "passed": 4,
+    "seconds": 0.01
+  },
+  "strict_all_target_all_feature_clippy_seconds": 0.48,
+  "fmt": "pass",
+  "release_build_seconds": 68,
+  "limitations": [
+    "actual daemon lost-reply process not claimed by this source evidence",
+    "no full package rerun for opt-in binary addition",
+    "no resumed live authority, no source/effect release",
+    "initial test fixture include path compile error retained and corrected before freeze"
+  ]
+}

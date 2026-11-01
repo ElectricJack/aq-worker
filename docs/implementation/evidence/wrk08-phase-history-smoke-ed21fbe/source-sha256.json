@@ -1,0 +1,10 @@
+{
+  "revision": "ed21fbe2825142535f74dead475a426fcde8aa46",
+  "client_revision": "85ba8096d2419c207545ab6e807191bdbe2c1f3b",
+  "files": {
+    "crates/aq-worker/src/bin/native-prepare-smoke.rs": {
+      "sha256": "7ab5c1e11f7ed0140811d9c480aad01fb72bab59f5af9a07464dc155c6aa03cf",
+      "bytes": 29650
+    }
+  }
+}
