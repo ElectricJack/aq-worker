@@ -1,32 +1,6 @@
 use super::*;
 use std::ffi::CString;
 
-fn cpath(path: &Path) -> Result<CString> {
-    Ok(CString::new(path.as_os_str().as_encoded_bytes())?)
-}
-fn mount(
-    source: Option<&std::ffi::CStr>,
-    target: &Path,
-    kind: Option<&std::ffi::CStr>,
-    flags: libc::c_ulong,
-    data: Option<&std::ffi::CStr>,
-) -> Result<()> {
-    let target = cpath(target)?;
-    ensure!(
-        unsafe {
-            libc::mount(
-                source.map_or(std::ptr::null(), |s| s.as_ptr()),
-                target.as_ptr(),
-                kind.map_or(std::ptr::null(), |s| s.as_ptr()),
-                flags,
-                data.map_or(std::ptr::null(), |s| s.as_ptr()).cast(),
-            )
-        } == 0,
-        "capsule mount: {}",
-        std::io::Error::last_os_error()
-    );
-    Ok(())
-}
 fn write(path: &str, body: &str) -> Result<()> {
     use std::io::Write;
     let mut file = OpenOptions::new().write(true).open(path)?;
@@ -213,116 +187,6 @@ fn loopback() -> Result<()> {
     );
     Ok(())
 }
-fn filesystem(plan: &PlanRecord, files: &[File]) -> Result<()> {
-    mount(
-        None,
-        Path::new("/"),
-        None,
-        libc::MS_REC | libc::MS_PRIVATE,
-        None,
-    )?;
-    mount(
-        Some(c"tmpfs"),
-        &plan.root,
-        Some(c"tmpfs"),
-        libc::MS_NOSUID | libc::MS_NODEV,
-        Some(c"size=16m,mode=0700"),
-    )?;
-    for name in ["proc", "dev", "tmp", "allowed", ".old-root"] {
-        std::fs::create_dir(plan.root.join(name))?;
-    }
-    for (record, source) in plan.grants.iter().zip(&files[3..]) {
-        let target = plan.root.join(record.target.relative()?);
-        std::fs::create_dir_all(&target)?;
-        // Re-anchor only the exact retained object in the cloned namespace.
-        // Linux rejects the original-namespace FD, never justify an unchecked
-        // mutable path fallback from that error.
-        #[repr(C)]
-        struct OpenHow {
-            flags: u64,
-            mode: u64,
-            resolve: u64,
-        }
-        let how = OpenHow {
-            flags: (libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) as u64,
-            mode: 0,
-            resolve: 2 | 4,
-        };
-        let route = cpath(&record.source)?;
-        let anchor = unsafe {
-            libc::syscall(
-                libc::SYS_openat2,
-                libc::AT_FDCWD,
-                route.as_ptr(),
-                &how,
-                std::mem::size_of::<OpenHow>(),
-            )
-        };
-        ensure!(
-            anchor >= 0,
-            "capsule checked source re-anchor: {}",
-            std::io::Error::last_os_error()
-        );
-        let anchor = unsafe { File::from_raw_fd(anchor as RawFd) };
-        record.pin.verify(&anchor)?;
-        record.pin.verify(source)?;
-        let tree = unsafe {
-            libc::syscall(
-                libc::SYS_open_tree,
-                anchor.as_raw_fd(),
-                c"".as_ptr(),
-                libc::AT_EMPTY_PATH | 1 | libc::O_CLOEXEC,
-            )
-        };
-        ensure!(
-            tree >= 0,
-            "capsule retained open_tree: {}",
-            std::io::Error::last_os_error()
-        );
-        let tree = unsafe { OwnedFd::from_raw_fd(tree as RawFd) };
-        let target_path = cpath(&target)?;
-        ensure!(
-            unsafe {
-                libc::syscall(
-                    libc::SYS_move_mount,
-                    tree.as_raw_fd(),
-                    c"".as_ptr(),
-                    libc::AT_FDCWD,
-                    target_path.as_ptr(),
-                    4u32,
-                )
-            } == 0,
-            "capsule exact move_mount: {}",
-            std::io::Error::last_os_error()
-        );
-        let flags = libc::MS_BIND
-            | libc::MS_REMOUNT
-            | libc::MS_NOSUID
-            | libc::MS_NODEV
-            | if record.writable { 0 } else { libc::MS_RDONLY };
-        mount(None, &target, None, flags, None)?;
-    }
-    std::env::set_current_dir(&plan.root)?;
-    ensure!(
-        unsafe { libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".old-root".as_ptr()) } == 0,
-        "capsule pivot_root: {}",
-        std::io::Error::last_os_error()
-    );
-    std::env::set_current_dir("/")?;
-    ensure!(
-        unsafe { libc::umount2(c"/.old-root".as_ptr(), libc::MNT_DETACH) } == 0,
-        "capsule detach old root"
-    );
-    std::fs::remove_dir("/.old-root")?;
-    mount(
-        Some(c"proc"),
-        Path::new("/proc"),
-        Some(c"proc"),
-        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
-        None,
-    )?;
-    Ok(())
-}
 fn remap(
     files: Vec<File>,
     control: wire::Socket,
@@ -415,7 +279,7 @@ fn exec(plan: PlanRecord, control: wire::Socket, port: u16) -> Result<()> {
 }
 fn init(plan: PlanRecord, files: Vec<File>, control: wire::Socket) -> Result<()> {
     ensure!(std::process::id() == 1, "capsule init identity");
-    filesystem(&plan, &files)?;
+    super::mounts::enter(&plan, &files)?;
     loopback()?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
     let port = listener.local_addr()?.port();
@@ -476,15 +340,7 @@ pub(super) fn run(
             && unsafe { libc::getppid() } as u32 == guardian,
         "capsule setup parent fence"
     );
-    let uid = unsafe { libc::getuid() };
-    let gid = unsafe { libc::getgid() };
-    ensure!(
-        unsafe { libc::unshare(libc::CLONE_NEWUSER) } == 0,
-        "capsule user namespace"
-    );
-    write("/proc/thread-self/setgroups", "deny\n")?;
-    write("/proc/thread-self/uid_map", &format!("{uid} {uid} 1\n"))?;
-    write("/proc/thread-self/gid_map", &format!("{gid} {gid} 1\n"))?;
+    user_namespace()?;
     ensure!(
         unsafe {
             libc::unshare(
@@ -518,4 +374,21 @@ pub(super) fn run(
         "capsule bootstrap wait"
     );
     unsafe { libc::_exit(0) }
+}
+
+pub(super) fn user_namespace() -> Result<()> {
+    ensure!(
+        unsafe { libc::geteuid() } != 0,
+        "capsule rootless helper required"
+    );
+    let uid = unsafe { libc::getuid() };
+    let gid = unsafe { libc::getgid() };
+    ensure!(
+        unsafe { libc::unshare(libc::CLONE_NEWUSER) } == 0,
+        "capsule user namespace"
+    );
+    write("/proc/thread-self/setgroups", "deny\n")?;
+    write("/proc/thread-self/uid_map", &format!("{uid} {uid} 1\n"))?;
+    write("/proc/thread-self/gid_map", &format!("{gid} {gid} 1\n"))?;
+    Ok(())
 }

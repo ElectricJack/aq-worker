@@ -1,6 +1,7 @@
 //! Isolated test-support-only static capsule assembly. No production authority.
 //! Caller mount grants are trusted input, not private-root authorization.
 mod guardian;
+mod mounts;
 mod seal;
 mod setup;
 mod wire;
@@ -469,6 +470,10 @@ impl CapsuleHandle {
     }
 }
 pub fn helper_main() -> Result<()> {
+    let args: Vec<_> = std::env::args_os().collect();
+    if args.len() == 3 && args[1] == "probe-root-mount" {
+        return mounts::probe(Path::new(&args[2]));
+    }
     ensure!(
         cfg!(target_arch = "x86_64")
             && std::env::args().collect::<Vec<_>>()

@@ -12,6 +12,35 @@ use std::{
     time::{Duration, Instant},
 };
 const _: () = assert!(!PRODUCTION_ELIGIBLE);
+#[test]
+#[ignore = "explicit rootless FD-root and real submount canary; no agent/provider"]
+fn pinned_root_survives_path_replacement_and_real_submount_is_refused() {
+    let scratch = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(scratch.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_aq-session-capsule-candidate"))
+        .arg("probe-root-mount")
+        .arg(scratch.path())
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        std::fs::read_dir(scratch.path().join("root"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+    assert!(
+        std::fs::read_dir(scratch.path().join("moved-root"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+}
 struct Fixture {
     _root: tempfile::TempDir,
     plan: StaticCapsulePlan,

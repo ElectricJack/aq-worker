@@ -44,6 +44,22 @@ newly retained exact object. A missing, replaced or symlinked route refuses;
 there is no unchecked source-path fallback. Fresh root must be
 canonical, owner-private, empty and outside every granted source root.
 
+Root attachment repeats that checked re-anchor at setup use. A detached tmpfs
+is built with fsopen/fsconfig/fsmount and attached with move_mount using empty
+source and target paths on the retained descriptors. Construction and pivot
+use fchdir of the retained tmpfs-root descriptor; the original root pathname
+is never reused after anchoring. The scratch probe replaces that pathname
+after anchoring and proves attachment/pivot still use the original object.
+
+This first candidate supports **submount-free grant trees only**. Setup reads
+bounded current-namespace mountinfo and rejects a mountpoint strictly beneath
+any granted source before nonrecursive cloning; a real child-mount negative
+tests this requirement. Private propagation and trusted single-threaded setup
+prevent an untrusted mount writer from racing that pre-exec check. Existing
+inherited locked submounts may already cause Linux to reject a nonrecursive
+clone; this requirement is an explicit supported-domain limit, not a claim
+that such a rootless inherited-submount escape was demonstrated.
+
 **Grant selection is caller-trusted.** The primitive does not discover private
 node roots or decide whether a folder is authorized. Granting a folder which
 contains original credentials exposes those contents; directory modes and role
@@ -106,7 +122,9 @@ before spawning. After its polling deadline, it sends best-effort SIGKILL and
 transfers the still-owned Child into that existing nonblocking reaper; it never
 calls an unbounded wait after kill. Unknown cleanup keeps the reserved capacity
 until the helper is actually reaped. This is ownership bookkeeping, not ECHILD
-or stop evidence. A listener FD already taken by the caller
+or subtree stop evidence, and never authorizes workspace/auth/resource release.
+Uncertain cleanup stays unqualified even if the parent helper is later reaped.
+A listener FD already taken by the caller
 is caller-owned; this primitive does not claim transport cancellation, key
 revocation, durable cleanup or resource release for that external owner.
 
@@ -161,3 +179,11 @@ qualification. Compiler/static libc are opt-in test tools; the primitive has
 no bwrap runtime or external service dependency. No Codex, provider, tmux or
 actual SourcePin was used. See
 [the bounded evidence summary](evidence/wrk17-static-capsule-assembly/summary.json).
+
+Review corrections supersede the initial four-case run above: five static
+cases pass in 2.79s, including the deterministic FD-root path-replacement and
+real-submount probe. Strict all-target/all-feature Clippy passes in 3.18s. The
+new immediate-timeout owner test passes without waiting for the five-second
+deadline; it exercises the existing reaper handoff and emits no stopped proof.
+The final host unit run passes 34 tests in 0.19s (three existing fixtures
+ignored), and the unaffected default binary check passes in 0.07s.
