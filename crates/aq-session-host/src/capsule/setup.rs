@@ -237,19 +237,38 @@ fn exec(plan: PlanRecord, control: wire::Socket, port: u16) -> Result<()> {
     )?;
     let packet = control.recv::<Message>(plan.deadline)?;
     ensure!(
-        packet.credentials.pid == 0
-            && packet.fd.is_none()
-            && matches!(packet.value, Message::Release { nonce } if nonce == plan.nonce),
-        "capsule exact ancestor release"
+        packet.credentials.pid == 0 && packet.fd.is_none(),
+        "capsule trusted ancestor sender"
     );
+    let (selected_arguments, selected_environment) = if plan.prepared.is_some() {
+        let Message::Commit(record) = packet.value else {
+            bail!("prepared commit missing")
+        };
+        super::prepared::verify_exec(&plan, port, &record)?.into_parts()
+    } else {
+        ensure!(
+            matches!(packet.value,Message::Release{nonce} if nonce==plan.nonce),
+            "capsule exact ancestor release"
+        );
+        (
+            plan.arguments.clone(),
+            vec![
+                ("PATH".into(), "/usr/bin:/bin".into()),
+                (
+                    "AQ_CAPSULE_ENDPOINT".into(),
+                    format!("http://127.0.0.1:{port}"),
+                ),
+            ],
+        )
+    };
     let mut arguments = vec![CString::new("aq-static-capsule-peer")?];
-    for argument in plan.arguments {
+    for argument in selected_arguments {
         arguments.push(CString::new(argument)?);
     }
-    let environment = [
-        CString::new("PATH=/usr/bin:/bin")?,
-        CString::new(format!("AQ_CAPSULE_ENDPOINT=http://127.0.0.1:{port}"))?,
-    ];
+    let environment = selected_environment
+        .into_iter()
+        .map(|(k, v)| CString::new(format!("{k}={v}")))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut argv = arguments.iter().map(|a| a.as_ptr()).collect::<Vec<_>>();
     argv.push(std::ptr::null());
     let mut env = environment.iter().map(|a| a.as_ptr()).collect::<Vec<_>>();

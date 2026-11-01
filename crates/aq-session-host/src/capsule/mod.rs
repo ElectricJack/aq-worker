@@ -2,6 +2,11 @@
 //! Caller mount grants are trusted input, not private-root authorization.
 mod guardian;
 mod mounts;
+mod prepared;
+pub use prepared::{
+    CandidateCommit, CandidatePreparedHandle, CandidatePreparedInfo, CandidatePreparedStopReport,
+    CandidatePublishedInputs, CandidateStaticRecipe,
+};
 mod seal;
 mod setup;
 mod wire;
@@ -141,6 +146,8 @@ struct GrantRecord {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PlanRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prepared: Option<prepared::PreparedSpec>,
     nonce: Uuid,
     deadline: u64,
     root: PathBuf,
@@ -225,6 +232,7 @@ impl StaticCapsulePlan {
             .collect();
         Ok(Self {
             record: PlanRecord {
+                prepared: None,
                 nonce: Uuid::new_v4(),
                 deadline: deadline_boot_ms,
                 root: root.into(),
@@ -262,15 +270,42 @@ pub struct CapsuleWitness {
 #[serde(deny_unknown_fields)]
 enum Message {
     Plan(PlanRecord),
-    Descriptor { nonce: Uuid, index: usize },
-    Init { nonce: Uuid, inner_pid: u32 },
-    Listener { nonce: Uuid, port: u16 },
-    Harness { nonce: Uuid, inner_pid: u32 },
-    Release { nonce: Uuid },
+    Descriptor {
+        nonce: Uuid,
+        index: usize,
+    },
+    Init {
+        nonce: Uuid,
+        inner_pid: u32,
+    },
+    Listener {
+        nonce: Uuid,
+        port: u16,
+    },
+    Harness {
+        nonce: Uuid,
+        inner_pid: u32,
+    },
+    Release {
+        nonce: Uuid,
+    },
     Ready(CapsuleWitness),
-    Stop { nonce: Uuid },
-    Stopped { nonce: Uuid, reaped: u64 },
-    StoppedAck { nonce: Uuid },
+    Stop {
+        nonce: Uuid,
+    },
+    Stopped {
+        nonce: Uuid,
+        reaped: u64,
+    },
+    StoppedAck {
+        nonce: Uuid,
+    },
+    Prepared(CandidatePreparedInfo),
+    Commit(prepared::CommitRecord),
+    PreparedStopped {
+        info: CandidatePreparedInfo,
+        reaped: u64,
+    },
 }
 /// Candidate-only proof; cannot be promoted into an existing stopped-writer wire.
 pub struct CapsuleStopReport {
@@ -338,65 +373,8 @@ pub struct CapsuleHandle {
 }
 impl CapsuleHandle {
     pub fn spawn(helper: &PinnedHelper, plan: StaticCapsulePlan) -> Result<Self> {
-        let reaper = crate::reaper::Slot::reserve()?;
-        let (control, child_socket) = wire::Socket::pair()?;
-        let child_fd = child_socket.raw();
-        let helper_fd = helper.file.as_raw_fd();
-        let mut command = Command::new("/proc/self/fd/4");
-        command
-            .arg("3")
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        unsafe {
-            command.pre_exec(move || {
-                if libc::syscall(
-                    libc::SYS_close_range,
-                    3u32,
-                    u32::MAX,
-                    libc::CLOSE_RANGE_CLOEXEC,
-                ) < 0
-                {
-                    return Err(std::io::Error::last_os_error());
-                }
-                let image = libc::fcntl(helper_fd, libc::F_DUPFD_CLOEXEC, 64);
-                let channel = libc::fcntl(child_fd, libc::F_DUPFD_CLOEXEC, 64);
-                if image < 0
-                    || channel < 0
-                    || libc::dup2(image, 4) < 0
-                    || libc::fcntl(4, libc::F_SETFD, libc::FD_CLOEXEC) < 0
-                    || libc::dup2(channel, 3) < 0
-                    || libc::fcntl(3, libc::F_SETFD, 0) < 0
-                {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-        let child = command.spawn()?;
-        let guardian_pid = child.id();
-        drop(child_socket);
-        let owner = ChildOwner {
-            guardian: Some((child, reaper)),
-            control: Some(control),
-        };
+        let (owner, guardian_pid) = spawn_guardian(helper, &plan)?;
         let socket = owner.control.as_ref().unwrap();
-        socket.send(
-            &Message::Plan(plan.record.clone()),
-            None,
-            plan.record.deadline,
-        )?;
-        for (index, file) in plan.files.iter().enumerate() {
-            socket.send(
-                &Message::Descriptor {
-                    nonce: plan.record.nonce,
-                    index,
-                },
-                Some(file.as_raw_fd()),
-                plan.record.deadline,
-            )?;
-        }
         let packet = socket.recv::<Message>(plan.record.deadline)?;
         ensure!(
             packet.credentials.pid as u32 == guardian_pid,
@@ -469,6 +447,70 @@ impl CapsuleHandle {
         })
     }
 }
+
+fn spawn_guardian(helper: &PinnedHelper, plan: &StaticCapsulePlan) -> Result<(ChildOwner, u32)> {
+    let reaper = crate::reaper::Slot::reserve()?;
+    let (control, child_socket) = wire::Socket::pair()?;
+    let child_fd = child_socket.raw();
+    let helper_fd = helper.file.as_raw_fd();
+    let mut command = Command::new("/proc/self/fd/4");
+    command
+        .arg("3")
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    unsafe {
+        command.pre_exec(move || {
+            if libc::syscall(
+                libc::SYS_close_range,
+                3u32,
+                u32::MAX,
+                libc::CLOSE_RANGE_CLOEXEC,
+            ) < 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            let image = libc::fcntl(helper_fd, libc::F_DUPFD_CLOEXEC, 64);
+            let channel = libc::fcntl(child_fd, libc::F_DUPFD_CLOEXEC, 64);
+            if image < 0
+                || channel < 0
+                || libc::dup2(image, 4) < 0
+                || libc::fcntl(4, libc::F_SETFD, libc::FD_CLOEXEC) < 0
+                || libc::dup2(channel, 3) < 0
+                || libc::fcntl(3, libc::F_SETFD, 0) < 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let child = command.spawn()?;
+    let guardian_pid = child.id();
+    drop(child_socket);
+    let owner = ChildOwner {
+        guardian: Some((child, reaper)),
+        control: Some(control),
+    };
+    let socket = owner.control.as_ref().unwrap();
+    socket.send(
+        &Message::Plan(plan.record.clone()),
+        None,
+        plan.record.deadline,
+    )?;
+    for (index, file) in plan.files.iter().enumerate() {
+        socket.send(
+            &Message::Descriptor {
+                nonce: plan.record.nonce,
+                index,
+            },
+            Some(file.as_raw_fd()),
+            plan.record.deadline,
+        )?;
+    }
+    Ok((owner, guardian_pid))
+}
+
 pub fn helper_main() -> Result<()> {
     let args: Vec<_> = std::env::args_os().collect();
     if args.len() == 3 && args[1] == "probe-root-mount" {

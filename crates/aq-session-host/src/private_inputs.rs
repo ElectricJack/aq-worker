@@ -223,13 +223,16 @@ fn capability(bytes: &[u8]) -> Result<()> {
 }
 fn verify_scoped_auth(auth: &[u8], pin: &ScopedAuthPin) -> Result<()> {
     pin.scope.validate()?;
+    verify_local_capability_auth(auth, &pin.capability_digest)
+}
+pub(crate) fn verify_local_capability_auth(auth: &[u8], expected: &Digest) -> Result<()> {
     let key = auth
         .strip_prefix(b"{\"OPENAI_API_KEY\":\"")
         .and_then(|v| v.strip_suffix(b"\"}"))
         .context("scoped Codex auth encoding")?;
     capability(key)?;
     ensure!(
-        Digest::of(key) == pin.capability_digest,
+        Digest::of(key) == *expected,
         "scoped Codex capability changed"
     );
     Ok(())
