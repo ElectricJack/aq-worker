@@ -1,0 +1,12 @@
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+warning: unused import: `MaterialReceipt`
+ --> crates/aq-worker/src/native/preparation/granted/presence.rs:3:20
+  |
+3 | use aq_admission::{MaterialReceipt, scoped_presence as wire, transport::WorkerIdentity};
+  |                    ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aq-worker` (lib) generated 1 warning (run `cargo fix --lib -p aq-worker` to apply 1 suggestion)
+warning: `aq-worker` (lib test) generated 1 warning (1 duplicate)
+    Finished `dev` profile [unoptimized] target(s) in 5.54s

@@ -1,0 +1,25 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 7.32s
+     Running unittests src/lib.rs (/tmp/aq-worker-presence-target/debug/deps/aq_worker-07265dd947b501fa)
+
+running 17 tests
+test native::journal::tests::hydration_scenarios::presence_scenarios::cancelled_actual_read_remains_owned_and_is_published_only_by_explicit_retry ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::actual_private_read_publishes_exact_initial_scope_without_global_installation_claim ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::changed_installation_record_is_negative_without_serializing_untrusted_record ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::cancelled_network_publication_keeps_original_body_for_exact_retry ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::exact_presence_retry_never_recaptures_private_bytes_or_extends_observation ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::expired_initial_token_never_reads_or_publishes_positive ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::formatted_definition_is_accepted_and_pipeline_publisher_cannot_be_reset ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::failed_factory_does_not_burn_singleton_and_old_inventory_cannot_name_new_report ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::historical_private_files_and_received_grant_cannot_construct_a_new_positive_producer ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::inventory_lost_ack_keeps_original_operation_seed_and_conservative_deadline ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::full_read_interval_is_bounded_even_with_a_still_live_initial_grant ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::namespace_replacement_during_actual_read_is_never_positive_even_with_same_bytes ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::opaque_token_and_inventory_from_other_pipeline_cannot_be_rebound ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::saturated_bulk_reads_do_not_consume_scoped_control_publication ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::positive_cannot_survive_expiry_during_read_but_scoped_missing_can ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::wrong_or_oversized_receipts_fail_closed_and_keep_identical_operation ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::unsafe_or_absent_private_members_never_become_positive ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 66 filtered out; finished in 10.51s
+

@@ -1,0 +1,38 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking aq-session-protocol v0.1.0 (/tmp/aq-worker-scoped-presence/crates/aq-session-protocol)
+    Checking aq-protocol v0.1.0 (/tmp/aq-worker-scoped-presence/crates/aq-protocol)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-worker-scoped-presence/crates/aq-worker-protocol)
+    Checking aq-terminal-relay-protocol v0.1.0 (/tmp/aq-worker-scoped-presence/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-lifecycle-protocol v0.1.0 (/tmp/aq-worker-scoped-presence/crates/aq-lifecycle-protocol)
+    Checking aq-session-host v0.1.4 (/tmp/aq-worker-scoped-presence/crates/aq-session-host)
+    Checking aq-admission v0.1.9 (/tmp/aq-worker-scoped-presence/vendor/aq-admission-0.1.9)
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+error: this `if` statement can be collapsed
+   --> crates/aq-worker/src/native/preparation/granted/presence.rs:686:9
+    |
+686 | /         if lock(&operation.inner.tx)?.first_sent_ns.is_none() {
+687 | |             if let Err(error) = current_inventory(&*lock(&self.state)?, &operation.inner.inventory)
+688 | |             {
+689 | |                 *lock(&operation.inner.stage)? = Stage::Failed;
+...   |
+692 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+686 ~         if lock(&operation.inner.tx)?.first_sent_ns.is_none()
+687 ~             && let Err(error) = current_inventory(&*lock(&self.state)?, &operation.inner.inventory)
+688 |             {
+689 |                 *lock(&operation.inner.stage)? = Stage::Failed;
+690 |                 return Err(error);
+691 ~             }
+    |
+
+error: could not compile `aq-worker` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aq-worker` (lib test) due to 1 previous error
