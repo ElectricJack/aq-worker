@@ -1,0 +1,9 @@
+    Checking aq-session-protocol v0.1.0 (/tmp/aq-worker-phase-http/crates/aq-session-protocol)
+    Checking aq-protocol v0.1.0 (/tmp/aq-worker-phase-http/crates/aq-protocol)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-worker-phase-http/crates/aq-worker-protocol)
+    Checking aq-terminal-relay-protocol v0.1.0 (/tmp/aq-worker-phase-http/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-lifecycle-protocol v0.1.0 (/tmp/aq-worker-phase-http/crates/aq-lifecycle-protocol)
+    Checking aq-session-host v0.1.4 (/tmp/aq-worker-phase-http/crates/aq-session-host)
+    Checking aq-admission v0.1.9 (/tmp/aq-worker-phase-http/vendor/aq-admission-0.1.9)
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-phase-http/crates/aq-worker)
+    Finished `dev` profile [unoptimized] target(s) in 8.70s

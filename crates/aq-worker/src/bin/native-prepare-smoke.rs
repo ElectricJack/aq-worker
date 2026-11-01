@@ -1,5 +1,5 @@
 //! Explicit test-support process: real input owners through initial Grant only.
-//! No host, provider, grant persistence, resume, cleanup or production activation.
+//! Includes durable received Grant history; no host, provider, resume or cleanup.
 use anyhow::{Context, Result, ensure};
 use aq_admission::{
     ArtifactKind, Resources,
@@ -12,7 +12,7 @@ use aq_worker::{
         http::NativeClient,
         journal::{Journal, Limits, RuntimeIdentity},
         materials::MaterialStore,
-        preparation::InputPipeline,
+        preparation::{GrantCommit, InputPipeline},
     },
     source::GitClient,
 };
@@ -45,6 +45,14 @@ struct Config {
     capabilities: Vec<Capability>,
     features: Vec<Feature>,
     renderer: ArtifactRef,
+    phase_preparation: Option<PhaseConfig>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PhaseConfig {
+    negotiation: aq_admission::preparation_v2::Negotiation,
+    source_profile: ArtifactRef,
+    maximum_preparation_ms: u64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -208,6 +216,55 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         deadline,
         disk,
     )?;
+    if let Some(phase) = config.phase_preparation {
+        *stage = "phase_proposal";
+        let proposed = client
+            .propose_preparation(
+                &journal.state().identity,
+                &offer,
+                &phase.negotiation,
+                deadline,
+            )
+            .await?;
+        *stage = "phase_accept_intent";
+        let request = journal.begin_phase_accept(
+            id,
+            &proposed,
+            config.capabilities,
+            phase.source_profile,
+            phase.maximum_preparation_ms,
+        )?;
+        *stage = "phase_accept";
+        let observed = client.accept_preparation(&proposed, &request, None).await?;
+        *stage = "phase_received_history";
+        let first = journal.record_phase_preparation(id, &observed)?;
+        journal.check_phase_preparation(id, &observed)?;
+        // Wait a full original delivery duration from now, then check the real
+        // replay's server clock. This test pause changes no lease or deadline.
+        let pause_ms = offer
+            .offered
+            .clock
+            .valid_for_ms
+            .checked_add(100)
+            .context("phase probe pause overflow")?;
+        ensure!(pause_ms <= 5000, "bounded phase probe pause required");
+        tokio::time::sleep(std::time::Duration::from_millis(pause_ms)).await;
+        *stage = "phase_replay";
+        let replay = client
+            .accept_preparation(&proposed, &request, Some(&observed))
+            .await?;
+        let retained = journal.record_phase_preparation(id, &replay)?;
+        let cap = journal.check_phase_preparation(id, &replay)?;
+        current_root(&config.root, &held)?;
+        emit(
+            &json!({"phase":"accepted_preparation","request":request,"proposal":proposed.proposal(),
+            "initial_delivery":observed.delivery(),"replay_delivery":replay.delivery(),
+            "history":retained,"first_history":first,"journal_revision":journal.state().revision,
+            "journal_format":journal.state().format,"original_deadline_ns":deadline,
+            "checked_at_ns":boot_ns()?,"deadline_ns":cap}),
+        )?;
+        return Ok(());
+    }
     let accept = journal.begin_accept(id, config.capabilities)?;
     *stage = "accept";
     let preparation = Arc::new(client.accept(&accept, deadline, None).await?);
@@ -255,16 +312,33 @@ async fn run(stage: &mut &'static str) -> Result<()> {
     let grant = client
         .prepare(prepared.request(), &preparation, &offer, None)
         .await?;
-    // PreparedInputs and its exclusive physical input owners remain held across
-    // the actual Grant call and serialization. Nothing records or launches it.
     let receipts = prepared
         .materials()
         .iter()
         .map(|m| m.receipt())
         .collect::<Result<Vec<_>>>()?;
-    emit(
-        &json!({"phase":"granted","request":prepared.request(),"grant":grant.initial(),"workspace_path":prepared.workspace().workspace().path,"material_receipts":receipts}),
-    )?;
+    // Capture bounded diagnostic DTOs before transferring the actual exclusive
+    // input owners. These serialized values never confer live authority.
+    let mut result = json!({"phase":"granted","request":prepared.request(),"grant":grant.initial(),"workspace_path":prepared.workspace().workspace().path,"material_receipts":receipts});
+    *stage = "durable_initial_grant";
+    let committed = pipeline.record_initial_grant(prepared, grant).await?;
+    let durable = match committed {
+        GrantCommit::Usable(durable) => durable,
+        GrantCommit::HistoryOnly(_) => {
+            anyhow::bail!("received Grant retained as history only");
+        }
+    };
+    *stage = "check_durable_initial_grant";
+    pipeline.check_initial_grant(&durable).await?;
+    current_root(&config.root, &held)?;
+    result["durable_grant"] = json!({
+        "attempt_id":durable.history().attempt_id(),
+        "record_digest":durable.history().record_digest(),
+        "observed_after_sync_ns":durable.history().observed_after_sync_ns(),
+        "deadline_ns":durable.deadline_ns(),
+        "hard_deadline_ns":durable.hard_deadline_ns()
+    });
+    emit(&result)?;
     Ok(())
 }
 #[tokio::main]

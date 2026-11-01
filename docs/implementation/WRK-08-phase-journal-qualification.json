@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "source": "08eb15c36a37265b9686a25a02b96cfe98128d78",
+  "journal_format": 6,
+  "all_features": {
+    "passed": 179,
+    "failed": 0,
+    "ignored": 5,
+    "seconds_sum": 9.12
+  },
+  "focused": {
+    "journal_cases": 8,
+    "http_cases": 7,
+    "scope": "subsets of all_features"
+  },
+  "actual_git": {
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 5.17,
+    "binary_sha256": "c2ff26f5e63008aec0fbd4082a547e87825e651d4aba0744c4b9fdf752d58c39"
+  },
+  "strict_all_target_all_feature_lint": {
+    "passed": true,
+    "seconds": 8.08
+  },
+  "format": true,
+  "independent_review": "v1_evidence: no remaining authority blocker in no-input/no-host scope; first-transmission preservation added following replay liveness finding.",
+  "source_inventory": [
+    {
+      "path": "Cargo.toml",
+      "bytes": 1986,
+      "sha256": "dc4d7ef6aab7a1c3859645f2138c9f7d0c1cf897c562c226a569d722bad1bfae"
+    },
+    {
+      "path": "Cargo.lock",
+      "bytes": 61365,
+      "sha256": "640e01b1238cb387a4b4de57453d3a0d436c532be9001aa77ea98523d3124513"
+    },
+    {
+      "path": "crates/aq-worker/Cargo.toml",
+      "bytes": 1180,
+      "sha256": "7c37945b5d8da8830358e612979c67df18691132016ad0cd881401029ff255cb"
+    },
+    {
+      "path": "crates/aq-worker/src/native/http/preparation_v2.rs",
+      "bytes": 9558,
+      "sha256": "530d81c20dc4d3c262453c677265110364dc92fc5adcd8f33da224f9b4965d17"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal.rs",
+      "bytes": 24598,
+      "sha256": "310393c5324040971b189d23a15037b53ccb2e92e71a76717c1dc0bce59cf7ed"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/preparation_v2.rs",
+      "bytes": 10857,
+      "sha256": "0a94c7703c85cac812d884aeab17c7cdef79b94f5c03d9d024c3aa122c3e0d80"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/preparation_v2_scenarios.rs",
+      "bytes": 15138,
+      "sha256": "d6305905ab03cfb003c651f16b0f7289a7a4104bc2a1d75e5e798fb2c02e87a5"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/granted_scenarios.rs",
+      "bytes": 19509,
+      "sha256": "74715c133643955522ac3d41e124c666c07ebee0e3471945e7df3038718b40a7"
+    },
+    {
+      "path": "crates/aq-worker/src/native/journal/tests.rs",
+      "bytes": 15999,
+      "sha256": "23a5dbd7ffd11fa52fca5cb8a5cf41fe87c067207695b88df1a39f4886913ab9"
+    },
+    {
+      "path": "crates/aq-worker/tests/native_preparation_v2.rs",
+      "bytes": 12650,
+      "sha256": "0a45917d382c10a9d257754a63680fb9d7fa97c9c68c58e27cc46a51310b1f27"
+    }
+  ],
+  "logs": [
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/check.log",
+      "bytes": 790,
+      "sha256": "afbb379e5f17b6700450e4fdda8dfdef55b75640a6f7a26c71c073f9ed74082e"
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/tests1.log",
+      "bytes": 1282,
+      "sha256": "a9c01d9c7b1361ecc9de98d653428002d0ba136d43647034e7724d7cabc4e36b"
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/tests2.log",
+      "bytes": 5707,
+      "sha256": "d746ad98cc21f34a3923b0c91aa97438076e275062b60755936b004a7edf6ed8"
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/http-tests.log",
+      "bytes": 833,
+      "sha256": "41c3fb84bbd92adfc08922c8dcfff4fa4c8fc3495f1f1a9e2b8b42a1fe94a39a"
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/all-tests.log",
+      "bytes": 22082,
+      "sha256": "0ff27e1d5471418e4a0ced0d5f6d6fc526c95af2e0e820ee4b8cc129a073b95c"
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/final-tests.log",
+      "bytes": 22297,
+      "sha256": "2e1e67e625e9396d468791a01aca54abfe4216a0dc04de9f2cda2f548d11cafd"
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/clippy.log",
+      "bytes": 135,
+      "sha256": "24f7977c039f3aeb23ccfa53bbf6dd933b00ac0e184bc9fa2a54360228fb912d"
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/actual-git.log",
+      "bytes": 542,
+      "sha256": "dfce4cadb19b1dc8027e47639351a96734427b25cdcf6daafab34171ec889700"
+    },
+    {
+      "path": "docs/implementation/evidence/worker-phase-journal-08eb15c/fmt.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "limits": {
+    "journal_bytes": 8388608,
+    "attempts": 64,
+    "phase_request_response_bytes": 131072
+  },
+  "limitations": [
+    "Actual private filesystem/HTTP with synthetic coordinator fixtures; no actual daemon phase journal probe yet.",
+    "No phase input pipeline, execution grant, host, provider, cleanup or runtime activation.",
+    "A lost or aborted Accept reply without an opaque Accepted observation cannot be retried after original proposal expiry in this transport slice; disposition remains unknown/held for future recovery.",
+    "Disk reopen preserves history and refuses live activity; formats1through5 are rejected without rewriting original files.",
+    "Actual Git tests cover existing hydration/received legacy grant under format6; do not claim phase cold hydration.",
+    "The tests2 name filter ran eight module tests; the seven HTTP tests ran separately and again in the full package."
+  ]
+}

@@ -1,0 +1,15 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-phase-http/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 6.60s
+     Running unittests src/lib.rs (/tmp/aq-worker-phase-http-target/debug/deps/aq_worker-d98feaa51034bda3)
+
+running 7 tests
+test native::journal::tests::preparation_v2_scenarios::legacy_protocol_choice_cannot_be_switched_to_phase_after_publication ... ok
+test native::journal::tests::preparation_v2_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::preparation_v2_scenarios::expiry_before_recording_keeps_received_history_and_every_resource_hold ... ok
+test native::journal::tests::preparation_v2_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+test native::journal::tests::preparation_v2_scenarios::phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths ... ok
+test native::journal::tests::preparation_v2_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption ... ok
+test native::journal::tests::preparation_v2_scenarios::intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 58 filtered out; finished in 1.22s
+
