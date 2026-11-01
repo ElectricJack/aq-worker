@@ -12,7 +12,7 @@ use aq_worker::{
         http::NativeClient,
         journal::{Journal, Limits, RuntimeIdentity},
         materials::MaterialStore,
-        preparation::{GrantCommit, InputPipeline},
+        preparation::{GrantCommit, InputPipeline, PhaseExecutionCommit},
     },
     source::GitClient,
 };
@@ -55,6 +55,8 @@ struct PhaseConfig {
     maximum_preparation_ms: u64,
     #[serde(default)]
     prepare_inputs: bool,
+    #[serde(default)]
+    prepare_execution: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -219,6 +221,10 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         disk,
     )?;
     if let Some(phase) = config.phase_preparation {
+        ensure!(
+            !phase.prepare_execution || phase.prepare_inputs,
+            "phase execution requires actual inputs"
+        );
         *stage = "phase_proposal";
         let proposed = client
             .propose_preparation(
@@ -293,7 +299,13 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                 .await?;
             *stage = "phase_prepare_inputs";
             let prepared = pipeline
-                .prepare_inputs_phase(id, preparation, artifacts, workspace, config.renderer)
+                .prepare_inputs_phase(
+                    id,
+                    preparation.clone(),
+                    artifacts,
+                    workspace,
+                    config.renderer,
+                )
                 .await?;
             current_root(&config.root, &held)?;
             // Actual opaque owners remain alive through observation. Emitted DTOs
@@ -311,6 +323,39 @@ async fn run(stage: &mut &'static str) -> Result<()> {
             );
             result["prepared_revision"] = json!(snapshot.revision);
             result["prepared_at_ns"] = json!(boot_ns()?);
+            if phase.prepare_execution {
+                *stage = "phase_execution_http";
+                let observation = Arc::new(
+                    client
+                        .prepare_execution(
+                            &proposed,
+                            &request,
+                            &preparation,
+                            prepared.request(),
+                            None,
+                        )
+                        .await?,
+                );
+                result["execution_delivery"] = json!(observation.delivery());
+                *stage = "phase_execution_durable";
+                let PhaseExecutionCommit::Usable(grant) = pipeline
+                    .record_phase_execution(prepared, observation.clone())
+                    .await?
+                else {
+                    anyhow::bail!("phase execution retained as history only");
+                };
+                pipeline.check_phase_execution(&grant).await?;
+                result["phase"] = json!("granted_phase_execution");
+                result["execution_record_digest"] = json!(grant.history().record_digest());
+                result["execution_deadline_ns"] = json!(grant.deadline_ns());
+                result["execution_hard_deadline_ns"] = json!(grant.hard_deadline_ns());
+                result["execution_checked_at_ns"] = json!(boot_ns()?);
+                result["execution_revision"] = json!(pipeline.snapshot().await?.revision);
+                // Keep original actual network observation and input owner alive
+                // through reporting; diagnostic JSON cannot restore either one.
+                emit(&result)?;
+                return Ok(());
+            }
         }
         emit(&result)?;
         return Ok(());
