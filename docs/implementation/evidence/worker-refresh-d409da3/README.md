@@ -1,0 +1,9 @@
+# Worker refresh source qualification
+
+Source `d409da3224650e128a70977f0ee457755687c47d`, dependency/runtime pin `493e21c`, worker 0.4.0 and explicit fresh FORMAT11. The machine-readable record pins the source tree, exact commands, nonzero counts and log digests. No binary is published or claimed as an installed runtime.
+
+46 focused cases passed: 14 refresh-profile cases, 28 existing frozen-profile input/execution/preparation regressions, two history reserve cases, one actual FORMAT10 snapshot/pending refusal, and one case covering every old format from1 through10. The refresh positive joins actual retained startup/source/material owners before a real local HTTP observation and fsync, then checks exact replay and reopen as history only. Four execution write cuts retain old-or-whole history and every capacity hold. Unpolled transfer retains the original process-local bundle before any network poll; mixed profile and rehashed owner/capture substitutions refuse.
+
+Affected all-feature library/test strict Clippy passed in13.49s, offline/locked metadata and owned formatting/diff checks passed. Exact archive verification pins112 admission0.1.10 payloads and31 terminal0.1.1 payloads to their independently qualified source revisions. Existing old package payloads and69 host/mapper/transport sources are unchanged.
+
+These are source, pure-contract, actual filesystem/fsync and bounded synthetic local-peer qualifications. They do not launch Git, tmux, an agent harness or a provider, and they do not qualify actual physical stop/terminal ACKs for the new profile. Independent source review precedes Runner’s separate explicit new0.4.0/runtime/qualification static process gate. Production CLI configuration remains the frozen profile; no automatic negotiation change exists. Parking history is absent from11 and needs an explicitly reviewed next disk format.

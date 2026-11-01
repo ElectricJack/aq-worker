@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "source_revision": "d409da3224650e128a70977f0ee457755687c47d",
+  "source_tree": "c9dc005d2f0e8e829536cbe7a3a0ed3ca8c89041",
+  "worker_version": "0.4.0",
+  "journal_format": 11,
+  "qualified_cases": 46,
+  "gates": [
+    {
+      "gate": "refresh_http_journal_physical_owner_terminal_history",
+      "passed": 14,
+      "seconds": 12.13,
+      "compile_seconds": 13.09,
+      "command": "cargo test -p aq-worker --lib --offline --locked refresh_ -- --test-threads=2"
+    },
+    {
+      "gate": "frozen_phase_physical_owners",
+      "passed": 20,
+      "seconds": 32.56,
+      "filter": "native::journal::tests::hydration_scenarios::phase_"
+    },
+    {
+      "gate": "frozen_phase_proposal_and_accepted",
+      "passed": 8,
+      "seconds": 2.5,
+      "filter": "native::journal::tests::preparation_v2_scenarios"
+    },
+    {
+      "gate": "actual_format10_snapshot_and_pending_preservation",
+      "passed": 1,
+      "seconds": 0.01
+    },
+    {
+      "gate": "all_old_formats_1_through10_refused_before_decode",
+      "passed": 1,
+      "seconds": 0.1
+    },
+    {
+      "gate": "shared_terminal_history_byte_and_revision_reserve",
+      "passed": 2,
+      "seconds": 0.0
+    },
+    {
+      "gate": "strict_all_features_lib_and_tests",
+      "seconds": 13.49,
+      "command": "cargo clippy -p aq-worker --lib --tests --all-features --offline --locked -- -D warnings"
+    },
+    {
+      "gate": "offline_locked_metadata",
+      "command": "cargo metadata --offline --locked --no-deps --format-version 1"
+    },
+    {
+      "gate": "exact_new_vendored_archive_payloads",
+      "payload_counts": [
+        112,
+        31
+      ],
+      "command": "python3 scripts/check-native-refresh-vendor.py"
+    },
+    {
+      "gate": "owned_rustfmt_and_git_diff_check",
+      "result": "pass"
+    }
+  ],
+  "logs_sha256": {
+    "refresh": "62681873ecfe6d5c1727fcbcf59b02ebc4c897dcc2a6228f2687f034cd3b098c",
+    "frozen_regressions": "027134e5c474f4c28a20fe6fb20f9b187d4460d27bdcdf7344ff6ba6de65ea29",
+    "all_old_formats": "0dfefdea48d8125e3dff6fe5a7a0c4aab16914890d5085cd39a2b443a3470863",
+    "strict": "f31dbc21c49a08e61048bbf24df7a411b0fe7e6b618c9b4bfbc9ed56df93d65a"
+  },
+  "test_binary": {
+    "retained_as_package": false,
+    "sha256": "0fe34b3f86a7ea520c8f9f926869737088ba0fd47246372e29ac70739c03c67d"
+  },
+  "unchanged_payloads": [
+    "vendor/aq-admission-0.1.9",
+    "vendor/aq-phase-terminal-protocol-0.1.0",
+    "crates/aq-session-host",
+    "crates/aq-codex-mapper",
+    "crates/aq-responses-transport"
+  ],
+  "unqualified": [
+    "actual refresh-profile physical process/terminal lifecycle",
+    "explicit new runtime/qualification static fixture and daemon owner adoption",
+    "production refresh NativeConfig or profile enablement",
+    "parking/continuation disk schema or authority",
+    "canonical runtime/database/configuration changes"
+  ],
+  "authority_claim": "none; tests use declared synthetic protocol issuers and local bounded HTTP/Git peers, actual private source/material/journal bytes and fsync; no provider, actual Git binary, tmux or harness launch"
+}
