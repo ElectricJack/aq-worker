@@ -41,3 +41,8 @@ test-support = ["aq-worker-protocol/test-support"]
 name = "aq-worker-test-host"
 path = "src/bin/aq-worker-test-host.rs"
 required-features = ["test-support"]
+
+[[bin]]
+name = "native-prepare-smoke"
+path = "src/bin/native-prepare-smoke.rs"
+required-features = ["test-support"]
