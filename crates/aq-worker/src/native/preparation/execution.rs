@@ -43,6 +43,36 @@ pub enum PhaseExecutionCommit {
     HistoryOnly(RetainedPhaseExecutionHistory),
 }
 impl InputPipeline {
+    /// Keep actual Prepared owners synchronously before the first HTTP poll.
+    /// A lost Grant response leaves the original inputs held as history rather
+    /// than dropping their workspace/material ownership or retrying admission.
+    pub fn request_phase_execution<'a>(
+        &'a self,
+        inputs: PreparedPhaseInputs,
+        preparation: &'a super::PhasePreparation,
+    ) -> impl std::future::Future<Output = Result<PhaseExecutionCommit>> + Send + 'a {
+        let retained = self
+            .retained
+            .lock()
+            .map_err(|_| anyhow::anyhow!("retained phase resources poisoned"))
+            .and_then(|mut owners| owners.retain_phase(inputs));
+        async move {
+            let inputs = retained?;
+            let observed = self
+                .client
+                .prepare_execution(
+                    &preparation.proposed,
+                    &preparation.request,
+                    &preparation.observed,
+                    inputs.request(),
+                    None,
+                )
+                .await?;
+            self.commit_phase_execution(inputs, Arc::new(observed))
+                .await
+        }
+    }
+
     /// Synchronous ownership handoff precedes the first poll or any admission wait.
     /// Pass an Arc clone to retain the actual opaque network observation for
     /// exact wire replay after Accepted expiry. JSON history cannot replace it.

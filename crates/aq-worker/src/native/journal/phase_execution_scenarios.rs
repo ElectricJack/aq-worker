@@ -487,3 +487,50 @@ async fn phase_execution_foreign_actual_observation_cannot_rebind_prepared_owner
     h.pipeline().check_phase_execution(&owner).await.unwrap();
     assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn production_request_retains_prepared_owners_before_http_and_on_unknown_outcome() {
+    let export = synthetic();
+    let manifest = export.manifest.clone();
+    let mut h = Inputs::new_phase(export).await;
+    let git = GitPeer::new(h.root.clone(), manifest);
+    let inputs = phase_join(&h, git.client.clone()).await;
+    let before = h.pipeline().snapshot().await.unwrap();
+    let accepted = crate::native::preparation::PhasePreparation {
+        proposed: Arc::new(h.proposed.take().unwrap()),
+        request: before.attempts[&h.id]
+            .phase_acceptance
+            .as_ref()
+            .unwrap()
+            .request
+            .clone(),
+        observed: h.phase.as_ref().unwrap().clone(),
+    };
+    // Close the actual synthetic HTTP listener: disposition is unknown and no
+    // usable observation exists. The runner must keep actual input owners.
+    h.task.abort();
+    let request = h.pipeline().request_phase_execution(inputs, &accepted);
+    assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
+    assert!(request.await.is_err());
+    assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
+    let after = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(after.revision, before.revision);
+    assert!(after.attempts[&h.id].phase_execution.is_none());
+    assert!(after.attempts[&h.id].native_host.is_none());
+    assert_eq!(
+        after.attempts[&h.id]
+            .phase_prepared
+            .as_ref()
+            .unwrap()
+            .request
+            .digest()
+            .unwrap(),
+        before.attempts[&h.id]
+            .phase_prepared
+            .as_ref()
+            .unwrap()
+            .request
+            .digest()
+            .unwrap()
+    );
+}
