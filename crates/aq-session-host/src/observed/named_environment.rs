@@ -73,54 +73,61 @@ impl NamedReadonlyEnvironment {
     }
     pub(super) fn verify_aliases(&self, device: u64, inode: u64) -> Result<()> {
         self.verify_owner()?;
-        let mut input = File::open("/proc/self/mountinfo")?.take(MAX_MOUNTINFO + 1);
-        let mut text = String::new();
-        input.read_to_string(&mut text)?;
-        ensure!(
-            text.len() as u64 <= MAX_MOUNTINFO,
-            "named mount topology bound"
-        );
-        let device_name = format!("{}:{}", libc::major(device), libc::minor(device));
-        let mut count = 0;
-        for row in text.lines() {
-            count += 1;
-            ensure!(count <= 16384, "named mount entry bound");
-            let fields: Vec<_> = row.split_whitespace().collect();
-            ensure!(fields.len() >= 10, "named mount topology malformed");
-            if fields[2] == device_name {
-                ensure!(
-                    fields[5].split(',').any(|p| p == "ro"),
-                    "named image device has a visible writable mount alias"
-                );
-            }
-        }
-        let mut count = 0;
-        for entry in std::fs::read_dir("/proc/self/fd")? {
-            count += 1;
-            ensure!(count <= MAX_FDS, "named descriptor scan bound");
-            let entry = entry?;
-            let Ok(fd) = entry.file_name().to_string_lossy().parse::<i32>() else {
-                continue;
-            };
-            let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-            if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
-                ensure!(
-                    std::io::Error::last_os_error().raw_os_error() == Some(libc::EBADF),
-                    "named descriptor metadata unavailable"
-                );
-                continue;
-            }
-            let stat = unsafe { stat.assume_init() };
-            if stat.st_dev == device && stat.st_ino == inode {
-                let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-                ensure!(
-                    flags >= 0 && flags & libc::O_ACCMODE == libc::O_RDONLY,
-                    "named image has an inherited writable descriptor"
-                );
-            }
-        }
-        Ok(())
+        no_writable_mount_alias(device)?;
+        no_writable_descriptor_alias(device, inode)
     }
+}
+fn no_writable_mount_alias(device: u64) -> Result<()> {
+    let mut input = File::open("/proc/self/mountinfo")?.take(MAX_MOUNTINFO + 1);
+    let mut text = String::new();
+    input.read_to_string(&mut text)?;
+    ensure!(
+        text.len() as u64 <= MAX_MOUNTINFO,
+        "named mount topology bound"
+    );
+    let device_name = format!("{}:{}", libc::major(device), libc::minor(device));
+    let mut count = 0;
+    for row in text.lines() {
+        count += 1;
+        ensure!(count <= 16384, "named mount entry bound");
+        let fields: Vec<_> = row.split_whitespace().collect();
+        ensure!(fields.len() >= 10, "named mount topology malformed");
+        if fields[2] == device_name {
+            ensure!(
+                fields[5].split(',').any(|p| p == "ro"),
+                "named image device has a visible writable mount alias"
+            );
+        }
+    }
+    Ok(())
+}
+fn no_writable_descriptor_alias(device: u64, inode: u64) -> Result<()> {
+    let mut count = 0;
+    for entry in std::fs::read_dir("/proc/self/fd")? {
+        count += 1;
+        ensure!(count <= MAX_FDS, "named descriptor scan bound");
+        let entry = entry?;
+        let Ok(fd) = entry.file_name().to_string_lossy().parse::<i32>() else {
+            continue;
+        };
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
+            ensure!(
+                std::io::Error::last_os_error().raw_os_error() == Some(libc::EBADF),
+                "named descriptor metadata unavailable"
+            );
+            continue;
+        }
+        let stat = unsafe { stat.assume_init() };
+        if stat.st_dev == device && stat.st_ino == inode {
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            ensure!(
+                flags >= 0 && flags & libc::O_ACCMODE == libc::O_RDONLY,
+                "named image has an inherited writable descriptor"
+            );
+        }
+    }
+    Ok(())
 }
 pub(super) fn verify_namespace(mount: &NamespaceIdentity, user: &NamespaceIdentity) -> Result<()> {
     privileges()?;
@@ -153,4 +160,41 @@ fn privileges() -> Result<()> {
         "named readonly image requires no_new_privs"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn visible_writable_filesystem_refuses_image_device() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("source");
+        std::fs::write(&path, b"fixture").unwrap();
+        let m = std::fs::metadata(path).unwrap();
+        assert!(no_writable_mount_alias(m.dev()).is_err());
+    }
+    #[test]
+    fn inherited_writable_descriptor_to_exact_inode_refuses_even_without_path_lookup() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("source");
+        let writer = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        let m = writer.metadata().unwrap();
+        assert!(no_writable_descriptor_alias(m.dev(), m.ino()).is_err());
+        // Existing O_RDONLY owners are permitted; unrelated writable files do
+        // not substitute for the exact admitted inode.
+        let reader = File::open(&path).unwrap();
+        drop(writer);
+        let _other = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(root.path().join("other"))
+            .unwrap();
+        no_writable_descriptor_alias(m.dev(), m.ino()).unwrap();
+        drop(reader);
+    }
 }
