@@ -12,7 +12,7 @@ if [[ $# -gt 1 ]]; then
   exit 2
 fi
 qualification_filter=${1:-codex_process_scenarios}
-qualification_bwrap=(/usr/bin/bwrap --die-with-parent --unshare-user --unshare-net
+qualification_bwrap=(/usr/bin/bwrap --die-with-parent --unshare-user --unshare-net --cap-drop ALL
   --ro-bind / / --tmpfs /tmp --tmpfs /home --tmpfs /root --tmpfs /opt --tmpfs /var/lib
   --dir /opt/aq-qualification --proc /proc --dev /dev --chdir /tmp --clearenv
   --setenv PATH /usr/bin:/bin --setenv TERM xterm-256color
@@ -47,6 +47,8 @@ if [[ $qualification_probe == false ]]; then
     --setenv AQ_NATIVE_TMUX_SHA256 "$AQ_NATIVE_TMUX_SHA256")
 fi
 
+qualification_bwrap+=(--remount-ro /opt)
+
 # Only file/process/socket-address metadata. No read/write bodies or environment
 # dumps: private auth and provider traffic must not enter this optional trace.
 qualification_trace=()
@@ -57,7 +59,11 @@ if [[ -n ${AQ_NATIVE_TRACE_FILE:-} ]]; then
 fi
 
 exec "${qualification_trace[@]}" "${qualification_bwrap[@]}" -- /usr/bin/python3 -c '
-import errno, os, socket, subprocess, sys
+import ctypes, errno, os, socket, subprocess, sys
+assert ctypes.CDLL(None).prctl(38, 1, 0, 0, 0) == 0, "no_new_privs unavailable"
+status = open("/proc/self/status").read()
+for name in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"):
+    assert int(next(v.split(":", 1)[1].strip() for v in status.splitlines() if v.startswith(name + ":")), 16) == 0, "capability set is not empty"
 assert not os.listdir("/home"), "operator homes must be independently masked"
 assert not os.listdir("/root"), "operator root home must be independently masked"
 assert not os.listdir("/var/lib"), "host service state must be independently masked"

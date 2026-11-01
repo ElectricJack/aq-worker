@@ -412,3 +412,106 @@ fn hash_once(file: &File, identity: &ElfIdentity) -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aq_session_protocol::Text;
+    fn artifact(bytes: &[u8]) -> ArtifactRef {
+        ArtifactRef {
+            id: Text::new("aq.named-kernel-fixture").unwrap(),
+            version: Text::new("1").unwrap(),
+            digest: Digest::of(bytes),
+        }
+    }
+    #[test]
+    fn named_preflight_checks_actual_bytes_architecture_and_executable_type() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("elf");
+        let mut bytes = vec![0; 128];
+        bytes[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+        bytes[16] = 2;
+        bytes[18] = if cfg!(target_arch = "aarch64") {
+            183
+        } else {
+            62
+        };
+        std::fs::write(&path, &bytes).unwrap();
+        let file = File::open(&path).unwrap();
+        let metadata = file.metadata().unwrap();
+        let mut identity = ElfIdentity {
+            artifact: artifact(&bytes),
+            bytes: bytes.len() as u64,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            profile: None,
+        };
+        hash_once(&file, &identity).unwrap();
+        identity.artifact.digest = Digest::of(b"wrong");
+        assert!(hash_once(&file, &identity).is_err());
+        bytes[18] = 0;
+        std::fs::write(&path, &bytes).unwrap();
+        identity.artifact = artifact(&bytes);
+        assert!(hash_once(&file, &identity).is_err());
+        bytes[18] = if cfg!(target_arch = "aarch64") {
+            183
+        } else {
+            62
+        };
+        bytes[16] = 1;
+        std::fs::write(&path, &bytes).unwrap();
+        identity.artifact = artifact(&bytes);
+        assert!(hash_once(&file, &identity).is_err());
+    }
+    #[test]
+    #[ignore = "requires explicit readonly namespace fixture; hashes host ELF only, never launches Codex"]
+    fn named_readonly_kernel_image_is_charged_once_and_bound_to_live_route() {
+        assert_eq!(
+            std::env::var("AQ_NATIVE_FIXTURE_CONFINED").as_deref(),
+            Ok("v1")
+        );
+        let qualification = artifact(b"independent fixture environment only; no runtime authority");
+        let environment = NamedReadonlyEnvironment::inspect(qualification).unwrap();
+        let pool = NamedReadonlyExecPool::new(64 * 1024 * 1024, 1, environment).unwrap();
+        let source = Path::new("/opt/aq-qualification/aq-session-host");
+        let mut reference = artifact(b"unused");
+        reference.digest = serde_json::from_value(serde_json::json!(
+            std::env::var("AQ_NATIVE_HOST_SHA256").unwrap()
+        ))
+        .unwrap();
+        let size = source.metadata().unwrap().len();
+        let mut wrong = reference.clone();
+        wrong.digest = Digest::of(b"wrong");
+        assert!(pool.load_verified(source, &wrong).is_err());
+        assert_eq!(pool.charged_bytes().unwrap(), 0);
+        let image = pool.load_verified(source, &reference).unwrap();
+        assert_eq!(image.bytes(), size);
+        assert_eq!(pool.charged_bytes().unwrap(), size);
+        for _ in 0..32 {
+            let again = pool.load_verified(source, &reference).unwrap();
+            assert!(Arc::ptr_eq(&again.0.image, &image.0.image));
+            assert_eq!(pool.charged_bytes().unwrap(), size);
+        }
+        assert!(image.0.file().write_at(b"x", 0).is_err());
+        assert!(image.0.file().set_len(size + 1).is_err());
+        let writable = OpenOptions::new().write(true).open(source).unwrap_err();
+        // Owner0500 fixtures can reject at DAC before the mount check. The
+        // opaque constructor has independently verified ST_RDONLY on this fd.
+        assert!(matches!(
+            writable.raw_os_error(),
+            Some(libc::EROFS | libc::EACCES)
+        ));
+        let mut substitution = image.0.identity().clone();
+        if let Some(ImageProfile::NamedReadonlyExecStdinV1(e)) = &mut substitution.profile {
+            e.mount_id += 1;
+        }
+        assert!(verify_received(image.0.file(), &substitution).is_err());
+        let alias = Path::new("/var/lib/aq-qualification/image-alias");
+        std::os::unix::fs::symlink(source, alias).unwrap();
+        assert!(pool.load_verified(alias, &reference).is_err());
+        std::fs::remove_file(alias).unwrap();
+        let mut new = reference;
+        new.id = Text::new("another-program").unwrap();
+        assert!(pool.load_verified(source, &new).is_err());
+    }
+}
