@@ -1,0 +1,106 @@
+{
+  "envelope.json": {
+    "bytes": 250,
+    "sha256": "616ed2b84d5de0ee0fae0d7176684675afda9c1292c79615b222438035d7bc0f"
+  },
+  "native-phase-host-actual-final.log": {
+    "bytes": 2305,
+    "sha256": "ad9bd0c23ad50d47b11f24319355e548b285a2187f9e2fcce7eb8b6afbe38162"
+  },
+  "native-phase-host-actual-guard-final.log": {
+    "bytes": 2383,
+    "sha256": "5f67795ac8d27044676b6f512cda64d1cb93ec0f77eba24917f17625dd27d310"
+  },
+  "native-phase-host-actual1.log": {
+    "bytes": 1552,
+    "sha256": "4892c79567d7dfa9e36568422efa8768611798cfaf2ab419bb05fcc6363970cc"
+  },
+  "native-phase-host-actual2.log": {
+    "bytes": 1398,
+    "sha256": "b4d7ab7b5da4896863486996e3d47568f2ea802e8ed4c0c658233ec3117c295a"
+  },
+  "native-phase-host-actual3.log": {
+    "bytes": 2575,
+    "sha256": "186222980c3c61bc89f99895be088856c74da4e7b8ad0d6bb49c711265ac5ced"
+  },
+  "native-phase-host-actual4.log": {
+    "bytes": 1280,
+    "sha256": "3086947e90d1d24c0d153b763e96f56b7d3b54a3edec0ffdeb8eaeb486213ae1"
+  },
+  "native-phase-host-actual5.log": {
+    "bytes": 2246,
+    "sha256": "1645611dafdf82b874ab312c285933ede360fc5471609a9cfb177bd57beec7a5"
+  },
+  "native-phase-host-check1.log": {
+    "bytes": 810,
+    "sha256": "090a520a47ddaa3ac99991997cb92eb4737efe9306afd10574d39359d7330107"
+  },
+  "native-phase-host-check2.log": {
+    "bytes": 1272,
+    "sha256": "0f66b605d773523a59b58bd2c7b890427a6da6233881bf3212c3f7d78110e7c3"
+  },
+  "native-phase-host-check3.log": {
+    "bytes": 1019,
+    "sha256": "cabf8971fd4f89df5be313fc7b6fbe7bd5f15da90d7f8a6792d104ae19c57ed5"
+  },
+  "native-phase-host-clippy-final.log": {
+    "bytes": 140,
+    "sha256": "a1a8c1406eb15a50ccb1bc67b07a9f6968d0621db345adf96995734f780c5b64"
+  },
+  "native-phase-host-clippy1.log": {
+    "bytes": 783,
+    "sha256": "a94e745aee426af17bd86f58cea18f31ed1df5209fba6dde9eb72036afb9611b"
+  },
+  "native-phase-host-clippy2.log": {
+    "bytes": 140,
+    "sha256": "a70e2f62b53acc933465b8e18cf14912168aef91a708cf391dd786498b2ddd78"
+  },
+  "native-phase-host-default-check.log": {
+    "bytes": 293,
+    "sha256": "81e84f9e5494511bd3ca5a967738acfff9ca79fc6d15854a5f7b44b1efbe34e0"
+  },
+  "native-phase-host-default-final.log": {
+    "bytes": 115,
+    "sha256": "b9475930e9adf197d1f73fae4b04ed0109a3a71f9214f13edd2bf7ed55ba972a"
+  },
+  "native-phase-host-final-link.log": {
+    "bytes": 301,
+    "sha256": "83a11e1aae57962cf800fcde41e63c5fc845d1bd5313985cd771d436157931ea"
+  },
+  "native-phase-host-fmt-final.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "native-phase-host-fmt1.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "native-phase-host-fmt2.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "native-phase-host-git-final.log": {
+    "bytes": 721,
+    "sha256": "d027b550a5ccca363b4207d3257984e523f9c0ee983cc61c64a93046f9361cfe"
+  },
+  "native-phase-host-helper-build.log": {
+    "bytes": 819,
+    "sha256": "cafe9728198dfe00582a73b458e052946c461043deb07b1614328070ae4ad1b9"
+  },
+  "native-phase-host-package-final.log": {
+    "bytes": 31272,
+    "sha256": "d6c083c8011d2aefe9ac12da25dd7fc060037031e26872591b8a28371b6ecd82"
+  },
+  "native-phase-host-test-helper-build.log": {
+    "bytes": 152,
+    "sha256": "9d14d784363e8c382d90c169a025105ad9d6d64c0bf002db0a2a1d54cbe82b09"
+  },
+  "pins.json": {
+    "bytes": 1184,
+    "sha256": "d725d722294c97ec3ca0a1e0c676d37a65e1c193e43b9e99551c1fbfb1014667"
+  },
+  "source-sha256.json": {
+    "bytes": 152235,
+    "sha256": "67a91f4e4c44919ed681945339a43ed7468b579c1d9bde8dc4a36a5aa6630982"
+  }
+}

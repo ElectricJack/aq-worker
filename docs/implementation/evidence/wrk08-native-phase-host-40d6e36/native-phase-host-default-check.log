@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on build directory
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-worker-scoped-presence/crates/aq-worker-protocol)
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+    Finished `dev` profile [unoptimized] target(s) in 10.83s

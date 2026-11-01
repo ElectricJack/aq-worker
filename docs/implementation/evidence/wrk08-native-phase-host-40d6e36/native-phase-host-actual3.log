@@ -1,0 +1,52 @@
+   Compiling aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+warning: unused import: `StoppedProof`
+ --> crates/aq-worker/src/native/journal/launch.rs:4:79
+  |
+4 |     GuardianIdentity, HostObservation, HostPhase, LaunchIntent as HostIntent, StoppedProof,
+  |                                                                               ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0369]: binary operation `==` cannot be applied to type `native::journal::WriteFault`
+   --> crates/aq-worker/src/native/journal/native_host_scenarios.rs:389:52
+    |
+389 |             if stage == Checkpoint::Outer && fault == WriteFault::BeforeWrite {
+    |                                              ----- ^^ ----------------------- native::journal::WriteFault
+    |                                              |
+    |                                              native::journal::WriteFault
+    |
+note: an implementation of `PartialEq` might be missing for `native::journal::WriteFault`
+   --> crates/aq-worker/src/native/journal.rs:132:1
+    |
+132 | pub enum WriteFault {
+    | ^^^^^^^^^^^^^^^^^^^ must implement `PartialEq`
+help: consider annotating `native::journal::WriteFault` with `#[derive(PartialEq)]`
+   --> crates/aq-worker/src/native/journal.rs:132:1
+    |
+132 + #[derive(PartialEq)]
+133 | pub enum WriteFault {
+    |
+
+error[E0369]: binary operation `==` cannot be applied to type `native::journal::WriteFault`
+   --> crates/aq-worker/src/native/journal/native_host_scenarios.rs:396:59
+    |
+396 |                     stage == Checkpoint::Started && fault == WriteFault::AfterRename
+    |                                                     ----- ^^ ----------------------- native::journal::WriteFault
+    |                                                     |
+    |                                                     native::journal::WriteFault
+    |
+note: an implementation of `PartialEq` might be missing for `native::journal::WriteFault`
+   --> crates/aq-worker/src/native/journal.rs:132:1
+    |
+132 | pub enum WriteFault {
+    | ^^^^^^^^^^^^^^^^^^^ must implement `PartialEq`
+help: consider annotating `native::journal::WriteFault` with `#[derive(PartialEq)]`
+   --> crates/aq-worker/src/native/journal.rs:132:1
+    |
+132 + #[derive(PartialEq)]
+133 | pub enum WriteFault {
+    |
+
+For more information about this error, try `rustc --explain E0369`.
+warning: `aq-worker` (lib test) generated 1 warning
+error: could not compile `aq-worker` (lib test) due to 2 previous errors; 1 warning emitted

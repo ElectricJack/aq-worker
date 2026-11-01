@@ -1,0 +1,13 @@
+    Checking aq-session-host v0.1.4 (/tmp/aq-worker-scoped-presence/crates/aq-session-host)
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-scoped-presence/crates/aq-worker)
+error: unused variable: `host_started_route`
+   --> crates/aq-worker/src/native/journal/hydration_scenarios.rs:893:13
+    |
+893 |         let host_started_route = move |Json(request): Json<aq_admission::started::Request>| {
+    |             ^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_host_started_route`
+    |
+    = note: `-D unused-variables` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(unused_variables)]`
+
+error: could not compile `aq-worker` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

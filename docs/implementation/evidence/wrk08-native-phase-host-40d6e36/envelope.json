@@ -1,0 +1,11 @@
+{
+  "kernel": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "cpu_count": 24,
+  "load_average_at_capture": [
+    1.11962890625,
+    1.36083984375,
+    1.33447265625
+  ],
+  "cpu.max": "unavailable",
+  "memory.max": "unavailable"
+}
