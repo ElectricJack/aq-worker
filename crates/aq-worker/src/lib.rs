@@ -20,3 +20,6 @@ pub mod source_transfer;
 pub mod transfer_client;
 
 pub mod native;
+
+/// Local parking mechanisms; records are not live authority.
+pub mod continuation;

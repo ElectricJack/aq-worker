@@ -358,6 +358,7 @@ dependencies = [
  "anyhow",
  "aq-admission",
  "aq-codex-mapper",
+ "aq-lifecycle-protocol",
  "aq-phase-terminal-protocol",
  "aq-protocol",
  "aq-responses-transport",

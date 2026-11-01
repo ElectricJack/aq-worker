@@ -1374,7 +1374,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
         })
     }
 }
-fn workspace_bytes(root: &Path) -> Result<u64> {
+pub(crate) fn workspace_bytes(root: &Path) -> Result<u64> {
     let mut pending = vec![(root.to_path_buf(), 0usize)];
     let mut entries = 0usize;
     let mut bytes = 0u64;
