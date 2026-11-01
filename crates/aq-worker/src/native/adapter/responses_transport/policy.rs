@@ -272,6 +272,11 @@ pub(super) mod tests {
     #[test]
     fn injects_exact_response_cap_preserving_every_other_setting() {
         let scope = scope();
+        assert_eq!(
+            scope.prepare(&body()).unwrap().as_slice(),
+            include_bytes!("goldens/capped-request.json"),
+            "pre-extraction accepted request bytes must stay exact"
+        );
         let original: Value = serde_json::from_slice(&body()).unwrap();
         let mut got: Value = serde_json::from_slice(&scope.prepare(&body()).unwrap()).unwrap();
         assert_eq!(

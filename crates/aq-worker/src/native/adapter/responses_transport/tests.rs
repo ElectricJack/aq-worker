@@ -190,3 +190,141 @@ async fn endpoint_and_key_scope_refuse_before_serving() {
         .is_err()
     );
 }
+
+#[tokio::test]
+async fn exact_http_route_host_capability_and_framing_refuse_without_forwarding() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let forwarded = Arc::new(AtomicUsize::new(0));
+    let count = forwarded.clone();
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            Router::new().route(
+                "/v1/responses",
+                post(move || {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    async { ([("content-type", "text/event-stream")], "data: done\n\n") }
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    });
+    let owner = ScopedResponsesTransport::start(
+        policy::tests::scope(),
+        UpstreamEndpoint::development_loopback(&origin).unwrap(),
+        Zeroizing::new(b"local-capability".to_vec()),
+        Zeroizing::new(b"upstream-private-key".to_vec()),
+    )
+    .await
+    .unwrap();
+    let authority = owner.origin().strip_prefix("http://").unwrap();
+    let body = policy::tests::body();
+    let good = format!(
+        "POST /v1/responses HTTP/1.1\r\nHost: {authority}\r\nAuthorization: Bearer local-capability\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    );
+    for head in [
+        good.replace("POST /v1/responses", "GET /v1/responses"),
+        good.replace("/v1/responses HTTP", "/v1/responses?foreign=1 HTTP"),
+        good.replace(&format!("Host: {authority}"), "Host: localhost:1"),
+        good.replace("Bearer local-capability", "Bearer upstream-private-key"),
+        good.replace(
+            "Content-Type: application/json",
+            "Content-Type: application/json; charset=utf-8",
+        ),
+        good.replace("Content-Length:", "Content-Length: +"),
+        good.replace("\r\n\r\n", "\r\nUpgrade: websocket\r\n\r\n"),
+        good.replace("\r\n\r\n", "\r\nExpect: 100-continue\r\n\r\n"),
+        good.replace(
+            "\r\n\r\n",
+            "\r\nAuthorization: Bearer local-capability\r\n\r\n",
+        ),
+    ] {
+        let mut connection = TcpStream::connect(authority).await.unwrap();
+        connection.write_all(head.as_bytes()).await.unwrap();
+        // Some refusals close before the body is sent. A reset is a refusal.
+        let _ = connection.write_all(&body).await;
+        let mut reply = Vec::new();
+        let closed =
+            tokio::time::timeout(Duration::from_secs(1), connection.read_to_end(&mut reply))
+                .await
+                .unwrap();
+        assert!(
+            closed.is_ok()
+                || closed.is_err_and(|e| e.kind() == std::io::ErrorKind::ConnectionReset)
+        );
+        assert!(reply.is_empty());
+        assert_eq!(forwarded.load(Ordering::SeqCst), 0);
+    }
+    owner.stop().await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect() {
+    use axum::{http::StatusCode, response::IntoResponse};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    for redirect in [true, false] {
+        let followed = Arc::new(AtomicUsize::new(0));
+        let count = followed.clone();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let location = format!("{origin}/foreign");
+        let app = Router::new()
+            .route(
+                "/v1/responses",
+                post(move || {
+                    let location = location.clone();
+                    async move {
+                        if redirect {
+                            (
+                                StatusCode::TEMPORARY_REDIRECT,
+                                [("location", location)],
+                                "redirect",
+                            )
+                                .into_response()
+                        } else {
+                            ([("content-type", "application/json")], "{}").into_response()
+                        }
+                    }
+                }),
+            )
+            .route(
+                "/foreign",
+                post(move || {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    async { ([("content-type", "text/event-stream")], "data: foreign\n\n") }
+                }),
+            );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let owner = ScopedResponsesTransport::start(
+            policy::tests::scope(),
+            UpstreamEndpoint::development_loopback(&origin).unwrap(),
+            Zeroizing::new(b"local-capability".to_vec()),
+            Zeroizing::new(b"upstream-private-key".to_vec()),
+        )
+        .await
+        .unwrap();
+        assert!(
+            reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .post(format!("{}/v1/responses", owner.origin()))
+                .bearer_auth("local-capability")
+                .header("content-type", "application/json")
+                .body(policy::tests::body())
+                .send()
+                .await
+                .is_err()
+        );
+        assert_eq!(followed.load(Ordering::SeqCst), 0);
+        owner.stop().await.unwrap();
+        server.abort();
+    }
+}
