@@ -97,10 +97,10 @@ impl Relay {
 }
 impl Drop for Relay {
     fn drop(&mut self) {
-        if let Ok(task) = self.task.get_mut() {
-            if let Some(task) = task.take() {
-                task.abort()
-            }
+        if let Ok(task) = self.task.get_mut()
+            && let Some(task) = task.take()
+        {
+            task.abort()
         }
     }
 }
