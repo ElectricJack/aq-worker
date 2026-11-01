@@ -1,0 +1,11 @@
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-grant-owner/crates/aq-worker)
+warning: unused import: `journal::ReceivedInitialGrant`
+ --> crates/aq-worker/src/native/preparation/granted.rs:3:45
+  |
+3 | use crate::native::{http::control::Granted, journal::ReceivedInitialGrant};
+  |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aq-worker` (lib) generated 1 warning (run `cargo fix --lib -p aq-worker` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized] target(s) in 2.55s

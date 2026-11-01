@@ -1,0 +1,43 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking serde_core v1.0.229
+    Checking memchr v2.8.3
+    Checking tracing v0.1.44
+    Checking httpdate v1.0.3
+    Checking hyper v1.12.0
+    Checking bitflags v2.13.2
+    Checking hyper-util v0.1.21
+    Checking serde v1.0.229
+    Checking serde_json v1.0.154
+    Checking uuid v1.29.0
+    Checking tower v0.5.3
+    Checking schemars v1.2.3
+    Checking serde_urlencoded v0.7.1
+    Checking toml_datetime v0.6.11
+    Checking aq-session-protocol v0.1.0 (/tmp/aq-worker-grant-owner/crates/aq-session-protocol)
+    Checking serde_spanned v0.6.9
+    Checking chrono v0.4.45
+    Checking toml_edit v0.22.27
+    Checking aq-terminal-relay-protocol v0.1.0 (/tmp/aq-worker-grant-owner/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-lifecycle-protocol v0.1.0 (/tmp/aq-worker-grant-owner/crates/aq-lifecycle-protocol)
+    Checking hyper-rustls v0.27.10
+    Checking tower-http v0.6.11
+    Checking tracing-subscriber v0.3.23
+    Checking reqwest v0.12.28
+    Checking aq-session-host v0.1.4 (/tmp/aq-worker-grant-owner/crates/aq-session-host)
+    Checking aq-admission v0.1.7 (/tmp/aq-worker-grant-owner/vendor/aq-admission-0.1.7)
+    Checking toml v0.8.23
+    Checking aq-protocol v0.1.0 (/tmp/aq-worker-grant-owner/crates/aq-protocol)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-worker-grant-owner/crates/aq-worker-protocol)
+    Checking linux-raw-sys v0.12.1
+    Checking mime v0.3.17
+    Checking axum-core v0.5.6
+    Checking rustix v1.1.6
+    Checking aq-worker v0.3.3 (/tmp/aq-worker-grant-owner/crates/aq-worker)
+    Checking serde_path_to_error v0.1.20
+    Checking matchit v0.8.4
+    Checking fastrand v2.5.0
+    Checking tempfile v3.27.0
+    Checking axum v0.8.9
+    Finished `dev` profile [unoptimized] target(s) in 29.93s

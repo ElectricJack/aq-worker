@@ -1,0 +1,50 @@
+{
+  "actual_git": {
+    "binary": "/tmp/aq-wrk08-git-pin/aq-git",
+    "binary_sha256": "c2ff26f5e63008aec0fbd4082a547e87825e651d4aba0744c4b9fdf752d58c39",
+    "failed": 0,
+    "ignored": 0,
+    "passed": 2,
+    "seconds": 4.0
+  },
+  "base": "acac50d",
+  "environment": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_TARGET_DIR": "/tmp/aq-worker-grant-target",
+    "RUST_TEST_THREADS": "2"
+  },
+  "fmt_exit_code": 0,
+  "focused_tests": {
+    "failed": 0,
+    "ignored": 0,
+    "passed": 12,
+    "seconds": 5.17
+  },
+  "journal_format": 5,
+  "lint": {
+    "exit_code": 0,
+    "scope": "aq-worker all-targets/all-features -D warnings",
+    "seconds": 29.93
+  },
+  "package_tests": {
+    "build_seconds": 14.06,
+    "failed": 0,
+    "ignored": 5,
+    "passed": 164,
+    "test_process_seconds_sum": 18.14,
+    "test_processes": 22
+  },
+  "parent": "024ff2f",
+  "public_protocol": "aq-admission=0.1.7 unchanged",
+  "scope": "Component owner; actual private filesystem/HTTP/Git, synthetic coordinator/runtime/provider qualification; no host launch, runtime adoption, renew or settlement",
+  "source": "99e793cf869e00675411fe56407d60ccdfcf7e54",
+  "source_files": 161,
+  "toolchain": {
+    "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "total_wall_seconds": null
+}
