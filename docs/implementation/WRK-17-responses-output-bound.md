@@ -143,3 +143,8 @@ capability publisher. Effective CLI HTTP transport and provider semantics must b
 qualified before changing the production refusal. Context counting, tool grants,
 filesystem isolation, cumulative budgets and provider eligibility remain separate
 qualification requirements.
+
+Follow-up syscall metadata exposed implicit shell-profile reads and curated-plugin
+Git traffic outside the fake model endpoint. The process observations above do
+not establish no-egress or operator-context isolation. Further launches paused;
+see the [negative qualification observation](evidence/wrk18-codex-loopback/tool-failure-observation.json).
