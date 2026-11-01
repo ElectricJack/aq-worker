@@ -312,6 +312,7 @@ impl Inputs {
     async fn new_mode(export: Export, phase_mode: bool) -> Self {
         Self::new_count(export, phase_mode, 0).await
     }
+    #[cfg(feature = "test-support")]
     async fn new_phase_output(export: Export) -> Self {
         Box::pin(Self::new_count_policy(export, true, 0, true)).await
     }
