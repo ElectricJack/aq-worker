@@ -2425,3 +2425,127 @@ fn observed_short_exec_without_live_kernel_evidence_never_records_started() {
     assert!(c.adapter.dir.join("pane-exec.claim").exists());
     assert!(!c.temp.path().join("caller-started.json").exists());
 }
+
+#[test]
+#[ignore = "actual native-exec profile: requires local cc/static ELF and tmux"]
+fn native_exec_profile_delivers_exact_sealed_stdin_under_actual_guardian() {
+    use aq_session_protocol::{ArtifactRef, Digest, TerminalIdentity, Text};
+    use std::io::Write;
+    let mut c = Case::new("unused", false);
+    let payload = b"literal startup > argument delivery\nwithout an appended prompt\n".repeat(128);
+    c.manifest.context.startup_byte_budget = 1_048_576;
+    c.manifest.terminal.input_enabled = false;
+    let rendered = rendered_material(&mut c, &payload);
+    let program = c.temp.path().join("native-stdin-peer");
+    let mut cc = Command::new("/usr/bin/cc")
+        .args(["-O2", "-static", "-x", "c", "-o"])
+        .arg(&program)
+        .arg("-")
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    cc.stdin.take().unwrap().write_all(br#"
+#define _GNU_SOURCE
+#include <unistd.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <stdint.h>
+const unsigned char image_padding[5*1024*1024]={1};
+int main(int argc,char **argv) {
+ if((fcntl(0,F_GET_SEALS)&(F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL))!=(F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL))return 82;
+ unsigned char b[8192]; uint64_t hash=14695981039346656037ULL, n=0; ssize_t count;
+ while((count=read(0,b,sizeof(b)))>0){for(ssize_t i=0;i<count;i++){hash^=b[i];hash*=1099511628211ULL;}n+=count;}
+ if(count<0 || argc!=1 || image_padding[argc]!=0)return 80;
+ printf("STDIN:%llu:%016llx\n",(unsigned long long)n,(unsigned long long)hash);fflush(stdout);
+ for(;;)pause();
+}
+"#).unwrap();
+    assert!(cc.wait().unwrap().success());
+    assert!(std::fs::metadata(&program).unwrap().len() > observed::MAX_ELF_BYTES);
+    let executable = ArtifactRef {
+        id: Text::new("offline.native-stdin-peer").unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(&std::fs::read(&program).unwrap()),
+    };
+    let renderer = ArtifactRef {
+        id: Text::new("offline.literal-observer").unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(b"not a screen renderer qualification"),
+    };
+    let pool = observed::NativeExecPool::new(8 * 1024 * 1024, 1).unwrap();
+    let image = pool.load_verified(&program, &executable).unwrap();
+    assert_eq!(
+        pool.charged_bytes().unwrap(),
+        std::fs::metadata(&program).unwrap().len()
+    );
+    std::fs::write(
+        &program,
+        b"mutable installation replacement; must never execute",
+    )
+    .unwrap();
+    let now = ownership::raw_boot_ms();
+    let terminal = TerminalIdentity {
+        session: c.manifest.bindings.session.clone(),
+        terminal_id: Uuid::new_v4(),
+        epoch: 1,
+    };
+    let startup = observed::ObservedStartup::native_exec(
+        rendered,
+        terminal,
+        image,
+        observed::NativeExecObservationProfile::new(renderer.clone(), 80, 24).unwrap(),
+        now + 8000,
+    )
+    .unwrap();
+    let adapter = ObservedAdapter {
+        arguments: vec![],
+        program,
+        executable,
+        renderer,
+    };
+    let permit = ExecutionPermit {
+        session: c.manifest.bindings.session.clone(),
+        manifest_digest: canonical_digest(&c.manifest).unwrap(),
+        sequence: 1,
+        issued_boot_ms: now,
+        expires_boot_ms: now + 8000,
+    };
+    let pending = SessionHost::prepare_observed(
+        c.temp.path(),
+        c.id,
+        &startup,
+        permit,
+        &c.local,
+        &adapter,
+        &mut c.authority,
+    )
+    .unwrap();
+    assert_eq!(pending.observe().unwrap().phase, HostPhase::Starting);
+    let (mut output, baseline) = pending.open_baseline_observer().unwrap();
+    let mut released = pending
+        .release_after_baseline(&baseline, &mut c.authority)
+        .unwrap();
+    let mut handle = wait_named("native sealed exec", || {
+        released.poll_started(&mut c.authority).unwrap()
+    });
+    let hash = payload.iter().fold(14695981039346656037_u64, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(1099511628211)
+    });
+    let expected = format!("STDIN:{}:{hash:016x}", payload.len());
+    let mut literal = Vec::new();
+    wait_named("native exact stdin output", || {
+        for event in output.poll().unwrap() {
+            if let terminal_output::ControlEvent::Bytes(bytes) = event {
+                literal.extend_from_slice(&bytes);
+            }
+        }
+        String::from_utf8_lossy(&literal)
+            .contains(&expected)
+            .then_some(())
+    });
+    assert_eq!(handle.observe().unwrap().phase, HostPhase::Running);
+    handle.stop().unwrap();
+    let stopped = handle.wait_stopped(Duration::from_secs(3)).unwrap();
+    assert_eq!(stopped.phase, HostPhase::Stopped);
+    assert!(stopped.kernel_wait_echild);
+}

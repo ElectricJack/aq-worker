@@ -32,11 +32,15 @@ pub(crate) fn observed_image(process: &ProcessEvidence, image: &ElfIdentity) -> 
 pub(crate) fn enter(
     file: &File,
     image: &ElfIdentity,
-    command: &LocalCommand,
     directory: &Path,
-    workspace: &Path,
+    config: &SealedLaunch,
+    guardian: &GuardianIdentity,
+    server: &ProcessEvidence,
+    startup_stdin: Option<&File>,
 ) -> Result<()> {
     executable::verify_file(file, image)?;
+    let command = &config.command;
+    let workspace = &config.workspace;
     command.validate()?;
     let mut args = vec![CString::new(command.executable.as_os_str().as_bytes())?];
     for arg in &command.arguments {
@@ -63,6 +67,24 @@ pub(crate) fn enter(
     let mut envp: Vec<_> = environment.iter().map(|s| s.as_ptr()).collect();
     envp.push(std::ptr::null());
     std::env::set_current_dir(workspace)?;
+    if let Some(stdin) = startup_stdin {
+        ensure!(
+            unsafe { libc::dup2(stdin.as_raw_fd(), libc::STDIN_FILENO) } >= 0,
+            "native exact startup stdin unavailable"
+        );
+    }
+    config.permit.validate_at(
+        &guardian.intent.session,
+        &guardian.intent.manifest_digest,
+        ownership::raw_boot_ms(),
+    )?;
+    ensure!(
+        ownership::raw_boot_ms() < config.wall_deadline()?
+            && !directory.join("stop.request").exists()
+            && supervisor::guardian_live(guardian)
+            && ownership::pidfd_is_live(&ownership::verified_pidfd(server)?)?,
+        "authority lost at native exec boundary"
+    );
     let empty = c"";
     unsafe {
         libc::syscall(
@@ -75,6 +97,39 @@ pub(crate) fn enter(
         );
     }
     Err(std::io::Error::last_os_error()).context("sealed FD native exec failed; no fallback")
+}
+
+/// Prepare exact bytes from the host's retained descriptor and seal them before
+/// changing FD0. Old small-ELF sessions retain their original PTY stdin behavior.
+pub(crate) fn startup_stdin(config: &SealedLaunch, directory: &Path) -> Result<Option<File>> {
+    if !config.observed.as_ref().is_some_and(|s| s.native_exec()) {
+        return Ok(None);
+    }
+    let rendered = config
+        .rendered_startup
+        .as_ref()
+        .context("native startup descriptor missing")?;
+    let bytes = read_bytes(&directory.join("context-0.bin"), 1_048_576)?;
+    rendered.verify(&config.manifest, &bytes)?;
+    use std::os::fd::FromRawFd;
+    let fd = unsafe {
+        libc::memfd_create(
+            c"aq-native-startup".as_ptr(),
+            libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING | libc::MFD_NOEXEC_SEAL,
+        )
+    };
+    ensure!(fd >= 0, "native startup sealed fd unavailable");
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    file.write_all(&bytes)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o400))?;
+    let seals = libc::F_SEAL_WRITE | libc::F_SEAL_GROW | libc::F_SEAL_SHRINK | libc::F_SEAL_SEAL;
+    ensure!(
+        unsafe { libc::fcntl(file.as_raw_fd(), libc::F_ADD_SEALS, seals) } == 0,
+        "native startup immutable seals unavailable"
+    );
+    use std::io::Seek;
+    file.rewind()?;
+    Ok(Some(file))
 }
 
 #[cfg(test)]
@@ -111,6 +166,7 @@ mod tests {
             bytes: 128,
             device: 0,
             inode: 1,
+            profile: None,
         };
         assert!(observed_image(&process, &image).is_err());
         let metadata = std::fs::metadata("/proc/self/exe").unwrap();
