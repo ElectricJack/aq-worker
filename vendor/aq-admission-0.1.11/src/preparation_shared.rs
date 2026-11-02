@@ -988,12 +988,18 @@ pub fn long_schema() -> Value {
     value["$defs"]["DeliveryClock"]["properties"]["valid_for_ms"]["maximum"] = serde_json::json!(MAX_INTERACTIVE_EXECUTION_MS);
     value
 }
-pub fn long_contract_artifact() -> Result<ArtifactRef> {
+fn build_long_contract_artifact() -> Result<ArtifactRef> {
     let manifest = serde_json::json!({"schema_version":3,"publication":"aq-admission/0.1.11",
         "scope":"explicit-interactive-one-hour","schema_digest":Digest::of(&bytes(&long_schema())?),
         "required_features":required_features()});
     Ok(ArtifactRef { id:Text::new(format!("{}.interactive-long-v1",$contract_id)).map_err(|_| Invalid("long phase contract id"))?,
         version:Text::new("1").map_err(|_| Invalid("long phase contract version"))?,digest:hash("aq.phase.contract.v2",&manifest)? })
+}
+pub fn long_contract_artifact() -> Result<ArtifactRef> {
+    static ARTIFACT: std::sync::OnceLock<ArtifactRef> = std::sync::OnceLock::new();
+    Ok(ARTIFACT
+        .get_or_init(|| build_long_contract_artifact().expect("static bounded interactive phase schema artifact"))
+        .clone())
 }
 pub fn policy_contract(policy: &PhasePolicy) -> Result<ArtifactRef> {
     policy.validate()?;
