@@ -132,8 +132,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "aq-codex-mapper"
+name = "aq-agent-result-local"
 version = "0.1.0"
+dependencies = [
+ "aq-session-protocol",
+ "schemars",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "aq-codex-mapper"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "aq-session-protocol",
@@ -357,6 +368,7 @@ version = "0.4.0"
 dependencies = [
  "anyhow",
  "aq-admission",
+ "aq-agent-result-local",
  "aq-codex-mapper",
  "aq-phase-terminal-protocol",
  "aq-protocol",

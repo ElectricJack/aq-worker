@@ -16,6 +16,7 @@ pub mod codex;
 pub mod named_exec;
 pub mod native_exec;
 pub mod responses_transport;
+pub mod result_client;
 
 const MAX_MANIFEST: usize = 16_384;
 const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
