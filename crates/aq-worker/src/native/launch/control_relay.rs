@@ -109,6 +109,20 @@ pub(super) struct ControlOwner {
     http: RelayHttp,
 }
 impl ControlOwner {
+    async fn flush(self: &Arc<Self>) -> Result<()> {
+        let pending = self
+            .storage(|bridge| {
+                bridge.recover_pending()?;
+                bridge.prepare_control_upload()
+            })
+            .await?;
+        if let Some(request) = pending {
+            let ack = self.http.control_upload(&request).await?;
+            self.storage(move |bridge| bridge.acknowledge_control_upload(&ack))
+                .await?;
+        }
+        Ok(())
+    }
     async fn storage<T: Send + 'static>(
         self: &Arc<Self>,
         f: impl FnOnce(&mut Bridge) -> Result<T> + Send + 'static,
@@ -138,25 +152,13 @@ impl PhaseControlRelay {
     /// One bounded node-wide exchange. It never holds guardian/journal/Bridge
     /// locks across HTTP. A lost upload repeats its exact persisted metadata.
     pub async fn poll_control_once(&self) -> Result<usize> {
-        self.host.current()?;
         let _serial = self
             .owner
             .serial
             .try_lock()
             .context("native terminal poll busy")?;
-        let pending = self
-            .owner
-            .storage(|bridge| {
-                bridge.recover_pending()?;
-                bridge.prepare_control_upload()
-            })
-            .await?;
-        if let Some(request) = pending {
-            let ack = self.owner.http.control_upload(&request).await?;
-            self.owner
-                .storage(move |bridge| bridge.acknowledge_control_upload(&ack))
-                .await?;
-        }
+        self.owner.flush().await?;
+        self.host.current()?;
         let request = self.owner.storage(|bridge| bridge.poll_request(0)).await?;
         let mut envelope = self.owner.http.poll(&request).await?;
         // Watch has its independent output-only cursor. Capture/epoch are not
@@ -180,14 +182,14 @@ impl PhaseControlRelay {
                 Ok(count)
             })
             .await?;
-        let pending = self.owner.storage(Bridge::prepare_control_upload).await?;
-        if let Some(request) = pending {
-            let ack = self.owner.http.control_upload(&request).await?;
-            self.owner
-                .storage(move |bridge| bridge.acknowledge_control_upload(&ack))
-                .await?;
-        }
+        self.owner.flush().await?;
         Ok(count)
+    }
+    /// Drain already retained receipts even after the host stops. This never
+    /// polls/claims new input, creates a replacement host, or replays input.
+    pub async fn flush_control_receipts(&self) -> Result<()> {
+        let _serial = self.owner.serial.lock().await;
+        self.owner.flush().await
     }
     /// Actual current visible plaintext for the harness's local ready/auth
     /// classifier. It is neither a renderer Snapshot nor an input grant.
