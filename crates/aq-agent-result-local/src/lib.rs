@@ -171,15 +171,23 @@ impl Validate for Presence {
     }
 }
 impl Presence {
+    /// Matching historical scope/boot projection only. A held completion-owner
+    /// lock is independently required; this does not admit a new submission.
+    pub fn matches_owner_projection(
+        &self,
+        binding: &Binding,
+        kernel_boot_id: Uuid,
+    ) -> Result<bool, ContractError> {
+        self.validate()?;
+        Ok(self.binding_digest == binding.digest()? && self.kernel_boot_id == kernel_boot_id)
+    }
     pub fn matches_at(
         &self,
         binding: &Binding,
         kernel_boot_id: Uuid,
         now_boot_ns: u64,
     ) -> Result<bool, ContractError> {
-        self.validate()?;
-        Ok(self.binding_digest == binding.digest()?
-            && self.kernel_boot_id == kernel_boot_id
+        Ok(self.matches_owner_projection(binding, kernel_boot_id)?
             && now_boot_ns < self.original_execution_deadline_boot_ns
             && now_boot_ns < self.original_hard_deadline_boot_ns)
     }
@@ -417,6 +425,7 @@ mod tests {
             original_hard_deadline_boot_ns: 200,
         };
         assert!(p.matches_at(&scope, id(20), 149).unwrap());
+        assert!(p.matches_owner_projection(&scope, id(20)).unwrap());
         assert!(!p.matches_at(&scope, id(20), 150).unwrap());
         assert!(
             !p.matches_at(&scope, id(20), 199).unwrap(),
@@ -426,8 +435,10 @@ mod tests {
         invalid.original_execution_deadline_boot_ns = 201;
         assert!(invalid.validate().is_err());
         assert!(!p.matches_at(&scope, id(21), 100).unwrap());
+        assert!(!p.matches_owner_projection(&scope, id(21)).unwrap());
         let mut other = scope;
         other.execution_record_digest = Digest::of(b"new execution");
         assert!(!p.matches_at(&other, id(20), 100).unwrap());
+        assert!(!p.matches_owner_projection(&other, id(20)).unwrap());
     }
 }

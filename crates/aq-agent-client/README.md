@@ -19,8 +19,11 @@ Its conclusion is a nonblank UTF-8 line of at most 512 bytes; oversized or unkno
 fields are rejected. The original attempt-bound IDs and frozen expected outcome
 come from worker-published control data. The client atomically publishes at most
 one immutable local claim. Repeating the same claim reads status; a different
-claim conflicts without replacing the original. Exit code 10 means pending,
-not worker acceptance or remote report recording. Stop editing after submission.
+claim conflicts without replacing the original. After a new publication, submit
+waits at most two seconds, capped by the remaining original execution deadline,
+for a matching worker acknowledgment. Timeout returns pending without retrying
+or changing IDs. Exit code 10 alone means pending; inspect the phase to distinguish
+local publication from worker acceptance. Stop editing after submission.
 
 The result root lives outside captured source. The sandbox maps control files
 read-only and only `submissions/` writable. A retained directory/binding identity,
@@ -28,7 +31,9 @@ existing worker lock, boot identity and both original BOOTTIME execution/hard
 deadlines guard new publication. These are refusal checks, never live execution
 authority. The worker independently requires its actual retained execution owner,
 obtains physical stop and central source retention, then records the report.
-After owner loss, status is historical/recovery data and new claims are refused.
+After execution expiry, a matching completion-owner lock on the same boot can
+still support accepted/finalizing status; it never admits a new claim. After
+owner loss, status is historical/recovery data and new claims are refused.
 An exact `recorded` acknowledgment means report recording only; review, task
 completion and resource release remain separate. No automatic replacement or
 renewal exists after an uncertain write. The unchanged original request and IDs
@@ -107,9 +112,15 @@ and a byte-hashed manifest with source revision, dirty state and compiler detail
 It does not contain credentials. It is a local artifact; the script does not
 publish, install or modify product release selections.
 
-Local result source qualification: seven completion file/CLI tests passed
+Initial local result source qualification: seven completion file/CLI tests passed
 (0.06 seconds), five library tests passed (2.12 seconds, including the existing
 three journal tests), and all-target strict Clippy passed (3.73 seconds). The
 fixtures exercise a real client process but synthetic presence/acknowledgments;
 they create no worker grant, actual stop, source receipt or B1 report. Harness
 installation and worker producer integration require their own qualification.
+The bounded acknowledgment wait and post-execution completion-owner status
+passed nine focused completion tests (2.06 seconds), including delayed matching
+acknowledgment, the shorter original execution ceiling, finalization after lease
+expiry and dead-owner refusal. All five pure contract tests passed, both crates'
+all-target strict Clippy passed (1.74 seconds), and the default binary built
+(3.36 seconds). The exact rebuilt binary also passed the CLI subprocess vector.

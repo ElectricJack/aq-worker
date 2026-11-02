@@ -44,6 +44,10 @@ The CLI will expose only:
 ```
 
 Submit publishes at most the original local intent and reports pending, exit10.
+The client waits at most two seconds (bounded by the original execution deadline)
+after new publication for the matching worker acknowledgment. Status may observe
+accepted/finalizing after execution expiry only while the matching original-boot
+completion owner retains its lock; this never admits a new claim.
 After ambiguity inspect status and preserve original IDs/bytes. A changed payload
 conflicts. No original intent is automatically replaced, evicted or superseded.
 Read-only status after owner loss is historical/recovery data; disk never restores

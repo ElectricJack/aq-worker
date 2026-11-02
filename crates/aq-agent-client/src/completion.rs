@@ -11,6 +11,7 @@ use std::{
     io::Read,
     os::unix::fs::MetadataExt,
     path::Path,
+    time::Duration,
 };
 use uuid::Uuid;
 
@@ -86,13 +87,18 @@ impl ResultClient {
             })
             .transpose()
     }
-    fn owner_present(&self) -> Result<bool> {
+    fn owner_present(&self, new_submission: bool) -> Result<bool> {
         let Some(bytes) = self.root.optional(wire::PRESENCE_FILE, wire::MAX_BYTES)? else {
             return Ok(false);
         };
         let presence: Presence = wire::decode(&bytes)?;
         let (boot, now) = kernel_clock()?;
-        if !presence.matches_at(&self.binding, boot, now)? {
+        let matches = if new_submission {
+            presence.matches_at(&self.binding, boot, now)?
+        } else {
+            presence.matches_owner_projection(&self.binding, boot)?
+        };
+        if !matches {
             return Ok(false);
         }
         // Existing lock only. Acquiring a lock here would be owner ABSENCE,
@@ -164,7 +170,7 @@ impl ResultClient {
                     .is_none(),
             "result acknowledgment has no retained original claim"
         );
-        let present = self.owner_present()?;
+        let present = self.owner_present(false)?;
         self.check_binding()?;
         self.view(submission.as_ref(), ack.as_ref(), present)
     }
@@ -191,7 +197,7 @@ impl ResultClient {
                 exit_code: 13,
             });
         }
-        if !self.owner_present()? {
+        if !self.owner_present(true)? {
             return self.view(None, None, false);
         }
         self.check_binding()?;
@@ -218,7 +224,32 @@ impl ResultClient {
         }
         // Publication can race cancellation/expiry. Only the actual worker may
         // accept it; do not manufacture an Accepted acknowledgment here.
-        self.view(Some(&candidate), None, true)
+        self.wait_for_acknowledgment()
+    }
+    /// One bounded local wait after NEW publication only. It never retries,
+    /// replaces an intent or renews its original execution ceiling. Pending on
+    /// timeout is honest uncertainty; only worker-published matching ACKs count.
+    fn wait_for_acknowledgment(&self) -> Result<Outcome> {
+        let presence: Presence =
+            wire::decode(&self.root.read(wire::PRESENCE_FILE, wire::MAX_BYTES)?)?;
+        let (boot, now) = kernel_clock()?;
+        if !presence.matches_at(&self.binding, boot, now)? {
+            return self.status();
+        }
+        let until = presence
+            .original_execution_deadline_boot_ns
+            .min(now.saturating_add(2_000_000_000));
+        loop {
+            let outcome = self.status()?;
+            if outcome.value["phase"]["kind"] != "pending_local" {
+                return Ok(outcome);
+            }
+            let (current_boot, now) = kernel_clock()?;
+            if current_boot != boot || now >= until {
+                return Ok(outcome);
+            }
+            std::thread::sleep(Duration::from_nanos((until - now).min(20_000_000)));
+        }
     }
     fn unknown(&self, submission: &Submission) -> Result<Outcome> {
         Ok(Outcome {

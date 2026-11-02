@@ -9,6 +9,7 @@ use std::{
     os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink},
     path::PathBuf,
     process::Command,
+    time::{Duration, Instant},
 };
 use uuid::Uuid;
 struct Fixture {
@@ -172,6 +173,19 @@ fn acknowledgment_pins_foreign_bytes_and_owner_loss_cannot_become_live_acceptanc
         f.client().status().unwrap().value["phase"]["kind"],
         "accepted"
     );
+    let stamp = aq_agent_client::journal::Stamp::now().unwrap();
+    f.presence(Presence {
+        schema_version: 1,
+        binding_digest: f.binding.digest().unwrap(),
+        kernel_boot_id: stamp.boot_id,
+        original_execution_deadline_boot_ns: 1,
+        original_hard_deadline_boot_ns: (stamp.boottime_ms + 20_000) * 1_000_000,
+    });
+    f.publish_ack(&f.ack(Phase::Finalizing));
+    let finalizing = f.client().status().unwrap();
+    assert_eq!(finalizing.exit_code, 10);
+    assert_eq!(finalizing.value["phase"]["kind"], "finalizing");
+    assert_eq!(finalizing.value["owner_present"], true);
     let mut foreign = ack.clone();
     foreign.submission_digest = Digest::of(b"another conclusion");
     f.publish_ack(&foreign);
@@ -199,6 +213,59 @@ fn acknowledgment_pins_foreign_bytes_and_owner_loss_cannot_become_live_acceptanc
             .as_bool()
             .unwrap()
     );
+}
+#[test]
+fn new_publication_waits_for_exact_worker_ack_without_replacing_original() {
+    let f = Fixture::new();
+    let claim_path = f.path();
+    let root = f.dir.path().to_owned();
+    let worker = std::thread::spawn(move || {
+        let started = Instant::now();
+        while !claim_path.exists() {
+            assert!(started.elapsed() < Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let bytes = std::fs::read(&claim_path).unwrap();
+        let s: Submission = wire::decode(&bytes).unwrap();
+        // Deliberately delay the synthetic ACK after observing atomic publication.
+        std::thread::sleep(Duration::from_millis(50));
+        let ack = Acknowledgment {
+            schema_version: 1,
+            operation_id: s.binding.operation_id,
+            report_id: s.binding.report_id,
+            binding_digest: s.binding.digest().unwrap(),
+            submission_digest: s.digest().unwrap(),
+            phase: Phase::Accepted,
+        };
+        let pending = root.join("ack.pending");
+        std::fs::write(&pending, wire::encode(&ack).unwrap()).unwrap();
+        std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o400)).unwrap();
+        std::fs::rename(pending, root.join(wire::ACK_FILE)).unwrap();
+        bytes
+    });
+    let result = f.client().submit(f.input()).unwrap();
+    assert_eq!(result.exit_code, 10);
+    assert_eq!(result.value["phase"]["kind"], "accepted");
+    assert_eq!(std::fs::read(f.path()).unwrap(), worker.join().unwrap());
+}
+#[test]
+fn new_publication_wait_cannot_outlive_original_execution_deadline() {
+    let f = Fixture::new();
+    let stamp = aq_agent_client::journal::Stamp::now().unwrap();
+    f.presence(Presence {
+        schema_version: 1,
+        binding_digest: f.binding.digest().unwrap(),
+        kernel_boot_id: stamp.boot_id,
+        original_execution_deadline_boot_ns: (stamp.boottime_ms + 500) * 1_000_000,
+        original_hard_deadline_boot_ns: (stamp.boottime_ms + 10_000) * 1_000_000,
+    });
+    let started = Instant::now();
+    let result = f.client().submit(f.input()).unwrap();
+    assert!(started.elapsed() < Duration::from_millis(1500));
+    assert_eq!(result.exit_code, 10);
+    assert_eq!(result.value["phase"]["kind"], "pending_local");
+    assert!(f.path().exists());
+    assert_eq!(f.client().submit(f.input()).unwrap().exit_code, 10);
 }
 #[test]
 fn lost_original_with_existing_ack_refuses_replacement_even_with_presence() {
