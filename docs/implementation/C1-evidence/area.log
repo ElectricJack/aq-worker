@@ -1,0 +1,328 @@
+aq test: no interpreter found for /tmp (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 5 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' /tmp/test_c1_cargo.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /tmp
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 1 item
+
+../../../../../../../../../tmp/test_c1_cargo.py COMMAND: ['cargo', 'test', '--locked', '-p', 'aq-worker', '--features', 'test-support', '--lib', '--test', 'backend_conformance', '--test', 'execution', '--test', 'journal_migration']
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 13s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-2878010d4b99d179)
+
+running 254 tests
+test finite_responses_fixture::tests::completion_preserves_exact_text_through_sse_delta_and_final_item ... ok
+test finite_responses_fixture::tests::distinct_turns_keep_exact_tool_arguments_and_function_call_identity ... ok
+test finite_responses_fixture::tests::empty_poll_retains_real_session_identity_without_new_input ... ok
+test journal::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+test finite_responses_fixture::tests::request_refuses_wrong_model_cap_policy_and_credential_material ... ok
+test native::adapter::codex::tests::authentication_is_private_bounded_and_cannot_inject_json ... ok
+test native::adapter::codex::tests::changed_payload_settings_private_mode_and_hard_budget_are_refused ... ok
+test native::adapter::codex::tests::exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata ... ok
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_base_command_golden ... ok
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_scoped_command_golden ... ok
+test native::adapter::codex::tests::fatal_or_empty_stream_cannot_report_completion_or_later_readiness ... ok
+test native::adapter::codex::tests::jsonl_readiness_requires_actual_order_and_handles_chunk_boundaries ... ok
+test native::adapter::codex::tests::native_mapping_reuses_preflight_image_after_mutable_program_path_changes ... ok
+test native::adapter::codex::tests::scoped_provider_retains_closed_origin_validation ... ok
+test native::adapter::codex::tests::tool_environment_config_starts_empty_and_adds_only_fixed_trusted_path ... ok
+test native::adapter::named_exec::tests::named_installation_pins_environment_and_reuses_all_readonly_owners ... ignored, requires explicit readonly namespace fixture; reads pinned ELF files only, never launches Codex
+test native::adapter::named_exec::tests::named_manifest_is_distinct_and_cannot_accept_a_qualification_boolean ... ok
+test native::adapter::native_exec::tests::explicit_profile_preserves_exact_size_digest_and_independent_identity ... ok
+test native::adapter::native_exec::tests::undeclared_profile_or_actual_size_mismatch_refuse ... ok
+test native::adapter::codex::tests::actual_offline_process_receives_only_exact_stdin_and_explicit_environment ... ok
+test native::adapter::responses_transport::policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+test native::adapter::responses_transport::policy::tests::injects_exact_response_cap_preserving_every_other_setting ... ok
+test native::adapter::responses_transport::policy::tests::changed_selection_ambiguous_json_stateful_and_unbounded_requests_refuse ... ok
+test native::adapter::responses_transport::tests::endpoint_and_key_scope_refuse_before_serving ... ok
+test native::adapter::responses_transport::policy::tests::server_side_references_and_hosted_tools_refuse_before_cap_insertion ... ok
+test native::adapter::responses_transport::tests::exact_http_route_host_capability_and_framing_refuse_without_forwarding ... ok
+test native::adapter::responses_transport::tests::exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_preserved_sse ... ok
+test native::adapter::responses_transport::tests::stop_cancels_pending_upstream_and_ambiguous_http_never_forwards ... ok
+test native::adapter::result_client::tests::result_client_exact_digest_environment_observation_and_byte_bounds_are_separate ... ok
+test native::adapter::result_client::tests::result_client_manifest_is_closed_distinct_and_bounded ... ok
+test native::adapter::responses_transport::tests::upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect ... ok
+test native::adapter::result_client::tests::result_client_selection_requires_actual_contract_and_independent_references ... ok
+test native::adapter::result_client::tests::selected_definition_revision_preserves_actual_body_digest_and_historical_default ... ok
+test native::adapter::result_profile::tests::composite_selection_is_canonical_closed_and_independently_pinned ... ok
+test native::adapter::result_profile::tests::result_profile_preserves_existing_permission_domain_and_pins_whole_plan ... ok
+test native::adapter::result_profile::tests::selected_definition_revision_preserves_schema_and_exact_retained_pins ... ok
+test native::adapter::result_profile::tests::retained_definition_requires_its_original_role_descriptor_bytes_and_selection ... ok
+test native::adapter::tests::actual_files_remain_pinned_and_named_replacement_refuses ... ok
+test native::adapter::tests::independently_chosen_pins_and_closed_wire_shape_required ... ok
+test native::adapter::tests::manifest_bound_and_oversized_sparse_file_refuse_before_hashing ... ok
+test native::adapter::tests::changed_content_mode_symlink_and_pin_refuse ... ok
+test native::journal::phase_terminal_budget::tests::revision_growth_cannot_spend_reserved_host_or_safety_capacity ... ok
+test native::journal::phase_terminal_budget::tests::worst_case_four_envelopes_and_base_fit_reserved_host_budget ... ok
+test native::http::refresh_terminal_tests::refresh_terminal_and_history_use_exact_new_profile_on_shared_routes ... ok
+test native::journal::tests::capacity_and_clock_limits_refuse_before_any_new_durable_record ... ok
+test native::journal::tests::changed_private_root_permissions_refuse_further_capacity_or_writes ... ok
+test native::journal::tests::actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap ... ok
+test native::journal::tests::different_kernel_boot_is_historical_without_comparing_local_clocks ... ok
+test native::journal::tests::exclusive_owner_and_unsafe_paths_refuse ... ok
+test native::journal::tests::checksum_and_structural_association_are_both_checked_on_reopen ... ok
+test native::journal::tests::expired_reservation_is_still_held_and_cannot_reaccept ... ok
+test native::journal::tests::hydration_scenarios::failed_inline_batch_keeps_exact_plan_without_partial_receipt_completion ... ok
+test native::journal::tests::hydration_scenarios::actual_native_pipeline_journals_every_external_intent_and_keeps_lost_import_id ... ok
+test native::journal::tests::hydration_scenarios::format_three_refusal_preserves_old_journal_and_pending_files ... ok
+test native::journal::tests::hydration_scenarios::failed_range_is_exact_pending_and_format_two_is_never_upgraded ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::abandoned_unpolled_commit_future_already_retains_inputs_without_grant_history ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::cancelled_fsync_waiter_retains_bundle_and_completion_for_explicit_retry ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_current_source_keeps_received_history_but_refuses_usable_wrapper ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_prepare_network_association_refuses_but_retains_inputs_for_narrow_retry ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_private_material_keeps_received_history_without_exposing_or_using_bytes ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_same_operation_grant_cannot_replace_first_receipt_or_owner ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::every_old_format_is_refused_before_rewriting_journal_or_pending_evidence ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::expiry_during_fsync_retains_history_and_never_yields_usable_wrapper ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::receipt_expiring_before_commit_is_history_only_without_releasing_inputs ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::received_grant_is_durable_before_usable_and_replay_preserves_first_clocks_and_bundle ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::every_grant_write_fault_preserves_holds_and_reopen_never_restores_authority ... ok
+test native::journal::tests::hydration_scenarios::held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::valid_grant_history_survives_restart_but_changed_associations_are_refused ... ok
+test native::journal::tests::hydration_scenarios::historical_receipts_cannot_bypass_fresh_retention_or_head_checks ... ok
+test native::journal::tests::hydration_scenarios::inline_batch_overlaps_only_two_reads_and_preserves_control_capacity ... ok
+test native::journal::tests::hydration_scenarios::inline_batch_uses_two_durable_commits_and_replay_reuses_every_original_request ... ok
+test native::journal::tests::hydration_scenarios::missing_native_inspection_capabilities_refuse_without_adopting_source_plan ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_actual_running_then_stop_retains_typed_history ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_cancelled_waiter_keeps_one_exact_admitted_job ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_every_permission_write_cut_is_unknown_and_never_relaunched ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_guardian_loss_is_unknown_never_a_stopped_proof ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_invalid_sealed_program_never_falls_back_to_shell ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_original_expiry_stops_guardian_while_baseline_writer_is_paused ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_reopen_only_stops_exact_existing_host_and_never_restores_execution ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_root_replacement_after_intent_never_switches_namespace ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_short_exec_without_positive_guardian_proof_has_no_started ... ignored, requires pinned test-support helper and actual tmux3.4; isolated missed-exec fault
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_started_outbox_never_fakes_ack_and_replays_exact_fact ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_stop_progresses_while_baseline_writer_is_paused ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_unadmitted_claim_is_released_but_stop_fence_cannot_be_reset ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_ack_write_cuts_reopen_old_or_whole_ack_without_freeing_holds ... ignored, requires pinned native synthetic host and actual tmux3.4; fsync cut copies are history-only
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_actual_pair_lost_ack_immutable_retry_and_restart_readback ... ignored, requires pinned native synthetic host and actual tmux3.4; phase terminal peer is synthetic
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_unacked_restart_retries_without_live_authority_or_discard ... ignored, requires pinned native synthetic host and actual tmux3.4; historical report after restart only
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::actual_output_attachment_refuses_input_enabled_sealed_policy ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::actual_output_drain_precedes_ack_but_registration_uses_actual_retained_revision ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::actual_codex_exec_command_round_trip_uses_confined_workspace_and_actual_tool_output ... ignored, qualification probe: unified exec currently ENOENT; requires independently confined runtime and admitted helper route
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::actual_codex_finite_response_has_exact_auth_startup_readiness_output_and_stopped_acks ... ignored, requires exact pinned Codex0.166, helper0.1.5 and actual tmux; loopback only
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::actual_codex_shutdown_during_blocked_output_stops_without_provider_response ... ignored, requires exact pinned Codex0.166, helper0.1.5 and actual tmux; loopback only
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::actual_codex_shutdown_during_delayed_started_keeps_unknown_receipt_after_physical_stop ... ignored, requires exact pinned Codex0.166, helper0.1.5 and actual tmux; loopback only
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::actual_named_readonly_codex_exec_command_round_trip_has_owned_cap_and_physical_cleanup ... ignored, explicit named-readonly qualification; requires private fixture, exact pins and root-approved paired source
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::confinement::kernel_fixture_confinement_is_independently_proven ... ignored, kernel premise probe only; run using the qualification wrapper; never launches Codex
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::codex_process_scenarios::qualification_stage_does_not_reset_or_poll_expired_original_deadline ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::shutdown_during_delayed_started_ack_stops_physically_and_preserves_uncertainty ... ignored, requires pinned physical helper/periodic synthetic ELF and actual tmux
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::shutdown_during_slow_output_http_stops_and_acknowledges_without_waiting_for_upload ... ignored, requires pinned physical helper/periodic synthetic ELF and actual tmux
+test native::journal::tests::hydration_scenarios::native_host_scenarios::output_relay_scenarios::runner_lifecycle_scenarios::unwatched_output_409_keeps_actual_host_running_and_preserves_pending_bytes ... ignored, requires pinned physical helper/periodic synthetic ELF and actual tmux
+test native::journal::tests::hydration_scenarios::inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion ... ok
+test native::journal::tests::hydration_scenarios::native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence ... ok
+test native::journal::tests::hydration_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline ... ok
+test native::journal::tests::hydration_scenarios::oversized_source_geometry_refuses_before_any_range_or_git_mutation ... ok
+test native::journal::tests::hydration_scenarios::phase_cancelled_artifact_batch_keeps_exact_ids_and_no_partial_completion ... ok
+test native::journal::tests::hydration_scenarios::phase_and_legacy_input_provenance_cannot_cross_on_reopen ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive_owner ... FAILED
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_expiry_during_fsync_is_history_only_and_keeps_resources ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_current_private_record_and_git_changes_refuse_without_erasing_history ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_foreign_actual_observation_cannot_rebind_prepared_owner_and_retry_keeps_first_bundle ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_is_durable_before_usable_and_preserves_original_bundle_and_caps ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_outlives_preparation_without_retiming_historical_source_proof ... FAILED
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_history_reopen_refuses_changed_runtime_request_and_sender_cap ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_replay_never_replaces_first_history_or_extends_caps ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_unpolled_and_cancelled_futures_preserve_exclusive_bundle_and_commit ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::production_request_retains_prepared_owners_before_http_and_on_unknown_outcome ... ok
+test native::journal::tests::hydration_scenarios::phase_input_expiry_and_foreign_observation_refuse_without_intents ... FAILED
+test native::journal::tests::hydration_scenarios::phase_input_write_cuts_hold_old_or_complete_plan_and_history_only_reopen ... ok
+test native::journal::tests::hydration_scenarios::phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry ... ok
+test native::journal::tests::hydration_scenarios::phase_origin_tampering_cannot_be_hidden_by_valid_journal_checksum ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_write_cuts_reopen_history_only_and_preserve_all_holds ... ok
+test native::journal::tests::hydration_scenarios::phase_prepare_cancelled_fsync_retains_exact_request_and_replay_does_not_retime ... ok
+test native::journal::tests::hydration_scenarios::phase_shared_malformed_owner_is_rejected_even_when_every_input_copy_matches ... ok
+test native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace ... ignored, requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout
+test native::journal::tests::hydration_scenarios::pinned_git_phase_inputs_and_prepare_after_original_proposal_expiry ... ignored, requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout
+test native::journal::tests::hydration_scenarios::pinned_git_received_initial_grant_retains_actual_workspace_and_material_owners ... ignored, requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout
+test native::journal::tests::hydration_scenarios::phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reopen ... ok
+test native::journal::tests::hydration_scenarios::prepare_join_fsync_cuts_retain_original_or_complete_intent_and_reopen_without_authority ... ok
+test native::journal::tests::hydration_scenarios::prepare_join_retains_exact_request_and_requires_actual_inputs_again_for_retry ... ok
+test native::journal::tests::hydration_scenarios::prepare_join_refuses_missing_inputs_renderer_and_retention_changed_after_hydration ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::actual_private_read_publishes_exact_initial_scope_without_global_installation_claim ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::cancelled_actual_read_remains_owned_and_is_published_only_by_explicit_retry ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::cancelled_network_publication_keeps_original_body_for_exact_retry ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::changed_installation_record_is_negative_without_serializing_untrusted_record ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::exact_presence_retry_never_recaptures_private_bytes_or_extends_observation ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::expired_initial_token_never_reads_or_publishes_positive ... FAILED
+test native::journal::tests::hydration_scenarios::presence_scenarios::failed_factory_does_not_burn_singleton_and_old_inventory_cannot_name_new_report ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::formatted_definition_is_accepted_and_pipeline_publisher_cannot_be_reset ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::historical_private_files_and_received_grant_cannot_construct_a_new_positive_producer ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::full_read_interval_is_bounded_even_with_a_still_live_initial_grant ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::inventory_lost_ack_keeps_original_operation_seed_and_conservative_deadline ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::opaque_token_and_inventory_from_other_pipeline_cannot_be_rebound ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::namespace_replacement_during_actual_read_is_never_positive_even_with_same_bytes ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::saturated_bulk_reads_do_not_consume_scoped_control_publication ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::positive_cannot_survive_expiry_during_read_but_scoped_missing_can ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::wrong_or_oversized_receipts_fail_closed_and_keep_identical_operation ... ok
+test native::journal::tests::hydration_scenarios::production_collect_dispatch_retains_actual_frozen_inputs_without_launch ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::unsafe_or_absent_private_members_never_become_positive ... ok
+test native::journal::tests::inputs_scenarios::artifact_requests_are_durable_batched_exact_and_retry_keeps_ids ... ok
+test native::journal::tests::inputs_scenarios::expired_download_stays_pending_and_bulk_does_not_occupy_control ... ok
+test native::journal::tests::inputs_scenarios::installed_material_pin_is_independent_durable_and_has_no_plaintext ... ok
+test native::journal::tests::inputs_scenarios::old_format_refusal_does_not_rewrite_or_discard_pending ... ok
+test native::journal::tests::inputs_scenarios::original_request_associations_and_metadata_bounds_are_rechecked ... ok
+test native::journal::tests::inputs_scenarios::postrename_pin_survives_but_is_historical_and_never_recreates_material ... ok
+test native::journal::tests::hydration_scenarios::source_file_sync_and_cursor_commit_faults_reopen_old_or_matching_new_history ... ok
+test native::journal::tests::inputs_scenarios::unknown_journal_write_prevents_http_and_reopen_never_reauthorizes ... ok
+test native::journal::tests::missing_corrupt_newer_and_wrong_node_journals_are_not_empty_nodes ... ok
+test native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses ... ok
+test native::journal::tests::new_initialization_has_new_logical_boot_and_cannot_overwrite_existing_root ... ok
+test native::journal::tests::oversized_member_and_unknown_root_member_fail_closed ... ok
+test native::journal::tests::preparation_v2_scenarios::actual_poll_redelivery_and_original_proposal_are_retained_as_distinct_history ... ok
+test native::journal::tests::preparation_v2_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::preparation_v2_scenarios::expiry_before_recording_keeps_received_history_and_every_resource_hold ... ok
+test native::journal::tests::preparation_v2_scenarios::legacy_protocol_choice_cannot_be_switched_to_phase_after_publication ... ok
+test native::journal::tests::preparation_v2_scenarios::phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths ... ok
+test native::journal::tests::preparation_v2_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+test native::journal::tests::preparation_v2_scenarios::intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history ... ok
+test native::journal::tests::preparation_v2_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption ... ok
+test native::journal::tests::refresh_physical_scenarios::actual_refresh_inputs_join_execution_and_reopen_stay_typed_history_only ... ok
+test native::journal::tests::refresh_physical_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline ... FAILED
+test native::journal::tests::refresh_physical_scenarios::native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence ... ok
+test native::journal::tests::refresh_physical_scenarios::production_collect_dispatch_retains_actual_refresh_inputs_without_launch ... ok
+test native::journal::tests::refresh_physical_scenarios::refresh_shared_saved_owner_cannot_be_rehashed_around_capture_or_mixed_profile_history ... ok
+test native::journal::tests::refresh_physical_scenarios::refresh_unpolled_request_retains_actual_bundle_before_network_and_retry_keeps_first_owner ... ok
+test native::journal::tests::refresh_scenarios::actual_poll_redelivery_and_original_proposal_are_retained_as_distinct_history ... ok
+test native::journal::tests::refresh_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::refresh_scenarios::expiry_before_recording_keeps_received_history_and_every_resource_hold ... ok
+test native::journal::tests::refresh_scenarios::frozen_profile_client_refuses_refresh_reply_on_same_uri_without_fallback ... ok
+test native::journal::tests::refresh_scenarios::intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history ... ok
+test native::journal::tests::refresh_scenarios::legacy_protocol_choice_cannot_be_switched_to_phase_after_publication ... ok
+test native::journal::tests::refresh_scenarios::phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths ... ok
+test native::journal::tests::refresh_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+test native::journal::tests::refresh_physical_scenarios::refresh_fsync_loss_reopens_history_without_live_authority_and_keeps_every_capacity_hold ... ok
+test native::journal::tests::reservation_acceptance_survive_restart_without_restoring_live_authority ... ok
+test native::journal::tests::root_replacement_cannot_redirect_an_open_writers_effects ... ok
+test native::journal::tests::symlink_hardlink_and_nonprivate_members_refuse ... ok
+test native::journal::tests::unknown_attempts_and_changed_acceptance_retries_do_not_consume_revision ... ok
+test native::materials::scoped_transport_tests::retained_transport_generates_fresh_cap_and_refuses_changed_original_before_forwarding ... ok
+test native::materials::scoped_transport_tests::retained_transport_refuses_manifest_substitution_without_starting_upstream ... ok
+test native::preparation::granted::reservation_tests::cancelled_waiter_cannot_split_fsync_and_retained_membership ... ok
+test native::preparation::granted::reservation_tests::failed_publication_retains_history_and_requires_recovery_without_membership ... ok
+test native::preparation::granted::reservation_tests::new_pipeline_reservation_publishes_membership_and_refuses_duplicate_without_change ... ok
+test native::preparation::hydration::files::tests::digest_missing_prefix_and_unowned_tail_refuse_without_overwrite ... ok
+test native::preparation::hydration::files::tests::empty_marker_and_foreign_published_artifact_are_held ... ok
+test native::preparation::hydration::files::tests::fsynced_tail_replays_exactly_and_complete_publish_reopens ... ok
+test native::preparation::hydration::files::tests::growing_reader_is_bounded_and_metadata_changes_are_refused ... ok
+test native::preparation::hydration::files::tests::marker_and_directory_replacement_stop_owned_writes ... ok
+test native::preparation::hydration::files::tests::symlinks_and_special_members_are_never_followed ... ok
+test native::preparation::launch::output_relay::started::tests::changed_running_or_ack_cannot_replace_retained_request ... ok
+test native::preparation::launch::output_relay::started::tests::frozen_and_refresh_capture_validate_their_exact_context_and_ack ... ok
+test native::preparation::launch::output_relay::started::tests::mixed_profile_wrong_context_and_cross_profile_replacements_are_refused ... ok
+test native::journal::tests::refresh_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption ... ok
+test native::preparation::launch::output_relay::tests::bounded_tail_packet_preserves_literal_sequences_and_explicit_eviction_gap ... ok
+test native::preparation::launch::output_relay::tests::dropped_pipeline_tail_owner_cannot_be_reconstructed_from_transport_history ... ok
+test native::preparation::launch::output_relay::started::tests::pending_ack_allows_capture_but_refuses_registration_for_both_profiles ... ok
+test native::preparation::launch::output_relay::tests::no_watch_and_ambiguous_reply_keep_exact_pending_bytes_while_tail_continues ... ok
+test native::preparation::launch::output_relay::tests::high_byte_frames_fit_actual_http_transport_without_losing_sequences ... ok
+test native::preparation::launch::output_relay::tests::output_poll_never_consumes_control_or_regressing_cursor ... ok
+test native::preparation::launch::output_relay::tests::unknown_producer_discontinuity_does_not_invent_an_exact_gap_or_restart ... ok
+test native::preparation::launch::output_relay::tests::watch_metadata_is_bounded_expiring_and_never_advances_on_unsupported_effect ... ok
+test native::preparation::launch::output_relay::tests::watch_poll_keeps_pending_upload_bytes_and_independent_cursors_after_409 ... ok
+test native::preparation::launch::output_relay::tests::ordinary_publisher_polls_while_upload_is_blocked_and_drop_aborts_both_tasks ... ok
+test native::preparation::launch::scoped_transport_scenarios::logical_stop_fence_closes_transport_before_any_async_physical_stop_poll ... ok
+test native::preparation::launch::synthetic::tests::synthetic_profile_rejects_offer_commands_geometry_and_nonprivate_or_replaced_roots ... ok
+test native::preparation::result::source::tests::checkpoint_inspection_accepts_actual_nested_dirty_workspace_and_current_head ... ok
+test native::preparation::result::source::tests::checkpoint_inspection_refuses_flat_inactive_and_changed_full_allocation ... ok
+test native::preparation::result::source::tests::checkpoint_inspection_refuses_wrong_scope_or_malformed_current_head ... ok
+test native::preparation::result::source::tests::result_export_distinguishes_raw_upload_hash_from_native_receipt_hash ... ok
+test native::preparation::result::source::tests::result_export_refuses_symlink_manifest_and_out_of_scope_reply ... ok
+test native::preparation::result::source::tests::result_export_rejects_changed_bundle_before_retention ... ok
+test native::preparation::result::tests::result_ack_is_projection_and_unknown_pending_is_preserved ... ok
+test native::preparation::result::tests::result_format11_header_is_refused_before_pending_cleanup ... ok
+test native::preparation::result::tests::result_history_exact_claim_identity_order_and_canonical_bytes ... ok
+test native::preparation::result::tests::result_history_protects_scope_budget_and_does_not_project_unclaimed_success ... ok
+test native::preparation::result::tests::result_module_alone_does_not_prove_counted_startup_delivery ... ok
+test native::preparation::result::tests::result_namespace_is_owned_and_allocates_disjoint_attempt_children ... ok
+test native::preparation::result::tests::result_storage_control_custody_and_first_intake_lock_are_actual ... ok
+test native::preparation::result::tests::result_storage_refuses_links_special_members_and_wrong_modes ... ok
+test native::preparation::result::tests::result_storage_refuses_route_replacement_and_workspace_overlap ... ok
+test native::runner::codex::tests::closed_settings_refuse_unsupported_advertised_functions_and_mutable_handoff_kind ... ok
+test native::runner::codex::tests::concrete_preflight_refuses_missing_settings_and_legacy_installation ... ok
+test native::runner::codex::tests::development_provider_is_explicit_numeric_loopback_and_preflight_only ... ok
+test native::runner::codex::tests::https_factory_construction_is_not_preflight_or_admission ... ok
+test native::runner::codex::tests::legacy_profile_refuses_before_manifest_or_state_access ... ok
+test native::runner::codex::tests::model_bound_is_per_response_and_never_an_aggregate_spending_budget ... ok
+test native::runner::codex::tests::old_named_profile_cannot_advertise_known_result_adapter_without_channel ... ok
+test native::runner::codex::tests::production_factory_refuses_plaintext_and_proxy_credentials_before_admission ... ok
+test native::runner::codex::tests::result_factory_refuses_nonselected_client_before_kernel_or_admission ... ok
+test native::runner::codex::tests::result_factory_refuses_nonselected_runtime_even_with_matching_adapter_hash ... ok
+test native::runner::codex::tests::result_factory_wire_is_distinct_and_cannot_supply_arbitrary_folder ... ok
+test native::runner::codex::tests::trusted_profile_requires_independent_matching_environment_before_installation ... ok
+test native::runner::codex::tests::trusted_profile_wire_is_closed_and_requires_environment_reference ... ok
+test native::runner::config_tests::duplicate_fields_are_rejected_before_any_value_materialization ... ok
+test native::runner::config_tests::exact_old_wire_stays_frozen_and_new_wire_selects_refresh_explicitly ... ok
+test native::runner::config_tests::full_artifact_features_and_unknown_fields_are_closed_without_fallback ... ok
+test native::runner::profile_tests::orphan_mixed_and_changed_receipt_contexts_never_select_or_complete ... ok
+test native::preparation::launch::output_relay::tests::worst_case_json_bytes_are_bounded_and_prefix_never_skips_unselected_frames ... ok
+test native::runner::profile_tests::profiles_require_exact_execution_then_matching_terminal_context_and_pair ... ok
+test native::runner::tests::native_config_load_accepts_exact_long_profiles_and_refuses_changed_contract ... ok
+test native::runner::tests::private_config_refuses_symlink_public_mode_and_oversize ... ok
+test native::runner::tests::unavailable_executor_refuses_before_any_journal_or_network_admission ... ok
+test source_transfer::steps::tests::central_claim_binds_both_distinct_transport_and_artifact_and_canonical_manifest ... ok
+test source_transfer::steps::tests::planning_does_not_commit_a_chunk_and_reopened_proposal_reuses_exact_identity ... ok
+test source_transfer::steps::tests::source_http_progress_is_not_retention_and_changed_ids_cannot_advance ... ok
+test native::runner::tests::native_config_rejects_unsupported_capacity_and_changed_executable ... ok
+
+failures:
+
+---- native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive_owner stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive_owner' (1070731) panicked at crates/aq-worker/src/native/journal/phase_execution_scenarios.rs:405:55:
+called `Result::unwrap()` on an `Err` value: durable initial grant expired or inconsistent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_outlives_preparation_without_retiming_historical_source_proof stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_outlives_preparation_without_retiming_historical_source_proof' (1073477) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:1134:10:
+called `Result::unwrap()` on an `Err` value: durable preparation expired
+
+---- native::journal::tests::hydration_scenarios::phase_input_expiry_and_foreign_observation_refuse_without_intents stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::phase_input_expiry_and_foreign_observation_refuse_without_intents' (1075097) panicked at crates/aq-worker/src/native/journal/hydration_scenarios.rs:1189:14:
+called `Result::unwrap()` on an `Err` value: phase local observation expired
+
+---- native::journal::tests::hydration_scenarios::presence_scenarios::expired_initial_token_never_reads_or_publishes_positive stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::presence_scenarios::expired_initial_token_never_reads_or_publishes_positive' (1079762) panicked at crates/aq-worker/src/native/journal/presence_scenarios.rs:61:9:
+synthetic initial grant expired
+
+---- native::journal::tests::refresh_physical_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline stdout ----
+
+thread 'native::journal::tests::refresh_physical_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline' (1084210) panicked at crates/aq-worker/src/native/journal/refresh_physical_scenarios.rs:32:1:
+called `Result::unwrap()` on an `Err` value: phase execution expired or changed
+
+
+failures:
+    native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive_owner
+    native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_outlives_preparation_without_retiming_historical_source_proof
+    native::journal::tests::hydration_scenarios::phase_input_expiry_and_foreign_observation_refuse_without_intents
+    native::journal::tests::hydration_scenarios::presence_scenarios::expired_initial_token_never_reads_or_publishes_positive
+    native::journal::tests::refresh_physical_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline
+
+test result: FAILED. 219 passed; 5 failed; 30 ignored; 0 measured; 0 filtered out; finished in 210.18s
+
+error: test failed, to rerun pass `-p aq-worker --lib`
+F
+
+=================================== FAILURES ===================================
+______________________________ test_cargo_command ______________________________
+
+    def test_cargo_command():
+        command = json.loads(os.environ['C1_CARGO_COMMAND'])
+        print('COMMAND:', command, flush=True)
+        result = subprocess.run(command, cwd=os.environ['C1_CARGO_CWD'], env={**os.environ, 'CARGO_BUILD_JOBS': '2', 'RUST_TEST_THREADS': '2'})
+>       assert result.returncode == 0
+E       AssertionError: assert 101 == 0
+E        +  where 101 = CompletedProcess(args=['cargo', 'test', '--locked', '-p', 'aq-worker', '--features', 'test-support', '--lib', '--test', 'backend_conformance', '--test', 'execution', '--test', 'journal_migration'], returncode=101).returncode
+
+/tmp/test_c1_cargo.py:9: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../../../../../tmp/test_c1_cargo.py::test_cargo_command - ...
+======================== 1 failed in 344.37s (0:05:44) =========================
