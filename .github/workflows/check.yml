@@ -10,6 +10,7 @@ jobs:
           components: rustfmt, clippy
       - run: cmp protocol/execution-v2.schema.json crates/aq-worker-protocol/fixtures/execution-v2.schema.json
       - run: cmp protocol/conformance-v2.json crates/aq-worker-protocol/fixtures/conformance-v2.json
+      - run: python3 scripts/package-admission.py --check
       - run: cargo fmt --all -- --check
       - run: cargo test --workspace --locked --all-features
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
