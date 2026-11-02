@@ -115,3 +115,20 @@ fn result_client_manifest_is_closed_distinct_and_bounded() {
     // This is a separate explicit reservation, not a Codex image-slot alias.
     assert_eq!(MAX_RESULT_CLIENT_INSTALLATION_BYTES, 64 * 1024 * 1024);
 }
+
+#[test]
+fn selected_definition_revision_preserves_actual_body_digest_and_historical_default() {
+    let value = manifest();
+    let original = value.artifact().unwrap();
+    assert_eq!(original.version.as_str(), "1");
+    let mut selected = original.clone();
+    selected.version = Text::new("2").unwrap();
+    assert_eq!(value.artifact_for(&selected).unwrap(), selected);
+    assert_eq!(value.artifact().unwrap(), original);
+    let mut wrong = selected.clone();
+    wrong.digest = Digest::of(b"changed definition body");
+    assert!(value.artifact_for(&wrong).is_err());
+    wrong = selected;
+    wrong.id = Text::new("some-other-installation").unwrap();
+    assert!(value.artifact_for(&wrong).is_err());
+}

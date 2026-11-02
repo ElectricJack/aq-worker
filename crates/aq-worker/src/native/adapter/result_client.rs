@@ -43,6 +43,18 @@ impl ResultClientManifest {
     pub fn artifact(&self) -> Result<ArtifactRef> {
         Ok(manifest_reference(self.digest()?))
     }
+    /// Definition revision selected independently by the retained adapter.
+    /// Schema/profile/public contract versions remain unchanged.
+    pub fn artifact_for(&self, selected: &ArtifactRef) -> Result<ArtifactRef> {
+        selected.id.validate()?;
+        selected.version.validate()?;
+        ensure!(
+            selected.id.as_str() == "aq.agent-result-client-installation"
+                && selected.digest == self.digest()?,
+            "result client selected definition identity/digest"
+        );
+        Ok(selected.clone())
+    }
     fn validate_selection(
         &self,
         expected: &ExpectedResultClient<'_>,
@@ -80,6 +92,7 @@ impl ResultClientManifest {
 pub struct InstalledResultClient {
     manifest: ResultClientManifest,
     digest: Digest,
+    manifest_reference: ArtifactRef,
     image: NamedReadonlyFile,
 }
 impl InstalledResultClient {
@@ -107,8 +120,20 @@ impl InstalledResultClient {
         Ok(Self {
             manifest,
             digest: expected.manifest_digest.clone(),
+            manifest_reference: manifest_reference(expected.manifest_digest.clone()),
             image,
         })
+    }
+    pub fn open_selected(
+        manifest: ResultClientManifest,
+        expected: ExpectedResultClient<'_>,
+        selected_manifest: &ArtifactRef,
+        environment: &NamedReadonlyEnvironment,
+    ) -> Result<Self> {
+        let selected = manifest.artifact_for(selected_manifest)?;
+        let mut installed = Self::open(manifest, expected, environment)?;
+        installed.manifest_reference = selected;
+        Ok(installed)
     }
     pub fn revalidate(&self) -> Result<()> {
         self.image.revalidate()
@@ -129,7 +154,7 @@ impl InstalledResultClient {
         &self.digest
     }
     pub fn manifest_artifact(&self) -> ArtifactRef {
-        manifest_reference(self.digest.clone())
+        self.manifest_reference.clone()
     }
     pub fn executable_bytes(&self) -> u64 {
         self.image.bytes()
