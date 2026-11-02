@@ -114,6 +114,10 @@ struct PeerState {
     mode: AtomicU8,
     registrations: Mutex<Vec<Vec<u8>>>,
     uploads: Mutex<Vec<Vec<u8>>>,
+    polls: Mutex<Vec<Vec<u8>>>,
+    poll_mode: AtomicU8,
+    upload_started: tokio::sync::Notify,
+    release_upload: tokio::sync::Notify,
 }
 async fn register_peer(
     State(s): State<Arc<PeerState>>,
@@ -158,6 +162,10 @@ async fn upload_peer(State(s): State<Arc<PeerState>>, body: axum::body::Bytes) -
             && q.fence_acks.is_empty()
     );
     s.uploads.lock().unwrap().push(body.to_vec());
+    if s.mode.load(Ordering::SeqCst) == 3 {
+        s.upload_started.notify_one();
+        s.release_upload.notified().await;
+    }
     match s.mode.load(Ordering::SeqCst) {
         0 => (StatusCode::CONFLICT, "no current watch").into_response(),
         2 => ([("content-type", "application/json")], "{").into_response(),
@@ -172,6 +180,46 @@ async fn upload_peer(State(s): State<Arc<PeerState>>, body: axum::body::Bytes) -
         })
         .into_response(),
     }
+}
+async fn poll_peer(
+    State(s): State<Arc<PeerState>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    assert_eq!(headers["authorization"], "Bearer synthetic-node-credential");
+    let q: wire::RelayPoll = serde_json::from_slice(&body).unwrap();
+    q.validate().unwrap();
+    assert_eq!(q.hold_ms, 0);
+    assert_eq!(q.active_controllers, 0);
+    s.polls.lock().unwrap().push(body.to_vec());
+    let effect = if s.poll_mode.load(Ordering::SeqCst) == 1 {
+        wire::Effect::Fence(wire::Fence {
+            terminal: terminal(),
+            fence_id: Uuid::new_v4(),
+            generation: 1,
+            controller: None,
+        })
+    } else {
+        wire::Effect::Watch(aq_session_protocol::WatchSubscription {
+            subscription_id: Uuid::from_u128(88),
+            terminal: terminal(),
+            principal_id: Text::new("synthetic-viewer").unwrap(),
+            expires_at_ms: u64::MAX,
+        })
+    };
+    Json(wire::Envelope {
+        version: wire::VERSION,
+        capability: q.capability,
+        peer: q.peer,
+        exchange_id: Uuid::new_v4(),
+        cursor: if s.poll_mode.load(Ordering::SeqCst) == 2 {
+            0
+        } else {
+            7
+        },
+        effects: vec![effect],
+    })
+    .into_response()
 }
 // White-box retained transport state only: no LocalPhaseHost or launch token.
 async fn transport_fixture() -> (
@@ -199,6 +247,7 @@ async fn transport_fixture_policy(
     let app = Router::new()
         .route("/v1/terminal-relay/register", post(register_peer))
         .route("/v1/terminal-relay/upload", post(upload_peer))
+        .route("/v1/terminal-relay/output-poll", post(poll_peer))
         .with_state(s.clone());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let http = RelayHttp::development_loopback(
@@ -232,6 +281,11 @@ async fn transport_fixture_policy(
             serde_json::from_value(f["started_request"].clone()).unwrap(),
         ),
         policy: negotiated.clone(),
+        polling: tokio::sync::Mutex::new(OutputPoll {
+            http: http.clone(),
+            cursor: 0,
+            watches: BTreeMap::new(),
+        }),
         network: tokio::sync::Mutex::new(Network {
             http,
             registration: Some(q),
@@ -343,5 +397,125 @@ async fn high_byte_frames_fit_actual_http_transport_without_losing_sequences() {
     // The transport fixture already has one eight-byte literal prefix.
     assert_eq!(bytes, 4 * 65536 + 8);
     assert_eq!(sequences, (1..=9).collect::<Vec<_>>());
+    server.abort();
+}
+
+#[tokio::test]
+async fn watch_poll_keeps_pending_upload_bytes_and_independent_cursors_after_409() {
+    let (relay, _outputs, peer, server) = transport_fixture().await;
+    assert!(relay.upload_once().await.is_err());
+    let before = peer.uploads.lock().unwrap()[0].clone();
+    assert_eq!(relay.poll_watch_once().await.unwrap(), 1);
+    {
+        let network = relay.owner.network.lock().await;
+        assert_eq!(network.through, 0);
+        assert_eq!(
+            serde_json::to_vec(&network.pending.as_ref().unwrap().request).unwrap(),
+            before
+        );
+        assert_eq!(network.pending.as_ref().unwrap().request.cursor, 0);
+    }
+    assert_eq!(relay.owner.polling.lock().await.cursor, 7);
+    peer.mode.store(1, Ordering::SeqCst);
+    relay.upload_once().await.unwrap().unwrap();
+    assert_eq!(peer.uploads.lock().unwrap()[1], before);
+    assert_eq!(relay.owner.network.lock().await.through, 2);
+    assert_eq!(relay.owner.polling.lock().await.cursor, 7);
+    assert_eq!(relay.poll_watch_once().await.unwrap(), 1);
+    let polls = peer.polls.lock().unwrap();
+    let next: wire::RelayPoll = serde_json::from_slice(&polls[1]).unwrap();
+    assert_eq!(next.cursor, 7);
+    assert_eq!(next.active_subscriptions, 1);
+    server.abort();
+}
+#[tokio::test]
+async fn output_poll_never_consumes_control_or_regressing_cursor() {
+    let (relay, _outputs, peer, server) = transport_fixture().await;
+    peer.poll_mode.store(1, Ordering::SeqCst);
+    assert!(relay.poll_watch_once().await.is_err());
+    assert_eq!(relay.owner.polling.lock().await.cursor, 0);
+    assert!(relay.owner.polling.lock().await.watches.is_empty());
+    peer.poll_mode.store(0, Ordering::SeqCst);
+    relay.poll_watch_once().await.unwrap();
+    peer.poll_mode.store(2, Ordering::SeqCst);
+    assert!(relay.poll_watch_once().await.is_err());
+    assert_eq!(relay.owner.polling.lock().await.cursor, 7);
+    assert_eq!(relay.owner.network.lock().await.through, 0);
+    assert!(
+        peer.uploads.lock().unwrap().is_empty(),
+        "poll must never ACK an effect"
+    );
+    server.abort();
+}
+#[tokio::test]
+async fn ordinary_publisher_polls_while_upload_is_blocked_and_drop_aborts_both_tasks() {
+    let (relay, _outputs, peer, server) = transport_fixture().await;
+    peer.mode.store(3, Ordering::SeqCst);
+    let publisher = crate::native::runner::publish_output::OutputPublisher::start(relay.clone());
+    tokio::time::timeout(Duration::from_secs(2), peer.upload_started.notified())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if !peer.polls.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(peer.uploads.lock().unwrap().len(), 1);
+    assert_eq!(relay.owner.polling.lock().await.cursor, 7);
+    drop(publisher);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let count = peer.polls.lock().unwrap().len();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        peer.polls.lock().unwrap().len(),
+        count,
+        "dropped publisher must not keep polling"
+    );
+    peer.release_upload.notify_one();
+    server.abort();
+}
+#[tokio::test]
+async fn watch_metadata_is_bounded_expiring_and_never_advances_on_unsupported_effect() {
+    let (relay, _outputs, _peer, server) = transport_fixture().await;
+    let mut state = relay.owner.polling.lock().await;
+    let watch = |id, expires| {
+        wire::Effect::Watch(aq_session_protocol::WatchSubscription {
+            subscription_id: Uuid::from_u128(id),
+            terminal: terminal(),
+            principal_id: Text::new("synthetic-viewer").unwrap(),
+            expires_at_ms: expires,
+        })
+    };
+    let mut envelope = wire::Envelope {
+        version: wire::VERSION,
+        capability: Text::new(wire::CAPABILITY).unwrap(),
+        peer: peer(),
+        exchange_id: Uuid::new_v4(),
+        cursor: 1,
+        effects: (1..=32).map(|id| watch(id, 100)).collect(),
+    };
+    assert_eq!(state.accept(&envelope, &terminal(), 1).unwrap(), 32);
+    envelope.cursor = 2;
+    envelope.effects = vec![watch(33, 100)];
+    assert!(state.accept(&envelope, &terminal(), 1).is_err());
+    assert_eq!(state.cursor, 1);
+    assert_eq!(state.watches.len(), 32);
+    envelope.effects = vec![watch(33, 200)];
+    assert_eq!(state.accept(&envelope, &terminal(), 100).unwrap(), 1);
+    assert_eq!(state.cursor, 2);
+    envelope.cursor = 3;
+    envelope.effects = vec![wire::Effect::Fence(wire::Fence {
+        terminal: terminal(),
+        fence_id: Uuid::new_v4(),
+        generation: 1,
+        controller: None,
+    })];
+    assert!(state.accept(&envelope, &terminal(), 100).is_err());
+    assert_eq!(state.cursor, 2);
     server.abort();
 }

@@ -33,6 +33,7 @@ struct Relay {
     started: RetainedStarted,
     policy: TerminalPolicy,
     network: tokio::sync::Mutex<Network>,
+    polling: tokio::sync::Mutex<OutputPoll>,
     draining: AtomicBool,
     task: Mutex<Option<tokio::task::AbortHandle>>,
 }
@@ -42,6 +43,55 @@ struct Network {
     info: Option<aq_terminal_relay::api::TerminalInfo>,
     through: u64,
     pending: Option<Pending>,
+}
+fn watch_now_ms() -> Result<u64> {
+    Ok(u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?)
+}
+struct OutputPoll {
+    http: RelayHttp,
+    cursor: u64,
+    watches: BTreeMap<Uuid, aq_session_protocol::WatchSubscription>,
+}
+impl OutputPoll {
+    fn accept(
+        &mut self,
+        envelope: &wire::Envelope,
+        terminal: &TerminalIdentity,
+        now: u64,
+    ) -> Result<usize> {
+        envelope.validate()?;
+        ensure!(
+            envelope.cursor >= self.cursor
+                && envelope
+                    .effects
+                    .iter()
+                    .all(|e| matches!(e, wire::Effect::Watch(_))),
+            "native output poll contains unsupported effect or cursor"
+        );
+        let mut watches = self.watches.clone();
+        watches.retain(|_, watch| watch.expires_at_ms > now);
+        for effect in &envelope.effects {
+            let wire::Effect::Watch(watch) = effect else {
+                unreachable!()
+            };
+            // Other terminals for the same authenticated node have independent
+            // relay handles/cursors. A Watch is metadata, never host authority.
+            if watch.terminal == *terminal {
+                watches.remove(&watch.subscription_id);
+                if watch.expires_at_ms > now {
+                    watches.insert(watch.subscription_id, watch.clone());
+                }
+            }
+        }
+        ensure!(watches.len() <= 32, "native output subscription bound");
+        self.watches = watches;
+        self.cursor = envelope.cursor;
+        Ok(self.watches.len())
+    }
 }
 struct Pending {
     request: PeerUpload,
@@ -111,6 +161,7 @@ impl Drop for Relay {
 }
 /// A process-local handle. Dropping a waiter does not stop the registry-owned
 /// drain; dropping the owning pipeline aborts it. It cannot be deserialized.
+#[derive(Clone)]
 pub struct PhaseOutputRelay {
     owner: Arc<Relay>,
     outputs: Weak<Mutex<Outputs>>,
@@ -153,6 +204,36 @@ impl PhaseOutputRelay {
             .try_lock()
             .context("native output upload busy")?;
         register(&self.owner, &mut network).await
+    }
+    /// Independent nonblocking Watch metadata exchange. Its transport cursor is
+    /// never an output sequence/ack, and no Bridge or host effect is executed.
+    pub async fn poll_watch_once(&self) -> Result<usize> {
+        ensure!(
+            self.outputs.upgrade().is_some(),
+            "native output owner dropped"
+        );
+        let mut polling = self
+            .owner
+            .polling
+            .try_lock()
+            .context("native output poll busy")?;
+        let now = watch_now_ms()?;
+        polling.watches.retain(|_, watch| watch.expires_at_ms > now);
+        let request = wire::RelayPoll {
+            version: wire::VERSION,
+            capability: Text::new(wire::CAPABILITY)?,
+            peer: self.owner.peer.clone(),
+            cursor: polling.cursor,
+            hold_ms: 0,
+            active_subscriptions: polling.watches.len() as u32,
+            active_controllers: 0,
+            advertised_capabilities: vec![aq_session_protocol::Capability {
+                id: Text::new(wire::CAPABILITY)?,
+                version: wire::VERSION,
+            }],
+        };
+        let envelope = polling.http.output_poll(&request).await?;
+        polling.accept(&envelope, &self.owner.terminal, watch_now_ms()?)
     }
     /// One explicit bounded exchange. Refusal/lost response preserves this exact
     /// pending request; network activity never holds the tail or guardian locks.
@@ -347,6 +428,11 @@ impl InputPipeline {
             peer,
             started: started_request,
             policy,
+            polling: tokio::sync::Mutex::new(OutputPoll {
+                http: http.clone(),
+                cursor: 0,
+                watches: BTreeMap::new(),
+            }),
             network: tokio::sync::Mutex::new(Network {
                 http,
                 registration: None,
