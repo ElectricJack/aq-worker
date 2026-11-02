@@ -1,7 +1,7 @@
 use super::*;
 use aq_session_protocol::{ArtifactRef, BudgetBasis, Capability, Digest, SpendingBudget, Text};
 
-fn settings() -> (HarnessSettings, ModelSettings) {
+pub(super) fn settings() -> (HarnessSettings, ModelSettings) {
     let artifact = ArtifactRef {
         id: Text::new("independently-selected-artifact").unwrap(),
         version: Text::new("1").unwrap(),
@@ -27,7 +27,7 @@ fn settings() -> (HarnessSettings, ModelSettings) {
         },
     )
 }
-fn selected<'a>(harness: &'a HarnessSettings, model: &'a ModelSettings) -> Settings<'a> {
+pub(super) fn selected<'a>(harness: &'a HarnessSettings, model: &'a ModelSettings) -> Settings<'a> {
     Settings {
         harness,
         model,

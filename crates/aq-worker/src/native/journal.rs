@@ -26,7 +26,9 @@ pub use phase_execution::ReceivedPhaseExecution;
 pub mod preparation_v2;
 mod prepared;
 pub use phase_prepared::PhasePreparedIntent;
+mod result;
 mod source;
+pub(crate) use result::terminal_stop as result_terminal_stop;
 mod storage;
 use super::http::{boot_ns, control::Preparation};
 use anyhow::{Context, Result, ensure};
@@ -50,7 +52,7 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 11;
+pub const FORMAT: u32 = 12;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +126,7 @@ pub struct Attempt {
     pub refresh_prepared: Option<RefreshPreparedIntent>,
     pub refresh_execution: Option<ReceivedRefreshExecution>,
     pub native_host: Option<launch::NativeHostHistory>,
+    pub result: Option<super::result::history::ResultHistory>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -320,6 +323,7 @@ impl State {
             phase_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
             refresh_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
             launch::validate(attempt, self.revision, &mut identities)?;
+            result::validate(attempt, self, &mut identities)?;
             phase_terminal::validate(attempt, self.revision)?;
             refresh_terminal::validate(attempt, self.revision)?;
             if let Some(h) = &attempt.native_host {
@@ -365,15 +369,21 @@ impl State {
             "native capacity exhausted"
         );
         // Do not add whole-state encoding work to non-host legacy/phase input paths.
-        if self.attempts.values().any(|a| a.native_host.is_some()) {
+        if self
+            .attempts
+            .values()
+            .any(|a| a.native_host.is_some() || a.result.is_some())
+        {
             let bytes = canonical_bytes(&Snapshot {
                 state: self.clone(),
                 digest: canonical_digest(self)?,
             })?
             .len();
+            let result_reserve = result::remaining_reserve(self)?;
             ensure!(
                 bytes
                     .checked_add(phase_terminal::remaining_reserve(self)?)
+                    .and_then(|n| n.checked_add(result_reserve))
                     .is_some_and(|n| n <= MAX_BYTES),
                 "native reserved host/outbox capacity"
             );
@@ -637,6 +647,7 @@ impl Journal {
                 refresh_prepared: None,
                 refresh_execution: None,
                 native_host: None,
+                result: None,
             },
         );
         self.persist(state)?;

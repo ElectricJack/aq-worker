@@ -1,0 +1,12 @@
+   Compiling aq-agent-result-local v0.1.0 (/tmp/aq-codex-result-mapper/crates/aq-agent-result-local)
+   Compiling aq-worker v0.4.0 (/tmp/aq-codex-result-mapper/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 15.65s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-7897fdda10c0d004)
+
+running 3 tests
+test native::adapter::result_client::tests::result_client_manifest_is_closed_distinct_and_bounded ... ok
+test native::adapter::result_client::tests::result_client_exact_digest_environment_observation_and_byte_bounds_are_separate ... ok
+test native::adapter::result_client::tests::result_client_selection_requires_actual_contract_and_independent_references ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 211 filtered out; finished in 0.00s
+

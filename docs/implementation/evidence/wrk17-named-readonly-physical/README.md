@@ -177,3 +177,5 @@ not qualify production upstream-key secrecy, per-harness capsule isolation,
 external provider behavior, model/context/token bounds or production admission.
 The production executor factory remains refused. No further actual launches were
 performed after this accepted positive result.
+
+Outcome clarification (native result integration): `HostObservation.root_status` is the guardian-observed tmux server wait status. It does not record the harness pane exit code. The historical root-exit0 observation above therefore proves no harness ProcessOutcome::Success; the native producer conservatively retains Unknown for natural pane termination. The actual tool bytes, ECHILD and lifecycle ACK evidence remain unchanged.

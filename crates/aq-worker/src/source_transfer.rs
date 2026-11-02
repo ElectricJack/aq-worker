@@ -23,8 +23,10 @@ use uuid::Uuid;
 
 mod download;
 mod files;
+pub(crate) mod steps;
 mod upload;
 pub use download::*;
+pub(crate) use files::artifact_file;
 pub(crate) use files::discard_incoming;
-use files::{artifact_file, read_range};
+use files::read_range;
 pub use upload::*;

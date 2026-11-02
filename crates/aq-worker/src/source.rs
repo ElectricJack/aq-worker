@@ -276,6 +276,9 @@ impl GitClient {
     pub fn root(&self) -> &Path {
         &self.root
     }
+    pub(crate) fn workspace_byte_limit(&self) -> u64 {
+        self.maximum_pool_bytes
+    }
     pub(crate) fn transfer_byte_limit(&self) -> u64 {
         self.maximum_artifact_bytes
     }
@@ -770,23 +773,16 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             let manifest: GitManifest = serde_json::from_value(
                 source.exported.as_ref().context("export required")?["manifest"].clone(),
             )?;
-            ensure!(
-                receipt.transfer_id
-                    == source
-                        .transfer
-                        .as_ref()
-                        .context("transport association required")?
-                        .transfer_id
-                    && receipt.retention_handle == manifest.transfer_id
-                    && receipt.manifest_digest == manifest.canonical_digest()?,
-                "central receipt manifest/transfer mismatch"
-            );
-            ensure!(
-                receipt.repository_id == source.binding.repository_id
-                    && receipt.binding_generation == source.binding.binding_generation
-                    && receipt.source == c.source,
-                "central source receipt binding mismatch"
-            );
+            crate::source_transfer::steps::validate_retention_claim(
+                &receipt,
+                source
+                    .transfer
+                    .as_ref()
+                    .context("transport association required")?,
+                &manifest,
+                &source.binding,
+                &c.source,
+            )?;
             if let Some(old) = &source.receipt {
                 ensure!(old == &receipt, "changed source receipt");
             }
@@ -1381,7 +1377,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
         })
     }
 }
-fn workspace_bytes(root: &Path) -> Result<u64> {
+pub(crate) fn workspace_bytes(root: &Path) -> Result<u64> {
     let mut pending = vec![(root.to_path_buf(), 0usize)];
     let mut entries = 0usize;
     let mut bytes = 0u64;

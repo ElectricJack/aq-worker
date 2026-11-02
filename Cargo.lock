@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "aq-codex-mapper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "aq-session-protocol",
@@ -365,10 +365,11 @@ dependencies = [
 
 [[package]]
 name = "aq-worker"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "aq-admission",
+ "aq-agent-result-local",
  "aq-codex-mapper",
  "aq-phase-terminal-protocol",
  "aq-protocol",

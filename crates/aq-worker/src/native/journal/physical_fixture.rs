@@ -101,6 +101,7 @@ fn synthetic() -> Export {
 }
 struct Inputs {
     pipeline: Option<Arc<InputPipeline>>,
+    result_pins: Option<crate::native::result::ResultInstallationPins>,
     preparation: Option<Arc<Preparation>>,
     phase: Option<Arc<crate::native::http::$http::AcceptedPreparation>>,
     phase_window: Arc<AtomicU64>,
@@ -290,6 +291,45 @@ fn phase_execution_delivery(
         .unwrap();
     d
 }
+fn configure_result_fixture(offered:&mut NativeOffer)->(crate::native::result::ResultInstallationPins,BTreeMap<String,Vec<u8>>){
+    use crate::native::adapter::result_profile::{ResultAdapterDefinition,ResultAdapterKind};
+    use crate::native::result::ResultInstallationPins;
+    use aq_session_protocol::{ContextDelivery,Text};
+    let mut bodies=BTreeMap::new();
+    let old_outcome=offered.offered.offer.manifest.bindings.outcome.clone();
+    let outcome:aq_admission::outcome::ExpectedOutcomeDefinition=serde_json::from_slice(include_bytes!("../../../../../vendor/aq-admission-0.1.10/artifacts/outcome.fixture.json")).unwrap();
+    let expected=outcome.artifact().unwrap();let outcome_bytes=outcome.canonical_bytes().unwrap();
+    offered.offered.offer.manifest.bindings.outcome=expected.clone();
+    let old_payload=offered.startup.payload.clone();let old_descriptor=offered.startup.artifact().unwrap();
+    let instruction=aq_agent_result_local::startup_artifact();let text=aq_agent_result_local::STARTUP_TEXT.as_bytes();
+    let mut payload=b"instructions\n\ntask-context\n\n".to_vec();payload.extend_from_slice(text);
+    let m=&mut offered.offered.offer.manifest;
+    let mut context=m.context.references[0].clone();context.artifact=instruction.clone();context.bytes=text.len()as u64;context.tokens=text.len()as u64;context.required=true;context.delivery=ContextDelivery::Startup;
+    m.context.references.push(context);m.modules.push(instruction.clone());
+    offered.startup.payload.digest=Digest::of(&payload);offered.startup.payload_bytes=payload.len()as u64;offered.startup.payload_tokens_upper_bound=payload.len()as u64;
+    offered.startup.startup_inputs.push(aq_admission::startup::InputSpan{artifact:instruction.clone(),offset:28,bytes:text.len()as u64});
+    let reference=|id:&str|ArtifactRef{id:Text::new(id).unwrap(),version:Text::new("1").unwrap(),digest:Digest::of(id.as_bytes())};
+    let definition=ResultAdapterDefinition{schema_version:1,profile:ResultAdapterKind::Codex0166TrustedNodeNamedReadonlyLocalV1,runtime:qualification().runtime,
+        environment:m.harness.environment.clone(),client_manifest:reference("aq.agent-result-client-installation"),client_executable:reference("synthetic-client"),
+        contract:aq_agent_result_local::artifact(),recipe:aq_codex_mapper::result_local_recipe_artifact(),permission_digest:canonical_digest(&m.permissions).unwrap(),reserved_client_bytes:64*1024*1024};
+    let adapter=definition.artifact().unwrap();m.harness.adapter=adapter.clone();
+    let new_descriptor=offered.startup.artifact().unwrap();
+    for module in &mut offered.offered.offer.manifest.modules {if *module==old_descriptor{*module=new_descriptor.clone();}}
+    let descriptor_bytes=canonical_bytes(&offered.startup).unwrap();
+    for d in &mut offered.offered.artifacts {
+        if d.artifact==old_outcome {d.artifact=expected.clone();d.bytes=outcome_bytes.len()as u64;}
+        if d.artifact==old_payload {d.artifact=offered.startup.payload.clone();d.bytes=payload.len()as u64;}
+        if d.artifact==old_descriptor {d.artifact=new_descriptor.clone();d.bytes=descriptor_bytes.len()as u64;}
+    }
+    let template=offered.offered.artifacts[0].clone();
+    for (kind,artifact,bytes) in [(ArtifactKind::Context,instruction,text.to_vec()),(ArtifactKind::Definition,adapter.clone(),definition.encode().unwrap())]{
+        let mut d=template.clone();d.kind=kind;d.artifact=artifact.clone();d.bytes=bytes.len()as u64;offered.offered.artifacts.push(d);bodies.insert(artifact.digest.as_str().to_string(),bytes);
+    }
+    bodies.insert(expected.digest.as_str().into(),outcome_bytes);bodies.insert(offered.startup.payload.digest.as_str().into(),payload);bodies.insert(new_descriptor.digest.as_str().into(),descriptor_bytes);
+    offered.offered.offer.binding.launch_manifest_digest=canonical_digest(&offered.offered.offer.manifest).unwrap();
+    let pins=ResultInstallationPins{adapter,contract:definition.contract,client_manifest:definition.client_manifest,client_executable:definition.client_executable,environment:definition.environment,recipe:definition.recipe,permission_digest:definition.permission_digest,reserved_client_bytes:definition.reserved_client_bytes};
+    (pins,bodies)
+}
 impl Inputs {
     fn pipeline(&self) -> &Arc<InputPipeline> {
         self.pipeline.as_ref().unwrap()
@@ -321,8 +361,9 @@ impl Inputs {
         .await
     }
     async fn new_collect(export:Export)->Self {
-        Box::pin(Self::new_count_policy_impl(export,true,0,false,false,true)).await
+        Box::pin(Self::new_count_policy_impl(export,true,0,false,false,true,false)).await
     }
+    async fn new_result(export:Export)->Self { Box::pin(Self::new_count_policy_impl(export,true,0,true,true,true,true)).await }
     async fn new_count_policy(
         export: Export,
         phase_mode: bool,
@@ -330,7 +371,7 @@ impl Inputs {
         output_only: bool,
         codex: bool,
     ) -> Self {
-        Box::pin(Self::new_count_policy_impl(export,phase_mode,count,output_only,codex,false)).await
+        Box::pin(Self::new_count_policy_impl(export,phase_mode,count,output_only,codex,false,false)).await
     }
     async fn new_count_policy_impl(
         mut export: Export,
@@ -339,6 +380,7 @@ impl Inputs {
         output_only: bool,
         codex: bool,
         defer_phase_accept: bool,
+        result:bool,
     ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("journal");
@@ -361,6 +403,7 @@ impl Inputs {
                 aq_session_protocol::canonical_digest(&offered.offered.offer.manifest).unwrap();
         }
         offered.offered.reservation_ttl_ms = 30000;
+        let (result_pins,result_bodies)=if result {let (p,b)=configure_result_fixture(&mut offered);(Some(p),b)}else{(None,BTreeMap::new())};
         let mut spec: ProfiledExecutionSpec = serde_json::from_value(
             serde_json::from_slice::<Value>(include_bytes!(
                 "../../../../../vendor/aq-admission-0.1.7/artifacts/execution-spec.fixture.json"
@@ -369,6 +412,7 @@ impl Inputs {
                 .clone(),
         )
         .unwrap();
+        spec.outcome_artifact=offered.offered.offer.manifest.bindings.outcome.clone();
         spec.source.repository_id = export.manifest.source.repository_id;
         spec.source.resolved_object.hex = export.manifest.source.base.hex.clone();
         let bytes = spec.canonical_bytes().unwrap();
@@ -411,7 +455,7 @@ impl Inputs {
             .artifacts
             .iter()
             .map(|d| {
-                let body = if d.artifact == reference {
+                let body = if let Some(body)=result_bodies.get(d.artifact.digest.as_str()) {body.clone()}else if d.artifact == reference {
                     bytes.clone()
                 } else if d.artifact == offered.startup.artifact().unwrap() {
                     canonical_bytes(&offered.startup).unwrap()
@@ -425,6 +469,7 @@ impl Inputs {
                 (d.clone(), body)
             })
             .collect();
+        offered.offered.offer.validate().unwrap();
         offered.validate().unwrap();
         let mut capacity = limits();
         capacity.disk_bytes = 64 * 1024 * 1024 * 1024;
@@ -1121,6 +1166,7 @@ impl Inputs {
         let pipeline = Arc::new(InputPipeline::new(journal, store, client.clone()));
         Self {
             pipeline: Some(pipeline),
+            result_pins,
             preparation,
             phase,
             phase_window,
@@ -1338,6 +1384,43 @@ impl GitPeer {
             _dir: dir,
         }
     }
+}
+
+async fn collect_result_fixture(h:&Inputs,git:&GitPeer)->crate::native::preparation::DurablePhaseExecution {
+    let state=h.pipeline().snapshot().await.unwrap();let a=&state.attempts[&h.id];
+    let (_config_root,mut config)=crate::native::runner::tests::config();let published=published_phase_fixture();
+    config.negotiation=serde_json::from_value(published["proposal"]["negotiation"].clone()).unwrap();config.capabilities=capabilities();
+    config.source_profile=serde_json::from_value(published["accept"]["hold"]["source_profile"].clone()).unwrap();config.maximum_preparation_ms=30000;config.renderer=a.reservation.offer.startup.renderer_qualification.clone();
+    crate::native::runner::test_collect(h.pipeline(),&h.client,&config,h.id,&a.reservation.offer,a.reservation.deadline_ns,git.client.clone()).await.unwrap()
+}
+#[tokio::test]
+async fn native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline(){
+    let export=synthetic();let manifest=export.manifest.clone();let mut h=Inputs::new_result(export).await;
+    fs::set_permissions(h._dir.path(),fs::Permissions::from_mode(0o700)).unwrap();
+    let git=GitPeer::new(h.root.clone(),manifest);let grant=collect_result_fixture(&h,&git).await;
+    let channel=h.pipeline().create_result_channel_in_namespace(&grant,h._dir.path().join("results"),h.result_pins.clone().unwrap()).await.unwrap();
+    let state=h.pipeline().snapshot().await.unwrap();let history=state.attempts[&h.id].result.as_ref().unwrap();
+    channel.verify_for(&channel.binding().launch,grant.history().record_digest(),&channel.binding().expected_outcome,&history.scope.workspace.path,&history.scope.installation).unwrap();
+    let claim=aq_agent_result_local::Submission::new(channel.binding().clone(),aq_agent_result_local::SubmissionInput{schema_version:1,conclusion:aq_agent_result_local::Conclusion::new("Only explicit bounded test claim").unwrap()}).unwrap();
+    let path=channel.submissions().join("submission.json");fs::write(&path,aq_agent_result_local::encode(&claim).unwrap()).unwrap();fs::set_permissions(&path,fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(h.pipeline().poll_result_claim(h.id).await.is_err(),"a file and real grant still cannot impersonate an actual Running host");
+    assert!(h.pipeline().snapshot().await.unwrap().attempts[&h.id].result.as_ref().unwrap().claim.is_none());
+    let lock=fs::File::open(channel.root().join("owner.lock")).unwrap();assert!(fs2::FileExt::try_lock_shared(&lock).is_err());
+    drop(h.pipeline.take());
+    fs2::FileExt::try_lock_shared(&lock).unwrap();
+    assert!(channel.verify_for(&channel.binding().launch,grant.history().record_digest(),&channel.binding().expected_outcome,&history.scope.workspace.path,&history.scope.installation).is_err(),"historical owners never reconstruct live intake");
+}
+#[tokio::test]
+async fn native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence(){
+    let export=synthetic();let manifest=export.manifest.clone();let h=Inputs::new_result(export).await;
+    fs::set_permissions(h._dir.path(),fs::Permissions::from_mode(0o700)).unwrap();
+    let git=GitPeer::new(h.root.clone(),manifest);let grant=collect_result_fixture(&h,&git).await;
+    h.pipeline().test_journal_fault(WriteFault::AfterFileSync).await.unwrap();
+    let path=h._dir.path().join("result");assert!(h.pipeline().create_result_channel(&grant,path.clone(),h.result_pins.clone().unwrap()).await.is_err());
+    assert!(!path.exists());let pending=fs::read(h.root.join("journal.pending")).unwrap();let snapshot:Snapshot=serde_json::from_slice(&pending).unwrap();
+    assert_eq!(snapshot.digest,canonical_digest(&snapshot.state).unwrap());
+    assert!(matches!(snapshot.state.attempts[&h.id].result.as_ref().unwrap().scope.storage,crate::native::result::history::StorageStage::Creating));
+    assert!(h.pipeline().available().await.is_err(),"ambiguous fsync cannot free execution capacity");
 }
 
 }; }

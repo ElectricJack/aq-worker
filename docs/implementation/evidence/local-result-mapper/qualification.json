@@ -1,0 +1,93 @@
+{
+  "source_commit": "68f65fe1c61f73c0a590c718e0d3061d91e1bc9d",
+  "scope": "Pure result recipe metadata, closed client-installation selection and existing old-byte goldens; no actual image installation or process launch qualification",
+  "runtime_in_this_source_check": "aq-worker0.4.0 source baseline +new opt-in metadata; candidate0.5 native owner/FORMAT12 integration remains separate",
+  "environment": {
+    "CARGO_TARGET_DIR": "/tmp/aq-worker-artifact-overlap-target",
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "offline": true,
+    "locked": true
+  },
+  "logs": {
+    "mapper-tests.log": {
+      "sha256": "d410a75a6aa402adcf3221cc95734c29e811354779fce3e65003013c1266e873",
+      "tests": {
+        "passed": 7,
+        "failed": 0,
+        "ignored": 0
+      },
+      "finished": [
+        "Finished `test` profile [unoptimized] target(s) in 1.73s"
+      ]
+    },
+    "installation-tests-final-contract.log": {
+      "sha256": "1fa99f357f049005932d9534ee3ce34485cbf7248880375f5b46b1a8b57bf38f",
+      "tests": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      "finished": [
+        "Finished `test` profile [unoptimized] target(s) in 15.65s"
+      ]
+    },
+    "old-byte-goldens.log": {
+      "sha256": "d3fc0d5b38aa0c8248a2ecc000fc9328460b6aa5c762ca1d0585c86b54b97e98",
+      "tests": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      "finished": [
+        "Finished `test` profile [unoptimized] target(s) in 0.12s"
+      ]
+    },
+    "presence-fix-tests.log": {
+      "sha256": "7a1a85d6ca77ecb6ef5234f48a464a534bfa09c7f1b8b4a6cee64b8a0cbbbc13",
+      "tests": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      "finished": [
+        "Finished `test` profile [unoptimized] target(s) in 0.51s"
+      ]
+    },
+    "default-strict.log": {
+      "sha256": "fc0fb5acd1bbe257dc0fb512e17bc56d432f8ccc9d98abd7292e4c6e7890547a",
+      "tests": null,
+      "finished": [
+        "Finished `dev` profile [unoptimized] target(s) in 12.33s"
+      ]
+    },
+    "all-feature-strict-final-contract.log": {
+      "sha256": "4a1f5e3f08682a293696041d02176653ffe99195b354e74f9a8ea655fad644a3",
+      "tests": null,
+      "finished": [
+        "Finished `dev` profile [unoptimized] target(s) in 10.91s"
+      ]
+    }
+  },
+  "source_sha256": {
+    "crates/aq-codex-mapper/src/lib.rs": "47f993ed207c9e423240a30f37ea3a318c16ce542bdfa84ea8fcb382c944a02d",
+    "crates/aq-codex-mapper/src/result_local.rs": "86ddb0700d0b57d3b7f9f0029fe19e2b36ff1caea7b26d58dfdee40a5ca90ea0",
+    "crates/aq-codex-mapper/src/result_local/tests.rs": "0616e1f7c99151290771f80e1a5bc25ad4322d7475cb8bd3d569504dcbf146f2",
+    "crates/aq-codex-mapper/artifacts/result-local-v1.json": "b5ab47e542d8068e99e89a70b4816da3c0336ce33484dfc1584a574d893a2cb9",
+    "crates/aq-worker/src/native/adapter/result_client.rs": "09b0b2996d1e737ede9e23f7cf504c91f597aed65caae2dd32e7cee270639fcf",
+    "crates/aq-worker/src/native/adapter/result_client/tests.rs": "5833258c5682c1bb9d37999efd1c447dd0ec2bb4623bd7dae98987640043110a",
+    "crates/aq-agent-result-local/src/lib.rs": "5cc0fc7debc14cfa3bf0c69a448347435d800889320f30b4458fbd65dba1bdef",
+    "crates/aq-agent-result-local/artifacts/contract.json": "4fe711c405ead85b55a54de2d7446b2c106c4b8809b16bc57497ba2af1d35ef9",
+    "Cargo.lock": "70c9a70537663c85eb31278aa14df833bb0be2370013ed81d15b941f7c217c8a"
+  },
+  "limits": [
+    "No actual readonly client installation loaded in these tests",
+    "No client, host, Codex or provider process executed",
+    "No central selected composite adapter or actual grant-bound result channel integrated yet",
+    "Old map implementation unchanged; exact worker base/scoped byte goldens pass",
+    "Dedicated64MiBclientpool is additional capacity, not a borrowed Codex slot",
+    "No Graph/node/provider credential introduced; reporting instructions must be centrally counted"
+  ]
+}
