@@ -41,15 +41,19 @@ impl<'de> Deserialize<'de> for ConfiguredPreparation {
         let wire = Envelope::deserialize(deserializer)?;
         let old =
             aq_admission::preparation_v2::contract_artifact().map_err(serde::de::Error::custom)?;
+        let old_long = aq_admission::preparation_v2::long_contract_artifact()
+            .map_err(serde::de::Error::custom)?;
         let refresh = aq_admission::preparation_refresh_v1::contract_artifact()
             .map_err(serde::de::Error::custom)?;
+        let refresh_long = aq_admission::preparation_refresh_v1::long_contract_artifact()
+            .map_err(serde::de::Error::custom)?;
         let features = serde_json::to_value(wire.features).map_err(serde::de::Error::custom)?;
-        let selected = if wire.contract == old {
+        let selected = if wire.contract == old || wire.contract == old_long {
             Self::Frozen(aq_admission::preparation_v2::Negotiation {
                 contract: wire.contract,
                 features: serde_json::from_value(features).map_err(serde::de::Error::custom)?,
             })
-        } else if wire.contract == refresh {
+        } else if wire.contract == refresh || wire.contract == refresh_long {
             Self::Refresh(aq_admission::preparation_refresh_v1::Negotiation {
                 contract: wire.contract,
                 features: serde_json::from_value(features).map_err(serde::de::Error::custom)?,

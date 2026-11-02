@@ -273,7 +273,10 @@ async fn main() -> ExitCode {
                     native_fixture::verify_environment()?;
                 }
                 let worker = WorkerConfig::load(&path)?;
-                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
+                let config = aq_worker::native::runner::NativeConfig::load(&native_config)
+                    .inspect_err(|_| {
+                        tracing::info!(stage = "native_config_load", "native execution refused");
+                    })?;
                 #[cfg(feature = "test-support")]
                 let executor = match &fixture {
                     Some(options) => Some(options.executor(&worker)?),
