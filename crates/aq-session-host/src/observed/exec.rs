@@ -93,7 +93,8 @@ pub(crate) fn enter(
         );
     }
     private_inputs::verify_at_exec(config, directory)?;
-    config.permit.validate_at(
+    config.validate_permit_at(
+        &config.permit,
         &guardian.intent.session,
         &guardian.intent.manifest_digest,
         ownership::raw_boot_ms(),

@@ -34,6 +34,8 @@ use std::{
 use uuid::Uuid;
 pub const HOST_PROFILE: &str = "linux-subreaper-tmux-foreground-v1";
 pub const MAX_PERMIT_MS: u64 = 120000;
+/// Only the sealed named interactive PTY factory selects this limit.
+pub const MAX_INTERACTIVE_PERMIT_MS: u64 = 3_600_000;
 const MAX_LOCAL_FILE: u64 = 2 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +48,15 @@ pub struct ExecutionPermit {
 }
 impl ExecutionPermit {
     pub fn validate_at(&self, session: &SessionIdentity, digest: &Digest, now: u64) -> Result<()> {
+        self.validate_at_scoped(session, digest, now, false)
+    }
+    fn validate_at_scoped(
+        &self,
+        session: &SessionIdentity,
+        digest: &Digest,
+        now: u64,
+        interactive: bool,
+    ) -> Result<()> {
         self.session.validate()?;
         ensure!(
             &self.session == session && &self.manifest_digest == digest,
@@ -54,7 +65,12 @@ impl ExecutionPermit {
         ensure!(
             self.sequence > 0
                 && self.expires_boot_ms > self.issued_boot_ms
-                && self.expires_boot_ms - self.issued_boot_ms <= MAX_PERMIT_MS
+                && self.expires_boot_ms - self.issued_boot_ms
+                    <= if interactive {
+                        MAX_INTERACTIVE_PERMIT_MS
+                    } else {
+                        MAX_PERMIT_MS
+                    }
                 && now >= self.issued_boot_ms
                 && now < self.expires_boot_ms,
             "expired/invalid execution permit"
@@ -336,6 +352,20 @@ struct SealedLaunch {
     private_input: Option<private_inputs::PrivateInputRecord>,
 }
 impl SealedLaunch {
+    fn validate_permit_at(
+        &self,
+        permit: &ExecutionPermit,
+        session: &SessionIdentity,
+        digest: &Digest,
+        now: u64,
+    ) -> Result<()> {
+        let interactive = self.manifest.terminal.input_enabled
+            && self
+                .observed
+                .as_ref()
+                .is_some_and(observed::Spec::interactive);
+        permit.validate_at_scoped(session, digest, now, interactive)
+    }
     fn wall_deadline(&self) -> Result<u64> {
         let wall = self
             .permit
@@ -485,10 +515,13 @@ impl SessionHost {
         manifest.validate()?;
         ensure!(!launch_id.is_nil(), "nil launch ID");
         let digest = canonical_digest(manifest)?;
-        permit.validate_at(
+        let interactive = manifest.terminal.input_enabled
+            && matches!(&startup, StartupInput::Observed(value) if value.spec.interactive());
+        permit.validate_at_scoped(
             &manifest.bindings.session,
             &digest,
             ownership::raw_boot_ms(),
+            interactive,
         )?;
         ensure!(
             local.workspace.is_absolute()
@@ -870,7 +903,9 @@ impl SessionHandle {
             "renewal requires live running session"
         );
         let now = ownership::raw_boot_ms();
-        permit.validate_at(
+        let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
+        config.validate_permit_at(
+            permit,
             &self.identity.intent.session,
             &self.identity.intent.manifest_digest,
             now,
@@ -879,7 +914,6 @@ impl SessionHandle {
             now < state.permit_deadline_boot_ms,
             "expired current authority cannot renew"
         );
-        let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
         let wall = config.wall_deadline()?;
         ensure!(
             permit.expires_boot_ms <= wall && !self.directory.join("stop.request").exists(),
@@ -1219,6 +1253,44 @@ mod tests {
         let mut excessive = p;
         excessive.expires_boot_ms = 100 + MAX_PERMIT_MS + 1;
         assert!(excessive.validate_at(&s, &digest, 100).is_err());
+    }
+    #[test]
+    fn explicit_interactive_permit_hour_does_not_widen_default_limit_or_expiry() {
+        let session = session();
+        let digest = Digest::of(b"manifest");
+        let mut permit = ExecutionPermit {
+            session: session.clone(),
+            manifest_digest: digest.clone(),
+            sequence: 1,
+            issued_boot_ms: 100,
+            expires_boot_ms: 100 + MAX_PERMIT_MS,
+        };
+        assert!(permit.validate_at(&session, &digest, 100).is_ok());
+        permit.expires_boot_ms += 1;
+        assert!(permit.validate_at(&session, &digest, 100).is_err());
+        permit.expires_boot_ms = 100 + MAX_INTERACTIVE_PERMIT_MS;
+        assert!(permit.validate_at(&session, &digest, 100).is_err());
+        assert!(
+            permit
+                .validate_at_scoped(&session, &digest, 100, true)
+                .is_ok()
+        );
+        assert!(
+            permit
+                .validate_at_scoped(&session, &digest, permit.expires_boot_ms, true)
+                .is_err()
+        );
+        assert!(
+            permit
+                .validate_at_scoped(&session, &Digest::of(b"other"), 100, true)
+                .is_err()
+        );
+        permit.expires_boot_ms += 1;
+        assert!(
+            permit
+                .validate_at_scoped(&session, &digest, 100, true)
+                .is_err()
+        );
     }
     #[test]
     fn local_command_bounds_and_protected_environment() {
