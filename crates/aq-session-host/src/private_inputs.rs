@@ -533,11 +533,16 @@ fn verify_record(root: &File, r: &PrivateInputRecord, original: bool) -> Result<
         },
     )?;
     if r.chatgpt.is_some() && !original {
-        // Native Codex may atomically rotate its private token file. ECHILD
-        // cleanup still requires the exact owner-only home and a valid private
-        // login document; it never updates the operator's source credential.
+        // Native Codex may rotate this valid private login. Preserve any changed
+        // document for explicit reconciliation; deleting it could lose refreshed
+        // credentials. Never copy back or modify the operator's original input.
         ensure!(r.scoped.is_none(), "mixed Codex authentication profiles");
-        return PrivateLaunchInput::validate_chatgpt_auth_json(&bytes);
+        PrivateLaunchInput::validate_chatgpt_auth_json(&bytes)?;
+        ensure!(
+            Digest::of(&bytes) == r.auth_digest,
+            "changed private ChatGPT login preserved for credential reconciliation"
+        );
+        return Ok(());
     }
     ensure!(
         a.dev() == r.auth_device
@@ -740,7 +745,13 @@ mod tests {
         std::fs::set_permissions(&replacement, std::fs::Permissions::from_mode(0o600)).unwrap();
         std::fs::rename(&replacement, root.join("codex-home/auth.json")).unwrap();
         assert!(verify_record(&File::open(&root).unwrap(), &record, true).is_err());
-        verify_record(&File::open(&root).unwrap(), &record, false).unwrap();
+        let refusal = verify_record(&File::open(&root).unwrap(), &record, false).unwrap_err();
+        assert!(!format!("{refusal:#}").contains("offline-rotated-refresh"));
+        assert_eq!(
+            std::fs::read(root.join("codex-home/auth.json")).unwrap(),
+            login("offline-rotated-refresh"),
+            "rotated private login must remain available for reconciliation"
+        );
         assert_eq!(
             std::fs::read(dir.path().join("source/material.bin")).unwrap(),
             bytes,
