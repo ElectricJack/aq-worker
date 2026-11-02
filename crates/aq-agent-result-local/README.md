@@ -59,3 +59,11 @@ All instruction bytes must be included in the centrally counted startup module.
 Adapter mapping explicitly declares the pinned executable and both environment
 values in the runtime recipe and tool shell policy; no arbitrary external folders
 or uncounted prompt suffix is granted. Suspension/parking is not a dependency.
+
+Source qualification (pure crate only):5 tests passed with0 failures/ignored in
+<0.01s after3.31s compilation; all-target strict Clippy passed2.89s. This tests
+byte bounds, duplicate/privileged-field rejection, original scope/digest anchors,
+recorded-reference meaning, and original boot/ceiling refusal. It does not run
+a client, actual worker/grant, provider, filesystem outbox or final report. The
+client implementation and producer integration remain separate qualifications.
+No external dependency versions changed.
