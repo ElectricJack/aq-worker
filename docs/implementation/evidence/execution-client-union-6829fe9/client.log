@@ -1,0 +1,29 @@
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-worker-execution-union-v2/crates/aq-session-protocol)
+   Compiling aq-agent-api v0.1.0 (/tmp/aq-worker-execution-union-v2/vendor/aq-agent-api-0.1.0)
+   Compiling aq-agent-result-local v0.1.0 (/tmp/aq-worker-execution-union-v2/crates/aq-agent-result-local)
+   Compiling aq-agent-client v0.1.0 (/tmp/aq-worker-execution-union-v2/crates/aq-agent-client)
+    Finished `test` profile [unoptimized] target(s) in 3.31s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_agent_client-af87636de9764271)
+
+running 5 tests
+test files::result_publication_tests::two_uncoordinated_publications_have_exactly_one_winner ... ok
+test files::result_publication_tests::create_only_outbox_never_replaces_an_existing_file ... ok
+test journal::tests::restart_cannot_reset_delay_attempts_or_clock_fences ... ok
+test journal::tests::retained_retry_policy_cannot_widen_the_resolved_profile ... ok
+test journal::tests::concurrent_clients_and_full_intent_retention_refuse_without_eviction ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.10s
+
+     Running tests/completion.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/completion-d6175e32311d78b3)
+
+running 7 tests
+test changed_binding_directory_or_symlink_refuses_before_any_publish ... ok
+test input_file_is_bounded_regular_and_privilege_fields_are_rejected ... ok
+test acknowledgment_pins_foreign_bytes_and_owner_loss_cannot_become_live_acceptance ... ok
+test missing_owner_original_execution_expiry_and_changed_boot_refuse_new_publication ... ok
+test lost_original_with_existing_ack_refuses_replacement_even_with_presence ... ok
+test cli_env_channel_needs_no_graph_config_and_missing_channel_never_falls_back ... ok
+test one_original_outbox_reopens_and_conflicting_conclusion_never_replaces_it ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+

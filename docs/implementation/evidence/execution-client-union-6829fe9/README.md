@@ -1,0 +1,5 @@
+# Local result client and execution fixture composition
+
+Source `6829fe9` combines the reviewed local result protocol/client, shared finite Responses data and test-support native CLI/preflight gate atop the reviewed0.4/FORMAT11 profile dispatch/factory. The composed gate passed26 tests; one existing opt-in CLI process fixture stayed ignored. All selected targets/features passed strict Clippy. Exact commands, timings and logs are retained here.
+
+Result submit/status preserves one preallocated binding/body and reports local pending/recording/recovery data. It requires an actually provisioned result directory and never grants node/Graph, stop, retention or task-completion authority. The counted instructions are embedded in the local protocol package. Native0.5 channel installation/intake, physical stop/source retention/reporting and settlement are separate integrations. The finite Responses usage values are synthetic fixture data; no model or real harness ran in this gate. No runtime deployment or canonical configuration changed.

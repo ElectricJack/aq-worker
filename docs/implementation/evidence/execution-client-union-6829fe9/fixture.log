@@ -1,0 +1,24 @@
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-worker-execution-union-v2/crates/aq-session-protocol)
+   Compiling aq-protocol v0.1.0 (/tmp/aq-worker-execution-union-v2/crates/aq-protocol)
+   Compiling aq-worker-protocol v0.2.0 (/tmp/aq-worker-execution-union-v2/crates/aq-worker-protocol)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-worker-execution-union-v2/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/aq-worker-execution-union-v2/crates/aq-lifecycle-protocol)
+   Compiling aq-session-api v0.1.0 (/tmp/aq-worker-execution-union-v2/vendor/aq-session-api-0.1.0)
+   Compiling aq-terminal-relay v0.1.0 (/tmp/aq-worker-execution-union-v2/vendor/aq-terminal-relay-0.1.0)
+   Compiling aq-admission v0.1.10 (/tmp/aq-worker-execution-union-v2/vendor/aq-admission-0.1.10)
+   Compiling aq-session-host v0.1.5 (/tmp/aq-worker-execution-union-v2/crates/aq-session-host)
+   Compiling aq-phase-terminal-protocol v0.1.1 (/tmp/aq-worker-execution-union-v2/vendor/aq-phase-terminal-protocol-0.1.1)
+   Compiling aq-terminal-bridge v0.1.2 (/tmp/aq-worker-execution-union-v2/crates/aq-terminal-bridge)
+   Compiling aq-codex-mapper v0.1.0 (/tmp/aq-worker-execution-union-v2/crates/aq-codex-mapper)
+   Compiling aq-responses-transport v0.1.0 (/tmp/aq-worker-execution-union-v2/crates/aq-responses-transport)
+   Compiling aq-worker v0.4.0 (/tmp/aq-worker-execution-union-v2/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 26.72s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-2c95855e7b0d05cb)
+
+running 3 tests
+test finite_responses_fixture::tests::completion_preserves_exact_text_through_sse_delta_and_final_item ... ok
+test finite_responses_fixture::tests::distinct_turns_keep_exact_tool_arguments_and_function_call_identity ... ok
+test finite_responses_fixture::tests::request_refuses_wrong_model_cap_policy_and_credential_material ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 211 filtered out; finished in 0.00s
+
