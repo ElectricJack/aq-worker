@@ -4,3 +4,4 @@
 /secrets/
 .env
 *.sock
+/graft/
