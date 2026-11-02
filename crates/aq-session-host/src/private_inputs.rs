@@ -73,6 +73,34 @@ struct ScopedAuthPin {
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ChatgptAuthPin {
+    binding: aq_session_protocol::LaunchBinding,
+    launch_id: Uuid,
+    deadline_boot_ms: u64,
+}
+impl ChatgptAuthPin {
+    fn verify_launch(&self, config: &SealedLaunch) -> Result<()> {
+        self.binding.validate()?;
+        ensure!(
+            self.launch_id == config.launch_id
+                && self.binding.session == config.manifest.bindings.session
+                && self.binding.attempt_id == config.manifest.bindings.attempt_id
+                && self.binding.assignment_generation
+                    == config.manifest.bindings.assignment_generation
+                && self.binding.launch_manifest_digest == canonical_digest(&config.manifest)?
+                && self.binding.graph_access_profile_digest
+                    == config.manifest.bindings.graph_access_profile.digest
+                && self.deadline_boot_ms == config.permit.expires_boot_ms,
+            "ChatGPT auth exact launch binding/deadline"
+        );
+        ensure!(config.command.arguments.windows(2).any(|v| v[0] == "--config" && v[1] == "cli_auth_credentials_store=\"file\"")
+            && !config.command.arguments.iter().any(|v| v.starts_with("openai_base_url=") || v.starts_with("model_providers.")),
+            "ChatGPT login requires private file store and native provider route");
+        Ok(())
+    }
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SourcePin {
     owner: ProcessEvidence,
     directory_fd: i32,
@@ -94,6 +122,8 @@ pub(crate) struct PrivateInputRecord {
     auth_digest: Digest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scoped: Option<ScopedAuthPin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chatgpt: Option<ChatgptAuthPin>,
 }
 impl std::fmt::Debug for PrivateInputRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -112,6 +142,7 @@ pub struct PrivateLaunchInput {
     pin: SourcePin,
     auth: Zeroizing<Vec<u8>>,
     scoped: Option<ScopedAuthPin>,
+    chatgpt: Option<ChatgptAuthPin>,
 }
 fn directory(file: &File, name: &std::ffi::CStr) -> Result<File> {
     let fd = unsafe {
@@ -238,6 +269,108 @@ pub(crate) fn verify_local_capability_auth(auth: &[u8], expected: &Digest) -> Re
     Ok(())
 }
 impl PrivateLaunchInput {
+    /// Validate the native Codex subscription credential document, without
+    /// logging, returning or copying its token fields into public metadata.
+    pub fn validate_chatgpt_auth_json(bytes: &[u8]) -> Result<()> {
+        fn secret<'de, D: serde::Deserializer<'de>>(
+            d: D,
+        ) -> std::result::Result<Zeroizing<String>, D::Error> {
+            String::deserialize(d).map(Zeroizing::new)
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Tokens {
+            #[serde(deserialize_with = "secret")]
+            id_token: Zeroizing<String>,
+            #[serde(deserialize_with = "secret")]
+            access_token: Zeroizing<String>,
+            #[serde(deserialize_with = "secret")]
+            refresh_token: Zeroizing<String>,
+            #[serde(deserialize_with = "secret")]
+            account_id: Zeroizing<String>,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Auth {
+            auth_mode: String,
+            #[serde(rename = "OPENAI_API_KEY")]
+            api_key: Option<()>,
+            tokens: Tokens,
+            last_refresh: Option<String>,
+        }
+        ensure!(
+            !bytes.is_empty() && bytes.len() <= MAX_MATERIAL as usize,
+            "Codex login JSON byte bound"
+        );
+        let auth: Auth = serde_json::from_slice(bytes)
+            .map_err(|_| anyhow::anyhow!("unsupported private Codex login JSON"))?;
+        ensure!(
+            auth.auth_mode == "chatgpt" && auth.api_key.is_none(),
+            "native ChatGPT login required"
+        );
+        for token in [
+            &auth.tokens.id_token,
+            &auth.tokens.access_token,
+            &auth.tokens.refresh_token,
+        ] {
+            ensure!(
+                !token.is_empty()
+                    && token.len() <= 32768
+                    && token.bytes().all(|b| b.is_ascii_graphic()),
+                "Codex login token shape"
+            );
+        }
+        ensure!(
+            !auth.tokens.account_id.is_empty()
+                && auth.tokens.account_id.len() <= 512
+                && auth.tokens.account_id.bytes().all(|b| b.is_ascii_graphic())
+                && auth
+                    .last_refresh
+                    .as_ref()
+                    .is_none_or(|v| v.len() <= 128 && v.bytes().all(|b| b.is_ascii_graphic())),
+            "Codex login account/refresh shape"
+        );
+        Ok(())
+    }
+
+    /// Existing scoped material ownership, with the original native ChatGPT
+    /// auth document published only inside this launch's private CODEX_HOME.
+    pub fn codex_chatgpt_auth_json(
+        source: File,
+        original: OriginalPrivateMaterial,
+        binding: aq_session_protocol::LaunchBinding,
+        launch_id: Uuid,
+        deadline_boot_ms: u64,
+    ) -> Result<Self> {
+        binding.validate()?;
+        ensure!(
+            !launch_id.is_nil() && deadline_boot_ms > 0,
+            "ChatGPT launch identity/deadline"
+        );
+        let m = private_directory(&source)?;
+        let pin = SourcePin {
+            owner: ownership::process_evidence(std::process::id())?,
+            directory_fd: source.as_raw_fd(),
+            device: m.dev(),
+            inode: m.ino(),
+            bytes: original.bytes,
+            digest: original.digest,
+            record_digest: original.record_digest,
+        };
+        let auth = read_source(&pin)?;
+        Self::validate_chatgpt_auth_json(&auth)?;
+        Ok(Self {
+            source,
+            pin,
+            auth,
+            scoped: None,
+            chatgpt: Some(ChatgptAuthPin {
+                binding,
+                launch_id,
+                deadline_boot_ms,
+            }),
+        })
+    }
     pub fn codex_api_key(
         source: File,
         digest: Digest,
@@ -261,6 +394,7 @@ impl PrivateLaunchInput {
             pin,
             auth,
             scoped: None,
+            chatgpt: None,
         })
     }
     pub fn codex_scoped_capability(
@@ -297,6 +431,7 @@ impl PrivateLaunchInput {
             pin,
             auth,
             scoped: Some(scoped),
+            chatgpt: None,
         })
     }
 }
@@ -342,6 +477,7 @@ impl Publication {
             auth_bytes: input.auth.len() as u64,
             auth_digest: Digest::of(&input.auth),
             scoped: input.scoped.clone(),
+            chatgpt: input.chatgpt.clone(),
         };
         home.sync_all()?;
         root.sync_all()?;
@@ -360,6 +496,12 @@ impl Publication {
         let original = read_source(&self.input.pin)?;
         if let Some(pin) = &self.input.scoped {
             verify_scoped_auth(&self.input.auth, pin)?;
+        } else if self.input.chatgpt.is_some() {
+            PrivateLaunchInput::validate_chatgpt_auth_json(&original)?;
+            ensure!(
+                original.as_slice() == self.input.auth.as_slice(),
+                "private Codex login changed before publication"
+            );
         } else {
             ensure!(
                 derive_auth(&original)?.as_slice() == self.input.auth.as_slice(),
@@ -381,7 +523,22 @@ fn verify_record(root: &File, r: &PrivateInputRecord, original: bool) -> Result<
         h.dev() == r.home_device && h.ino() == r.home_inode,
         "private home replaced"
     );
-    let (bytes, a) = read_member(&home, c"auth.json", 8192)?;
+    let (bytes, a) = read_member(
+        &home,
+        c"auth.json",
+        if r.chatgpt.is_some() {
+            MAX_MATERIAL
+        } else {
+            8192
+        },
+    )?;
+    if r.chatgpt.is_some() && !original {
+        // Native Codex may atomically rotate its private token file. ECHILD
+        // cleanup still requires the exact owner-only home and a valid private
+        // login document; it never updates the operator's source credential.
+        ensure!(r.scoped.is_none(), "mixed Codex authentication profiles");
+        return PrivateLaunchInput::validate_chatgpt_auth_json(&bytes);
+    }
     ensure!(
         a.dev() == r.auth_device
             && a.ino() == r.auth_inode
@@ -393,6 +550,15 @@ fn verify_record(root: &File, r: &PrivateInputRecord, original: bool) -> Result<
         verify_scoped_auth(&bytes, pin)?;
         if original {
             drop(read_source(&r.source)?);
+        }
+    } else if r.chatgpt.is_some() {
+        ensure!(r.scoped.is_none(), "mixed Codex authentication profiles");
+        PrivateLaunchInput::validate_chatgpt_auth_json(&bytes)?;
+        if original {
+            ensure!(
+                read_source(&r.source)?.as_slice() == bytes.as_slice(),
+                "private login/original material mismatch"
+            );
         }
     } else if original {
         ensure!(
@@ -423,6 +589,10 @@ pub(crate) fn verify_at_exec(config: &SealedLaunch, root: &Path) -> Result<()> {
         );
         if let Some(pin) = &r.scoped {
             pin.scope.verify_launch(config)?;
+        }
+        if let Some(pin) = &r.chatgpt {
+            ensure!(r.scoped.is_none(), "mixed Codex authentication profiles");
+            pin.verify_launch(config)?;
         }
         let root = OpenOptions::new()
             .read(true)
@@ -514,6 +684,99 @@ impl SessionHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn login(refresh: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"offline-id","access_token":"offline-access","refresh_token":refresh,"account_id":"offline-account"},"last_refresh":"2026-11-01T00:00:00Z"})).unwrap()
+    }
+    #[test]
+    fn subscription_login_is_explicit_closed_bounded_and_errors_hide_tokens() {
+        PrivateLaunchInput::validate_chatgpt_auth_json(&login("offline-refresh")).unwrap();
+        for bytes in [b"sk-api-key".to_vec(), login(""), vec![b'x';65537], br#"{"auth_mode":"chatgpt","auth_mode":"chatgpt","tokens":{"access_token":"private-value"}}"#.to_vec()] {
+            let error=PrivateLaunchInput::validate_chatgpt_auth_json(&bytes).unwrap_err();
+            assert!(!format!("{error:#}").contains("private-value"));
+        }
+    }
+    #[test]
+    fn subscription_publication_reuses_original_material_pins_and_private_home() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, _, _, record) = source(dir.path());
+        let bytes = login("offline-refresh");
+        std::fs::write(dir.path().join("source/material.bin"), &bytes).unwrap();
+        let (scope, _) = scoped();
+        let input = PrivateLaunchInput::codex_chatgpt_auth_json(
+            source,
+            OriginalPrivateMaterial {
+                digest: Digest::of(&bytes),
+                bytes: bytes.len() as u64,
+                record_digest: record,
+            },
+            scope.binding,
+            scope.launch_id,
+            scope.deadline_boot_ms,
+        )
+        .unwrap();
+        let root = root(dir.path());
+        let publication = Publication::reserve(&root, input).unwrap();
+        let record = publication.record();
+        assert!(
+            !serde_json::to_string(&record)
+                .unwrap()
+                .contains("offline-access")
+        );
+        let _held = publication.publish().unwrap();
+        assert_eq!(
+            std::fs::read(root.join("codex-home/auth.json")).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            std::fs::metadata(root.join("codex-home/auth.json"))
+                .unwrap()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        verify_record(&File::open(&root).unwrap(), &record, true).unwrap();
+        let replacement = root.join("codex-home/new-auth");
+        std::fs::write(&replacement, login("offline-rotated-refresh")).unwrap();
+        std::fs::set_permissions(&replacement, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::rename(&replacement, root.join("codex-home/auth.json")).unwrap();
+        assert!(verify_record(&File::open(&root).unwrap(), &record, true).is_err());
+        verify_record(&File::open(&root).unwrap(), &record, false).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("source/material.bin")).unwrap(),
+            bytes,
+            "private refresh never overwrites operator material"
+        );
+    }
+    #[test]
+    fn subscription_publication_refuses_changed_original_before_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, _, _, record) = source(dir.path());
+        let bytes = login("offline-refresh");
+        std::fs::write(dir.path().join("source/material.bin"), &bytes).unwrap();
+        let (scope, _) = scoped();
+        let input = PrivateLaunchInput::codex_chatgpt_auth_json(
+            source,
+            OriginalPrivateMaterial {
+                digest: Digest::of(&bytes),
+                bytes: bytes.len() as u64,
+                record_digest: record,
+            },
+            scope.binding,
+            scope.launch_id,
+            scope.deadline_boot_ms,
+        )
+        .unwrap();
+        let root = root(dir.path());
+        let publication = Publication::reserve(&root, input).unwrap();
+        std::fs::write(dir.path().join("source/material.bin"), login("changed")).unwrap();
+        assert!(publication.publish().is_err());
+        assert_eq!(
+            std::fs::metadata(root.join("codex-home/auth.json"))
+                .unwrap()
+                .len(),
+            0
+        );
+    }
     fn scoped() -> (ScopedCodexAuthBinding, LaunchManifest) {
         let manifest: LaunchManifest =
             serde_json::from_str(include_str!("../tests/fixtures/manifest.json")).unwrap();
