@@ -7,6 +7,7 @@ use crate::local_ipc::Socket;
 use std::os::fd::FromRawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
 const SOCKET: &str = "terminal-reader.sock";
+const VIEWER_SOCKET: &str = "terminal-viewer.sock";
 pub(crate) const LEASE_MS: u64 = 1000;
 const DRAIN_CADENCE_MS: u64 = 250;
 #[derive(Serialize, Deserialize)]
@@ -35,7 +36,8 @@ struct Ready {
 }
 struct Reader {
     socket: Socket,
-    _stdin: std::process::ChildStdin,
+    _stdin: Option<std::process::ChildStdin>,
+    viewer: Option<crate::terminal_viewer::ViewerProcess>,
     process: ProcessEvidence,
     pidfd: OwnedFd,
     claim: Uuid,
@@ -57,6 +59,7 @@ pub(crate) struct Owner {
     reader: Option<Reader>,
     claimed: bool,
     failed: bool,
+    viewer: bool,
 }
 pub(crate) struct Gate<'a> {
     pub highwater: &'a mut u64,
@@ -64,7 +67,13 @@ pub(crate) struct Gate<'a> {
 }
 impl Owner {
     pub(crate) fn new(dir: &Path) -> Result<Self> {
-        let path = dir.join(SOCKET);
+        Self::create(dir, false)
+    }
+    pub(crate) fn new_viewer(dir: &Path) -> Result<Self> {
+        Self::create(dir, true)
+    }
+    fn create(dir: &Path, viewer: bool) -> Result<Self> {
+        let path = dir.join(if viewer { VIEWER_SOCKET } else { SOCKET });
         let listener = Socket::new()?;
         let (address, length) = Socket::address(&path)?;
         ensure!(
@@ -91,6 +100,7 @@ impl Owner {
             reader: None,
             claimed: false,
             failed: false,
+            viewer,
         })
     }
     pub(crate) fn drained_after(&self, after: u64) -> bool {
@@ -132,7 +142,10 @@ impl Owner {
         {
             self.reader.take();
             self.pending.take();
-            self.failed = true;
+            // Only the disposable viewer can attach again. The original
+            // control reader retains its one-shot continuity/baseline rules.
+            self.claimed = !self.viewer;
+            self.failed = !self.viewer;
         }
     }
     fn try_tick(
@@ -175,6 +188,9 @@ impl Owner {
                 .1
                 .as_bytes()[0];
             ensure!(state != b'T' && state != b't', "reader process stopped");
+            if let Some(viewer) = &mut reader.viewer {
+                viewer.tick(dir, config, host, wall_deadline, reader.process.pid)?;
+            }
             if let Some(packet) = reader.socket.receive()? {
                 ensure!(packet.fd.is_none(), "unexpected reader descriptor");
                 match serde_json::from_slice::<Request>(&packet.bytes)? {
@@ -236,6 +252,15 @@ impl Owner {
                         "preexec reader terminal mismatch"
                     );
                 }
+                if self.viewer {
+                    ensure!(
+                        !pending_observation
+                            && host.phase == HostPhase::Running
+                            && config.observed.as_ref().is_some_and(|s| s.interactive())
+                            && config.manifest.terminal.input_enabled,
+                        "viewer requires original interactive Running"
+                    );
+                }
                 terminal_io::verify_output_claim(
                     dir,
                     &binding,
@@ -252,30 +277,48 @@ impl Owner {
                     "execution expired before reader spawn"
                 );
                 let socket = self.pending.take().unwrap().0;
-                let mut child = Command::new(&config.tmux)
-                    .args(["-N", "-C", "-S"])
-                    .arg(dir.join("tmux.sock"))
-                    .args([
-                        "attach-session",
-                        "-f",
-                        "read-only,ignore-size,pause-after=1",
-                        "-t",
-                        "aq",
-                    ])
-                    .env_clear()
-                    .env("PATH", "/usr/bin:/bin")
-                    .env("TERM", "xterm-256color")
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn()?;
+                let (mut child, viewer, viewer_stdout) = if self.viewer {
+                    let (child, viewer, stdout) =
+                        crate::terminal_viewer::spawn(dir, config, host, wall_deadline)?;
+                    (child, Some(viewer), Some(stdout))
+                } else {
+                    (
+                        Command::new(&config.tmux)
+                            .args(["-N", "-C", "-S"])
+                            .arg(dir.join("tmux.sock"))
+                            .args([
+                                "attach-session",
+                                "-f",
+                                "read-only,ignore-size,pause-after=1",
+                                "-t",
+                                "aq",
+                            ])
+                            .env_clear()
+                            .env("PATH", "/usr/bin:/bin")
+                            .env("TERM", "xterm-256color")
+                            .stdin(Stdio::piped())
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::null())
+                            .spawn()?,
+                        None,
+                        None,
+                    )
+                };
                 // This child belongs to the guardian before any capability is sent.
                 // On setup failure it is killed directly and reaped by the guardian.
                 let setup = (|| -> Result<_> {
                     let process = ownership::process_evidence(child.id())?;
                     let pidfd = ownership::verified_pidfd(&process)?;
-                    let stdin = child.stdin.take().context("reader stdin")?;
-                    let stdout = child.stdout.take().context("reader stdout")?;
+                    let stdin = if self.viewer {
+                        None
+                    } else {
+                        Some(child.stdin.take().context("reader stdin")?)
+                    };
+                    let stdout = if let Some(stdout) = viewer_stdout {
+                        stdout
+                    } else {
+                        File::from(OwnedFd::from(child.stdout.take().context("reader stdout")?))
+                    };
                     Ok((process, pidfd, stdin, stdout))
                 })();
                 let (process, pidfd, stdin, stdout) = match setup {
@@ -292,6 +335,7 @@ impl Owner {
                 self.reader = Some(Reader {
                     socket,
                     _stdin: stdin,
+                    viewer,
                     process: process.clone(),
                     pidfd,
                     claim,
@@ -330,8 +374,21 @@ impl Client {
         terminal: &terminal_io::TerminalHandle,
         claim: Uuid,
     ) -> Result<(Self, File, ProcessEvidence)> {
+        Self::open_at(terminal, claim, SOCKET)
+    }
+    pub(crate) fn open_viewer(
+        terminal: &terminal_io::TerminalHandle,
+        claim: Uuid,
+    ) -> Result<(Self, File, ProcessEvidence)> {
+        Self::open_at(terminal, claim, VIEWER_SOCKET)
+    }
+    fn open_at(
+        terminal: &terminal_io::TerminalHandle,
+        claim: Uuid,
+        name: &str,
+    ) -> Result<(Self, File, ProcessEvidence)> {
         let (dir, _, _) = terminal.output_settings()?;
-        let socket = Socket::connect(&dir.join(SOCKET))?;
+        let socket = Socket::connect(&dir.join(name))?;
         let peer = socket.credentials()?;
         ensure!(
             peer.pid as u32 == terminal.binding().guardian.process.pid

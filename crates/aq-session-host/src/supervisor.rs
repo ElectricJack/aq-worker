@@ -137,6 +137,8 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
     durable_new(&dir.join("identity.json"), &serde_json::to_vec(&identity)?)?;
     let _reaper = EmergencyReaper;
     let mut reader_owner = reader_lease::Owner::new(dir)?;
+    let mut viewer_owner = reader_lease::Owner::new_viewer(dir)?;
+    let mut viewer_revision_highwater = 0;
     let mut root: Option<Child> = None;
     let mut root_pid = None;
     let mut stop_started = None;
@@ -395,6 +397,17 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     .as_ref()
                     .and_then(|o| o.closed_ready())
                     .is_some(),
+            },
+        );
+        viewer_owner.tick(
+            dir,
+            &config,
+            &state,
+            wall_deadline,
+            &directory_guard,
+            reader_lease::Gate {
+                highwater: &mut viewer_revision_highwater,
+                pending_observation: false,
             },
         );
         let _ = &root;

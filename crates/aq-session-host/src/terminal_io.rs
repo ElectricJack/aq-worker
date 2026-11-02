@@ -456,6 +456,19 @@ impl TerminalHandle {
         self.directory_guard.verify()?;
         Ok(claim)
     }
+    pub(crate) fn viewer_claim(&self) -> Result<Uuid> {
+        self.output_settings()?;
+        ensure!(!self.pending_observation, "viewer requires actual Running");
+        let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
+        ensure!(
+            config.observed.as_ref().is_some_and(|s| s.interactive())
+                && config.manifest.terminal.input_enabled,
+            "PTY viewer requires explicit interactive profile"
+        );
+        load(&self.directory, &self.binding)?
+            .output_claim
+            .context("viewer requires original control observer claim")
+    }
     pub fn binding(&self) -> &TerminalBinding {
         &self.binding
     }
@@ -1162,7 +1175,7 @@ fn inject(
     // Target only the immutable pane ID, never a user-provided session name.
     result.map(|_| ())
 }
-fn guarded_tmux(
+pub(crate) fn guarded_tmux(
     dir: &Path,
     config: &SealedLaunch,
     host: &HostObservation,

@@ -294,6 +294,9 @@ async fn transport_fixture_policy(
             pending: None,
         }),
         draining: AtomicBool::new(false),
+        viewer_requested: AtomicBool::new(false),
+        viewer_opening: AtomicBool::new(false),
+        last_viewer_request: Mutex::new(None),
         task: Mutex::new(None),
     });
     let outputs = Arc::new(Mutex::new(Outputs::default()));

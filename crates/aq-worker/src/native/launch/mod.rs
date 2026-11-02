@@ -116,12 +116,43 @@ struct Physical {
     handle: Option<SessionHandle>,
     observer: Option<aq_session_host::terminal_output::OutputObserver>,
     pending_output: Vec<aq_session_host::terminal_output::ControlEvent>,
+    viewer_enabled: bool,
+    viewer: Option<aq_session_host::terminal_viewer::TerminalViewer>,
     stopped: Option<StoppedProof>,
     transport: Option<crate::native::adapter::responses_transport::ScopedResponsesTransport>,
     outcome: Outcome,
 }
 impl Physical {
     fn poll_output(&mut self) -> Result<Vec<aq_session_host::terminal_output::ControlEvent>> {
+        let events = self.poll_control_output()?;
+        if !self.viewer_enabled {
+            return Ok(events);
+        }
+        // The original control observer still drains for its independent
+        // continuity/lease checks. Only the separate real PTY viewer supplies
+        // rendered bytes in the explicitly interactive profile.
+        let mut events: Vec<_> = events
+            .into_iter()
+            .filter(|event| {
+                !matches!(
+                    event,
+                    aq_session_host::terminal_output::ControlEvent::Bytes(_)
+                )
+            })
+            .collect();
+        if let Some(viewer) = &mut self.viewer {
+            match viewer.poll() {
+                Ok(bytes) => events.extend(bytes),
+                Err(_) => {
+                    self.viewer = None;
+                }
+            }
+        }
+        Ok(events)
+    }
+    fn poll_control_output(
+        &mut self,
+    ) -> Result<Vec<aq_session_host::terminal_output::ControlEvent>> {
         if !self.pending_output.is_empty() {
             return Ok(std::mem::take(&mut self.pending_output));
         }
@@ -164,6 +195,8 @@ impl Registry {
                             handle: None,
                             observer: None,
                             pending_output: Vec::new(),
+                            viewer_enabled: false,
+                            viewer: None,
                             stopped: None,
                             transport: None,
                             outcome: Outcome::Unknown,
@@ -314,6 +347,8 @@ impl Registry {
                 handle: None,
                 observer: None,
                 pending_output: Vec::new(),
+                viewer_enabled: false,
+                viewer: None,
                 stopped: None,
                 transport: None,
                 outcome: Outcome::Pending,

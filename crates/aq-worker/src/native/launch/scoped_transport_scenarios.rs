@@ -61,6 +61,8 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
             handle: None,
             observer: None,
             pending_output: Vec::new(),
+            viewer_enabled: false,
+            viewer: None,
             stopped: None,
             transport: Some(owner),
             outcome: Outcome::Unknown,
