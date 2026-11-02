@@ -12,8 +12,17 @@ pub const CONTRACT: &str = "aq-agent-result-local-1";
 pub const MAX_BYTES: usize = 8192;
 pub const MAX_INPUT_BYTES: usize = 4096;
 pub const MAX_CONCLUSION_BYTES: usize = 512;
+pub const DEFINITION_BYTES: &[u8] = include_bytes!("../artifacts/contract.json");
+/// Actual immutable public definition bytes, not qualification/live authority.
+pub fn artifact() -> ArtifactRef {
+    ArtifactRef {
+        id: Text::new("aq.agent-result-local").expect("constant definition id"),
+        version: Text::new("1").expect("constant definition version"),
+        digest: Digest::of(DEFINITION_BYTES),
+    }
+}
 pub const RESULT_DIR_ENV: &str = "AQ_AGENT_RESULT_DIR";
-pub const CLIENT_ENV: &str = "AQ_AGENT_CLIENT";
+pub const COMMAND_ENV: &str = "AQ_AGENT_RESULT_COMMAND";
 pub const SUBMISSIONS_DIRECTORY: &str = "submissions";
 pub const WRITER_LOCK_FILE: &str = "writer.lock";
 pub const BINDING_FILE: &str = "binding.json";
@@ -231,7 +240,9 @@ pub fn encode<T: Serialize + Validate>(value: &T) -> Result<Vec<u8>, ContractErr
     require(bytes.len() <= MAX_BYTES, "local result envelope byte bound")?;
     Ok(bytes)
 }
-pub fn decode<T: serde::de::DeserializeOwned + Validate>(bytes: &[u8]) -> Result<T, ContractError> {
+pub fn decode<T: serde::de::DeserializeOwned + Serialize + Validate>(
+    bytes: &[u8],
+) -> Result<T, ContractError> {
     require(bytes.len() <= MAX_BYTES, "local result input byte bound")?;
     let value: T =
         serde_json::from_slice(bytes).map_err(|_| ContractError::Invalid("local result JSON"))?;
