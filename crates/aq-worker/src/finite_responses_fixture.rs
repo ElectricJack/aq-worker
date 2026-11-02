@@ -37,8 +37,38 @@ pub fn exec_command(
 ) -> String {
     let args = json!({"cmd":command,"login":false,"yield_time_ms":1000,"max_output_tokens":1000})
         .to_string();
+    function_call(model, response_id, item_id, call_id, "exec_command", args)
+}
+
+/// A finite empty-input poll. Caller must derive this ID from the actual prior
+/// tool output and confirm the actual request offers write_stdin.
+pub fn write_stdin(
+    model: &str,
+    response_id: &str,
+    item_id: &str,
+    call_id: &str,
+    session_id: i32,
+) -> String {
+    function_call(
+        model,
+        response_id,
+        item_id,
+        call_id,
+        "write_stdin",
+        json!({"session_id":session_id,"chars":"","yield_time_ms":1000,"max_output_tokens":2048})
+            .to_string(),
+    )
+}
+fn function_call(
+    model: &str,
+    response_id: &str,
+    item_id: &str,
+    call_id: &str,
+    name: &str,
+    args: String,
+) -> String {
     let item = json!({"type":"function_call","id":item_id,"call_id":call_id,
-        "name":"exec_command","arguments":args,"status":"completed"});
+        "name":name,"arguments":args,"status":"completed"});
     [
         event(json!({"type":"response.created","response":{"id":response_id,"model":model,"status":"in_progress","output":[]}})),
         event(json!({"type":"response.output_item.done","output_index":0,"item":item})),
@@ -152,6 +182,26 @@ mod tests {
             assert_eq!(arguments["cmd"], command);
             assert_eq!(arguments["login"], false);
         }
+    }
+
+    #[test]
+    fn empty_poll_retains_real_session_identity_without_new_input() {
+        let frames = events(&write_stdin(
+            "m",
+            "resp_poll",
+            "item_poll",
+            "call_poll",
+            723,
+        ));
+        let call = &frames[1]["item"];
+        assert_eq!(call["name"], "write_stdin");
+        assert_eq!(call["call_id"], "call_poll");
+        let arguments: Value = serde_json::from_str(call["arguments"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            arguments,
+            json!({"session_id":723,"chars":"","yield_time_ms":1000,"max_output_tokens":2048})
+        );
+        assert_eq!(frames[2]["response"]["output"][0], *call);
     }
 
     fn valid() -> Value {

@@ -13,6 +13,14 @@ enum Input {
         commands: Vec<Command>,
         completion: String,
     },
+    Poll {
+        model: String,
+        response_id: String,
+        item_id: String,
+        call_id: String,
+        session_id: i32,
+        offered_tools: Vec<Value>,
+    },
     Check {
         model: String,
         output_cap: u64,
@@ -75,6 +83,33 @@ fn apply(input: Input) -> Result<Value> {
             responses.push(shared::completed(&model, &completion));
             Ok(
                 json!({"schema_version":1,"responses":responses,"scope":"finite local fixture data; no model/provider qualification"}),
+            )
+        }
+        Input::Poll {
+            model,
+            response_id,
+            item_id,
+            call_id,
+            session_id,
+            offered_tools,
+        } => {
+            text(&model, 128)?;
+            for id in [&response_id, &item_id, &call_id] {
+                identifier(id)?;
+            }
+            ensure!(
+                session_id > 0 && offered_tools.len() <= 64,
+                "finite actual session/tool bound"
+            );
+            ensure!(
+                offered_tools.iter().any(|tool| tool["type"] == "function"
+                    && tool["name"] == "write_stdin"
+                    && tool["parameters"]["properties"]["session_id"].is_object()
+                    && tool["parameters"]["properties"]["chars"].is_object()),
+                "actual write_stdin tool must be offered"
+            );
+            Ok(
+                json!({"schema_version":1,"response":shared::write_stdin(&model,&response_id,&item_id,&call_id,session_id)}),
             )
         }
         Input::Check {
@@ -156,6 +191,23 @@ mod tests {
                 shared::exec_command(model, "resp_claim", "item_claim", "call_claim", claim),
                 shared::completed(model, "claim pending; ending turn"),
             ])
+        );
+    }
+    #[test]
+    fn poll_requires_offered_tool_and_preserves_actual_session() {
+        let poll = |tools| Input::Poll {
+            model: "m".into(),
+            response_id: "resp_poll_1".into(),
+            item_id: "item_poll_1".into(),
+            call_id: "call_poll_1".into(),
+            session_id: 723,
+            offered_tools: tools,
+        };
+        assert!(apply(poll(vec![])).is_err());
+        let actual = apply(poll(vec![json!({"type":"function","name":"write_stdin","parameters":{"properties":{"session_id":{"type":"integer"},"chars":{"type":"string"}}}})])).unwrap();
+        assert_eq!(
+            actual["response"],
+            shared::write_stdin("m", "resp_poll_1", "item_poll_1", "call_poll_1", 723)
         );
     }
     #[test]
