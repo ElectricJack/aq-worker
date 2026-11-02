@@ -3,8 +3,8 @@ use super::*;
 use crate::{
     source::{GitAction, GitManifest, PendingGitOperation},
     source_transfer::{
-        UploadAction, UploadState,
         steps::{self, UploadAcknowledgment},
+        UploadAction, UploadState,
     },
     transfer_client::TransferClient,
 };
@@ -57,6 +57,19 @@ impl InputPipeline {
                 let binding = expected.scope.source.clone();
                 let workspace = expected.scope.workspace.clone();
                 let roots = c.clone();
+                // The original complete allocation receipt is retained by this
+                // same journal owner. It is a comparison pin, not current proof.
+                let original = self
+                    .storage(move |owner| {
+                        owner.journal.state().attempts[&id]
+                            .source
+                            .as_ref()
+                            .and_then(|s| s.operations.get("create"))
+                            .and_then(|o| o.result.clone())
+                            .context("result original workspace allocation absent")
+                    })
+                    .await?;
+                let scope = expected.scope.clone();
                 tokio::task::spawn_blocking(move || -> Result<_> {
                     roots.roots.verify()?;
                     let bytes = crate::source::workspace_bytes(&workspace.path)?;
@@ -65,14 +78,7 @@ impl InputPipeline {
                         "workspace.inspect",
                         serde_json::json!({"workspace_id":workspace.workspace_id}),
                     )?;
-                    let head = serde_json::from_value::<aq_worker_protocol::ObjectId>(
-                        value["head"].clone(),
-                    )?;
-                    ensure!(
-                        value["workspace_id"] == workspace.workspace_id.to_string()
-                            && value["generation"] == workspace.generation,
-                        "result workspace changed before checkpoint"
-                    );
+                    let head = inspect_checkpoint_workspace(&value, &original, &scope)?;
                     roots.roots.verify()?;
                     Ok((Some(head), Some(bytes)))
                 })
@@ -309,6 +315,31 @@ impl InputPipeline {
         Ok(done)
     }
 }
+/// aq-git's active inspection is an envelope containing the complete workspace
+/// record. Compare it with the original allocation, then use the current HEAD;
+/// dirty contents are precisely what this stopped checkpoint must preserve.
+fn inspect_checkpoint_workspace(
+    value: &serde_json::Value,
+    original: &serde_json::Value,
+    scope: &ScopeRecord,
+) -> Result<aq_worker_protocol::ObjectId> {
+    ensure!(
+        original.is_object()
+            && value.get("workspace") == Some(original)
+            && original["workspace_id"] == scope.workspace.workspace_id.to_string()
+            && original["generation"] == scope.workspace.generation
+            && original["path"] == serde_json::to_value(&scope.workspace.path)?
+            && original["repository_id"] == scope.source.repository_id.to_string()
+            && original["binding_generation"] == scope.source.binding_generation
+            && original["base"] == scope.source.base.hex
+            && original["lifecycle"] == "active",
+        "result workspace changed before checkpoint"
+    );
+    let head: aq_worker_protocol::ObjectId = serde_json::from_value(value["head"].clone())?;
+    head.validate()?;
+    Ok(head)
+}
+
 fn verify_export(
     root: &Path,
     value: &serde_json::Value,
@@ -405,6 +436,80 @@ fn verify_export(
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    // Exact active envelope emitted by aq-git WorkspaceManager::workspace.inspect,
+    // including its full allocation record (not the worker's three-field view).
+    fn inspection() -> (ResultHistory, serde_json::Value, serde_json::Value) {
+        let h = super::super::tests::history();
+        let original = serde_json::json!({
+            "format_version":1,"workspace_id":h.scope.workspace.workspace_id,
+            "repository_id":h.scope.source.repository_id,
+            "binding_generation":h.scope.source.binding_generation,
+            "generation":h.scope.workspace.generation,"base":h.scope.source.base.hex,
+            "path":h.scope.workspace.path,"lifecycle":"active",
+            "allocating_operation":Uuid::new_v4(),"last_checkpoint":null,
+            "retiring_operation":null,"config_digest":"a".repeat(64)
+        });
+        let value = serde_json::json!({"workspace":original,
+            "head":{"algorithm":"sha1","hex":"b".repeat(40)},
+            "clean":false,"status_encoding":"hex","status":"31204d20736565642e74787400"});
+        (h, original, value)
+    }
+    #[test]
+    fn checkpoint_inspection_accepts_actual_nested_dirty_workspace_and_current_head() {
+        let (h, original, value) = inspection();
+        let head = inspect_checkpoint_workspace(&value, &original, &h.scope).unwrap();
+        assert_eq!(head.hex, "b".repeat(40));
+        assert_ne!(
+            head, h.scope.source.base,
+            "preserve current committed HEAD too"
+        );
+        assert_eq!(value["clean"], false, "stopped edits need not be clean");
+    }
+    #[test]
+    fn checkpoint_inspection_refuses_flat_inactive_and_changed_full_allocation() {
+        let (h, original, value) = inspection();
+        let mut flat = original.clone();
+        flat["head"] = value["head"].clone();
+        assert!(inspect_checkpoint_workspace(&flat, &original, &h.scope).is_err());
+        for field in [
+            "workspace_id",
+            "repository_id",
+            "binding_generation",
+            "generation",
+            "base",
+            "path",
+            "lifecycle",
+            "allocating_operation",
+            "last_checkpoint",
+            "retiring_operation",
+            "config_digest",
+        ] {
+            let mut changed = value.clone();
+            changed["workspace"][field] = serde_json::json!("changed");
+            assert!(
+                inspect_checkpoint_workspace(&changed, &original, &h.scope).is_err(),
+                "full original allocation field {field} must remain exact"
+            );
+        }
+        let mut inactive = original;
+        inactive["lifecycle"] = serde_json::json!("retired");
+        let mut same = value;
+        same["workspace"] = inactive.clone();
+        assert!(inspect_checkpoint_workspace(&same, &inactive, &h.scope).is_err());
+    }
+    #[test]
+    fn checkpoint_inspection_refuses_wrong_scope_or_malformed_current_head() {
+        let (mut h, original, mut value) = inspection();
+        h.scope.workspace.workspace_id = Uuid::new_v4();
+        assert!(inspect_checkpoint_workspace(&value, &original, &h.scope).is_err());
+        let (h, original, _) = inspection();
+        // Use matching full allocation but an invalid object ID.
+        value["workspace"] = original.clone();
+        value["head"] = serde_json::json!({"algorithm":"sha1","hex":"not-an-oid"});
+        assert!(inspect_checkpoint_workspace(&value, &original, &h.scope).is_err());
+        value.as_object_mut().unwrap().remove("head");
+        assert!(inspect_checkpoint_workspace(&value, &original, &h.scope).is_err());
+    }
     fn export() -> (tempfile::TempDir, ResultHistory, serde_json::Value, Vec<u8>) {
         let root = tempfile::tempdir().unwrap();
         let mut h = super::super::tests::history();
