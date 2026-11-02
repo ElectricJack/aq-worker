@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "credential_profile": {
+    "id": "aq.codex-chatgpt-login",
+    "version": "1",
+    "digest": "cdd2def49aaeade253259b0374eaf56a95ef00a4e8345b2beeecef08c8a998e9"
+  },
+  "allowed_node_id": "98c32fb6-a8d7-4b6b-88f7-6eacd268b789",
+  "harness": "codex",
+  "cli_version": "0.166.0",
+  "model": "gpt-6.1-sol",
+  "reasoning": "low",
+  "authentication": "codex_chatgpt_auth_json_v1",
+  "private_home": "new per launch",
+  "material_purpose": "provider",
+  "prompt_delivery": "exact UTF8 argv, <=4096 bytes, PTY stdin",
+  "execution_lease": "original daemon-issued bounded lease; no auth-derived extension",
+  "runtime_status": "Credential/config prepared; requires joined interactive mapper/helper executable pins before launch",
+  "provider_called": false,
+  "credential_copied": false
+}
