@@ -87,6 +87,25 @@ impl OwnedTerminal for GuardedTerminal {
                 && physical.stopped.is_none(),
             "native terminal safety stop fenced"
         );
+        if let Effect::Input(input) = effect {
+            use aq_codex_mapper::InteractiveViewport;
+            let view = self.terminal.current_viewport()?;
+            match aq_codex_mapper::classify_current_viewport(&view) {
+                InteractiveViewport::AuthenticationRequired => {
+                    anyhow::bail!("native terminal authentication required; input quarantined");
+                }
+                InteractiveViewport::TrustDirectory => {
+                    let bytes = input.bytes.as_slice();
+                    ensure!(
+                        bytes == b"\r" || bytes == b"\n" || bytes == b"\x03",
+                        "unexpected workspace trust dialog requires explicit controller choice"
+                    );
+                }
+                // V1 direct terminal control permits editing, menus and Ctrl-C
+                // while busy; composer readiness gates automated nudges only.
+                InteractiveViewport::Ready | InteractiveViewport::Waiting => {}
+            }
+        }
         self.terminal.submit(effect, clock)
     }
     fn receipt(&self, id: Uuid) -> Result<Option<Receipt>> {
