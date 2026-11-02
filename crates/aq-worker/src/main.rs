@@ -93,6 +93,10 @@ enum Cmd {
         #[cfg(feature = "test-support")]
         #[arg(long, requires = "development_loopback")]
         fixture_preflight_gate: bool,
+        /// Once-only in-process fixture B1 ACK-loss reconciliation; preserves native failure.
+        #[cfg(feature = "test-support")]
+        #[arg(long, requires_all = ["development_loopback", "fixture_preflight_gate"])]
+        fixture_replay_lost_b1_ack: bool,
     },
     /// Pure finite qualification vectors/request checks; never executes a model.
     #[cfg(feature = "test-support")]
@@ -251,6 +255,8 @@ async fn main() -> ExitCode {
             development_provider,
             #[cfg(feature = "test-support")]
             fixture_preflight_gate,
+            #[cfg(feature = "test-support")]
+            fixture_replay_lost_b1_ack,
         } => {
             let result = async {
                 #[cfg(feature = "test-support")]
@@ -258,6 +264,7 @@ async fn main() -> ExitCode {
                     development_loopback,
                     development_provider,
                     fixture_preflight_gate,
+                    fixture_replay_lost_b1_ack,
                 )?;
                 #[cfg(feature = "test-support")]
                 if fixture.is_some() {
@@ -282,8 +289,11 @@ async fn main() -> ExitCode {
                     {
                         match fixture {
                             Some(options) => {
-                                let mut executor =
-                                    native_fixture::FixtureExecutor::new(executor, options.gate);
+                                let mut executor = native_fixture::FixtureExecutor::new(
+                                    executor,
+                                    options.gate,
+                                    options.replay_lost_b1_ack,
+                                );
                                 aq_worker::native::runner::run_once(
                                     &worker,
                                     config,
@@ -434,6 +444,21 @@ fn production_cli_does_not_expose_fixture_transport_flags() {
             "--development-loopback",
             "--development-provider",
             "http://127.0.0.1:4321/",
+        ])
+        .is_err()
+    );
+}
+
+#[cfg(all(test, not(feature = "test-support")))]
+#[test]
+fn production_cli_does_not_expose_lost_b1_ack_replay() {
+    assert!(
+        Cli::try_parse_from([
+            "aq-worker",
+            "run-native",
+            "--native-config",
+            "/nonexistent",
+            "--fixture-replay-lost-b1-ack"
         ])
         .is_err()
     );
