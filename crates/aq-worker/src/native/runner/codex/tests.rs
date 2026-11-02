@@ -197,3 +197,124 @@ fn development_provider_is_explicit_numeric_loopback_and_preflight_only() {
         .unwrap();
     assert!(executor.profile.is_none());
 }
+
+fn result_configuration(
+    config: &mut NativeConfig,
+    mut selected: CodexSettings,
+    wrong_runtime: bool,
+    wrong_client_digest: bool,
+) {
+    use crate::native::adapter::{
+        FilePin,
+        result_client::{ResultClientKind, ResultClientManifest},
+        result_profile::{ResultAdapterDefinition, ResultAdapterKind},
+    };
+    let client = ResultClientManifest {
+        schema_version: 1,
+        profile: ResultClientKind::NamedReadonlyLocalV1,
+        contract: aq_agent_result_local::artifact(),
+        environment: selected.harness.environment.clone(),
+        executable: FilePin {
+            path: "/opt/aq/aq-agent".into(),
+            artifact: ArtifactRef {
+                id: Text::new("qualified-client").unwrap(),
+                version: Text::new("1").unwrap(),
+                digest: Digest::of(b"offline manifest only"),
+            },
+        },
+        executable_bytes: 1024,
+    };
+    let mut definition = ResultAdapterDefinition {
+        schema_version: 1,
+        profile: ResultAdapterKind::Codex0166TrustedNodeNamedReadonlyLocalV1,
+        runtime: config.runtime.runtime.clone(),
+        renderer: config.renderer.clone(),
+        environment: selected.harness.environment.clone(),
+        client_manifest: client.artifact().unwrap(),
+        client_executable: client.executable.artifact.clone(),
+        contract: aq_agent_result_local::artifact(),
+        recipe: aq_codex_mapper::result_local_recipe_artifact(),
+        permission_digest: selected.permissions_digest.clone(),
+        reserved_client_bytes:
+            crate::native::adapter::result_client::MAX_RESULT_CLIENT_INSTALLATION_BYTES,
+    };
+    if wrong_runtime {
+        definition.runtime.digest = Digest::of(b"other runtime");
+    }
+    config.adapter = definition.artifact().unwrap();
+    selected.harness.adapter = config.adapter.clone();
+    let path = config.state_dir.join("result-adapter.json");
+    std::fs::write(&path, definition.encode().unwrap()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    config.executor = Some(ExecutorConfig::TrustedNodeNamedReadonlyResultLocal {
+        environment: selected.harness.environment.clone(),
+        settings: selected,
+        // Deliberately absent. Both negative selections must refuse before this
+        // file or any kernel image owner is opened, and before any admission.
+        client_manifest: config.state_dir.join("absent-client-manifest.json"),
+        client_manifest_digest: if wrong_client_digest {
+            Digest::of(b"other client installation")
+        } else {
+            client.digest().unwrap()
+        },
+        composite_definition: path,
+    });
+}
+#[test]
+fn result_factory_refuses_nonselected_client_before_kernel_or_admission() {
+    let (root, mut config) = super::super::tests::config();
+    let selected = settings(&config);
+    result_configuration(&mut config, selected, false, true);
+    let mut worker = worker();
+    worker.server_url = "https://example.invalid".into();
+    let mut executor = CodexExecutor::new(&worker).unwrap();
+    let error = executor.preflight(&config).unwrap_err();
+    assert!(
+        error.to_string().contains("client installation differs"),
+        "{error:#}"
+    );
+    assert!(executor.profile.is_none() && executor.result_root.is_none());
+    assert_eq!(executor.installation_reserved_bytes(), None);
+    assert!(!root.path().join("journal").exists());
+}
+#[test]
+fn result_factory_refuses_nonselected_runtime_even_with_matching_adapter_hash() {
+    let (root, mut config) = super::super::tests::config();
+    let selected = settings(&config);
+    result_configuration(&mut config, selected, true, false);
+    let mut worker = worker();
+    worker.server_url = "https://example.invalid".into();
+    let mut executor = CodexExecutor::new(&worker).unwrap();
+    let error = executor.preflight(&config).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("independently selected runtime/settings"),
+        "{error:#}"
+    );
+    assert!(executor.profile.is_none() && executor.result_root.is_none());
+    assert!(!root.path().join("journal").exists());
+}
+#[test]
+fn result_factory_wire_is_distinct_and_cannot_supply_arbitrary_folder() {
+    let (_root, config) = super::super::tests::config();
+    let selected = settings(&config);
+    let mut wire = serde_json::json!({
+        "kind":"codex-0.166-trusted-node-named-readonly-result-local-v1",
+        "settings": {"host_root":selected.host_root,"harness":selected.harness,"model":selected.model,
+            "permissions_digest":selected.permissions_digest,"columns":80,"rows":24},
+        "environment":selected.harness.environment,
+        "client_manifest":"/var/lib/aq/client-manifest.json",
+        "client_manifest_digest":Digest::of(b"client descriptor"),
+        "composite_definition":"/var/lib/aq/result-definition.json"
+    });
+    assert!(matches!(
+        serde_json::from_value::<ExecutorConfig>(wire.clone()).unwrap(),
+        ExecutorConfig::TrustedNodeNamedReadonlyResultLocal { .. }
+    ));
+    wire["result_root"] = serde_json::json!("/arbitrary/external/folder");
+    assert!(serde_json::from_value::<ExecutorConfig>(wire.clone()).is_err());
+    wire.as_object_mut().unwrap().remove("result_root");
+    wire.as_object_mut().unwrap().remove("composite_definition");
+    assert!(serde_json::from_value::<ExecutorConfig>(wire).is_err());
+}
