@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-7897fdda10c0d004)
+
+running 2 tests
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_base_command_golden ... ok
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_scoped_command_golden ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 212 filtered out; finished in 0.01s
+

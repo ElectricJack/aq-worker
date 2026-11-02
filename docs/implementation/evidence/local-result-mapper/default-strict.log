@@ -1,0 +1,5 @@
+    Checking aq-session-host v0.1.5 (/tmp/aq-codex-result-mapper/crates/aq-session-host)
+    Checking aq-agent-result-local v0.1.0 (/tmp/aq-codex-result-mapper/crates/aq-agent-result-local)
+    Checking aq-terminal-bridge v0.1.2 (/tmp/aq-codex-result-mapper/crates/aq-terminal-bridge)
+    Checking aq-worker v0.4.0 (/tmp/aq-codex-result-mapper/crates/aq-worker)
+    Finished `dev` profile [unoptimized] target(s) in 12.33s
