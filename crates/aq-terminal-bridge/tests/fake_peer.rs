@@ -670,7 +670,9 @@ fn bounded_recovery_rotates_past_a_busy_terminal_and_preserves_other_metadata_pr
 
 #[test]
 fn original_started_registration_joins_existing_bridge_without_replacing_input_history() {
+    use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let host = Arc::new(FakeHost::new());
     let clock = QualifiedClock::assume_bounded_skew(0).unwrap();
     let mut bridge = Bridge::create(root.path(), host.peer(), clock).unwrap();
