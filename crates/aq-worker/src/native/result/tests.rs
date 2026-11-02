@@ -1,0 +1,259 @@
+use super::*;
+use aq_session_protocol::{SessionIdentity, Text};
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+fn reference(id: &str) -> ArtifactRef {
+    ArtifactRef {
+        id: Text::new(id).unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(id.as_bytes()),
+    }
+}
+fn binding() -> wire::Binding {
+    let session = SessionIdentity::Remote {
+        node_id: Uuid::from_u128(1),
+        boot_id: Uuid::from_u128(2),
+        attempt_id: Uuid::from_u128(3),
+        assignment_generation: 4,
+        session_id: Uuid::from_u128(5),
+    };
+    wire::Binding {
+        schema_version: 1,
+        launch: LaunchBinding {
+            schema_version: 1,
+            session,
+            offer_id: Uuid::from_u128(6),
+            attempt_id: Uuid::from_u128(3),
+            assignment_generation: 4,
+            execution_spec_digest: Digest::of(b"spec"),
+            launch_manifest_digest: Digest::of(b"manifest"),
+            graph_access_profile_digest: Digest::of(b"graph"),
+        },
+        execution_record_digest: Digest::of(b"data only; not live authority"),
+        expected_outcome: reference("aq.expected-outcome"),
+        operation_id: Uuid::from_u128(7),
+        report_id: Uuid::from_u128(8),
+        nonce: Uuid::from_u128(9),
+    }
+}
+fn directories() -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&workspace)
+        .unwrap();
+    let channel = temp.path().join("result");
+    (temp, workspace, channel)
+}
+fn publish(storage: &ChannelStorage) -> wire::Binding {
+    let b = binding();
+    let presence = wire::Presence {
+        schema_version: 1,
+        binding_digest: b.digest().unwrap(),
+        kernel_boot_id: Uuid::from_u128(99),
+        original_execution_deadline_boot_ns: 100,
+        original_hard_deadline_boot_ns: 200,
+    };
+    storage.publish(&b, &presence).unwrap();
+    storage.verify_control(&b, &presence).unwrap();
+    b
+}
+#[test]
+fn result_storage_control_custody_and_first_intake_lock_are_actual() {
+    let (_temp, workspace, path) = directories();
+    let storage = ChannelStorage::create(&path, &workspace).unwrap();
+    let b = publish(&storage);
+    assert!(storage.intake_open().unwrap());
+    assert!(storage.read_submission().unwrap().is_none());
+    let submission = wire::Submission::new(
+        b,
+        wire::SubmissionInput {
+            schema_version: 1,
+            conclusion: wire::Conclusion::new("Change made; tests passed; limits unknown").unwrap(),
+        },
+    )
+    .unwrap();
+    let bytes = wire::encode(&submission).unwrap();
+    let p = storage.submissions().join("submission.json");
+    std::fs::write(&p, &bytes).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(storage.read_submission().unwrap().unwrap(), bytes);
+    storage.close_intake();
+    assert!(!storage.intake_open().unwrap());
+    assert!(ChannelStorage::create(&path, &workspace).is_err()); // Never adopt a previous directory.
+}
+#[test]
+fn result_storage_refuses_route_replacement_and_workspace_overlap() {
+    let (temp, workspace, path) = directories();
+    let storage = ChannelStorage::create(&path, &workspace).unwrap();
+    std::fs::rename(&path, temp.path().join("retained-original")).unwrap();
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&path)
+        .unwrap();
+    assert!(storage.verify().is_err());
+    assert!(ChannelStorage::create(&workspace.join("result"), &workspace).is_err());
+}
+#[test]
+fn result_storage_refuses_links_special_members_and_wrong_modes() {
+    let (temp, workspace, path) = directories();
+    let storage = ChannelStorage::create(&path, &workspace).unwrap();
+    let p = storage.submissions().join("submission.json");
+    let foreign = temp.path().join("foreign");
+    std::fs::write(&foreign, b"{}").unwrap();
+    std::os::unix::fs::symlink(&foreign, &p).unwrap();
+    assert!(storage.read_submission().is_err());
+    std::fs::remove_file(&p).unwrap();
+    std::fs::hard_link(&foreign, &p).unwrap();
+    assert!(storage.read_submission().is_err());
+    std::fs::remove_file(&p).unwrap();
+    std::fs::write(&p, b"{}").unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(storage.read_submission().is_err());
+}
+#[test]
+fn result_ack_is_projection_and_unknown_pending_is_preserved() {
+    let (_temp, workspace, path) = directories();
+    let storage = ChannelStorage::create(&path, &workspace).unwrap();
+    let b = publish(&storage);
+    let ack = wire::Acknowledgment {
+        schema_version: 1,
+        operation_id: b.operation_id,
+        report_id: b.report_id,
+        binding_digest: b.digest().unwrap(),
+        submission_digest: Digest::of(b"example"),
+        phase: wire::Phase::Accepted,
+    };
+    storage.write_ack(&ack).unwrap();
+    assert_eq!(
+        std::fs::read(path.join("ack.json")).unwrap(),
+        wire::encode(&ack).unwrap()
+    );
+    std::fs::write(path.join("ack.pending"), b"unknown prior write").unwrap();
+    assert!(storage.write_ack(&ack).is_err());
+    assert_eq!(
+        std::fs::read(path.join("ack.pending")).unwrap(),
+        b"unknown prior write"
+    );
+}
+fn history() -> ResultHistory {
+    use aq_worker_protocol::{ObjectAlgorithm, ObjectId};
+    let b = binding();
+    let source = aq_worker_protocol::SourceBinding {
+        repository_id: Uuid::from_u128(20),
+        binding_generation: 1,
+        logical_identity: "fixture".into(),
+        base: ObjectId {
+            algorithm: ObjectAlgorithm::Sha1,
+            hex: "a".repeat(40),
+        },
+    };
+    ResultHistory {
+        schema_version: 1,
+        scope: ScopeRecord {
+            binding: b,
+            contract: wire::artifact(),
+            installation: ResultInstallationPins {
+                adapter: reference("aq.codex-result-local-adapter"),
+                contract: wire::artifact(),
+                client_manifest: reference("aq.agent-result-client-installation"),
+                client_executable: reference("client"),
+                environment: reference("env"),
+                recipe: reference("aq.codex-result-local-recipe"),
+                permission_digest: Digest::of(b"permissions"),
+                reserved_client_bytes: 64 * 1024 * 1024,
+            },
+            root: "/result".into(),
+            storage: StorageStage::Ready {
+                pins: StoragePins {
+                    root: DirectoryPin {
+                        device: 1,
+                        inode: 2,
+                    },
+                    submissions: DirectoryPin {
+                        device: 1,
+                        inode: 3,
+                    },
+                },
+                recorded_revision: 3,
+            },
+            runtime: crate::native::journal::RuntimeIdentity {
+                runtime: reference("runtime"),
+                qualification: reference("qualification"),
+            },
+            kernel_boot_id: Uuid::from_u128(30),
+            original_deadline_ns: 100,
+            original_hard_deadline_ns: 200,
+            created_ns: 10,
+            recorded_revision: 2,
+            source,
+            workspace: crate::source::Workspace {
+                workspace_id: Uuid::from_u128(31),
+                generation: 1,
+                path: "/git/workspaces/one".into(),
+            },
+            managed_root: "/git".into(),
+            reserved_disk_bytes: 30000,
+            workspace_limit_bytes: 10000,
+            artifact_limit_bytes: 10000,
+            operations: SourceOperations {
+                checkpoint: Uuid::from_u128(40),
+                export: Uuid::from_u128(41),
+                transfer: Uuid::from_u128(42),
+                upload_begin: Uuid::from_u128(43),
+                upload_finalize: Uuid::from_u128(44),
+            },
+        },
+        intake_closed: false,
+        claim: None,
+        stop: None,
+        source: SourceHistory::default(),
+        report: None,
+        receipt: None,
+        failure: None,
+    }
+}
+#[test]
+fn result_history_exact_claim_identity_order_and_canonical_bytes() {
+    let mut h = history();
+    h.validate().unwrap();
+    let value = wire::Submission::new(
+        h.scope.binding.clone(),
+        wire::SubmissionInput {
+            schema_version: 1,
+            conclusion: wire::Conclusion::new("Explicit claim").unwrap(),
+        },
+    )
+    .unwrap();
+    let bytes = wire::encode(&value).unwrap();
+    h.claim = Some(ClaimRecord {
+        bytes: bytes.clone(),
+        bytes_digest: Digest::of(&bytes),
+        submission_digest: value.digest().unwrap(),
+        recorded_revision: 4,
+    });
+    h.intake_closed = true;
+    h.validate().unwrap();
+    assert!(matches!(
+        h.acknowledgment().unwrap().unwrap().phase,
+        wire::Phase::Accepted
+    ));
+    h.claim.as_mut().unwrap().recorded_revision = 3;
+    assert!(h.validate().is_err());
+    h.claim.as_mut().unwrap().recorded_revision = 4;
+    h.claim.as_mut().unwrap().bytes.push(b' ');
+    assert!(h.validate().is_err());
+}
+#[test]
+fn result_history_protects_scope_budget_and_does_not_project_unclaimed_success() {
+    let mut h = history();
+    assert!(h.acknowledgment().unwrap().is_none());
+    h.scope.operations.export = h.scope.operations.checkpoint;
+    assert!(h.validate().is_err());
+    h.scope.operations.export = Uuid::from_u128(41);
+    h.scope.original_deadline_ns = 201;
+    assert!(h.validate().is_err());
+    h.scope.original_deadline_ns = 100;
+    h.scope.reserved_disk_bytes = 29999;
+    assert!(h.validate().is_err());
+}

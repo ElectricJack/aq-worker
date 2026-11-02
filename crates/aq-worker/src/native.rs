@@ -9,7 +9,7 @@ pub mod materials;
 mod phase_profile_shared;
 pub mod preparation;
 pub mod runner;
-pub use preparation::launch;
+pub use preparation::{launch, result};
 
 use anyhow::{Result, ensure};
 use aq_admission::{

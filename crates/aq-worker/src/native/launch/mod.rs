@@ -194,6 +194,34 @@ impl Registry {
         admitted.insert(id);
         Ok(())
     }
+    pub(super) fn result_current(&self, scope: &LaunchExecutionScope) -> Result<()> {
+        let e = self.entry(scope.id)?;
+        let actual = e
+            .scope
+            .as_ref()
+            .context("reopened host has no result authority")?;
+        ensure!(
+            actual.digest == scope.digest
+                && actual.inputs.same_owner(&scope.inputs)
+                && !e.stop.load(Ordering::SeqCst),
+            "result host owner differs or stopped"
+        );
+        let physical = lock(&e.physical)?;
+        ensure!(
+            physical.stopped.is_none() && matches!(physical.outcome, Outcome::Running),
+            "result host not live"
+        );
+        let observation = physical
+            .handle
+            .as_ref()
+            .context("result actual host absent")?
+            .observe()?;
+        ensure!(
+            observation.phase == aq_session_host::HostPhase::Running,
+            "result process no longer running"
+        );
+        Ok(())
+    }
     fn entry(&self, id: Uuid) -> Result<Arc<Entry>> {
         lock(&self.entries)?
             .entries

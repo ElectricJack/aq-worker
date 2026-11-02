@@ -276,6 +276,9 @@ impl GitClient {
     pub fn root(&self) -> &Path {
         &self.root
     }
+    pub(crate) fn workspace_byte_limit(&self) -> u64 {
+        self.maximum_pool_bytes
+    }
     pub(crate) fn transfer_byte_limit(&self) -> u64 {
         self.maximum_artifact_bytes
     }
