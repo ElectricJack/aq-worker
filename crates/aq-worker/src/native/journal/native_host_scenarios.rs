@@ -23,7 +23,7 @@ fn pin(binary: &str, hash: &str, id: &str) -> InstalledFilePin {
         },
     }
 }
-fn profile(h: &Inputs, mode: SyntheticMode) -> SyntheticHostProfile {
+pub(super) fn profile(h: &Inputs, mode: SyntheticMode) -> SyntheticHostProfile {
     let root = h._dir.path().join("host");
     if !root.exists() {
         fs::create_dir(&root).unwrap();

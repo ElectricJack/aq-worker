@@ -194,7 +194,13 @@ async fn pinned_git_native_source_http_import_retention_and_clean_workspace() {
 async fn pinned_git_received_initial_grant_retains_actual_workspace_and_material_owners() {
     actual_git_hydration(true, false).await;
 }
-async fn actual_git_hydration(retain_grant: bool, phase_mode: bool) {
+struct ActualGitInputs {
+    service: crate::source::GitService,
+    h: Inputs,
+    repository_id: Uuid,
+    _dir: tempfile::TempDir,
+}
+async fn actual_git_inputs(phase_mode: bool, parking_input_disabled: bool) -> ActualGitInputs {
     use std::process::Command;
     let exe =
         PathBuf::from(std::env::var_os("AQ_GIT_TEST_BINARY").expect("explicit public Git binary"));
@@ -345,18 +351,36 @@ async fn actual_git_hydration(retain_grant: bool, phase_mode: bool) {
         0,
     );
     let service = crate::source::GitService::start(&exe, &pin, &worker).unwrap();
-    let h = Inputs::new_count(
-        Export {
-            manifest,
-            manifest_bytes,
-            bundle,
-        },
-        phase_mode,
-        if phase_mode { 126 } else { 0 },
-    )
-    .await;
+    let export = Export {
+        manifest,
+        manifest_bytes,
+        bundle,
+    };
+    let count = if phase_mode { 126 } else { 0 };
+    let h = if parking_input_disabled {
+        assert!(
+            phase_mode,
+            "parking fixture requires actual phase admission"
+        );
+        Inputs::new_count_policy(export, true, count, true, false).await
+    } else {
+        Inputs::new_count(export, phase_mode, count).await
+    };
+    ActualGitInputs {
+        service,
+        h,
+        repository_id: rid,
+        _dir: dir,
+    }
+}
+async fn actual_git_hydration(retain_grant: bool, phase_mode: bool) {
+    let actual = actual_git_inputs(phase_mode, false).await;
+    let h = &actual.h;
+    let service = &actual.service;
+    let rid = actual.repository_id;
+    let worker = service.client.root();
     if phase_mode {
-        let joined = phase_join(&h, service.client.clone()).await;
+        let joined = phase_join(h, service.client.clone()).await;
         assert_eq!(
             fs::read(joined.workspace().workspace().path.join("native-input.txt")).unwrap(),
             b"synthetic native source bytes\n"
@@ -1466,3 +1490,7 @@ mod phase_execution_scenarios;
 
 #[path = "native_host_scenarios.rs"]
 mod native_host_scenarios;
+
+#[cfg(feature = "test-support")]
+#[path = "parking_fixture.rs"]
+pub(crate) mod parking_fixture;
