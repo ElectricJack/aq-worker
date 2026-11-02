@@ -117,3 +117,62 @@ facts helper to avoid recursive validation. A direct malformed-base/operation-ID
 regression accompanies this change. At source freeze its focused gate is
 pending the physical-bridge owner's coordinated hostless compile lease; the
 previous seven-test result does not claim to cover this new vector.
+
+## Synthetic retention profile fixture (data-only qualification)
+
+The new test-only `synthetic_retention` owner implements the explicitly approved
+synthetic-retention-profile-v1. It is not a production TransferClient,
+coordinator hold, summary/effects owner or frozen extension of CON03 semantics.
+It admits the original predecessor transfer and actual bounded chunks, verifies
+raw manifest/bundle SHA and the exact public Git manifest, then fsyncs raw wire
+members before allocating a final source-retention claim. Canonical Git manifest
+identity and raw manifest SHA remain separate. The Source receipt counts actual
+raw manifest plus bundle bytes, never the expanded worktree estimate.
+
+Summary retention checks the original exact Checkpoint claim, writes canonical
+SummaryClaim UTF-8 JSON and pins that digest and complete serialized byte count.
+The explicit candidate parking profile additionally caps those canonical bytes
+against the original declared suspension budget, including context and pending
+references. It rejects over-budget input without truncation. This does not
+change or reinterpret CON03 text validation. Missing yields no checkpoint receipt.
+The owner allocates artifact/receipt IDs once, preserves the original retention
+interval on replay, and rejects changed predecessor, continuation, report,
+uploader identity, source, summary or expired access. These associations remain
+inside the explicit synthetic profile because CON03 receipt wire fields contain
+an attempt Binding digest, not an independent continuation/report binding.
+
+An explicit fake owner ledger decision is fsynced only after its known synthetic
+effects are resolved and source retention exists. The resulting effects receipt
+pins those actual ledger bytes. No worker empty-list test creates reconciled
+facts. Final report acknowledgment likewise pins the actual fsynced fake report
+and preserves the owner-allocated original references. Protected disk remains
+charged throughout. Actual central enforced hold, summary retention, effects
+reconciliation, continuation scheduling and destination launch remain absent.
+
+The fixture's focused vectors are executed in the data-only gate below. They distinguish actual accepted bytes from matching-looking DTOs,
+canonical summary byte counts from text counts, original replay from interval
+extension, explicit ledger reconciliation from missing/empty inference, and
+wrong source/summary/uploader/continuation/expiry refusal. The later actual tmux
+and pinned public aq-git composition is a separate pending qualification.
+
+
+The parent-authorized short Target2 gate on the independent candidate worker0.5
+worktree based on bridge040b90f executed:
+
+- `cargo test -p aq-worker --offline --lib continuation::tests`:11 passed,
+  178 filtered,0 ignored/failed;0.03s tests after25.01s relocated compilation.
+- `cargo clippy -p aq-worker --offline --lib --tests -- -D warnings`:
+  passed15.78s; this includes strict checking of the cfg(test) fake owner.
+- `cargo check -p aq-worker --offline --all-features --lib`:passed11.59s,
+  with the sole expected unused `parking_upload_step` warning. This checks the
+  new explicitly test-support-gated opaque source orchestrator's concrete API;
+  it is not all-feature strict qualification or end-to-end execution.
+
+The source orchestrator permits only the fixed two Git intent/result pairs and
+a final settled observation (at most5 iterations). It snapshots the actual
+opaque owner, fsyncs original requests before Git, inspects actual export members
+before saving results, and preserves pending IDs on failure. It returns metadata
+only and creates no retention, launch or ordinary Suspended result. Its joint
+physical execution remains pending. Target2 was released immediately after this
+gate. There was no actual tmux/Git/service/coordinator network, provider,
+canonical state or destination bootstrap operation.

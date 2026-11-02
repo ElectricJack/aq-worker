@@ -195,6 +195,17 @@ fn missing_summary_allows_settled_source_but_never_migration_completion() {
     let mut h = stopped_history();
     h.intent.suspension.max_summary_bytes = 1;
     assert!(h.validate().is_err());
+    let mut h = stopped_history();
+    let aq_lifecycle_protocol::CheckpointClaim::Supplied { summary, .. } =
+        &h.intent.checkpoint.claim
+    else {
+        panic!("supplied fixture")
+    };
+    h.intent.suspension.max_summary_bytes = summary.text.as_str().len() as u32;
+    assert!(
+        h.validate().is_err(),
+        "the budget covers canonical summary/context bytes, not only text"
+    );
 }
 
 #[test]
@@ -320,4 +331,195 @@ fn capacity_predicate_rejects_malformed_history_even_without_prior_caller_valida
         .unwrap()
         .operation_id = id(999);
     assert!(h.settled_source_claim().is_err());
+}
+
+fn retained_fixture_source() -> (
+    ParkingHistory,
+    super::synthetic_retention::SyntheticRetentionOwner,
+) {
+    use crate::source_transfer::UploadAction;
+    use aq_worker_protocol::{TransferChunkRequest, TransferFile, TransferStatusRequest};
+    let mut h = plan_transfer(&complete()).unwrap();
+    let mut owner =
+        super::synthetic_retention::SyntheticRetentionOwner::new(&h, 1100, 1200).unwrap();
+    let upload = h.source.upload.as_ref().unwrap();
+    let begin = UploadAction::Begin {
+        identity: upload.identity.clone(),
+        operation_id: upload.begin_operation,
+        manifest: h.source.transfer.clone().unwrap(),
+    };
+    let status = owner.accept(&begin, 1101).unwrap();
+    h = record_upload_progress(&h, &begin, status).unwrap();
+    let bytes = serde_json::to_vec(&h.source.exported.as_ref().unwrap().manifest).unwrap();
+    let upload = h.source.upload.as_mut().unwrap();
+    let chunk = TransferChunkRequest {
+        identity: upload.identity.clone(),
+        operation_id: id(700),
+        transfer_id: h.intent.operations.transfer,
+        file: TransferFile::Manifest,
+        offset: 0,
+        length: bytes.len() as u32,
+        digest: Digest::of(&bytes).as_str().into(),
+    };
+    upload.pending = Some(chunk.clone());
+    let action = UploadAction::Chunk {
+        request: chunk,
+        bytes,
+    };
+    let status = owner.accept(&action, 1102).unwrap();
+    h = record_upload_progress(&h, &action, status).unwrap();
+    let upload = h.source.upload.as_ref().unwrap();
+    let finalize = UploadAction::Finalize(TransferStatusRequest {
+        identity: upload.identity.clone(),
+        operation_id: upload.finalize_operation,
+        transfer_id: h.intent.operations.transfer,
+    });
+    let status = owner.accept(&finalize, 1103).unwrap();
+    assert_eq!(
+        serde_json::to_value(&status).unwrap(),
+        serde_json::to_value(owner.accept(&finalize, 1104).unwrap()).unwrap()
+    );
+    h = record_upload_progress(&h, &finalize, status).unwrap();
+    (h, owner)
+}
+#[test]
+fn synthetic_retention_profile_requires_actual_bytes_summary_and_explicit_effects_ledger() {
+    let (mut h, mut owner) = retained_fixture_source();
+    let identity = h.source.upload.as_ref().unwrap().identity.clone();
+    assert!(owner.finish(&h, &identity, 1105).is_err());
+    owner.retain_summary(&h.intent.checkpoint).unwrap();
+    assert!(
+        owner.finish(&h, &identity, 1105).is_err(),
+        "empty/missing ledger is not reconciliation"
+    );
+    let aq_lifecycle_protocol::CheckpointClaim::Supplied {
+        summary,
+        summary_digest,
+    } = &h.intent.checkpoint.claim
+    else {
+        panic!("supplied fixture")
+    };
+    for id in &summary.pending_operation_ids {
+        owner.resolve_fixture_effect(*id);
+    }
+    let summary_bytes = aq_session_protocol::canonical_bytes(summary).unwrap();
+    let expected_summary_digest = summary_digest.clone();
+    owner
+        .reconcile_fixture_effects(reference("explicit-synthetic-owner-ledger-decision"))
+        .unwrap();
+    let retained = owner.finish(&h, &identity, 1106).unwrap();
+    assert_eq!(retained.checkpoint.artifact.digest, expected_summary_digest);
+    assert_eq!(retained.checkpoint.bytes, summary_bytes.len() as u64);
+    assert_eq!(
+        retained.source.bytes,
+        h.source.exported.as_ref().unwrap().total_bytes
+    );
+    assert_ne!(
+        retained.source.bytes,
+        h.source.observed_workspace_bytes.unwrap()
+    );
+    assert_eq!(retained.checkpoint.retained_until_ms, 1200);
+    let again = owner.finish(&h, &identity, 1107).unwrap();
+    assert_eq!(
+        serde_json::to_value(&retained).unwrap(),
+        serde_json::to_value(&again).unwrap()
+    );
+    h.retention = Some(retained);
+    h.validate().unwrap();
+}
+#[test]
+fn synthetic_retention_refuses_wrong_summary_source_actor_and_expired_interval() {
+    let (h, mut owner) = retained_fixture_source();
+    let identity = h.source.upload.as_ref().unwrap().identity.clone();
+    let mut wrong = h.intent.checkpoint.clone();
+    wrong.claim = aq_lifecycle_protocol::CheckpointClaim::Missing {
+        reason: Text::new("missing").unwrap(),
+    };
+    assert!(owner.retain_summary(&wrong).is_err());
+    let mut wrong = h.intent.checkpoint.clone();
+    if let aq_lifecycle_protocol::CheckpointClaim::Supplied {
+        summary,
+        summary_digest,
+    } = &mut wrong.claim
+    {
+        summary.text =
+            aq_lifecycle_protocol::SummaryText::new("different but internally valid summary")
+                .unwrap();
+        *summary_digest = aq_session_protocol::canonical_digest(summary).unwrap();
+    }
+    assert!(
+        owner.retain_summary(&wrong).is_err(),
+        "a valid new digest cannot replace the original summary"
+    );
+    owner.retain_summary(&h.intent.checkpoint).unwrap();
+    let aq_lifecycle_protocol::CheckpointClaim::Supplied { summary, .. } =
+        &h.intent.checkpoint.claim
+    else {
+        panic!("supplied fixture")
+    };
+    for id in &summary.pending_operation_ids {
+        owner.resolve_fixture_effect(*id);
+    }
+    owner
+        .reconcile_fixture_effects(reference("explicit-synthetic-owner-ledger-decision"))
+        .unwrap();
+    let mut other_actor = identity.clone();
+    other_actor.boot_id = id(999);
+    assert!(owner.finish(&h, &other_actor, 1106).is_err());
+    assert!(owner.finish(&h, &identity, 1200).is_err());
+    let mut other_source = h.clone();
+    other_source
+        .source
+        .transfer
+        .as_mut()
+        .unwrap()
+        .manifest_digest = "e".repeat(64);
+    assert!(owner.finish(&other_source, &identity, 1106).is_err());
+    let mut other_continuation = h;
+    other_continuation
+        .intent
+        .suspension
+        .continuation
+        .continuation_id = id(999);
+    assert!(owner.finish(&other_continuation, &identity, 1106).is_err());
+}
+
+#[test]
+fn synthetic_owner_never_claims_retention_for_wrong_complete_raw_source_bytes() {
+    use crate::source_transfer::UploadAction;
+    use aq_worker_protocol::{TransferChunkRequest, TransferFile, TransferStatusRequest};
+    let h = plan_transfer(&complete()).unwrap();
+    let mut owner =
+        super::synthetic_retention::SyntheticRetentionOwner::new(&h, 1100, 1200).unwrap();
+    let upload = h.source.upload.as_ref().unwrap();
+    let begin = UploadAction::Begin {
+        identity: upload.identity.clone(),
+        operation_id: upload.begin_operation,
+        manifest: h.source.transfer.clone().unwrap(),
+    };
+    owner.accept(&begin, 1101).unwrap();
+    let mut bytes = serde_json::to_vec(&h.source.exported.as_ref().unwrap().manifest).unwrap();
+    bytes[0] = b'x';
+    let chunk = UploadAction::Chunk {
+        request: TransferChunkRequest {
+            identity: upload.identity.clone(),
+            operation_id: id(700),
+            transfer_id: h.intent.operations.transfer,
+            file: TransferFile::Manifest,
+            offset: 0,
+            length: bytes.len() as u32,
+            digest: Digest::of(&bytes).as_str().into(),
+        },
+        bytes,
+    };
+    owner.accept(&chunk, 1102).unwrap();
+    let finalize = UploadAction::Finalize(TransferStatusRequest {
+        identity: upload.identity.clone(),
+        operation_id: upload.finalize_operation,
+        transfer_id: h.intent.operations.transfer,
+    });
+    assert!(
+        owner.accept(&finalize, 1103).is_err(),
+        "actual raw manifest SHA must match original transfer before retention"
+    );
 }

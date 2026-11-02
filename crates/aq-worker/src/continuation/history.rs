@@ -111,8 +111,9 @@ impl ParkingIntent {
         );
         if let CheckpointClaim::Supplied { summary, .. } = &self.checkpoint.claim {
             ensure!(
-                summary.text.as_str().len() <= self.suspension.max_summary_bytes as usize,
-                "parking declared summary budget"
+                aq_session_protocol::canonical_bytes(summary)?.len()
+                    <= self.suspension.max_summary_bytes as usize,
+                "candidate parking canonical summary budget"
             );
         }
         Ok(())
