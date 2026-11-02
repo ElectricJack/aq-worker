@@ -98,6 +98,11 @@ enum Cmd {
         #[arg(long, requires_all = ["development_loopback", "fixture_preflight_gate"])]
         fixture_replay_lost_b1_ack: bool,
     },
+    /// Validate native configuration and installed executor without admission.
+    CheckNative {
+        #[arg(long)]
+        native_config: PathBuf,
+    },
     /// Pure finite qualification vectors/request checks; never executes a model.
     #[cfg(feature = "test-support")]
     FixtureResponses,
@@ -247,6 +252,24 @@ async fn main() -> ExitCode {
             match result {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => usage_err(format!("{e:#}")),
+            }
+        }
+        Cmd::CheckNative { native_config } => {
+            let result = (|| -> anyhow::Result<()> {
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
+                config.validate()?;
+                let mut executor = configured_native_executor(&worker, &config)?
+                    .ok_or_else(|| anyhow::anyhow!("native executor is not configured"))?;
+                aq_worker::native::runner::NativeExecutor::preflight(&mut executor, &config)?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => {
+                    println!("Native configuration and installed executor are valid");
+                    ExitCode::SUCCESS
+                }
+                Err(_) => usage_err("native configuration check refused"),
             }
         }
         Cmd::RunNative {
