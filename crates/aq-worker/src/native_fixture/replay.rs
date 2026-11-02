@@ -52,10 +52,7 @@ fn candidate(state: &State, id: Uuid) -> Result<(Vec<u8>, Digest, ArtifactRef)> 
     );
     macro_rules! paired {
         ($terminal:expr) => {{
-            let started = $terminal
-                .started
-                .as_ref()
-                .context("fixture replay Started absent")?;
+            let started = &$terminal.started;
             started
                 .receipt
                 .as_ref()
