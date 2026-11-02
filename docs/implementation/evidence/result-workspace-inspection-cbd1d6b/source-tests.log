@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-edc52ca36d9eccf1)
+
+running 6 tests
+test native::preparation::result::source::tests::checkpoint_inspection_refuses_flat_inactive_and_changed_full_allocation ... ok
+test native::preparation::result::source::tests::checkpoint_inspection_accepts_actual_nested_dirty_workspace_and_current_head ... ok
+test native::preparation::result::source::tests::checkpoint_inspection_refuses_wrong_scope_or_malformed_current_head ... ok
+test native::preparation::result::source::tests::result_export_distinguishes_raw_upload_hash_from_native_receipt_hash ... ok
+test native::preparation::result::source::tests::result_export_refuses_symlink_manifest_and_out_of_scope_reply ... ok
+test native::preparation::result::source::tests::result_export_rejects_changed_bundle_before_retention ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 241 filtered out; finished in 0.00s
+

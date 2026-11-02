@@ -1,0 +1,33 @@
+   Compiling serde v1.0.229
+   Compiling uuid v1.29.0
+   Compiling tracing v0.1.44
+   Compiling schemars v1.2.3
+   Compiling hyper v1.12.0
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-session-protocol)
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.21
+   Compiling tower-http v0.6.11
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.10
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-native-source-inspect-v2/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling reqwest v0.12.28
+   Compiling toml_edit v0.22.27
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-lifecycle-protocol)
+   Compiling aq-session-api v0.1.0 (/tmp/aq-native-source-inspect-v2/vendor/aq-session-api-0.1.0)
+   Compiling chrono v0.4.45
+   Compiling aq-terminal-relay v0.1.0 (/tmp/aq-native-source-inspect-v2/vendor/aq-terminal-relay-0.1.0)
+   Compiling aq-admission v0.1.10 (/tmp/aq-native-source-inspect-v2/vendor/aq-admission-0.1.10)
+   Compiling toml v0.8.23
+   Compiling aq-session-host v0.1.5 (/tmp/aq-native-source-inspect-v2/crates/aq-session-host)
+   Compiling tracing-subscriber v0.3.23
+   Compiling aq-terminal-bridge v0.1.2 (/tmp/aq-native-source-inspect-v2/crates/aq-terminal-bridge)
+   Compiling aq-phase-terminal-protocol v0.1.1 (/tmp/aq-native-source-inspect-v2/vendor/aq-phase-terminal-protocol-0.1.1)
+   Compiling aq-codex-mapper v0.1.1 (/tmp/aq-native-source-inspect-v2/crates/aq-codex-mapper)
+   Compiling aq-protocol v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-protocol)
+   Compiling aq-responses-transport v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-responses-transport)
+   Compiling aq-agent-result-local v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-agent-result-local)
+   Compiling aq-worker-protocol v0.2.0 (/tmp/aq-native-source-inspect-v2/crates/aq-worker-protocol)
+   Compiling aq-worker v0.5.0 (/tmp/aq-native-source-inspect-v2/crates/aq-worker)
+    Finished `dev` profile [unoptimized] target(s) in 26.31s

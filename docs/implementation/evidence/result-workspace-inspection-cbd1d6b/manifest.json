@@ -1,0 +1,52 @@
+{
+  "source": "cbd1d6b2d6851cecdedc365e48fa4db0b9a7b3b8",
+  "base": "850d6b7",
+  "aq_git_source": "2035654eeda57ded8880ea3f518ff0b4d324fa49",
+  "scope": "Only native/result/source.rs. No process/provider call, canonical change, disk format/schema or archive changes. Actual next composition remains separately gated.",
+  "review": "Independent source accepted by Work; no reviewer builds/processes.",
+  "checks": {
+    "source_tests": 6,
+    "runner_tests": 21,
+    "strict_all_targets_all_features": true,
+    "initial_compile_seconds": 55.33,
+    "strict_seconds": 28.4,
+    "binary_build_seconds": 26.31,
+    "initial_zero_match_filter": "Discarded native::result::source::tests; test list showed native::preparation::result::source::tests. The retained final source-tests.log contains six actual passing tests."
+  },
+  "binary": {
+    "source": "cbd1d6b2d6851cecdedc365e48fa4db0b9a7b3b8",
+    "base": "850d6b7",
+    "binary": "/tmp/aq-result-inspection-pin-cbd1d6b/aq-worker",
+    "sha256": "67043f566e7c7c5882a82daf42f3f2cea6c7e3763a12ef7fbefbdb12a793c848",
+    "bytes": 50970808,
+    "features": [
+      "test-support"
+    ],
+    "worker_version": "0.5.0",
+    "format": 12,
+    "command": "cargo build -p aq-worker --bin aq-worker --features test-support --offline --locked",
+    "process_run": false
+  },
+  "logs": [
+    {
+      "path": "source-tests.log",
+      "sha256": "ced148334aa4d9b7f6416144e9fa848d229b914805463c366af8abfd0c42d9fa",
+      "bytes": 1027
+    },
+    {
+      "path": "runner-tests.log",
+      "sha256": "a203b6211345a6b1af080fe3388602ac51d0a6b50f4a54d058b739b8c83565a7",
+      "bytes": 2586
+    },
+    {
+      "path": "strict.log",
+      "sha256": "4bed7f561889b12a6330d914d968bf95a265ff4f81f9d3ccc2be55b6d118d0a7",
+      "bytes": 3173
+    },
+    {
+      "path": "build.log",
+      "sha256": "501d610804fc83c2819e0d8f9ea19909c0a91a8818cb7f8cdf8a6c6084b637cc",
+      "bytes": 2107
+    }
+  ]
+}

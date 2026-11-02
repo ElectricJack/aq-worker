@@ -1,0 +1,68 @@
+    Checking generic-array v0.14.7
+    Checking serde v1.0.229
+    Checking zerofrom v0.1.8
+    Checking crypto-common v0.1.7
+    Checking yoke v0.8.4
+    Checking block-buffer v0.10.4
+    Checking zerovec v0.11.9
+    Checking digest v0.10.7
+    Checking ref-cast v1.0.27
+    Checking schemars v1.2.3
+    Checking thiserror v2.0.21
+    Checking sha2 v0.10.9
+    Checking tinystr v0.8.5
+    Checking aq-session-protocol v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-session-protocol)
+    Checking icu_locale_core v2.4.0
+    Checking tokio v1.54.1
+    Checking tracing v0.1.44
+    Checking potential_utf v0.1.6
+    Checking zerotrie v0.2.5
+    Checking icu_provider v2.4.0
+    Checking icu_collections v2.4.0
+    Checking ring v0.17.14
+    Checking icu_properties v2.4.0
+    Checking icu_normalizer v2.4.0
+    Checking hyper v1.12.0
+    Checking idna_adapter v1.2.2
+    Checking rustls-webpki v0.103.16
+    Checking rustls v0.23.46
+    Checking hyper-util v0.1.21
+    Checking idna v1.1.0
+    Checking tower v0.5.3
+    Checking inout v0.1.4
+    Checking serde_urlencoded v0.7.1
+    Checking cipher v0.4.4
+    Checking url v2.5.8
+    Checking tokio-rustls v0.26.6
+    Checking universal-hash v0.5.1
+    Checking tower-http v0.6.11
+    Checking poly1305 v0.8.0
+    Checking hyper-rustls v0.27.10
+    Checking chacha20 v0.9.1
+    Checking aq-terminal-relay-protocol v0.1.0 (/tmp/aq-native-source-inspect-v2/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aead v0.5.2
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking reqwest v0.12.28
+    Checking toml_edit v0.22.27
+    Checking chacha20poly1305 v0.10.1
+    Checking aq-session-api v0.1.0 (/tmp/aq-native-source-inspect-v2/vendor/aq-session-api-0.1.0)
+    Checking aq-lifecycle-protocol v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-lifecycle-protocol)
+    Checking chrono v0.4.45
+    Checking toml v0.8.23
+    Checking aq-terminal-relay v0.1.0 (/tmp/aq-native-source-inspect-v2/vendor/aq-terminal-relay-0.1.0)
+    Checking aq-admission v0.1.10 (/tmp/aq-native-source-inspect-v2/vendor/aq-admission-0.1.10)
+    Checking aq-session-host v0.1.5 (/tmp/aq-native-source-inspect-v2/crates/aq-session-host)
+    Checking tracing-subscriber v0.3.23
+    Checking aq-terminal-bridge v0.1.2 (/tmp/aq-native-source-inspect-v2/crates/aq-terminal-bridge)
+    Checking aq-phase-terminal-protocol v0.1.1 (/tmp/aq-native-source-inspect-v2/vendor/aq-phase-terminal-protocol-0.1.1)
+    Checking aq-codex-mapper v0.1.1 (/tmp/aq-native-source-inspect-v2/crates/aq-codex-mapper)
+    Checking clap v4.6.7
+    Checking aq-protocol v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-protocol)
+    Checking aq-responses-transport v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-responses-transport)
+    Checking aq-agent-result-local v0.1.0 (/tmp/aq-native-source-inspect-v2/crates/aq-agent-result-local)
+    Checking aq-worker-protocol v0.2.0 (/tmp/aq-native-source-inspect-v2/crates/aq-worker-protocol)
+    Checking axum-core v0.5.6
+    Checking axum v0.8.9
+    Checking aq-worker v0.5.0 (/tmp/aq-native-source-inspect-v2/crates/aq-worker)
+    Finished `dev` profile [unoptimized] target(s) in 28.40s
