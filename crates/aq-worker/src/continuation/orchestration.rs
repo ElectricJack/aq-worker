@@ -48,3 +48,33 @@ pub async fn checkpoint_stopped_source(
     }
     bail!("bounded source sequence did not reach settled results")
 }
+
+/// Prepares at most one upload outbox step through the actual retained source
+/// owner. Returns only durable metadata, never a client, send permission or
+/// retention claim. The synthetic fixture's explicit coordinator exchange is
+/// separate; an unchanged Begin/Finalize step performs no journal rewrite.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn prepare_stopped_upload(
+    pipeline: &Arc<InputPipeline>,
+    stopped: &DurableStoppedWorkspace,
+) -> Result<ParkingHistory> {
+    let mut history = pipeline.parking_history(stopped).await?;
+    if history.source.receipt.is_some() {
+        return Ok(history);
+    }
+    if history.source.transfer.is_none() {
+        let proposed = super::transfer::plan_transfer(&history)?;
+        history = pipeline
+            .parking_commit(stopped, history.digest()?, proposed)
+            .await?;
+    }
+    let step = pipeline.parking_upload_step(stopped).await?;
+    let mut proposed = history.clone();
+    proposed.source.upload = Some(step.state);
+    if proposed.digest()? != history.digest()? {
+        return pipeline
+            .parking_commit(stopped, history.digest()?, proposed)
+            .await;
+    }
+    Ok(history)
+}
