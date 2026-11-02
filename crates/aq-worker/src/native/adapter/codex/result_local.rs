@@ -39,7 +39,6 @@ impl CodexExecProfile {
         result.definition.validate_selected(ExpectedResultAdapter {
             adapter: &self.harness.adapter,
             runtime: &runtime,
-            renderer: &self.renderer,
             environment: &self.harness.environment,
             permission_digest: &self.permissions_digest,
         })?;

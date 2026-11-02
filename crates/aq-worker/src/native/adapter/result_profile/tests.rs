@@ -13,7 +13,6 @@ fn definition() -> ResultAdapterDefinition {
         schema_version: 1,
         profile: ResultAdapterKind::Codex0166TrustedNodeNamedReadonlyLocalV1,
         runtime: reference("runtime"),
-        renderer: reference("renderer"),
         environment: reference("environment"),
         client_manifest: ArtifactRef {
             id: Text::new("aq.agent-result-client-installation").unwrap(),
@@ -56,12 +55,11 @@ fn composite_selection_is_canonical_closed_and_independently_pinned() {
         .validate_selected(ExpectedResultAdapter {
             adapter: &adapter,
             runtime: &runtime,
-            renderer: &value.renderer,
             environment: &value.environment,
             permission_digest: &value.permission_digest,
         })
         .unwrap();
-    for mode in 0..5 {
+    for mode in 0..4 {
         let wrong = reference("wrong");
         let wrong_digest = Digest::of(b"wrong");
         let runtime = RuntimeIdentity {
@@ -77,13 +75,12 @@ fn composite_selection_is_canonical_closed_and_independently_pinned() {
                 .validate_selected(ExpectedResultAdapter {
                     adapter: if mode == 0 { &wrong } else { &adapter },
                     runtime: &runtime,
-                    renderer: if mode == 2 { &wrong } else { &value.renderer },
-                    environment: if mode == 3 {
+                    environment: if mode == 2 {
                         &wrong
                     } else {
                         &value.environment
                     },
-                    permission_digest: if mode == 4 {
+                    permission_digest: if mode == 3 {
                         &wrong_digest
                     } else {
                         &value.permission_digest
@@ -151,7 +148,7 @@ fn retained_definition_requires_its_original_role_descriptor_bytes_and_selection
     );
 }
 #[test]
-fn result_permission_is_required_and_bound_to_the_grant_selected_manifest() {
+fn result_profile_preserves_existing_permission_domain_and_pins_whole_plan() {
     let published: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../../../../vendor/aq-admission-0.1.7/artifacts/control.fixture.json"
     ))
@@ -165,29 +162,27 @@ fn result_permission_is_required_and_bound_to_the_grant_selected_manifest() {
     manifest.model.provider = Text::new("openai").unwrap();
     manifest.model.reasoning = Text::new("low").unwrap();
     manifest.model.spending_budget = None;
-    let scope = Scope {
-        operation: Text::new("result.submit").unwrap(),
-        resource: Text::new("local-v1").unwrap(),
-    };
-    manifest.permissions.requested.push(scope.clone());
-    manifest.permissions.effective.push(scope.clone());
-    manifest.permissions.required.push(scope.clone());
     let mut value = definition();
     value.environment = manifest.harness.environment.clone();
     value.permission_digest =
         crate::native::journal::canonical_digest(&manifest.permissions).unwrap();
     manifest.harness.adapter = value.artifact().unwrap();
     value.validate_manifest(&manifest).unwrap();
-    let mut optional = manifest.clone();
-    optional.permissions.required.retain(|p| p != &scope);
-    let mut matching_optional = value.clone();
-    matching_optional.permission_digest =
-        crate::native::journal::canonical_digest(&optional.permissions).unwrap();
-    optional.harness.adapter = matching_optional.artifact().unwrap();
+    let mut changed = manifest.clone();
+    changed
+        .permissions
+        .omissions
+        .push(Text::new("unavailable optional scope").unwrap());
+    changed.validate().unwrap();
     assert!(
-        matching_optional.validate_manifest(&optional).is_err(),
-        "matching hashes cannot replace mandatory opt-in"
+        value.validate_manifest(&changed).is_err(),
+        "whole compiled permission plan is pinned"
     );
+    let mut selected_changed = value.clone();
+    selected_changed.permission_digest =
+        crate::native::journal::canonical_digest(&changed.permissions).unwrap();
+    changed.harness.adapter = selected_changed.artifact().unwrap();
+    selected_changed.validate_manifest(&changed).unwrap();
     let mut wrong_adapter = manifest;
     wrong_adapter.harness.adapter = reference("other adapter");
     assert!(value.validate_manifest(&wrong_adapter).is_err());

@@ -167,7 +167,7 @@ fn history() -> ResultHistory {
                 client_manifest: reference("aq.agent-result-client-installation"),
                 client_executable: reference("client"),
                 environment: reference("env"),
-                recipe: reference("aq.codex-result-local-recipe"),
+                recipe: aq_codex_mapper::result_local_recipe_artifact(),
                 permission_digest: Digest::of(b"permissions"),
                 reserved_client_bytes: 64 * 1024 * 1024,
             },
@@ -331,4 +331,25 @@ fn result_format11_header_is_refused_before_pending_cleanup() {
         std::fs::read(&pending).unwrap(),
         b"preserve ambiguous old-format evidence"
     );
+}
+
+#[test]
+fn result_namespace_is_owned_and_allocates_disjoint_attempt_children() {
+    let (temp, _, _) = directories();
+    let path = temp.path().join("results");
+    let ns = storage::Namespace::create(&path).unwrap();
+    let first = ns.attempt(&path, Uuid::from_u128(1)).unwrap();
+    let second = ns.attempt(&path, Uuid::from_u128(2)).unwrap();
+    assert_ne!(first, second);
+    assert_eq!(first.parent(), Some(path.as_path()));
+    assert!(
+        storage::Namespace::create(&path).is_err(),
+        "a new owner cannot adopt a retained namespace"
+    );
+    std::fs::rename(&path, temp.path().join("retained-results")).unwrap();
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&path)
+        .unwrap();
+    assert!(ns.attempt(&path, Uuid::from_u128(3)).is_err());
 }

@@ -26,10 +26,10 @@ pub(super) fn validate(a: &Attempt, state: &State, ids: &mut BTreeSet<Uuid>) -> 
             && s.binding.expected_outcome == source.spec.outcome_artifact
             && same(&s.runtime, &a.reservation.runtime)?
             && s.kernel_boot_id == execution.kernel_boot_id
-            && s.original_deadline_ns == execution.deadline_ns
-            && s.original_hard_deadline_ns == execution.hard_deadline_ns
+            && s.original_deadline_ns <= execution.deadline_ns
+            && s.original_hard_deadline_ns <= execution.hard_deadline_ns
             && s.created_ns >= execution.observed_before_write_ns
-            && s.recorded_revision > execution.record_revision
+            && s.recorded_revision >= execution.record_revision
             && s.recorded_revision < state.revision
             && s.source == *source.binding()?
             && s.managed_root == source.root
@@ -89,10 +89,10 @@ pub(super) fn validate(a: &Attempt, state: &State, ids: &mut BTreeSet<Uuid>) -> 
             "result report original typed stop differs"
         );
     }
-    if let Some(upload) = &h.source.upload {
-        if let Some(p) = &upload.pending {
-            ensure!(ids.insert(p.operation_id), "result upload operation reused");
-        }
+    if let Some(upload) = &h.source.upload
+        && let Some(p) = &upload.pending
+    {
+        ensure!(ids.insert(p.operation_id), "result upload operation reused");
     }
     Ok(())
 }

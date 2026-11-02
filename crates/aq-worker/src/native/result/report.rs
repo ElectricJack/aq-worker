@@ -83,10 +83,10 @@ impl InputPipeline {
         stopped.verify(self)?;
         let receipt = self.replay_result_report(id).await?;
         let history = self.result_snapshot(stopped).await?;
-        if let Some(ack) = history.acknowledgment()? {
-            if stopped.custody.storage.write_ack(&ack).is_err() {
-                tracing::warn!(attempt_id=%id,"B1 result retained; local acknowledgement projection unavailable");
-            }
+        if let Some(ack) = history.acknowledgment()?
+            && stopped.custody.storage.write_ack(&ack).is_err()
+        {
+            tracing::warn!(attempt_id=%id,"B1 result retained; local acknowledgement projection unavailable");
         }
         Ok(receipt)
     }
@@ -96,13 +96,13 @@ impl InputPipeline {
     pub async fn replay_result_report(&self, id: Uuid) -> Result<result_record::Receipt> {
         let history = self
             .storage(move |owner| {
-                Ok(owner
+                owner
                     .journal
                     .state()
                     .attempts
                     .get(&id)
                     .and_then(|a| a.result.clone())
-                    .context("result history absent")?)
+                    .context("result history absent")
             })
             .await?;
         history.validate()?;

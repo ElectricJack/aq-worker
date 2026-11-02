@@ -135,10 +135,10 @@ impl InputPipeline {
             })
             .await?;
         let Some(h) = h else { return Ok(None) };
-        if let Some(ack) = h.acknowledgment()? {
-            if custody.storage.write_ack(&ack).is_err() {
-                tracing::warn!(attempt_id=%id,"stopped result retained; local acknowledgement projection unavailable");
-            }
+        if let Some(ack) = h.acknowledgment()?
+            && custody.storage.write_ack(&ack).is_err()
+        {
+            tracing::warn!(attempt_id=%id,"stopped result retained; local acknowledgement projection unavailable");
         }
         Ok(Some(DurableStoppedResult { custody, proof }))
     }

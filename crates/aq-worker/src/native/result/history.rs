@@ -164,7 +164,7 @@ pub struct ResultHistory {
 }
 impl ResultHistory {
     pub fn digest(&self) -> Result<Digest> {
-        Ok(crate::native::journal::canonical_digest(self)?)
+        crate::native::journal::canonical_digest(self)
     }
     pub fn validate(&self) -> Result<()> {
         let s = &self.scope;
@@ -237,6 +237,11 @@ impl ResultHistory {
         if let Some(stop) = &self.stop {
             ensure!(
                 self.intake_closed
+                    && !matches!(
+                        stop.outcome,
+                        aq_admission::transport::ProcessOutcome::Success
+                            | aq_admission::transport::ProcessOutcome::Failed
+                    )
                     && stop.native_stopped_revision > 0
                     && stop.recorded_revision >= stop.native_stopped_revision
                     && stop.recorded_revision > s.recorded_revision,
@@ -385,6 +390,18 @@ impl ResultHistory {
             let raw = h.operations["export"].result.as_ref().unwrap();
             ensure!(
                 !e.artifact.is_nil()
+                    && e.manifest.format_version == 1
+                    && e.manifest.object_format == "sha1"
+                    && !e.manifest.producer_installation_id.is_nil()
+                    && e.manifest.reference_only == (e.manifest.bundle_size == 0)
+                    && (e.manifest.bundle_size == 0) == e.manifest.bundle_sha256.is_none()
+                    && e.manifest
+                        .bundle_sha256
+                        .as_ref()
+                        .is_none_or(|s| s.len() == 64
+                            && s.bytes()
+                                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+                    && e.manifest.prerequisites.iter().all(|p| p == &s.source.base)
                     && e.artifact == e.manifest.transfer_id
                     && e.manifest.repository_id == s.source.repository_id
                     && e.manifest.repository_identity == s.source.logical_identity

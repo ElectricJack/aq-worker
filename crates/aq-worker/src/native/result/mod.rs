@@ -23,13 +23,18 @@ pub use pins::ResultInstallationPins;
 pub use stopped::{DurableStoppedResult, ResultStopCause};
 use storage::ChannelStorage;
 #[derive(Default)]
-pub(super) struct Registry(Mutex<BTreeMap<Uuid, Arc<Custody>>>);
+pub(super) struct Registry {
+    entries: Mutex<BTreeMap<Uuid, Arc<Custody>>>,
+    namespace: Mutex<Option<storage::Namespace>>,
+}
 impl Drop for Registry {
     fn drop(&mut self) {
-        if let Ok(entries) = self.0.lock() {
-            for entry in entries.values() {
-                entry.storage.release_presence();
-            }
+        let entries = self
+            .entries
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for entry in entries.values() {
+            entry.storage.release_presence();
         }
     }
 }
@@ -42,6 +47,7 @@ struct Custody {
     pins: ResultInstallationPins,
     presence: wire::Presence,
     definition: super::super::adapter::result_profile::ResultAdapterDefinition,
+    claimed: std::sync::atomic::AtomicBool,
 }
 /// Issued only after original retained execution, selected Definition bytes,
 /// private directory custody and journal fsync/readback have all been joined.
@@ -50,6 +56,28 @@ pub struct VerifiedResultChannel {
     custody: Arc<Custody>,
 }
 impl VerifiedResultChannel {
+    pub(super) fn check_pipeline(
+        &self,
+        pipeline: &InputPipeline,
+        scope: &LaunchExecutionScope,
+    ) -> Result<()> {
+        let c = &self.custody;
+        ensure!(
+            c.pipeline
+                .upgrade()
+                .is_some_and(|p| Arc::ptr_eq(&p.owned, &pipeline.owned))
+                && c.scope.id == scope.id
+                && c.scope.inputs.same_owner(&scope.inputs),
+            "result launch belongs to another actual owner"
+        );
+        self.verify_for(
+            &c.binding.launch,
+            &scope.digest,
+            &c.binding.expected_outcome,
+            &scope.inputs.workspace().workspace().path,
+            &c.pins,
+        )
+    }
     pub fn root(&self) -> &Path {
         self.custody.storage.root()
     }
@@ -83,7 +111,7 @@ impl VerifiedResultChannel {
         ensure!(
             pipeline
                 .results
-                .0
+                .entries
                 .lock()
                 .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
                 .get(&c.scope.id)
@@ -121,6 +149,29 @@ impl VerifiedResultChannel {
 impl InputPipeline {
     /// Explicit opt-in, before host construction. No path or caller-provided
     /// artifact metadata can replace the actual retained input owner.
+    pub async fn create_result_channel_in_namespace(
+        self: &Arc<Self>,
+        execution: &DurablePhaseExecution,
+        namespace: PathBuf,
+        pins: ResultInstallationPins,
+    ) -> Result<VerifiedResultChannel> {
+        self.check_phase_execution(execution).await?;
+        let root = {
+            let mut retained = self
+                .results
+                .namespace
+                .lock()
+                .map_err(|_| anyhow::anyhow!("result namespace poisoned"))?;
+            if retained.is_none() {
+                *retained = Some(storage::Namespace::create(&namespace)?);
+            }
+            retained
+                .as_ref()
+                .unwrap()
+                .attempt(&namespace, execution.history().attempt_id())?
+        };
+        self.create_result_channel(execution, root, pins).await
+    }
     pub async fn create_result_channel(
         self: &Arc<Self>,
         execution: &DurablePhaseExecution,
@@ -132,7 +183,7 @@ impl InputPipeline {
         pins.validate()?;
         ensure!(
             self.results
-                .0
+                .entries
                 .lock()
                 .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
                 .get(&id)
@@ -288,10 +339,11 @@ impl InputPipeline {
             pins,
             presence,
             definition,
+            claimed: std::sync::atomic::AtomicBool::new(false),
         });
         let mut entries = self
             .results
-            .0
+            .entries
             .lock()
             .map_err(|_| anyhow::anyhow!("result registry poisoned"))?;
         ensure!(
@@ -308,7 +360,7 @@ impl InputPipeline {
     pub async fn poll_result_claim(&self, id: Uuid) -> Result<bool> {
         let custody = self
             .results
-            .0
+            .entries
             .lock()
             .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
             .get(&id)
@@ -321,12 +373,15 @@ impl InputPipeline {
                 .is_some_and(|p| Arc::ptr_eq(&p.owned, &self.owned)),
             "foreign result pipeline"
         );
-        custody
-            .storage
-            .verify_control(&custody.binding, &custody.presence)?;
+        if custody.claimed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(true);
+        }
         let Some(bytes) = custody.storage.read_submission()? else {
             return Ok(false);
         };
+        custody
+            .storage
+            .verify_control(&custody.binding, &custody.presence)?;
         let submission: wire::Submission = wire::decode(&bytes)?;
         ensure!(
             submission.binding == custody.binding && wire::encode(&submission)? == bytes,
@@ -382,18 +437,21 @@ impl InputPipeline {
             .await?;
         // Closing admission is a safety action; acknowledgement is projected
         // from the fsynced record and cannot be upgraded by client JSON.
+        custody
+            .claimed
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         custody.storage.close_intake();
-        if let Some(ack) = history.acknowledgment()? {
-            if custody.storage.write_ack(&ack).is_err() {
-                tracing::warn!(attempt_id=%id,"durable result retained; local acknowledgement projection unavailable");
-            }
+        if let Some(ack) = history.acknowledgment()?
+            && custody.storage.write_ack(&ack).is_err()
+        {
+            tracing::warn!(attempt_id=%id,"durable result retained; local acknowledgement projection unavailable");
         }
         Ok(true)
     }
     pub async fn close_result_intake(&self, id: Uuid) -> Result<()> {
         let custody = self
             .results
-            .0
+            .entries
             .lock()
             .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
             .get(&id)
@@ -407,6 +465,9 @@ impl InputPipeline {
                 .result
                 .as_ref()
                 .context("result history absent")?;
+            if h.claim.is_none() {
+                custody.storage.release_presence();
+            }
             if h.intake_closed {
                 return Ok(());
             }
@@ -438,4 +499,50 @@ fn counted_startup(offer: &aq_admission::startup::NativeOffer) -> bool {
             .startup_inputs
             .iter()
             .any(|r| r.artifact == startup && r.bytes == wire::STARTUP_TEXT.len() as u64)
+}
+impl InputPipeline {
+    pub async fn result_needs_reconciliation(
+        &self,
+        id: Uuid,
+        code: wire::RecoveryCode,
+    ) -> Result<()> {
+        let custody = self
+            .results
+            .entries
+            .lock()
+            .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
+            .get(&id)
+            .cloned();
+        let Some(custody) = custody else {
+            return Ok(());
+        };
+        custody.storage.close_intake();
+        let h = self
+            .storage(move |owner| {
+                let h = owner
+                    .journal
+                    .state()
+                    .attempts
+                    .get(&id)
+                    .and_then(|a| a.result.as_ref())
+                    .context("result history absent")?;
+                if h.claim.is_none() {
+                    return Ok(h.clone());
+                }
+                let digest = h.digest()?;
+                owner.journal.update_result(id, &digest, |h, _| {
+                    if h.receipt.is_none() {
+                        h.failure = Some(code);
+                    }
+                    Ok(())
+                })
+            })
+            .await?;
+        if let Some(ack) = h.acknowledgment()?
+            && custody.storage.write_ack(&ack).is_err()
+        {
+            tracing::warn!(attempt_id=%id,"result recovery retained; local projection unavailable");
+        }
+        Ok(())
+    }
 }

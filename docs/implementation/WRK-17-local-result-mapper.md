@@ -24,10 +24,11 @@ workspace, private Codex home or executable, and client paths overlapping the
 workspace, private home or result root. The actual native owner must separately
 verify retained root/submission FD identity, canonical routes and original grant,
 expected outcome, execution binding and deadline. No arbitrary external-folder
-interface is added. The existing PermissionPlan Scope
-`{operation:"result.submit", resource:"local-v1"}` and exact result contract
-module must be admitted and bound with the recipe/client pins before launch;
-these are not new required capabilities.
+interface is added. The whole existing compiled PermissionPlan digest must be bound with the
+selected composite adapter, local contract and recipe/client pins before launch.
+The local narrative claim adds no catalog or Graph permission and no new required
+capability. Its opt-in is the explicit result-enabled runtime/adapter and counted
+reporting instructions, not an invented Graph operation.
 
 `InstalledResultClient` retains one separately pinned named-readonly client file
 in a dedicated 64 MiB pool using the same real `NamedReadonlyEnvironment` owner.
@@ -56,7 +57,7 @@ native/client/mapper path is separately checked and authorized.
 The versioned `aq.codex-result-local-adapter@1` Definition is selected as the
 admitted `LaunchManifest.harness.adapter`. Its canonical bytes bind the exact
 client-installation artifact, client executable, environment, local contract,
-recipe definition, runtime, renderer, permissions digest and additional 64 MiB
+recipe definition, runtime, permissions digest and additional 64 MiB
 client image reservation. The recipe artifact is
 `aq.codex-result-local-recipe@1`; the client installation artifact is
 `aq.agent-result-client-installation@1`. These are code/installation definitions,
@@ -75,10 +76,37 @@ original descriptor and bytes selected by its manifest before a channel is made.
 
 Pure definition validators enforce canonical bytes and closed fields, independent
 selection, original retained descriptor/role/body, the installed client's pins,
-and required/effective `result.submit/local-v1` permission. Their outputs remain
+and the exact whole compiled PermissionPlan digest. Their outputs remain
 metadata. Human's native result owner constructs the non-Serde
 `VerifiedResultChannel` only from the actual pipeline/execution/grant and retained
 root/submission FDs, then freezes its adapter/client/recipe/permissions/root pins
 before any launch. The adapter's future borrowed input will carry actual Entry
 binding/execution-digest plus the real client/channel owners; it cannot activate
 from a disk envelope or these validators succeeding.
+
+## Renderer dependency correction for the unpublished candidate
+
+The actual daemon's renderer reference is the content address of a context
+qualification fact, whose subject includes the selected adapter. It cannot be
+included in the hashed composite adapter body: that would make adapter and
+renderer addresses depend on one another. The unpublished composite therefore
+omits renderer entirely. The primary NamedExecManifest, independent operator
+renderer selection, actual startup Descriptor and unchanged common native prepare
+checks continue to bind the exact renderer fact after the composite is selected.
+
+The supported derivation order is client binary + independent environment + local
+contract/recipe -> client installation -> composite adapter -> subject-specific
+context qualification fact -> startup Descriptor/manifest -> primary named
+installation descriptor. No primary manifest, rendered startup, execution grant,
+result binding, result root or subject-specific renderer hash flows back into the
+composite adapter. Pure synthetic-ref unit cases do not qualify this actual
+producer order; the real recipe/integration must derive each content address in
+that order before an offer is admitted.
+
+The unpublished candidate also removes an invented `result.submit/local-v1` Scope
+requirement: the actual catalog grammar and frozen GraphAccessPolicy cannot emit
+that operation. The existing compiled permission domain remains unchanged and its
+entire digest stays pinned. The selected result-enabled adapter/runtime, exact
+local client/contract/recipe, counted startup, actual grant/outcome binding and
+retained directory owners declare this data-only local channel. It grants no
+Graph mutation, task-close, or additional general-folder authority.

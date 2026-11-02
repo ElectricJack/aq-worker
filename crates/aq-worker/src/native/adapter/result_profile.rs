@@ -4,7 +4,7 @@
 use super::{result_client::*, *};
 use crate::native::{VerifiedArtifact, journal::RuntimeIdentity};
 use aq_admission::{ArtifactKind, RetainedArtifact};
-use aq_session_protocol::{LaunchManifest, Scope};
+use aq_session_protocol::LaunchManifest;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ResultAdapterKind {
@@ -17,7 +17,6 @@ pub struct ResultAdapterDefinition {
     pub schema_version: u32,
     pub profile: ResultAdapterKind,
     pub runtime: ArtifactRef,
-    pub renderer: ArtifactRef,
     pub environment: ArtifactRef,
     pub client_manifest: ArtifactRef,
     pub client_executable: ArtifactRef,
@@ -30,7 +29,6 @@ pub struct ResultAdapterDefinition {
 pub struct ExpectedResultAdapter<'a> {
     pub adapter: &'a ArtifactRef,
     pub runtime: &'a RuntimeIdentity,
-    pub renderer: &'a ArtifactRef,
     pub environment: &'a ArtifactRef,
     pub permission_digest: &'a Digest,
 }
@@ -73,7 +71,6 @@ impl ResultAdapterDefinition {
         );
         for r in [
             &self.runtime,
-            &self.renderer,
             &self.environment,
             &self.client_manifest,
             &self.client_executable,
@@ -90,7 +87,6 @@ impl ResultAdapterDefinition {
         ensure!(
             self.artifact()? == *expected.adapter
                 && self.runtime == expected.runtime.runtime
-                && self.renderer == *expected.renderer
                 && self.environment == *expected.environment
                 && self.permission_digest == *expected.permission_digest,
             "result adapter differs from independently selected runtime/settings"
@@ -125,15 +121,9 @@ impl ResultAdapterDefinition {
     pub fn validate_manifest(&self, manifest: &LaunchManifest) -> Result<()> {
         self.validate()?;
         manifest.validate()?;
-        let permission = Scope {
-            operation: aq_session_protocol::Text::new("result.submit")?,
-            resource: aq_session_protocol::Text::new("local-v1")?,
-        };
         ensure!(
             manifest.harness.adapter == self.artifact()?
                 && manifest.harness.environment == self.environment
-                && manifest.permissions.required.contains(&permission)
-                && manifest.permissions.effective.contains(&permission)
                 && super::super::journal::canonical_digest(&manifest.permissions)?
                     == self.permission_digest,
             "result adapter manifest opt-in/settings/permissions differ"

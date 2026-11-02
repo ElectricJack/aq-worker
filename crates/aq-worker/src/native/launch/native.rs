@@ -98,7 +98,6 @@ impl NativeCodexHostProfile {
         definition.validate_selected(ExpectedResultAdapter {
             adapter: &mapper.harness.adapter,
             runtime: &runtime,
-            renderer: &mapper.renderer,
             environment: &mapper.harness.environment,
             permission_digest: &mapper.permissions_digest,
         })?;

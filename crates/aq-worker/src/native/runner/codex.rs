@@ -248,7 +248,6 @@ impl NativeExecutor for CodexExecutor {
             definition.validate_selected(ExpectedResultAdapter {
                 adapter: &config.adapter,
                 runtime: &config.runtime,
-                renderer: &config.renderer,
                 environment,
                 permission_digest: &settings.permissions_digest,
             })?;
@@ -355,7 +354,35 @@ impl NativeExecutor for CodexExecutor {
                 .context("Codex executor not preflighted")?
                 .clone();
             let id = grant.history().attempt_id();
-            let launched = pipeline.launch_phase_native(&grant, profile).await?;
+            let result_pins = profile.result_installation_pins();
+            let result_enabled = result_pins.is_some();
+            let transfer = if result_enabled {
+                Some(
+                    self.result_transfer
+                        .clone()
+                        .context("result source transport absent")?,
+                )
+            } else {
+                None
+            };
+            let launched = if let Some(pins) = result_pins {
+                let root = self
+                    .result_root
+                    .clone()
+                    .context("result profile root absent")?;
+                let channel = pipeline
+                    .create_result_channel_in_namespace(&grant, root, pins)
+                    .await?;
+                pipeline
+                    .launch_phase_native_result(&grant, profile, channel)
+                    .await?
+            } else {
+                ensure!(
+                    self.result_root.is_none(),
+                    "result root without selected result profile"
+                );
+                pipeline.launch_phase_native(&grant, profile).await?
+            };
             let host = match launched {
                 NativeHostLaunchResult::Running(host) => host,
                 NativeHostLaunchResult::StoppedBeforeStarted(_)
@@ -375,12 +402,13 @@ impl NativeExecutor for CodexExecutor {
                     )
                 }
             };
-            drive_running(
+            drive_running_owned(
                 pipeline,
                 host,
                 grant.deadline_ns(),
                 self.relay.clone(),
                 shutdown,
+                transfer,
             )
             .await
         })
@@ -389,14 +417,28 @@ impl NativeExecutor for CodexExecutor {
 
 /// Shared actual-host lifecycle used by the concrete executor and pinned local
 /// physical-host fault tests. Opaque LocalPhaseHost cannot be reconstructed.
+#[cfg(all(test, feature = "test-support"))]
 pub(crate) async fn drive_running(
     pipeline: Arc<InputPipeline>,
     host: crate::native::launch::LocalPhaseHost,
     deadline_ns: u64,
     relay_client: RelayHttp,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
+    drive_running_owned(pipeline, host, deadline_ns, relay_client, shutdown, None).await
+}
+async fn drive_running_owned(
+    pipeline: Arc<InputPipeline>,
+    host: crate::native::launch::LocalPhaseHost,
+    deadline_ns: u64,
+    relay_client: RelayHttp,
+    mut shutdown: watch::Receiver<bool>,
+    transfer: Option<crate::transfer_client::TransferClient>,
+) -> Result<()> {
+    use crate::native::result::ResultStopCause;
     let id = host.attempt_id();
+    let mut cause = ResultStopCause::Failure;
+    let result_enabled = transfer.is_some();
     // Install the independent reader before any network Started wait.
     let operation = async {
         let relay = pipeline.start_phase_output(&host, relay_client)?;
@@ -415,11 +457,20 @@ pub(crate) async fn drive_running(
         }
         let _publisher = super::publish_output::OutputPublisher::start(relay);
         loop {
-            if *shutdown.borrow()
-                || super::super::http::boot_ns()? >= deadline_ns
-                || host.observe()?.phase != HostPhase::Running
-            {
+            if *shutdown.borrow() {
+                cause = ResultStopCause::Cancelled;
                 break;
+            }
+            if super::super::http::boot_ns()? >= deadline_ns {
+                cause = ResultStopCause::Expired;
+                break;
+            }
+            if host.observe()?.phase != HostPhase::Running {
+                cause = ResultStopCause::Natural;
+                break;
+            }
+            if result_enabled {
+                pipeline.poll_result_claim(id).await?;
             }
             tokio::select! {
                 _=tokio::time::sleep(std::time::Duration::from_millis(250))=>{},
@@ -429,6 +480,7 @@ pub(crate) async fn drive_running(
         Ok::<(), anyhow::Error>(())
     }
     .await;
+    let intake_closed = pipeline.close_result_intake(id).await;
     // Neither a relay error nor an uncertain ACK can bypass real stop.
     match pipeline.stop_phase_host(id).await? {
         NativeStopOutcome::StoppedPendingJournal(_) => pipeline.persist_phase_host_stop(id).await?,
@@ -448,8 +500,71 @@ pub(crate) async fn drive_running(
         terminal_profile.report_stopped(&pipeline, id).await
     }
     .await;
+    if let Some(transfer) = transfer {
+        if stopped.is_err() {
+            let _ = pipeline
+                .result_needs_reconciliation(id, aq_agent_result_local::RecoveryCode::StopUnknown)
+                .await;
+        }
+        stopped?;
+        intake_closed?;
+        let result = pipeline
+            .retain_stopped_result(id, cause)
+            .await?
+            .context("explicit local result claim absent; stopped attempt retained")?;
+        let source = async {
+            pipeline.capture_result_source(&result).await?;
+            // Original source limits also bound the number of chunks. Each
+            // finite request preserves the exact original operation on error.
+            let snapshot = pipeline.snapshot().await?;
+            let export = snapshot.attempts[&id]
+                .result
+                .as_ref()
+                .and_then(|h| h.source.export.as_ref())
+                .context("actual result export absent")?;
+            let max_steps = export
+                .manifest_bytes
+                .div_ceil(aq_worker_protocol::MAX_CHUNK_BYTES as u64)
+                .checked_add(
+                    export
+                        .manifest
+                        .bundle_size
+                        .div_ceil(aq_worker_protocol::MAX_CHUNK_BYTES as u64),
+                )
+                .and_then(|n| n.checked_add(2))
+                .context("result transfer finite bound overflow")?;
+            for _ in 0..max_steps {
+                if pipeline
+                    .transfer_result_source_step(&result, &transfer)
+                    .await?
+                {
+                    return Ok::<(), anyhow::Error>(());
+                }
+            }
+            anyhow::bail!("native result source transfer step bound exhausted")
+        }
+        .await;
+        if source.is_err() {
+            let _ = pipeline
+                .result_needs_reconciliation(
+                    id,
+                    aq_agent_result_local::RecoveryCode::SourceRetentionUnknown,
+                )
+                .await;
+        }
+        source?;
+        let report = pipeline.record_result_report(&result).await;
+        if report.is_err() {
+            let _ = pipeline
+                .result_needs_reconciliation(id, aq_agent_result_local::RecoveryCode::ReportUnknown)
+                .await;
+        }
+        report?;
+    } else {
+        intake_closed?;
+        stopped?;
+    }
     operation?;
-    stopped?;
     Ok(())
 }
 

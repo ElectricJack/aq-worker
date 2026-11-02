@@ -189,10 +189,10 @@ impl ChannelStorage {
     }
     pub(super) fn release_presence(&self) {
         self.close_intake();
-        if self.pid == std::process::id() {
-            if let Ok(mut held) = self.owner_lock.lock() {
-                held.take();
-            }
+        if self.pid == std::process::id()
+            && let Ok(mut held) = self.owner_lock.lock()
+        {
+            held.take();
         }
     }
     pub(super) fn verify_control(
@@ -288,5 +288,42 @@ impl ChannelStorage {
 impl Drop for ChannelStorage {
     fn drop(&mut self) {
         self.release_presence();
+    }
+}
+/// A process-retained private namespace. Existing names are never adopted on a
+/// fresh owner; only this actual owner can allocate another attempt child.
+pub(super) struct Namespace {
+    owner: File,
+    path: PathBuf,
+    pin: DirectoryPin,
+    pid: u32,
+}
+impl Namespace {
+    pub(super) fn create(path: &Path) -> Result<Self> {
+        let parent = path.parent().context("result namespace parent absent")?;
+        let parent_owner = directory(parent)?;
+        pin(&parent_owner)?;
+        std::fs::DirBuilder::new().mode(0o700).create(path)?;
+        parent_owner.sync_all()?;
+        let owner = directory(path)?;
+        let pinned = pin(&owner)?;
+        owner.sync_all()?;
+        Ok(Self {
+            owner,
+            path: path.into(),
+            pin: pinned,
+            pid: std::process::id(),
+        })
+    }
+    pub(super) fn attempt(&self, path: &Path, id: uuid::Uuid) -> Result<PathBuf> {
+        ensure!(
+            !id.is_nil()
+                && path == self.path
+                && self.pid == std::process::id()
+                && pin(&self.owner)? == self.pin
+                && pin(&directory(&self.path)?)? == self.pin,
+            "result namespace owner/route changed"
+        );
+        Ok(self.path.join(id.to_string()))
     }
 }

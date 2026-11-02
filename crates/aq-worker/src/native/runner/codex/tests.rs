@@ -228,7 +228,6 @@ fn result_configuration(
         schema_version: 1,
         profile: ResultAdapterKind::Codex0166TrustedNodeNamedReadonlyLocalV1,
         runtime: config.runtime.runtime.clone(),
-        renderer: config.renderer.clone(),
         environment: selected.harness.environment.clone(),
         client_manifest: client.artifact().unwrap(),
         client_executable: client.executable.artifact.clone(),
