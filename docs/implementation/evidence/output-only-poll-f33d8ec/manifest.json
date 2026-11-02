@@ -1,0 +1,60 @@
+{
+  "source": "f33d8ecda98f820509122f0efac4b1d4dcf84838",
+  "base": "22c2917555b4a6d10e05d54a4d5fef989576f1da",
+  "review": "Independent source accepted by Work; no reviewer builds/processes.",
+  "checks": {
+    "output_relay_tests": 14,
+    "output_relay_seconds": 0.77,
+    "worker_compile_seconds": 28.8,
+    "bridge_http_regression_tests": 5,
+    "bridge_compile_seconds": 10.8,
+    "worker_and_bridge_all_targets_all_features_strict": true,
+    "strict_seconds": 20.2,
+    "binary_build_seconds": 22.74
+  },
+  "commands": [
+    "cargo test -p aq-worker --lib output_relay:: --all-features --offline --locked",
+    "cargo test -p aq-terminal-bridge --test http --features test-support --offline --locked",
+    "cargo clippy -p aq-worker -p aq-terminal-bridge --all-targets --all-features --offline --locked -- -D warnings",
+    "cargo build -p aq-worker --bin aq-worker --features test-support --offline --locked"
+  ],
+  "environment": "Existing Target2 cache; CARGO_BUILD_JOBS=2, CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=0, CARGO_PROFILE_TEST_DEBUG=0; offline locked.",
+  "binary": {
+    "source": "f33d8ecda98f820509122f0efac4b1d4dcf84838",
+    "base": "22c2917555b4a6d10e05d54a4d5fef989576f1da",
+    "binary": "/tmp/aq-output-poll-pin-f33d8ec/aq-worker",
+    "sha256": "62f97481d8b6cbcfea40490f7cc11be1cbca3abfaec3f0b819481d2adda40781",
+    "bytes": 51504968,
+    "worker_version": "0.5.1",
+    "bridge_version": "0.1.3",
+    "format": 12,
+    "features": [
+      "test-support"
+    ],
+    "command": "cargo build -p aq-worker --bin aq-worker --features test-support --offline --locked",
+    "process_run": false
+  },
+  "scope": "Synthetic HTTP/output-tail component tests. No actual host/provider run, canonical change, publication, protocol/archive/FORMAT change. Live human Watch/output integration and paired server runtime remain separate.",
+  "logs": [
+    {
+      "path": "worker.log",
+      "sha256": "e200520a51c0efc08a0a2c3ad3014d064786c6693b012d9d487e6115573c4670",
+      "bytes": 3649
+    },
+    {
+      "path": "bridge-http.log",
+      "sha256": "a2e08f50ace848fef1fc2b7b92f72cedcd7251a352ab6cee317a7f9257342181",
+      "bytes": 1587
+    },
+    {
+      "path": "strict.log",
+      "sha256": "b79e5d22f04eccf8273a7b8f5800c31da0719986976950f726a39dabb18913cb",
+      "bytes": 1536
+    },
+    {
+      "path": "build.log",
+      "sha256": "8e8a271ec208f82daf806f34fe1a5cf03a836eddf3721a08121587021c7c5e97",
+      "bytes": 1536
+    }
+  ]
+}

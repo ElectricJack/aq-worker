@@ -1,0 +1,29 @@
+   Compiling tracing-core v0.1.36
+   Compiling uuid v1.29.0
+   Compiling tracing v0.1.44
+   Compiling schemars v1.2.3
+   Compiling hyper-util v0.1.21
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-native-output-poll-v2/crates/aq-session-protocol)
+   Compiling tower v0.5.3
+   Compiling hyper-rustls v0.27.10
+   Compiling tower-http v0.6.11
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-native-output-poll-v2/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-session-api v0.1.0 (/tmp/aq-native-output-poll-v2/vendor/aq-session-api-0.1.0)
+   Compiling reqwest v0.12.28
+   Compiling aq-session-host v0.1.5 (/tmp/aq-native-output-poll-v2/crates/aq-session-host)
+   Compiling aq-terminal-relay v0.1.0 (/tmp/aq-native-output-poll-v2/vendor/aq-terminal-relay-0.1.0)
+   Compiling axum-core v0.5.6
+   Compiling aq-terminal-bridge v0.1.3 (/tmp/aq-native-output-poll-v2/crates/aq-terminal-bridge)
+   Compiling axum v0.8.9
+    Finished `test` profile [unoptimized] target(s) in 10.80s
+     Running tests/http.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/http-1882719860af3ae3)
+
+running 5 tests
+test production_requires_https_and_credentials_remain_redacted ... ok
+test lost_control_reply_is_not_automatically_retried_and_content_never_uses_control_lane ... ok
+test redirects_and_wrong_scope_acknowledgements_are_refused ... ok
+test held_poll_and_saturated_poll_lane_preserve_reserved_control_progress ... ok
+test saturated_output_lane_keeps_metadata_control_available ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
