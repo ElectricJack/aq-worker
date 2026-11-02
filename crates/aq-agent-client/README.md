@@ -124,3 +124,7 @@ acknowledgment, the shorter original execution ceiling, finalization after lease
 expiry and dead-owner refusal. All five pure contract tests passed, both crates'
 all-target strict Clippy passed (1.74 seconds), and the default binary built
 (3.36 seconds). The exact rebuilt binary also passed the CLI subprocess vector.
+The final unclaimed-expiry status correction passed its exact expiry vector
+(0.03 seconds), all-target strict Clippy (1.53 seconds), default binary rebuild
+(1.81 seconds), and the exact rebuilt-binary CLI vector. The unchanged nine-test
+and pure-five gates above were not repeated for that one-condition correction.

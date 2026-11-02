@@ -151,6 +151,11 @@ fn missing_owner_original_execution_expiry_and_changed_boot_refuse_new_publicati
     });
     assert_eq!(f.client().submit(f.input()).unwrap().exit_code, 13);
     assert!(!f.path().exists());
+    assert_eq!(
+        f.client().status().unwrap().value["phase"]["kind"],
+        "needs_reconciliation",
+        "expired unclaimed scope must not advertise ready_for_claim"
+    );
     let f = Fixture::new();
     let stamp = aq_agent_client::journal::Stamp::now().unwrap();
     f.presence(Presence {
