@@ -156,11 +156,19 @@ credentials, and the agent remained running while the second model response was
 held. No UploadAck was accepted, pending bytes remained retained, and **neither
 durable accepted output nor human terminal delivery was proved**.
 
-After releasing the finite final response, the real owner observed natural CLI
+After releasing the finite final response, the real owner observed tmux-server
 root exit0, persisted physical stop with kernel ECHILD, and held exact Started
 and Stopped ACKs with each report published once. Matching `codex-home/auth.json`
 was removed after physical stop, while retained preparation input ownership
 remained. All these success-only assertions were reached in this positive case.
+
+Correction, 2026-11-01: the historical JSON assertion "natural CLI root exit0"
+describes `HostObservation.root_status`, which the supervisor records when it
+reaps its tmux-server child. It does not prove the Codex pane exited successfully.
+Raw JSON, logs and hashes are preserved unchanged. Consumers must treat the
+harness process outcome as unknown; the actual tool/file and physical stop
+observations retain their stated scope. See `aq-session-host/src/supervisor.rs`
+for the root-child ownership and status assignment.
 
 This is isolated local actual-tool/process qualification with synthetic secrets
 and a finite loopback Responses peer. The fixture still exposes the original
