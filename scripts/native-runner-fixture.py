@@ -72,7 +72,10 @@ def configure(value, control_origin):
     require(native['executor']['settings']['host_root'] == str(STATE / 'host'), 'fixture host scope')
     disk = os.statvfs(STATE)
     require(0 < native['capacity']['disk_bytes'] <= disk.f_blocks * disk.f_frsize, 'truthful private disk capacity')
-    require(isinstance(value['worker_config'], str) and control_origin in value['worker_config'], 'actual private control origin')
+    # Trusted parent serializes the actual WorkerConfig with this origin. This
+    # is an early shape check, not a TOML parser or an authority decision; the
+    # ordinary CLI still validates its closed configuration before admission.
+    require(isinstance(value['worker_config'], str) and control_origin in value['worker_config'], 'private control origin marker')
     (STATE / 'config').mkdir(mode=0o700)
     (STATE / 'host').mkdir(mode=0o700)
     private_file(STATE / 'config/worker.toml', value['worker_config'].encode())
@@ -150,7 +153,9 @@ def run():
         root_fd = None
         stage = 'configure'
         configure(receive(control), control_origin)
-        # No provisioning channel/FD enters worker or harness. The parent keeps
+        # The consuming outer receiver closes/unlinks its sole listener before
+        # sending this one configuration. Close this connection before spawning
+        # worker; no provisioning descriptor is inherited. The parent keeps
         # only read-side state evidence and private-net listener ownership.
         control.close()
         control = None
