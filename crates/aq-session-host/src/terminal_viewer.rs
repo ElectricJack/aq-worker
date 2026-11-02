@@ -121,7 +121,10 @@ fn pane(
     let columns = fields[4].parse::<u16>()?;
     let rows = fields[5].parse::<u16>()?;
     ensure!(
-        columns > 0 && rows > 0 && columns <= 240 && rows <= 120,
+        // Match ResizeCommand's accepted geometry (session protocol v1).
+        // The smaller observed-startup bounds constrain initial layout only;
+        // TerminalPolicy has no separate post-start dimension ceiling.
+        columns > 0 && rows > 0 && columns <= 1000 && rows <= 1000,
         "PTY viewer dimensions unavailable"
     );
     Ok((fields[0].to_owned(), columns, rows))
