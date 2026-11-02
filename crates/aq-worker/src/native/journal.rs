@@ -26,6 +26,7 @@ pub use phase_execution::ReceivedPhaseExecution;
 pub mod preparation_v2;
 mod prepared;
 pub use phase_prepared::PhasePreparedIntent;
+mod parking;
 mod source;
 mod storage;
 use super::http::{boot_ns, control::Preparation};
@@ -50,7 +51,8 @@ use std::{
 use storage::Storage;
 use uuid::Uuid;
 
-pub const FORMAT: u32 = 11;
+// Explicit WRK16A candidate boundary. FORMAT11/worker0.4.0 remains frozen.
+pub const FORMAT: u32 = 12;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +126,7 @@ pub struct Attempt {
     pub refresh_prepared: Option<RefreshPreparedIntent>,
     pub refresh_execution: Option<ReceivedRefreshExecution>,
     pub native_host: Option<launch::NativeHostHistory>,
+    pub parking: Option<crate::continuation::history::ParkingHistory>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -240,17 +243,20 @@ impl State {
                 .all(|id| !id.is_nil() && identities.insert(*id)),
                 "reservation identifiers"
             );
-            let resource = &r.offer.offered.offer.manifest.resources;
-            used.0 = used.0.checked_add(1).context("slot overflow")?;
+            let charge = parking::charge(attempt)?;
+            used.0 = used.0.checked_add(charge.slots).context("slot overflow")?;
             used.1 = used
                 .1
-                .checked_add(resource.memory_bytes)
+                .checked_add(charge.memory_bytes)
                 .context("memory overflow")?;
             used.2 = used
                 .2
-                .checked_add(resource.cpu_millis)
+                .checked_add(charge.cpu_millis)
                 .context("cpu overflow")?;
-            used.3 = used.3.checked_add(r.disk_bytes).context("disk overflow")?;
+            used.3 = used
+                .3
+                .checked_add(charge.disk_bytes)
+                .context("disk overflow")?;
             if let Some(request) = &attempt.acceptance {
                 ensure!(
                     attempt.acceptance_digest.as_ref() == Some(&canonical_digest(request)?),
@@ -320,6 +326,7 @@ impl State {
             phase_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
             refresh_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
             launch::validate(attempt, self.revision, &mut identities)?;
+            parking::validate(attempt, self.revision, &mut identities)?;
             phase_terminal::validate(attempt, self.revision)?;
             refresh_terminal::validate(attempt, self.revision)?;
             if let Some(h) = &attempt.native_host {
@@ -371,9 +378,11 @@ impl State {
                 digest: canonical_digest(self)?,
             })?
             .len();
+            let parking_reserve = parking::remaining_reserve(self)?;
             ensure!(
                 bytes
                     .checked_add(phase_terminal::remaining_reserve(self)?)
+                    .and_then(|n| n.checked_add(parking_reserve))
                     .is_some_and(|n| n <= MAX_BYTES),
                 "native reserved host/outbox capacity"
             );
@@ -479,16 +488,29 @@ impl Journal {
         &self.state
     }
     /// Capacity for new polling is available only to this original live owner.
-    /// Every retained record holds resources, including expired/unknown requests.
+    /// Proven stopped+settled parking can release compute; all retained disk and
+    /// unknown requests remain charged through the same checked projection.
     pub fn available(&self) -> Result<Limits> {
         self.live()?;
         let mut free = self.limits.clone();
         for attempt in self.state.attempts.values() {
-            let resource = &attempt.reservation.offer.offered.offer.manifest.resources;
-            free.slots -= 1;
-            free.memory_bytes -= resource.memory_bytes;
-            free.cpu_millis -= resource.cpu_millis;
-            free.disk_bytes -= attempt.reservation.disk_bytes;
+            let charge = parking::charge(attempt)?;
+            free.slots = free
+                .slots
+                .checked_sub(charge.slots)
+                .context("slot charge underflow")?;
+            free.memory_bytes = free
+                .memory_bytes
+                .checked_sub(charge.memory_bytes)
+                .context("memory charge underflow")?;
+            free.cpu_millis = free
+                .cpu_millis
+                .checked_sub(charge.cpu_millis)
+                .context("CPU charge underflow")?;
+            free.disk_bytes = free
+                .disk_bytes
+                .checked_sub(charge.disk_bytes)
+                .context("disk charge underflow")?;
         }
         Ok(free)
     }
@@ -637,6 +659,7 @@ impl Journal {
                 refresh_prepared: None,
                 refresh_execution: None,
                 native_host: None,
+                parking: None,
             },
         );
         self.persist(state)?;

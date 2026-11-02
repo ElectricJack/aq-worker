@@ -279,6 +279,10 @@ impl GitClient {
     pub(crate) fn transfer_byte_limit(&self) -> u64 {
         self.maximum_artifact_bytes
     }
+    #[cfg(feature = "test-support")]
+    pub(crate) fn workspace_byte_limit(&self) -> u64 {
+        self.maximum_pool_bytes
+    }
     /// Conservative native charge: workspace + retained object pool + full artifact.
     /// This is a logical admission bound, not a physical free-space guarantee.
     pub fn native_reservation_bytes(&self) -> Result<u64> {

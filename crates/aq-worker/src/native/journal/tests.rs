@@ -1,4 +1,7 @@
 use super::*;
+#[cfg(feature = "test-support")]
+#[path = "parking_history_tests.rs"]
+mod parking_history_tests;
 use aq_session_protocol::Text;
 use std::{
     fs,

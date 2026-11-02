@@ -19,6 +19,39 @@ pub struct HydratedWorkspace {
     git: GitClient,
 }
 impl HydratedWorkspace {
+    // Association only, for safety/retention after stop. This neither checks nor
+    // renews execution authority and deliberately makes no clean-base claim.
+    #[cfg(feature = "test-support")]
+    pub(super) fn parking_association(&self, journal: &Journal) -> Result<()> {
+        let attempt = journal
+            .state()
+            .attempts
+            .get(&self.attempt)
+            .context("parking retained source attempt absent")?;
+        let source = attempt
+            .source
+            .as_ref()
+            .context("parking source history absent")?;
+        let created = source
+            .operations
+            .get("create")
+            .and_then(|operation| operation.result.as_ref())
+            .context("parking original workspace result absent")?;
+        let workspace: Workspace = serde_json::from_value(created.clone())?;
+        ensure!(
+            self.binding == attempt.reservation.offer.offered.offer.binding
+                && source.manifest.as_ref() == Some(&self.manifest)
+                && source.root == self.git.root()
+                && serde_json::to_value(&workspace)? == serde_json::to_value(&self.workspace)?,
+            "parking original source association changed"
+        );
+        self._stage_owner.verify(&self.manifest)?;
+        self.git.validate_workspace(&self.workspace)
+    }
+    #[cfg(feature = "test-support")]
+    pub(super) fn retained_git(&self) -> GitClient {
+        self.git.clone()
+    }
     pub(super) fn revalidate(&self, journal: &Journal) -> Result<()> {
         self.revalidate_until(journal, self.deadline_ns)
     }

@@ -10,6 +10,8 @@ mod phase_profile_shared;
 pub mod preparation;
 pub mod runner;
 pub use preparation::launch;
+#[cfg(feature = "test-support")]
+pub use preparation::launch::parking;
 
 use anyhow::{Result, ensure};
 use aq_admission::{

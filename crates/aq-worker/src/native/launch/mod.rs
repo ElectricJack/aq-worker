@@ -26,6 +26,9 @@ pub enum Checkpoint {
 mod authority;
 mod native;
 mod output_relay;
+#[path = "../parking/mod.rs"]
+#[cfg(feature = "test-support")]
+pub mod parking;
 mod root;
 #[cfg(any(test, feature = "test-support"))]
 mod synthetic;

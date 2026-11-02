@@ -7,6 +7,14 @@ pub(super) enum RetainedPhaseInputs {
     Refresh(Arc<PreparedRefreshInputs>),
 }
 impl RetainedPhaseInputs {
+    #[cfg(feature = "test-support")]
+    pub(super) fn same_owner(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Frozen(a), Self::Frozen(b)) => Arc::ptr_eq(a, b),
+            (Self::Refresh(a), Self::Refresh(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
     pub(super) fn startup(&self) -> &aq_session_host::RenderedStartup {
         match self {
             Self::Frozen(i) => i.startup(),

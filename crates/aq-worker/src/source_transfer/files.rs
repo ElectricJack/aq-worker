@@ -46,7 +46,7 @@ fn artifact_directory(
     }
     Ok(dir)
 }
-pub(super) fn artifact_file(
+pub(crate) fn artifact_file(
     root: &Path,
     artifact: Uuid,
     incoming: bool,
@@ -129,7 +129,7 @@ pub(crate) fn discard_incoming(root: &Path, artifact: Uuid) -> Result<()> {
     parent.sync_all()?;
     Ok(())
 }
-pub(super) fn read_range(
+pub(crate) fn read_range(
     root: &Path,
     artifact: Uuid,
     file: &TransferFile,
