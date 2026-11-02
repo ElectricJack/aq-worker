@@ -174,6 +174,18 @@ pub struct PhaseOutputStatus {
     pub draining: bool,
 }
 impl PhaseOutputRelay {
+    pub(super) fn control_transport(&self) -> Result<RelayHttp> {
+        Ok(self
+            .owner
+            .network
+            .try_lock()
+            .context("native relay transport busy")?
+            .http
+            .clone())
+    }
+    pub(super) fn control_registration(&self) -> Result<Register> {
+        self.owner.registration()
+    }
     pub fn terminal(&self) -> &TerminalIdentity {
         &self.owner.terminal
     }
@@ -399,10 +411,8 @@ impl InputPipeline {
             .context("native output host history absent")?;
         let terminal = history.intent.terminal.clone();
         let policy = a.reservation.offer.offered.offer.manifest.terminal.clone();
-        ensure!(
-            !policy.input_enabled,
-            "native output-only sealed policy required"
-        );
+        // Output is still Watch-only, even when the separately owned finite
+        // control bridge is attached to an explicitly input-enabled profile.
         let started_request = RetainedStarted::capture(a)?;
         ensure!(
             history.running.is_some() && !host.entry.stop.load(Ordering::SeqCst),

@@ -263,6 +263,42 @@ impl Bridge {
         Ok(request)
     }
     /// Caller uses this only after RelayHttp::register validates the public DTO.
+    /// Join an existing locally-derived registration (for example the actual
+    /// Started ACK's operation) without inventing a second network identity.
+    /// The attached opaque host remains mandatory; this installs no authority.
+    pub fn prepare_registration_exact(&mut self, request: &Register) -> Result<()> {
+        self.healthy()?;
+        request.validate()?;
+        ensure!(
+            request.peer == self.state.peer
+                && request.input_mode == wire::InputMode::FiniteV1
+                && self
+                    .state
+                    .bindings
+                    .get(&request.terminal.terminal_id)
+                    .is_some_and(|b| b.terminal == request.terminal)
+                && self.hosts.contains_key(&request.terminal.terminal_id),
+            "exact registration requires attached original local host"
+        );
+        if let Some(old) = self.state.registrations.get(&request.terminal.terminal_id) {
+            ensure!(
+                digest(&old.request)? == digest(request)?,
+                "exact registration changed"
+            );
+            return Ok(());
+        }
+        let mut next = self.state.clone();
+        next.registrations.insert(
+            request.terminal.terminal_id,
+            Registration {
+                request: request.clone(),
+                confirmed: false,
+            },
+        );
+        journal::check_admission(&next)?;
+        self.save(next)
+    }
+    /// Caller uses this only after RelayHttp::register validates the public DTO.
     pub fn confirm_registration(&mut self, request: &Register) -> Result<()> {
         self.healthy()?;
         let saved = self

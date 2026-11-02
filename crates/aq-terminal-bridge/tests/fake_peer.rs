@@ -667,3 +667,54 @@ fn bounded_recovery_rotates_past_a_busy_terminal_and_preserves_other_metadata_pr
     assert_eq!(upload.receipts[0].terminal, other.binding.terminal);
     assert_eq!(host.state.lock().unwrap().physical, 0);
 }
+
+#[test]
+fn original_started_registration_joins_existing_bridge_without_replacing_input_history() {
+    let root = tempfile::tempdir().unwrap();
+    let host = Arc::new(FakeHost::new());
+    let clock = QualifiedClock::assume_bounded_skew(0).unwrap();
+    let mut bridge = Bridge::create(root.path(), host.peer(), clock).unwrap();
+    let request = Register {
+        version: VERSION,
+        capability: Text::new(CAPABILITY).unwrap(),
+        operation_id: id(900),
+        peer: host.peer(),
+        terminal: host.binding.terminal.clone(),
+        expected_authority_revision: 1,
+        input_mode: InputMode::FiniteV1,
+        advertised_capabilities: vec![Capability {
+            id: Text::new(CAPABILITY).unwrap(),
+            version: VERSION,
+        }],
+    };
+    assert!(
+        bridge.prepare_registration_exact(&request).is_err(),
+        "metadata cannot attach a host"
+    );
+    bridge.attach(host.clone()).unwrap();
+    bridge.prepare_registration_exact(&request).unwrap();
+    bridge.confirm_registration(&request).unwrap();
+    let input = envelope(&host, 1, vec![Effect::Input(host.input(901))]);
+    for prepared in bridge.receive(&input).unwrap() {
+        bridge.execute(prepared).unwrap();
+    }
+    assert_eq!(host.state.lock().unwrap().physical, 1);
+    drop(bridge);
+    let mut bridge = Bridge::open(root.path(), host.peer(), clock).unwrap();
+    bridge.attach(host.clone()).unwrap();
+    bridge.prepare_registration_exact(&request).unwrap();
+    bridge.confirm_registration(&request).unwrap();
+    assert!(bridge.receive(&input).unwrap().is_empty());
+    assert_eq!(host.state.lock().unwrap().physical, 1);
+    let before = serde_json::to_value(bridge.prepare_control_upload().unwrap()).unwrap();
+    let mut changed = request.clone();
+    changed.operation_id = id(902);
+    assert!(bridge.prepare_registration_exact(&changed).is_err());
+    changed = request;
+    changed.expected_authority_revision = 2;
+    assert!(bridge.prepare_registration_exact(&changed).is_err());
+    assert_eq!(
+        before,
+        serde_json::to_value(bridge.prepare_control_upload().unwrap()).unwrap()
+    );
+}

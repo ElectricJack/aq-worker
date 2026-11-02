@@ -24,12 +24,14 @@ pub enum Checkpoint {
     Started,
 }
 mod authority;
+mod control_relay;
 mod native;
 mod output_relay;
 mod root;
 #[cfg(any(test, feature = "test-support"))]
 mod synthetic;
 use crate::native::journal::launch::{LaunchFailure, NativeHostHistory, NativeLaunchIntent};
+pub use control_relay::PhaseControlRelay;
 use execution::LaunchExecutionScope;
 pub use native::NativeCodexHostProfile;
 pub use output_relay::{PhaseOutputRelay, PhaseOutputStatus};
@@ -47,6 +49,7 @@ type PauseHook = Arc<Mutex<Option<(Checkpoint, Arc<crate::native::journal::Nativ
 #[cfg(test)]
 type FaultHook = Arc<Mutex<Option<(Checkpoint, crate::native::journal::WriteFault)>>>;
 pub(super) struct Registry {
+    control: Mutex<Option<Arc<control_relay::ControlOwner>>>,
     output: Arc<Mutex<output_relay::Outputs>>,
     #[cfg(test)]
     hook: PauseHook,
@@ -170,6 +173,7 @@ impl Registry {
             }
         }
         Self {
+            control: Mutex::new(None),
             #[cfg(test)]
             hook,
             #[cfg(test)]
