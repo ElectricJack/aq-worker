@@ -72,7 +72,41 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
         .unwrap()
         .entries
         .insert(id, entry.clone());
-    registry.fence(id).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let journal = Journal::create(
+        &dir.path().join("journal"),
+        Uuid::new_v4(),
+        crate::native::journal::Limits {
+            slots: 1,
+            memory_bytes: 1024,
+            cpu_millis: 1000,
+            disk_bytes: 1048576,
+        },
+    )
+    .unwrap();
+    let identity = journal.state().identity.clone();
+    let material_root = dir.path().join("materials");
+    std::fs::create_dir(&material_root).unwrap();
+    std::fs::set_permissions(
+        &material_root,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
+    let materials = MaterialStore::open(&material_root, identity.clone(), 1).unwrap();
+    let client = NativeClient::from_config(&crate::config::WorkerConfig {
+        server_url: "http://127.0.0.1:9".into(),
+        node_id: identity.node_id,
+        credential: "synthetic-never-sent".into(),
+        cf_client_id: None,
+        cf_client_secret: None,
+    })
+    .unwrap();
+    let mut pipeline = InputPipeline::new(journal, materials, client);
+    pipeline.launch = Arc::new(registry);
+    // The public stop method must fence even before its returned future is
+    // polled, independently of a saturated journal storage lane.
+    let _blocked = pipeline.storage_slots.clone().try_acquire_owned().unwrap();
+    let stop = pipeline.stop_phase_host(id);
     assert!(entry.stop.load(Ordering::SeqCst));
     let closed = tokio::time::timeout(Duration::from_secs(1), pending.read_to_end(&mut Vec::new()))
         .await
@@ -82,4 +116,5 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
     );
     assert!(tokio::net::TcpStream::connect(address).await.is_err());
     assert!(entry.physical.lock().unwrap().stopped.is_none());
+    drop(stop); // No physical host or stopped proof exists in this safety test.
 }
