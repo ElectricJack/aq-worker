@@ -9,6 +9,7 @@ name = "aq-agent"
 path = "src/main.rs"
 
 [dependencies]
+aq-agent-result-local.workspace = true
 aq-agent-api = { path = "../../vendor/aq-agent-api-0.1.0", version = "=0.1.0" }
 aq-session-protocol = { path = "../aq-session-protocol", version = "=0.1.0" }
 anyhow = "1"

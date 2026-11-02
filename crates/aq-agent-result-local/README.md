@@ -71,6 +71,8 @@ No external dependency versions changed.
 Root source review tightened the presence guard to require both original
 execution deadline and hard ceiling, with execution<=hard and no renewal. An
 unequal-deadline regression ensures a later hard ceiling cannot admit a new
-publication after the original execution lease expires. This source delta is
-pending the next focused gate; the earlier five-test result covers the earlier
-hard-ceiling-only guard. Existing intent/status remains historical data.
+publication after the original execution lease expires. The adapter owner reran
+all five pure tests successfully after this delta. The separate client gate also
+verified execution expiry with a later hard deadline. Existing intent/status
+remains historical data. Counted startup bytes are exposed separately through
+`STARTUP_TEXT` and `startup_artifact()`; the runtime mapper must not append them.

@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use anyhow::{Context as _, Result, ensure};
 use aq_agent_client::client::{AgentClient, Failure, Outcome};
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
@@ -13,7 +13,7 @@ use uuid::Uuid;
 )]
 struct Cli {
     #[arg(long)]
-    state_dir: PathBuf,
+    state_dir: Option<PathBuf>,
     /// Optional assertion of the managed private credential binding. No token values.
     #[arg(long)]
     token_file: Option<PathBuf>,
@@ -22,6 +22,11 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// One bounded local completion claim; no Graph/task-completion authority.
+    Result {
+        #[command(subcommand)]
+        command: ResultCommand,
+    },
     Context {
         #[arg(long)]
         cached: bool,
@@ -34,6 +39,16 @@ enum Command {
         #[command(subcommand)]
         command: Operation,
     },
+}
+#[derive(Subcommand)]
+enum ResultCommand {
+    /// Publish the original local intent, normally exit10 (pending).
+    Submit {
+        #[arg(long)]
+        request_file: PathBuf,
+    },
+    /// Read local worker acknowledgment/recovery data; triggers no effects.
+    Status,
 }
 #[derive(Subcommand)]
 enum Operation {
@@ -105,14 +120,44 @@ fn input(path: Option<PathBuf>) -> Result<Value> {
     Ok(aq_agent_client::contract::parse(&bytes)?)
 }
 async fn run(cli: Cli) -> Result<Outcome> {
-    if let Some(file) = cli.token_file {
+    let Cli {
+        state_dir,
+        token_file,
+        command,
+    } = cli;
+    let command = match command {
+        Command::Result { command } => {
+            ensure!(
+                token_file.is_none(),
+                "local result channel accepts no Graph token assertion"
+            );
+            let root = state_dir
+                .or_else(|| {
+                    std::env::var_os(aq_agent_result_local::RESULT_DIR_ENV).map(PathBuf::from)
+                })
+                .context("result runtime channel unavailable")?;
+            let client = aq_agent_client::completion::ResultClient::open(&root)?;
+            return match command {
+                ResultCommand::Submit { request_file } => {
+                    client.submit(aq_agent_client::completion::read_input(&request_file)?)
+                }
+                ResultCommand::Status => client.status(),
+            };
+        }
+        command => command,
+    };
+    let state_dir = state_dir.context("Graph state-dir required")?;
+    if let Some(file) = token_file {
         ensure!(
-            file == cli.state_dir.join("credential.json"),
+            file == state_dir.join("credential.json"),
             "token-file must match managed session binding"
         );
     }
-    let mut client = AgentClient::open(&cli.state_dir)?;
-    match cli.command {
+    let mut client = AgentClient::open(&state_dir)?;
+    match command {
+        Command::Result { .. } => {
+            unreachable!("local result dispatch completed before Graph client")
+        }
         Command::Context { cached: true } => Ok(Outcome {
             value: client.cached_context()?,
             exit_code: 0,

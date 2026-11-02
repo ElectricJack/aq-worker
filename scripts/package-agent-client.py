@@ -50,13 +50,16 @@ def main():
              "agent-api-contract.json": (ROOT / "vendor/agent-api-contract.json").read_bytes()}
     for name in ["schema.json", "openapi.json", "cli-contract.json"]:
         files["contracts/" + name] = (package / "artifacts" / name).read_bytes()
+    result_contract = ROOT / "crates/aq-agent-result-local"
+    files["contracts/agent-result-local.json"] = (result_contract / "artifacts/contract.json").read_bytes()
+    files["instructions/agent-result-startup.md"] = (result_contract / "artifacts/startup.md").read_bytes()
     manifest = {"format_version": 1, "component": "aq-agent-client", "version": "0.1.0",
                 "source_revision": checked("git", "rev-parse", "HEAD"),
                 "working_tree_dirty": bool(checked("git", "status", "--porcelain", "--untracked-files=all")),
                 "rustc": checked("rustc", "-vV"), "agent_api_version": 1,
                 "api_archive_sha256": pin["archive_sha256"],
                 "runtime": "Linux host target; no portable libc or container qualification claim",
-                "capabilities": ["context.live", "context.cached", "graph.read", "graph.command", "operation.get"],
+                "capabilities": ["context.live", "context.cached", "graph.read", "graph.command", "operation.get", "result.submit.local", "result.status.local"],
                 "files": {name: {"sha256": sha(data), "bytes": len(data)} for name, data in sorted(files.items())}}
     files["manifest.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
     # Exclusive creation prevents replacing an existing release. Deterministic
