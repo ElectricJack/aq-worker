@@ -76,11 +76,22 @@ impl OwnedTerminal for GuardedTerminal {
         self.terminal.binding()
     }
     fn submit(&self, effect: &Effect, clock: QualifiedClock) -> Result<Option<Receipt>> {
-        let entry = self.current()?;
+        let entry = self.current().inspect_err(|_| {
+            tracing::info!(stage = "owner_current", "native terminal control refused");
+        })?;
         // The physical owner remains retained throughout mailbox admission.
         // The guardian independently rechecks its permit and exact pane before
         // any tmux effect; the Bridge's irreversible no-replay boundary is used.
         let physical = lock(&entry.physical)?;
+        if entry.stop.load(Ordering::SeqCst)
+            || !matches!(physical.outcome, Outcome::Running)
+            || physical.stopped.is_some()
+        {
+            tracing::info!(
+                stage = "physical_stopped",
+                "native terminal control refused"
+            );
+        }
         ensure!(
             !entry.stop.load(Ordering::SeqCst)
                 && matches!(physical.outcome, Outcome::Running)
@@ -92,10 +103,17 @@ impl OwnedTerminal for GuardedTerminal {
             let view = self.terminal.current_viewport()?;
             match aq_codex_mapper::classify_current_viewport(&view) {
                 InteractiveViewport::AuthenticationRequired => {
+                    tracing::info!(stage = "authentication", "native terminal control refused");
                     anyhow::bail!("native terminal authentication required; input quarantined");
                 }
                 InteractiveViewport::TrustDirectory => {
                     let bytes = input.bytes.as_slice();
+                    if bytes != b"\r" && bytes != b"\n" && bytes != b"\x03" {
+                        tracing::info!(
+                            stage = "workspace_trust",
+                            "native terminal control refused"
+                        );
+                    }
                     ensure!(
                         bytes == b"\r" || bytes == b"\n" || bytes == b"\x03",
                         "unexpected workspace trust dialog requires explicit controller choice"
@@ -106,7 +124,9 @@ impl OwnedTerminal for GuardedTerminal {
                 InteractiveViewport::Ready | InteractiveViewport::Waiting => {}
             }
         }
-        self.terminal.submit(effect, clock)
+        self.terminal.submit(effect, clock).inspect_err(|_| {
+            tracing::info!(stage = "guardian_submit", "native terminal control refused");
+        })
     }
     fn receipt(&self, id: Uuid) -> Result<Option<Receipt>> {
         // Historical metadata must still be publishable after stop.
