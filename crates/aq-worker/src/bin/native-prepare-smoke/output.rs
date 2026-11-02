@@ -12,6 +12,27 @@ pub(super) async fn run(
     input: &mut impl BufRead,
     stage: &mut &'static str,
 ) -> Result<serde_json::Value> {
+    run_for(pipeline, host, config, id, input, stage, false).await
+}
+pub(super) async fn run_refresh(
+    pipeline: &Arc<InputPipeline>,
+    host: &LocalPhaseHost,
+    config: &WorkerConfig,
+    id: Uuid,
+    input: &mut impl BufRead,
+    stage: &mut &'static str,
+) -> Result<serde_json::Value> {
+    run_for(pipeline, host, config, id, input, stage, true).await
+}
+async fn run_for(
+    pipeline: &Arc<InputPipeline>,
+    host: &LocalPhaseHost,
+    config: &WorkerConfig,
+    id: Uuid,
+    input: &mut impl BufRead,
+    stage: &mut &'static str,
+    refresh: bool,
+) -> Result<serde_json::Value> {
     ensure!(
         config.cf_client_id.is_none() && config.cf_client_secret.is_none(),
         "local output probe does not support proxy credentials"
@@ -21,7 +42,13 @@ pub(super) async fn run(
     *stage = "phase_output_attach";
     let relay = pipeline.start_phase_output(host, http.clone())?;
     *stage = "phase_output_started_ack";
-    let started = pipeline.report_phase_terminal_started(id).await?;
+    // JSON is diagnostic presentation of an already authenticated persisted
+    // receipt. It is never converted into an old/new Context or live authority.
+    let started = if refresh {
+        serde_json::to_value(pipeline.report_refresh_terminal_started(id).await?)?
+    } else {
+        serde_json::to_value(pipeline.report_phase_terminal_started(id).await?)?
+    };
     *stage = "phase_output_register";
     let info = relay.register().await?;
     ensure!(

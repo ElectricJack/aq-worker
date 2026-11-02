@@ -52,11 +52,12 @@ struct Config {
     features: Vec<Feature>,
     renderer: ArtifactRef,
     phase_preparation: Option<PhaseConfig>,
+    refresh_preparation: Option<PhaseConfig<aq_admission::preparation_refresh_v1::Negotiation>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PhaseConfig {
-    negotiation: aq_admission::preparation_v2::Negotiation,
+struct PhaseConfig<N = aq_admission::preparation_v2::Negotiation> {
+    negotiation: N,
     source_profile: ArtifactRef,
     maximum_preparation_ms: u64,
     #[serde(default)]
@@ -73,8 +74,13 @@ struct PhaseConfig {
     await_synthetic_assessment: bool,
     synthetic_host: Option<HostConfig>,
 }
-impl PhaseConfig {
+impl<N> PhaseConfig<N> {
     fn validate(&self) -> Result<()> {
+        ensure!(
+            (1..=aq_admission::preparation_v2::MAX_PREPARATION_MS)
+                .contains(&self.maximum_preparation_ms),
+            "preparation duration exceeds the declared protocol bound"
+        );
         ensure!(
             !self.prepare_execution || self.prepare_inputs,
             "phase execution requires actual inputs"
@@ -282,13 +288,27 @@ async fn register(
         .await?;
     Ok(())
 }
+fn validate_config(config: &Config) -> Result<()> {
+    ensure!(
+        config.phase_preparation.is_none() || config.refresh_preparation.is_none(),
+        "nominal preparation profiles cannot be combined"
+    );
+    if let Some(phase) = &config.phase_preparation {
+        phase.validate()?;
+        phase.negotiation.validate()?;
+    }
+    if let Some(phase) = &config.refresh_preparation {
+        phase.validate()?;
+        phase.negotiation.validate()?;
+    }
+    Ok(())
+}
 async fn run(stage: &mut &'static str) -> Result<()> {
     let stdin = std::io::stdin();
     let mut input = BufReader::new(stdin.lock());
     let config: Config = frame(&mut input, CONFIG_BYTES)?;
-    if let Some(phase) = &config.phase_preparation {
-        phase.validate()?;
-    }
+    validate_config(&config)?;
+    let client = NativeClient::from_config(&config.worker)?;
     let held = root(&config.root)?;
     let git = GitClient::new(&config.git_socket, &config.git_root)?;
     ensure!(
@@ -313,18 +333,27 @@ async fn run(stage: &mut &'static str) -> Result<()> {
     let identity = journal.state().identity.clone();
     let materials = MaterialStore::open(&config.root.join("materials"), identity.clone(), 32)?;
     current_root(&config.root, &held)?;
-    let client = NativeClient::from_config(&config.worker)?;
     // Qualified InventoryV2 must observe the actual child's admitted runtime.
     // Earlier probe modes keep their original ready/continue/register ordering.
     let registered_before_ready = config
         .phase_preparation
         .as_ref()
-        .is_some_and(|p| p.prepare_execution);
+        .is_some_and(|p| p.prepare_execution)
+        || config
+            .refresh_preparation
+            .as_ref()
+            .is_some_and(|p| p.prepare_execution);
     if registered_before_ready {
         *stage = "register";
         register(&client, &config, &identity).await?;
     }
-    emit(&json!({"phase":"ready","identity":identity}))?;
+    let mut ready = json!({"phase":"ready","identity":identity});
+    if let Some(phase) = &config.refresh_preparation {
+        ready["worker_version"] = json!(env!("CARGO_PKG_VERSION"));
+        ready["preparation_contract"] = json!(phase.negotiation.contract);
+        ready["journal_format"] = json!(journal.state().format);
+    }
+    emit(&ready)?;
     *stage = "continue";
     let next: Continue = frame(&mut input, 1024)?;
     ensure!(next.r#continue, "explicit continue required");
@@ -375,30 +404,34 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         deadline,
         disk,
     )?;
-    if let Some(phase) = config.phase_preparation {
+    // Test-support orchestration only: same owning algorithm over two nominal
+    // API families. No phase DTO or opaque live owner is converted between them.
+    macro_rules! drive_phase {
+        ($phase:ident, $terminal:path, $propose:ident, $begin_accept:ident, $accept:ident, $record_accept:ident, $check_accept:ident, $artifacts:ident, $material:ident, $artifact:ident, $hydrate:ident, $inputs:ident, $execute:ident, $history:ident, $record_execution:ident, $started:ident, $stopped:ident, $execution_field:ident, $output:ident) => {{
+            use $terminal as terminal_wire;
         *stage = "phase_proposal";
         let proposed = client
-            .propose_preparation(
+            .$propose(
                 &journal.state().identity,
                 &offer,
-                &phase.negotiation,
+                &$phase.negotiation,
                 deadline,
             )
             .await?;
         *stage = "phase_accept_intent";
-        let request = journal.begin_phase_accept(
+        let request = journal.$begin_accept(
             id,
             &proposed,
             config.capabilities.clone(),
-            phase.source_profile,
-            phase.maximum_preparation_ms,
+            $phase.source_profile,
+            $phase.maximum_preparation_ms,
         )?;
         *stage = "phase_accept";
-        let observed = client.accept_preparation(&proposed, &request, None).await?;
+        let observed = client.$accept(&proposed, &request, None).await?;
         *stage = "phase_received_history";
-        let first = journal.record_phase_preparation(id, &observed)?;
-        journal.check_phase_preparation(id, &observed)?;
-        if !phase.prepare_execution {
+        let first = journal.$record_accept(id, &observed)?;
+        journal.$check_accept(id, &observed)?;
+        if !$phase.prepare_execution {
             // Wait a full original delivery duration from now, then check the real
             // replay's server clock. This test pause changes no lease or deadline.
             let pause_ms = offer
@@ -412,25 +445,25 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         }
         *stage = "phase_replay";
         let replay = client
-            .accept_preparation(&proposed, &request, Some(&observed))
+            .$accept(&proposed, &request, Some(&observed))
             .await?;
-        let retained = journal.record_phase_preparation(id, &replay)?;
-        let cap = journal.check_phase_preparation(id, &replay)?;
+        let retained = journal.$record_accept(id, &replay)?;
+        let cap = journal.$check_accept(id, &replay)?;
         current_root(&config.root, &held)?;
         let mut result = json!({"phase":"accepted_preparation","request":request,"proposal":proposed.proposal(),
             "initial_delivery":observed.delivery(),"replay_delivery":replay.delivery(),
             "history":retained,"first_history":first,"journal_revision":journal.state().revision,
             "journal_format":journal.state().format,"original_deadline_ns":deadline,
             "checked_at_ns":boot_ns()?,"deadline_ns":cap});
-        if phase.prepare_inputs {
+        if $phase.prepare_inputs {
             let preparation = Arc::new(replay);
             let pipeline = Arc::new(InputPipeline::new(journal, materials, client.clone()));
             *stage = "phase_artifacts";
-            let artifacts = pipeline.artifacts_phase(id, preparation.clone()).await?;
+            let artifacts = pipeline.$artifacts(id, preparation.clone()).await?;
             *stage = "phase_materials";
             for lease in &preparation.delivery().receipt.lease.materials {
                 pipeline
-                    .material_phase(id, preparation.clone(), lease.lease_id)
+                    .$material(id, preparation.clone(), lease.lease_id)
                     .await?;
             }
             let spec = offer
@@ -445,14 +478,14 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                 .context("original typed phase spec absent")?;
             *stage = "phase_hydrate";
             let spec = pipeline
-                .artifact_phase(id, preparation.clone(), spec.artifact.clone())
+                .$artifact(id, preparation.clone(), spec.artifact.clone())
                 .await?;
             let workspace = pipeline
-                .hydrate_source_phase(id, preparation.clone(), spec, git)
+                .$hydrate(id, preparation.clone(), spec, git)
                 .await?;
             *stage = "phase_prepare_inputs";
             let prepared = pipeline
-                .prepare_inputs_phase(
+                .$inputs(
                     id,
                     preparation.clone(),
                     artifacts,
@@ -476,8 +509,8 @@ async fn run(stage: &mut &'static str) -> Result<()> {
             );
             result["prepared_revision"] = json!(snapshot.revision);
             result["prepared_at_ns"] = json!(boot_ns()?);
-            if phase.prepare_execution {
-                if phase.await_synthetic_assessment {
+            if $phase.prepare_execution {
+                if $phase.await_synthetic_assessment {
                     *stage = "phase_synthetic_assessment_pause";
                     result["phase"] = json!("prepared_inputs_awaiting_synthetic_assessment");
                     emit(&result)?;
@@ -486,20 +519,20 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                 }
                 *stage = "phase_execution_http";
                 let observation = client
-                    .prepare_execution(&proposed, &request, &preparation, prepared.request(), None)
+                    .$execute(&proposed, &request, &preparation, prepared.request(), None)
                     .await;
-                if phase.history_after_lost_execution {
+                if $phase.history_after_lost_execution {
                     expected_lost_execution_reply(observation.as_ref().err())?;
                     *stage = "phase_execution_history_only";
-                    let q = aq_phase_terminal_protocol::HistoryRequest {
+                    let q = terminal_wire::HistoryRequest {
                         schema_version: 1,
-                        negotiation: aq_phase_terminal_protocol::Negotiation::current()?,
+                        negotiation: terminal_wire::Negotiation::current()?,
                         operation_id: Uuid::new_v4(),
                         binding: prepared.request().original.binding.clone(),
                         accepted_receipt_digest: preparation.delivery().receipt.digest()?,
                         prepare_operation_id: prepared.request().original.operation_id,
                     };
-                    let receipt = client.phase_terminal_history(&q).await?;
+                    let receipt = client.$history(&q).await?;
                     let known = receipt
                         .identity
                         .as_ref()
@@ -521,7 +554,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                     ensure!(
                         known.runtime == attempt.reservation.runtime.runtime
                             && known.qualification == attempt.reservation.runtime.qualification
-                            && attempt.phase_execution.is_none()
+                            && attempt.$execution_field.is_none()
                             && attempt.native_host.is_none()
                             && snapshot.revision
                                 == result["prepared_revision"]
@@ -543,7 +576,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                 result["execution_delivery"] = json!(observation.delivery());
                 *stage = "phase_execution_durable";
                 let PhaseExecutionCommit::Usable(grant) = pipeline
-                    .record_phase_execution(prepared, observation.clone())
+                    .$record_execution(prepared, observation.clone())
                     .await?
                 else {
                     anyhow::bail!("phase execution retained as history only");
@@ -555,7 +588,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                 result["execution_hard_deadline_ns"] = json!(grant.hard_deadline_ns());
                 result["execution_checked_at_ns"] = json!(boot_ns()?);
                 result["execution_revision"] = json!(pipeline.snapshot().await?.revision);
-                if let Some(host) = phase.synthetic_host {
+                if let Some(host) = $phase.synthetic_host {
                     *stage = "phase_host_profile";
                     let host_root = config.root.join("host");
                     use std::os::unix::fs::DirBuilderExt;
@@ -594,10 +627,10 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                     }
                     // Retain failure until after physical stop. The observer drains
                     // before network reporting, independently of the human Watch.
-                    let output_result = if phase.relay_output {
+                    let output_result = if $phase.relay_output {
                         match &launched {
                             NativeHostLaunchResult::Running(host) => {
-                                output::run(&pipeline, host, &config.worker, id, &mut input, stage)
+                                output::$output(&pipeline, host, &config.worker, id, &mut input, stage)
                                     .await
                                     .map(Some)
                             }
@@ -637,15 +670,15 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                             .context("native host history absent")?
                             .stopped
                     );
-                    if phase.report_terminal {
+                    if $phase.report_terminal {
                         // Physical stop and its journal commit happen first, so
                         // a failed report cannot prevent local cleanup.
                         *stage = "phase_started_report";
                         result["phase_started_ack"] =
-                            json!(pipeline.report_phase_terminal_started(id).await?);
+                            json!(pipeline.$started(id).await?);
                         *stage = "phase_stopped_report";
                         result["phase_stopped_ack"] =
-                            json!(pipeline.report_phase_terminal_stopped(id).await?);
+                            json!(pipeline.$stopped(id).await?);
                         result["terminal_ack_revision"] =
                             json!(pipeline.snapshot().await?.revision);
                     }
@@ -658,6 +691,53 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         }
         emit(&result)?;
         return Ok(());
+        }};
+    }
+    if let Some(phase) = config.phase_preparation {
+        drive_phase!(
+            phase,
+            aq_phase_terminal_protocol,
+            propose_preparation,
+            begin_phase_accept,
+            accept_preparation,
+            record_phase_preparation,
+            check_phase_preparation,
+            artifacts_phase,
+            material_phase,
+            artifact_phase,
+            hydrate_source_phase,
+            prepare_inputs_phase,
+            prepare_execution,
+            phase_terminal_history,
+            record_phase_execution,
+            report_phase_terminal_started,
+            report_phase_terminal_stopped,
+            phase_execution,
+            run
+        );
+    }
+    if let Some(phase) = config.refresh_preparation {
+        drive_phase!(
+            phase,
+            aq_phase_terminal_protocol::refresh_v1,
+            propose_refresh_preparation,
+            begin_refresh_accept,
+            accept_refresh_preparation,
+            record_refresh_preparation,
+            check_refresh_preparation,
+            artifacts_refresh,
+            material_refresh,
+            artifact_refresh,
+            hydrate_source_refresh,
+            prepare_inputs_refresh,
+            prepare_refresh_execution,
+            refresh_terminal_history,
+            record_refresh_execution,
+            report_refresh_terminal_started,
+            report_refresh_terminal_stopped,
+            refresh_execution,
+            run_refresh
+        );
     }
     let accept = journal.begin_accept(id, config.capabilities)?;
     *stage = "accept";
@@ -749,6 +829,66 @@ async fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn reference(id: &str) -> ArtifactRef {
+        ArtifactRef {
+            id: aq_session_protocol::Text::new(id).unwrap(),
+            version: aq_session_protocol::Text::new("1").unwrap(),
+            digest: aq_session_protocol::Digest::of(id.as_bytes()),
+        }
+    }
+    #[test]
+    fn explicit_refresh_profile_rejects_mixed_or_unsupported_configuration_before_io() {
+        use aq_admission::{preparation_refresh_v1 as refresh, preparation_v2 as frozen};
+        fn phase<N: DeserializeOwned>(negotiation: serde_json::Value) -> PhaseConfig<N> {
+            serde_json::from_value(json!({"negotiation":negotiation,"source_profile":reference("synthetic-source"),"maximum_preparation_ms":30000,"prepare_inputs":true,"prepare_execution":true})).unwrap()
+        }
+        let mut config = Config {
+            worker: WorkerConfig {
+                server_url: "http://127.0.0.1:9".into(),
+                node_id: Uuid::new_v4(),
+                credential: "synthetic-node-not-a-provider-key".into(),
+                cf_client_id: None,
+                cf_client_secret: None,
+            },
+            root: PathBuf::from("/nonexistent/aq-refresh-config-test"),
+            git_socket: PathBuf::from("/nonexistent/socket"),
+            git_root: PathBuf::from("/nonexistent/git"),
+            runtime: reference("synthetic-worker-0.4.0"),
+            qualification: reference("synthetic-qualification"),
+            capabilities: vec![],
+            features: vec![],
+            renderer: reference("synthetic-renderer"),
+            phase_preparation: None,
+            refresh_preparation: Some(phase(
+                json!({"contract":refresh::contract_artifact().unwrap(),"features":refresh::required_features()}),
+            )),
+        };
+        validate_config(&config).unwrap();
+        config.phase_preparation = Some(phase(
+            json!({"contract":frozen::contract_artifact().unwrap(),"features":frozen::required_features()}),
+        ));
+        assert!(validate_config(&config).is_err());
+        config.phase_preparation = None;
+        config
+            .refresh_preparation
+            .as_mut()
+            .unwrap()
+            .negotiation
+            .contract = frozen::contract_artifact().unwrap();
+        assert!(validate_config(&config).is_err());
+        config
+            .refresh_preparation
+            .as_mut()
+            .unwrap()
+            .negotiation
+            .contract = refresh::contract_artifact().unwrap();
+        config
+            .refresh_preparation
+            .as_mut()
+            .unwrap()
+            .maximum_preparation_ms = refresh::MAX_PREPARATION_MS + 1;
+        assert!(validate_config(&config).is_err());
+    }
     #[test]
     fn synthetic_assessment_pause_keeps_the_original_deadline_for_silent_or_partial_parent() {
         for prefix in [&b""[..], &b"{\"continue\":"[..]] {
@@ -791,7 +931,7 @@ mod tests {
             "../../../../vendor/aq-admission-0.1.9/artifacts/preparation-v2.fixture.json"
         ))
         .unwrap();
-        let mut p = PhaseConfig {
+        let mut p: PhaseConfig = PhaseConfig {
             negotiation: serde_json::from_value(f["proposal"]["negotiation"].clone()).unwrap(),
             source_profile: serde_json::from_value(f["accept"]["hold"]["source_profile"].clone())
                 .unwrap(),
