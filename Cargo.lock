@@ -116,6 +116,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aq-agent-api",
+ "aq-agent-result-local",
  "aq-session-protocol",
  "axum",
  "chrono",
