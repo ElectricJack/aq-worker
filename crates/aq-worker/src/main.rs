@@ -1,4 +1,6 @@
 #[cfg(feature = "test-support")]
+mod fixture_responses_cli;
+#[cfg(feature = "test-support")]
 mod native_fixture;
 use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
@@ -92,6 +94,9 @@ enum Cmd {
         #[arg(long, requires = "development_loopback")]
         fixture_preflight_gate: bool,
     },
+    /// Pure finite qualification vectors/request checks; never executes a model.
+    #[cfg(feature = "test-support")]
+    FixtureResponses,
     /// Print the node id and server (never the credential).
     Status,
 }
@@ -331,6 +336,11 @@ async fn main() -> ExitCode {
                 ),
             }
         }
+        #[cfg(feature = "test-support")]
+        Cmd::FixtureResponses => match fixture_responses_cli::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(_) => usage_err("finite response fixture input refused"),
+        },
         Cmd::Status => match WorkerConfig::load(&path) {
             Ok(c) => {
                 println!("node id: {}", c.node_id);
