@@ -39,8 +39,8 @@ isolation or a new cryptographic authority boundary.
 The CLI will expose only:
 
 ```sh
-"$AQ_AGENT_CLIENT" --state-dir "$AQ_AGENT_RESULT_DIR" result submit --request-file "$AQ_AGENT_RESULT_DIR/submissions/request.json"
-"$AQ_AGENT_CLIENT" --state-dir "$AQ_AGENT_RESULT_DIR" result status
+"$AQ_AGENT_RESULT_COMMAND" result submit --request-file "$AQ_AGENT_RESULT_DIR/submissions/request.json"
+"$AQ_AGENT_RESULT_COMMAND" result status
 ```
 
 Submit publishes at most the original local intent and reports pending, exit10.

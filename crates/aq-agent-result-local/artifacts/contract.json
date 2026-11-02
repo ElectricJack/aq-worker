@@ -1,0 +1,22 @@
+{
+  "contract": "aq-agent-result-local-1",
+  "schema_version": 1,
+  "purpose": "One immutable local agent result claim; no execution, stop, review or Graph completion authority",
+  "binding_fields": ["schema_version", "launch", "execution_record_digest", "expected_outcome", "operation_id", "report_id", "nonce"],
+  "launch_type": "aq-session-protocol/LaunchBinding@1; remote identities only",
+  "expected_outcome": {"id": "aq.expected-outcome", "version": "1"},
+  "submission_input_fields": ["schema_version", "conclusion"],
+  "submission_fields": ["schema_version", "binding", "conclusion"],
+  "ack_fields": ["schema_version", "operation_id", "report_id", "binding_digest", "submission_digest", "phase"],
+  "phase": {"tag": "kind", "values": ["accepted", "finalizing", "recorded", "needs_reconciliation"], "recorded": {"receipt": "aq.result-record/{report_id}@1; report recorded only"}},
+  "presence_fields": ["schema_version", "binding_digest", "kernel_boot_id", "original_hard_deadline_boot_ns"],
+  "limits": {"envelope_bytes": 8192, "request_file_bytes": 4096, "conclusion_utf8_bytes": 512, "one_line_nonblank": true, "duplicate_or_unknown_fields": "reject"},
+  "canonical_json": "UTF8 compact recursively sorted typed objects; SHA256 lowercase hex",
+  "environment": {"root": "AQ_AGENT_RESULT_DIR", "command": "AQ_AGENT_RESULT_COMMAND"},
+  "layout": {"readonly_root": ["binding.json", "presence.json", "owner.lock", "ack.json"], "writable_directory": "submissions", "outbox": "submissions/submission.json", "writer_lock": "submissions/writer.lock"},
+  "commands": ["result submit --request-file FILE", "result status"],
+  "submit": "Original preallocated IDs and exact canonical bytes only; local publication is pending, not guaranteed worker acceptance",
+  "presence": "An existing worker-held kernel lock plus original boot/ceiling projection only refuses new publication; it never supplies live authority or renews a grant",
+  "ownership": "Worker intake requires actual retained opaque owner/current grant and pinned directory/scope; worker ack projects fsynced native history and independently verified B1 acknowledgment",
+  "restart": "No disk-to-live-authority reconstruction; no new submit without actual live owner, read-only status is historical/recovery data"
+}
