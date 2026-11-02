@@ -128,3 +128,7 @@ The final unclaimed-expiry status correction passed its exact expiry vector
 (0.03 seconds), all-target strict Clippy (1.53 seconds), default binary rebuild
 (1.81 seconds), and the exact rebuilt-binary CLI vector. The unchanged nine-test
 and pure-five gates above were not repeated for that one-condition correction.
+The post-publication control-fault regression then passed (0.08 seconds): failed
+acknowledgment inspection returns the original IDs/digest with effect possible,
+while preserving the actual published bytes. Strict Clippy (1.42 seconds), the
+default rebuild (1.91 seconds) and exact rebuilt-binary CLI vector also passed.

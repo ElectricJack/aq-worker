@@ -254,6 +254,39 @@ fn new_publication_waits_for_exact_worker_ack_without_replacing_original() {
     assert_eq!(std::fs::read(f.path()).unwrap(), worker.join().unwrap());
 }
 #[test]
+fn control_fault_after_publication_preserves_original_possible_effect() {
+    let f = Fixture::new();
+    let claim_path = f.path();
+    let root = f.dir.path().to_owned();
+    let fault = std::thread::spawn(move || {
+        let started = Instant::now();
+        while !claim_path.exists() {
+            assert!(started.elapsed() < Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let original = std::fs::read(&claim_path).unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        std::fs::write(root.join(wire::PRESENCE_FILE), b"{").unwrap();
+        original
+    });
+    let result = f.client().submit(f.input()).unwrap();
+    let original = fault.join().unwrap();
+    let submission: Submission = wire::decode(&original).unwrap();
+    assert_eq!(result.exit_code, 13);
+    assert_eq!(result.value["code"], "local_submission_unknown");
+    assert_eq!(result.value["effect"], "possible");
+    assert_eq!(
+        result.value["operation_id"],
+        f.binding.operation_id.to_string()
+    );
+    assert_eq!(result.value["report_id"], f.binding.report_id.to_string());
+    assert_eq!(
+        result.value["submission_digest"],
+        serde_json::to_value(submission.digest().unwrap()).unwrap()
+    );
+    assert_eq!(std::fs::read(f.path()).unwrap(), original);
+}
+#[test]
 fn new_publication_wait_cannot_outlive_original_execution_deadline() {
     let f = Fixture::new();
     let stamp = aq_agent_client::journal::Stamp::now().unwrap();
