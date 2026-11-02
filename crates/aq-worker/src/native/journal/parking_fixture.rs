@@ -87,6 +87,92 @@ impl ActualParkingFixture {
     pub(crate) fn workspace(&self) -> &Path {
         &self.workspace
     }
+    /// Local captured-tree verification only. This does not create a successor
+    /// Base, launch owner, source release, or authority from serialized history.
+    pub(crate) async fn verify_captured_files(
+        &self,
+        stopped: &DurableStoppedWorkspace,
+        tracked: &[u8],
+        untracked: &[u8],
+    ) -> Result<()> {
+        use std::os::unix::fs::OpenOptionsExt;
+        ensure!(
+            tracked.len() <= 65536 && untracked.len() <= 65536,
+            "verification file byte bound"
+        );
+        let history = self.pipeline.parking_history(stopped).await?;
+        ensure!(
+            history.intent.suspension.binding == self.binding && history.settled_source_claim()?,
+            "verification requires this actual stopped source owner"
+        );
+        let original = history.digest()?;
+        let checkpoint = history
+            .source
+            .checkpoint
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("captured checkpoint absent"))?;
+        let git = &self.source.service.client;
+        let create_id = Uuid::new_v4();
+        let created = git.exchange(&json!({
+            "protocol_version":1,"request_id":create_id,"operation_id":create_id,
+            "operation":"workspace.create","repository_id":history.intent.source.repository_id,
+            "expected_binding_generation":history.intent.source.binding_generation,
+            "params":{"base":checkpoint.source}
+        }))?;
+        let workspace: crate::source::Workspace = serde_json::from_value(created.clone())?;
+        // Never retire the protected original even if a malformed reply tries
+        // to alias it. Such uncertainty preserves the fixture roots.
+        ensure!(
+            workspace.workspace_id != history.intent.workspace.workspace_id,
+            "verification workspace aliases protected original"
+        );
+        let checked = (|| -> Result<()> {
+            git.validate_workspace(&workspace)?;
+            ensure!(
+                created["repository_id"] == history.intent.source.repository_id.to_string()
+                    && created["binding_generation"] == history.intent.source.binding_generation
+                    && created["base"] == checkpoint.source.hex
+                    && created["lifecycle"] == "active"
+                    && created["allocating_operation"] == create_id.to_string(),
+                "verification exact captured checkpoint workspace"
+            );
+            let inspect = git.query(
+                &history.intent.source,
+                "workspace.inspect",
+                json!({"workspace_id":workspace.workspace_id}),
+            )?;
+            ensure!(
+                inspect["workspace"] == created
+                    && inspect["head"] == serde_json::to_value(&checkpoint.source)?
+                    && inspect["clean"] == true,
+                "verification workspace is not the captured clean tree"
+            );
+            let directory = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+                .open(&workspace.path)?;
+            exact_captured_member(&directory, c"native-input.txt", tracked)?;
+            exact_captured_member(&directory, c"wrk16-untracked.txt", untracked)
+        })();
+        let retired = git.exchange(
+            &crate::source::GitAction::Retire {
+                workspace_id: workspace.workspace_id,
+                generation: workspace.generation,
+                head: checkpoint.source.clone(),
+            }
+            .request(&history.intent.source, Uuid::new_v4()),
+        )?;
+        ensure!(
+            retired["workspace_id"] == workspace.workspace_id.to_string()
+                && retired["lifecycle"] == "retired",
+            "verification workspace retirement not confirmed"
+        );
+        ensure!(
+            self.pipeline.parking_history(stopped).await?.digest()? == original,
+            "local verification changed protected parking history"
+        );
+        checked
+    }
     pub(crate) async fn launch(&mut self) -> Result<LocalPhaseHost> {
         ensure!(!self.launched, "physical fixture cannot relaunch");
         self.launched = true;
@@ -123,6 +209,42 @@ impl ActualParkingFixture {
         self.stopped_confirmed = true;
         Ok(())
     }
+}
+fn exact_captured_member(
+    directory: &std::fs::File,
+    name: &std::ffi::CStr,
+    expected: &[u8],
+) -> Result<()> {
+    use std::{
+        io::Read,
+        os::{
+            fd::{AsRawFd, FromRawFd},
+            unix::fs::MetadataExt,
+        },
+    };
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    ensure!(fd >= 0, "captured fixed file absent/unsafe");
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let metadata = file.metadata()?;
+    ensure!(
+        metadata.is_file()
+            && metadata.nlink() == 1
+            && metadata.uid() == unsafe { libc::geteuid() }
+            && metadata.len() == expected.len() as u64,
+        "captured fixed file shape/length"
+    );
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(65537)
+        .read_to_end(&mut bytes)?;
+    ensure!(bytes == expected, "captured fixed file contents differ");
+    Ok(())
 }
 impl Drop for ActualParkingFixture {
     fn drop(&mut self) {
