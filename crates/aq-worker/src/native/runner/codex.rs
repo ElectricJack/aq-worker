@@ -484,9 +484,12 @@ async fn drive_running_owned(
         Ok::<(), anyhow::Error>(())
     }
     .await;
-    let intake_closed = pipeline.close_result_intake(id).await;
+    // Creating this future fences launch/current transport synchronously.
+    // Physical cleanup must not wait for a slow local projection fsync.
+    let stop = pipeline.stop_phase_host(id);
+    let (intake_closed, stopped_physical) = tokio::join!(pipeline.close_result_intake(id), stop);
     // Neither a relay error nor an uncertain ACK can bypass real stop.
-    match pipeline.stop_phase_host(id).await? {
+    match stopped_physical? {
         NativeStopOutcome::StoppedPendingJournal(_) => pipeline.persist_phase_host_stop(id).await?,
         NativeStopOutcome::Unknown => {
             pipeline.persist_phase_host_uncertain(id).await?;
