@@ -768,3 +768,5 @@ impl Journal {
 }
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, feature = "test-support"))]
+pub(crate) use tests::hydration_scenarios::parking_fixture;
