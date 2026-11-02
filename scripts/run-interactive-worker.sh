@@ -3,15 +3,16 @@
 # Public executable bytes get a separate read-only filesystem; operator homes
 # and credentials are not mounted. No fixture admission/provider logic lives here.
 set -euo pipefail
-interactive_inspect=false
-if [[ ${1:-} == --inspect ]]; then interactive_inspect=true; shift; fi
-if [[ $# != 1 ]]; then echo "usage: $0 [--inspect] BUNDLE_DIRECTORY" >&2; exit 2; fi
+interactive_mode=run
+if [[ ${1:-} == --inspect ]]; then interactive_mode=inspect; shift; fi
+if [[ ${1:-} == --check-config ]]; then interactive_mode=check; shift; fi
+if [[ $# != 1 ]]; then echo "usage: $0 [--inspect|--check-config] BUNDLE_DIRECTORY" >&2; exit 2; fi
 interactive_bundle=$(realpath -- "$1")
 interactive_script=$(realpath -- "$(dirname -- "${BASH_SOURCE[0]}")/interactive-worker-bootstrap.py")
 [[ -d $interactive_bundle && -f $interactive_bundle/images.json ]]
 mkdir -p -- "$interactive_bundle/config" "$interactive_bundle/worker-state/host" "$interactive_bundle/worker-state/home"
 chmod 700 -- "$interactive_bundle" "$interactive_bundle/config" "$interactive_bundle/worker-state" "$interactive_bundle/worker-state/host" "$interactive_bundle/worker-state/home"
-if [[ $interactive_inspect == false && -e $interactive_bundle/worker-state/journal/journal.json ]]; then
+if [[ $interactive_mode == run && -e $interactive_bundle/worker-state/journal/journal.json ]]; then
   echo "Existing native journal preserved; select a fresh boot state explicitly." >&2; exit 2
 fi
 interactive_rows=$(python3 - "$interactive_bundle/images.json" <<'PY'
@@ -60,4 +61,4 @@ interactive_args+=(--remount-ro /opt --remount-ro /)
 # Networking is deliberately inherited for real AQ control and native provider
 # TLS. This is a trusted local node, not a network-isolation qualification.
 printf '%s\n' "$$" > "$interactive_bundle/runtime-host.pid"
-exec "${interactive_args[@]}" -- /usr/bin/python3 /opt/interactive-worker-bootstrap.py "$interactive_inspect"
+exec "${interactive_args[@]}" -- /usr/bin/python3 /opt/interactive-worker-bootstrap.py "$interactive_mode"

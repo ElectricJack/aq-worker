@@ -45,7 +45,7 @@ impl CodexExecProfile {
         result.definition.validate_manifest(manifest)?;
         result.definition.validate_installed_client(result.client)?;
         let pins = ResultInstallationPins {
-            adapter: result.definition.artifact()?,
+            adapter: self.harness.adapter.clone(),
             contract: result.client.contract().clone(),
             client_manifest: result.client.manifest_artifact(),
             client_executable: result.client.artifact().clone(),

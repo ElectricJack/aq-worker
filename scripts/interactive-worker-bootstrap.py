@@ -57,17 +57,25 @@ def run():
     require(os.statvfs(IMAGE).f_flag & os.ST_RDONLY)
     require(os.stat(IMAGE).st_dev != os.stat(STATE).st_dev)
     require(all((IMAGE/name).is_file() and os.stat(IMAGE/name).st_nlink == 1 for name in programs))
-    if sys.argv[1] == 'true':
+    if sys.argv[1] in ('true', 'inspect'):
         print(json.dumps({'schema_version': 1, 'kind': 'local_worker_environment_observation',
                           'no_new_privs': True, 'all_capabilities_zero': True,
                           'image_readonly': True, 'persistent_state_separate_filesystem': True,
                           'programs': programs, 'network': 'inherited_real_control_and_provider',
                           'authority': 'metadata only; native preflight still required'}))
         return 0
-    for name in ['worker.toml', 'native.json', 'source-binding.json']:
+    for name in ['worker.toml', 'native.json']:
         metadata = (CONFIG/name).stat()
         require(stat.S_ISREG(metadata.st_mode) and metadata.st_mode & 0o077 == 0
                 and metadata.st_size <= 65536)
+    if sys.argv[1] == 'check':
+        return subprocess.run(
+            [str(IMAGE/'aq-worker'), '--config', str(CONFIG/'worker.toml'),
+             'check-native', '--native-config', str(CONFIG/'native.json')],
+            stdin=subprocess.DEVNULL, close_fds=True).returncode
+    metadata = (CONFIG/'source-binding.json').stat()
+    require(stat.S_ISREG(metadata.st_mode) and metadata.st_mode & 0o077 == 0
+            and metadata.st_size <= 65536)
     require(not (STATE/'journal/journal.json').exists())
     binding = json.loads((CONFIG/'source-binding.json').read_bytes())
     require(set(binding) == {'repository_id', 'logical_identity', 'binding_generation', 'registration_operation_id'})

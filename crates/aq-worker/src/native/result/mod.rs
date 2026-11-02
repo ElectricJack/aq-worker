@@ -220,7 +220,7 @@ impl InputPipeline {
                 )?;
                 definition.validate_manifest(m)?;
                 let expected = ResultInstallationPins {
-                    adapter: definition.artifact()?,
+                    adapter: m.harness.adapter.clone(),
                     contract: definition.contract.clone(),
                     client_manifest: definition.client_manifest.clone(),
                     client_executable: definition.client_executable.clone(),

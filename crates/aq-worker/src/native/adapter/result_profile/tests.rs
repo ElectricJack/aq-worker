@@ -100,6 +100,61 @@ fn composite_selection_is_canonical_closed_and_independently_pinned() {
         assert!(ResultAdapterDefinition::decode(&changed.encode().unwrap()).is_err());
     }
 }
+
+#[test]
+fn selected_definition_revision_preserves_schema_and_exact_retained_pins() {
+    let mut value = definition();
+    let historical = value.artifact().unwrap();
+    assert_eq!(historical.version.as_str(), "1");
+    let revision = Text::new("2").unwrap();
+    let selected = value.artifact_at_revision(&revision).unwrap();
+    assert_eq!(selected.id, historical.id);
+    assert_eq!(selected.digest, historical.digest);
+    assert_eq!(value.artifact().unwrap(), historical);
+    value.client_manifest.version = revision.clone();
+    let selected = value.artifact_at_revision(&revision).unwrap();
+    let runtime = RuntimeIdentity {
+        runtime: value.runtime.clone(),
+        qualification: reference("independent-runtime-qualification"),
+    };
+    value
+        .validate_selected(ExpectedResultAdapter {
+            adapter: &selected,
+            runtime: &runtime,
+            environment: &value.environment,
+            permission_digest: &value.permission_digest,
+        })
+        .unwrap();
+    let mut descriptor = descriptor(&value);
+    descriptor.artifact = selected.clone();
+    let body = retained(descriptor.clone(), &value.encode().unwrap());
+    value
+        .validate_retained(&selected, std::slice::from_ref(&descriptor), &body)
+        .unwrap();
+    assert!(
+        value
+            .validate_retained(&historical, &[descriptor], &body)
+            .is_err()
+    );
+    let mut tampered = selected;
+    tampered.digest = Digest::of(b"changed body");
+    assert!(
+        value
+            .validate_selected(ExpectedResultAdapter {
+                adapter: &tampered,
+                runtime: &runtime,
+                environment: &value.environment,
+                permission_digest: &value.permission_digest,
+            })
+            .is_err()
+    );
+    assert_eq!(value.schema_version, 1);
+    assert_eq!(value.contract, aq_agent_result_local::artifact());
+    assert_eq!(
+        value.recipe,
+        aq_codex_mapper::result_local_recipe_artifact()
+    );
+}
 #[test]
 fn retained_definition_requires_its_original_role_descriptor_bytes_and_selection() {
     let value = definition();
@@ -168,6 +223,12 @@ fn result_profile_preserves_existing_permission_domain_and_pins_whole_plan() {
         crate::native::journal::canonical_digest(&manifest.permissions).unwrap();
     manifest.harness.adapter = value.artifact().unwrap();
     value.validate_manifest(&manifest).unwrap();
+    let original_adapter = manifest.harness.adapter.clone();
+    manifest.harness.adapter = value
+        .artifact_at_revision(&Text::new("2").unwrap())
+        .unwrap();
+    value.validate_manifest(&manifest).unwrap();
+    manifest.harness.adapter = original_adapter;
     let mut changed = manifest.clone();
     changed
         .permissions

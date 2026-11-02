@@ -41,9 +41,18 @@ impl ResultAdapterDefinition {
         Ok(serde_json::to_vec(&value)?)
     }
     pub fn artifact(&self) -> Result<ArtifactRef> {
+        self.artifact_at_revision(&aq_session_protocol::Text::new("1")?)
+    }
+    /// Definition instance revision comes from the independently selected ref;
+    /// it does not change this body's schema or its public recipe/contract.
+    pub fn artifact_at_revision(
+        &self,
+        revision: &aq_session_protocol::Text,
+    ) -> Result<ArtifactRef> {
+        revision.validate()?;
         Ok(ArtifactRef {
             id: aq_session_protocol::Text::new("aq.codex-result-local-adapter")?,
-            version: aq_session_protocol::Text::new("1")?,
+            version: revision.clone(),
             digest: Digest::of(&self.encode()?),
         })
     }
@@ -80,8 +89,7 @@ impl ResultAdapterDefinition {
                 && self.contract == aq_agent_result_local::artifact()
                 && self.recipe == self.recipe_artifact()
                 && self.reserved_client_bytes == MAX_RESULT_CLIENT_INSTALLATION_BYTES
-                && self.client_manifest.id.as_str() == "aq.agent-result-client-installation"
-                && self.client_manifest.version.as_str() == "1",
+                && self.client_manifest.id.as_str() == "aq.agent-result-client-installation",
             "unsupported result adapter contract/recipe/install reservation"
         );
         for r in [
@@ -100,7 +108,7 @@ impl ResultAdapterDefinition {
     pub fn validate_selected(&self, expected: ExpectedResultAdapter<'_>) -> Result<()> {
         self.validate()?;
         ensure!(
-            self.artifact()? == *expected.adapter
+            self.artifact_at_revision(&expected.adapter.version)? == *expected.adapter
                 && self.runtime == expected.runtime.runtime
                 && self.environment == *expected.environment
                 && self.permission_digest == *expected.permission_digest,
@@ -137,7 +145,8 @@ impl ResultAdapterDefinition {
         self.validate()?;
         manifest.validate()?;
         ensure!(
-            manifest.harness.adapter == self.artifact()?
+            manifest.harness.adapter
+                == self.artifact_at_revision(&manifest.harness.adapter.version)?
                 && manifest.harness.environment == self.environment
                 && super::super::journal::canonical_digest(&manifest.permissions)?
                     == self.permission_digest,
@@ -163,7 +172,7 @@ impl ResultAdapterDefinition {
         retained: &VerifiedArtifact,
     ) -> Result<()> {
         self.validate()?;
-        let reference = self.artifact()?;
+        let reference = self.artifact_at_revision(&selected_adapter.version)?;
         ensure!(
             descriptors.len() <= 128,
             "result adapter descriptor count bound"

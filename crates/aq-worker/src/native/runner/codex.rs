@@ -369,9 +369,10 @@ impl NativeExecutor for CodexExecutor {
             (Some((client_path, _, _)), Some(definition)) => {
                 let manifest =
                     ResultClientManifest::decode(&config::private_file(client_path, 16384)?)?;
-                let client = InstalledResultClient::open(
+                let client = InstalledResultClient::open_selected(
                     manifest,
                     definition.expected_client()?,
+                    &definition.client_manifest,
                     &environment_owner,
                 )?;
                 NativeCodexHostProfile::new_named_result(
