@@ -3,8 +3,8 @@ use super::*;
 use crate::{
     source::{GitAction, GitManifest, PendingGitOperation},
     source_transfer::{
-        steps::{self, UploadAcknowledgment},
         UploadAction, UploadState,
+        steps::{self, UploadAcknowledgment},
     },
     transfer_client::TransferClient,
 };
