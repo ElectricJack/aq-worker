@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "source_revision": "3146cf462093be887864a492f86a0ff5ee0ca97d",
+  "base_revision": "06650543ad29db72573ac7775320008ccaed3c2e",
+  "worker_version": "0.4.0",
+  "journal_format": 11,
+  "scope": "same output relay; private nominal Started request and ACK retention",
+  "gates": [
+    {
+      "command": "cargo test -p aq-worker --lib --all-features --offline --locked launch::output_relay -- --test-threads=2",
+      "passed": 10,
+      "new_profile_cases": 4,
+      "existing_tail_http_cases": 6,
+      "seconds": 1.02,
+      "compile_seconds": 17.47
+    },
+    {
+      "command": "cargo clippy -p aq-worker --lib --tests --all-features --offline --locked -- -D warnings",
+      "seconds": 11.65
+    },
+    {
+      "command": "owned rustfmt --check and git diff --check",
+      "result": "pass"
+    }
+  ],
+  "logs_sha256": {
+    "focused": "419b14648e382fd3928187ccc3da38217c3f59a31e4f0bc0f5f5337e56510c9e",
+    "strict": "03e24ceddf091abae4f1c6cbbe2d0dbab3096d9e35fd2dc8bcb52c6302f00c4c"
+  },
+  "unexecuted": [
+    "physical duplicate attachment host tests retained unchanged",
+    "actual changed static smoke case",
+    "provider/harness/tmux launches"
+  ],
+  "no_change": [
+    "public output API",
+    "Register wire",
+    "tail and sequence state",
+    "output/HTTP capacities",
+    "disk schema or runtime version",
+    "old/new contract payloads"
+  ],
+  "remaining": "Root must authorize changed-case process qualification after rebuilt source and SHA pin; no retry in owner source gate"
+}
