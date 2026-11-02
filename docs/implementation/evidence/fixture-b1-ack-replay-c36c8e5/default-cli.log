@@ -1,0 +1,12 @@
+   Compiling aq-session-host v0.1.5 (/tmp/aq-native-b1-replay-v2/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.3 (/tmp/aq-native-b1-replay-v2/crates/aq-terminal-bridge)
+   Compiling aq-worker v0.5.1 (/tmp/aq-native-b1-replay-v2/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 10.56s
+     Running unittests src/main.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-74e8ec4bf4584a54)
+
+running 2 tests
+test production_cli_does_not_expose_fixture_transport_flags ... ok
+test production_cli_does_not_expose_lost_b1_ack_replay ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

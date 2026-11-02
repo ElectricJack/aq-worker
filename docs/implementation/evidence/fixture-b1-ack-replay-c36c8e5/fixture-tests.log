@@ -1,0 +1,33 @@
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-native-b1-replay-v2/crates/aq-session-protocol)
+   Compiling aq-protocol v0.1.0 (/tmp/aq-native-b1-replay-v2/crates/aq-protocol)
+   Compiling aq-worker-protocol v0.2.0 (/tmp/aq-native-b1-replay-v2/crates/aq-worker-protocol)
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-native-b1-replay-v2/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-session-api v0.1.0 (/tmp/aq-native-b1-replay-v2/vendor/aq-session-api-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/tmp/aq-native-b1-replay-v2/crates/aq-lifecycle-protocol)
+   Compiling aq-terminal-relay v0.1.0 (/tmp/aq-native-b1-replay-v2/vendor/aq-terminal-relay-0.1.0)
+   Compiling aq-admission v0.1.10 (/tmp/aq-native-b1-replay-v2/vendor/aq-admission-0.1.10)
+   Compiling aq-session-host v0.1.5 (/tmp/aq-native-b1-replay-v2/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.3 (/tmp/aq-native-b1-replay-v2/crates/aq-terminal-bridge)
+   Compiling aq-phase-terminal-protocol v0.1.1 (/tmp/aq-native-b1-replay-v2/vendor/aq-phase-terminal-protocol-0.1.1)
+   Compiling aq-responses-transport v0.1.0 (/tmp/aq-native-b1-replay-v2/crates/aq-responses-transport)
+   Compiling aq-agent-result-local v0.1.0 (/tmp/aq-native-b1-replay-v2/crates/aq-agent-result-local)
+   Compiling aq-codex-mapper v0.1.1 (/tmp/aq-native-b1-replay-v2/crates/aq-codex-mapper)
+   Compiling aq-worker v0.5.1 (/tmp/aq-native-b1-replay-v2/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 20.31s
+     Running unittests src/main.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-eb341bc24b741b81)
+
+running 11 tests
+test native_fixture::confinement::kernel_fixture_confinement_is_independently_proven ... ignored, kernel premise probe only; run using the qualification wrapper; never launches Codex
+test native_fixture::replay::tests::empty_history_cannot_authorize_a_replay_candidate ... ok
+test native_fixture::replay::tests::replay_is_opt_in_once_and_never_hides_original_execution_error ... ok
+test native_fixture::tests::numeric_node_origin_alone_never_enables_fixture_provider ... ok
+test native_fixture::tests::only_exact_numeric_loopback_provider_is_accepted ... ok
+test native_fixture::tests::preflight_continuation_is_closed_bounded_and_explicit ... ok
+test native_fixture::tests::preflight_pipe_accepts_one_frame_and_refuses_oversize_or_extra_frames ... ok
+test native_fixture::tests::actual_cli_requires_explicit_local_transport_for_provider_flags ... ok
+test native_fixture::tests::lost_ack_replay_flag_requires_explicit_local_preflight_fixture ... ok
+test native_fixture::replay::tests::frozen_report_guard_rejects_changed_bytes_digest_and_typed_stop ... ok
+test native_fixture::tests::partial_preflight_pipe_times_out_without_waiting_for_a_newline ... ok
+
+test result: ok. 10 passed; 0 failed; 1 ignored; 0 measured; 3 filtered out; finished in 0.02s
+
