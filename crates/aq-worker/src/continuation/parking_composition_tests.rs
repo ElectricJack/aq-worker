@@ -138,7 +138,7 @@ async fn actual_parking_case(supplied: bool) -> Result<()> {
     let id = fixture.execution().history().attempt_id();
     let original_deadline = fixture.execution().deadline_ns();
     let original_hard_deadline = fixture.execution().hard_deadline_ns();
-    let _running = fixture.launch().await?;
+    let running = fixture.launch().await?;
     let before = pipeline.available().await?;
     let before_state = pipeline.snapshot().await?;
     let resources = before_state.attempts[&id]
@@ -175,20 +175,28 @@ async fn actual_parking_case(supplied: bool) -> Result<()> {
         "actual pinned program did not record its expected workspace cwd"
     );
 
+    let observed_before_edits = running.observe()?;
+    ensure!(
+        observed_before_edits.phase == aq_session_host::HostPhase::Running,
+        "actual child must still be Running before fixture edits"
+    );
     // Fixture-owned edits, not a claim that a model/provider generated changes.
     // These remain below the source owner's original workspace reservation.
-    std::fs::write(
-        fixture.workspace().join("native-input.txt"),
-        if supplied {
-            b"WRK16 supplied tracked fixture edit\n".as_slice()
-        } else {
-            b"WRK16 missing-summary tracked fixture edit\n".as_slice()
-        },
-    )?;
-    std::fs::write(
-        fixture.workspace().join("wrk16-untracked.txt"),
-        b"WRK16 disposable untracked fixture bytes\n",
-    )?;
+    let tracked: &[u8] = if supplied {
+        b"WRK16 supplied tracked fixture edit\n"
+    } else {
+        b"WRK16 missing-summary tracked fixture edit\n"
+    };
+    let untracked = b"WRK16 disposable untracked fixture bytes\n";
+    std::fs::write(fixture.workspace().join("native-input.txt"), tracked)?;
+    std::fs::write(fixture.workspace().join("wrk16-untracked.txt"), untracked)?;
+    let observed_after_edits = running.observe()?;
+    ensure!(
+        observed_after_edits.phase == aq_session_host::HostPhase::Running
+            && observed_after_edits.guardian == observed_before_edits.guardian
+            && observed_after_edits.pane == observed_before_edits.pane,
+        "actual child/guardian/pane incarnation changed during fixture edits"
+    );
     let issued = now_ms()?;
     let suspension = SuspensionIntent {
         binding: fixture.binding().clone(),
@@ -270,6 +278,12 @@ async fn actual_parking_case(supplied: bool) -> Result<()> {
         !exported.manifest.reference_only && exported.manifest.bundle_size > 0,
         "actual changed Git bundle absent"
     );
+    // Public aq-git creates a distinct local verification checkout at the
+    // captured object and retires it afterward. This is content verification,
+    // not a successor/Base import or a different-node bootstrap.
+    fixture
+        .verify_captured_files(&stopped, tracked, untracked)
+        .await?;
     let idle = pipeline.available().await?;
     ensure!(
         idle.slots == before.slots.checked_add(1).unwrap()

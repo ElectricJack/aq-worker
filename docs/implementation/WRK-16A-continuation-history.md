@@ -275,3 +275,38 @@ explicit Root physical execution authorization remain outstanding. The actual
 factory uses the existing old-phase synthetic profile's genuine owner flow;
 this is not qualification of production refresh launch, central hold/wake,
 model-authored edits, different-node hydration or protected-disk release.
+
+### Corrected content/liveness source acceptance
+
+Review of cb863f6 correctly identified that a changed object/nonempty bundle did
+not prove both operator edits survived. The corrected caller now uses Adapter's
+private public-aq-git helper (ae38ace plus3db0ad4, locally52ee25f/2a84887) to
+create a distinct verification workspace at the captured object, verify exact
+tracked and untracked bytes through bounded nofollow descriptors, and retire
+that verification workspace through the public API. No Base/successor/authority
+is created. The protected original is never selected for retirement: UUID,
+canonical route and device/inode aliases are rejected first. The retained
+verification FD and route are checked again before retirement; uncertain routes
+remain retained rather than deleting the protected original.
+
+The caller also retains the real LocalPhaseHost and observes Running immediately
+before and after operator seeding, requiring the same complete guardian and pane
+incarnation. A stale historical Running record alone no longer supports that
+claim. No original execution lease/deadline changes.
+
+The single coordinated corrective gate passed:
+
+- Feature=test-support libtest `--no-run`:23.10s; actual physical test compiled
+  only and was not executed.
+- Two hostless directory alias/route regressions:2 passed,<0.01s,214 filtered,
+  no skipped/failed tests. They construct no live authority or physical process.
+- All-feature `--lib --tests` Clippy with `-D warnings`:passed12.05s,zero warnings.
+
+Work separately read the native helper source and accepts its bounded local
+verification design under this disposable single-owner fixture scope. This is
+independent of Adapter's authorship; the above two hostless checks were run by
+Work. This acceptance does not claim actual public-Git verification, malicious
+concurrent-operator isolation, production authority or physical process proof.
+Adapter's independent final caller review and Root's explicit physical
+execution authorization remain pending at this corrected source freeze.
+Target2 was released; no Git/host/tmux/service/provider execution occurred.
