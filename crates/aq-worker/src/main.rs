@@ -1,3 +1,5 @@
+#[cfg(feature = "test-support")]
+mod native_fixture;
 use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -79,10 +81,16 @@ enum Cmd {
     RunNative {
         #[arg(long)]
         native_config: PathBuf,
-        /// Reserved fixture flag; refuses until scoped provider CLI integration exists.
+        /// Explicit local qualification transport; requires a confined fixture and provider.
         #[cfg(feature = "test-support")]
         #[arg(long)]
         development_loopback: bool,
+        #[cfg(feature = "test-support")]
+        #[arg(long, requires = "development_loopback")]
+        development_provider: Option<String>,
+        #[cfg(feature = "test-support")]
+        #[arg(long, requires = "development_loopback")]
+        fixture_preflight_gate: bool,
     },
     /// Print the node id and server (never the credential).
     Status,
@@ -234,17 +242,30 @@ async fn main() -> ExitCode {
             native_config,
             #[cfg(feature = "test-support")]
             development_loopback,
+            #[cfg(feature = "test-support")]
+            development_provider,
+            #[cfg(feature = "test-support")]
+            fixture_preflight_gate,
         } => {
-            #[cfg(not(feature = "test-support"))]
-            let development_loopback = false;
-            if development_loopback {
-                return usage_err(
-                    "native fixture CLI unavailable: a numeric Node origin does not isolate provider traffic; scoped provider transport is not joined",
-                );
-            }
             let result = async {
+                #[cfg(feature = "test-support")]
+                let fixture = native_fixture::Options::from_flags(
+                    development_loopback,
+                    development_provider,
+                    fixture_preflight_gate,
+                )?;
+                #[cfg(feature = "test-support")]
+                if fixture.is_some() {
+                    native_fixture::verify_environment()?;
+                }
                 let worker = WorkerConfig::load(&path)?;
                 let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
+                #[cfg(feature = "test-support")]
+                let executor = match &fixture {
+                    Some(options) => Some(options.executor(&worker)?),
+                    None => configured_native_executor(&worker, &config)?,
+                };
+                #[cfg(not(feature = "test-support"))]
                 let executor = configured_native_executor(&worker, &config)?;
                 let (signal, shutdown) = tokio::sync::watch::channel(false);
                 let watcher = tokio::spawn(async move {
@@ -252,8 +273,41 @@ async fn main() -> ExitCode {
                     let _ = signal.send(true);
                 });
                 let result = if let Some(mut executor) = executor {
-                    aq_worker::native::runner::run_once(&worker, config, &mut executor, shutdown)
+                    #[cfg(feature = "test-support")]
+                    {
+                        match fixture {
+                            Some(options) => {
+                                let mut executor =
+                                    native_fixture::FixtureExecutor::new(executor, options.gate);
+                                aq_worker::native::runner::run_once(
+                                    &worker,
+                                    config,
+                                    &mut executor,
+                                    shutdown,
+                                )
+                                .await
+                            }
+                            None => {
+                                aq_worker::native::runner::run_once(
+                                    &worker,
+                                    config,
+                                    &mut executor,
+                                    shutdown,
+                                )
+                                .await
+                            }
+                        }
+                    }
+                    #[cfg(not(feature = "test-support"))]
+                    {
+                        aq_worker::native::runner::run_once(
+                            &worker,
+                            config,
+                            &mut executor,
+                            shutdown,
+                        )
                         .await
+                    }
                 } else {
                     aq_worker::native::runner::run_once(
                         &worker,
@@ -356,4 +410,21 @@ async fn main() -> ExitCode {
             }
         }
     }
+}
+
+#[cfg(all(test, not(feature = "test-support")))]
+#[test]
+fn production_cli_does_not_expose_fixture_transport_flags() {
+    assert!(
+        Cli::try_parse_from([
+            "aq-worker",
+            "run-native",
+            "--native-config",
+            "/nonexistent",
+            "--development-loopback",
+            "--development-provider",
+            "http://127.0.0.1:4321/",
+        ])
+        .is_err()
+    );
 }

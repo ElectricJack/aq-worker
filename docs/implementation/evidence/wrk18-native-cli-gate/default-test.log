@@ -1,0 +1,11 @@
+   Compiling aq-session-host v0.1.5 (/tmp/aq-native-codex-composition/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.2 (/tmp/aq-native-codex-composition/crates/aq-terminal-bridge)
+   Compiling aq-worker v0.4.0 (/tmp/aq-native-codex-composition/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 10.21s
+     Running unittests src/main.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-9a1feaf4ab70e6e7)
+
+running 1 test
+test production_cli_does_not_expose_fixture_transport_flags ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

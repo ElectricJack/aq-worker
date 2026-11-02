@@ -1,0 +1,14 @@
+   Compiling aq-worker v0.4.0 (/tmp/aq-native-codex-composition/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 1.00s
+     Running unittests src/main.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-c6767ac6fb573563)
+
+running 6 tests
+test native_fixture::tests::numeric_node_origin_alone_never_enables_fixture_provider ... ok
+test native_fixture::tests::only_exact_numeric_loopback_provider_is_accepted ... ok
+test native_fixture::tests::preflight_continuation_is_closed_bounded_and_explicit ... ok
+test native_fixture::tests::preflight_pipe_accepts_one_frame_and_refuses_oversize_or_extra_frames ... ok
+test native_fixture::tests::actual_cli_requires_explicit_local_transport_for_provider_flags ... ok
+test native_fixture::tests::partial_preflight_pipe_times_out_without_waiting_for_a_newline ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.02s
+

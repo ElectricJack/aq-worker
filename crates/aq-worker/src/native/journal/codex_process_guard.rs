@@ -1,7 +1,11 @@
 //! Kernel/filesystem premises for explicitly opted-in real CLI qualifications.
 //! An environment flag alone never establishes these premises.
 use std::{ffi::CString, fs, path::Path};
+#[cfg(test)]
 pub(super) fn require_confined_fixture() -> anyhow::Result<()> {
+    require_confined_binary(Path::new("/opt/aq-qualification/aq-worker-tests"))
+}
+pub(super) fn require_confined_binary(expected_binary: &Path) -> anyhow::Result<()> {
     let refusal =
         "actual Codex qualification requires scripts/qualify-native-loopback.sh confinement";
     anyhow::ensure!(
@@ -116,10 +120,15 @@ pub(super) fn require_confined_fixture() -> anyhow::Result<()> {
         readonly_mount(expected, refusal)?;
     }
     anyhow::ensure!(
-        std::env::current_exe()? == Path::new("/opt/aq-qualification/aq-worker-tests"),
+        std::env::current_exe()? == expected_binary,
         "{refusal}: qualification binary path differs"
     );
-    readonly_mount("/opt/aq-qualification/aq-worker-tests", refusal)?;
+    readonly_mount(
+        expected_binary
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("{refusal}: non-UTF8 image path"))?,
+        refusal,
+    )?;
     Ok(())
 }
 fn readonly_mount(path: &str, refusal: &str) -> anyhow::Result<()> {
