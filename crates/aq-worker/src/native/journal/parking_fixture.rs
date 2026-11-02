@@ -95,7 +95,6 @@ impl ActualParkingFixture {
         tracked: &[u8],
         untracked: &[u8],
     ) -> Result<()> {
-        use std::os::unix::fs::OpenOptionsExt;
         ensure!(
             tracked.len() <= 65536 && untracked.len() <= 65536,
             "verification file byte bound"
@@ -126,8 +125,13 @@ impl ActualParkingFixture {
             workspace.workspace_id != history.intent.workspace.workspace_id,
             "verification workspace aliases protected original"
         );
+        git.validate_workspace(&workspace)?;
+        let directory = verification_directory(
+            &workspace.path,
+            &history.intent.workspace.path,
+            &history.intent.pins.workspace,
+        )?;
         let checked = (|| -> Result<()> {
-            git.validate_workspace(&workspace)?;
             ensure!(
                 created["repository_id"] == history.intent.source.repository_id.to_string()
                     && created["binding_generation"] == history.intent.source.binding_generation
@@ -147,13 +151,19 @@ impl ActualParkingFixture {
                     && inspect["clean"] == true,
                 "verification workspace is not the captured clean tree"
             );
-            let directory = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-                .open(&workspace.path)?;
             exact_captured_member(&directory, c"native-input.txt", tracked)?;
             exact_captured_member(&directory, c"wrk16-untracked.txt", untracked)
         })();
+        recheck_verification_directory(
+            &directory,
+            &workspace.path,
+            &history.intent.workspace.path,
+            &history.intent.pins.workspace,
+        )?;
+        ensure!(
+            self.pipeline.parking_history(stopped).await?.digest()? == original,
+            "protected parking owner changed before verification retirement"
+        );
         let retired = git.exchange(
             &crate::source::GitAction::Retire {
                 workspace_id: workspace.workspace_id,
@@ -210,6 +220,47 @@ impl ActualParkingFixture {
         Ok(())
     }
 }
+fn verification_directory(
+    path: &Path,
+    protected: &Path,
+    original: &crate::continuation::history::DirectoryPin,
+) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)?;
+    recheck_verification_directory(&file, path, protected, original)?;
+    Ok(file)
+}
+fn recheck_verification_directory(
+    file: &std::fs::File,
+    path: &Path,
+    protected: &Path,
+    original: &crate::continuation::history::DirectoryPin,
+) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let held = file.metadata()?;
+    let named = std::fs::symlink_metadata(path)?;
+    let source = std::fs::symlink_metadata(protected)?;
+    ensure!(
+        source.is_dir() && source.dev() == original.device && source.ino() == original.inode,
+        "protected original directory identity changed"
+    );
+    ensure!(
+        path.is_absolute()
+            && std::fs::canonicalize(path)? == path
+            && path != protected
+            && held.is_dir()
+            && named.is_dir()
+            && held.dev() == named.dev()
+            && held.ino() == named.ino()
+            && named.uid() == unsafe { libc::geteuid() }
+            && (held.dev(), held.ino()) != (original.device, original.inode),
+        "verification directory aliases original or changed route"
+    );
+    Ok(())
+}
 fn exact_captured_member(
     directory: &std::fs::File,
     name: &std::ffi::CStr,
@@ -245,6 +296,40 @@ fn exact_captured_member(
         .read_to_end(&mut bytes)?;
     ensure!(bytes == expected, "captured fixed file contents differ");
     Ok(())
+}
+#[test]
+fn verification_refuses_original_path_and_symlink_before_any_retirement() {
+    use std::os::unix::fs::{MetadataExt, symlink};
+    let root = tempfile::tempdir().unwrap();
+    let original = root.path().join("original");
+    std::fs::create_dir(&original).unwrap();
+    let meta = std::fs::metadata(&original).unwrap();
+    let pin = crate::continuation::history::DirectoryPin {
+        device: meta.dev(),
+        inode: meta.ino(),
+    };
+    assert!(verification_directory(&original, &original, &pin).is_err());
+    let alias = root.path().join("alias");
+    symlink(&original, &alias).unwrap();
+    assert!(verification_directory(&alias, &original, &pin).is_err());
+}
+#[test]
+fn verification_retains_distinct_directory_and_refuses_route_replacement() {
+    use std::os::unix::fs::MetadataExt;
+    let root = tempfile::tempdir().unwrap();
+    let original = root.path().join("original");
+    let path = root.path().join("verification");
+    std::fs::create_dir(&original).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    let meta = std::fs::metadata(&original).unwrap();
+    let pin = crate::continuation::history::DirectoryPin {
+        device: meta.dev(),
+        inode: meta.ino(),
+    };
+    let held = verification_directory(&path, &original, &pin).unwrap();
+    std::fs::rename(&path, root.path().join("retained")).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    assert!(recheck_verification_directory(&held, &path, &original, &pin).is_err());
 }
 impl Drop for ActualParkingFixture {
     fn drop(&mut self) {
