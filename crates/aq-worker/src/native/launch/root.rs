@@ -12,6 +12,9 @@ pub(super) struct RootGuard {
     inode: u64,
 }
 impl RootGuard {
+    pub(super) fn path(&self) -> &Path {
+        &self.path
+    }
     pub(super) fn open(path: &Path, expected: Option<(u64, u64)>) -> Result<Self> {
         ensure!(
             path.is_absolute()

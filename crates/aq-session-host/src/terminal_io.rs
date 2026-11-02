@@ -27,6 +27,9 @@ pub struct QualifiedClock {
     skew_ms: u64,
 }
 impl QualifiedClock {
+    pub fn maximum_skew_ms(&self) -> u64 {
+        self.skew_ms
+    }
     pub fn assume_bounded_skew(skew_ms: u64) -> Result<Self> {
         ensure!(skew_ms <= 1000, "clock uncertainty bounds");
         Ok(Self { skew_ms })
@@ -360,6 +363,41 @@ impl SessionHandle {
     }
 }
 impl TerminalHandle {
+    /// Current visible plaintext from the exact owned pane. This is for local
+    /// harness readiness/auth-dialog classification, not a renderer Snapshot or
+    /// permission to resolve unknown input. No scrollback or caller tmux argv.
+    pub fn current_viewport(&self) -> Result<String> {
+        self.directory_guard.verify()?;
+        let _lock = RenewalLock::acquire(&self.directory.join("terminal.lock"))?;
+        let state = load(&self.directory, &self.binding)?;
+        ensure!(
+            state.binding == self.binding,
+            "terminal viewport binding changed"
+        );
+        let host = SessionHandle {
+            directory: self.directory.clone(),
+            identity: self.binding.guardian.clone(),
+            private_source: None,
+        };
+        let observation = host.observe()?;
+        ensure!(
+            observation.phase == HostPhase::Running
+                && observation.pane.as_ref() == Some(&self.binding.pane),
+            "terminal viewport requires original running pane"
+        );
+        let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
+        let output = guarded_tmux(
+            &self.directory,
+            &config,
+            &observation,
+            config.wall_deadline()?,
+            observation.permit_deadline_boot_ms,
+            &["capture-pane", "-p", "-t", &self.binding.pane.pane_id],
+        )?;
+        ensure!(output.len() <= 65_536, "terminal viewport byte bound");
+        self.directory_guard.verify()?;
+        String::from_utf8(output).context("terminal viewport UTF8")
+    }
     pub(crate) fn output_settings(
         &self,
     ) -> Result<(PathBuf, PathBuf, aq_session_protocol::TerminalPolicy)> {
