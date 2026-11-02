@@ -1,0 +1,42 @@
+{
+  "source_commit": "cb6273a0614fcf84d9a3c29734baacb9947f67d1",
+  "source_parent": "21aafe6",
+  "scope": "Composite result adapter pure metadata selection, exact retained Definition role/body/descriptor and mandatory result permission tests; no execution authority",
+  "logs": {
+    "composite-tests.log": {
+      "sha256": "7deedf9b6940144bbeb7613fbdef25b1104a747c467545345fe295d4e6c4ec65",
+      "tests": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      "finished": [
+        "Finished `test` profile [unoptimized] target(s) in 15.35s"
+      ]
+    },
+    "composite-strict.log": {
+      "sha256": "9d5007842732890d3fba92b90b4d911e4c83748b002a160b4086833c06bd0651",
+      "tests": null,
+      "finished": [
+        "Finished `dev` profile [unoptimized] target(s) in 11.53s"
+      ]
+    }
+  },
+  "source_sha256": {
+    "crates/aq-worker/src/native/adapter/result_profile.rs": "05113599dca84a6a00f417f840ea90ec5fdb57429a1b9e758d54ac5e8c80d27d",
+    "crates/aq-worker/src/native/adapter/result_profile/tests.rs": "a77dffc4c9597950ebdffe399f19e81b9f7484ac6a54caea30f971c00edbf18d",
+    "crates/aq-worker/src/native/adapter/result_client.rs": "3988420f1dbc7b8d27839c63be0ca63263b8b91728d39b01c02ed9e441f0e86d",
+    "crates/aq-agent-result-local/artifacts/contract.json": "4fe711c405ead85b55a54de2d7446b2c106c4b8809b16bc57497ba2af1d35ef9"
+  },
+  "corrected_development_failures": [
+    "Initial encode used protocol canonical_bytes requiring Validate; replaced with standard sorted typed JSON encoding, separate from validation",
+    "Permission test initially cleared mandatory harness capabilities; restored original mandatory fixture capabilities, no production validation weakened"
+  ],
+  "limits": [
+    "Checks are against0.4sourcebaseline plus candidate metadata, not a qualified0.5/FORMAT12 owner successor",
+    "No actual client readonly installation loaded or kernel image execution tested in this increment",
+    "No grant-bound channel/SourcePin/host/client/Codex/provider launched",
+    "Actual runtime qualification/grant equality remains native owner responsibility",
+    "Qualified68f65fe prior mapper/clientselection/oldbytegolden evidence retained separately"
+  ]
+}
