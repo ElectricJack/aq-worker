@@ -151,7 +151,10 @@ conflict. Worker code contains no inbound listener or general reverse proxy.
 Use independent request/connection budgets for execution control and terminal
 traffic. No terminal long poll is held when there are no subscriptions or pending
 control work. One per-node channel multiplexes bounded active sessions; do not
-create a control long poll per agent. On disconnect, retain only bounded output,
+create a control long poll per agent. Amendment: with sandboxed execution, each
+in-sandbox runner holds its own channel for its one session, and per-node
+aggregate limits are enforced server-side across the node's sandboxes
+([0005](../../../aq-server/docs/architecture/0005-sandboxed-execution-and-deployment-topology.md) SBX16). On disconnect, retain only bounded output,
 expire input/control permits and keep enforcing the execution grant locally.
 
 ## 6. Required tests and product evidence
