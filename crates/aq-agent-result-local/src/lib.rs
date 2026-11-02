@@ -13,6 +13,16 @@ pub const MAX_BYTES: usize = 8192;
 pub const MAX_INPUT_BYTES: usize = 4096;
 pub const MAX_CONCLUSION_BYTES: usize = 512;
 pub const DEFINITION_BYTES: &[u8] = include_bytes!("../artifacts/contract.json");
+/// Static instruction bytes for the centrally counted startup module. Runtime
+/// mappers must not append this text after the admission/counting seal.
+pub const STARTUP_TEXT: &str = include_str!("../artifacts/startup.md");
+pub fn startup_artifact() -> ArtifactRef {
+    ArtifactRef {
+        id: Text::new("aq.agent-result-startup").expect("constant startup id"),
+        version: Text::new("1").expect("constant startup version"),
+        digest: Digest::of(STARTUP_TEXT.as_bytes()),
+    }
+}
 /// Actual immutable public definition bytes, not qualification/live authority.
 pub fn artifact() -> ArtifactRef {
     ArtifactRef {
