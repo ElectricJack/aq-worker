@@ -1,0 +1,62 @@
+{
+  "source": "c36c8e509f15eeaac811de718fc1f502b0f8829f",
+  "base": "ec140849f70f02496e7188b9598c0e47303c3c8d",
+  "review": "Independent source accepted by Work through c36c8e5. Reviewer did not run builds/processes.",
+  "checks": {
+    "fixture_bin_passed": 10,
+    "explicit_kernel_probe_ignored": 1,
+    "fixture_seconds": 0.02,
+    "fixture_compile_seconds": 20.31,
+    "default_cli_absence_passed": 2,
+    "default_compile_seconds": 10.56,
+    "selected_bin_strict": true,
+    "strict_seconds": 16.48,
+    "feature_build_seconds": 20.75
+  },
+  "commands": [
+    "cargo test -p aq-worker --bin aq-worker native_fixture:: --features test-support --offline --locked",
+    "cargo test -p aq-worker --bin aq-worker production_cli_does_not_expose --offline --locked",
+    "cargo clippy -p aq-worker --bin aq-worker --features test-support --offline --locked -- -D warnings",
+    "cargo build -p aq-worker --bin aq-worker --features test-support --offline --locked"
+  ],
+  "environment": "Existing Target2; jobs2, dev/test debug0, incremental0, offline/locked.",
+  "binary": {
+    "source": "c36c8e509f15eeaac811de718fc1f502b0f8829f",
+    "base": "ec14084",
+    "binary": "/tmp/aq-b1-ack-replay-pin-c36c8e5/aq-worker",
+    "sha256": "5feb939ee31b63bd3205bf7690fac681735cb6cb77b2d14ec684a350745f2bec",
+    "bytes": 51535816,
+    "worker_version": "0.5.1",
+    "bridge_version": "0.1.3",
+    "format": 12,
+    "features": [
+      "test-support"
+    ],
+    "command": "cargo build -p aq-worker --bin aq-worker --features test-support --offline --locked",
+    "process_run": false,
+    "replay_semantics": "Guarded one in-process existing report replay only; original execution error/nonzero always preserved."
+  },
+  "scope": "Only test-support binary adapter and production-absence test. No production library, version, protocol/archive or FORMAT changes. Hostless tests qualify refusal/error-preservation and frozen report checks; actual complete stopped candidate and dropped-ACK transport remain separately gated. No actual host/provider run or canonical change.",
+  "logs": [
+    {
+      "path": "fixture-tests.log",
+      "sha256": "0c2c556c32cda94ed27fec3c769650a13ba20e49e7024114a060245525bee368",
+      "bytes": 2890
+    },
+    {
+      "path": "default-cli.log",
+      "sha256": "8a1703b8182f28bcc6d5dd9a605e34ec3558b7e699e34976facb09ebbd738014",
+      "bytes": 679
+    },
+    {
+      "path": "strict.log",
+      "sha256": "987a5c9675683c2055d50a90b1e44c773728b8706540c6fa1a4f92db7c054534",
+      "bytes": 2006
+    },
+    {
+      "path": "build.log",
+      "sha256": "093d5a595fa4a4ab93dfae36dd7edb21ca2660457c02da74c5ac4e2d92ac994c",
+      "bytes": 1506
+    }
+  ]
+}
