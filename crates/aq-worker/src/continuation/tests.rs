@@ -475,13 +475,26 @@ fn synthetic_retention_refuses_wrong_summary_source_actor_and_expired_interval()
         .unwrap()
         .manifest_digest = "e".repeat(64);
     assert!(owner.finish(&other_source, &identity, 1106).is_err());
-    let mut other_continuation = h;
+    let mut other_continuation = h.clone();
     other_continuation
         .intent
         .suspension
         .continuation
         .continuation_id = id(999);
-    assert!(owner.finish(&other_continuation, &identity, 1106).is_err());
+    other_continuation.intent.checkpoint.continuation =
+        other_continuation.intent.suspension.continuation.clone();
+    other_continuation.validate().unwrap();
+    assert!(
+        owner.finish(&other_continuation, &identity, 1106).is_err(),
+        "internally valid continuation cannot replace the original owner association"
+    );
+    let mut other_report = h;
+    other_report.intent.operations.report = id(999);
+    other_report.validate().unwrap();
+    assert!(
+        owner.finish(&other_report, &identity, 1106).is_err(),
+        "report operation belongs to the original synthetic owner"
+    );
 }
 
 #[test]

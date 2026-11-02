@@ -453,3 +453,7 @@ mod physical_fixture;
 #[allow(dead_code)] // Shared finite fixture exposes legacy fault controls unused by this focused slice.
 #[path = "refresh_physical_scenarios.rs"]
 mod refresh_physical_scenarios;
+
+#[cfg(feature = "test-support")]
+#[path = "../../continuation/parking_composition_tests.rs"]
+mod parking_composition_tests;

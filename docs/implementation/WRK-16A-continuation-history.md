@@ -211,3 +211,67 @@ the previous unused-method warning without expanding API visibility or adding a
 client/send/retention path. The unchanged eleven data-only tests were not rerun.
 This source gate does not execute the actual opaque-owner upload composition.
 Target2 was released after the check; no physical/service/provider operation ran.
+
+## Actual two-case test source (not executed)
+
+The authored `parking_composition_tests.rs` is compiled only through the small
+approved native test registration and its physical test is explicitly ignored.
+It uses the private actual-owner factory; it never reconstructs execution or
+stopped-workspace authority from fixture JSON. The bounded90s test has two
+sequential isolated worlds, Supplied and MissingSummary, with separate actual
+retained owners/roots. The existing published fixture currently reuses template
+wire UUIDs across those disjoint worlds; this is not qualification of two
+concurrent cluster attempts or cross-node routing. No admitted IDs or immutable
+claim is rewritten. Root approved this isolated-world policy explicitly; it never permits
+post-admission identity mutation or a two-node/cluster-uniqueness claim.
+
+The retained static program records its actual workspace cwd. The current test
+then seeds tracked and untracked changes as fixture-operator writes while the
+real child is Running; these are not claimed to be model/agent-generated edits.
+It observes genuine stopped/ECHILD history and a fsync-bound parking anchor,
+checks unsettled source still charges compute, runs actual public aq-git
+checkpoint/export, and checks compute becomes available while full original
+disk remains charged. No synthetic GitPeer substitutes for the public binary.
+
+Transfer preparation fsyncs each pending range before a concrete test-only owner
+accepts its bytes. The first chunk reply is deliberately omitted locally; exact
+readback plus original request/bytes and cached owner response are required
+before acknowledgment. Actual raw export members are SHA-checked and retained
+by the fake owner. Supplied then retains canonical summary bytes and records an
+explicit fake ledger/report receipt. Missing obtains no checkpoint receipt,
+reconciliation or migratable completion, while still releasing proven idle
+compute and preserving full disk charge. Execution deadline fields must remain
+unchanged. The test introduces no ordinary result/new launch/production owner.
+
+At this source stage no physical case has run. Combined source review and a
+separate Root execution authorization remain required, including exact retained
+binary pins and source-factory policy choices. Compile-only checks cannot be
+reported as actual tmux/Git/retention composition qualification.
+
+
+### Combined-source gate
+
+Combined source includes the private factory d2f76ce (locally786c714), the
+approved four-line test registration and the new ignored two-case test. Root
+resolved the choices: keep the existing exact fdbf program pin, seed workspace
+edits by the fixture operator with observed actual child cwd, and permit honest
+isolated-world reuse of template wire IDs. No replacement executable or admitted
+identity mutation was made.
+
+The coordinated short Target2 source-only gate executed:
+
+- `cargo test -p aq-worker --offline --features test-support --lib --no-run`:
+  passed16.63s. This compiled but did not execute the physical test.
+- `cargo clippy -p aq-worker --offline --all-features --lib --tests -- -D warnings`:
+  passed13.35s with zero warnings.
+- The one improved data-only owner-binding test passed0.02s after0.16s warm
+  compilation,213 filtered and0 skipped/failed. It validates a different but
+  internally coherent continuation/checkpoint pair and changed report operation
+  before checking owner rejection, avoiding an earlier-only shape rejection.
+
+Target2 was released after these checks. No physical tmux, public Git service,
+provider or canonical operation ran. Independent combined-source review and
+explicit Root physical execution authorization remain outstanding. The actual
+factory uses the existing old-phase synthetic profile's genuine owner flow;
+this is not qualification of production refresh launch, central hold/wake,
+model-authored edits, different-node hydration or protected-disk release.
