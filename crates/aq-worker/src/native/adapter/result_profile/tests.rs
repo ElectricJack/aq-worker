@@ -161,7 +161,6 @@ fn result_permission_is_required_and_bound_to_the_grant_selected_manifest() {
             .unwrap();
     manifest.harness.harness = Text::new("codex").unwrap();
     manifest.harness.cli_version = Text::new("0.166.0").unwrap();
-    manifest.harness.required_capabilities.clear();
     manifest.terminal.input_enabled = false;
     manifest.model.provider = Text::new("openai").unwrap();
     manifest.model.reasoning = Text::new("low").unwrap();

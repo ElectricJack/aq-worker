@@ -36,7 +36,9 @@ pub struct ExpectedResultAdapter<'a> {
 }
 impl ResultAdapterDefinition {
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(aq_session_protocol::canonical_bytes(self)?)
+        let mut value = serde_json::to_value(self)?;
+        value.sort_all_objects();
+        Ok(serde_json::to_vec(&value)?)
     }
     pub fn artifact(&self) -> Result<ArtifactRef> {
         Ok(ArtifactRef {
