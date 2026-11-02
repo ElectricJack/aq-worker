@@ -56,8 +56,20 @@ pub fn map_with_result_channel(
     paths: Paths<'_>,
     channel: ResultChannel<'_>,
 ) -> Result<Recipe> {
-    let root = path(channel.root)?;
-    let client = path(channel.client)?;
+    validate_channel_paths(&paths, &channel)?;
+    apply_channel(map(settings, paths)?, channel, false)
+}
+pub fn map_interactive_with_result_channel(
+    settings: Settings<'_>,
+    paths: Paths<'_>,
+    channel: ResultChannel<'_>,
+) -> Result<Recipe> {
+    validate_channel_paths(&paths, &channel)?;
+    apply_channel(map_interactive(settings, paths)?, channel, true)
+}
+fn validate_channel_paths(paths: &Paths<'_>, channel: &ResultChannel<'_>) -> Result<()> {
+    path(channel.root)?;
+    path(channel.client)?;
     for protected in [paths.workspace, paths.private_home, paths.executable] {
         path(protected)?;
         ensure!(
@@ -71,8 +83,18 @@ pub fn map_with_result_channel(
             && !overlaps(channel.client, paths.private_home),
         "result client overlaps writable or private recipe roots"
     );
-    let submission = channel.root.join("submissions");
-    let mut recipe = map(settings, paths)?;
+    Ok(())
+}
+fn apply_channel(
+    mut recipe: Recipe,
+    channel: ResultChannel<'_>,
+    interactive: bool,
+) -> Result<Recipe> {
+    let ResultChannel { root, client } = channel;
+    let root = path(root)?;
+    let client = path(client)?;
+    let submission = Path::new(root).join("submissions");
+
     let positions: Vec<_> = recipe
         .arguments
         .windows(2)
@@ -108,7 +130,7 @@ pub fn map_with_result_channel(
         .checked_sub(1)
         .context("closed Codex stdin marker absent")?;
     ensure!(
-        recipe.arguments[end] == "-",
+        recipe.arguments[end] == if interactive { "--" } else { "-" },
         "closed Codex stdin marker changed"
     );
     recipe.arguments.splice(end..end, additional);
@@ -121,3 +143,13 @@ pub fn map_with_result_channel(
 
 #[cfg(test)]
 mod tests;
+
+pub fn interactive_result_local_recipe_artifact() -> aq_session_protocol::ArtifactRef {
+    aq_session_protocol::ArtifactRef {
+        id: aq_session_protocol::Text::new("aq.codex-interactive-result-local-recipe").unwrap(),
+        version: aq_session_protocol::Text::new("1").unwrap(),
+        digest: aq_session_protocol::Digest::of(include_bytes!(
+            "../artifacts/interactive-result-local-v1.json"
+        )),
+    }
+}

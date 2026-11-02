@@ -38,7 +38,8 @@ impl ResultInstallationPins {
             "result client reservation differs from the closed installation profile"
         );
         ensure!(
-            self.recipe == aq_codex_mapper::result_local_recipe_artifact(),
+            self.recipe == aq_codex_mapper::result_local_recipe_artifact()
+                || self.recipe == aq_codex_mapper::interactive_result_local_recipe_artifact(),
             "result recipe identity"
         );
         Ok(())

@@ -7,6 +7,8 @@ use aq_session_host::observed::{
 pub enum NamedExecKind {
     #[serde(rename = "codex-0.166-named-readonly-exec-stdin-v1")]
     Codex0166NamedReadonlyExecStdinV1,
+    #[serde(rename = "codex-0.166-named-readonly-interactive-pty-v1")]
+    Codex0166NamedReadonlyInteractivePtyV1,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -115,6 +117,12 @@ impl NamedExecInstallation {
         binding: &LaunchBinding,
     ) -> Result<MaterialHandoff<'a>> {
         super::material_handoff(installed, expected, binding)
+    }
+    pub fn interactive(&self) -> bool {
+        matches!(
+            self.manifest.profile,
+            NamedExecKind::Codex0166NamedReadonlyInteractivePtyV1
+        )
     }
     pub fn installation(&self) -> &AdapterManifest {
         &self.manifest.installation

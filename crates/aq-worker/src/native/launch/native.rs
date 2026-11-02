@@ -29,6 +29,7 @@ pub struct NativeCodexHostProfile {
     columns: u16,
     rows: u16,
     result: Option<ResultInstallation>,
+    terminal_clock: Option<aq_session_host::terminal_io::QualifiedClock>,
     #[cfg(any(test, feature = "test-support"))]
     development_provider: Option<String>,
 }
@@ -125,6 +126,26 @@ impl NativeCodexHostProfile {
         Ok(profile)
     }
     /// Installation metadata only, never an execution/channel constructor.
+    pub fn with_interactive_clock(mut self, maximum_skew_ms: u64) -> Result<Self> {
+        ensure!(
+            lock(&self.installation)?.interactive()
+                && self
+                    .result
+                    .as_ref()
+                    .is_some_and(|r| r.definition.interactive()),
+            "interactive clock requires explicitly selected interactive result profile"
+        );
+        self.terminal_clock = Some(
+            aq_session_host::terminal_io::QualifiedClock::assume_bounded_skew(maximum_skew_ms)?,
+        );
+        self.digest = crate::native::journal::canonical_digest(
+            &serde_json::json!({"profile":self.digest,"interactive_clock_skew_ms":maximum_skew_ms}),
+        )?;
+        Ok(self)
+    }
+    pub fn terminal_clock(&self) -> Option<aq_session_host::terminal_io::QualifiedClock> {
+        self.terminal_clock
+    }
     pub fn result_installation_pins(&self) -> Option<ResultInstallationPins> {
         self.result.as_ref().map(|result| result.pins.clone())
     }
@@ -165,6 +186,7 @@ impl NativeCodexHostProfile {
             columns,
             rows,
             result: None,
+            terminal_clock: None,
             #[cfg(any(test, feature = "test-support"))]
             development_provider: None,
         })
@@ -189,9 +211,13 @@ enum Installation {
     Named(NamedExecInstallation),
 }
 impl Installation {
+    fn interactive(&self) -> bool {
+        matches!(self, Self::Named(i) if i.interactive())
+    }
     fn kind(&self) -> &'static str {
         match self {
             Self::Sealed(_) => "sealed-native-v1",
+            Self::Named(i) if i.interactive() => "named-readonly-interactive-pty-v1",
             Self::Named(_) => "named-readonly-native-v1",
         }
     }
@@ -237,6 +263,7 @@ impl Installation {
     fn image(&self) -> Result<Image> {
         match self {
             Self::Sealed(i) => Ok(Image::Sealed(i.image()?)),
+            Self::Named(i) if i.interactive() => Ok(Image::NamedInteractive(i.image()?)),
             Self::Named(i) => Ok(Image::Named(i.image()?)),
         }
     }
@@ -244,6 +271,7 @@ impl Installation {
 enum Image {
     Sealed(NativeExecImage),
     Named(NamedReadonlyExecImage),
+    NamedInteractive(NamedReadonlyExecImage),
 }
 impl Image {
     fn startup(
@@ -261,6 +289,13 @@ impl Image {
                 terminal,
                 image,
                 NativeExecObservationProfile::new(renderer, columns, rows)?,
+                hard_ms,
+            ),
+            Self::NamedInteractive(image) => ObservedStartup::named_readonly_interactive(
+                rendered,
+                terminal,
+                image,
+                NamedReadonlyObservationProfile::new(renderer, columns, rows)?,
                 hard_ms,
             ),
             Self::Named(image) => ObservedStartup::named_readonly_exec(
@@ -425,9 +460,16 @@ pub(super) fn bootstrap(
     let provider = providers[0];
     let mut installed = lock(&profile.installation)?;
     let handoff = installed.material(provider, &provider.receipt()?, &i.binding)?;
-    drop(crate::native::adapter::codex::validated_api_key(
-        &handoff, m,
-    )?);
+    let interactive = installed.interactive();
+    if interactive {
+        drop(crate::native::adapter::codex::validated_chatgpt_auth_json(
+            &handoff, m,
+        )?);
+    } else {
+        drop(crate::native::adapter::codex::validated_api_key(
+            &handoff, m,
+        )?);
+    }
     let lease = &provider.metadata().delivery.lease;
     let input = CodexExecInput {
         offer: &offer,
@@ -465,50 +507,66 @@ pub(super) fn bootstrap(
     let image = installed.image()?;
     let installation = installed.installation().clone();
     drop(installed);
-    let upstream = UpstreamEndpoint::openai();
-    #[cfg(any(test, feature = "test-support"))]
-    let upstream = if let Some(origin) = &profile.development_provider {
-        UpstreamEndpoint::development_loopback(origin)?
+    let (private, recipe) = if interactive {
+        let private = PrivateLaunchInput::codex_chatgpt_auth_json(
+            provider.source_directory()?,
+            OriginalPrivateMaterial {
+                digest: lease.material_digest.clone(),
+                bytes: lease.material_bytes,
+                record_digest: provider.receipt()?.private_binding.digest,
+            },
+            i.binding.clone(),
+            i.launch_id,
+            scope.deadline.min(scope.hard) / 1_000_000,
+        )?;
+        (private, recipe)
     } else {
-        upstream
-    };
-    let transport = tokio::runtime::Handle::try_current()?.block_on(
-        ScopedResponsesTransport::start_retained(
-            ResponsesScope::new(i.binding.clone(), &m.model, scope.deadline.min(scope.hard))?,
-            upstream,
-            provider.retained_copy()?,
-            m,
-        ),
-    )?;
-    let origin = transport.origin().to_owned();
-    let capability = transport.local_capability();
-    {
-        let mut physical = lock(&entry.physical)?;
-        ensure!(
-            physical.transport.is_none(),
-            "native transport already owned"
-        );
-        if entry.stop.load(Ordering::SeqCst) {
-            transport.cancel();
+        let upstream = UpstreamEndpoint::openai();
+        #[cfg(any(test, feature = "test-support"))]
+        let upstream = if let Some(origin) = &profile.development_provider {
+            UpstreamEndpoint::development_loopback(origin)?
+        } else {
+            upstream
+        };
+        let transport = tokio::runtime::Handle::try_current()?.block_on(
+            ScopedResponsesTransport::start_retained(
+                ResponsesScope::new(i.binding.clone(), &m.model, scope.deadline.min(scope.hard))?,
+                upstream,
+                provider.retained_copy()?,
+                m,
+            ),
+        )?;
+        let origin = transport.origin().to_owned();
+        let capability = transport.local_capability();
+        {
+            let mut physical = lock(&entry.physical)?;
+            ensure!(
+                physical.transport.is_none(),
+                "native transport already owned"
+            );
+            if entry.stop.load(Ordering::SeqCst) {
+                transport.cancel();
+            }
+            physical.transport = Some(transport);
         }
-        physical.transport = Some(transport);
-    }
-    let private = PrivateLaunchInput::codex_scoped_capability(
-        provider.source_directory()?,
-        OriginalPrivateMaterial {
-            digest: lease.material_digest.clone(),
-            bytes: lease.material_bytes,
-            record_digest: provider.receipt()?.private_binding.digest,
-        },
-        ScopedCodexAuthBinding {
-            binding: i.binding.clone(),
-            launch_id: i.launch_id,
-            origin: origin.clone(),
-            deadline_boot_ms: scope.deadline.min(scope.hard) / 1_000_000,
-        },
-        capability,
-    )?;
-    let recipe = recipe.with_scoped_provider(&origin)?;
+        let private = PrivateLaunchInput::codex_scoped_capability(
+            provider.source_directory()?,
+            OriginalPrivateMaterial {
+                digest: lease.material_digest.clone(),
+                bytes: lease.material_bytes,
+                record_digest: provider.receipt()?.private_binding.digest,
+            },
+            ScopedCodexAuthBinding {
+                binding: i.binding.clone(),
+                launch_id: i.launch_id,
+                origin: origin.clone(),
+                deadline_boot_ms: scope.deadline.min(scope.hard) / 1_000_000,
+            },
+            capability,
+        )?;
+        let recipe = recipe.with_scoped_provider(&origin)?;
+        (private, recipe)
+    };
     {
         let owner = lock(owner)?;
         entry.current(&owner)?;

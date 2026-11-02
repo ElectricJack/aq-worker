@@ -23,6 +23,8 @@ use aq_session_protocol::TerminalIdentity;
 use executable::ElfIdentity;
 pub const OBSERVATION_PROFILE: &str = "linux-tmux34-sealed-small-elf-v1";
 pub const NAMED_READONLY_EXEC_PROFILE: &str = "linux-tmux34-named-readonly-native-exec-stdin-v1";
+pub const NAMED_READONLY_INTERACTIVE_PROFILE: &str =
+    "linux-tmux34-named-readonly-interactive-pty-v1";
 pub const NATIVE_EXEC_PROFILE: &str = "linux-tmux34-sealed-native-exec-stdin-v1";
 /// Same bounded literal observer geometry, with an explicitly different native
 /// executable/startup policy. This does not establish renderer or model evidence.
@@ -195,12 +197,57 @@ impl ObservedStartup {
         })
     }
 }
+impl ObservedStartup {
+    /// Explicit interactive mode: same actual named readonly image and guardian,
+    /// exact rendered prompt appended at exec, stdin remains the owned PTY.
+    pub fn named_readonly_interactive(
+        rendered: RenderedStartup,
+        terminal: TerminalIdentity,
+        program: NamedReadonlyExecImage,
+        profile: NamedReadonlyObservationProfile,
+        hard_deadline_boot_ms: u64,
+    ) -> Result<Self> {
+        program.revalidate()?;
+        rendered
+            .binding
+            .verify(&rendered.manifest, &rendered.bytes)?;
+        terminal.validate()?;
+        exec::validate_interactive_prompt(&rendered.bytes)?;
+        ensure!(
+            rendered.manifest.terminal.input_enabled
+                && terminal.session == rendered.manifest.bindings.session
+                && hard_deadline_boot_ms > ownership::raw_boot_ms(),
+            "interactive readonly startup session/deadline/input policy"
+        );
+        let program = ObservedProgram::Named(program);
+        let spec = Spec {
+            version: 1,
+            owner: ownership::process_evidence(std::process::id())?,
+            profile: NAMED_READONLY_INTERACTIVE_PROFILE.into(),
+            baseline_id: Uuid::new_v4(),
+            terminal,
+            renderer: profile.0.renderer,
+            columns: profile.0.columns,
+            rows: profile.0.rows,
+            hard_deadline_boot_ms,
+            program: program.identity().clone(),
+        };
+        Ok(Self {
+            rendered,
+            program,
+            spec,
+        })
+    }
+}
 impl Spec {
     pub(crate) fn native_exec(&self) -> bool {
         matches!(
             self.profile.as_str(),
-            NATIVE_EXEC_PROFILE | NAMED_READONLY_EXEC_PROFILE
+            NATIVE_EXEC_PROFILE | NAMED_READONLY_EXEC_PROFILE | NAMED_READONLY_INTERACTIVE_PROFILE
         )
+    }
+    pub(crate) fn interactive(&self) -> bool {
+        self.profile == NAMED_READONLY_INTERACTIVE_PROFILE
     }
     pub(crate) fn validate(&self, config: &SealedLaunch) -> Result<()> {
         self.terminal.validate()?;
@@ -224,6 +271,12 @@ impl Spec {
                         Some(executable::ImageProfile::NamedReadonlyExecStdinV1(e)) if e.role==named_image::NamedImageRole::Program)
                             && self.program.bytes <= MAX_NAMED_EXEC_BYTES
                             && !config.manifest.terminal.input_enabled,
+                    NAMED_READONLY_INTERACTIVE_PROFILE =>
+                        matches!(&self.program.profile,
+                        Some(executable::ImageProfile::NamedReadonlyExecStdinV1(e)) if e.role==named_image::NamedImageRole::Program)
+                            && self.program.bytes <= MAX_NAMED_EXEC_BYTES
+                            && config.manifest.terminal.input_enabled
+                            && config.command.arguments.last().is_some_and(|v| v == "--"),
                     _ => false,
                 }
                 && !self.baseline_id.is_nil()

@@ -53,6 +53,22 @@ pub(crate) fn enter(
     for arg in &command.arguments {
         args.push(CString::new(arg.as_bytes())?);
     }
+    if config.observed.as_ref().is_some_and(|s| s.interactive()) {
+        // Append from the existing verified context at the actual exec boundary;
+        // ordinary command arguments keep their original 4096-byte bounds.
+        ensure!(
+            command.arguments.last().is_some_and(|a| a == "--"),
+            "interactive prompt delimiter absent"
+        );
+        let bytes = read_bytes(&directory.join("context-0.bin"), 1_048_576)?;
+        config
+            .rendered_startup
+            .as_ref()
+            .context("interactive startup descriptor absent")?
+            .verify(&config.manifest, &bytes)?;
+        validate_interactive_prompt(&bytes)?;
+        args.push(CString::new(bytes)?);
+    }
     let environment = command_environment(
         command,
         directory,
@@ -125,10 +141,24 @@ fn command_environment(
     Ok(environment)
 }
 
+pub(crate) fn validate_interactive_prompt(bytes: &[u8]) -> Result<()> {
+    ensure!(
+        !bytes.is_empty()
+            && bytes.len() <= 64 * 1024
+            && !bytes.contains(&0)
+            && std::str::from_utf8(bytes).is_ok(),
+        "interactive startup UTF8/64KiB bound"
+    );
+    Ok(())
+}
 /// Prepare exact bytes from the host's retained descriptor and seal them before
 /// changing FD0. Old small-ELF sessions retain their original PTY stdin behavior.
 pub(crate) fn startup_stdin(config: &SealedLaunch, directory: &Path) -> Result<Option<File>> {
-    if !config.observed.as_ref().is_some_and(|s| s.native_exec()) {
+    if !config
+        .observed
+        .as_ref()
+        .is_some_and(|s| s.native_exec() && !s.interactive())
+    {
         return Ok(None);
     }
     let rendered = config
@@ -162,6 +192,19 @@ pub(crate) fn startup_stdin(config: &SealedLaunch, directory: &Path) -> Result<O
 mod tests {
     use super::*;
     use std::os::fd::{FromRawFd, OwnedFd};
+    #[test]
+    fn interactive_prompt_uses_existing_rendered_utf8_and_bounded_argv() {
+        validate_interactive_prompt("Context ›\n".as_bytes()).unwrap();
+        validate_interactive_prompt(&vec![b'a'; 64 * 1024]).unwrap();
+        for invalid in [
+            vec![],
+            vec![b'a'; 64 * 1024 + 1],
+            vec![0xff],
+            vec![b'a', 0, b'b'],
+        ] {
+            assert!(validate_interactive_prompt(&invalid).is_err());
+        }
+    }
     #[test]
     fn scoped_child_environment_omits_private_host_record_route_and_keeps_legacy_contract() {
         let command = LocalCommand {

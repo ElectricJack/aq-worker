@@ -10,6 +10,8 @@ use aq_session_protocol::LaunchManifest;
 pub enum ResultAdapterKind {
     #[serde(rename = "codex-0.166-trusted-node-named-readonly-result-local-v1")]
     Codex0166TrustedNodeNamedReadonlyLocalV1,
+    #[serde(rename = "codex-0.166-chatgpt-interactive-result-local-v1")]
+    Codex0166ChatgptInteractiveLocalV1,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -58,12 +60,25 @@ impl ResultAdapterDefinition {
         value.validate()?;
         Ok(value)
     }
+    pub fn interactive(&self) -> bool {
+        matches!(
+            self.profile,
+            ResultAdapterKind::Codex0166ChatgptInteractiveLocalV1
+        )
+    }
+    pub fn recipe_artifact(&self) -> ArtifactRef {
+        if self.interactive() {
+            aq_codex_mapper::interactive_result_local_recipe_artifact()
+        } else {
+            aq_codex_mapper::result_local_recipe_artifact()
+        }
+    }
     fn validate(&self) -> Result<()> {
         ensure!(
             self.schema_version == 1
                 && self.encode()?.len() <= MAX_MANIFEST
                 && self.contract == aq_agent_result_local::artifact()
-                && self.recipe == aq_codex_mapper::result_local_recipe_artifact()
+                && self.recipe == self.recipe_artifact()
                 && self.reserved_client_bytes == MAX_RESULT_CLIENT_INSTALLATION_BYTES
                 && self.client_manifest.id.as_str() == "aq.agent-result-client-installation"
                 && self.client_manifest.version.as_str() == "1",
@@ -128,11 +143,16 @@ impl ResultAdapterDefinition {
                     == self.permission_digest,
             "result adapter manifest opt-in/settings/permissions differ"
         );
-        aq_codex_mapper::validate_settings(aq_codex_mapper::Settings {
+        let settings = aq_codex_mapper::Settings {
             harness: &manifest.harness,
             model: &manifest.model,
             terminal_input_enabled: manifest.terminal.input_enabled,
-        })
+        };
+        if self.interactive() {
+            aq_codex_mapper::validate_interactive_settings(settings)
+        } else {
+            aq_codex_mapper::validate_settings(settings)
+        }
     }
     /// The caller must obtain this body and descriptor list from its actual
     /// retained execution inputs. Assembly/JSON equality alone grants no scope.

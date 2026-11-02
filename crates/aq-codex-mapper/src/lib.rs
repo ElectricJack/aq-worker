@@ -33,6 +33,12 @@ pub struct Recipe {
 
 /// Check this exact mapper's supported settings, not a complete host plan.
 pub fn validate_settings(settings: Settings<'_>) -> Result<()> {
+    validate_settings_mode(settings, false)
+}
+pub fn validate_interactive_settings(settings: Settings<'_>) -> Result<()> {
+    validate_settings_mode(settings, true)
+}
+fn validate_settings_mode(settings: Settings<'_>, interactive: bool) -> Result<()> {
     ensure!(
         settings.harness.required_capabilities.len() <= 64,
         "Codex capability bound"
@@ -43,7 +49,7 @@ pub fn validate_settings(settings: Settings<'_>) -> Result<()> {
             && settings.model.provider.as_str() == "openai"
             && settings.model.spending_budget.is_none()
             && matches!(settings.model.reasoning.as_str(), "low" | "medium" | "high")
-            && !settings.terminal_input_enabled,
+            && settings.terminal_input_enabled == interactive,
         "Codex exec unsupported settings"
     );
     for cap in &settings.harness.required_capabilities {
@@ -63,7 +69,15 @@ pub fn validate_settings(settings: Settings<'_>) -> Result<()> {
 }
 
 pub fn map(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
-    validate_settings(settings)?;
+    map_mode(settings, paths, false)
+}
+/// V1's interactive TUI launch: the exact verified startup is one bounded argv
+/// value; the host independently verifies it and leaves stdin on the PTY.
+pub fn map_interactive(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
+    map_mode(settings, paths, true)
+}
+fn map_mode(settings: Settings<'_>, paths: Paths<'_>, interactive: bool) -> Result<Recipe> {
+    validate_settings_mode(settings, interactive)?;
     let Paths {
         executable,
         workspace,
@@ -80,22 +94,34 @@ pub fn map(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
         "Codex recipe path contains NUL"
     );
     let executable = executable.to_owned();
-    let mut arguments = vec![
-        "--no-daemon".into(),
-        "exec".into(),
-        "--ignore-user-config".into(),
-        "--ignore-rules".into(),
-        "--ephemeral".into(),
-        "--json".into(),
-        "--color".into(),
-        "never".into(),
-        "--sandbox".into(),
-        "workspace-write".into(),
-        "--model".into(),
-        settings.model.model.as_str().into(),
-        "--cd".into(),
-        workspace.to_str().context("Codex workspace UTF8")?.into(),
-    ];
+    let mut arguments = if interactive {
+        vec![
+            "--no-daemon".into(),
+            "--sandbox".into(),
+            "workspace-write".into(),
+            "-m".into(),
+            settings.model.model.as_str().into(),
+            "--cd".into(),
+            workspace.to_str().context("Codex workspace UTF8")?.into(),
+        ]
+    } else {
+        vec![
+            "--no-daemon".into(),
+            "exec".into(),
+            "--ignore-user-config".into(),
+            "--ignore-rules".into(),
+            "--ephemeral".into(),
+            "--json".into(),
+            "--color".into(),
+            "never".into(),
+            "--sandbox".into(),
+            "workspace-write".into(),
+            "--model".into(),
+            settings.model.model.as_str().into(),
+            "--cd".into(),
+            workspace.to_str().context("Codex workspace UTF8")?.into(),
+        ]
+    };
     let overrides = [
         format!(
             "model_reasoning_effort={}",
@@ -132,22 +158,35 @@ pub fn map(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
         "memories.generate_memories=false".into(),
         "web_search=\"disabled\"".into(),
         format!(
-            "projects.{}.trust_level=\"untrusted\"",
-            toml::Value::String(workspace.to_str().unwrap().into())
+            "projects.{}.trust_level={}",
+            toml::Value::String(workspace.to_str().unwrap().into()),
+            toml::Value::String(if interactive { "trusted" } else { "untrusted" }.into())
         ),
     ];
     for value in overrides {
         arguments.push("--config".into());
         arguments.push(value);
     }
-    arguments.push("-".into());
+    if interactive {
+        arguments.extend([
+            "--config".into(),
+            "cli_auth_credentials_store=\"file\"".into(),
+            "--".into(),
+        ]);
+    } else {
+        arguments.push("-".into());
+    }
+    let mut environment = BTreeMap::from([(
+        "CODEX_HOME".into(),
+        private_home.to_str().context("Codex home UTF8")?.into(),
+    )]);
+    if interactive {
+        environment.insert("HOME".into(), private_home.to_str().unwrap().into());
+    }
     Ok(Recipe {
         executable,
         arguments,
-        environment: BTreeMap::from([(
-            "CODEX_HOME".into(),
-            private_home.to_str().context("Codex home UTF8")?.into(),
-        )]),
+        environment,
     })
 }
 
@@ -181,9 +220,16 @@ pub fn responses_overrides(endpoint: LoopbackResponsesEndpoint) -> Vec<String> {
 
 mod result_local;
 pub use result_local::{
-    RESULT_LOCAL_RECIPE_DEFINITION, RESULT_LOCAL_RECIPE_ID, ResultChannel, map_with_result_channel,
-    result_local_recipe_artifact,
+    RESULT_LOCAL_RECIPE_DEFINITION, RESULT_LOCAL_RECIPE_ID, ResultChannel,
+    interactive_result_local_recipe_artifact, map_interactive_with_result_channel,
+    map_with_result_channel, result_local_recipe_artifact,
 };
 
 #[cfg(test)]
 mod tests;
+
+mod interactive;
+pub use interactive::{
+    COMPOSER_CLEAR, InteractiveViewport, READY_DELAY_MS, READY_PROMPT_PREFIX,
+    SKIP_ESCAPE_BEFORE_ENTER, classify_current_viewport,
+};

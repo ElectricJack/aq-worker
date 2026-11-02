@@ -51,6 +51,15 @@ pub enum ExecutorConfig {
         client_manifest_digest: Digest,
         composite_definition: PathBuf,
     },
+    #[serde(rename = "codex-0.166-chatgpt-interactive-result-local-v1")]
+    ChatgptInteractiveResultLocal {
+        settings: CodexSettings,
+        environment: ArtifactRef,
+        client_manifest: PathBuf,
+        client_manifest_digest: Digest,
+        composite_definition: PathBuf,
+        terminal_clock_skew_ms: u64,
+    },
 }
 impl CodexSettings {
     fn validate(&self, config: &NativeConfig) -> Result<()> {
@@ -206,6 +215,19 @@ impl CodexExecutor {
 impl NativeExecutor for CodexExecutor {
     fn preflight(&mut self, config: &NativeConfig) -> Result<()> {
         ensure!(self.profile.is_none(), "Codex executor already preflighted");
+        let interactive_clock = match &config.executor {
+            Some(ExecutorConfig::ChatgptInteractiveResultLocal {
+                terminal_clock_skew_ms,
+                ..
+            }) => {
+                ensure!(
+                    *terminal_clock_skew_ms <= 1000,
+                    "interactive operator clock bound"
+                );
+                Some(*terminal_clock_skew_ms)
+            }
+            _ => None,
+        };
         let (settings, environment, result) = match &config.executor {
             Some(ExecutorConfig::TrustedNodeNamedReadonly {
                 settings,
@@ -217,6 +239,22 @@ impl NativeExecutor for CodexExecutor {
                 client_manifest,
                 client_manifest_digest,
                 composite_definition,
+            }) => (
+                settings,
+                environment,
+                Some((
+                    client_manifest,
+                    client_manifest_digest,
+                    composite_definition,
+                )),
+            ),
+            Some(ExecutorConfig::ChatgptInteractiveResultLocal {
+                settings,
+                environment,
+                client_manifest,
+                client_manifest_digest,
+                composite_definition,
+                ..
             }) => (
                 settings,
                 environment,
@@ -249,6 +287,10 @@ impl NativeExecutor for CodexExecutor {
         let definition = if let Some((_, client_digest, definition_path)) = result {
             let definition =
                 ResultAdapterDefinition::decode(&config::private_file(definition_path, 16384)?)?;
+            ensure!(
+                definition.interactive() == interactive_clock.is_some(),
+                "executor and selected result mode differ"
+            );
             definition.validate_selected(ExpectedResultAdapter {
                 adapter: &config.adapter,
                 runtime: &config.runtime,
@@ -287,6 +329,10 @@ impl NativeExecutor for CodexExecutor {
             environment,
             &pool,
         )?;
+        ensure!(
+            installed.interactive() == interactive_clock.is_some(),
+            "executor and selected named image mode differ"
+        );
         let mapper = CodexExecProfile {
             harness: settings.harness.clone(),
             model: settings.model.clone(),
@@ -320,6 +366,11 @@ impl NativeExecutor for CodexExecutor {
                 settings.rows,
             )?,
             _ => anyhow::bail!("native result factory selection differs"),
+        };
+        let profile = if let Some(skew) = interactive_clock {
+            profile.with_interactive_clock(skew)?
+        } else {
+            profile
         };
         #[cfg(feature = "test-support")]
         let profile = if let Some(origin) = &self.development_provider {
@@ -358,6 +409,7 @@ impl NativeExecutor for CodexExecutor {
                 .context("Codex executor not preflighted")?
                 .clone();
             let id = grant.history().attempt_id();
+            let terminal_clock = profile.terminal_clock();
             let result_pins = profile.result_installation_pins();
             let result_enabled = result_pins.is_some();
             let transfer = if result_enabled {
@@ -413,6 +465,7 @@ impl NativeExecutor for CodexExecutor {
                 self.relay.clone(),
                 shutdown,
                 transfer,
+                terminal_clock,
             )
             .await
         })
@@ -429,7 +482,16 @@ pub(crate) async fn drive_running(
     relay_client: RelayHttp,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
-    drive_running_owned(pipeline, host, deadline_ns, relay_client, shutdown, None).await
+    drive_running_owned(
+        pipeline,
+        host,
+        deadline_ns,
+        relay_client,
+        shutdown,
+        None,
+        None,
+    )
+    .await
 }
 async fn drive_running_owned(
     pipeline: Arc<InputPipeline>,
@@ -438,13 +500,15 @@ async fn drive_running_owned(
     relay_client: RelayHttp,
     mut shutdown: watch::Receiver<bool>,
     transfer: Option<crate::transfer_client::TransferClient>,
+    terminal_clock: Option<aq_session_host::terminal_io::QualifiedClock>,
 ) -> Result<()> {
     use crate::native::result::ResultStopCause;
     let id = host.attempt_id();
     let mut cause = ResultStopCause::Failure;
     let result_enabled = transfer.is_some();
     // Install the independent reader before any network Started wait.
-    let operation = async {
+    let mut control_receipts = None;
+    let mut operation = async {
         let relay = pipeline.start_phase_output(&host, relay_client)?;
         let state = pipeline.snapshot().await?;
         let terminal_profile = super::profile::TerminalProfile::for_attempt(
@@ -459,8 +523,21 @@ async fn drive_running_owned(
                 anyhow::bail!("stop requested while Started publication outcome is unknown");
             }
         }
+        let control = if let Some(clock) = terminal_clock {
+            Some(pipeline.start_phase_control(&host, &relay, clock).await?)
+        } else {
+            None
+        };
+        control_receipts = control.clone();
+        let controller = control.map(super::publish_output::ControlPublisher::start);
         let _publisher = super::publish_output::OutputPublisher::start(relay);
         loop {
+            if controller
+                .as_ref()
+                .is_some_and(|c| c.authentication_required())
+            {
+                anyhow::bail!("Codex interactive authentication required; session quarantined");
+            }
             if *shutdown.borrow() {
                 cause = ResultStopCause::Cancelled;
                 break;
@@ -494,6 +571,15 @@ async fn drive_running_owned(
         NativeStopOutcome::Unknown => {
             pipeline.persist_phase_host_uncertain(id).await?;
             anyhow::bail!("native stop uncertain; retained history requires reconciliation")
+        }
+    }
+    // Stop and its journal precede the bounded metadata-only final flush.
+    // A failed flush retains the execution error but does not gate B1 recording.
+    if let Some(control) = control_receipts {
+        if let Err(error) = control.flush_control_receipts().await {
+            if operation.is_ok() {
+                operation = Err(error);
+            }
         }
     }
     let stopped = async {

@@ -50,7 +50,7 @@ impl CodexExecProfile {
             client_manifest: result.client.manifest_artifact(),
             client_executable: result.client.artifact().clone(),
             environment: result.client.environment().clone(),
-            recipe: aq_codex_mapper::result_local_recipe_artifact(),
+            recipe: result.definition.recipe_artifact(),
             permission_digest: self.permissions_digest.clone(),
             reserved_client_bytes: result.client.reserved_bytes(),
         };
@@ -63,22 +63,29 @@ impl CodexExecProfile {
             workspace,
             &pins,
         )?;
-        let recipe = aq_codex_mapper::map_with_result_channel(
-            aq_codex_mapper::Settings {
-                harness: &self.harness,
-                model: &self.model,
-                terminal_input_enabled: manifest.terminal.input_enabled,
-            },
-            aq_codex_mapper::Paths {
-                executable: &installed.executable.path,
-                workspace,
-                private_home: input.private_home,
-            },
-            aq_codex_mapper::ResultChannel {
-                root: result.channel.root(),
-                client: result.client.path(),
-            },
-        )?;
+        ensure!(
+            installation.interactive() == result.definition.interactive(),
+            "result image and recipe mode differ"
+        );
+        let settings = aq_codex_mapper::Settings {
+            harness: &self.harness,
+            model: &self.model,
+            terminal_input_enabled: manifest.terminal.input_enabled,
+        };
+        let paths = aq_codex_mapper::Paths {
+            executable: &installed.executable.path,
+            workspace,
+            private_home: input.private_home,
+        };
+        let channel = aq_codex_mapper::ResultChannel {
+            root: result.channel.root(),
+            client: result.client.path(),
+        };
+        let recipe = if result.definition.interactive() {
+            aq_codex_mapper::map_interactive_with_result_channel(settings, paths, channel)?
+        } else {
+            aq_codex_mapper::map_with_result_channel(settings, paths, channel)?
+        };
         // Keep all old remote/manifest/settings/startup/private-home and
         // named-image checks. Only the explicitly opted-in command is replaced.
         let mut prepared = self.prepare_named_planned(installation, input)?;

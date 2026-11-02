@@ -9,6 +9,8 @@ use std::{io::Write, path::Path};
 
 pub use aq_codex_mapper::CODEX_CLI_VERSION;
 const MAX_EVENT: usize = 32768;
+mod chatgpt;
+pub(crate) use chatgpt::validated_chatgpt_auth_json;
 
 /// Operator-selected exact settings, not settings inferred from an offer.
 pub struct CodexExecProfile {
@@ -55,6 +57,7 @@ impl CodexExecProfile {
             &installed.adapter,
             &installed.renderer,
             false,
+            false,
         )?;
         installed.revalidate()?;
         Ok(prepared)
@@ -67,8 +70,14 @@ impl CodexExecProfile {
         input: CodexExecInput<'_>,
     ) -> Result<PreparedCodexExec> {
         let m = installation.installation();
-        let prepared =
-            self.prepare_inputs(input, &m.executable.path, &m.adapter, &m.renderer, false)?;
+        let prepared = self.prepare_inputs(
+            input,
+            &m.executable.path,
+            &m.adapter,
+            &m.renderer,
+            false,
+            false,
+        )?;
         installation.revalidate()?;
         Ok(prepared)
     }
@@ -78,8 +87,14 @@ impl CodexExecProfile {
         input: CodexExecInput<'_>,
     ) -> Result<PreparedCodexExec> {
         let m = installation.installation();
-        let prepared =
-            self.prepare_inputs(input, &m.executable.path, &m.adapter, &m.renderer, true)?;
+        let prepared = self.prepare_inputs(
+            input,
+            &m.executable.path,
+            &m.adapter,
+            &m.renderer,
+            true,
+            false,
+        )?;
         installation.revalidate()?;
         Ok(prepared)
     }
@@ -89,8 +104,14 @@ impl CodexExecProfile {
         input: CodexExecInput<'_>,
     ) -> Result<PreparedCodexExec> {
         let m = installation.installation();
-        let prepared =
-            self.prepare_inputs(input, &m.executable.path, &m.adapter, &m.renderer, true)?;
+        let prepared = self.prepare_inputs(
+            input,
+            &m.executable.path,
+            &m.adapter,
+            &m.renderer,
+            true,
+            installation.interactive(),
+        )?;
         installation.revalidate()?;
         Ok(prepared)
     }
@@ -101,6 +122,7 @@ impl CodexExecProfile {
         adapter: &ArtifactRef,
         renderer: &ArtifactRef,
         planned: bool,
+        interactive: bool,
     ) -> Result<PreparedCodexExec> {
         let CodexExecInput {
             offer,
@@ -122,11 +144,16 @@ impl CodexExecProfile {
                     == self.permissions_digest,
             "Codex exact installed settings mismatch"
         );
-        aq_codex_mapper::validate_settings(aq_codex_mapper::Settings {
+        let settings = aq_codex_mapper::Settings {
             harness: &self.harness,
             model: &self.model,
             terminal_input_enabled: manifest.terminal.input_enabled,
-        })?;
+        };
+        if interactive {
+            aq_codex_mapper::validate_interactive_settings(settings)?;
+        } else {
+            aq_codex_mapper::validate_settings(settings)?;
+        }
         descriptor.validate()?;
         descriptor.verify_payload(&payload)?;
         ensure!(
@@ -172,18 +199,28 @@ impl CodexExecProfile {
                 "Codex private home must be fresh and empty"
             );
         }
-        let recipe = aq_codex_mapper::map(
-            aq_codex_mapper::Settings {
-                harness: &self.harness,
-                model: &self.model,
-                terminal_input_enabled: manifest.terminal.input_enabled,
-            },
-            aq_codex_mapper::Paths {
-                executable,
-                workspace,
-                private_home,
-            },
-        )?;
+        let settings = aq_codex_mapper::Settings {
+            harness: &self.harness,
+            model: &self.model,
+            terminal_input_enabled: manifest.terminal.input_enabled,
+        };
+        let paths = aq_codex_mapper::Paths {
+            executable,
+            workspace,
+            private_home,
+        };
+        let recipe = if interactive {
+            ensure!(
+                !payload.is_empty()
+                    && payload.len() <= 64 * 1024
+                    && !payload.contains(&0)
+                    && std::str::from_utf8(&payload).is_ok(),
+                "interactive verified startup UTF8/64KiB bound"
+            );
+            aq_codex_mapper::map_interactive(settings, paths)?
+        } else {
+            aq_codex_mapper::map(settings, paths)?
+        };
         Ok(PreparedCodexExec {
             command: LocalCommand {
                 executable: recipe.executable,
