@@ -20,3 +20,7 @@ pub mod source_transfer;
 pub mod transfer_client;
 
 pub mod native;
+
+/// Finite local-provider fixture data; never runtime/model qualification.
+#[cfg(any(test, feature = "test-support"))]
+pub mod finite_responses_fixture;

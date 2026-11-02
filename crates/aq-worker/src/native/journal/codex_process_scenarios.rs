@@ -32,35 +32,17 @@ impl Drop for Provider {
         self.task.abort();
     }
 }
-fn event(value: Value) -> String {
-    format!(
-        "event: {}\ndata: {}\n\n",
-        value["type"].as_str().unwrap(),
-        value
-    )
-}
 fn completed(model: &str) -> String {
-    let item = json!({"id":"msg_aq_local", "type":"message", "status":"completed",
-        "role":"assistant", "content":[{"type":"output_text", "text":FINAL_TEXT,"annotations":[]}]});
-    [
-        event(json!({"type":"response.created","response":{"id":"resp_aq_local","model":model,"status":"in_progress","output":[]}})),
-        event(json!({"type":"response.output_item.added","output_index":0,"item":{"id":"msg_aq_local","type":"message","status":"in_progress","role":"assistant","content":[]}})),
-        event(json!({"type":"response.output_text.delta","item_id":"msg_aq_local","output_index":0,"content_index":0,"delta":FINAL_TEXT})),
-        event(json!({"type":"response.output_item.done","output_index":0,"item":item})),
-        event(json!({"type":"response.completed","response":{"id":"resp_aq_local","model":model,"status":"completed","output":[item],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}})),
-    ].concat()
+    crate::finite_responses_fixture::completed(model, FINAL_TEXT)
 }
 fn tool_call(model: &str) -> String {
-    let args =
-        json!({"cmd":"/usr/bin/printf aq-local-tool-proof | /usr/bin/tee aq-local-tool-proof.txt",
-        "login":false,"yield_time_ms":1000,"max_output_tokens":1000})
-        .to_string();
-    let item = json!({"type":"function_call","id":"fc_aq_local","call_id":"call_aq_local",
-        "name":"exec_command","arguments":args,"status":"completed"});
-    [event(json!({"type":"response.created","response":{"id":"resp_aq_tool","model":model,"status":"in_progress","output":[]}})),
-        event(json!({"type":"response.output_item.done","output_index":0,"item":item})),
-        event(json!({"type":"response.completed","response":{"id":"resp_aq_tool","model":model,"status":"completed","output":[item],
-            "usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}))].concat()
+    crate::finite_responses_fixture::exec_command(
+        model,
+        "resp_aq_tool",
+        "fc_aq_local",
+        "call_aq_local",
+        "/usr/bin/printf aq-local-tool-proof | /usr/bin/tee aq-local-tool-proof.txt",
+    )
 }
 async fn provider() -> Provider {
     provider_mode(false).await
@@ -80,22 +62,17 @@ async fn provider_mode(tool_flow: bool) -> Provider {
             let signal = signal.clone();
             let gate = gate.clone();
             async move {
-                assert!(body.len() < 1024 * 1024, "bounded fixture request");
                 assert_eq!(headers["authorization"], "Bearer synthetic-upstream-key");
                 assert!(
                     !headers.contains_key("content-encoding"),
                     "fixture expects uncompressed JSON"
                 );
-                let request: Value = serde_json::from_slice(&body).unwrap();
-                assert_eq!(request["stream"], true);
-                assert_eq!(request["store"], false);
-                assert_eq!(request["max_output_tokens"], 4096);
-                let body_text = std::str::from_utf8(&body).unwrap();
-                for secret in ["synthetic-key", "synthetic-upstream-key", "synthetic-node-credential"] {
-                    assert!(!body_text.contains(secret), "transport credential entered model input");
-                }
-                assert!(request["tools"].as_array().unwrap().iter().all(|v|v["type"] != "web_search"),
-                    "hosted web search must be disabled in the actual CLI request");
+                let request = crate::finite_responses_fixture::request(
+                    &body,
+                    None,
+                    4096,
+                    &["synthetic-key", "synthetic-upstream-key", "synthetic-node-credential"],
+                ).unwrap();
                 let model = request["model"].as_str().unwrap().to_owned();
                 eprintln!("actual CLI request structure: {}", json!({
                     "input_types":request["input"].as_array().unwrap().iter().map(|v|v["type"].clone()).collect::<Vec<_>>(),
