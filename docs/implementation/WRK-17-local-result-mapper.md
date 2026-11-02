@@ -50,3 +50,35 @@ captured source, so no secret metadata exclusion or special `.aq` ignore rule is
 assumed. This candidate does not claim actual client/tool execution, a result
 receipt, source-retention closure, or production completion until the combined
 native/client/mapper path is separately checked and authorized.
+
+## Central opt-in and the actual owner join
+
+The versioned `aq.codex-result-local-adapter@1` Definition is selected as the
+admitted `LaunchManifest.harness.adapter`. Its canonical bytes bind the exact
+client-installation artifact, client executable, environment, local contract,
+recipe definition, runtime, renderer, permissions digest and additional 64 MiB
+client image reservation. The recipe artifact is
+`aq.codex-result-local-recipe@1`; the client installation artifact is
+`aq.agent-result-client-installation@1`. These are code/installation definitions,
+not profile/context modules. They are not placed in `manifest.modules` as a
+substitute for admission. Reporting instructions are a separate centrally counted
+startup context module.
+
+The composite body deliberately does not embed the NamedExecManifest digest:
+that manifest already contains the selected adapter reference, so embedding its
+digest would create a content-address cycle. Its runtime reference is checked
+against independent selection. Exact installed runtime qualification versus the
+actual reservation/grant remains the existing native owner check; this body does
+not supply that proof. A private operator file alone does not opt an offer in.
+The actual retained execution must include this exact Definition-role artifact,
+original descriptor and bytes selected by its manifest before a channel is made.
+
+Pure definition validators enforce canonical bytes and closed fields, independent
+selection, original retained descriptor/role/body, the installed client's pins,
+and required/effective `result.submit/local-v1` permission. Their outputs remain
+metadata. Human's native result owner constructs the non-Serde
+`VerifiedResultChannel` only from the actual pipeline/execution/grant and retained
+root/submission FDs, then freezes its adapter/client/recipe/permissions/root pins
+before any launch. The adapter's future borrowed input will carry actual Entry
+binding/execution-digest plus the real client/channel owners; it cannot activate
+from a disk envelope or these validators succeeding.

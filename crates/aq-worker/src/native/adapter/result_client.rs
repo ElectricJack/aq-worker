@@ -40,6 +40,9 @@ impl ResultClientManifest {
     pub fn digest(&self) -> Result<Digest> {
         super::super::journal::canonical_digest(self)
     }
+    pub fn artifact(&self) -> Result<ArtifactRef> {
+        Ok(manifest_reference(self.digest()?))
+    }
     fn validate_selection(
         &self,
         expected: &ExpectedResultClient<'_>,
@@ -125,6 +128,9 @@ impl InstalledResultClient {
     pub fn manifest_digest(&self) -> &Digest {
         &self.digest
     }
+    pub fn manifest_artifact(&self) -> ArtifactRef {
+        manifest_reference(self.digest.clone())
+    }
     pub fn executable_bytes(&self) -> u64 {
         self.image.bytes()
     }
@@ -132,6 +138,15 @@ impl InstalledResultClient {
     /// from Codex's own preflight pool and per-attempt workspace/resource charge.
     pub fn reserved_bytes(&self) -> u64 {
         MAX_RESULT_CLIENT_INSTALLATION_BYTES
+    }
+}
+
+fn manifest_reference(digest: Digest) -> ArtifactRef {
+    ArtifactRef {
+        id: aq_session_protocol::Text::new("aq.agent-result-client-installation")
+            .expect("constant installation id"),
+        version: aq_session_protocol::Text::new("1").expect("constant installation version"),
+        digest,
     }
 }
 
