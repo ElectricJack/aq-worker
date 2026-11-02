@@ -160,6 +160,76 @@ async fn held_poll_and_saturated_poll_lane_preserve_reserved_control_progress() 
 }
 
 #[tokio::test]
+async fn held_full_poll_does_not_reject_independent_watch_output_poll() {
+    let state = Arc::new(Lanes::default());
+    let (origin, server) = serve(
+        Router::new()
+            .route("/v1/terminal-relay/poll", post(held_poll))
+            .route(
+                "/v1/terminal-relay/output-poll",
+                post(|h: HeaderMap, Json(r): Json<RelayPoll>| async move {
+                    authorize(&h);
+                    assert_eq!(r.hold_ms, 0);
+                    assert_eq!(r.active_controllers, 0);
+                    Json(Envelope {
+                        version: VERSION,
+                        capability: r.capability,
+                        peer: r.peer,
+                        exchange_id: Uuid::new_v4(),
+                        cursor: 7,
+                        effects: vec![Effect::Watch(WatchSubscription {
+                            subscription_id: Uuid::from_u128(8),
+                            terminal: TerminalIdentity {
+                                session: SessionIdentity::Remote {
+                                    node_id: Uuid::from_u128(1),
+                                    boot_id: Uuid::from_u128(2),
+                                    attempt_id: Uuid::from_u128(3),
+                                    assignment_generation: 1,
+                                    session_id: Uuid::from_u128(4),
+                                },
+                                terminal_id: Uuid::from_u128(5),
+                                epoch: 1,
+                            },
+                            principal_id: Text::new("synthetic-viewer").unwrap(),
+                            expires_at_ms: u64::MAX,
+                        })],
+                    })
+                }),
+            )
+            .with_state(state.clone()),
+    )
+    .await;
+    let http = client(&origin);
+    let full = poll();
+    let cloned = http.clone();
+    let request = full.clone();
+    let held = tokio::spawn(async move { cloned.poll(&request).await });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        state.poll_started.notified(),
+    )
+    .await
+    .unwrap();
+    // Full polling's own concurrency limit and semantics remain unchanged.
+    assert!(http.poll(&full).await.is_err());
+    let mut output = full;
+    output.hold_ms = 0;
+    output.active_controllers = 0;
+    let response =
+        tokio::time::timeout(std::time::Duration::from_secs(1), http.output_poll(&output))
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(response.cursor, 7);
+    assert!(matches!(response.effects.as_slice(), [Effect::Watch(_)]));
+    assert_eq!(state.polls.load(Ordering::SeqCst), 1);
+    assert!(!held.is_finished());
+    state.release_poll.notify_one();
+    held.await.unwrap().unwrap();
+    server.abort();
+}
+
+#[tokio::test]
 async fn lost_control_reply_is_not_automatically_retried_and_content_never_uses_control_lane() {
     let count = Arc::new(AtomicUsize::new(0));
     let handler_count = count.clone();
