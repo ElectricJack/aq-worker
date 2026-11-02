@@ -60,10 +60,16 @@ def pin(path, expected, maximum):
 
 
 def configure(value, control_origin):
-    require(set(value) == {'schema_version', 'operation', 'worker_config', 'native_config',
-                           'installation_manifest', 'inventory_definition'}
-            and value['schema_version'] == 1 and value['operation'] == 'configure', 'closed configure packet')
-    native = value['native_config']
+    native = value.get('native_config', {})
+    kind = native.get('executor', {}).get('kind')
+    required = {'schema_version', 'operation', 'worker_config', 'native_config',
+                'installation_manifest', 'inventory_definition'}
+    if kind == 'codex-0.166-trusted-node-named-readonly-result-local-v1':
+        required |= {'client_manifest', 'composite_definition'}
+    else:
+        require(kind == 'codex-0.166-trusted-node-named-readonly-v1', 'explicit named runner profile')
+    require(set(value) == required and value['schema_version'] == 1
+            and value['operation'] == 'configure', 'closed configure packet')
     require(isinstance(native, dict) and native['state_dir'] == str(STATE)
             and native['git_root'] == str(STATE / 'git')
             and native['git_socket'] == str(STATE / 'git.sock')
@@ -76,12 +82,25 @@ def configure(value, control_origin):
     # is an early shape check, not a TOML parser or an authority decision; the
     # ordinary CLI still validates its closed configuration before admission.
     require(isinstance(value['worker_config'], str) and control_origin in value['worker_config'], 'private control origin marker')
+    files = [('native_config', 'native.json'), ('installation_manifest', 'adapter.json'),
+             ('inventory_definition', 'inventory.json')]
+    if kind == 'codex-0.166-trusted-node-named-readonly-result-local-v1':
+        require(native['executor']['client_manifest'] == str(STATE / 'config/client.json')
+                and native['executor']['composite_definition'] == str(STATE / 'config/composite.json'),
+                'fixed result installation input files')
+        files += [('client_manifest', 'client.json'), ('composite_definition', 'composite.json')]
+    # Validate every bounded payload before creating any state. The ordinary
+    # runner remains responsible for semantic/authority validation.
+    encoded = [('worker.toml', value['worker_config'].encode())]
+    encoded += [(name, json.dumps(value[key], sort_keys=True, ensure_ascii=False,
+                                 separators=(',', ':'), allow_nan=False).encode())
+                for key, name in files]
+    for _, body in encoded:
+        require(0 < len(body) <= 65536, 'bounded private file')
     (STATE / 'config').mkdir(mode=0o700)
     (STATE / 'host').mkdir(mode=0o700)
-    private_file(STATE / 'config/worker.toml', value['worker_config'].encode())
-    for key, name in [('native_config', 'native.json'), ('installation_manifest', 'adapter.json'),
-                      ('inventory_definition', 'inventory.json')]:
-        private_file(STATE / 'config' / name, json.dumps(value[key], separators=(',', ':')).encode())
+    for name, body in encoded:
+        private_file(STATE / 'config' / name, body)
 
 
 def stop(child, grace):
