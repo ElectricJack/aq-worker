@@ -1,0 +1,4 @@
+    Checking aq-codex-mapper v0.1.1 (/tmp/aq-codex-result-mapper/crates/aq-codex-mapper)
+    Checking aq-agent-result-local v0.1.0 (/tmp/aq-codex-result-mapper/crates/aq-agent-result-local)
+    Checking aq-worker v0.4.0 (/tmp/aq-codex-result-mapper/crates/aq-worker)
+    Finished `dev` profile [unoptimized] target(s) in 11.53s
