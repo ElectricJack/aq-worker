@@ -387,5 +387,8 @@ impl CodexEvents {
     }
 }
 
+mod result_local;
+pub(crate) use result_local::CodexResultInput;
+
 #[cfg(test)]
 mod tests;
