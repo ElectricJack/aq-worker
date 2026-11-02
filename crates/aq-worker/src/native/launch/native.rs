@@ -437,7 +437,13 @@ pub(super) fn bootstrap(
         private_home: &home,
     };
     let recipe = match (&profile.result, entry.result_channel.as_deref()) {
-        (None, None) => installed.prepare(&profile.mapper, input)?,
+        (None, None) => {
+            ensure!(
+                profile.mapper.harness.adapter.id.as_str() != "aq.codex-result-local-adapter",
+                "known result adapter requires the result-enabled profile and actual channel"
+            );
+            installed.prepare(&profile.mapper, input)?
+        }
         (Some(result), Some(channel)) => {
             let Installation::Named(named) = &mut *installed else {
                 anyhow::bail!("result mapping requires the named-readonly image profile")

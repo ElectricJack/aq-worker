@@ -59,7 +59,7 @@ impl InputPipeline {
     ) -> Result<Option<DurableStoppedResult>> {
         let custody = self
             .results
-            .0
+            .entries
             .lock()
             .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
             .get(&id)

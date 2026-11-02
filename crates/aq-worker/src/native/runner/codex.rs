@@ -235,6 +235,10 @@ impl NativeExecutor for CodexExecutor {
         };
         settings.validate(config)?;
         ensure!(
+            config.adapter.id.as_str() != "aq.codex-result-local-adapter" || result.is_some(),
+            "known result adapter requires the result-enabled executor"
+        );
+        ensure!(
             environment == &settings.harness.environment,
             "trusted-node environment differs from selected harness"
         );

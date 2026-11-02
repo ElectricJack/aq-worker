@@ -141,7 +141,7 @@ impl InputPipeline {
                 "oversized result source reply; original operation retained"
             );
             let export = if key == "export" {
-                Some(verify_export(&git, &value, &prepared)?)
+                Some(verify_export(git.root(), &value, &prepared)?)
             } else {
                 None
             };
@@ -310,7 +310,7 @@ impl InputPipeline {
     }
 }
 fn verify_export(
-    git: &crate::source::GitClient,
+    root: &Path,
     value: &serde_json::Value,
     h: &ResultHistory,
 ) -> Result<ExportRecord> {
@@ -337,7 +337,7 @@ fn verify_export(
         "result actual Git export manifest differs"
     );
     let mut file =
-        crate::source_transfer::artifact_file(git.root(), artifact, false, "manifest.json", false)?;
+        crate::source_transfer::artifact_file(root, artifact, false, "manifest.json", false)?;
     let size = file.metadata()?.len();
     ensure!(
         (1..=1_048_576).contains(&size),
@@ -361,13 +361,8 @@ fn verify_export(
         "result export exceeds original disk reservation"
     );
     if manifest.bundle_size > 0 {
-        let mut bundle = crate::source_transfer::artifact_file(
-            git.root(),
-            artifact,
-            false,
-            "objects.bundle",
-            false,
-        )?;
+        let mut bundle =
+            crate::source_transfer::artifact_file(root, artifact, false, "objects.bundle", false)?;
         ensure!(
             bundle.metadata()?.len() == manifest.bundle_size,
             "result bundle length changed"
@@ -405,4 +400,102 @@ fn verify_export(
         manifest_bytes: size,
         total_bytes: total,
     })
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    fn export() -> (tempfile::TempDir, ResultHistory, serde_json::Value, Vec<u8>) {
+        let root = tempfile::tempdir().unwrap();
+        let mut h = super::super::tests::history();
+        let checkpoint = aq_worker_protocol::ObjectId {
+            algorithm: aq_worker_protocol::ObjectAlgorithm::Sha1,
+            hex: "b".repeat(40),
+        };
+        h.source.checkpoint = Some(crate::source::Checkpoint {
+            workspace_id: h.scope.workspace.workspace_id,
+            workspace_generation: 2,
+            source: checkpoint.clone(),
+            retention_handle: Uuid::new_v4(),
+        });
+        let bundle = b"actual finite bundle bytes for file verifier only".to_vec();
+        let id = Uuid::new_v4();
+        let native = GitManifest {
+            format_version: 1,
+            repository_id: h.scope.source.repository_id,
+            repository_identity: h.scope.source.logical_identity.clone(),
+            binding_generation: h.scope.source.binding_generation,
+            transfer_id: id,
+            object_format: "sha1".into(),
+            base: h.scope.source.base.clone(),
+            source: checkpoint,
+            prerequisites: vec![h.scope.source.base.clone()],
+            bundle_size: bundle.len() as u64,
+            bundle_sha256: Some(format!("{:x}", Sha256::digest(&bundle))),
+            producer_installation_id: Uuid::new_v4(),
+            reference_only: false,
+            caller_correlation: serde_json::json!({}),
+        };
+        let dir = root.path().join("artifacts").join(id.to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        let bytes = serde_json::to_vec_pretty(&native).unwrap();
+        for (name, data) in [
+            ("manifest.json", bytes.as_slice()),
+            ("objects.bundle", bundle.as_slice()),
+        ] {
+            let p = dir.join(name);
+            std::fs::write(&p, data).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        (
+            root,
+            h,
+            serde_json::json!({"artifact_handle":id,"manifest":native}),
+            bytes,
+        )
+    }
+    #[test]
+    fn result_export_distinguishes_raw_upload_hash_from_native_receipt_hash() {
+        let (root, h, value, bytes) = export();
+        let actual = verify_export(root.path(), &value, &h).unwrap();
+        assert_eq!(
+            actual.manifest_digest,
+            format!("{:x}", Sha256::digest(&bytes))
+        );
+        assert_ne!(
+            actual.manifest_digest,
+            actual.manifest.canonical_digest().unwrap(),
+            "pretty raw upload bytes must not be silently relabeled canonical"
+        );
+        assert_eq!(actual.manifest_bytes, bytes.len() as u64);
+    }
+    #[test]
+    fn result_export_rejects_changed_bundle_before_retention() {
+        let (root, h, value, _) = export();
+        let first = verify_export(root.path(), &value, &h).unwrap();
+        std::fs::write(
+            root.path()
+                .join("artifacts")
+                .join(first.artifact.to_string())
+                .join("objects.bundle"),
+            vec![b'x'; first.manifest.bundle_size as usize],
+        )
+        .unwrap();
+        assert!(verify_export(root.path(), &value, &h).is_err());
+    }
+    #[test]
+    fn result_export_refuses_symlink_manifest_and_out_of_scope_reply() {
+        let (root, h, mut value, _) = export();
+        let actual = verify_export(root.path(), &value, &h).unwrap();
+        let dir = root
+            .path()
+            .join("artifacts")
+            .join(actual.artifact.to_string());
+        let manifest = dir.join("manifest.json");
+        std::fs::rename(&manifest, dir.join("retained.json")).unwrap();
+        std::os::unix::fs::symlink(dir.join("retained.json"), &manifest).unwrap();
+        assert!(verify_export(root.path(), &value, &h).is_err());
+        value["manifest"]["repository_id"] = Uuid::new_v4().to_string().into();
+        assert!(verify_export(root.path(), &value, &h).is_err());
+    }
 }

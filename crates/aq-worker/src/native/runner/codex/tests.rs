@@ -317,3 +317,24 @@ fn result_factory_wire_is_distinct_and_cannot_supply_arbitrary_folder() {
     wire.as_object_mut().unwrap().remove("composite_definition");
     assert!(serde_json::from_value::<ExecutorConfig>(wire).is_err());
 }
+#[test]
+fn old_named_profile_cannot_advertise_known_result_adapter_without_channel() {
+    let (root, mut config) = super::super::tests::config();
+    config.adapter.id = Text::new("aq.codex-result-local-adapter").unwrap();
+    let selected = settings(&config);
+    config.executor = Some(ExecutorConfig::TrustedNodeNamedReadonly {
+        environment: selected.harness.environment.clone(),
+        settings: selected,
+    });
+    std::fs::remove_file(&config.adapter_manifest).unwrap();
+    let mut worker = worker();
+    worker.server_url = "https://example.invalid".into();
+    let mut executor = CodexExecutor::new(&worker).unwrap();
+    let error = executor.preflight(&config).unwrap_err();
+    assert!(
+        error.to_string().contains("result-enabled executor"),
+        "{error:#}"
+    );
+    assert!(executor.profile.is_none());
+    assert!(!root.path().join("journal").exists());
+}
