@@ -156,7 +156,8 @@ impl ControlOwner {
             // Cancellation of a waiter cannot release physical admission while
             // its fsync/mailbox effect is still executing.
             let _permit = permit;
-            f(&mut lock(&owner.bridge)?)
+            let mut bridge = lock(&owner.bridge)?;
+            f(&mut bridge)
         })
         .await
         .context("native terminal storage job failed")?
