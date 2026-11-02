@@ -14,24 +14,31 @@ use tokio::sync::watch;
 
 #[path = "native/journal/codex_process_guard.rs"]
 mod confinement;
+mod replay;
 
 pub(super) struct Options {
     provider: String,
     pub(super) gate: bool,
+    pub(super) replay_lost_b1_ack: bool,
 }
 impl Options {
     pub(super) fn from_flags(
         local: bool,
         provider: Option<String>,
         gate: bool,
+        replay_lost_b1_ack: bool,
     ) -> Result<Option<Self>> {
         if !local {
             ensure!(
-                provider.is_none() && !gate,
+                provider.is_none() && !gate && !replay_lost_b1_ack,
                 "fixture options require local transport"
             );
             return Ok(None);
         }
+        ensure!(
+            !replay_lost_b1_ack || gate,
+            "fixture replay requires explicit preflight gate"
+        );
         let provider = provider.context("local fixture requires explicit provider origin")?;
         let url = reqwest::Url::parse(&provider)?;
         ensure!(
@@ -45,7 +52,11 @@ impl Options {
                 && url.fragment().is_none(),
             "fixture provider must be an explicit numeric loopback origin"
         );
-        Ok(Some(Self { provider, gate }))
+        Ok(Some(Self {
+            provider,
+            gate,
+            replay_lost_b1_ack,
+        }))
     }
     pub(super) fn executor(&self, worker: &WorkerConfig) -> Result<CodexExecutor> {
         CodexExecutor::development_loopback(worker)?.with_development_provider(&self.provider)
@@ -58,14 +69,22 @@ pub(super) fn verify_environment() -> Result<()> {
 pub(super) struct FixtureExecutor {
     inner: CodexExecutor,
     gate: bool,
+    replay_lost_b1_ack: bool,
 }
 impl FixtureExecutor {
-    pub(super) fn new(inner: CodexExecutor, gate: bool) -> Self {
-        Self { inner, gate }
+    pub(super) fn new(inner: CodexExecutor, gate: bool, replay_lost_b1_ack: bool) -> Self {
+        Self {
+            inner,
+            gate,
+            replay_lost_b1_ack,
+        }
     }
 }
 impl NativeExecutor for FixtureExecutor {
     fn preflight(&mut self, config: &NativeConfig) -> Result<()> {
+        ensure!(!self.replay_lost_b1_ack || (self.gate && matches!(&config.executor,
+            Some(aq_worker::native::runner::ExecutorConfig::TrustedNodeNamedReadonlyResultLocal { .. }))),
+            "fixture B1 replay requires explicit result-local executor");
         self.inner.preflight(config)?;
         if self.gate {
             // The actual installed factory has returned successfully. This data
@@ -92,7 +111,16 @@ impl NativeExecutor for FixtureExecutor {
         grant: DurablePhaseExecution,
         shutdown: watch::Receiver<bool>,
     ) -> ExecutionFuture<'a> {
-        self.inner.execute(pipeline, grant, shutdown)
+        let replay_enabled = std::mem::take(&mut self.replay_lost_b1_ack);
+        let id = grant.history().attempt_id();
+        let retained = pipeline.clone();
+        let execution = self.inner.execute(pipeline, grant, shutdown);
+        Box::pin(async move {
+            replay::preserve_execution_error(execution.await, replay_enabled, || {
+                replay::once(&retained, id)
+            })
+            .await
+        })
     }
 }
 #[derive(Deserialize)]
@@ -198,15 +226,58 @@ mod tests {
         ));
     }
     #[test]
+    fn lost_ack_replay_flag_requires_explicit_local_preflight_fixture() {
+        use clap::Parser;
+        let base = [
+            "aq-worker",
+            "run-native",
+            "--native-config",
+            "/nonexistent",
+            "--development-loopback",
+            "--development-provider",
+            "http://127.0.0.1:4321/",
+        ];
+        let mut args = base.to_vec();
+        args.push("--fixture-replay-lost-b1-ack");
+        assert!(crate::Cli::try_parse_from(&args).is_err());
+        args.push("--fixture-preflight-gate");
+        let parsed = crate::Cli::try_parse_from(args).unwrap();
+        assert!(matches!(
+            parsed.command,
+            crate::Cmd::RunNative {
+                fixture_replay_lost_b1_ack: true,
+                ..
+            }
+        ));
+        assert!(Options::from_flags(false, None, false, true).is_err());
+        assert!(
+            Options::from_flags(true, Some("http://127.0.0.1:4321/".into()), false, true).is_err()
+        );
+        assert!(
+            Options::from_flags(true, Some("http://127.0.0.1:4321/".into()), true, true)
+                .unwrap()
+                .unwrap()
+                .replay_lost_b1_ack
+        );
+    }
+    #[test]
     fn numeric_node_origin_alone_never_enables_fixture_provider() {
-        assert!(Options::from_flags(true, None, false).is_err());
-        assert!(Options::from_flags(false, Some("http://127.0.0.1:1/".into()), false).is_err());
-        assert!(Options::from_flags(false, None, true).is_err());
-        assert!(Options::from_flags(false, None, false).unwrap().is_none());
+        assert!(Options::from_flags(true, None, false, false).is_err());
+        assert!(
+            Options::from_flags(false, Some("http://127.0.0.1:1/".into()), false, false).is_err()
+        );
+        assert!(Options::from_flags(false, None, true, false).is_err());
+        assert!(
+            Options::from_flags(false, None, false, false)
+                .unwrap()
+                .is_none()
+        );
     }
     #[test]
     fn only_exact_numeric_loopback_provider_is_accepted() {
-        assert!(Options::from_flags(true, Some("http://127.0.0.1:4321/".into()), true).is_ok());
+        assert!(
+            Options::from_flags(true, Some("http://127.0.0.1:4321/".into()), true, false).is_ok()
+        );
         for origin in [
             "https://127.0.0.1:1/",
             "http://localhost:1/",
@@ -218,7 +289,7 @@ mod tests {
             "http://127.0.0.1:1/#a",
         ] {
             assert!(
-                Options::from_flags(true, Some(origin.into()), false).is_err(),
+                Options::from_flags(true, Some(origin.into()), false, false).is_err(),
                 "{origin}"
             );
         }
