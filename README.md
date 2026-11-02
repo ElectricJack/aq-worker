@@ -15,9 +15,9 @@ This repository contains the extracted foundation connector and an execution-pro
 - [Resumable source transfer candidate](docs/source-transfers.md)
 - [Scoped agent client and protected provisioning](crates/aq-agent-client/README.md)
 - [Experimental observation engine and transport owner](docs/implementation/WRK-15-integration.md) (independently tested; not adopted by the worker runtime)
-- [Shared execution and recovery](../agent-q/docs/architecture/0002-execution-and-recovery.md)
-- [AQ ecosystem and releases](../agent-q/docs/architecture/0001-ecosystem-and-releases.md)
-- [Agent Q foundation](../agent-q/docs/specs/0001-infrastructure-foundation.md)
+- [Shared execution and recovery](../aq-server/docs/architecture/0002-execution-and-recovery.md)
+- [AQ ecosystem and releases](../aq-server/docs/architecture/0001-ecosystem-and-releases.md)
+- [Agent Q foundation](../aq-server/docs/specs/0001-infrastructure-foundation.md)
 - [aq-git design](../aq-git/docs/specs/0001-aq-git.md)
 
 Sibling links assume side-by-side checkouts. They are documentation references, not build dependencies. The worker's core tests will use a local fake coordinator and deterministic harness; real container and harness compatibility tests will be separate suites.

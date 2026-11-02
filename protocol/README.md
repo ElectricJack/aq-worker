@@ -2,7 +2,7 @@
 
 This directory is the canonical publication location for the worker wire contract shared by `aq-worker` and `agent-q`. The local candidate contains generated [execution schemas](execution-v2.schema.json), [conformance vectors](conformance-v2.json), preserved [foundation fixtures](foundation-v1.fixtures.json), and the [behavioral contract](contract.md). Canonical Rust types and validators are in `crates/aq-worker-protocol`; they generate the schema. This candidate has not been remotely published.
 
-The [execution specification](../docs/specs/0002-execution-and-agent-access.md) defines local responsibilities. The [shared lifecycle](../../agent-q/docs/architecture/0002-execution-and-recovery.md) defines cross-system semantics, and [AQ's daemon specification](../../agent-q/docs/specs/0002-execution-and-agent-access.md) defines the server implementation.
+The [execution specification](../docs/specs/0002-execution-and-agent-access.md) defines local responsibilities. The [shared lifecycle](../../aq-server/docs/architecture/0002-execution-and-recovery.md) defines cross-system semantics, and [AQ's daemon specification](../../aq-server/docs/specs/0002-execution-and-agent-access.md) defines the server implementation.
 
 Each protocol release must publish:
 

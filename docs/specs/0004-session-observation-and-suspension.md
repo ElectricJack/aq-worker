@@ -4,7 +4,7 @@
 
 **Date:** 2026-10-30
 
-The canonical [session operations, waits and notifications design](../../../agent-q/docs/architecture/0004-session-operations-waits-and-notifications.md)
+The canonical [session operations, waits and notifications design](../../../aq-server/docs/architecture/0004-session-operations-waits-and-notifications.md)
 owns S/N/C requirements, policy, budgets and domain semantics. This supplement
 extends [profiled tmux hosting](0003-profiled-tmux-sessions.md) and the existing
 [execution/retention contract](0002-execution-and-agent-access.md).
@@ -138,4 +138,4 @@ owners, browser/CLI and cross-node wake using exact published component artifact
 
 ## Revision-pinned implementation evidence
 
-The [bounded v1 reference inventory](../../../agent-q/docs/research/2026-10-30-v1-implementation-reference-map.md) records implementation symbols, selected test obligations and per-file hashes at revision `9a9b8e8ef992d1ff699755a9383ed3c91e2844ea`. It distinguishes preserved behavior from remote-authority and retention adaptations. This evidence informs the owning v2 tasks; replacement coverage and product qualification remain pending.
+The [bounded v1 reference inventory](../../../aq-server/docs/research/2026-10-30-v1-implementation-reference-map.md) records implementation symbols, selected test obligations and per-file hashes at revision `9a9b8e8ef992d1ff699755a9383ed3c91e2844ea`. It distinguishes preserved behavior from remote-authority and retention adaptations. This evidence informs the owning v2 tasks; replacement coverage and product qualification remain pending.

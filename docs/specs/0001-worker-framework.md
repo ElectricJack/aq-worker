@@ -4,13 +4,13 @@
 **Date:** 2026-10-30  
 **Implementation language:** Rust  
 **Repository:** `aq-worker`  
-**Related contracts:** [Agent Q foundation](../../../agent-q/docs/specs/0001-infrastructure-foundation.md), [aq-git](../../../aq-git/docs/specs/0001-aq-git.md), [aq-graph integration](../../../aq-graph/docs/aq-integration.md)
+**Related contracts:** [Agent Q foundation](../../../aq-server/docs/specs/0001-infrastructure-foundation.md), [aq-git](../../../aq-git/docs/specs/0001-aq-git.md), [aq-graph integration](../../../aq-graph/docs/aq-integration.md)
 
 An Agent Q worker node supplies compute and temporary workspaces for a configured number of agents. It runs as a container on a desktop or cloud machine and initiates all communication with the central daemon. The central system schedules work and hosts supervisor agents. The worker runtime accepts specific execution assignments, manages local capacity and files, delivers messages to agents, and reliably reports outcomes.
 
 Capacity is shared across eligible projects. A project being eligible for a node does not allocate a worktree, reserve an agent slot, or download its repository. Workspaces are created on demand; reusable project data occupies a bounded cache. This is the primary mechanism for supporting many projects without multiplying idle workspaces across the fleet.
 
-The canonical cross-component lifecycle is [AQ execution and recovery](../../../agent-q/docs/architecture/0002-execution-and-recovery.md). The [worker execution and agent-access supplement](0002-execution-and-agent-access.md) adds requirements W17–W21 and acceptance T21–T28 for launch recovery, scoped agent API access and protocol publication. [Ecosystem and releases](../../../agent-q/docs/architecture/0001-ecosystem-and-releases.md) defines repository and product assembly ownership. This framework's capacity, storage and confinement rules remain applicable.
+The canonical cross-component lifecycle is [AQ execution and recovery](../../../aq-server/docs/architecture/0002-execution-and-recovery.md). The [worker execution and agent-access supplement](0002-execution-and-agent-access.md) adds requirements W17–W21 and acceptance T21–T28 for launch recovery, scoped agent API access and protocol publication. [Ecosystem and releases](../../../aq-server/docs/architecture/0001-ecosystem-and-releases.md) defines repository and product assembly ownership. This framework's capacity, storage and confinement rules remain applicable.
 
 ## 1. Decisions and requirements
 
@@ -359,7 +359,7 @@ Messages to a finished or superseded session remain in its history with an undel
 
 ## 14. Harnesses, tmux, and process ownership
 
-The canonical [profile, intelligence and terminal design](../../../agent-q/docs/architecture/0003-agent-profiles-harnesses-and-terminals.md) makes tmux mandatory for real agent CLIs and defines the four required product adapters. The [worker supplement](0003-profiled-tmux-sessions.md) specifies the common host and outbound terminal bridge. Earlier synthetic-worker evidence does not qualify these additions.
+The canonical [profile, intelligence and terminal design](../../../aq-server/docs/architecture/0003-agent-profiles-harnesses-and-terminals.md) makes tmux mandatory for real agent CLIs and defines the four required product adapters. The [worker supplement](0003-profiled-tmux-sessions.md) specifies the common host and outbound terminal bridge. Earlier synthetic-worker evidence does not qualify these additions.
 
 Each adapter exposes a small capability-driven interface: validate a resolved spec, configure permissions, start, observe, deliver input, collect outcome, stop, and optionally reattach. Supported configuration versions and permission semantics are part of its capability report. Resolve model/profile/intelligence choices centrally; adapters translate concrete values into the selected CLI's options/configuration.
 
@@ -479,4 +479,4 @@ profiles retain their separate evidence requirements.
 Qualified components do not close the native harness/product gate. Actual native
 preparation/grant consumption, first-harness configuration, result settlement and
 production adoption of terminal/observation components are tracked in the
-[three-area completion map](../../../agent-q/docs/plans/0002-execution-sessions-policy-completion.md).
+[three-area completion map](../../../aq-server/docs/plans/0002-execution-sessions-policy-completion.md).

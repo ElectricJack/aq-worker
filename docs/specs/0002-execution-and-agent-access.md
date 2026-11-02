@@ -6,7 +6,7 @@
 
 **Reconciled:** 2026-10-31, against the native preparation/grant separation.
 
-This specification supplies worker implementation requirements for the canonical [shared execution lifecycle](../../../agent-q/docs/architecture/0002-execution-and-recovery.md). The [worker framework](0001-worker-framework.md) remains authoritative for placement eligibility, capacity, cache policy and harness confinement. [AQ's daemon specification](../../../agent-q/docs/specs/0002-execution-and-agent-access.md) owns central authorization and graph delivery. These documents describe complementary mechanisms, not separate task state machines.
+This specification supplies worker implementation requirements for the canonical [shared execution lifecycle](../../../aq-server/docs/architecture/0002-execution-and-recovery.md). The [worker framework](0001-worker-framework.md) remains authoritative for placement eligibility, capacity, cache policy and harness confinement. [AQ's daemon specification](../../../aq-server/docs/specs/0002-execution-and-agent-access.md) owns central authorization and graph delivery. These documents describe complementary mechanisms, not separate task state machines.
 
 ## 1. Requirements
 
@@ -132,4 +132,4 @@ consumer still require assembled qualification. Terminal bridge stage1 and the
 experimental observation store have separate component evidence and are not yet
 adopted by the production worker. Their presence in the workspace does not
 authorize advertising those capabilities. See the
-[completion map](../../../agent-q/docs/plans/0002-execution-sessions-policy-completion.md).
+[completion map](../../../aq-server/docs/plans/0002-execution-sessions-policy-completion.md).

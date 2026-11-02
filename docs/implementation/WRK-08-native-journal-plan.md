@@ -172,7 +172,7 @@ hydration proof, launch callback wiring or runnable registration.
 The later native launcher must record its intent before invoking host/adapter
 startup hooks, including adapter.prepare; the existing later callback alone is
 not proof that no physical preparation effect occurred. See the daemon's
-[granted-launch closure plan](../../../agent-q/docs/implementation/AQ-08-granted-launch-closure-plan.md)
+[granted-launch closure plan](../../../aq-server/docs/implementation/AQ-08-granted-launch-closure-plan.md)
 for the still-open granted-without-Started recovery boundary.
 
 ## Bounded native source owner checkpoint

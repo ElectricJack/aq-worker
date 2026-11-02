@@ -7,7 +7,7 @@ runtime adoption remain unqualified.
 **Date:** 2026-10-31
 
 The canonical policy, definitions, limits and P/H/R requirements live in
-[Agent profiles, intelligence, tmux hosting and remote terminals](../../../agent-q/docs/architecture/0003-agent-profiles-harnesses-and-terminals.md).
+[Agent profiles, intelligence, tmux hosting and remote terminals](../../../aq-server/docs/architecture/0003-agent-profiles-harnesses-and-terminals.md).
 This specification defines worker mechanisms and independent tests. The existing
 [execution contract](0002-execution-and-agent-access.md) still owns grants,
 journal reconciliation and source retention.
@@ -173,4 +173,4 @@ the final central/worker/browser integration across all four named adapters.
 
 ## Revision-pinned implementation evidence
 
-The [bounded v1 reference inventory](../../../agent-q/docs/research/2026-10-30-v1-implementation-reference-map.md) records implementation symbols, selected test obligations and per-file hashes at revision `9a9b8e8ef992d1ff699755a9383ed3c91e2844ea`. It distinguishes preserved behavior from remote-authority and retention adaptations. This evidence informs the owning v2 tasks; replacement coverage and product qualification remain pending.
+The [bounded v1 reference inventory](../../../aq-server/docs/research/2026-10-30-v1-implementation-reference-map.md) records implementation symbols, selected test obligations and per-file hashes at revision `9a9b8e8ef992d1ff699755a9383ed3c91e2844ea`. It distinguishes preserved behavior from remote-authority and retention adaptations. This evidence informs the owning v2 tasks; replacement coverage and product qualification remain pending.
