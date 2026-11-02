@@ -1,6 +1,7 @@
 # WRK16A continuation history and source proposals
 
-Status: pure source qualified; native FORMAT12 insertion and physical qualification pending.
+Status: pure/data-only source qualified on the worker0.5/FORMAT12 candidate.
+Actual physical composition and production continuation remain pending.
 This checkpoint does not qualify physical parking or central retention.
 
 The sibling `continuation` module owns bounded data and finite proposals for a
@@ -62,7 +63,7 @@ Parent approved an explicit FORMAT12 candidate in a separate worker0.5 branch,
 under the native schema owner's final ownership. Frozen worker0.4/FORMAT11 must
 not be edited or reinterpreted.
 
-Planned first gate: focused pure tests and affected strict checking only. Pure
+Initial gate scope: focused pure tests and affected strict checking only. Pure
 vectors cover no-stop/no-result refusal, both required source results,
 fixed-ID/head replay, budget uncertainty/overflow, projection origins, exact
 predecessor/boot binding and no Base relabeling. This is separate from the later
@@ -114,9 +115,10 @@ The subsequent predicate hardening makes the public settled/completed methods
 validate the entire history themselves rather than relying on every caller to
 remember a prior validation. Retention shape validation uses a private finite
 facts helper to avoid recursive validation. A direct malformed-base/operation-ID
-regression accompanies this change. At source freeze its focused gate is
-pending the physical-bridge owner's coordinated hostless compile lease; the
-previous seven-test result does not claim to cover this new vector.
+regression accompanies this change. Its initial source freeze preceded the physical-bridge owner's gate; that owner
+subsequently reported eight focused tests passed0.06s on the candidate. Our
+later eleven-test gate below also executes this vector. The earlier seven-test
+result alone does not cover it.
 
 ## Synthetic retention profile fixture (data-only qualification)
 
@@ -176,3 +178,36 @@ only and creates no retention, launch or ordinary Suspended result. Its joint
 physical execution remains pending. Target2 was released immediately after this
 gate. There was no actual tmux/Git/service/coordinator network, provider,
 canonical state or destination bootstrap operation.
+
+## Pending actual composition
+
+The next explicitly test-support-gated helper prepares one source-upload outbox
+step through the same actual stopped owner, fsyncing a newly pending range
+before returning metadata. It returns no raw action bytes/client/send permission
+or retention receipt. Begin/Finalize preparation with no changed durable state
+avoids a journal rewrite. This helper is authored after317af74 and is covered by the later strict source
+gate below; the earlier check result covers the source orchestrator alone.
+
+The actual composition remains pending a reviewed narrow private fixture factory
+and a separate physical execution lease. The test must retain real execution,
+input, source service and filesystem owners for its full scope. It will use the
+root-supplied, read-only SHA-verified public aq-git/host/tmux/static-program pins,
+not ambient replacements. Synthetic GitPeer setup remains explicitly separate.
+The intended first assertion sequence is actual Running, explicit fake hold and
+input-disabled suspension, actual guardian stop, fsync/readback-bound stopped
+anchor, compute still charged before settled Git, public checkpoint/export,
+compute freed with full protected disk charged, exact durable upload ranges,
+fake owner actual-byte/summary retention and explicit ledger/report receipt,
+and protected disk still charged with no ordinary Suspended result/new launch.
+Lost-response steps preserve the original pending recipe. Unknown stop, missing
+source facts, invalid summary/receipt and any changed root/identity remain held.
+Different-node bootstrap/ack is WRK16B and is not part of this qualification.
+
+
+The new metadata-only upload preparation helper passed the separately authorized
+`cargo clippy -p aq-worker --offline --all-features --lib -- -D warnings`
+in12.17s, with zero warnings. Its use of the real private upload-step seam removes
+the previous unused-method warning without expanding API visibility or adding a
+client/send/retention path. The unchanged eleven data-only tests were not rerun.
+This source gate does not execute the actual opaque-owner upload composition.
+Target2 was released after the check; no physical/service/provider operation ran.
