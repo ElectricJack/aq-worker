@@ -228,7 +228,9 @@ async fn transport_fixture_policy(
         attempt: Uuid::from_u128(3),
         journal: Weak::new(),
         peer: peer(),
-        started: serde_json::from_value(f["started_request"].clone()).unwrap(),
+        started: RetainedStarted::Frozen(
+            serde_json::from_value(f["started_request"].clone()).unwrap(),
+        ),
         policy: negotiated.clone(),
         network: tokio::sync::Mutex::new(Network {
             http,

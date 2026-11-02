@@ -8,6 +8,8 @@ use aq_terminal_bridge::{
 };
 use aq_terminal_relay_protocol::{self as wire, Peer, PeerUpload, Register, UploadAck};
 use std::sync::Weak;
+mod started;
+use started::RetainedStarted;
 
 // Match RelayHttp::output_upload's fixed wire-body limit. JSON byte arrays
 // need up to four bytes per raw byte, plus the fixed identity/envelope fields.
@@ -28,7 +30,7 @@ struct Relay {
     attempt: Uuid,
     journal: Weak<Mutex<Owned>>,
     peer: Peer,
-    started: aq_phase_terminal_protocol::StartedRequest,
+    started: RetainedStarted,
     policy: TerminalPolicy,
     network: tokio::sync::Mutex<Network>,
     draining: AtomicBool,
@@ -64,35 +66,30 @@ impl Relay {
             !owner.journal.recovery_required(),
             "native output restart is history-only"
         );
-        let history = owner
+        let attempt = owner
             .journal
             .state()
             .attempts
             .get(&self.attempt)
-            .and_then(|a| a.native_host.as_ref())
+            .context("native output retained attempt absent")?;
+        let history = attempt
+            .native_host
+            .as_ref()
             .context("native output retained host absent")?;
-        let started = &history
-            .terminal
-            .as_ref()
-            .context("native output Started outbox absent")?
-            .started;
-        let ack = started
-            .receipt
-            .as_ref()
-            .context("native output Started ACK pending")?;
-        ack.validate_for(&started.request)?;
+        let current = RetainedStarted::capture(attempt)?;
+        self.started.ensure_same(&current)?;
+        let ack = self.started.acknowledgment(history)?;
         ensure!(
-            history.intent.terminal == self.terminal
-                && started.request.digest()? == self.started.digest()?,
-            "native output retained Started changed"
+            history.intent.terminal == self.terminal,
+            "native output retained terminal changed"
         );
         let q = Register {
             version: wire::VERSION,
             capability: Text::new(wire::CAPABILITY)?,
-            operation_id: ack.original.operation_id,
+            operation_id: ack.operation_id,
             peer: self.peer.clone(),
             terminal: self.terminal.clone(),
-            expected_authority_revision: ack.original.authority_revision_at_record,
+            expected_authority_revision: ack.authority_revision_at_record,
             input_mode: wire::InputMode::FiniteV1,
             advertised_capabilities: vec![aq_session_protocol::Capability {
                 id: Text::new(wire::CAPABILITY)?,
@@ -325,18 +322,11 @@ impl InputPipeline {
             !policy.input_enabled,
             "native output-only sealed policy required"
         );
-        let started = &history
-            .terminal
-            .as_ref()
-            .context("native output terminal outbox absent")?
-            .started;
+        let started_request = RetainedStarted::capture(a)?;
         ensure!(
-            started.request.original.binding.session == terminal.session
-                && history.running.is_some()
-                && !host.entry.stop.load(Ordering::SeqCst),
+            history.running.is_some() && !host.entry.stop.load(Ordering::SeqCst),
             "native output Started identity or phase mismatch"
         );
-        let started_request = started.request.clone();
         let peer = Peer::Remote {
             node_id: owner.journal.state().identity.node_id,
             boot_id: owner.journal.state().identity.boot_id,
