@@ -156,8 +156,8 @@ credentials, and the agent remained running while the second model response was
 held. No UploadAck was accepted, pending bytes remained retained, and **neither
 durable accepted output nor human terminal delivery was proved**.
 
-After releasing the finite final response, the real owner observed natural CLI
-root exit0, persisted physical stop with kernel ECHILD, and held exact Started
+After releasing the finite final response, the real owner observed natural pane
+termination and tmux-server root exit0, persisted physical stop with kernel ECHILD, and held exact Started
 and Stopped ACKs with each report published once. Matching `codex-home/auth.json`
 was removed after physical stop, while retained preparation input ownership
 remained. All these success-only assertions were reached in this positive case.
@@ -169,3 +169,5 @@ not qualify production upstream-key secrecy, per-harness capsule isolation,
 external provider behavior, model/context/token bounds or production admission.
 The production executor factory remains refused. No further actual launches were
 performed after this accepted positive result.
+
+Outcome clarification (native result integration): `HostObservation.root_status` is the guardian-observed tmux server wait status. It does not record the harness pane exit code. The historical root-exit0 observation above therefore proves no harness ProcessOutcome::Success; the native producer conservatively retains Unknown for natural pane termination. The actual tool bytes, ECHILD and lifecycle ACK evidence remain unchanged.

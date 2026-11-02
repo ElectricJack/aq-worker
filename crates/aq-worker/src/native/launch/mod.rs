@@ -194,6 +194,30 @@ impl Registry {
         admitted.insert(id);
         Ok(())
     }
+    pub(super) fn result_stopped(
+        &self,
+        scope: &LaunchExecutionScope,
+    ) -> Result<aq_session_host::StoppedProof> {
+        let e = self.entry(scope.id)?;
+        let actual = e
+            .scope
+            .as_ref()
+            .context("reopened host cannot capture result")?;
+        ensure!(
+            actual.digest == scope.digest && actual.inputs.same_owner(&scope.inputs),
+            "result stopped host owner differs"
+        );
+        let p = lock(&e.physical)?;
+        let proof = p
+            .stopped
+            .as_ref()
+            .context("result requires actual retained StoppedProof")?;
+        ensure!(
+            matches!(p.outcome, Outcome::Stopped) && proof.observation().kernel_wait_echild,
+            "result writers not proven stopped"
+        );
+        Ok(proof.clone())
+    }
     pub(super) fn result_current(&self, scope: &LaunchExecutionScope) -> Result<()> {
         let e = self.entry(scope.id)?;
         let actual = e

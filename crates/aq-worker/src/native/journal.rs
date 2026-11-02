@@ -379,10 +379,11 @@ impl State {
                 digest: canonical_digest(self)?,
             })?
             .len();
+            let result_reserve = result::remaining_reserve(self)?;
             ensure!(
                 bytes
                     .checked_add(phase_terminal::remaining_reserve(self)?)
-                    .and_then(|n| n.checked_add(result::remaining_reserve(self).ok()?))
+                    .and_then(|n| n.checked_add(result_reserve))
                     .is_some_and(|n| n <= MAX_BYTES),
                 "native reserved host/outbox capacity"
             );

@@ -37,6 +37,7 @@ fn binding() -> wire::Binding {
 }
 fn directories() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let temp = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let workspace = temp.path().join("workspace");
     std::fs::DirBuilder::new()
         .mode(0o700)
@@ -80,6 +81,13 @@ fn result_storage_control_custody_and_first_intake_lock_are_actual() {
     assert_eq!(storage.read_submission().unwrap().unwrap(), bytes);
     storage.close_intake();
     assert!(!storage.intake_open().unwrap());
+    let presence = std::fs::File::open(path.join("owner.lock")).unwrap();
+    assert!(
+        fs2::FileExt::try_lock_shared(&presence).is_err(),
+        "completion owner remains present after closing new intake"
+    );
+    storage.release_presence();
+    fs2::FileExt::try_lock_shared(&presence).unwrap();
     assert!(ChannelStorage::create(&path, &workspace).is_err()); // Never adopt a previous directory.
 }
 #[test]
@@ -164,6 +172,14 @@ fn history() -> ResultHistory {
                 reserved_client_bytes: 64 * 1024 * 1024,
             },
             root: "/result".into(),
+            git_pin: DirectoryPin {
+                device: 1,
+                inode: 7,
+            },
+            workspace_pin: DirectoryPin {
+                device: 1,
+                inode: 8,
+            },
             storage: StorageStage::Ready {
                 pins: StoragePins {
                     root: DirectoryPin {
@@ -256,4 +272,63 @@ fn result_history_protects_scope_budget_and_does_not_project_unclaimed_success()
     h.scope.original_deadline_ns = 100;
     h.scope.reserved_disk_bytes = 29999;
     assert!(h.validate().is_err());
+}
+#[test]
+fn result_module_alone_does_not_prove_counted_startup_delivery() {
+    let value:serde_json::Value=serde_json::from_slice(include_bytes!("../../../../../vendor/aq-phase-terminal-protocol-0.1.1/tests/data/preparation-v2.fixture.json")).unwrap();
+    let mut offer: aq_admission::startup::NativeOffer =
+        serde_json::from_value(value["proposal"]["original"].clone()).unwrap();
+    let startup = wire::startup_artifact();
+    offer.offered.offer.manifest.modules.push(startup.clone());
+    assert!(!counted_startup(&offer));
+    let mut context = offer.offered.offer.manifest.context.references[0].clone();
+    context.artifact = startup.clone();
+    context.bytes = wire::STARTUP_TEXT.len() as u64;
+    context.required = true;
+    context.delivery = aq_session_protocol::ContextDelivery::Startup;
+    offer
+        .offered
+        .offer
+        .manifest
+        .context
+        .references
+        .push(context);
+    assert!(!counted_startup(&offer));
+    offer
+        .startup
+        .startup_inputs
+        .push(aq_admission::startup::InputSpan {
+            artifact: startup,
+            offset: 0,
+            bytes: wire::STARTUP_TEXT.len() as u64,
+        });
+    assert!(counted_startup(&offer));
+}
+#[test]
+fn result_format11_header_is_refused_before_pending_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("journal");
+    let limits = crate::native::journal::Limits {
+        slots: 1,
+        memory_bytes: 1000,
+        cpu_millis: 1000,
+        disk_bytes: 100000,
+    };
+    let node = Uuid::new_v4();
+    let journal = crate::native::journal::Journal::create(&root, node, limits.clone()).unwrap();
+    drop(journal);
+    let file = root.join("journal.json");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    value["state"]["format"] = 11.into();
+    let raw = serde_json::to_vec(&value).unwrap();
+    std::fs::write(&file, &raw).unwrap();
+    let pending = root.join("journal.pending");
+    std::fs::write(&pending, b"preserve ambiguous old-format evidence").unwrap();
+    assert!(crate::native::journal::Journal::open(&root, node, limits).is_err());
+    assert_eq!(std::fs::read(&file).unwrap(), raw);
+    assert_eq!(
+        std::fs::read(&pending).unwrap(),
+        b"preserve ambiguous old-format evidence"
+    );
 }

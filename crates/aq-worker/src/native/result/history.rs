@@ -21,6 +21,8 @@ use uuid::Uuid;
 
 pub const MAX_HISTORY_BYTES: usize = 512 * 1024;
 pub const MAX_GIT_REPLY_BYTES: usize = 32768;
+pub const MAX_SOURCE_HISTORY_BYTES: usize = 256 * 1024;
+pub const MAX_REPORT_BYTES: usize = 16384;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DirectoryPin {
@@ -70,6 +72,8 @@ pub struct ScopeRecord {
     pub installation: ResultInstallationPins,
     pub root: PathBuf,
     pub storage: StorageStage,
+    pub git_pin: DirectoryPin,
+    pub workspace_pin: DirectoryPin,
     pub runtime: RuntimeIdentity,
     pub kernel_boot_id: Uuid,
     pub original_deadline_ns: u64,
@@ -173,7 +177,9 @@ impl ResultHistory {
                 && !s.kernel_boot_id.is_nil()
                 && s.created_ns < s.original_deadline_ns
                 && s.original_deadline_ns <= s.original_hard_deadline_ns
-                && s.recorded_revision > 0,
+                && s.recorded_revision > 0
+                && s.git_pin.inode > 0
+                && s.workspace_pin.inode > 0,
             "result scope identity/clocks"
         );
         ensure!(
@@ -237,6 +243,11 @@ impl ResultHistory {
                 "result stopped anchor order"
             );
         }
+        ensure!(
+            encoded(&self.scope)?.len() <= 16384
+                && encoded(&self.source)?.len() <= MAX_SOURCE_HISTORY_BYTES,
+            "result source envelope cannot spend stop/report reserve"
+        );
         self.validate_source()?;
         if let Some(report) = &self.report {
             let claim = self
@@ -255,9 +266,9 @@ impl ResultHistory {
                 .context("result report without source retention")?;
             result_record::validate_report(&report.request)?;
             ensure!(
-                report.bytes == encoded(&report.request)?
+                report.bytes == serde_json::to_vec(&report.request)?
                     && report.digest == result_record::report_digest(&report.request)?
-                    && report.bytes.len() <= result_record::MAX_BYTES
+                    && report.bytes.len() <= MAX_REPORT_BYTES
                     && report.request.operation_id == s.binding.operation_id
                     && report.request.report_id == s.binding.report_id
                     && report.request.binding == s.binding.launch

@@ -180,3 +180,47 @@ impl Journal {
         Ok(result)
     }
 }
+impl Journal {
+    /// Safety/history-only reconciliation: does not refresh clocks, inputs,
+    /// intake, execution or source custody after this invocation is gone.
+    pub(crate) fn retain_result_receipt(
+        &mut self,
+        id: Uuid,
+        expected: &Digest,
+        receipt: aq_admission::result_record::Receipt,
+    ) -> Result<()> {
+        self.storage.check_owner()?;
+        ensure!(!self.poisoned, "native result writer poisoned");
+        let h = self
+            .state
+            .attempts
+            .get(&id)
+            .and_then(|a| a.result.as_ref())
+            .context("result intent absent")?;
+        let report = h.report.as_ref().context("result report intent absent")?;
+        ensure!(
+            &report.digest == expected,
+            "changed result report reconciliation"
+        );
+        receipt.validate_for(&report.request)?;
+        ensure!(
+            receipt.expected_outcome == h.scope.binding.expected_outcome
+                && receipt.stopped_receipt == h.stop.as_ref().unwrap().stopped_receipt,
+            "result receipt owner differs"
+        );
+        if let Some(old) = &h.receipt {
+            ensure!(same(old, &receipt)?, "changed result receipt replay");
+            return Ok(());
+        }
+        let mut state = self.next()?;
+        state
+            .attempts
+            .get_mut(&id)
+            .unwrap()
+            .result
+            .as_mut()
+            .unwrap()
+            .receipt = Some(receipt);
+        self.persist(state)
+    }
+}

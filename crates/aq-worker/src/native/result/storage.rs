@@ -16,7 +16,10 @@ use std::{
         },
     },
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 pub(super) struct ChannelStorage {
@@ -26,6 +29,7 @@ pub(super) struct ChannelStorage {
     submissions_path: PathBuf,
     pins: StoragePins,
     owner_lock: Mutex<Option<File>>,
+    accepting: AtomicBool,
     pid: u32,
 }
 fn directory(path: &Path) -> Result<File> {
@@ -118,6 +122,7 @@ impl ChannelStorage {
             submissions_path,
             pins,
             owner_lock: Mutex::new(None),
+            accepting: AtomicBool::new(false),
             pid: std::process::id(),
         })
     }
@@ -167,17 +172,23 @@ impl ChannelStorage {
             .map_err(|_| anyhow::anyhow!("result lock poisoned"))?;
         ensure!(held.is_none(), "result intake already published");
         *held = Some(file);
+        self.accepting.store(true, Ordering::SeqCst);
         Ok(())
     }
     pub(super) fn intake_open(&self) -> Result<bool> {
         self.verify()?;
-        Ok(self
-            .owner_lock
-            .lock()
-            .map_err(|_| anyhow::anyhow!("result lock poisoned"))?
-            .is_some())
+        Ok(self.accepting.load(Ordering::SeqCst)
+            && self
+                .owner_lock
+                .lock()
+                .map_err(|_| anyhow::anyhow!("result lock poisoned"))?
+                .is_some())
     }
     pub(super) fn close_intake(&self) {
+        self.accepting.store(false, Ordering::SeqCst);
+    }
+    pub(super) fn release_presence(&self) {
+        self.close_intake();
         if self.pid == std::process::id() {
             if let Ok(mut held) = self.owner_lock.lock() {
                 held.take();
@@ -276,6 +287,6 @@ impl ChannelStorage {
 }
 impl Drop for ChannelStorage {
     fn drop(&mut self) {
-        self.close_intake();
+        self.release_presence();
     }
 }

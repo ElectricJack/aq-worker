@@ -1,0 +1,145 @@
+//! Actual stopped custody. A deserialized anchor cannot construct this owner.
+use super::*;
+#[derive(Clone, Copy)]
+pub enum ResultStopCause {
+    Natural,
+    Cancelled,
+    Expired,
+    Failure,
+}
+/// Retains the actual opaque kernel StoppedProof and original result/input owner.
+/// No Clone/Deserialize/reopen. It grants source capture only, never execution.
+pub struct DurableStoppedResult {
+    pub(super) custody: Arc<Custody>,
+    pub(super) proof: aq_session_host::StoppedProof,
+}
+impl DurableStoppedResult {
+    pub fn attempt_id(&self) -> Uuid {
+        self.custody.scope.id
+    }
+    pub(super) fn verify(&self, pipeline: &InputPipeline) -> Result<()> {
+        let c = &self.custody;
+        ensure!(
+            c.pipeline
+                .upgrade()
+                .is_some_and(|p| Arc::ptr_eq(&p.owned, &pipeline.owned)),
+            "result stopped owner dropped/foreign"
+        );
+        c.roots.verify()?;
+        c.storage.verify()?;
+        ensure!(
+            self.proof.observation().kernel_wait_echild,
+            "result stopped writers uncertain"
+        );
+        let a = pipeline
+            .owned
+            .lock()
+            .map_err(|_| anyhow::anyhow!("result original owner poisoned"))?;
+        let h = a
+            .journal
+            .state()
+            .attempts
+            .get(&c.scope.id)
+            .and_then(|a| a.result.as_ref())
+            .context("result stopped history absent")?;
+        let digest = crate::native::journal::canonical_digest(&self.proof)?;
+        ensure!(
+            h.scope.binding == c.binding
+                && h.stop.as_ref().is_some_and(|s| s.proof_digest == digest),
+            "result stop anchor differs from actual retained proof"
+        );
+        Ok(())
+    }
+}
+impl InputPipeline {
+    pub async fn retain_stopped_result(
+        &self,
+        id: Uuid,
+        cause: ResultStopCause,
+    ) -> Result<Option<DurableStoppedResult>> {
+        let custody = self
+            .results
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
+            .get(&id)
+            .cloned();
+        let Some(custody) = custody else {
+            return Ok(None);
+        };
+        self.close_result_intake(id).await?;
+        custody.roots.verify()?;
+        let proof = self.launch.result_stopped(&custody.scope)?;
+        let proof_digest = crate::native::journal::canonical_digest(&proof)?;
+        let kept = proof.clone();
+        let c = custody.clone();
+        let h = self
+            .storage(move |owner| {
+                let a = owner
+                    .journal
+                    .state()
+                    .attempts
+                    .get(&id)
+                    .context("result attempt absent")?;
+                let old = a.result.as_ref().context("result history absent")?;
+                if old.claim.is_none() {
+                    return Ok(None);
+                }
+                let stopped = a
+                    .native_host
+                    .as_ref()
+                    .and_then(|h| h.stopped.as_ref())
+                    .context("result physical stop not durable")?;
+                ensure!(
+                    proof_digest == stopped.proof_digest && kept.observation().kernel_wait_echild,
+                    "result actual stopped proof differs"
+                );
+                let (_, receipt) = crate::native::journal::result_terminal_stop(a)?;
+                // root_status is the tmux SERVER wait status. It proves no harness
+                // exit code; natural pane disappearance must remain Unknown.
+                let outcome = match cause {
+                    ResultStopCause::Cancelled => {
+                        aq_admission::transport::ProcessOutcome::Cancelled
+                    }
+                    ResultStopCause::Expired => {
+                        ensure!(boot_ns()? >= c.scope.deadline, "result premature expiry");
+                        aq_admission::transport::ProcessOutcome::Expired
+                    }
+                    ResultStopCause::Natural | ResultStopCause::Failure => {
+                        aq_admission::transport::ProcessOutcome::Unknown
+                    }
+                };
+                if let Some(stop) = &old.stop {
+                    ensure!(
+                        stop.proof_digest == proof_digest && stop.stopped_receipt == receipt,
+                        "changed result stop replay"
+                    );
+                    return Ok(Some(old.clone()));
+                }
+                let digest = old.digest()?;
+                let native_revision = stopped.recorded_revision;
+                Ok(Some(owner.journal.update_result(
+                    id,
+                    &digest,
+                    |h, revision| {
+                        h.stop = Some(StopAnchor {
+                            proof_digest,
+                            native_stopped_revision: native_revision,
+                            recorded_revision: revision,
+                            stopped_receipt: receipt,
+                            outcome,
+                        });
+                        Ok(())
+                    },
+                )?))
+            })
+            .await?;
+        let Some(h) = h else { return Ok(None) };
+        if let Some(ack) = h.acknowledgment()? {
+            if custody.storage.write_ack(&ack).is_err() {
+                tracing::warn!(attempt_id=%id,"stopped result retained; local acknowledgement projection unavailable");
+            }
+        }
+        Ok(Some(DurableStoppedResult { custody, proof }))
+    }
+}

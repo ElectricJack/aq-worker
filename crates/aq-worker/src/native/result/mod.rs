@@ -13,9 +13,14 @@ use std::{
 };
 pub mod history;
 mod pins;
+mod report;
+mod roots;
+mod source;
+mod stopped;
 mod storage;
 use history::*;
 pub use pins::ResultInstallationPins;
+pub use stopped::{DurableStoppedResult, ResultStopCause};
 use storage::ChannelStorage;
 #[derive(Default)]
 pub(super) struct Registry(Mutex<BTreeMap<Uuid, Arc<Custody>>>);
@@ -23,7 +28,7 @@ impl Drop for Registry {
     fn drop(&mut self) {
         if let Ok(entries) = self.0.lock() {
             for entry in entries.values() {
-                entry.storage.close_intake();
+                entry.storage.release_presence();
             }
         }
     }
@@ -32,6 +37,7 @@ struct Custody {
     pipeline: Weak<InputPipeline>,
     scope: LaunchExecutionScope,
     storage: ChannelStorage,
+    roots: roots::SourceRoots,
     binding: wire::Binding,
     pins: ResultInstallationPins,
     presence: wire::Presence,
@@ -84,6 +90,7 @@ impl VerifiedResultChannel {
                 .is_some_and(|other| Arc::ptr_eq(other, &self.custody)),
             "result owner not retained"
         );
+        c.roots.verify()?;
         c.storage.verify_control(&c.binding, &c.presence)?;
         ensure!(c.storage.intake_open()?, "result intake closed");
         let owner = pipeline
@@ -136,7 +143,7 @@ impl InputPipeline {
         let owned_scope = self.launch_scope(execution)?;
         let pins_for_journal = pins.clone();
         let root_for_journal = root.clone();
-        let (binding, presence, definition, workspace) = self
+        let (binding, presence, definition, workspace, roots) = self
             .storage(move |owner| {
                 owned_scope.check(owner)?;
                 let a = owner
@@ -180,7 +187,7 @@ impl InputPipeline {
                 // Instructions must already have been counted and rendered centrally.
                 let startup = wire::startup_artifact();
                 ensure!(
-                    m.modules.contains(&startup)
+                    counted_startup(&a.reservation.offer)
                         && inputs
                             .artifacts()
                             .iter()
@@ -206,6 +213,8 @@ impl InputPipeline {
                 };
                 let workspace = inputs.workspace().workspace().clone();
                 let git = inputs.workspace().git();
+                let roots = roots::SourceRoots::new(git.root(), &workspace.path)?;
+                let (git_pin, workspace_pin) = roots.pins()?;
                 let history = ResultHistory {
                     schema_version: 1,
                     scope: ScopeRecord {
@@ -214,6 +223,8 @@ impl InputPipeline {
                         installation: pins_for_journal,
                         root: root_for_journal,
                         storage: StorageStage::Creating,
+                        git_pin,
+                        workspace_pin,
                         runtime: a.reservation.runtime.clone(),
                         kernel_boot_id: presence.kernel_boot_id,
                         original_deadline_ns: owned_scope.deadline,
@@ -243,7 +254,7 @@ impl InputPipeline {
                     failure: None,
                 };
                 owner.journal.begin_result(id, history)?;
-                Ok((binding, presence, definition, workspace))
+                Ok((binding, presence, definition, workspace, roots))
             })
             .await?;
         let storage = ChannelStorage::create(&root, &workspace.path)?;
@@ -272,6 +283,7 @@ impl InputPipeline {
             pipeline: Arc::downgrade(self),
             scope,
             storage,
+            roots,
             binding,
             pins,
             presence,
@@ -372,7 +384,9 @@ impl InputPipeline {
         // from the fsynced record and cannot be upgraded by client JSON.
         custody.storage.close_intake();
         if let Some(ack) = history.acknowledgment()? {
-            custody.storage.write_ack(&ack)?;
+            if custody.storage.write_ack(&ack).is_err() {
+                tracing::warn!(attempt_id=%id,"durable result retained; local acknowledgement projection unavailable");
+            }
         }
         Ok(true)
     }
@@ -408,3 +422,20 @@ impl InputPipeline {
 }
 #[cfg(test)]
 mod tests;
+
+fn counted_startup(offer: &aq_admission::startup::NativeOffer) -> bool {
+    let startup = wire::startup_artifact();
+    let manifest = &offer.offered.offer.manifest;
+    manifest.modules.contains(&startup)
+        && manifest.context.references.iter().any(|r| {
+            r.artifact == startup
+                && r.delivery == aq_session_protocol::ContextDelivery::Startup
+                && r.required
+                && r.bytes == wire::STARTUP_TEXT.len() as u64
+        })
+        && offer
+            .startup
+            .startup_inputs
+            .iter()
+            .any(|r| r.artifact == startup && r.bytes == wire::STARTUP_TEXT.len() as u64)
+}
