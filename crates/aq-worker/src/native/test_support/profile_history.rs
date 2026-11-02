@@ -30,7 +30,7 @@ pub(crate) fn terminal_attempt(refresh: bool, acknowledged: bool) -> Attempt {
     let acceptance = json!({"proposal":phase["proposal"],"proposal_digest":digest,"request":phase["accept"],"request_digest":digest,"created_ns":1,"original_deadline_ns":2});
     let prepared = json!({"request":phase["prepare"],"request_digest":digest,"prepared_at_ns":2,"origin":{"protocol":if refresh{"refresh"}else{"phase"},"record":received}});
     let execution = json!({"delivery":phase["delivery"],"request_digest":digest,"accepted_digest":digest,"runtime":runtime,"kernel_boot_id":Uuid::from_u128(127),"clock_source":"linux_clock_boottime","sent_ns":1,"received_ns":2,"first_send_deadline_ns":3,"deadline_ns":4,"hard_deadline_ns":5,"observed_before_write_ns":2,"record_revision":3});
-    let mut attempt = json!({"reservation":reservation,"acceptance":null,"acceptance_digest":null,"preparation":null,"downloads":{},"material_downloads":{},"source":null,"prepared":null,"initial_grant":null,"phase_acceptance":null,"phase_preparation":null,"phase_prepared":null,"phase_execution":null,"refresh_acceptance":null,"refresh_preparation":null,"refresh_prepared":null,"refresh_execution":null,"native_host":host});
+    let mut attempt = json!({"reservation":reservation,"acceptance":null,"acceptance_digest":null,"preparation":null,"downloads":{},"material_downloads":{},"source":null,"prepared":null,"initial_grant":null,"phase_acceptance":null,"phase_preparation":null,"phase_prepared":null,"phase_execution":null,"refresh_acceptance":null,"refresh_preparation":null,"refresh_prepared":null,"refresh_execution":null,"native_host":host,"result":null});
     let prefix = if refresh { "refresh" } else { "phase" };
     for (suffix, value) in [
         ("acceptance", acceptance),

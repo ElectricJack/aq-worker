@@ -1,0 +1,15 @@
+   Compiling aq-worker v0.4.0 (/tmp/aq-worker-execution-union-v2/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 7.70s
+     Running unittests src/main.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-c6767ac6fb573563)
+
+running 7 tests
+test native_fixture::confinement::kernel_fixture_confinement_is_independently_proven ... ignored, kernel premise probe only; run using the qualification wrapper; never launches Codex
+test native_fixture::tests::numeric_node_origin_alone_never_enables_fixture_provider ... ok
+test native_fixture::tests::only_exact_numeric_loopback_provider_is_accepted ... ok
+test native_fixture::tests::preflight_continuation_is_closed_bounded_and_explicit ... ok
+test native_fixture::tests::preflight_pipe_accepts_one_frame_and_refuses_oversize_or_extra_frames ... ok
+test native_fixture::tests::actual_cli_requires_explicit_local_transport_for_provider_flags ... ok
+test native_fixture::tests::partial_preflight_pipe_times_out_without_waiting_for_a_newline ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

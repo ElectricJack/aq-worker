@@ -9,6 +9,8 @@ mod execution;
 mod granted;
 #[path = "launch/mod.rs"]
 pub mod launch;
+#[path = "result/mod.rs"]
+pub mod result;
 pub use execution::{DurablePhaseExecution, PhaseExecutionCommit, RetainedPhaseExecutionHistory};
 #[path = "hydration.rs"]
 mod hydration;
@@ -45,6 +47,7 @@ pub struct InputPipeline {
     client: NativeClient,
     retained: Arc<Mutex<granted::RetainedOwners>>,
     launch: Arc<launch::Registry>,
+    results: result::Registry,
     scoped_presence_owned: std::sync::atomic::AtomicBool,
 }
 impl InputPipeline {
@@ -87,6 +90,7 @@ impl InputPipeline {
             client,
             retained: Arc::new(Mutex::new(retained)),
             launch,
+            results: result::Registry::default(),
             scoped_presence_owned: std::sync::atomic::AtomicBool::new(false),
         }
     }

@@ -51,6 +51,7 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
     let entry = Arc::new(Entry {
         id,
         scope: None,
+        result_channel: None,
         profile: None,
         history: Mutex::new(None),
         stop: AtomicBool::new(false),

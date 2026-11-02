@@ -179,5 +179,11 @@ pub fn responses_overrides(endpoint: LoopbackResponsesEndpoint) -> Vec<String> {
     ]
 }
 
+mod result_local;
+pub use result_local::{
+    RESULT_LOCAL_RECIPE_DEFINITION, RESULT_LOCAL_RECIPE_ID, ResultChannel, map_with_result_channel,
+    result_local_recipe_artifact,
+};
+
 #[cfg(test)]
 mod tests;

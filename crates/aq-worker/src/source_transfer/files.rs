@@ -46,7 +46,7 @@ fn artifact_directory(
     }
     Ok(dir)
 }
-pub(super) fn artifact_file(
+pub(crate) fn artifact_file(
     root: &Path,
     artifact: Uuid,
     incoming: bool,

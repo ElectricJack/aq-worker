@@ -89,6 +89,7 @@ struct Entry {
     fault: FaultHook,
     id: Uuid,
     scope: Option<Arc<LaunchExecutionScope>>,
+    result_channel: Option<Arc<crate::native::result::VerifiedResultChannel>>,
     profile: Option<Profile>,
     history: Mutex<Option<NativeHostHistory>>,
     stop: AtomicBool,
@@ -152,6 +153,7 @@ impl Registry {
                         fault: fault.clone(),
                         id: *id,
                         scope: None,
+                        result_channel: None,
                         profile: None,
                         history: Mutex::new(Some(h.clone())),
                         stop: AtomicBool::new(true),
@@ -194,6 +196,58 @@ impl Registry {
         admitted.insert(id);
         Ok(())
     }
+    pub(super) fn result_stopped(
+        &self,
+        scope: &LaunchExecutionScope,
+    ) -> Result<aq_session_host::StoppedProof> {
+        let e = self.entry(scope.id)?;
+        let actual = e
+            .scope
+            .as_ref()
+            .context("reopened host cannot capture result")?;
+        ensure!(
+            actual.digest == scope.digest && actual.inputs.same_owner(&scope.inputs),
+            "result stopped host owner differs"
+        );
+        let p = lock(&e.physical)?;
+        let proof = p
+            .stopped
+            .as_ref()
+            .context("result requires actual retained StoppedProof")?;
+        ensure!(
+            matches!(p.outcome, Outcome::Stopped) && proof.observation().kernel_wait_echild,
+            "result writers not proven stopped"
+        );
+        Ok(proof.clone())
+    }
+    pub(super) fn result_current(&self, scope: &LaunchExecutionScope) -> Result<()> {
+        let e = self.entry(scope.id)?;
+        let actual = e
+            .scope
+            .as_ref()
+            .context("reopened host has no result authority")?;
+        ensure!(
+            actual.digest == scope.digest
+                && actual.inputs.same_owner(&scope.inputs)
+                && !e.stop.load(Ordering::SeqCst),
+            "result host owner differs or stopped"
+        );
+        let physical = lock(&e.physical)?;
+        ensure!(
+            physical.stopped.is_none() && matches!(physical.outcome, Outcome::Running),
+            "result host not live"
+        );
+        let observation = physical
+            .handle
+            .as_ref()
+            .context("result actual host absent")?
+            .observe()?;
+        ensure!(
+            observation.phase == aq_session_host::HostPhase::Running,
+            "result process no longer running"
+        );
+        Ok(())
+    }
     fn entry(&self, id: Uuid) -> Result<Arc<Entry>> {
         lock(&self.entries)?
             .entries
@@ -224,9 +278,14 @@ impl Registry {
         scope: LaunchExecutionScope,
         profile: SyntheticHostProfile,
     ) -> Result<Arc<Entry>> {
-        self.claim_profile(scope, Profile::Synthetic(Arc::new(profile)))
+        self.claim_profile(scope, Profile::Synthetic(Arc::new(profile)), None)
     }
-    fn claim_profile(&self, scope: LaunchExecutionScope, profile: Profile) -> Result<Arc<Entry>> {
+    fn claim_profile(
+        &self,
+        scope: LaunchExecutionScope,
+        profile: Profile,
+        result_channel: Option<crate::native::result::VerifiedResultChannel>,
+    ) -> Result<Arc<Entry>> {
         ensure!(
             lock(&self.admitted)?.contains(&scope.id),
             "native host not admitted"
@@ -243,6 +302,7 @@ impl Registry {
             fault: self.fault.clone(),
             id: scope.id,
             scope: Some(Arc::new(scope)),
+            result_channel: result_channel.map(Arc::new),
             profile: Some(profile),
             history: Mutex::new(None),
             stop: AtomicBool::new(false),
@@ -466,7 +526,30 @@ impl InputPipeline {
     ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
         let claimed = self
             .launch_scope(execution)
-            .and_then(|scope| self.launch.claim_profile(scope, Profile::Native(profile)))
+            .and_then(|scope| {
+                self.launch
+                    .claim_profile(scope, Profile::Native(profile), None)
+            })
+            .map(|entry| ClaimGuard {
+                registry: self.launch.clone(),
+                entry,
+                admitted: false,
+            });
+        self.launch_claimed(claimed)
+    }
+    pub fn launch_phase_native_result(
+        self: &Arc<Self>,
+        execution: &DurablePhaseExecution,
+        profile: Arc<NativeCodexHostProfile>,
+        channel: crate::native::result::VerifiedResultChannel,
+    ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
+        let claimed = self
+            .launch_scope(execution)
+            .and_then(|scope| {
+                channel.check_pipeline(self, &scope)?;
+                self.launch
+                    .claim_profile(scope, Profile::Native(profile), Some(channel))
+            })
             .map(|entry| ClaimGuard {
                 registry: self.launch.clone(),
                 entry,

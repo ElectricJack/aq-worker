@@ -1,0 +1,43 @@
+{
+  "source": "6829fe9",
+  "checks": [
+    {
+      "step": "protocol",
+      "code": 0,
+      "seconds": 1.763
+    },
+    {
+      "step": "client",
+      "code": 0,
+      "seconds": 5.506
+    },
+    {
+      "step": "fixture",
+      "code": 0,
+      "seconds": 26.761
+    },
+    {
+      "step": "worker_cli",
+      "code": 0,
+      "seconds": 7.753
+    },
+    {
+      "step": "strict",
+      "code": 0,
+      "seconds": 18.657
+    }
+  ],
+  "passed": 26,
+  "ignored": 1,
+  "ignored_scope": "existing explicit opt-in CLI process fixture; no real process qualification in this gate",
+  "components": {
+    "pure_local_contract": 5,
+    "client_library": 5,
+    "client_completion": 7,
+    "finite_responses_data": 3,
+    "worker_fixture_cli": 6
+  },
+  "native_result_producer_integrated": false,
+  "actual_provider": false,
+  "canonical_changed": false
+}

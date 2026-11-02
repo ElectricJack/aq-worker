@@ -1,11 +1,14 @@
 //! Production native profile with an exact installed image and retained inputs.
 use super::*;
 use crate::native::adapter::{
-    codex::{CodexExecInput, CodexExecProfile, PreparedCodexExec},
+    codex::{CodexExecInput, CodexExecProfile, CodexResultInput, PreparedCodexExec},
     named_exec::NamedExecInstallation,
     native_exec::NativeExecInstallation,
     responses_transport::{ResponsesScope, ScopedResponsesTransport, UpstreamEndpoint},
+    result_client::InstalledResultClient,
+    result_profile::{ExpectedResultAdapter, ResultAdapterDefinition},
 };
+use crate::native::{journal::RuntimeIdentity, result::ResultInstallationPins};
 use aq_session_host::{
     AdapterLaunch, HarnessAdapter, HarnessReadiness, LocalEnvironment, OriginalPrivateMaterial,
     PrivateLaunchInput, ResourcePolicy, ScopedCodexAuthBinding,
@@ -25,8 +28,14 @@ pub struct NativeCodexHostProfile {
     digest: Digest,
     columns: u16,
     rows: u16,
+    result: Option<ResultInstallation>,
     #[cfg(any(test, feature = "test-support"))]
     development_provider: Option<String>,
+}
+struct ResultInstallation {
+    client: InstalledResultClient,
+    definition: ResultAdapterDefinition,
+    pins: ResultInstallationPins,
 }
 impl NativeCodexHostProfile {
     pub fn new(
@@ -70,6 +79,55 @@ impl NativeCodexHostProfile {
             rows,
         )
     }
+    /// Explicit result-enabled profile. The client and composite definition are
+    /// independently selected and retained; no ordinary profile gains a channel.
+    pub fn new_named_result(
+        root: PathBuf,
+        installation: NamedExecInstallation,
+        mapper: CodexExecProfile,
+        columns: u16,
+        rows: u16,
+        client: InstalledResultClient,
+        definition: ResultAdapterDefinition,
+    ) -> Result<Self> {
+        let installed = installation.installation();
+        let runtime = RuntimeIdentity {
+            runtime: installed.runtime.clone(),
+            qualification: installed.qualification.clone(),
+        };
+        definition.validate_selected(ExpectedResultAdapter {
+            adapter: &mapper.harness.adapter,
+            runtime: &runtime,
+            environment: &mapper.harness.environment,
+            permission_digest: &mapper.permissions_digest,
+        })?;
+        definition.validate_installed_client(&client)?;
+        let pins = ResultInstallationPins {
+            adapter: definition.artifact()?,
+            contract: client.contract().clone(),
+            client_manifest: client.manifest_artifact(),
+            client_executable: client.artifact().clone(),
+            environment: client.environment().clone(),
+            recipe: definition.recipe.clone(),
+            permission_digest: mapper.permissions_digest.clone(),
+            reserved_client_bytes: client.reserved_bytes(),
+        };
+        pins.validate()?;
+        let mut profile = Self::new_named(root, installation, mapper, columns, rows)?;
+        profile.digest = crate::native::journal::canonical_digest(
+            &serde_json::json!({"base_profile":profile.digest,"result_installation":pins}),
+        )?;
+        profile.result = Some(ResultInstallation {
+            client,
+            definition,
+            pins,
+        });
+        Ok(profile)
+    }
+    /// Installation metadata only, never an execution/channel constructor.
+    pub fn result_installation_pins(&self) -> Option<ResultInstallationPins> {
+        self.result.as_ref().map(|result| result.pins.clone())
+    }
     fn build(
         root: PathBuf,
         mut installation: Installation,
@@ -106,6 +164,7 @@ impl NativeCodexHostProfile {
             digest,
             columns,
             rows,
+            result: None,
             #[cfg(any(test, feature = "test-support"))]
             development_provider: None,
         })
@@ -370,16 +429,39 @@ pub(super) fn bootstrap(
         &handoff, m,
     )?);
     let lease = &provider.metadata().delivery.lease;
-    let recipe = installed.prepare(
-        &profile.mapper,
-        CodexExecInput {
-            offer: &offer,
-            expected_manifest: &i.binding.launch_manifest_digest,
-            payload,
-            workspace: &scope.inputs.workspace().workspace().path,
-            private_home: &home,
-        },
-    )?;
+    let input = CodexExecInput {
+        offer: &offer,
+        expected_manifest: &i.binding.launch_manifest_digest,
+        payload,
+        workspace: &scope.inputs.workspace().workspace().path,
+        private_home: &home,
+    };
+    let recipe = match (&profile.result, entry.result_channel.as_deref()) {
+        (None, None) => {
+            ensure!(
+                profile.mapper.harness.adapter.id.as_str() != "aq.codex-result-local-adapter",
+                "known result adapter requires the result-enabled profile and actual channel"
+            );
+            installed.prepare(&profile.mapper, input)?
+        }
+        (Some(result), Some(channel)) => {
+            let Installation::Named(named) = &mut *installed else {
+                anyhow::bail!("result mapping requires the named-readonly image profile")
+            };
+            profile.mapper.prepare_named_result_planned(
+                named,
+                input,
+                CodexResultInput {
+                    binding: &i.binding,
+                    execution_digest: &scope.digest,
+                    definition: &result.definition,
+                    client: &result.client,
+                    channel,
+                },
+            )?
+        }
+        _ => anyhow::bail!("result profile and actual execution-owned channel differ"),
+    };
     let image = installed.image()?;
     let installation = installed.installation().clone();
     drop(installed);

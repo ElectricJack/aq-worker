@@ -1,0 +1,27 @@
+[
+  {
+    "step": "protocol",
+    "code": 0,
+    "seconds": 1.763
+  },
+  {
+    "step": "client",
+    "code": 0,
+    "seconds": 5.506
+  },
+  {
+    "step": "fixture",
+    "code": 0,
+    "seconds": 26.761
+  },
+  {
+    "step": "worker_cli",
+    "code": 0,
+    "seconds": 7.753
+  },
+  {
+    "step": "strict",
+    "code": 0,
+    "seconds": 18.657
+  }
+]

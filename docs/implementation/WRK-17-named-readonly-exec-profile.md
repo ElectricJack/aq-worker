@@ -190,10 +190,18 @@ remain closed.
 
 After the reviewed fixed explicit tool PATH mapper, a separately authorized
 untraced named Codex case passed (18.27s total; 8.25s execute to physical cleanup).
-It proves the controlled actual tool result and exact workspace file, natural
-CLI exit0, ECHILD, paired ACKs and matching child-auth cleanup before the original
+It proves the controlled actual tool result and exact workspace file, observed
+tmux-server exit0, ECHILD, paired ACKs and matching child-auth cleanup before the original
 Grant expired. Three output publication attempts received409/no Watch; they do
 not prove accepted output or terminal delivery. See the linked
 [positive and retained negative evidence](evidence/wrk17-named-readonly-physical/README.md).
 Production source/proc credential privacy, real provider and context qualification
 remain open; this does not promote the factory gate.
+
+Observation correction, 2026-11-01: `HostObservation.root_status` is the wait
+status of the owned tmux server. It does not establish the Codex pane's exit
+status. Earlier raw evidence used the phrase "natural CLI root exit0"; retain
+those records unchanged and interpret that assertion as tmux-server status only.
+The native result producer must report process outcome `Unknown` until the
+actual harness exit status is independently available. Physical stop/ECHILD,
+tool output and typed lifecycle acknowledgments remain separate evidence.

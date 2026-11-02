@@ -73,6 +73,9 @@ impl HydratedWorkspace {
         ensure!(boot_ns()? < deadline, "source join expired");
         Ok(())
     }
+    pub(super) fn git(&self) -> &GitClient {
+        &self.git
+    }
     pub fn workspace(&self) -> &Workspace {
         &self.workspace
     }

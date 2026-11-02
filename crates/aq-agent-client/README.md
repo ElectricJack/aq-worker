@@ -6,6 +6,39 @@ operation status. It consumes the separately packaged public `aq-agent-api`
 contract, without linking the daemon or graph database. Messaging, terminal
 control, suspension and provider harness launching are not exposed by this CLI.
 
+An independently installed local result channel supports one explicit completion
+claim. It uses no Graph credential or HTTP client configuration:
+
+```sh
+"$AQ_AGENT_RESULT_COMMAND" result submit --request-file "$AQ_AGENT_RESULT_DIR/submissions/request.json"
+"$AQ_AGENT_RESULT_COMMAND" result status
+```
+
+The request is only `{"schema_version":1,"conclusion":"Changes; exact checks and outcomes; limitations"}`.
+Its conclusion is a nonblank UTF-8 line of at most 512 bytes; oversized or unknown
+fields are rejected. The original attempt-bound IDs and frozen expected outcome
+come from worker-published control data. The client atomically publishes at most
+one immutable local claim. Repeating the same claim reads status; a different
+claim conflicts without replacing the original. After a new publication, submit
+waits at most two seconds, capped by the remaining original execution deadline,
+for a matching worker acknowledgment. Timeout returns pending without retrying
+or changing IDs. Exit code 10 alone means pending; inspect the phase to distinguish
+local publication from worker acceptance. Stop editing after submission.
+
+The result root lives outside captured source. The sandbox maps control files
+read-only and only `submissions/` writable. A retained directory/binding identity,
+existing worker lock, boot identity and both original BOOTTIME execution/hard
+deadlines guard new publication. These are refusal checks, never live execution
+authority. The worker independently requires its actual retained execution owner,
+obtains physical stop and central source retention, then records the report.
+After execution expiry, a matching completion-owner lock on the same boot can
+still support accepted/finalizing status; it never admits a new claim. After
+owner loss, status is historical/recovery data and new claims are refused.
+An exact `recorded` acknowledgment means report recording only; review, task
+completion and resource release remain separate. No automatic replacement or
+renewal exists after an uncertain write. The unchanged original request and IDs
+must remain available for status/recovery.
+
 A trusted worker calls `provision::Allocator` with the exact `StartupContext` and
 `node::NodeClient`. Allocation verifies the published profiled offer, manifest,
 API binding and exact required context bytes, reserves bounded local storage,
@@ -78,3 +111,24 @@ The distribution contains the host-target binary, public contracts, instructions
 and a byte-hashed manifest with source revision, dirty state and compiler details.
 It does not contain credentials. It is a local artifact; the script does not
 publish, install or modify product release selections.
+
+Initial local result source qualification: seven completion file/CLI tests passed
+(0.06 seconds), five library tests passed (2.12 seconds, including the existing
+three journal tests), and all-target strict Clippy passed (3.73 seconds). The
+fixtures exercise a real client process but synthetic presence/acknowledgments;
+they create no worker grant, actual stop, source receipt or B1 report. Harness
+installation and worker producer integration require their own qualification.
+The bounded acknowledgment wait and post-execution completion-owner status
+passed nine focused completion tests (2.06 seconds), including delayed matching
+acknowledgment, the shorter original execution ceiling, finalization after lease
+expiry and dead-owner refusal. All five pure contract tests passed, both crates'
+all-target strict Clippy passed (1.74 seconds), and the default binary built
+(3.36 seconds). The exact rebuilt binary also passed the CLI subprocess vector.
+The final unclaimed-expiry status correction passed its exact expiry vector
+(0.03 seconds), all-target strict Clippy (1.53 seconds), default binary rebuild
+(1.81 seconds), and the exact rebuilt-binary CLI vector. The unchanged nine-test
+and pure-five gates above were not repeated for that one-condition correction.
+The post-publication control-fault regression then passed (0.08 seconds): failed
+acknowledgment inspection returns the original IDs/digest with effect possible,
+while preserving the actual published bytes. Strict Clippy (1.42 seconds), the
+default rebuild (1.91 seconds) and exact rebuilt-binary CLI vector also passed.
