@@ -127,6 +127,32 @@ pub struct CodexExecutor {
     development_provider: Option<String>,
 }
 impl CodexExecutor {
+    pub fn configured(worker: &WorkerConfig, config: &NativeConfig) -> Result<Self> {
+        let local = matches!(
+            &config.executor,
+            Some(ExecutorConfig::ChatgptInteractiveResultLocal { .. })
+        ) && reqwest::Url::parse(&worker.server_url)
+            .is_ok_and(|u| u.scheme() == "http");
+        if !local {
+            return Self::new(worker);
+        }
+        ensure!(
+            worker.cf_client_id.is_none() && worker.cf_client_secret.is_none(),
+            "local interactive node does not use proxy credentials"
+        );
+        let credential = NodeCredential::new(worker.credential.clone())?;
+        Ok(Self {
+            relay: RelayHttp::trusted_local_node(&worker.server_url, &credential)?,
+            profile: None,
+            result_root: None,
+            installation_reserved_bytes: None,
+            result_transfer: Some(crate::transfer_client::TransferClient::from_config(
+                worker, 1,
+            )?),
+            #[cfg(feature = "test-support")]
+            development_provider: None,
+        })
+    }
     pub fn new(worker: &WorkerConfig) -> Result<Self> {
         ensure!(
             worker.cf_client_id.is_none() && worker.cf_client_secret.is_none(),

@@ -182,7 +182,9 @@ fn configured_native_executor(
     if config.executor.is_none() {
         return Ok(None);
     }
-    Ok(Some(aq_worker::native::runner::CodexExecutor::new(worker)?))
+    Ok(Some(aq_worker::native::runner::CodexExecutor::configured(
+        worker, config,
+    )?))
 }
 
 #[tokio::main]

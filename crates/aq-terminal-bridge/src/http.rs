@@ -40,6 +40,18 @@ impl RelayHttp {
     pub fn new(origin: &str, credential: &NodeCredential) -> Result<Self> {
         Self::build(origin, credential, false)
     }
+    /// Explicit trusted same-host node transport; never a provider endpoint.
+    pub fn trusted_local_node(origin: &str, credential: &NodeCredential) -> Result<Self> {
+        let selected =
+            Url::parse(origin).map_err(|_| anyhow::anyhow!("invalid local node origin"))?;
+        ensure!(
+            selected.scheme() == "http"
+                && selected.host_str() == Some("127.0.0.1")
+                && selected.port().is_some_and(|p| p > 0),
+            "local node requires explicit numeric loopback port"
+        );
+        Self::build(origin, credential, true)
+    }
     #[cfg(feature = "test-support")]
     pub fn development_loopback(origin: &str, credential: &NodeCredential) -> Result<Self> {
         Self::build(origin, credential, true)

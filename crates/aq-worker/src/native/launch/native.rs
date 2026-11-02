@@ -174,8 +174,13 @@ impl NativeCodexHostProfile {
             m.adapter == mapper.harness.adapter && m.renderer == mapper.renderer,
             "native installed mapper references differ"
         );
+        let upstream_policy = if installation.interactive() {
+            "native-codex-chatgpt-login-v1"
+        } else {
+            "fixed-openai-responses-https-v1"
+        };
         let digest = crate::native::journal::canonical_digest(
-            &serde_json::json!({"schema_version":1,"profile":"codex-scoped-responses-native-host-v1","image_profile":installation.kind(),"upstream_policy":"fixed-openai-responses-https-v1","root":root,"installation":installation.digest(),"harness":mapper.harness,"model":mapper.model,"permissions":mapper.permissions_digest,"renderer":mapper.renderer,"columns":columns,"rows":rows}),
+            &serde_json::json!({"schema_version":1,"profile":"codex-scoped-responses-native-host-v1","image_profile":installation.kind(),"upstream_policy":upstream_policy,"root":root,"installation":installation.digest(),"harness":mapper.harness,"model":mapper.model,"permissions":mapper.permissions_digest,"renderer":mapper.renderer,"columns":columns,"rows":rows}),
         )?;
         Ok(Self {
             root: guard,
@@ -195,6 +200,10 @@ impl NativeCodexHostProfile {
     /// the production executor or supply a direct provider route to the child.
     #[cfg(any(test, feature = "test-support"))]
     pub fn with_development_provider(mut self, origin: &str) -> Result<Self> {
+        ensure!(
+            !lock(&self.installation)?.interactive(),
+            "native ChatGPT interactive profile does not use a finite provider override"
+        );
         let origin = crate::native::adapter::codex::development_origin(origin)?;
         self.digest = crate::native::journal::canonical_digest(
             &serde_json::json!({"profile":self.digest,"development_provider":origin}),
