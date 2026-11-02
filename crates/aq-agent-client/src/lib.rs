@@ -1,5 +1,6 @@
 //! Scoped AQ consumer. Cached context and local intents never confer graph authority.
 pub mod client;
+pub mod completion;
 pub mod context;
 mod files;
 pub mod journal;
