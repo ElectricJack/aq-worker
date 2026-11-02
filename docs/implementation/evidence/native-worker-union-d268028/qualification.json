@@ -1,0 +1,23 @@
+{
+  "integration_source": "d2680283198261d0f6cb48d0cc42074353b2bec8",
+  "qualified_composed_source": "ef2b070f163b3728696475930b1fd8df1ecd5f35",
+  "source_paths_compared": [
+    "crates",
+    "scripts",
+    "tools",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".cargo"
+  ],
+  "git_diff_exit_code": 0,
+  "native_producer_source": "345228112aab4bba910cc71e29b744b99d2903ef",
+  "component_tests": 58,
+  "composed_cli_and_poll_gates": "Runner reports bin8/shared3/defaultparser1 then pollCLI3/shared4; strict/build passed; see native-composed-worker-a32d2ba and Runner final polling evidence",
+  "qualified_binary": {
+    "path": "/tmp/aq-codex-composed-worker-pin-ef2b070/aq-worker",
+    "sha256": "a8154acc72727abd5a2b3366d0d7a819444b9a8da3a1b5eca17b3d664be8b541",
+    "bytes": 50921984
+  },
+  "runtime_scope": "compiled and component-tested worker0.5/FORMAT12; actual Codex/source/B1/settlement composition still pending",
+  "canonical_changed": false
+}
