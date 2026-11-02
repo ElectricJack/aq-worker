@@ -5,6 +5,8 @@ use crate::native::{
         ExpectedAdapter,
         codex::CodexExecProfile,
         named_exec::{NamedExecInstallation, NamedExecManifest},
+        result_client::{InstalledResultClient, ResultClientManifest},
+        result_profile::{ExpectedResultAdapter, ResultAdapterDefinition},
     },
     launch::{NativeCodexHostProfile, NativeHostLaunchResult, NativeStopOutcome},
 };
@@ -16,6 +18,8 @@ use aq_session_protocol::{ArtifactRef, Digest, HarnessSettings, ModelSettings};
 use aq_terminal_bridge::http::{NodeCredential, RelayHttp};
 use serde::Deserialize;
 use std::path::PathBuf;
+
+const CODEX_INSTALLATION_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,6 +42,14 @@ pub enum ExecutorConfig {
     TrustedNodeNamedReadonly {
         settings: CodexSettings,
         environment: ArtifactRef,
+    },
+    #[serde(rename = "codex-0.166-trusted-node-named-readonly-result-local-v1")]
+    TrustedNodeNamedReadonlyResultLocal {
+        settings: CodexSettings,
+        environment: ArtifactRef,
+        client_manifest: PathBuf,
+        client_manifest_digest: Digest,
+        composite_definition: PathBuf,
     },
 }
 impl CodexSettings {
@@ -99,6 +111,9 @@ impl CodexSettings {
 pub struct CodexExecutor {
     relay: RelayHttp,
     profile: Option<Arc<NativeCodexHostProfile>>,
+    result_root: Option<PathBuf>,
+    installation_reserved_bytes: Option<u64>,
+    result_transfer: Option<crate::transfer_client::TransferClient>,
     #[cfg(feature = "test-support")]
     development_provider: Option<String>,
 }
@@ -112,9 +127,19 @@ impl CodexExecutor {
         Ok(Self {
             relay: RelayHttp::new(&worker.server_url, &credential)?,
             profile: None,
+            result_root: None,
+            installation_reserved_bytes: None,
+            result_transfer: Some(crate::transfer_client::TransferClient::from_config(
+                worker, 1,
+            )?),
             #[cfg(feature = "test-support")]
             development_provider: None,
         })
+    }
+    /// Separate installation-cache reservation metadata. This includes the
+    /// result client's additional pool and does not reinterpret task memory.
+    pub fn installation_reserved_bytes(&self) -> Option<u64> {
+        self.installation_reserved_bytes
     }
     #[cfg(feature = "test-support")]
     pub fn development_loopback(worker: &WorkerConfig) -> Result<Self> {
@@ -133,10 +158,14 @@ impl CodexExecutor {
             "fixture native executor requires numeric loopback origin"
         );
         let credential = NodeCredential::new(worker.credential.clone())?;
-        Self::from_relay(RelayHttp::development_loopback(
+        let mut executor = Self::from_relay(RelayHttp::development_loopback(
             &worker.server_url,
             &credential,
-        )?)
+        )?)?;
+        executor.result_transfer = Some(crate::transfer_client::TransferClient::from_config(
+            worker, 1,
+        )?);
+        Ok(executor)
     }
     /// Finite qualification override: still uses actual named installation
     /// preflight and the owned scoped transport, with a numeric-loopback upstream.
@@ -166,6 +195,9 @@ impl CodexExecutor {
         Ok(Self {
             relay,
             profile: None,
+            result_root: None,
+            installation_reserved_bytes: None,
+            result_transfer: None,
             #[cfg(feature = "test-support")]
             development_provider: None,
         })
@@ -174,11 +206,26 @@ impl CodexExecutor {
 impl NativeExecutor for CodexExecutor {
     fn preflight(&mut self, config: &NativeConfig) -> Result<()> {
         ensure!(self.profile.is_none(), "Codex executor already preflighted");
-        let (settings, environment) = match &config.executor {
+        let (settings, environment, result) = match &config.executor {
             Some(ExecutorConfig::TrustedNodeNamedReadonly {
                 settings,
                 environment,
-            }) => (settings, environment),
+            }) => (settings, environment, None),
+            Some(ExecutorConfig::TrustedNodeNamedReadonlyResultLocal {
+                settings,
+                environment,
+                client_manifest,
+                client_manifest_digest,
+                composite_definition,
+            }) => (
+                settings,
+                environment,
+                Some((
+                    client_manifest,
+                    client_manifest_digest,
+                    composite_definition,
+                )),
+            ),
             Some(ExecutorConfig::Codex { .. }) => {
                 anyhow::bail!(
                     "legacy sealed-memfd executor is not qualified for Codex tools; no admission attempted"
@@ -191,14 +238,37 @@ impl NativeExecutor for CodexExecutor {
             environment == &settings.harness.environment,
             "trusted-node environment differs from selected harness"
         );
+        ensure!(
+            result.is_none() || self.result_transfer.is_some(),
+            "native result source transport absent"
+        );
+        let definition = if let Some((_, client_digest, definition_path)) = result {
+            let definition =
+                ResultAdapterDefinition::decode(&config::private_file(definition_path, 16384)?)?;
+            definition.validate_selected(ExpectedResultAdapter {
+                adapter: &config.adapter,
+                runtime: &config.runtime,
+                renderer: &config.renderer,
+                environment,
+                permission_digest: &settings.permissions_digest,
+            })?;
+            ensure!(
+                definition.client_manifest.digest == *client_digest,
+                "result client installation differs from selected adapter"
+            );
+            Some(definition)
+        } else {
+            None
+        };
         // An artifact reference is not a kernel observation. This retained owner
         // checks cap/NNP and namespace premises; installation loading checks actual
         // readonly mount/FD/path identities. External provisioning qualification
         // remains independently pinned by the selected environment artifact.
+        let environment_owner = NamedReadonlyEnvironment::inspect(environment.clone())?;
         let pool = NamedReadonlyExecPool::new(
-            512 * 1024 * 1024,
+            CODEX_INSTALLATION_BUDGET_BYTES,
             1,
-            NamedReadonlyEnvironment::inspect(environment.clone())?,
+            environment_owner.clone(),
         )?;
         let manifest =
             NamedExecManifest::decode(&config::private_file(&config.adapter_manifest, 16384)?)?;
@@ -220,19 +290,51 @@ impl NativeExecutor for CodexExecutor {
             permissions_digest: settings.permissions_digest.clone(),
             renderer: config.renderer.clone(),
         };
-        let profile = NativeCodexHostProfile::new_named(
-            settings.host_root.clone(),
-            installed,
-            mapper,
-            settings.columns,
-            settings.rows,
-        )?;
+        let profile = match (result, definition) {
+            (Some((client_path, _, _)), Some(definition)) => {
+                let manifest =
+                    ResultClientManifest::decode(&config::private_file(client_path, 16384)?)?;
+                let client = InstalledResultClient::open(
+                    manifest,
+                    definition.expected_client()?,
+                    &environment_owner,
+                )?;
+                NativeCodexHostProfile::new_named_result(
+                    settings.host_root.clone(),
+                    installed,
+                    mapper,
+                    settings.columns,
+                    settings.rows,
+                    client,
+                    definition,
+                )?
+            }
+            (None, None) => NativeCodexHostProfile::new_named(
+                settings.host_root.clone(),
+                installed,
+                mapper,
+                settings.columns,
+                settings.rows,
+            )?,
+            _ => anyhow::bail!("native result factory selection differs"),
+        };
         #[cfg(feature = "test-support")]
         let profile = if let Some(origin) = &self.development_provider {
             profile.with_development_provider(origin)?
         } else {
             profile
         };
+        let result_pins = profile.result_installation_pins();
+        self.installation_reserved_bytes = Some(
+            CODEX_INSTALLATION_BUDGET_BYTES
+                .checked_add(
+                    result_pins
+                        .as_ref()
+                        .map_or(0, |pins| pins.reserved_client_bytes),
+                )
+                .context("native installation image reservation overflow")?,
+        );
+        self.result_root = result_pins.map(|_| config.state_dir.join("result"));
         self.profile = Some(Arc::new(profile));
         Ok(())
     }
