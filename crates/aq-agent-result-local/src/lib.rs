@@ -37,7 +37,7 @@ fn require(ok: bool, why: &'static str) -> Result<(), ContractError> {
         Err(ContractError::Invalid(why))
     }
 }
-fn artifact(value: &ArtifactRef) -> Result<(), ContractError> {
+fn validate_artifact(value: &ArtifactRef) -> Result<(), ContractError> {
     value.id.validate()?;
     value.version.validate()
 }
@@ -78,7 +78,7 @@ pub struct Binding {
 impl Validate for Binding {
     fn validate(&self) -> Result<(), ContractError> {
         self.launch.validate()?;
-        artifact(&self.expected_outcome)?;
+        validate_artifact(&self.expected_outcome)?;
         require(
             self.schema_version == 1
                 && matches!(self.launch.session, SessionIdentity::Remote { .. })
@@ -210,7 +210,7 @@ impl Validate for Acknowledgment {
             "local result acknowledgment",
         )?;
         if let Phase::Recorded { receipt } = &self.phase {
-            artifact(receipt)?;
+            validate_artifact(receipt)?;
             require(
                 receipt.id.as_str() == format!("aq.result-record/{}", self.report_id)
                     && receipt.version.as_str() == "1",
