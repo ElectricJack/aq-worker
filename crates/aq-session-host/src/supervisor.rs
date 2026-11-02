@@ -98,9 +98,12 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
         spec.validate(&config)?;
     }
     let intent = config.intent()?;
-    config
-        .permit
-        .validate_at(&intent.session, &intent.manifest_digest, raw_boot_ms())?;
+    config.validate_permit_at(
+        &config.permit,
+        &intent.session,
+        &intent.manifest_digest,
+        raw_boot_ms(),
+    )?;
     durable_new(
         &dir.join("guardian.claim"),
         b"one guardian per immutable launch\n",
@@ -204,7 +207,8 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     let permit =
                         request(dir, "start.request", &identity)?.context("start request")?;
                     ensure!(permit == config.permit, "changed initial start permit");
-                    permit.validate_at(
+                    config.validate_permit_at(
+                        &permit,
                         &identity.intent.session,
                         &identity.intent.manifest_digest,
                         raw_boot_ms(),
@@ -308,7 +312,8 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     if let Some(permit) = request(dir, "renew.request", &identity)?
                         && permit.sequence > state.permit_sequence
                     {
-                        permit.validate_at(
+                        config.validate_permit_at(
+                            &permit,
                             &identity.intent.session,
                             &identity.intent.manifest_digest,
                             raw_boot_ms(),
@@ -410,7 +415,8 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
         "pane outside owned server"
     );
     let permit = request(dir, "start.request", &identity)?.context("pane start authorization")?;
-    permit.validate_at(
+    config.validate_permit_at(
+        &permit,
         &identity.intent.session,
         &identity.intent.manifest_digest,
         raw_boot_ms(),
@@ -439,7 +445,8 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
         .env("TERM", "xterm-256color")
         .env("AQ_SESSION_DIRECTORY", dir)
         .envs(&config.command.environment);
-    permit.validate_at(
+    config.validate_permit_at(
+        &permit,
         &identity.intent.session,
         &identity.intent.manifest_digest,
         raw_boot_ms(),
