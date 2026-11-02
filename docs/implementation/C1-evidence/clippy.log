@@ -1,0 +1,458 @@
+aq test: no interpreter found for /tmp (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: waiting 0s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 2s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 4s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 6s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 8s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 10s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 12s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 14s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 16s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 18s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 20s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 22s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 24s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 26s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 28s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 30s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 32s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 34s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 36s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 38s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 40s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 42s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 44s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 46s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 48s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 50s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 52s for 1 of 6 test slot(s); held by steady-cascade-45.2, 
+noble-summit-37.3, keen-vault-60, steady-cascade-45.2, calm-delta-18.1
+aq test: waiting 54s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 56s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 58s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 60s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 62s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 64s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 66s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 68s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 70s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 72s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 74s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 76s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 78s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 80s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: waiting 82s for 1 of 6 test slot(s); held by noble-summit-37.1, 
+steady-cascade-45.2, noble-summit-37.3, keen-vault-60, steady-cascade-45.2, 
+calm-delta-18.1
+aq test: slot 3 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' /tmp/test_c1_cargo.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /tmp
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 1 item
+
+../../../../../../../../../tmp/test_c1_cargo.py COMMAND: ['cargo', 'clippy', '--locked', '-p', 'aq-worker', '--all-targets', '--all-features', '--', '-D', 'warnings']
+    Checking libc v0.2.191
+    Checking cfg-if v1.0.5
+    Checking serde_core v1.0.229
+    Checking getrandom v0.2.17
+    Checking itoa v1.0.18
+    Checking typenum v1.20.1
+    Checking rand_core v0.6.4
+    Checking serde v1.0.229
+    Checking generic-array v0.14.7
+    Checking smallvec v1.16.4
+    Checking crypto-common v0.1.7
+    Checking zerofrom v0.1.8
+    Checking getrandom v0.4.3
+    Checking zmij v1.0.23
+    Checking stable_deref_trait v1.2.1
+    Checking cpufeatures v0.2.17
+    Checking memchr v2.8.3
+    Checking yoke v0.8.4
+    Checking sha1_smol v1.0.1
+    Checking once_cell v1.21.4
+    Checking serde_json v1.0.154
+    Checking pin-project-lite v0.2.17
+    Checking uuid v1.29.0
+    Checking block-buffer v0.10.4
+    Checking bytes v1.12.1
+    Checking ref-cast v1.0.27
+    Checking zerovec v0.11.9
+    Checking digest v0.10.7
+    Checking futures-core v0.3.34
+    Checking dyn-clone v1.0.20
+    Checking schemars v1.2.3
+    Checking thiserror v2.0.21
+    Checking sha2 v0.10.9
+    Checking zeroize v1.9.1
+    Checking scopeguard v1.2.0
+    Checking lock_api v0.4.14
+    Checking parking_lot_core v0.9.12
+    Checking tracing-core v0.1.36
+    Checking errno v0.3.14
+    Checking log v0.4.35
+    Checking signal-hook-registry v1.4.8
+    Checking parking_lot v0.12.5
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-session-protocol)
+    Checking tinystr v0.8.5
+    Checking http v1.5.0
+    Checking mio v1.2.4
+    Checking socket2 v0.6.5
+    Checking utf_types v1.0.0
+    Checking writeable v0.6.4
+    Checking litemap v0.8.3
+    Checking utf8_iter v1.1.0
+    Checking icu_locale_core v2.4.0
+    Checking tokio v1.54.1
+    Checking http-body v1.1.0
+    Checking tracing v0.1.44
+    Checking potential_utf v0.1.6
+    Checking zerotrie v0.2.5
+    Checking percent-encoding v2.3.2
+    Checking subtle v2.6.1
+    Checking icu_provider v2.4.0
+    Checking icu_collections v2.4.0
+    Checking slab v0.4.12
+    Checking futures-task v0.3.34
+    Checking tower-service v0.3.3
+    Checking futures-util v0.3.34
+    Checking icu_properties_data v2.4.0
+    Checking icu_normalizer_data v2.4.0
+    Checking rustls-pki-types v1.15.1
+    Checking try-lock v0.2.5
+    Checking untrusted v0.9.0
+    Checking ring v0.17.14
+    Checking want v0.3.2
+    Checking icu_normalizer v2.4.0
+    Checking icu_properties v2.4.0
+    Checking httparse v1.10.1
+    Checking form_urlencoded v1.2.2
+    Checking sync_wrapper v1.0.2
+    Checking httpdate v1.0.3
+    Checking atomic-waker v1.1.2
+    Checking tower-layer v0.3.3
+    Checking hyper v1.12.0
+    Checking idna_adapter v1.2.2
+    Checking rustls-webpki v0.103.16
+    Checking futures-channel v0.3.34
+    Checking ipnet v2.12.2
+    Checking base64 v0.23.1
+    Checking bitflags v2.13.2
+    Checking rustls v0.23.46
+    Checking hyper-util v0.1.21
+    Checking idna v1.1.0
+    Checking zerocopy v0.8.63
+    Checking tower v0.5.3
+    Checking http-body-util v0.1.5
+    Checking inout v0.1.4
+    Checking ryu v1.0.23
+    Checking serde_urlencoded v0.7.1
+    Checking cipher v0.4.4
+    Checking tokio-rustls v0.26.6
+    Checking url v2.5.8
+    Checking anyhow v1.0.104
+    Checking webpki-roots v1.0.11
+    Checking universal-hash v0.5.1
+    Checking equivalent v1.0.3
+    Checking opaque-debug v0.3.1
+    Checking hashbrown v0.17.1
+    Checking ppv-lite86 v0.2.21
+    Checking utf8parse v0.2.2
+    Checking anstyle-parse v1.0.0
+    Checking rand_chacha v0.3.1
+    Checking indexmap v2.14.2
+    Checking poly1305 v0.8.0
+    Checking hyper-rustls v0.27.10
+    Checking tower-http v0.6.11
+    Checking chacha20 v0.9.1
+    Checking aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aead v0.5.2
+    Checking toml_datetime v0.6.11
+    Checking serde_spanned v0.6.9
+    Checking winnow v0.7.15
+    Checking is_terminal_polyfill v1.70.2
+    Checking regex-syntax v0.8.11
+    Checking base64 v0.22.1
+    Checking toml_write v0.1.2
+    Checking colorchoice v1.0.5
+    Checking anstyle-query v1.1.5
+    Checking anstyle v1.0.14
+    Checking toml_edit v0.22.27
+    Checking anstream v1.0.0
+    Checking reqwest v0.12.28
+    Checking regex-automata v0.4.18
+    Checking chacha20poly1305 v0.10.1
+    Checking num-traits v0.2.19
+    Checking rand v0.8.8
+    Checking aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-lifecycle-protocol)
+    Checking aq-session-api v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/vendor/aq-session-api-0.1.0)
+    Checking clap_lex v1.1.1
+    Checking strsim v0.11.1
+    Checking iana-time-zone v0.1.65
+    Checking lazy_static v1.5.1
+    Checking sharded-slab v0.1.7
+    Checking chrono v0.4.45
+    Checking aq-admission v0.1.11 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/vendor/aq-admission-0.1.11)
+    Checking clap_builder v4.6.7
+    Checking aq-terminal-relay v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/vendor/aq-terminal-relay-0.1.0)
+    Checking aq-session-host v0.1.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-session-host)
+    Checking matchers v0.2.0
+    Checking toml v0.8.23
+    Checking tracing-log v0.2.0
+    Checking rtoolbox v0.0.6
+    Checking fs2 v0.4.3
+    Checking thread_local v1.1.10
+    Checking nu-ansi-term v0.50.3
+    Checking aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-terminal-bridge)
+    Checking tracing-subscriber v0.3.23
+    Checking rpassword v7.5.4
+    Checking aq-codex-mapper v0.1.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-codex-mapper)
+    Checking aq-phase-terminal-protocol v0.1.2 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/vendor/aq-phase-terminal-protocol-0.1.2)
+    Checking clap v4.6.7
+    Checking aq-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-protocol)
+    Checking aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-responses-transport)
+    Checking aq-agent-result-local v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-agent-result-local)
+    Checking aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker-protocol)
+    Checking linux-raw-sys v0.12.1
+    Checking mime v0.3.17
+    Checking axum-core v0.5.6
+    Checking rustix v1.1.6
+    Checking aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Checking serde_path_to_error v0.1.20
+    Checking fastrand v2.5.0
+    Checking matchit v0.8.4
+    Checking axum v0.8.9
+    Checking tempfile v3.27.0
+error: this `if` statement can be collapsed
+   --> crates/aq-worker/src/native/launch/output_relay.rs:512:17
+    |
+512 | /                 if let Ok(viewer) = opened {
+513 | |                     if let Ok(mut physical) = opening_entry.physical.lock() {
+514 | |                         if !opening_entry.stop.load(Ordering::SeqCst)
+515 | |                             && matches!(physical.outcome, Outcome::Running)
+...   |
+520 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+512 ~                 if let Ok(viewer) = opened
+513 ~                     && let Ok(mut physical) = opening_entry.physical.lock() {
+514 |                         if !opening_entry.stop.load(Ordering::SeqCst)
+...
+518 |                         }
+519 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-worker/src/native/launch/output_relay.rs:513:21
+    |
+513 | /                     if let Ok(mut physical) = opening_entry.physical.lock() {
+514 | |                         if !opening_entry.stop.load(Ordering::SeqCst)
+515 | |                             && matches!(physical.outcome, Outcome::Running)
+...   |
+519 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+513 ~                     if let Ok(mut physical) = opening_entry.physical.lock()
+514 ~                         && !opening_entry.stop.load(Ordering::SeqCst)
+515 |                             && matches!(physical.outcome, Outcome::Running)
+516 |                         {
+517 |                             physical.viewer = Some(viewer);
+518 ~                         }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-worker/src/native/runner/codex.rs:614:5
+    |
+614 | /     if let Some(control) = control_receipts {
+615 | |         if let Err(error) = control.flush_control_receipts().await {
+616 | |             if operation.is_ok() {
+617 | |                 operation = Err(error);
+...   |
+620 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+614 ~     if let Some(control) = control_receipts
+615 ~         && let Err(error) = control.flush_control_receipts().await {
+616 |             if operation.is_ok() {
+617 |                 operation = Err(error);
+618 |             }
+619 ~         }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-worker/src/native/runner/codex.rs:615:9
+    |
+615 | /         if let Err(error) = control.flush_control_receipts().await {
+616 | |             if operation.is_ok() {
+617 | |                 operation = Err(error);
+618 | |             }
+619 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+615 ~         if let Err(error) = control.flush_control_receipts().await
+616 ~             && operation.is_ok() {
+617 |                 operation = Err(error);
+618 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-worker/src/native/runner/publish_output.rs:157:17
+    |
+157 | /                 if started.elapsed().as_millis() >= u128::from(aq_codex_mapper::READY_DELAY_MS) {
+158 | |                     if let Ok(view) = control.current_viewport().await {
+159 | |                         if aq_codex_mapper::classify_current_viewport(&view)
+160 | |                             == aq_codex_mapper::InteractiveViewport::AuthenticationRequired
+...   |
+166 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+157 ~                 if started.elapsed().as_millis() >= u128::from(aq_codex_mapper::READY_DELAY_MS)
+158 ~                     && let Ok(view) = control.current_viewport().await {
+159 |                         if aq_codex_mapper::classify_current_viewport(&view)
+...
+164 |                         }
+165 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/aq-worker/src/native/runner/publish_output.rs:158:21
+    |
+158 | /                     if let Ok(view) = control.current_viewport().await {
+159 | |                         if aq_codex_mapper::classify_current_viewport(&view)
+160 | |                             == aq_codex_mapper::InteractiveViewport::AuthenticationRequired
+...   |
+165 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+158 ~                     if let Ok(view) = control.current_viewport().await
+159 ~                         && aq_codex_mapper::classify_current_viewport(&view)
+160 |                             == aq_codex_mapper::InteractiveViewport::AuthenticationRequired
+...
+163 |                             return;
+164 ~                         }
+    |
+
+error: could not compile `aq-worker` (lib) due to 6 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aq-worker` (lib test) due to 6 previous errors
+F
+
+=================================== FAILURES ===================================
+______________________________ test_cargo_command ______________________________
+
+    def test_cargo_command():
+        command = json.loads(os.environ['C1_CARGO_COMMAND'])
+        print('COMMAND:', command, flush=True)
+        result = subprocess.run(command, cwd=os.environ['C1_CARGO_CWD'], env={**os.environ, 'CARGO_BUILD_JOBS': '2', 'RUST_TEST_THREADS': '2'})
+>       assert result.returncode == 0
+E       AssertionError: assert 101 == 0
+E        +  where 101 = CompletedProcess(args=['cargo', 'clippy', '--locked', '-p', 'aq-worker', '--all-targets', '--all-features', '--', '-D', 'warnings'], returncode=101).returncode
+
+/tmp/test_c1_cargo.py:9: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../../../../../tmp/test_c1_cargo.py::test_cargo_command - ...
+======================== 1 failed in 104.65s (0:01:44) =========================

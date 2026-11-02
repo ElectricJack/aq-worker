@@ -1,5 +1,6 @@
 //! Agent Q worker connector library.
 
+pub mod backend;
 pub mod backoff;
 pub mod client;
 pub mod clock;
