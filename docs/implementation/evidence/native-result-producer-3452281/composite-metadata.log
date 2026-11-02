@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-edc52ca36d9eccf1)
+
+running 3 tests
+test native::adapter::result_profile::tests::retained_definition_requires_its_original_role_descriptor_bytes_and_selection ... ok
+test native::adapter::result_profile::tests::composite_selection_is_canonical_closed_and_independently_pinned ... ok
+test native::adapter::result_profile::tests::result_profile_preserves_existing_permission_domain_and_pins_whole_plan ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 237 filtered out; finished in 0.00s
+

@@ -1,0 +1,9 @@
+   Compiling aq-worker v0.5.0 (/tmp/aq-native-result-producer-v2/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 17.34s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-edc52ca36d9eccf1)
+
+running 1 test
+test native::preparation::launch::scoped_transport_scenarios::logical_stop_fence_closes_transport_before_any_async_physical_stop_poll ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 239 filtered out; finished in 0.03s
+

@@ -1,0 +1,17 @@
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-edc52ca36d9eccf1)
+
+running 10 tests
+test native::preparation::launch::output_relay::tests::unknown_producer_discontinuity_does_not_invent_an_exact_gap_or_restart ... ok
+test native::preparation::launch::output_relay::tests::bounded_tail_packet_preserves_literal_sequences_and_explicit_eviction_gap ... ok
+test native::preparation::launch::output_relay::tests::dropped_pipeline_tail_owner_cannot_be_reconstructed_from_transport_history ... ok
+test native::preparation::launch::output_relay::tests::no_watch_and_ambiguous_reply_keep_exact_pending_bytes_while_tail_continues ... ok
+test native::preparation::launch::output_relay::started::tests::mixed_profile_wrong_context_and_cross_profile_replacements_are_refused ... ok
+test native::preparation::launch::output_relay::started::tests::frozen_and_refresh_capture_validate_their_exact_context_and_ack ... ok
+test native::preparation::launch::output_relay::started::tests::pending_ack_allows_capture_but_refuses_registration_for_both_profiles ... ok
+test native::preparation::launch::output_relay::started::tests::changed_running_or_ack_cannot_replace_retained_request ... ok
+test native::preparation::launch::output_relay::tests::high_byte_frames_fit_actual_http_transport_without_losing_sequences ... ok
+test native::preparation::launch::output_relay::tests::worst_case_json_bytes_are_bounded_and_prefix_never_skips_unselected_frames ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 230 filtered out; finished in 0.78s
+

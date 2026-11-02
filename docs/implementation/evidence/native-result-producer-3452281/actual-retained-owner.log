@@ -1,0 +1,12 @@
+   Compiling aq-worker v0.5.0 (/tmp/aq-native-result-producer-v2/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 18.24s
+     Running unittests src/lib.rs (/tmp/aq-worker-artifact-overlap-target/debug/deps/aq_worker-edc52ca36d9eccf1)
+
+running 4 tests
+test native::journal::tests::hydration_scenarios::native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence ... ok
+test native::journal::tests::refresh_physical_scenarios::native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence ... ok
+test native::journal::tests::hydration_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline ... ok
+test native::journal::tests::refresh_physical_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 236 filtered out; finished in 3.30s
+
