@@ -4,11 +4,11 @@ Finish by submitting one explicit AQ result claim. Write this bounded JSON reque
 
     {"schema_version":1,"conclusion":"Changes: ...; Checks: exact commands and outcomes; Limits: unmet items or limitations"}
 
-The conclusion is one nonblank UTF-8 line, at most512 bytes. Keep it factual and omit credentials. Then run:
+The conclusion is one nonblank UTF-8 line, at most 512 bytes. Keep it factual and omit credentials. Then run:
 
     "$AQ_AGENT_RESULT_COMMAND" result submit --request-file "$AQ_AGENT_RESULT_DIR/submissions/request.json"
 
-Exit10 means the original local claim is durably pending; worker acceptance and report recording are separate. After pending submission, stop editing and end the turn. Preserve the original request after uncertainty. Read its status with:
+Submit waits up to two seconds, capped by the original execution deadline, for a matching worker acknowledgment. Exit code 10 alone means pending; inspect the returned phase. Accepted or finalizing means the worker retained the claim; recorded means report recording only. Stop editing after submission and end the turn after worker acceptance. If the wait times out with pending_local or reports uncertainty, preserve the original request, report the claim as unconfirmed, and never claim success or submit replacement bytes. Read its status with:
 
     "$AQ_AGENT_RESULT_COMMAND" result status
 
