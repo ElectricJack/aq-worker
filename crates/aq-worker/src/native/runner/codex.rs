@@ -4,12 +4,15 @@ use crate::native::{
     adapter::{
         ExpectedAdapter,
         codex::CodexExecProfile,
-        native_exec::{NativeExecInstallation, NativeExecManifest},
+        named_exec::{NamedExecInstallation, NamedExecManifest},
     },
     launch::{NativeCodexHostProfile, NativeHostLaunchResult, NativeStopOutcome},
 };
-use aq_session_host::{HostPhase, observed::NativeExecPool};
-use aq_session_protocol::{Digest, HarnessSettings, ModelSettings};
+use aq_session_host::{
+    HostPhase,
+    observed::{NamedReadonlyEnvironment, NamedReadonlyExecPool},
+};
+use aq_session_protocol::{ArtifactRef, Digest, HarnessSettings, ModelSettings};
 use aq_terminal_bridge::http::{NodeCredential, RelayHttp};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -29,6 +32,13 @@ pub struct CodexSettings {
 pub enum ExecutorConfig {
     #[serde(rename = "codex-0.166-exec-stdin-v1")]
     Codex { settings: CodexSettings },
+    /// Operator-selected trusted-node profile. This does not promise isolation
+    /// from other processes running as the worker UID.
+    #[serde(rename = "codex-0.166-trusted-node-named-readonly-v1")]
+    TrustedNodeNamedReadonly {
+        settings: CodexSettings,
+        environment: ArtifactRef,
+    },
 }
 impl CodexSettings {
     fn validate(&self, config: &NativeConfig) -> Result<()> {
@@ -39,6 +49,7 @@ impl CodexSettings {
                 && self.harness.adapter == config.adapter
                 && self.model.provider.as_str() == "openai"
                 && self.model.spending_budget.is_none()
+                && (16..=1_048_576).contains(&self.model.max_output_tokens)
                 && matches!(self.model.reasoning.as_str(), "low" | "medium" | "high"),
             "unsupported closed Codex settings"
         );
@@ -87,8 +98,9 @@ impl CodexSettings {
 /// the host receives only exact scoped provider material through its owner.
 pub struct CodexExecutor {
     relay: RelayHttp,
-    pool: NativeExecPool,
     profile: Option<Arc<NativeCodexHostProfile>>,
+    #[cfg(feature = "test-support")]
+    development_provider: Option<String>,
 }
 impl CodexExecutor {
     pub fn new(worker: &WorkerConfig) -> Result<Self> {
@@ -97,11 +109,12 @@ impl CodexExecutor {
             "native relay proxy credentials are not supported by this executor"
         );
         let credential = NodeCredential::new(worker.credential.clone())?;
-        let _ = RelayHttp::new(&worker.server_url, &credential)?;
-        // The pinned CLI mapper has not yet established effective enforcement
-        // of the sealed model output limit. Executable pins do not supply that
-        // missing capability; ordinary production admission remains refused.
-        anyhow::bail!("native Codex model output bound is not qualified; no admission attempted")
+        Ok(Self {
+            relay: RelayHttp::new(&worker.server_url, &credential)?,
+            profile: None,
+            #[cfg(feature = "test-support")]
+            development_provider: None,
+        })
     }
     #[cfg(feature = "test-support")]
     pub fn development_loopback(worker: &WorkerConfig) -> Result<Self> {
@@ -125,6 +138,18 @@ impl CodexExecutor {
             &credential,
         )?)
     }
+    /// Finite qualification override: still uses actual named installation
+    /// preflight and the owned scoped transport, with a numeric-loopback upstream.
+    #[cfg(feature = "test-support")]
+    pub fn with_development_provider(mut self, origin: &str) -> Result<Self> {
+        ensure!(
+            self.profile.is_none(),
+            "provider override must precede preflight"
+        );
+        self.development_provider =
+            Some(crate::native::adapter::codex::development_origin(origin)?);
+        Ok(self)
+    }
     /// Joins a separately preflighted, real installed host to the same executor
     /// path for finite loopback qualification; unavailable in production builds.
     #[cfg(all(test, feature = "test-support"))]
@@ -140,21 +165,44 @@ impl CodexExecutor {
     fn from_relay(relay: RelayHttp) -> Result<Self> {
         Ok(Self {
             relay,
-            pool: NativeExecPool::new(512 * 1024 * 1024, 1)?,
             profile: None,
+            #[cfg(feature = "test-support")]
+            development_provider: None,
         })
     }
 }
 impl NativeExecutor for CodexExecutor {
     fn preflight(&mut self, config: &NativeConfig) -> Result<()> {
         ensure!(self.profile.is_none(), "Codex executor already preflighted");
-        let Some(ExecutorConfig::Codex { settings }) = &config.executor else {
-            anyhow::bail!("closed Codex executor settings absent")
+        let (settings, environment) = match &config.executor {
+            Some(ExecutorConfig::TrustedNodeNamedReadonly {
+                settings,
+                environment,
+            }) => (settings, environment),
+            Some(ExecutorConfig::Codex { .. }) => {
+                anyhow::bail!(
+                    "legacy sealed-memfd executor is not qualified for Codex tools; no admission attempted"
+                )
+            }
+            None => anyhow::bail!("closed Codex executor settings absent"),
         };
         settings.validate(config)?;
+        ensure!(
+            environment == &settings.harness.environment,
+            "trusted-node environment differs from selected harness"
+        );
+        // An artifact reference is not a kernel observation. This retained owner
+        // checks cap/NNP and namespace premises; installation loading checks actual
+        // readonly mount/FD/path identities. External provisioning qualification
+        // remains independently pinned by the selected environment artifact.
+        let pool = NamedReadonlyExecPool::new(
+            512 * 1024 * 1024,
+            1,
+            NamedReadonlyEnvironment::inspect(environment.clone())?,
+        )?;
         let manifest =
-            NativeExecManifest::decode(&config::private_file(&config.adapter_manifest, 16384)?)?;
-        let installed = NativeExecInstallation::open(
+            NamedExecManifest::decode(&config::private_file(&config.adapter_manifest, 16384)?)?;
+        let installed = NamedExecInstallation::open(
             manifest,
             ExpectedAdapter {
                 manifest_digest: &config.adapter_manifest_digest,
@@ -163,7 +211,8 @@ impl NativeExecutor for CodexExecutor {
                 qualification: &config.runtime.qualification,
                 renderer: &config.renderer,
             },
-            &self.pool,
+            environment,
+            &pool,
         )?;
         let mapper = CodexExecProfile {
             harness: settings.harness.clone(),
@@ -171,13 +220,20 @@ impl NativeExecutor for CodexExecutor {
             permissions_digest: settings.permissions_digest.clone(),
             renderer: config.renderer.clone(),
         };
-        self.profile = Some(Arc::new(NativeCodexHostProfile::new(
+        let profile = NativeCodexHostProfile::new_named(
             settings.host_root.clone(),
             installed,
             mapper,
             settings.columns,
             settings.rows,
-        )?));
+        )?;
+        #[cfg(feature = "test-support")]
+        let profile = if let Some(origin) = &self.development_provider {
+            profile.with_development_provider(origin)?
+        } else {
+            profile
+        };
+        self.profile = Some(Arc::new(profile));
         Ok(())
     }
     fn execute<'a>(
@@ -242,8 +298,15 @@ pub(crate) async fn drive_running(
     // Install the independent reader before any network Started wait.
     let operation = async {
         let relay = pipeline.start_phase_output(&host, relay_client)?;
+        let state = pipeline.snapshot().await?;
+        let terminal_profile = super::profile::TerminalProfile::for_attempt(
+            state
+                .attempts
+                .get(&id)
+                .context("native Running attempt absent")?,
+        )?;
         tokio::select! {
-            receipt = pipeline.report_phase_terminal_started(id) => { receipt?; },
+            receipt = terminal_profile.report_started(&pipeline, id) => { receipt?; },
             _ = stop_requested(&mut shutdown, deadline_ns) => {
                 anyhow::bail!("stop requested while Started publication outcome is unknown");
             }
@@ -272,7 +335,17 @@ pub(crate) async fn drive_running(
             anyhow::bail!("native stop uncertain; retained history requires reconciliation")
         }
     }
-    let stopped = pipeline.report_phase_terminal_stopped(id).await;
+    let stopped = async {
+        let state = pipeline.snapshot().await?;
+        let terminal_profile = super::profile::TerminalProfile::for_attempt(
+            state
+                .attempts
+                .get(&id)
+                .context("native stopped attempt absent")?,
+        )?;
+        terminal_profile.report_stopped(&pipeline, id).await
+    }
+    .await;
     operation?;
     stopped?;
     Ok(())

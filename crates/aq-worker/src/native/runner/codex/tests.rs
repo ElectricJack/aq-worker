@@ -81,16 +81,119 @@ fn closed_settings_refuse_unsupported_advertised_functions_and_mutable_handoff_k
 }
 
 #[test]
-fn production_factory_refuses_unqualified_output_binding_even_with_https() {
+fn https_factory_construction_is_not_preflight_or_admission() {
     let mut worker = worker();
     worker.server_url = "https://example.invalid".into();
-    let error = CodexExecutor::new(&worker)
-        .err()
-        .expect("production output bound must remain refused");
-    assert!(error.to_string().contains("output bound is not qualified"));
+    let executor = CodexExecutor::new(&worker).unwrap();
+    assert!(executor.profile.is_none());
     #[cfg(feature = "test-support")]
+    assert!(CodexExecutor::development_loopback(&worker).is_err());
+}
+
+#[test]
+fn legacy_profile_refuses_before_manifest_or_state_access() {
+    let (dir, mut config) = super::super::tests::config();
+    config.executor = Some(ExecutorConfig::Codex {
+        settings: settings(&config),
+    });
+    std::fs::remove_file(&config.adapter_manifest).unwrap();
+    let mut worker = worker();
+    worker.server_url = "https://example.invalid".into();
+    let mut executor = CodexExecutor::new(&worker).unwrap();
+    let error = executor.preflight(&config).unwrap_err();
+    assert!(error.to_string().contains("legacy sealed-memfd"));
+    assert!(executor.profile.is_none());
+    assert!(!dir.path().join("journal").exists());
+}
+
+#[test]
+fn trusted_profile_requires_independent_matching_environment_before_installation() {
+    let (dir, mut config) = super::super::tests::config();
+    let settings = settings(&config);
+    let mut environment = settings.harness.environment.clone();
+    environment.digest = Digest::of(b"different-environment");
+    config.executor = Some(ExecutorConfig::TrustedNodeNamedReadonly {
+        settings,
+        environment,
+    });
+    std::fs::remove_file(&config.adapter_manifest).unwrap();
+    let mut worker = worker();
+    worker.server_url = "https://example.invalid".into();
+    let mut executor = CodexExecutor::new(&worker).unwrap();
     assert!(
-        CodexExecutor::development_loopback(&worker).is_err(),
-        "test transport cannot target a remote origin"
+        executor
+            .preflight(&config)
+            .unwrap_err()
+            .to_string()
+            .contains("environment differs")
     );
+    assert!(executor.profile.is_none());
+    assert!(!dir.path().join("journal").exists());
+}
+
+#[test]
+fn model_bound_is_per_response_and_never_an_aggregate_spending_budget() {
+    let (_dir, config) = super::super::tests::config();
+    let mut settings = settings(&config);
+    for cap in [0, 15, 1_048_577, u64::MAX] {
+        settings.model.max_output_tokens = cap;
+        assert!(settings.validate(&config).is_err());
+    }
+    for cap in [16, 4096, 1_048_576] {
+        settings.model.max_output_tokens = cap;
+        settings.validate(&config).unwrap();
+    }
+    settings.model.spending_budget = Some(aq_session_protocol::SpendingBudget {
+        basis: aq_session_protocol::BudgetBasis::TaskCumulativeEnforcedCost,
+        currency: Text::new("USD").unwrap(),
+        limit_microunits: 1_000_000,
+    });
+    assert!(settings.validate(&config).is_err());
+}
+
+#[test]
+fn trusted_profile_wire_is_closed_and_requires_environment_reference() {
+    let (_dir, config) = super::super::tests::config();
+    let settings = settings(&config);
+    let mut wire = serde_json::json!({
+        "kind":"codex-0.166-trusted-node-named-readonly-v1",
+        "settings": {
+            "host_root":settings.host_root,"harness":settings.harness,"model":settings.model,
+            "permissions_digest":settings.permissions_digest,"columns":80,"rows":24
+        },
+        "environment":settings.harness.environment
+    });
+    assert!(matches!(
+        serde_json::from_value::<ExecutorConfig>(wire.clone()).unwrap(),
+        ExecutorConfig::TrustedNodeNamedReadonly { .. }
+    ));
+    wire["environment_qualified"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<ExecutorConfig>(wire.clone()).is_err());
+    wire.as_object_mut()
+        .unwrap()
+        .remove("environment_qualified");
+    wire.as_object_mut().unwrap().remove("environment");
+    assert!(serde_json::from_value::<ExecutorConfig>(wire).is_err());
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn development_provider_is_explicit_numeric_loopback_and_preflight_only() {
+    for origin in [
+        "https://example.invalid",
+        "http://localhost:1234",
+        "http://192.0.2.1:1234",
+    ] {
+        assert!(
+            CodexExecutor::development_loopback(&worker())
+                .unwrap()
+                .with_development_provider(origin)
+                .is_err()
+        );
+    }
+    let executor = CodexExecutor::development_loopback(&worker())
+        .unwrap()
+        .with_development_provider("http://127.0.0.1:1234")
+        .unwrap();
+    assert!(executor.profile.is_none());
 }
