@@ -365,6 +365,7 @@ impl NativeExecutor for CodexExecutor {
             permissions_digest: settings.permissions_digest.clone(),
             renderer: config.renderer.clone(),
         };
+        let selected_client_manifest = definition.as_ref().map(|d| d.client_manifest.clone());
         let profile = match (result, definition) {
             (Some((client_path, _, _)), Some(definition)) => {
                 let manifest =
@@ -406,6 +407,14 @@ impl NativeExecutor for CodexExecutor {
             profile
         };
         let result_pins = profile.result_installation_pins();
+        ensure!(
+            result_pins
+                .as_ref()
+                .is_none_or(|pins| pins.adapter == config.adapter)
+                && result_pins.as_ref().map(|pins| &pins.client_manifest)
+                    == selected_client_manifest.as_ref(),
+            "native result installation differs from selected definition revisions"
+        );
         self.installation_reserved_bytes = Some(
             CODEX_INSTALLATION_BUDGET_BYTES
                 .checked_add(

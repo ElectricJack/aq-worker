@@ -104,7 +104,7 @@ impl NativeCodexHostProfile {
         })?;
         definition.validate_installed_client(&client)?;
         let pins = ResultInstallationPins {
-            adapter: definition.artifact()?,
+            adapter: mapper.harness.adapter.clone(),
             contract: client.contract().clone(),
             client_manifest: client.manifest_artifact(),
             client_executable: client.artifact().clone(),
