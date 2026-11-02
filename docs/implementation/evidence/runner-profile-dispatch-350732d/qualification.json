@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "source_revision": "350732d7a122c1d11e97df7348ed6f4ee3df4ca2",
+  "factory_revision": "a66e2931372f14645e8812d838e6923b67867d4b",
+  "base_revision": "81860d2df3fbcd8e3e3fba417da51d5b3350fb89",
+  "source_tree": "46177663c18abe35648d7727cbd78b1531722887",
+  "worker_version": "0.4.0",
+  "journal_format": 11,
+  "unique_focused_cases": 29,
+  "evidence_origin": "Commands run by the independent factory owner in the shared source tree and captured in tool session output; no retained raw log file or raw-log SHA is claimed. Dispatch owner reviewed source, formatting and diff, and did not independently rerun Cargo.",
+  "target": "/tmp/aq-worker-artifact-overlap-target",
+  "build_env": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0"
+  },
+  "gates": [
+    {
+      "command": "cargo test -p aq-worker --lib --all-features --offline --locked native::runner -- --test-threads=2",
+      "passed": 17,
+      "seconds": 0.59,
+      "compile_seconds": 15.01
+    },
+    {
+      "command": "cargo test -p aq-worker --lib --all-features --offline --locked production_collect_dispatch -- --test-threads=2",
+      "passed": 2,
+      "seconds": 2.55,
+      "compile_seconds": 14.85
+    },
+    {
+      "command": "cargo test -p aq-worker --lib --all-features --offline --locked launch::output_relay -- --test-threads=2",
+      "passed": 10,
+      "seconds": 0.93,
+      "cached_compile_seconds": 0.12
+    },
+    {
+      "command": "cargo clippy -p aq-worker --all-targets --all-features --offline --locked -- -D warnings",
+      "seconds": 0.17,
+      "cached": true
+    },
+    {
+      "command": "cargo clippy -p aq-worker --all-targets --offline --locked -- -D warnings",
+      "seconds": 11.63
+    },
+    {
+      "command": "owned rustfmt and git diff --check",
+      "result": "pass"
+    }
+  ],
+  "fixture_correction": "The initial collect probes reused an already Accepted fixture and correctly failed the retained first-send-clock floor. A reservation-only fixture now lets production collect publish its first Accepted. No deadline/history validator was changed or relaxed.",
+  "source_reviews": {
+    "factory": "Dispatch owner accepted exact a66e293; actual installation/pool/material/transport boundaries reviewed read-only.",
+    "dispatch": "Factory owner and root accepted exact350732d; exact-artifact/strict nominal schema1 config, retained typed history and matching receipt boundaries reviewed."
+  },
+  "remaining": [
+    "root-authorized actual named Codex/task/finite Responses execution",
+    "image provisioning and installed runtime/environment qualification",
+    "agent-client/result producer and final result settlement",
+    "actual transcript source-to-spool integration"
+  ],
+  "not_performed": [
+    "harness/tmux/Git process launch",
+    "external provider calls",
+    "canonical runtime/config/database changes"
+  ],
+  "wire_preserved": [
+    "NativeConfig schema1 negotiation envelope and old nominal serialized bytes",
+    "worker FORMAT11 typed histories",
+    "all old/new dependency package payloads"
+  ],
+  "new_choice": "Explicit trusted-node named-readonly executor tag plus explicit full-artifact Frozen/Refresh configuration; no default profile upgrade"
+}
