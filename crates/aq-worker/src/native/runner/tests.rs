@@ -17,7 +17,7 @@ fn write(path: &Path, bytes: &[u8], mode: u32) {
     std::fs::write(path, bytes).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
 }
-pub(super) fn config() -> (tempfile::TempDir, NativeConfig) {
+pub(crate) fn config() -> (tempfile::TempDir, NativeConfig) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let pin = |name: &str| {
@@ -71,7 +71,8 @@ pub(super) fn config() -> (tempfile::TempDir, NativeConfig) {
         negotiation: Negotiation {
             contract: contract_artifact().unwrap(),
             features: required_features(),
-        },
+        }
+        .into(),
         source_profile: artifact("source"),
         maximum_preparation_ms: 1000,
         inventory_definition: dir.path().join("not-created-inventory-definition"),

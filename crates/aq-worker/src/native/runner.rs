@@ -7,6 +7,9 @@ pub(crate) use codex::drive_running;
 pub use codex::{CodexExecutor, CodexSettings, ExecutorConfig};
 mod heartbeat;
 mod prepare;
+#[cfg(test)]
+pub(crate) use prepare::collect as test_collect;
+mod profile;
 mod publish_output;
 use super::{
     http::NativeClient,
@@ -20,7 +23,7 @@ use aq_admission::{
     Resources,
     transport::{Poll, Register},
 };
-pub use config::NativeConfig;
+pub use config::{ConfiguredPreparation, NativeConfig};
 use std::{
     future::Future,
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
@@ -180,6 +183,16 @@ pub async fn run_once<E: NativeExecutor>(
     let grant = prepare::collect(&pipeline, &client, &config, id, &offer, deadline, git).await?;
     check_root(&config, &held)?;
     heartbeat.check()?;
+    let prepared_state = pipeline.snapshot().await?;
+    ensure!(
+        profile::TerminalProfile::for_execution(
+            prepared_state
+                .attempts
+                .get(&id)
+                .context("native prepared attempt absent")?
+        )? == config.negotiation.profile(),
+        "native collected profile differs from explicit configuration"
+    );
     pipeline.check_phase_execution(&grant).await?;
     // Never select/cancel this future on shutdown: the executor owns physical stop
     // and durable evidence. Its guardian enforces the original execution caps.
@@ -194,17 +207,12 @@ pub async fn run_once<E: NativeExecutor>(
         host.stopped.is_some(),
         "native executor returned without retained physical stop"
     );
-    let terminal = host
-        .terminal
-        .as_ref()
-        .context("native executor missing paired lifecycle outbox")?;
     ensure!(
-        terminal.started.receipt.is_some()
-            && terminal
-                .stopped
-                .as_ref()
-                .is_some_and(|s| s.receipt.is_some()),
-        "native executor missing durable lifecycle acknowledgments"
+        config
+            .negotiation
+            .profile()
+            .complete(state.attempts.get(&id).unwrap())?,
+        "native executor missing matching durable lifecycle acknowledgments"
     );
     heartbeat.check()?;
     Ok(RunDisposition::AttemptStopped)
@@ -224,4 +232,11 @@ fn check_root(config: &NativeConfig, held: &std::fs::File) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "runner/config_tests.rs"]
+mod config_tests;
+#[cfg(test)]
+#[path = "runner/profile_tests.rs"]
+mod profile_tests;

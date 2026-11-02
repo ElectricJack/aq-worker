@@ -12,6 +12,90 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Exact configuration selection. This value is not runtime eligibility.
+#[derive(Clone, Debug)]
+pub enum ConfiguredPreparation {
+    Frozen(aq_admission::preparation_v2::Negotiation),
+    Refresh(aq_admission::preparation_refresh_v1::Negotiation),
+}
+impl From<aq_admission::preparation_v2::Negotiation> for ConfiguredPreparation {
+    fn from(value: aq_admission::preparation_v2::Negotiation) -> Self {
+        Self::Frozen(value)
+    }
+}
+impl From<aq_admission::preparation_refresh_v1::Negotiation> for ConfiguredPreparation {
+    fn from(value: aq_admission::preparation_refresh_v1::Negotiation) -> Self {
+        Self::Refresh(value)
+    }
+}
+impl<'de> Deserialize<'de> for ConfiguredPreparation {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Envelope {
+            contract: ArtifactRef,
+            features: Vec<String>,
+        }
+        let wire = Envelope::deserialize(deserializer)?;
+        let old =
+            aq_admission::preparation_v2::contract_artifact().map_err(serde::de::Error::custom)?;
+        let refresh = aq_admission::preparation_refresh_v1::contract_artifact()
+            .map_err(serde::de::Error::custom)?;
+        let features = serde_json::to_value(wire.features).map_err(serde::de::Error::custom)?;
+        let selected = if wire.contract == old {
+            Self::Frozen(aq_admission::preparation_v2::Negotiation {
+                contract: wire.contract,
+                features: serde_json::from_value(features).map_err(serde::de::Error::custom)?,
+            })
+        } else if wire.contract == refresh {
+            Self::Refresh(aq_admission::preparation_refresh_v1::Negotiation {
+                contract: wire.contract,
+                features: serde_json::from_value(features).map_err(serde::de::Error::custom)?,
+            })
+        } else {
+            return Err(serde::de::Error::custom(
+                "unsupported exact native preparation contract",
+            ));
+        };
+        selected.validate().map_err(serde::de::Error::custom)?;
+        Ok(selected)
+    }
+}
+impl serde::Serialize for ConfiguredPreparation {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            Self::Frozen(n) => serde::Serialize::serialize(n, serializer),
+            Self::Refresh(n) => serde::Serialize::serialize(n, serializer),
+        }
+    }
+}
+impl ConfiguredPreparation {
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            Self::Frozen(n) => n.validate()?,
+            Self::Refresh(n) => n.validate()?,
+        };
+        Ok(())
+    }
+    pub(super) fn profile(&self) -> super::profile::TerminalProfile {
+        match self {
+            Self::Frozen(_) => super::profile::TerminalProfile::Frozen,
+            Self::Refresh(_) => super::profile::TerminalProfile::Refresh,
+        }
+    }
+    fn maximum_preparation_ms(&self) -> u64 {
+        match self {
+            Self::Frozen(_) => aq_admission::preparation_v2::MAX_PREPARATION_MS,
+            Self::Refresh(_) => aq_admission::preparation_refresh_v1::MAX_PREPARATION_MS,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeConfig {
@@ -27,7 +111,7 @@ pub struct NativeConfig {
     pub adapter_manifest_digest: Digest,
     pub capabilities: Vec<Capability>,
     pub features: Vec<Feature>,
-    pub negotiation: aq_admission::preparation_v2::Negotiation,
+    pub negotiation: ConfiguredPreparation,
     pub source_profile: ArtifactRef,
     pub maximum_preparation_ms: u64,
     pub inventory_definition: PathBuf,
@@ -108,8 +192,7 @@ impl NativeConfig {
         );
         self.negotiation.validate()?;
         ensure!(
-            (1..=aq_admission::preparation_v2::MAX_PREPARATION_MS)
-                .contains(&self.maximum_preparation_ms),
+            (1..=self.negotiation.maximum_preparation_ms()).contains(&self.maximum_preparation_ms),
             "native preparation maximum"
         );
         ensure!(

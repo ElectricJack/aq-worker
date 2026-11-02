@@ -1466,3 +1466,39 @@ mod phase_execution_scenarios;
 
 #[path = "native_host_scenarios.rs"]
 mod native_host_scenarios;
+
+#[tokio::test]
+async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch() {
+    let export = synthetic();
+    let manifest = export.manifest.clone();
+    let h = Inputs::new_collect(export).await;
+    let git = GitPeer::new(h.root.clone(), manifest);
+    let state = h.pipeline().snapshot().await.unwrap();
+    let a = &state.attempts[&h.id];
+    assert!(a.phase_acceptance.is_none() && a.refresh_acceptance.is_none());
+    let (_config_root, mut config) = crate::native::runner::tests::config();
+    let published = published_phase_fixture();
+    config.negotiation =
+        serde_json::from_value(published["proposal"]["negotiation"].clone()).unwrap();
+    config.capabilities = capabilities();
+    config.source_profile =
+        serde_json::from_value(published["accept"]["hold"]["source_profile"].clone()).unwrap();
+    config.maximum_preparation_ms = 30000;
+    config.renderer = a.reservation.offer.startup.renderer_qualification.clone();
+    let grant = crate::native::runner::test_collect(
+        h.pipeline(),
+        &h.client,
+        &config,
+        h.id,
+        &a.reservation.offer,
+        a.reservation.deadline_ns,
+        git.client.clone(),
+    )
+    .await
+    .unwrap();
+    h.pipeline().check_phase_execution(&grant).await.unwrap();
+    let state = h.pipeline().snapshot().await.unwrap();
+    assert!(state.attempts[&h.id].phase_execution.is_some());
+    assert!(state.attempts[&h.id].native_host.is_none());
+    assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
+}

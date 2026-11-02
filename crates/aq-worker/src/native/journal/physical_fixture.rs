@@ -320,12 +320,25 @@ impl Inputs {
         ))
         .await
     }
+    async fn new_collect(export:Export)->Self {
+        Box::pin(Self::new_count_policy_impl(export,true,0,false,false,true)).await
+    }
     async fn new_count_policy(
+        export: Export,
+        phase_mode: bool,
+        count: usize,
+        output_only: bool,
+        codex: bool,
+    ) -> Self {
+        Box::pin(Self::new_count_policy_impl(export,phase_mode,count,output_only,codex,false)).await
+    }
+    async fn new_count_policy_impl(
         mut export: Export,
         phase_mode: bool,
         count: usize,
         output_only: bool,
         codex: bool,
+        defer_phase_accept: bool,
     ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("journal");
@@ -1084,6 +1097,8 @@ impl Inputs {
             let p = Arc::new(client.accept(&accept, cap, None).await.unwrap());
             journal.record_preparation(id, &p).unwrap();
             (Some(p), None)
+        } else if defer_phase_accept {
+            (None,None)
         } else {
             let p = client
                 .$propose(&identity(), &offered, &phase_proposal.negotiation, cap)
