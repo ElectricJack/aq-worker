@@ -8,6 +8,12 @@ use std::os::{
 use terminal_output::ControlEvent;
 
 const MAX_READ: usize = 16 * 1024;
+// tmux sanitizes control characters in metadata formats without a terminal
+// environment. These validated IDs and the fixed session name use a printable
+// delimiter so the guardian's cleared environment preserves exact boundaries.
+const PANE_METADATA: &str =
+    "#{session_id}|#{session_name}|#{pane_id}|#{pane_pid}|#{pane_width}|#{pane_height}";
+const CLIENT_METADATA: &str = "#{client_pid}|#{session_id}";
 
 /// Actual running terminal owner is required; no serialized constructor or
 /// input writer is exposed. Dropping the handle detaches only this viewer.
@@ -100,16 +106,10 @@ fn pane(
         host,
         deadline,
         host.permit_deadline_boot_ms,
-        &[
-            "display-message",
-            "-p",
-            "-t",
-            &p.pane_id,
-            "#{session_id}\t#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}",
-        ],
+        &["display-message", "-p", "-t", &p.pane_id, PANE_METADATA],
     )?;
     let text = std::str::from_utf8(&value).context("PTY viewer identity encoding")?;
-    let fields: Vec<_> = text.trim_end_matches('\n').split('\t').collect();
+    let fields: Vec<_> = text.trim_end_matches('\n').split('|').collect();
     ensure!(
         fields.len() == 6
             && numeric_session(fields[0])
@@ -159,9 +159,9 @@ fn verify_client(
         host,
         deadline,
         host.permit_deadline_boot_ms,
-        &["list-clients", "-F", "#{client_pid}\t#{session_id}"],
+        &["list-clients", "-F", CLIENT_METADATA],
     )?;
-    let expected = format!("{pid}\t{session}");
+    let expected = format!("{pid}|{session}");
     ensure!(
         std::str::from_utf8(&clients)?
             .lines()
@@ -344,6 +344,8 @@ mod tests {
         assert!(start.status.success());
         let query = |args: &[&str]| {
             let value = Command::new(tmux)
+                .env_clear()
+                .env("PATH", "/usr/bin:/bin")
                 .args(["-N", "-S"])
                 .arg(&socket)
                 .args(args)
@@ -366,6 +368,13 @@ mod tests {
             .parse()
             .unwrap();
         let pane = ownership::process_evidence(pid).unwrap();
+        let metadata = query(&["display-message", "-p", "-t", &session, PANE_METADATA]);
+        let fields: Vec<_> = metadata.trim_end_matches('\n').split('|').collect();
+        assert_eq!(fields.len(), 6);
+        assert_eq!(fields[0], session);
+        assert_eq!(fields[1], "viewer-proof");
+        assert_eq!(fields[3].parse::<u32>().unwrap(), pid);
+        assert_eq!(&fields[4..], ["80", "24"]);
         let ready = Instant::now() + Duration::from_secs(2);
         while !query(&["capture-pane", "-p", "-t", &session]).contains("actual-pty-first-draw") {
             assert!(Instant::now() < ready);
@@ -400,14 +409,19 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(5));
             }
             assert!(
+                query(&["list-clients", "-F", CLIENT_METADATA])
+                    .lines()
+                    .any(|line| line == format!("{}|{}", child.id(), session))
+            );
+            assert!(
                 query(&[
                     "list-clients",
                     "-F",
-                    "#{client_pid}\t#{session_id}\t#{client_flags}"
+                    "#{client_pid}|#{session_id}|#{client_flags}"
                 ])
                 .lines()
                 .any(|line| line.starts_with(&format!(
-                    "{}\t{}\t",
+                    "{}|{}|",
                     child.id(),
                     session
                 )) && line.contains("read-only")
