@@ -1,0 +1,18 @@
+{
+  "admission": "0.1.10",
+  "max_bytes": 65536,
+  "preparation_profile": {
+    "digest": "e41c08e3c8200f84b75824bff779833c9b8e5279ac63d2d91af12d9879deef56",
+    "id": "aq.admission.preparation-registry-refresh-v1-contract",
+    "version": "1"
+  },
+  "protocol": "aq.phase-terminal.v1",
+  "publication": "aq-phase-terminal-protocol/0.1.1",
+  "required_features": [
+    "started_stopped_closure_v1",
+    "original_lease_no_renewal_v1",
+    "registry_observation_continuity_v1"
+  ],
+  "schema_digest": "cc6ac6a1042667d169bf6a1ad72f0fdeb80b26498abfa8d8042a2788483643d4",
+  "schema_version": 1
+}
