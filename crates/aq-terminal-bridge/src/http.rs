@@ -33,6 +33,7 @@ pub struct RelayHttp {
     origin: Url,
     authorization: header::HeaderValue,
     poll: Arc<Semaphore>,
+    output_poll: Arc<Semaphore>,
     control: Arc<Semaphore>,
     output: Arc<Semaphore>,
 }
@@ -95,6 +96,7 @@ impl RelayHttp {
             origin,
             authorization,
             poll: Arc::new(Semaphore::new(1)),
+            output_poll: Arc::new(Semaphore::new(1)),
             control: Arc::new(Semaphore::new(1)),
             output: Arc::new(Semaphore::new(1)),
         })
@@ -191,10 +193,10 @@ impl RelayHttp {
             "output poll requires remote nonblocking Watch-only profile"
         );
         let _slot = self
-            .poll
+            .output_poll
             .clone()
             .try_acquire_owned()
-            .map_err(|_| anyhow::anyhow!("terminal relay poll lane busy"))?;
+            .map_err(|_| anyhow::anyhow!("terminal relay output poll lane busy"))?;
         let bytes = self
             .post(
                 "/v1/terminal-relay/output-poll",
