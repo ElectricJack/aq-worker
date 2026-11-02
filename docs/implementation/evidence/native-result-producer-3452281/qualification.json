@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-02T03:34:33Z",
+  "source": "345228112aab4bba910cc71e29b744b99d2903ef",
+  "base": "cfa4c68fe0032b945d0ffff3d0adb9c119a6fdf3",
+  "worker": "0.5.0",
+  "native_journal_format": 12,
+  "status": "source_and_focused_component_qualified_not_actual_execution",
+  "target": "/tmp/aq-worker-artifact-overlap-target",
+  "environment": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "offline": true,
+    "locked": true
+  },
+  "checks": [
+    {
+      "name": "result-storage-history-export",
+      "passed": 12,
+      "test_seconds": 0.08,
+      "command": "cargo test -p aq-worker --lib --all-features native::preparation::result:: --offline --locked",
+      "log": "result-storage-history-export.log",
+      "sha256": "4efbcac6f24b70099b7ca2cbd1d970fffc33f288557fae857641f20e997ffa20"
+    },
+    {
+      "name": "actual-retained-owner",
+      "passed": 4,
+      "test_seconds": 3.3,
+      "command": "cargo test -p aq-worker --lib --all-features native_result_ --offline --locked",
+      "log": "actual-retained-owner.log",
+      "sha256": "7445c1b47f11f998adbb37a971db715fcafe174e61f5687efecb57afa74bf49a"
+    },
+    {
+      "name": "runner-factory",
+      "passed": 21,
+      "test_seconds": 0.59,
+      "command": "cargo test -p aq-worker --lib --all-features native::runner:: --offline --locked",
+      "log": "runner-factory.log",
+      "sha256": "90d108013e9619b6042c3a637f488ecfb3ef31743d9646ce33a14eed1da00555"
+    },
+    {
+      "name": "composite-metadata",
+      "passed": 3,
+      "test_seconds": 0.0,
+      "command": "cargo test -p aq-worker --lib --all-features native::adapter::result_profile::tests --offline --locked",
+      "log": "composite-metadata.log",
+      "sha256": "a7859028b05e077999ffd63046dae71c2813f32214c896f7b0f787be5015d9ad"
+    },
+    {
+      "name": "relay",
+      "passed": 10,
+      "test_seconds": 0.78,
+      "command": "cargo test -p aq-worker --lib --all-features native::preparation::launch::output_relay:: --offline --locked",
+      "log": "relay.log",
+      "sha256": "6997556eba9caab94e2fc2fbde762c2349336595615aad3dc8489f36a3f0deff"
+    },
+    {
+      "name": "mapper",
+      "passed": 7,
+      "test_seconds": 0.0,
+      "command": "cargo test -p aq-codex-mapper --offline --locked",
+      "log": "mapper.log",
+      "sha256": "2f5d4248299a1b03918388c7743465061994629d8a8064960786e292e84b1381"
+    },
+    {
+      "name": "public-stop-fence",
+      "passed": 1,
+      "test_seconds": 0.03,
+      "command": "cargo test -p aq-worker --lib --all-features logical_stop_fence_closes_transport_before_any_async_physical_stop_poll --offline --locked",
+      "log": "public-stop-fence.log",
+      "sha256": "9f3e23d01f7ef445a054b55a695095627bae6f5bec3895f87245927ecbcbac22"
+    }
+  ],
+  "unique_focused_tests": 58,
+  "strict": {
+    "command": "cargo clippy -p aq-worker --all-targets --all-features --offline --locked -- -D warnings",
+    "seconds": 12.57,
+    "log": "all-feature-strict.log",
+    "sha256": "d4ec0f9b17ae862703e31935e289b9f38f001133a9b01b5d0408d294213331bb"
+  },
+  "qualification_limits": [
+    "Constituent focused groups and final affected stop/runner/relay checks; not one full workspace suite.",
+    "Actual owner tests use actual fsynced inputs/materials and finite synthetic Git/coordinator peers, with no harness/host or StoppedProof fabricated.",
+    "No provider, Codex, tmux or actual Git daemon process launched by this lane.",
+    "Full live source/upload/phase-native B1 cycle, actual image execution, graph settlement and resource release are separate pending gates.",
+    "Default/composed CLI checks belong to the root integration preserving main helper/fixture changes."
+  ],
+  "client": {
+    "source": "7b671cd",
+    "binary_sha256": "fb859cd0cdfe3ee2715cfd657fae90fc8281e85db4b088d08eb490b4607c2c3b",
+    "binary_bytes": 16655808,
+    "startup_bytes": 1929,
+    "startup_sha256": "667d48a537baa35335fb3da1e589846e9d294a2bc24a8df58cf682181b15229a"
+  },
+  "reviews": {
+    "human_producer": "Independent Work source acceptance109f7b3+a349ee9; Adapter acceptance109f7b3 through2029582.",
+    "factory": "Independent Human source acceptancea349ee9, covering Adapter9ec9dbc/9c3b4fa/ecc9bba and unpublished DAG/no-Scope/mismatch-guard corrections; excludes Human-authored execution/producer code."
+  }
+}
