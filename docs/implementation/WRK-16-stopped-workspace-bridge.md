@@ -1,10 +1,14 @@
 # WRK16A: actual stopped workspace and capacity bridge
 
-Status: source proposal only, based on worker `69abe91`. No bridge runtime,
-journal schema, process, Git or build has been changed by this document.
+Status: source candidate `040b90f`, independent schema/implementation review
+pending. The isolated worker 0.5.0 / FORMAT12 candidate incorporates the accepted
+worker 0.4.0 / FORMAT11 Frozen+Refresh lineage first. No physical stop/checkpoint/
+export fixture has run for this candidate, and no production parking is enabled.
 Work owns `native/continuation/**` orchestration/history/source operations;
 Human owns all native journal schema integration and the final FORMAT choice.
-This lane owns the narrow actual physical/fsync/workspace bridge after review.
+This lane owns the narrow actual physical/fsync/workspace bridge. The module and
+all mutating parking hooks require explicit `test-support`; default metadata,
+format refusal, validation, resource accounting and byte reservations stay strict.
 
 ## Retained source of authority
 
@@ -51,7 +55,7 @@ Neither type derives Deserialize/Serialize, contains a public constructor, or
 implements a public authority trait. Metadata getters alone grant no Git,
 capacity or execution effect. Production hold/routes remain unsupported.
 No ordinary execution result is converted to Suspended; no successor bootstrap
-or16B behavior is introduced.
+or 16B behavior is introduced.
 
 ## Exact intent, roots and input fence
 
@@ -116,7 +120,7 @@ Only after the final fsync and readback checks return
 
 No journal reopen can reconstruct this token. Retrying with the original live
 owners may match the same intent/proof; restart requires independent physical
-and source reobservation, not a JSON-to-live conversion. First16A need not
+and source reobservation, not a JSON-to-live conversion. First 16A need not
 claim that recovery join is complete.
 
 ## Dirty stopped inspection and narrow source seam
@@ -153,7 +157,7 @@ disk. No upload or retention ACK is needed merely to free proven idle compute.
 
 Disk stays charged independently for original workspace, private retained
 inputs, pending transfer/export and shared Git pool. The existing native
-reservation already covers workspace + full artifact + pool, so first16A may
+reservation already covers workspace + full artifact + pool, so first 16A may
 retain the full reservation unchanged and reject/drain any observed excess;
 never reduce it because compute was freed. Local retirement and disk release
 require later exact central/aq-git owners and are not implemented incidentally.
@@ -162,6 +166,77 @@ The64-retained-attempt/8MiB journal bound remains visible.
 No lane adds a sidecar journal or modifies FORMAT independently. If Human's
 concrete format11 freezes before these fields, Root must choose explicit12.
 Old roots remain refused/preserved; no migration invents stopped authority.
+
+The concrete candidate retains every Frozen/Refresh profile field, mutually
+exclusive phase view, combined input quota and opaque actual retained-input
+owner from `493e21c`, `d409da3`, `48436c2`. It imports Work's shared source-step,
+concrete history, finite advance and predicate validation commits through
+`f1eb471`, `0899302`, `e2ae8eb`, `b0802bc`. It changes only the new isolated
+candidate package to 0.5.0 and root format to 12; no frozen 0.4/11 source/archive
+is edited or claimed migrated.
+
+## Concrete implementation and available evidence
+
+`native/parking/{mod,roots,source}.rs` is a private preparation/launch submodule
+so the actual Frozen|Refresh scope stays inside its existing visibility.
+`begin_synthetic_parking` accepts only an actual synthetic host with terminal
+input disabled. The admitted storage closure owns intent fsync, readback and
+synchronous registry fence; ambiguous write errors still attempt a safety fence,
+return no owner and preserve every resource charge. Stop uses the existing
+actual private host stop path. Native stopped history and the separate parking
+anchor are committed before the actual proof and synced readback can be joined
+into the nonserializable stopped-workspace token.
+
+The closed crate-private orchestration API is:
+
+```rust
+InputPipeline::parking_history(&token) -> ParkingHistory
+InputPipeline::parking_commit(&token, expected_digest, proposed) -> ParkingHistory
+InputPipeline::parking_observe_source(&token) -> StoppedSourceObservation
+InputPipeline::parking_git(&token, "checkpoint" | "export") -> serde_json::Value
+InputPipeline::parking_inspect_export(&token, result) -> ParkingExport
+InputPipeline::parking_upload_step(&token) -> ProposedUploadStep
+```
+
+All are async bounded-storage operations requiring the same opaque stopped
+owner. Read/progress paths recheck the original pipeline, registry, proof,
+committed intent/stop and actual retained directory FDs. Commit uses an exact
+history digest CAS and Work's finite single-step advance validator. Git executes
+only a previously synced exact original request on the captured GitClient;
+replay does not inspect or replace its expected head/generation. First planning
+observes current dirty source only before any checkpoint request exists.
+Export inspection reuses the existing descriptor-relative artifact member
+opener, verifies actual manifest and full bounded bundle digests, then returns
+metadata. Chunk planning reuses the existing source-transfer stepper. No new
+socket/path/request, public authority trait, journal or path walker is accepted.
+
+The shared accounting projection additionally requires all five original
+source operations complete with no pending source range, and exact native
+stop/execution anchors, before settled parking can release compute. Disk
+always retains the original full reservation. Every active parking record
+reserves the unused portion of its bounded 262 KiB history alongside the existing
+native host/outbox reserve. Metadata pressure can still refuse further attempts;
+no unlimited-sleeper or local-retirement claim is made.
+
+Hostless checks during development:
+
+- Four bridge/root/history tests passed in 0.05 seconds: changed/foreign root
+  routes, nonprivate/symlink roots, a structurally valid fake parking claim
+  cannot persist without an actual launched host or free capacity, and format11
+  is refused with its journal bytes preserved.
+- Work's eight continuation tests, including the imported `b0802bc` predicate
+  hardening, passed in 0.06 seconds.
+- Default all-target strict Clippy passed in 13.48 seconds. Final all-feature
+  library compilation passed in 4.25 seconds after the final source-only readback
+  addition. Clippy lints were checked separately; five ordinary compiler
+  dead-code warnings remain on the deliberately unjoined private orchestration
+  methods. All-feature `-D warnings` qualification waits for that caller join;
+  no warnings were suppressed to claim a standalone runtime.
+
+These checks do not exercise actual token minting, native stop/parking fsync
+cuts, dirty Git checkpoint/export, compute release while transfer is held,
+restart reobservation, or central retention. Source/schema review precedes the
+explicit pinned tmux/public aq-git fixture and its measured qualification.
 
 ## Bounded implementation and meaningful checks after approval
 
