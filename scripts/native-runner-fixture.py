@@ -68,6 +68,11 @@ def configure(value, control_origin):
         required |= {'client_manifest', 'composite_definition'}
     else:
         require(kind == 'codex-0.166-trusted-node-named-readonly-v1', 'explicit named runner profile')
+    replay = value.get('fixture_replay_lost_b1_ack', False)
+    if 'fixture_replay_lost_b1_ack' in value:
+        require(replay is True and kind == 'codex-0.166-trusted-node-named-readonly-result-local-v1',
+                'explicit result-local replay fixture required')
+        required.add('fixture_replay_lost_b1_ack')
     require(set(value) == required and value['schema_version'] == 1
             and value['operation'] == 'configure', 'closed configure packet')
     require(isinstance(native, dict) and native['state_dir'] == str(STATE)
@@ -101,6 +106,7 @@ def configure(value, control_origin):
     (STATE / 'host').mkdir(mode=0o700)
     for name, body in encoded:
         private_file(STATE / 'config' / name, body)
+    return replay
 
 
 def stop(child, grace):
@@ -171,7 +177,7 @@ def run():
         os.close(root_fd)
         root_fd = None
         stage = 'configure'
-        configure(receive(control), control_origin)
+        replay = configure(receive(control), control_origin)
         # The consuming outer receiver closes/unlinks its sole listener before
         # sending this one configuration. Close this connection before spawning
         # worker; no provisioning descriptor is inherited. The parent keeps
@@ -189,10 +195,13 @@ def run():
         require(os.statvfs(STATE).f_bavail * os.statvfs(STATE).f_frsize > MINIMUM_FREE,
                 'unchanged Git minimum after provisioning')
         stage = 'ordinary_runner'
-        worker = subprocess.Popen([str(IMAGE / 'aq-worker'), '--config', str(STATE / 'config/worker.toml'),
-                                   'run-native', '--native-config', str(STATE / 'config/native.json'),
-                                   '--development-loopback', '--development-provider', provider_origin,
-                                   '--fixture-preflight-gate'], close_fds=True)
+        arguments = [str(IMAGE / 'aq-worker'), '--config', str(STATE / 'config/worker.toml'),
+                     'run-native', '--native-config', str(STATE / 'config/native.json'),
+                     '--development-loopback', '--development-provider', provider_origin,
+                     '--fixture-preflight-gate']
+        if replay:
+            arguments.append('--fixture-replay-lost-b1-ack')
+        worker = subprocess.Popen(arguments, close_fds=True)
         result = worker.wait(timeout=120)
         require(stop(git, 3), 'Git process cleanup unknown')
         return result
