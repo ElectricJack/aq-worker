@@ -17,11 +17,11 @@ isolation or a new cryptographic authority boundary.
   record digest, frozen expected-outcome ref, and original operation/report/nonce
   UUIDs. The worker durably allocates them before publishing the directory.
 - `presence.json`: `Presence` with binding digest, kernel boot ID and original
-  immutable execution hard ceiling in BOOTTIME ns. It is a refusal guard, never
+  immutable execution deadline/hard ceiling in BOOTTIME ns. It is a refusal guard, never
   proof of a current grant. No local renewal or replacement IDs exist.
 - `owner.lock`: held exclusively by the actual worker's live completion context,
   never created or acquired as ownership by the client. Missing lock, changed
-  boot or expired original ceiling refuses a new publication. The actual worker
+  boot or expired original execution deadline/ceiling refuses a new publication. The actual worker
   still decides admission; publication may race expiry and is only pending.
 - `submissions/submission.json`: one immutable canonical `Submission`, max8192
   bytes. Input is only `{schema_version:1,conclusion:"..."}`. The client adds the
@@ -59,3 +59,18 @@ All instruction bytes must be included in the centrally counted startup module.
 Adapter mapping explicitly declares the pinned executable and both environment
 values in the runtime recipe and tool shell policy; no arbitrary external folders
 or uncounted prompt suffix is granted. Suspension/parking is not a dependency.
+
+Source qualification (pure crate only):5 tests passed with0 failures/ignored in
+<0.01s after3.31s compilation; all-target strict Clippy passed2.89s. This tests
+byte bounds, duplicate/privileged-field rejection, original scope/digest anchors,
+recorded-reference meaning, and original boot/ceiling refusal. It does not run
+a client, actual worker/grant, provider, filesystem outbox or final report. The
+client implementation and producer integration remain separate qualifications.
+No external dependency versions changed.
+
+Root source review tightened the presence guard to require both original
+execution deadline and hard ceiling, with execution<=hard and no renewal. An
+unequal-deadline regression ensures a later hard ceiling cannot admit a new
+publication after the original execution lease expires. This source delta is
+pending the next focused gate; the earlier five-test result covers the earlier
+hard-ceiling-only guard. Existing intent/status remains historical data.

@@ -146,6 +146,7 @@ pub struct Presence {
     pub schema_version: u32,
     pub binding_digest: Digest,
     pub kernel_boot_id: Uuid,
+    pub original_execution_deadline_boot_ns: u64,
     pub original_hard_deadline_boot_ns: u64,
 }
 impl Validate for Presence {
@@ -153,7 +154,8 @@ impl Validate for Presence {
         require(
             self.schema_version == 1
                 && !self.kernel_boot_id.is_nil()
-                && self.original_hard_deadline_boot_ns > 0,
+                && self.original_execution_deadline_boot_ns > 0
+                && self.original_execution_deadline_boot_ns <= self.original_hard_deadline_boot_ns,
             "local result presence projection",
         )
     }
@@ -168,6 +170,7 @@ impl Presence {
         self.validate()?;
         Ok(self.binding_digest == binding.digest()?
             && self.kernel_boot_id == kernel_boot_id
+            && now_boot_ns < self.original_execution_deadline_boot_ns
             && now_boot_ns < self.original_hard_deadline_boot_ns)
     }
 }
@@ -400,10 +403,18 @@ mod tests {
             schema_version: 1,
             binding_digest: scope.digest().unwrap(),
             kernel_boot_id: id(20),
+            original_execution_deadline_boot_ns: 150,
             original_hard_deadline_boot_ns: 200,
         };
-        assert!(p.matches_at(&scope, id(20), 199).unwrap());
-        assert!(!p.matches_at(&scope, id(20), 200).unwrap());
+        assert!(p.matches_at(&scope, id(20), 149).unwrap());
+        assert!(!p.matches_at(&scope, id(20), 150).unwrap());
+        assert!(
+            !p.matches_at(&scope, id(20), 199).unwrap(),
+            "hard ceiling does not extend the original lease"
+        );
+        let mut invalid = p.clone();
+        invalid.original_execution_deadline_boot_ns = 201;
+        assert!(invalid.validate().is_err());
         assert!(!p.matches_at(&scope, id(21), 100).unwrap());
         let mut other = scope;
         other.execution_record_digest = Digest::of(b"new execution");
