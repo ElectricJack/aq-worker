@@ -1,0 +1,17 @@
+[
+  {
+    "check": "pure",
+    "code": 0,
+    "seconds": 30.744
+  },
+  {
+    "check": "strict",
+    "code": 0,
+    "seconds": 18.612
+  },
+  {
+    "check": "default",
+    "code": 0,
+    "seconds": 10.953
+  }
+]
