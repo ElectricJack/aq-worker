@@ -228,6 +228,7 @@ impl ResultClient {
         // Publication can race cancellation/expiry. Only the actual worker may
         // accept it; do not manufacture an Accepted acknowledgment here.
         self.wait_for_acknowledgment()
+            .or_else(|_| self.unknown(&candidate))
     }
     /// One bounded local wait after NEW publication only. It never retries,
     /// replaces an intent or renews its original execution ceiling. Pending on
