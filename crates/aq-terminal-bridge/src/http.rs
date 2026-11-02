@@ -167,6 +167,43 @@ impl RelayHttp {
         );
         Ok(reply)
     }
+    /// Explicit Watch-only transport. This is not full polling with a controller
+    /// hint: it cannot receive or acknowledge input/control/capture/fence work.
+    pub async fn output_poll(&self, request: &RelayPoll) -> Result<Envelope> {
+        request.validate()?;
+        ensure!(
+            matches!(request.peer, Peer::Remote { .. })
+                && request.capability.as_str() == wire::CAPABILITY
+                && request.hold_ms == 0
+                && request.active_controllers == 0,
+            "output poll requires remote nonblocking Watch-only profile"
+        );
+        let _slot = self
+            .poll
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| anyhow::anyhow!("terminal relay poll lane busy"))?;
+        let bytes = self
+            .post(
+                "/v1/terminal-relay/output-poll",
+                request,
+                aq_session_protocol::MAX_BATCH_BYTES,
+                Duration::from_secs(2),
+            )
+            .await?;
+        let reply = wire::decode(&bytes)?;
+        ensure!(
+            reply.peer == request.peer
+                && reply.capability == request.capability
+                && reply.cursor >= request.cursor
+                && reply
+                    .effects
+                    .iter()
+                    .all(|e| matches!(e, wire::Effect::Watch(_))),
+            "output poll reply binding or Watch-only profile mismatch"
+        );
+        Ok(reply)
+    }
     pub async fn control_upload(&self, request: &PeerUpload) -> Result<UploadAck> {
         request.validate()?;
         ensure!(

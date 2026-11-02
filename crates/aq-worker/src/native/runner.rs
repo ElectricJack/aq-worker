@@ -10,7 +10,7 @@ mod prepare;
 #[cfg(test)]
 pub(crate) use prepare::collect as test_collect;
 mod profile;
-mod publish_output;
+pub(super) mod publish_output;
 use super::{
     http::NativeClient,
     journal::{Journal, Limits, RuntimeIdentity},
