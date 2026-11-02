@@ -1395,6 +1395,7 @@ async fn collect_result_fixture(h:&Inputs,git:&GitPeer)->crate::native::preparat
 }
 #[tokio::test]
 async fn native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline(){
+    let _clock=crate::native::http::test_clock::TestClock::new();
     let export=synthetic();let manifest=export.manifest.clone();let mut h=Inputs::new_result(export).await;
     fs::set_permissions(h._dir.path(),fs::Permissions::from_mode(0o700)).unwrap();
     let git=GitPeer::new(h.root.clone(),manifest);let grant=collect_result_fixture(&h,&git).await;

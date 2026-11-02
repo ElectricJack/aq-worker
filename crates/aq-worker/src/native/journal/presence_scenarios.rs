@@ -144,10 +144,7 @@ async fn pause_reached(pause: &super::super::WritePause) {
     .unwrap();
 }
 async fn expire(deadline: u64) {
-    tokio::time::sleep(std::time::Duration::from_nanos(
-        deadline.saturating_sub(boot_ns().unwrap()) + 1_000_000,
-    ))
-    .await;
+    crate::native::http::test_clock::expire(deadline).await;
     assert!(boot_ns().unwrap() >= deadline);
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -302,6 +299,7 @@ async fn changed_installation_record_is_negative_without_serializing_untrusted_r
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn positive_cannot_survive_expiry_during_read_but_scoped_missing_can() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for missing in [false, true] {
         let (h, _git, producer, grant) = setup_window(200).await;
         let producer = Arc::new(producer);
@@ -444,10 +442,14 @@ async fn cancelled_network_publication_keeps_original_body_for_exact_retry() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expired_initial_token_never_reads_or_publishes_positive() {
+    let clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, grant) = setup_window(100).await;
+    // Exceed the original 100ms wall interval while fixture authority is frozen.
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert!(boot_ns().unwrap() < grant.deadline_ns());
     let ack = inventory(&producer).await;
     let op = producer.begin_presence(&grant, &ack, 1000).unwrap();
-    expire(grant.deadline_ns()).await;
+    clock.advance_to(grant.deadline_ns());
     assert!(producer.observe(&op).await.is_err());
     assert!(producer.publish_presence(&op).await.is_err());
     assert!(
