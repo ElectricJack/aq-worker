@@ -170,7 +170,10 @@ impl ResultClient {
                     .is_none(),
             "result acknowledgment has no retained original claim"
         );
-        let present = self.owner_present(false)?;
+        // Without an original claim, Ready must still mean the original
+        // execution ceiling permits publication. A retained claim may continue
+        // finalizing under its completion owner after that ceiling expires.
+        let present = self.owner_present(submission.is_none())?;
         self.check_binding()?;
         self.view(submission.as_ref(), ack.as_ref(), present)
     }
