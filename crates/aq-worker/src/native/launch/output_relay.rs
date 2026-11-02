@@ -35,6 +35,9 @@ struct Relay {
     network: tokio::sync::Mutex<Network>,
     polling: tokio::sync::Mutex<OutputPoll>,
     draining: AtomicBool,
+    viewer_requested: AtomicBool,
+    viewer_opening: AtomicBool,
+    last_viewer_request: Mutex<Option<Instant>>,
     task: Mutex<Option<tokio::task::AbortHandle>>,
 }
 struct Network {
@@ -245,7 +248,24 @@ impl PhaseOutputRelay {
             }],
         };
         let envelope = polling.http.output_poll(&request).await?;
-        polling.accept(&envelope, &self.owner.terminal, watch_now_ms()?)
+        let now = watch_now_ms()?;
+        let was_empty = polling.watches.is_empty();
+        let arrival = envelope.effects.iter().any(|event| {
+            matches!(event,
+            wire::Effect::Watch(w) if w.terminal == self.owner.terminal
+                && w.expires_at_ms > now && !polling.watches.contains_key(&w.subscription_id))
+        });
+        let count = polling.accept(&envelope, &self.owner.terminal, now)?;
+        if arrival && count > 0 {
+            let mut last = lock(&self.owner.last_viewer_request)?;
+            // A renewed Watch is not a new browser identity. Bound repeated
+            // real redraw requests; never reset output/upload sequences.
+            if was_empty || last.is_none_or(|at| at.elapsed() >= Duration::from_secs(30)) {
+                *last = Some(Instant::now());
+                self.owner.viewer_requested.store(true, Ordering::SeqCst);
+            }
+        }
+        Ok(count)
     }
     /// One explicit bounded exchange. Refusal/lost response preserves this exact
     /// pending request; network activity never holds the tail or guardian locks.
@@ -451,6 +471,9 @@ impl InputPipeline {
                 pending: None,
             }),
             draining: AtomicBool::new(true),
+            viewer_requested: AtomicBool::new(false),
+            viewer_opening: AtomicBool::new(false),
+            last_viewer_request: Mutex::new(None),
             task: Mutex::new(None),
         });
         outputs.owners.insert(host.entry.id, relay.clone());
@@ -476,6 +499,28 @@ async fn drain(outputs: Weak<Mutex<Outputs>>, entry: Weak<Entry>, relay: Weak<Re
         else {
             return;
         };
+        if relay.viewer_requested.load(Ordering::SeqCst)
+            && !relay.viewer_opening.swap(true, Ordering::SeqCst)
+        {
+            relay.viewer_requested.store(false, Ordering::SeqCst);
+            let opening_entry = entry.clone();
+            let opening_relay = relay.clone();
+            // A disposable attach must not stall the original observer drain
+            // or hold a physical/journal lock over its guardian handshake.
+            tokio::task::spawn_blocking(move || {
+                let opened = open_viewer(&opening_entry, &opening_relay.terminal);
+                if let Ok(viewer) = opened {
+                    if let Ok(mut physical) = opening_entry.physical.lock() {
+                        if !opening_entry.stop.load(Ordering::SeqCst)
+                            && matches!(physical.outcome, Outcome::Running)
+                        {
+                            physical.viewer = Some(viewer);
+                        }
+                    }
+                }
+                opening_relay.viewer_opening.store(false, Ordering::SeqCst);
+            });
+        }
         let stop = {
             let Ok(mut outputs) = outputs.try_lock() else {
                 continue;
@@ -514,6 +559,30 @@ async fn drain(outputs: Weak<Mutex<Outputs>>, entry: Weak<Entry>, relay: Weak<Re
             return;
         }
     }
+}
+
+fn open_viewer(
+    entry: &Entry,
+    terminal: &TerminalIdentity,
+) -> Result<aq_session_host::terminal_viewer::TerminalViewer> {
+    let handle = {
+        let mut physical = lock(&entry.physical)?;
+        ensure!(
+            physical.viewer_enabled
+                && !entry.stop.load(Ordering::SeqCst)
+                && matches!(physical.outcome, Outcome::Running),
+            "PTY viewer not available"
+        );
+        let handle = physical
+            .handle
+            .as_ref()
+            .context("PTY viewer actual host absent")?
+            .bind_terminal(terminal)?;
+        // Closing the old lease detaches only its disposable read-only client.
+        physical.viewer = None;
+        handle
+    };
+    aq_session_host::terminal_viewer::TerminalViewer::open(&handle)
 }
 
 #[cfg(all(test, feature = "test-support"))]

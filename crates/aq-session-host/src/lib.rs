@@ -14,6 +14,7 @@ mod reaper;
 mod supervisor;
 pub mod terminal_io;
 pub mod terminal_output;
+pub mod terminal_viewer;
 use anyhow::{Context, Result, bail, ensure};
 use aq_session_protocol::{
     ArtifactRef, Capability, Digest, LaunchManifest, SessionIdentity, Validate, canonical_digest,

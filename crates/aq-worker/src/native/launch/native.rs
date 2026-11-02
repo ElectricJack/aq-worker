@@ -662,6 +662,7 @@ pub(super) fn bootstrap(
             state.handle = Some(handle);
             state.observer = Some(observer);
             state.pending_output = bootstrap_output;
+            state.viewer_enabled = interactive;
             state.outcome = Outcome::Running;
             return Ok(());
         }
