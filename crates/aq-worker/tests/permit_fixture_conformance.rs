@@ -23,10 +23,38 @@ fn permit_fixture_conformance() {
         "renewal_exceeds_original_hard_deadline",
         "renewal_wrong_nonce",
         "renewal_delivery_expiry_mismatch",
+        "ended_report_result",
+        "ended_report_result_at_expiry",
+        "ended_report_result_after_expiry",
+        "ended_report_result_at_grant_and_hard_deadline",
+        "ended_report_result_after_hard_deadline",
+        "ended_preparation_cannot_report_result",
+        "ended_stopped_exact_replay",
+        "ended_stopped_changed_replay",
+        "ended_stopped_changed_operation",
+        "ended_stopped_expired_replay",
+        "ended_stopped_foreign_replay",
+        "ended_stopped_preparation_replay",
     ] {
         assert!(names.contains(required), "missing {required}");
     }
     assert_eq!(names.len(), fixtures.len(), "duplicate fixture names");
+    for operation in [
+        "fetch_preparation_material",
+        "observe",
+        "upload_artifact",
+        "started",
+        "renew",
+        "terminal",
+        "fetch_execution_material",
+        "accept_offer",
+        "register_incarnation",
+        "prepared",
+        "mailbox_poll",
+        "mailbox_ack",
+    ] {
+        assert!(names.contains(format!("ended_refuses_{operation}").as_str()));
+    }
     let other = fixtures.iter().find(|f| f.name == "other_attempt").unwrap();
     let FixtureCase::Permit {
         permit, context, ..
