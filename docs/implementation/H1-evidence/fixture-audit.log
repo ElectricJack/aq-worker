@@ -1,0 +1,1 @@
+PASS: 7 records, closed field allowlist; numeric-only native usage; fixture SHA256 matches provenance. Manual review confirms sanitized IDs/timestamps and public model/CLI strings; no raw prompt/tool/environment/path/account fields.

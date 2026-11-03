@@ -1,0 +1,24 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 21s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-481fad276cc0151b)
+
+running 17 tests
+test native::runner::sandbox::auth_tests::runner_channel_refusal_is_shared_authority_loss ... ok
+test native::runner::sandbox::auth_tests::runner_authenticates_with_delegated_permit_and_refuses_foreign_scope ... ok
+test native::runner::sandbox::auth_tests::runner_exchange_refusal_and_unavailability_have_distinct_authority ... ok
+test native::runner::sandbox::auth_tests::runner_readoption_replies_extend_nothing ... ok
+test native::runner::sandbox::auth_tests::runner_grant_upgrade_and_renewal_keep_original_scope ... ok
+test native::runner::sandbox::auth_tests::runner_refuses_foreign_session_on_mail_and_terminal_routes ... ok
+test native::runner::sandbox::channels_tests::idle_sandbox_holds_no_terminal_poll ... ok
+test native::runner::sandbox::hydrate_tests::hydration_refuses_retained_bundle_digest_mismatch ... ok
+test native::runner::sandbox::hydrate_tests::hydrated_workspace_matches_retained_revision ... ok
+test native::runner::sandbox::observations_tests::codex_real_rollout_0166_qualifies_reference_and_durable_engine ... ok
+test native::runner::sandbox::observations_tests::observation_cursor_survives_runner_restart_without_duplicates ... ok
+test native::runner::sandbox::observations_tests::observation_paths_identity_partial_and_loss_are_explicit ... ok
+test native::runner::sandbox::observations_tests::observation_permit_delivery_and_held_upload_never_block_control ... ok
+test native::runner::sandbox::observations_tests::observation_reader_requires_explicit_launched_file_owner ... ok
+test native::runner::sandbox::observations_tests::observation_replays_pending_when_exact_source_disappears ... ok
+test native::runner::sandbox::tests::central_retention_receipts_require_exact_attempt_and_result_evidence ... ok
+test native::runner::sandbox::observations_tests::observation_overload_commits_loss_gap_with_cursor_and_holds ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 288 filtered out; finished in 3.46s

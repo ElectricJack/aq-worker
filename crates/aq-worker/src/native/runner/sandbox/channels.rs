@@ -8,6 +8,7 @@
 use super::auth::{RunnerHttp, RunnerRoute, TerminalRoute};
 use anyhow::{Context as _, Result, ensure};
 use aq_admission_sandbox::sandbox::PermitBinding;
+use aq_session_protocol::Validate;
 use aq_session_protocol::{Capability, Text};
 use aq_terminal_relay_protocol::{self as wire, Peer};
 use serde::Serialize;
@@ -123,7 +124,43 @@ impl SandboxChannels {
     /// Observation batches use the same per-sandbox channel and permit.
     pub async fn upload_observations(&self, batch: &impl Serialize) -> Result<Vec<u8>> {
         self.http
-            .post(RunnerRoute::Observations, &self.binding, batch)
+            .post_bounded(
+                RunnerRoute::Observations,
+                &self.binding,
+                batch,
+                aq_observation::lifecycle::MAX_BATCH_BYTES,
+                aq_observation::lifecycle::MAX_BATCH_BYTES,
+            )
             .await
+    }
+    pub fn check_observation_scope(
+        &self,
+        binding: &aq_observation::lifecycle::Binding,
+    ) -> Result<()> {
+        binding.validate()?;
+        ensure!(
+            binding.session == self.http.launch_binding().session
+                && binding.attempt_id == self.binding.attempt_id,
+            "observation source outside sandbox permit"
+        );
+        Ok(())
+    }
+    pub async fn deliver_observations(
+        &self,
+        packet: &aq_observation::lifecycle::Packet,
+    ) -> Result<aq_observation::lifecycle::Receipt> {
+        use aq_observation::lifecycle::{Message, Validate};
+        packet.validate()?;
+        let Message::Batch(batch) = &packet.body.message else {
+            anyhow::bail!("observation packet class")
+        };
+        ensure!(!batch.events.is_empty(), "empty observation batch");
+        for event in &batch.events {
+            self.check_observation_scope(&event.body.binding)?;
+        }
+        let bytes = self.upload_observations(packet).await?;
+        let receipt: aq_observation::lifecycle::Receipt = serde_json::from_slice(&bytes)?;
+        receipt.validate_against(packet)?;
+        Ok(receipt)
     }
 }

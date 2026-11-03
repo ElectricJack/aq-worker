@@ -11,6 +11,7 @@ pub(crate) fn boot_ns() -> anyhow::Result<u64> {
 }
 pub mod channels;
 pub mod hydrate;
+pub mod observations;
 pub mod permit_transport;
 mod transport;
 use crate::config::WorkerConfig;
@@ -258,6 +259,38 @@ async fn run_inner(
             });
         }
     };
+    // Collection/storage/delivery have their own thread and connection pool.
+    // Missing source support is recorded explicitly; it grants no execution time.
+    let observations = (|| -> Result<Option<observations::ObservationTask>> {
+        let Some(descriptor) = adapter.transcript_source(&handle.identity().intent)? else {
+            journal.record(
+                "observation-incomplete",
+                &"launched transcript metadata unavailable",
+            )?;
+            return Ok(None);
+        };
+        let http = authority
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("observation permit channel unavailable"))?;
+        let source = observations::source_for_launch(frozen, &descriptor)?;
+        let channels = channels::SandboxChannels::new(http)?;
+        Ok(Some(observations::ObservationTask::start(
+            journal.directory.join("observations"),
+            source,
+            descriptor,
+            &handle.identity().intent,
+            vec![local.workspace.clone(), handle.directory().to_owned()],
+            channels,
+            agent.map_or_else(|| unsafe { libc::geteuid() }, |a| a.uid),
+        )?))
+    })();
+    let observations = match observations {
+        Ok(task) => task,
+        Err(_) => {
+            let _ = journal.record("observation-incomplete", &"transcript admission refused");
+            None
+        }
+    };
     let interval = options.renewal_interval.as_nanos() as u64;
     let mut next_renew = boot_ns().unwrap_or(now).saturating_add(interval);
     let reason = 'running: loop {
@@ -359,6 +392,10 @@ async fn run_inner(
             }
         }
     };
+    // Signal only; never await telemetry before stopping writers.
+    if let Some(task) = &observations {
+        task.stop();
+    }
     let proof = match host::stop(&mut handle) {
         Ok(proof) => proof,
         Err(_) => {
@@ -529,3 +566,6 @@ mod auth_tests;
 mod channels_tests;
 #[cfg(test)]
 mod hydrate_tests;
+
+#[cfg(test)]
+mod observations_tests;

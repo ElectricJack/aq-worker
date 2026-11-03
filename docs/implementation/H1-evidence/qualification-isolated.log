@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-481fad276cc0151b)
+
+running 1 test
+
+thread 'native::runner::sandbox::observations_tests::codex_real_rollout_0166_qualifies_reference_and_durable_engine' (3170079) panicked at crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:457:9:
+assertion `left == right` failed
+  left: Usage { usage: Usage { call: ProviderCall { provider: Text("openai"), account_reference: Text("logical-account"), model: Text("gpt-6.1-sol"), native_call_id: Text("codex-total:sanitized-h1-session") }, basis: Cumulative { counter_id: Text("codex-total:sanitized-h1-session"), counter_generation: 1 }, counters: Counters { input: Known { value: 15928 }, output: Known { value: 109 }, cache_read: Known { value: 12032 }, cache_write: Known { value: 0 }, reasoning: Known { value: 0 } }, category_semantics: MayOverlap { policy: ArtifactRef { id: Text("codex-rollout-67f0994"), version: Text("0.0.1-engine"), digest: Digest("6cece99a73a457d14396e8cd6ba7823f1e95e926a54519c95eb50b44d103b49c") } }, cost: Unknown { reason: NotReported }, completeness: Partial { reason: Incomplete }, correction_of: None } }
+ right: Usage { usage: Usage { call: ProviderCall { provider: Text("openai"), account_reference: Text("logical-account"), model: Text("gpt-6.1-sol"), native_call_id: Text("codex-total:sanitized-h1-session") }, basis: Cumulative { counter_id: Text("codex-total:sanitized-h1-session"), counter_generation: 1 }, counters: Counters { input: Known { value: 15928 }, output: Known { value: 109 }, cache_read: Known { value: 12032 }, cache_write: Known { value: 0 }, reasoning: Known { value: 0 } }, category_semantics: MayOverlap { policy: ArtifactRef { id: Text("codex-rollout-67f0994"), version: Text("0.1.0"), digest: Digest("a9eaf4548dcbb88261a3ef56044843c22e44cdf383f9b56ae428de6ef518fea9") } }, cost: Unknown { reason: NotReported }, completeness: Partial { reason: Incomplete }, correction_of: None } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test native::runner::sandbox::observations_tests::codex_real_rollout_0166_qualifies_reference_and_durable_engine ... FAILED
+
+failures:
+
+failures:
+    native::runner::sandbox::observations_tests::codex_real_rollout_0166_qualifies_reference_and_durable_engine
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 303 filtered out; finished in 0.19s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

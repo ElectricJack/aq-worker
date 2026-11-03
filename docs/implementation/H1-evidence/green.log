@@ -1,0 +1,24 @@
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-terminal-bridge)
+   Compiling aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-responses-transport)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 58.14s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-481fad276cc0151b)
+
+running 1 test
+test native::runner::sandbox::observations_tests::observation_cursor_survives_runner_restart_without_duplicates ... FAILED
+
+failures:
+
+---- native::runner::sandbox::observations_tests::observation_cursor_survives_runner_restart_without_duplicates stdout ----
+
+thread 'native::runner::sandbox::observations_tests::observation_cursor_survives_runner_restart_without_duplicates' (3136872) panicked at crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:95:49:
+called `Result::unwrap()` on an `Err` value: store uncertain; reopen required
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    native::runner::sandbox::observations_tests::observation_cursor_survives_runner_restart_without_duplicates
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 298 filtered out; finished in 0.24s
+
+error: test failed, to rerun pass `-p aq-worker --lib`
