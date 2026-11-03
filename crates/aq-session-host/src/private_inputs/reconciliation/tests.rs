@@ -30,7 +30,7 @@ impl Fixture {
         let path = root(temp.path());
         let publication = Publication::reserve(&path, input).unwrap();
         let pin = publication.record();
-        let source = publication.publish().unwrap();
+        let source = publication.publish(Path::new("/launch/workspace")).unwrap();
         let root = open_directory(&path).unwrap();
         let owner_path = temp.path().join("owner");
         std::fs::DirBuilder::new()
