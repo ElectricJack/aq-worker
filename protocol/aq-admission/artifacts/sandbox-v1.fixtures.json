@@ -3976,5 +3976,4120 @@
       "now_ms": 2000
     },
     "expected": "binding_mismatch"
+  },
+  {
+    "name": "phase_v2_issuance",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "phase_v2_upgrade",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "phase_refresh_issuance",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_refresh_v1",
+        "accept_request_digest": "a7eff5dd9b105074def1910827807b3f96a46daec23e7cdbe46f2eaed228b5fc",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_refresh_v1",
+          "accepted_receipt_digest": "63fa5d839a24aa63ef86235a824e6a686aa699bbaebc1535625447be160ed795",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "phase_refresh_upgrade",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_refresh_v1",
+        "prepare_request_digest": "6d65dc6c620cba9b09863fb45f3fdb2676a4c621c2248e78ec749def8ca2a043",
+        "accepted_receipt_digest": "63fa5d839a24aa63ef86235a824e6a686aa699bbaebc1535625447be160ed795",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_refresh_v1",
+          "receipt_digest": "5f6f5daed75d9201f0e9194486012b97d8930fb8015ddc8c7415d757ac634e33",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_refresh_v1",
+        "accepted_receipt_digest": "63fa5d839a24aa63ef86235a824e6a686aa699bbaebc1535625447be160ed795",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "issuance_wrong_operation",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000007100",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "issuance_wrong_sandbox",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007101",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "issuance_wrong_boot",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000007102"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "issuance_wrong_generation",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 2,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "issuance_wrong_profile",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_refresh_v1",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "issuance_execution_scope",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "issuance_outlives_preparation",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31501,
+          "hard_deadline_ms": 31501
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "deadline_mismatch"
+  },
+  {
+    "name": "issuance_expired",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 31500
+    },
+    "expected": "expired"
+  },
+  {
+    "name": "issuance_unversioned",
+    "case": {
+      "kind": "permit_issuance",
+      "request": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "invalid_shape"
+  },
+  {
+    "name": "issuance_replay",
+    "case": {
+      "kind": "permit_issuance_replay",
+      "original_request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "original_response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "issuance_changed_replay",
+    "case": {
+      "kind": "permit_issuance_replay",
+      "original_request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "original_response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007103",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "replay_conflict"
+  },
+  {
+    "name": "issuance_response_replay_conflict",
+    "case": {
+      "kind": "permit_issuance_replay",
+      "original_request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "original_response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "profile": "phase_v2",
+        "accept_request_digest": "216604552e05df0c031bb24657234edfd33e6e3fef81fb5710128bc3d903e833",
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "grant_generation": 1,
+        "sandbox_id": "00000000-0000-0000-0000-000000007002",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000001",
+          "boot_id": "00000000-0000-0000-0000-000000000001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000066",
+        "authority": {
+          "profile": "phase_v2",
+          "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+          "binding": {
+            "session": {
+              "kind": "remote",
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "session_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "schema_version": 1,
+            "offer_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+            "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+            "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "issued_at_ms": 1500,
+          "preparation_deadline_ms": 31500
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_preparation_0001",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 1500,
+          "expires_at_ms": 31500,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "now_ms": 1500
+    },
+    "expected": "replay_conflict"
+  },
+  {
+    "name": "preparation_permits_prepared",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "prepared",
+      "now_ms": 1500
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "preparation_fetches_material",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "fetch_preparation_material",
+      "now_ms": 1500
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "preparation_cannot_poll_mailbox",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "mailbox_poll",
+      "now_ms": 1500
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "preparation_cannot_ack_mailbox",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "mailbox_ack",
+      "now_ms": 1500
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "preparation_authority_cannot_start",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "started",
+      "now_ms": 1500
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "preparation_authority_cannot_accept",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "accept_offer",
+      "now_ms": 1500
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "preparation_foreign_attempt",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000007104",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "prepared",
+      "now_ms": 1500
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "preparation_wrong_boot",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000007105"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "prepared",
+      "now_ms": 1500
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "preparation_execution_permit",
+    "case": {
+      "kind": "preparation_permit",
+      "authority": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "execution",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "operation": "prepared",
+      "now_ms": 1500
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "upgrade_changes_permit_identity",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007106",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "upgrade_changes_channel",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007107"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "upgrade_wrong_boot",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000007108"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "upgrade_wrong_operation",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000007109",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "upgrade_foreign_profile",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_refresh_v1",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "upgrade_keeps_preparation_scope",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "preparation",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "upgrade_outlives_grant",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 90000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "deadline_mismatch"
+  },
+  {
+    "name": "upgrade_keeps_preparation_deadline",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 31500
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "deadline_mismatch"
+  },
+  {
+    "name": "prepared_after_preparation_deadline",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 31500
+    },
+    "expected": "expired"
+  },
+  {
+    "name": "prepared_under_execution_permit",
+    "case": {
+      "kind": "permit_upgrade",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_execution_00000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "execution",
+        "issued_at_ms": 30000,
+        "expires_at_ms": 50000,
+        "hard_deadline_ms": 90000
+      },
+      "now_ms": 30000
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "upgrade_replay",
+    "case": {
+      "kind": "permit_upgrade_replay",
+      "original_request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "original_response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "upgrade_changed_replay",
+    "case": {
+      "kind": "permit_upgrade_replay",
+      "original_request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "original_response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "profile": "phase_v2",
+        "prepare_request_digest": "927e9ae842bd959a2014b0eb2a176613fb0db4a8e81450d447f97a498fbfb9b1",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-0000000002bc",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "3dd954e0286b87b18685f6b444819e734a0e42fea715507b2f8dd69b097d8ac6",
+          "grant": {
+            "binding": {
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000001",
+                "boot_id": "00000000-0000-0000-0000-000000000001",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 1,
+                "session_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "schema_version": 1,
+              "offer_id": "00000000-0000-0000-0000-000000000001",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 1,
+              "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+              "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+              "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000384",
+            "expires_at_ms": 50000
+          },
+          "issued_at_ms": 30000,
+          "hard_deadline_ms": 90000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000007003",
+          "credential": "fixture_only_not_a_real_secret_execution_00001",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 1,
+            "sandbox_id": "00000000-0000-0000-0000-000000007002",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000001",
+              "boot_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000007001"
+          },
+          "scope": "execution",
+          "issued_at_ms": 30000,
+          "expires_at_ms": 50000,
+          "hard_deadline_ms": 90000
+        }
+      },
+      "preparation": {
+        "profile": "phase_v2",
+        "accepted_receipt_digest": "3b8d0c2e2cb431957d1a928eacf5e3e3f92fd010c528d24b69be1164b98efa7f",
+        "binding": {
+          "session": {
+            "kind": "remote",
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001",
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "assignment_generation": 1,
+            "session_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "schema_version": 1,
+          "offer_id": "00000000-0000-0000-0000-000000000001",
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "assignment_generation": 1,
+          "execution_spec_digest": "a30f3c088d39d25687eafc7d466190c55ade61537fb5537298e69f2efbc8e7e5",
+          "launch_manifest_digest": "d91e0a4d90462ff119223c2145e34d67355134322a08a62ccfb3f06e37c3a516",
+          "graph_access_profile_digest": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "issued_at_ms": 1500,
+        "preparation_deadline_ms": 31500
+      },
+      "preparation_permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000007003",
+        "credential": "fixture_only_not_a_real_secret_preparation_0000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 1,
+          "sandbox_id": "00000000-0000-0000-0000-000000007002",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "boot_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000007001"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1500,
+        "expires_at_ms": 31500,
+        "hard_deadline_ms": 31500
+      },
+      "now_ms": 30000
+    },
+    "expected": "replay_conflict"
+  },
+  {
+    "name": "execution_polls_mailbox",
+    "case": {
+      "kind": "permit",
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000000007",
+        "credential": "fixture_only_not_a_real_secret_00000000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "scope": "execution",
+        "issued_at_ms": 1000,
+        "expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "operation": "mailbox_poll",
+      "now_ms": 2000
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "execution_acks_mailbox",
+    "case": {
+      "kind": "permit",
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000000007",
+        "credential": "fixture_only_not_a_real_secret_00000000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "scope": "execution",
+        "issued_at_ms": 1000,
+        "expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "operation": "mailbox_ack",
+      "now_ms": 2000
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "execution_cannot_submit_prepared",
+    "case": {
+      "kind": "permit",
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000000007",
+        "credential": "fixture_only_not_a_real_secret_00000000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "scope": "execution",
+        "issued_at_ms": 1000,
+        "expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "operation": "prepared",
+      "now_ms": 2000
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "valid_preparation_prepared",
+    "case": {
+      "kind": "permit",
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000000007",
+        "credential": "fixture_only_not_a_real_secret_00000000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1000,
+        "expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "preparing",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "operation": "prepared",
+      "now_ms": 2000
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "preparation_permit_cannot_poll_mailbox",
+    "case": {
+      "kind": "permit",
+      "permit": {
+        "schema_version": 1,
+        "permit_id": "00000000-0000-0000-0000-000000000007",
+        "credential": "fixture_only_not_a_real_secret_00000000",
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "scope": "preparation",
+        "issued_at_ms": 1000,
+        "expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "preparing",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "operation": "mailbox_poll",
+      "now_ms": 2000
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "registration_enrolled",
+    "case": {
+      "kind": "registration_enrollment",
+      "registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 4,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000000014",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "compatibility": {
+          "kind": "compatible"
+        }
+      }
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "registration_declined",
+    "case": {
+      "kind": "registration_enrollment",
+      "registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 4,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000000014",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "compatibility": {
+          "kind": "unsupported_required_capability",
+          "missing": [
+            "vm-isolation"
+          ]
+        }
+      }
+    },
+    "expected": "unsupported_required_capability"
+  },
+  {
+    "name": "registration_wrong_node",
+    "case": {
+      "kind": "registration_enrollment",
+      "registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 4,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000000014",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000007110"
+        },
+        "compatibility": {
+          "kind": "compatible"
+        }
+      }
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "registration_wrong_operation",
+    "case": {
+      "kind": "registration_enrollment",
+      "registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 4,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000007111",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "compatibility": {
+          "kind": "compatible"
+        }
+      }
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "registration_response_v1",
+    "case": {
+      "kind": "registration_enrollment",
+      "registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 4,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000014",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "compatibility": {
+          "kind": "compatible"
+        }
+      }
+    },
+    "expected": "invalid_shape"
+  },
+  {
+    "name": "registration_replay",
+    "case": {
+      "kind": "registration_replay",
+      "original_registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 4,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "original_response": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000000014",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "compatibility": {
+          "kind": "compatible"
+        }
+      },
+      "registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 4,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000000014",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "compatibility": {
+          "kind": "compatible"
+        }
+      }
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "registration_changed_replay",
+    "case": {
+      "kind": "registration_replay",
+      "original_registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 4,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "original_response": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000000014",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "compatibility": {
+          "kind": "compatible"
+        }
+      },
+      "registration": {
+        "schema_version": 2,
+        "registration": {
+          "schema_version": 1,
+          "operation_id": "00000000-0000-0000-0000-000000000014",
+          "identity": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "runtime": {
+            "id": "runtime",
+            "version": "1",
+            "digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+          },
+          "capabilities": [],
+          "features": []
+        },
+        "backend": {
+          "kind": "docker-local",
+          "capabilities": [
+            "nested-docker",
+            "persistent-disk-during-attempt"
+          ],
+          "max_concurrent_sandboxes": 5,
+          "spend_ceiling": null,
+          "templates": [
+            {
+              "digest": "5cde0f1298f41f7d1c8b907a36992a7a513225a2615bd6e307bf1a9149b06b40",
+              "harnesses": [
+                {
+                  "harness": "codex",
+                  "version": "1.2.3"
+                }
+              ],
+              "estimated_cold_start_ms": 1200,
+              "estimated_cold_start_cost": {
+                "currency": "USD",
+                "micros": 0
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "schema_version": 2,
+        "operation_id": "00000000-0000-0000-0000-000000000014",
+        "node": {
+          "node_id": "00000000-0000-0000-0000-000000000004",
+          "boot_id": "00000000-0000-0000-0000-000000000005"
+        },
+        "compatibility": {
+          "kind": "compatible"
+        }
+      }
+    },
+    "expected": "replay_conflict"
   }
 ]

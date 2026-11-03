@@ -1,5 +1,5 @@
 {
-  "$comment": "Maximum encoded frame 1 MiB. Rust validators additionally enforce nonnil identities, UTF-8 byte bounds, duplicate rejection, currency and harness constraints, exact request/node/boot/attempt/generation/sandbox/channel correlation, operation scope, original and current deadlines, and replay equality. Authentication, revocation, current incarnation fencing, channel allocation uniqueness, aggregate limits and atomic replay persistence are server responsibilities. Awaiting node re-adoption grants no deadline extension.",
+  "$comment": "Maximum encoded frame 1 MiB. Rust validators additionally enforce nonnil identities, UTF-8 byte bounds, duplicate rejection, currency and harness constraints, exact request/node/boot/attempt/generation/sandbox/channel correlation, operation scope, original and current deadlines, and replay equality. Authentication, revocation, current incarnation fencing, channel allocation uniqueness, aggregate limits and atomic replay persistence are server responsibilities. Awaiting node re-adoption grants no deadline extension. Permit issuance, grant upgrade and registration envelopes correlate to their frozen phase payloads by digest and exact identity; a preparation permit authorizes Prepared, and mailbox poll/ack require execution scope.",
   "$defs": {
     "ArtifactRef": {
       "additionalProperties": false,
@@ -371,12 +371,163 @@
       "pattern": "^[A-Za-z0-9_-]+$",
       "type": "string"
     },
+    "PermitIssuanceRequest": {
+      "additionalProperties": false,
+      "description": "Sent with the frozen accept. Supplies the sandbox identity the frozen\n`AcceptRequest` lacks; the runner channel is allocated by the server.",
+      "properties": {
+        "accept_request_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "attempt_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "grant_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node": {
+          "$ref": "#/$defs/WorkerIdentity"
+        },
+        "operation_id": {
+          "description": "Equals the frozen accept's `operation_id`.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "profile": {
+          "$ref": "#/$defs/PhaseProfile"
+        },
+        "sandbox_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "profile",
+        "accept_request_digest",
+        "attempt_id",
+        "grant_generation",
+        "sandbox_id",
+        "node"
+      ],
+      "type": "object"
+    },
+    "PermitIssuanceResponse": {
+      "additionalProperties": false,
+      "description": "Returned with the frozen accepted delivery: the preparation-scoped permit.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/PreparationAuthority"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "permit": {
+          "$ref": "#/$defs/DelegatedPermit"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "authority",
+        "permit"
+      ],
+      "type": "object"
+    },
     "PermitScope": {
       "enum": [
         "preparation",
         "execution"
       ],
       "type": "string"
+    },
+    "PermitUpgradeRequest": {
+      "additionalProperties": false,
+      "description": "Sent with the frozen Prepared request, authenticated by the preparation\npermit's credential (never carried in this body).",
+      "properties": {
+        "accepted_receipt_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "binding": {
+          "$ref": "#/$defs/RunnerChannelIdentity"
+        },
+        "operation_id": {
+          "description": "Equals the frozen Prepare's `operation_id`.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "permit_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "prepare_request_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "profile": {
+          "$ref": "#/$defs/PhaseProfile"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "profile",
+        "prepare_request_digest",
+        "accepted_receipt_digest",
+        "permit_id",
+        "binding"
+      ],
+      "type": "object"
+    },
+    "PermitUpgradeResponse": {
+      "additionalProperties": false,
+      "description": "Returned with the frozen execution delivery when the grant commits. The\nsame permit identity and binding are upgraded to execution scope, bounded by\nthe grant's execution deadline.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/PhaseExecutionAuthority"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "permit": {
+          "$ref": "#/$defs/DelegatedPermit"
+        },
+        "schema_version": {
+          "const": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "authority",
+        "permit"
+      ],
+      "type": "object"
     },
     "PhaseExecutionAuthority": {
       "additionalProperties": false,
@@ -417,6 +568,41 @@
         "phase_refresh_v1"
       ],
       "type": "string"
+    },
+    "PreparationAuthority": {
+      "additionalProperties": false,
+      "description": "Projection of a validated frozen `AcceptedReceipt`, retained by B2 as the\ntrusted preparation state. Deserializing it establishes no authority.",
+      "properties": {
+        "accepted_receipt_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "binding": {
+          "$ref": "#/$defs/LaunchBinding",
+          "description": "The accepted binding; `assignment_generation` is the reserved next grant generation."
+        },
+        "issued_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "preparation_deadline_ms": {
+          "description": "The accepted preparation lease expiry; the preparation permit's hard deadline.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "profile": {
+          "$ref": "#/$defs/PhaseProfile"
+        }
+      },
+      "required": [
+        "profile",
+        "accepted_receipt_digest",
+        "binding",
+        "issued_at_ms",
+        "preparation_deadline_ms"
+      ],
+      "type": "object"
     },
     "ProfiledGrant": {
       "additionalProperties": false,
@@ -627,6 +813,35 @@
         "schema_version",
         "registration",
         "backend"
+      ],
+      "type": "object"
+    },
+    "RegistrationResponse": {
+      "additionalProperties": false,
+      "description": "Registration v2 reply. `compatible` enrolls exactly the registered node\nincarnation; a decline enrolls nothing and issues no permit.",
+      "properties": {
+        "compatibility": {
+          "$ref": "#/$defs/CompatibilityReply"
+        },
+        "node": {
+          "$ref": "#/$defs/WorkerIdentity"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 2,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "node",
+        "compatibility"
       ],
       "type": "object"
     },
@@ -1073,6 +1288,108 @@
         },
         "kind": {
           "const": "compatibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/PreparationAuthority"
+        },
+        "kind": {
+          "const": "preparation_authority",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/PermitIssuanceRequest"
+        },
+        "kind": {
+          "const": "permit_issuance_request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/PermitIssuanceResponse"
+        },
+        "kind": {
+          "const": "permit_issuance_response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/PermitUpgradeRequest"
+        },
+        "kind": {
+          "const": "permit_upgrade_request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/PermitUpgradeResponse"
+        },
+        "kind": {
+          "const": "permit_upgrade_response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/RegistrationResponse"
+        },
+        "kind": {
+          "const": "registration_response",
           "type": "string"
         }
       },

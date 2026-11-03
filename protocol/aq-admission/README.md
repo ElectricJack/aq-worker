@@ -1,19 +1,22 @@
-# AQ native execution contract 0.2.0
+# AQ native execution contract 0.3.0
 
 Owned by **aq-worker**. This next release carries forward the frozen 0.1.11
 native wire types and adds the sandbox contract in `sandbox`. It contains wire
 types, pure validation, generated schemas and conformance fixtures. It does not
 issue permits, authenticate callers, persist replay state, place work, run
 sandboxes or install HTTP handlers. The old placement algorithm is retained
-only as a fixture builder in tests; `place` is not a production API in 0.2.0.
+only as a fixture builder in tests; `place` is not a production API in 0.3.0.
 
 ## Consumption and publication
 
-Pin `aq-admission = "=0.2.0"` with this source package/archive; do not point a
+Pin `aq-admission = "=0.3.0"` with this source package/archive; do not point a
 release at a floating branch or sibling checkout. Existing runtime consumers
 can retain 0.1.11 while migrating: the new Rust package is semver-incompatible,
 but retained native wire schemas are unchanged. aq-worker pins both releases;
-its new `permit_fixture_conformance` test uses 0.2.0. The corresponding server
+its new `permit_fixture_conformance` test uses 0.3.0. 0.3.0 is additive over the
+approved 0.2.0 contract (new runner operations and handoff envelopes); every
+0.2.0 wire document and fixture outcome is unchanged, and the 0.2.0 archive
+stays published. The corresponding server
 pin/conformance is separately tracked by B1's required follow-up.
 
 Rust structs/enums and their `schemars::JsonSchema` derive are authoritative.
@@ -24,8 +27,8 @@ invalid, replay and compatibility outcomes. Both endpoints must run these
 fixtures through `sandbox::validate_fixture`, as aq-worker's named test does.
 
 ```sh
-cargo run --locked -p aq-admission@0.2.0 --example export_sandbox > protocol/aq-admission/artifacts/sandbox-v1.schema.json
-cargo test --locked -p aq-admission@0.2.0
+cargo run --locked -p aq-admission@0.3.0 --example export_sandbox > protocol/aq-admission/artifacts/sandbox-v1.schema.json
+cargo test --locked -p aq-admission@0.3.0
 cargo test --locked --workspace permit_fixture_conformance
 ```
 
@@ -42,7 +45,10 @@ credentials in manifests. Credential Debug formatting is redacted.
 `preparation` uses a reserved positive grant generation before the grant. It
 allows preparation-material fetch and bounded preparation reporting only.
 `execution` additionally requires granted state and permits Started, renewal,
-terminal/observation, execution-material fetch, artifacts and results.
+terminal/observation, execution-material fetch, artifacts, results and
+session mailbox poll/ack. `prepared` (the preparation-complete report) is
+preparation-only; mailbox operations are execution-only because mail is
+session-addressed and no session exists before the grant.
 Neither scope accepts offers or registers incarnations. Cancelling/revoking a
 node or attempt invalidates all related permits server-side.
 
@@ -143,3 +149,32 @@ extends nothing. The origin retains its old boot after re-adoption; the rebound
 permit must match the server's current context. The runner stops and preserves
 state on renewal loss or local expiry. B6 installs the durable journal, launch
 handoff and HTTP/runtime adapter; this package only defines their wire boundary.
+
+## Acceptance, upgrade and enrollment handoff (B1b)
+
+These envelopes connect the frozen phase payloads to delegated permits without
+changing them. Each carries digests of the frozen documents, not copies, and is
+idempotent by `operation_id`: an exact replay of request and response is
+accepted, and any byte change is `replay_conflict`.
+
+- `PreparationAuthority::from_phase_v2`/`from_phase_refresh` project an
+  `AcceptedReceipt` (lease binding, issue time and preparation deadline) after
+  the caller validates it against its proposal. `validate_permit` accepts only a
+  preparation-scope permit on the lease's node, boot, attempt and generation.
+- `PermitIssuanceRequest` is correlated to the frozen `AcceptRequest`
+  (`validate_accept_v2`/`validate_accept_refresh`: digest, operation, identity,
+  attempt, generation). `PermitIssuanceResponse` returns the preparation
+  authority and a preparation permit whose hard deadline is the preparation
+  deadline. `validate_for` binds operation, profile, sandbox and node.
+- `PermitUpgradeRequest` is correlated to the frozen `PrepareRequest`
+  (`validate_prepare_v2`/`validate_prepare_refresh`) and names the live
+  preparation permit. `validate_for` requires that permit to still allow
+  `prepared`. `PermitUpgradeResponse` returns the `PhaseExecutionAuthority`
+  projection of the `ExecutionReceipt` and an execution permit that keeps the
+  permit ID and binding and is bounded by the grant (`validate_handoff`).
+- `RegistrationResponse` (version 2) answers a registration-v2 `Registration`
+  for node enrollment with the node identity and a `CompatibilityReply`. It is
+  the PermitProvider seam for B5a; a decline is `unsupported_required_capability`.
+
+These are wire types and pure validators only. B2 owns issuance, persistence,
+authentication and replay storage; this package defines no HTTP routes.
