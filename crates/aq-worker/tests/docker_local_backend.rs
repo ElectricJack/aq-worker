@@ -1509,3 +1509,131 @@ async fn disk_watchdog_sampling_flags_only_the_sandbox_over_its_limit() {
         SandboxState::Running
     );
 }
+
+/// Fake statvfs: records the measured path and reports fixed blocks.
+struct FakeStatvfs(std::sync::Arc<std::sync::Mutex<Vec<PathBuf>>>);
+impl Statvfs for FakeStatvfs {
+    fn statvfs(&self, path: &std::path::Path) -> std::io::Result<FsStats> {
+        self.0.lock().unwrap().push(path.to_path_buf());
+        Ok(FsStats::from_blocks(4096, 1_000, 300, 250))
+    }
+}
+
+#[tokio::test]
+async fn disk_usage_measures_graph_root_and_preserved_sizes() {
+    let Harness {
+        socket: _socket,
+        docker,
+        backend,
+        cache: _cache,
+        scratch: _scratch,
+    } = harness().await;
+    let seen = std::sync::Arc::default();
+    let mut backend = backend.with_statvfs(FakeStatvfs(std::sync::Arc::clone(&seen)));
+    let request = request(1, 2, 3);
+    let sandbox = bounded(backend.create(&request)).await.unwrap();
+    // Started then exited: the stopped container keeps its writable layer.
+    bounded(backend.start_runner(&sandbox)).await.unwrap();
+    docker.set_container_size(&request.name, 40);
+    docker.set_volume_size(&format!("{}-work", request.name), 300);
+    assert!(bounded(backend.stop(&sandbox)).await.is_confirmed());
+
+    let none_preserved = bounded(backend.measured_disk_usage(&[])).await;
+    assert_eq!(
+        none_preserved.filesystem,
+        Some(FsStats::from_blocks(4096, 1_000, 300, 250))
+    );
+    assert_eq!(none_preserved.preserved_bytes, Some(0));
+    let usage = bounded(backend.measured_disk_usage(std::slice::from_ref(&sandbox))).await;
+    assert_eq!(usage.preserved_bytes, Some(340), "SizeRw 40 + volume 300");
+    assert_eq!(usage.retained_snapshot_bytes, None);
+    assert_eq!(usage.saved_snapshots_over_allowance, None);
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|p| p == std::path::Path::new("/proc"))
+    );
+
+    // An unmeasurable daemon leaves fields absent, never 0.
+    for prefix in ["/v1.44/info", "/v1.44/system/df"] {
+        docker.script(Rule {
+            method: DockerMethod::Get,
+            path_prefix: prefix.into(),
+            effect: Effect::FailBefore(500),
+        });
+    }
+    assert_eq!(
+        bounded(backend.measured_disk_usage(&[sandbox])).await,
+        BackendDiskUsage::default()
+    );
+}
+
+struct FailedStatvfs;
+impl Statvfs for FailedStatvfs {
+    fn statvfs(&self, _: &std::path::Path) -> std::io::Result<FsStats> {
+        Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+    }
+}
+
+#[tokio::test]
+async fn measured_disk_usage_keeps_unknown_sizes_absent() {
+    let mut h = harness().await;
+    let request = request(1, 2, 3);
+    let sandbox = h.backend.create(&request).await.unwrap();
+    let preserved = std::slice::from_ref(&sandbox);
+    let seen = std::sync::Arc::default();
+    let mut backend = h.backend.with_statvfs(FakeStatvfs(seen));
+    let measure = |usage: BackendDiskUsage| {
+        assert!(usage.filesystem.is_some());
+        assert_eq!(usage.preserved_bytes, None);
+    };
+    // A present container without SizeRw is unknown, even if its volume is sized.
+    h.docker
+        .set_volume_size(&format!("{}-work", request.name), 300);
+    measure(backend.measured_disk_usage(preserved).await);
+    h.docker.set_container_size(&request.name, 40);
+    // Docker uses -1 when it cannot measure a volume.
+    h.docker
+        .set_volume_size(&format!("{}-work", request.name), -1);
+    measure(backend.measured_disk_usage(preserved).await);
+    h.docker
+        .set_volume_size(&format!("{}-work", request.name), 300);
+    h.docker.script(Rule {
+        method: DockerMethod::Get,
+        path_prefix: format!("/v1.44/containers/{}/json", request.name),
+        effect: Effect::FailBefore(500),
+    });
+    measure(backend.measured_disk_usage(preserved).await);
+    // Filesystem and preserved measurements fail independently.
+    let mut backend = backend.with_statvfs(FailedStatvfs);
+    let usage = backend.measured_disk_usage(preserved).await;
+    assert_eq!(usage.filesystem, None);
+    assert_eq!(usage.preserved_bytes, Some(340));
+}
+
+#[tokio::test]
+async fn measured_disk_usage_sizes_volume_only_preserved_sandboxes() {
+    let mut h = harness().await;
+    let request = request(1, 2, 3);
+    let sandbox = h.backend.create(&request).await.unwrap();
+    h.docker
+        .set_volume_size(&format!("{}-work", request.name), 300);
+    // Stopping an unstarted sandbox removes the container and keeps its volume.
+    assert!(h.backend.stop(&sandbox).await.is_confirmed());
+    let mut backend = h.backend.with_statvfs(FailedStatvfs);
+    let usage = backend
+        .measured_disk_usage(std::slice::from_ref(&sandbox))
+        .await;
+    assert_eq!(usage.preserved_bytes, Some(300));
+    let authorization = DestroyAuthorization::retained(sandbox.clone(), "retained").unwrap();
+    assert!(
+        backend
+            .destroy(&sandbox, &authorization)
+            .await
+            .is_confirmed()
+    );
+    // Stale preserved identities cannot turn an unmeasurable size into zero.
+    let usage = backend.measured_disk_usage(&[sandbox]).await;
+    assert_eq!(usage.preserved_bytes, None);
+}

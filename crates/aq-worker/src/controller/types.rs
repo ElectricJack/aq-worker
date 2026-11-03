@@ -1,4 +1,5 @@
-//! Controller-owned local state, never an HTTP wire contract.
+//! Controller-owned local state, never an HTTP wire contract, except the
+//! [`Inventory`] report.
 use crate::backend::{
     Capability, CreateRequest, DiskLimitMode, PrivateMaterial, SandboxIdentity, StoppedWriterProof,
 };
@@ -123,8 +124,12 @@ pub struct State {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub readoptions: Vec<aq_admission_sandbox::sandbox::ReadoptionRequest>,
 }
-/// In-process inventory. B2 owns mapping this to its published transport.
-#[derive(Clone, Debug)]
+/// Node inventory report. B2 owns mapping this to its published transport.
+/// Measured disk fields are optional so older reports still decode and an
+/// unmeasured value is absent rather than 0. `available_disk_bytes` remains
+/// the configured-capacity admission figure.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Inventory {
     pub identity: WorkerIdentity,
     pub generation: u64,
@@ -138,6 +143,28 @@ pub struct Inventory {
     pub disk_limit: Option<DiskLimitMode>,
     /// SBX20: admitted onto a shared root filesystem by operator override.
     pub shared_root_fs: bool,
+    /// statvfs of the sandbox filesystem (docker-local: the daemon GraphRoot).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_total_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_used_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_free_bytes: Option<u64>,
+    /// Active plus preserved (stopped, undestroyed) disk reservations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_reserved_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preserved_count: Option<u64>,
+    /// Backend-measured size of preserved sandboxes (docker-local: SizeRw
+    /// plus work volumes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preserved_bytes: Option<u64>,
+    /// boat only: sum of retained snapshots' `contentSizeBytes`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retained_snapshot_bytes: Option<u64>,
+    /// boat only: saved snapshots beyond the per-sandbox allowance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_snapshots_over_allowance: Option<u64>,
 }
 /// Authenticated provider result. Payload packaging is the provider/runner's
 /// responsibility, not a new controller-authored wire envelope. No Debug/Serde.

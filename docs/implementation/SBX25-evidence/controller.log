@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.99s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-1165a57a36dcd530)
+
+running 12 tests
+test controller::lifecycle_tests::ambiguous_create_is_not_retried_or_released ... ok
+test controller::lifecycle_tests::destroyed_inspection_without_authority_poisons_and_retains_disk ... ok
+test controller::lifecycle_tests::destroyed_stop_proof_without_authority_poisons_and_retains_disk ... ok
+test controller::lifecycle_tests::expired_permit_cannot_deliver_or_start ... ok
+test controller::lifecycle_tests::failed_intent_write_prevents_create_and_poison_blocks_admission ... ok
+test controller::lifecycle_tests::journal_records_intent_before_backend_create ... ok
+test controller::lifecycle_tests::measured_inventory_reports_fake_statvfs_and_preserved_sizes ... ok
+test controller::lifecycle_tests::stop_and_destroy_require_confirmation_and_retention ... ok
+test controller::lifecycle_tests::unknown_inventory_retains_capacity_and_stopped_disk_is_reserved ... ok
+test controller::lifecycle_tests::wrong_permit_cannot_deliver_or_start ... ok
+test controller::tests::inventory_serialization_shows_measured_disk_fields_and_accepts_legacy_reports ... ok
+test controller::recovery_tests::disk_watchdog_stops_and_preserves_only_the_attempt_over_its_limit ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 342 filtered out; finished in 2.91s

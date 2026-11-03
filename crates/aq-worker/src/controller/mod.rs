@@ -74,7 +74,11 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         let mut disk = 0u64;
         let mut count = 0;
         let mut preparing = 0;
+        let mut preserved = 0u64;
         for a in self.state().attempts.values() {
+            if a.stopped.is_some() && !matches!(a.phase, Phase::Destroyed | Phase::Abandoned) {
+                preserved += 1;
+            }
             if a.stopped.is_none() && a.phase != Phase::Abandoned {
                 count += 1;
                 memory = memory.saturating_add(a.request.manifest.resources.memory_bytes);
@@ -87,6 +91,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 disk = disk.saturating_add(a.request.disk_bytes);
             }
         }
+        let reserved = disk;
         for orphan in self.state().orphans.values().filter(|o| !o.destroyed) {
             // Unknown resource requirements cannot be subtracted optimistically.
             disk = self.config.capacity.disk_bytes;
@@ -119,7 +124,38 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             } else {
                 self.state().last_refusal
             },
+            disk_total_bytes: None,
+            disk_used_bytes: None,
+            disk_free_bytes: None,
+            disk_reserved_bytes: Some(reserved),
+            preserved_count: Some(preserved),
+            preserved_bytes: None,
+            retained_snapshot_bytes: None,
+            saved_snapshots_over_allowance: None,
         }
+    }
+    /// [`Self::inventory`] plus backend disk measurement, for reporting only.
+    pub async fn measured_inventory(&mut self) -> Inventory {
+        let preserved: Vec<SandboxIdentity> = self
+            .state()
+            .attempts
+            .values()
+            .filter(|a| {
+                a.stopped.is_some() && !matches!(a.phase, Phase::Destroyed | Phase::Abandoned)
+            })
+            .filter_map(|a| a.sandbox.clone())
+            .collect();
+        let mut inventory = self.inventory();
+        let usage = self.backend.measured_disk_usage(&preserved).await;
+        if let Some(fs) = usage.filesystem {
+            inventory.disk_total_bytes = Some(fs.total_bytes);
+            inventory.disk_used_bytes = Some(fs.used_bytes);
+            inventory.disk_free_bytes = Some(fs.free_bytes);
+        }
+        inventory.preserved_bytes = usage.preserved_bytes;
+        inventory.retained_snapshot_bytes = usage.retained_snapshot_bytes;
+        inventory.saved_snapshots_over_allowance = usage.saved_snapshots_over_allowance;
+        inventory
     }
     pub fn registration(&self) -> Result<Registration> {
         let kind = match self.backend.kind() {

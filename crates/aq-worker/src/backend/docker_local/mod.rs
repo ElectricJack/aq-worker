@@ -14,10 +14,10 @@ pub use config::*;
 pub use transport::*;
 
 use crate::backend::{
-    BackendError, BackendKind, Capability, ConfinementMode, Confirmation, CreateRequest,
-    DestroyAuthorization, DiskLimitMode, DiskLimitStatus, DiskUsage, InventoryEntry,
-    PlacementBackend, PrivateMaterial, SandboxIdentity, SandboxState, StoppedWriterProof,
-    TemplateDigest, UnconfirmedReason,
+    BackendDiskUsage, BackendError, BackendKind, Capability, ConfinementMode, Confirmation,
+    CreateRequest, DestroyAuthorization, DiskLimitMode, DiskLimitStatus, DiskUsage, HostStatvfs,
+    InventoryEntry, PlacementBackend, PrivateMaterial, SandboxIdentity, SandboxState, Statvfs,
+    StoppedWriterProof, TemplateDigest, UnconfirmedReason,
 };
 use policy::{
     container_state, create_body, disk_limit_from_labels, encode, entry_from_labels, labels_match,
@@ -26,6 +26,8 @@ use policy::{
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::Arc,
     time::Duration,
 };
 use uuid::Uuid;
@@ -72,6 +74,7 @@ pub struct DockerLocalBackend<T: DockerTransport = UnixSocketTransport> {
     transport: T,
     /// SBX20: admitted by operator override onto a shared root filesystem.
     shared_root_fs: bool,
+    statvfs: Arc<dyn Statvfs>,
 }
 
 impl DockerLocalBackend<UnixSocketTransport> {
@@ -89,6 +92,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             config,
             transport,
             shared_root_fs: false,
+            statvfs: Arc::new(HostStatvfs),
         };
         let info = backend.get_json("/info").await?;
         let rootless = info
@@ -122,6 +126,12 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
 
     pub fn config(&self) -> &DockerLocalConfig {
         &self.config
+    }
+
+    /// Replaces the host statvfs used to measure the daemon's GraphRoot.
+    pub fn with_statvfs(mut self, statvfs: impl Statvfs + 'static) -> Self {
+        self.statvfs = Arc::new(statvfs);
+        self
     }
 
     fn api_timeout(&self) -> Duration {
@@ -423,6 +433,55 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             404 => Err(BackendError::NotFound),
             _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }
+    }
+
+    /// statvfs of the daemon's storage root (`DockerRootDir`; Podman's
+    /// libpod `store.graphRoot`). It must be an absolute host path.
+    async fn graph_root_stats(&self) -> Option<crate::backend::FsStats> {
+        let info = self.get_json("/info").await.ok()?;
+        let root = info
+            .get("DockerRootDir")
+            .or_else(|| info.pointer("/store/graphRoot"))
+            .and_then(Value::as_str)
+            .map(Path::new)
+            .filter(|root| root.is_absolute())?;
+        self.statvfs.statvfs(root).ok()
+    }
+
+    /// Preserved containers' writable layers (`SizeRw`) plus their work
+    /// volumes' `UsageData.Size`. Any unknown size fails the whole sum.
+    async fn preserved_bytes(&self, preserved: &[SandboxIdentity]) -> Result<u64, BackendError> {
+        if preserved.is_empty() {
+            return Ok(0);
+        }
+        let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
+        let df = self.get_json("/system/df?type=volume").await?;
+        let mut volumes = BTreeMap::new();
+        for volume in df["Volumes"].as_array().ok_or(unknown.clone())? {
+            let name = volume["Name"].as_str().ok_or(unknown.clone())?;
+            volumes.insert(name.to_owned(), volume["UsageData"]["Size"].as_i64());
+        }
+        let mut total = 0u64;
+        for sandbox in preserved {
+            if sandbox.kind != BackendKind::DockerLocal
+                || sandbox.backend_id != sandbox.owner.deterministic_name()
+            {
+                return Err(BackendError::InvalidRequest("not a docker-local sandbox"));
+            }
+            let name = &sandbox.backend_id;
+            if let Some(container) = self
+                .get_optional(&format!("/containers/{name}/json?size=true"))
+                .await?
+            {
+                let size = container["SizeRw"].as_u64().ok_or(unknown.clone())?;
+                total = total.saturating_add(size);
+            }
+            match volumes.get(&volume_name(name)) {
+                Some(Some(size)) if *size >= 0 => total = total.saturating_add(*size as u64),
+                _ => return Err(unknown),
+            }
+        }
+        Ok(total)
     }
 
     async fn confirm_absent(&self, path: &str) -> bool {
@@ -730,6 +789,13 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
             Confirmation::Confirmed(StoppedWriterProof::destroyed(sandbox.clone()))
         } else {
             Confirmation::Unconfirmed(UnconfirmedReason::UnknownState)
+        }
+    }
+    async fn measured_disk_usage(&mut self, preserved: &[SandboxIdentity]) -> BackendDiskUsage {
+        BackendDiskUsage {
+            filesystem: self.graph_root_stats().await,
+            preserved_bytes: self.preserved_bytes(preserved).await.ok(),
+            ..BackendDiskUsage::default()
         }
     }
 }

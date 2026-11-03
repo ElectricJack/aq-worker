@@ -127,6 +127,9 @@ impl PlacementBackend for ObservedBackend {
         assert_eq!(persisted, *a);
         self.inner.destroy(s, a).await
     }
+    async fn measured_disk_usage(&mut self, preserved: &[SandboxIdentity]) -> BackendDiskUsage {
+        self.inner.measured_disk_usage(preserved).await
+    }
 }
 fn open(dir: &tempfile::TempDir, bad: bool) -> Controller<ObservedBackend, Provider> {
     let root = dir.path().join("node");
@@ -349,4 +352,63 @@ async fn destroyed_inspection_without_authority_poisons_and_retains_disk() {
         config().capacity.disk_bytes - 1
     );
     assert_eq!(c.inventory().refusal, Some(RefusalReason::GrantDenied));
+}
+
+#[tokio::test]
+async fn measured_inventory_reports_fake_statvfs_and_preserved_sizes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = open(&dir, false);
+    let id = accept(&mut c).await;
+    c.launch(id, &()).await.unwrap();
+    c.backend.inner.set_measured_disk_usage(BackendDiskUsage {
+        filesystem: Some(FsStats::from_blocks(4096, 1_000, 300, 250)),
+        preserved_bytes: Some(777),
+        retained_snapshot_bytes: None,
+        saved_snapshots_over_allowance: None,
+    });
+    let running = c.measured_inventory().await;
+    assert_eq!(running.disk_total_bytes, Some(4_096_000));
+    assert_eq!(running.disk_used_bytes, Some(2_867_200));
+    assert_eq!(running.disk_free_bytes, Some(1_024_000));
+    assert_eq!(running.disk_reserved_bytes, Some(1));
+    assert_eq!(running.preserved_count, Some(0));
+    assert!(c.backend.inner.disk_queries()[0].is_empty());
+
+    c.stop(id).await.unwrap();
+    let stopped = c.measured_inventory().await;
+    let sandbox = c.state().attempts[&id].sandbox.clone().unwrap();
+    assert_eq!(c.backend.inner.disk_queries()[1], vec![sandbox.clone()]);
+    assert_eq!(stopped.preserved_count, Some(1));
+    assert_eq!(stopped.preserved_bytes, Some(777));
+    assert_eq!(stopped.disk_reserved_bytes, Some(1));
+    // Measurement never changes the configured-capacity admission figure.
+    assert_eq!(
+        stopped.available_disk_bytes,
+        c.inventory().available_disk_bytes
+    );
+    assert_eq!(stopped.retained_snapshot_bytes, None);
+
+    let auth = DestroyAuthorization::retained(sandbox, "retained-1").unwrap();
+    c.destroy(id, &auth).await.unwrap();
+    let destroyed = c.measured_inventory().await;
+    assert_eq!(destroyed.preserved_count, Some(0));
+    assert_eq!(destroyed.disk_reserved_bytes, Some(0));
+    assert!(c.backend.inner.disk_queries()[2].is_empty());
+
+    // Failed or unsupported measurement stays absent, including in JSON.
+    c.backend
+        .inner
+        .set_measured_disk_usage(BackendDiskUsage::default());
+    let unknown = c.measured_inventory().await;
+    let report = serde_json::to_value(&unknown).unwrap();
+    for field in [
+        "disk_total_bytes",
+        "disk_used_bytes",
+        "disk_free_bytes",
+        "preserved_bytes",
+        "retained_snapshot_bytes",
+        "saved_snapshots_over_allowance",
+    ] {
+        assert!(report.get(field).is_none(), "{field}");
+    }
 }
