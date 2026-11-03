@@ -6,6 +6,12 @@
 **Repository:** `aq-worker`  
 **Related contracts:** [Agent Q foundation](../../../aq-server/docs/specs/0001-infrastructure-foundation.md), [aq-git](../../../aq-git/docs/specs/0001-aq-git.md), [aq-graph integration](../../../aq-graph/docs/aq-integration.md)
 
+**Program tracking aliases:** `Tn` → `WRK-Tn`, preserving the numeric suffix.
+The test IDs form one continuous series across this framework (T1–T20) and the
+[execution and agent-access supplement](0002-execution-and-agent-access.md)
+(T21–T28). These aliases apply to cross-spec tracking; the original tables and
+W requirement IDs remain unchanged.
+
 An Agent Q worker node supplies compute and temporary workspaces for a configured number of agents. It runs as a container on a desktop or cloud machine and initiates all communication with the central daemon. The central system schedules work and hosts supervisor agents. The worker runtime accepts specific execution assignments, manages local capacity and files, delivers messages to agents, and reliably reports outcomes.
 
 Capacity is shared across eligible projects. A project being eligible for a node does not allocate a worktree, reserve an agent slot, or download its repository. Workspaces are created on demand; reusable project data occupies a bounded cache. This is the primary mechanism for supporting many projects without multiplying idle workspaces across the fleet.
