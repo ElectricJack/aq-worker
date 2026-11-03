@@ -447,7 +447,15 @@ async fn actual_fixture_child_completes_once_and_report_retry_is_identical() {
     c.stop(id).await.unwrap();
     c.retry_handoffs_at(1).await.unwrap();
     let mut c = restart(&dir, c);
-    c.retry_handoffs_at(2).await.unwrap();
+    // SBX22 backoff: the retry is due one doubled sweep interval later.
+    let retry = c.state().attempts[&id]
+        .preserved
+        .as_ref()
+        .unwrap()
+        .next_handoff_ms;
+    c.retry_handoffs_at(retry - 1).await.unwrap();
+    assert_eq!(c.provider.handoffs, vec![s.clone()]);
+    c.retry_handoffs_at(retry).await.unwrap();
     assert_eq!(c.provider.handoffs, vec![s.clone(), s.clone()]);
     assert_eq!(c.backend.fixture_output(&s).unwrap(), b"fixture-complete\n");
     assert!(c.launch(id, &0).await.is_err());

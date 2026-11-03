@@ -45,6 +45,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             "invalid node capacity"
         );
         config.recovery.validate()?;
+        config.preserve.validate(backend.kind())?;
         let journal = journal::Journal::open(root, node)?;
         let recovery_required = journal.state.attempts.values().any(|a| a.stopped.is_none());
         let controller = Self {
@@ -194,6 +195,9 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         if self.has_orphans() {
             return self.refuse(RefusalReason::GrantDenied);
         }
+        if self.preserved_count() >= self.config.preserve.max_count {
+            return self.refuse(RefusalReason::NodePreservedCapacityReached);
+        }
         if self
             .state()
             .attempts
@@ -317,10 +321,19 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 grant: None,
                 cleanup: None,
                 cancellation: None,
+                preserved: None,
             },
         );
         self.journal.persist(state)?;
         Ok(id)
+    }
+    /// Preserved sandboxes still holding disk (SBX22 `preserve.max_count`).
+    pub fn preserved_count(&self) -> usize {
+        self.state()
+            .attempts
+            .values()
+            .filter(|a| a.preserved.is_some() && a.phase != Phase::Destroyed)
+            .count()
     }
     fn attempt(&self, id: Uuid) -> Result<Attempt> {
         self.journal.check()?;
@@ -382,6 +395,8 @@ fn now_ms() -> Result<u64> {
 }
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod preserve_tests;
 #[cfg(test)]
 mod recovery_ports;
 #[cfg(test)]

@@ -58,6 +58,17 @@ pub trait PlacementBackend: Send {
     ) -> impl Future<Output = Confirmation<StoppedWriterProof>> + Send {
         async { Confirmation::Unconfirmed(UnconfirmedReason::Unsupported) }
     }
+    /// SBX23: through a reachable runner, delete exactly the given
+    /// template-declared reconstructible paths before a preserving stop. Never
+    /// deletes anything undeclared. Err (incl. unsupported) means unreachable;
+    /// the controller then stops without deleting.
+    fn drop_reconstructible(
+        &mut self,
+        _sandbox: &SandboxIdentity,
+        _paths: &[String],
+    ) -> impl Future<Output = Result<(), BackendError>> + Send {
+        async { Err(BackendError::UnsupportedOperation) }
+    }
     /// Optional resume/fork must scrub old credentials and require fresh material
     /// before starting any runner. They do not grant execution authority.
     fn resume(

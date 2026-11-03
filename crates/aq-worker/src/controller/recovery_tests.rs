@@ -16,6 +16,8 @@ pub(super) struct Provider {
     pub offline: bool,
     pub no_current_grant: bool,
     pub poll: Option<PollPage>,
+    pub emitted: Vec<NodeEvent>,
+    pub events_offline: bool,
 }
 impl PermitProvider for Provider {
     type Request = u64;
@@ -84,6 +86,11 @@ impl PermitProvider for Provider {
     }
     async fn poll(&mut self, _: &WorkerIdentity) -> Result<Option<PollPage>> {
         Ok(self.poll.take())
+    }
+    async fn emit(&mut self, event: &NodeEvent) -> Result<()> {
+        ensure!(!self.events_offline, "node event transport unavailable");
+        self.emitted.push(event.clone());
+        Ok(())
     }
     async fn retain(&mut self, s: &SandboxIdentity) -> Result<Option<DestroyAuthorization>> {
         self.events.push("handoff");

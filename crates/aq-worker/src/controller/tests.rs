@@ -37,6 +37,7 @@ pub(super) fn config() -> NodeConfig {
     let m = manifest();
     NodeConfig {
         recovery: RecoveryConfig::default(),
+        preserve: PreserveConfig::default(),
         runtime: ArtifactRef {
             id: Text::new("runtime").unwrap(),
             version: Text::new("1").unwrap(),

@@ -1,6 +1,6 @@
 //! Deterministic in-memory model, not a container or isolation implementation.
 use super::*;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +13,8 @@ pub enum Fault {
     ForeignSandbox,
     DestroyedOnInspect,
     DestroyedOnStop,
+    /// The runner cannot be reached to drop reconstructible paths.
+    RunnerUnreachable,
 }
 
 struct Sandbox {
@@ -20,6 +22,8 @@ struct Sandbox {
     inventory: InventoryEntry,
     material: Option<PrivateMaterial>,
     fixture_output: Option<Vec<u8>>,
+    /// Modelled workspace paths (no real files); SBX23 deletes declared ones.
+    paths: BTreeSet<String>,
 }
 
 #[derive(Default)]
@@ -59,6 +63,20 @@ impl FakeBackend {
             .as_deref()
             .ok_or(BackendError::InvalidState)
     }
+    /// Test hook: model paths present inside the sandbox.
+    pub fn seed_paths<'a>(
+        &mut self,
+        identity: &SandboxIdentity,
+        paths: impl IntoIterator<Item = &'a str>,
+    ) -> Result<(), BackendError> {
+        self.get_mut(identity)?
+            .paths
+            .extend(paths.into_iter().map(str::to_owned));
+        Ok(())
+    }
+    pub fn paths(&self, identity: &SandboxIdentity) -> Result<&BTreeSet<String>, BackendError> {
+        Ok(&self.get(identity)?.paths)
+    }
     fn insert(&mut self, request: &CreateRequest) -> SandboxIdentity {
         let identity = SandboxIdentity {
             kind: self.kind(),
@@ -80,6 +98,7 @@ impl FakeBackend {
                 },
                 material: None,
                 fixture_output: None,
+                paths: BTreeSet::new(),
             },
         );
         identity
@@ -211,6 +230,23 @@ impl PlacementBackend for FakeBackend {
             sandbox.inventory.running_processes = Some(0);
         }
         sandbox.inventory.writer_proof()
+    }
+    async fn drop_reconstructible(
+        &mut self,
+        identity: &SandboxIdentity,
+        paths: &[String],
+    ) -> Result<(), BackendError> {
+        if self.take_fault(Fault::RunnerUnreachable) {
+            return Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure));
+        }
+        let sandbox = self.get_mut(identity)?;
+        if sandbox.inventory.state != SandboxState::Running {
+            return Err(BackendError::InvalidState);
+        }
+        for path in paths {
+            sandbox.paths.remove(path);
+        }
+        Ok(())
     }
     async fn destroy(
         &mut self,
