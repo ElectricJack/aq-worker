@@ -1,4 +1,5 @@
 //! Durable node controller. All agent execution remains inside the backend.
+pub mod allowlist;
 mod journal;
 mod service;
 pub use service::{ProviderUnavailable, RunConfig, UnavailableProvider};

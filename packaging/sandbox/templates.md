@@ -201,3 +201,25 @@ verified blobs and one expanded layer. Gzip and uncompressed OCI layers are
 supported; zstd/multi-platform/nested-index/attestation archives explicitly
 refuse. A rejected OCI archive can still contain the detected secret; output
 is created with mode 0700 and must be handled as private forensic data.
+
+## Advertising allowlisted templates (C4)
+
+Sandbox node registration (schema 2) derives template advertisements from this
+allowlist through the controller configuration's optional `template_allowlist`
+block (path relative to the controller configuration file):
+
+```json
+"template_allowlist": {
+  "path": "templates/allowlist.json",
+  "advertise": [{"environment": "example-tools@1", "estimated_cold_start_ms": 1500,
+                 "estimated_cold_start_cost": {"currency": "USD", "micros": 20}}]
+}
+```
+
+Each `environment` resolves as `name@version` exactly, or a bare `name` that
+must be unique in the allowlist, matching aq-server's reading of the file
+(extra provenance fields are ignored). The advertised `digest` is the entry's
+`image_digest` without its `sha256:` prefix (64 lowercase hex), which is the
+`InstalledHarness.environment.digest` C4 pins, and `harnesses` lists the
+entry's exact `harness_versions`. Each resolved digest must also be a
+`docker_local.templates` entry or the configuration is refused.
