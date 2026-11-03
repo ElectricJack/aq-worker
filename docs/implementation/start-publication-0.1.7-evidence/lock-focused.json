@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--manifest-path",
+    "/tmp/aq-host-0.1.7-1j9j7sns/aq-session-host-0.1.7-source/Cargo.toml",
+    "-p",
+    "aq-session-host",
+    "--all-features",
+    "--lib",
+    "private_inputs::reconciliation::tests::competing_desktop_and_session_locks_refuse_without_touching_auth",
+    "--",
+    "--exact",
+    "--nocapture"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/start-publication-0.1.7-evidence/lock-focused.log"
+}

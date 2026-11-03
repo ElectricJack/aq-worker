@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "clippy",
+    "--locked",
+    "-p",
+    "aq-session-host",
+    "--all-targets",
+    "--all-features",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "exit_code": 101,
+  "log": "docs/implementation/start-publication-0.1.7-evidence/clippy-before-borrow-fix.log",
+  "original_log": "docs/implementation/start-publication-0.1.7-evidence/clippy.log"
+}
