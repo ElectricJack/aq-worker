@@ -1,0 +1,3 @@
+COMMAND: ['cargo', 'clippy', '--locked', '-p', 'aq-session-host', '--lib', '--tests', '--', '-D', 'warnings']
+    Checking aq-session-host v0.1.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-session-host)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.32s
