@@ -11,6 +11,9 @@ pub struct RunConfig {
     pub state_dir: PathBuf,
     pub node: NodeConfig,
     pub docker_local: crate::backend::docker_local::DockerLocalConfig,
+    /// C4: advertise templates resolved from the C3b allowlist file.
+    #[serde(default)]
+    pub template_allowlist: Option<super::allowlist::TemplateAllowlistConfig>,
 }
 impl RunConfig {
     pub fn load(path: &Path) -> Result<Self> {
@@ -23,7 +26,11 @@ impl RunConfig {
             bytes.len() <= 1_048_576,
             "controller configuration too large"
         );
-        let config: Self = serde_json::from_slice(&bytes)?;
+        let mut config: Self = serde_json::from_slice(&bytes)?;
+        if let Some(allowlist) = &config.template_allowlist {
+            let resolved = super::allowlist::load(allowlist, path)?;
+            config.node.templates.extend(resolved);
+        }
         ensure!(
             config.state_dir.is_absolute(),
             "controller root must be absolute"

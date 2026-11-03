@@ -76,7 +76,7 @@ fn fixture(name: &str) -> Value {
 fn stamp(now: u64, expires: u64) -> DeliveryStamp {
     serde_json::from_value(json!({"nonce":Uuid::new_v4(),"clock":{"server_time_ms":now,"expires_at_ms":expires,"valid_for_ms":expires-now}})).unwrap()
 }
-fn client(origin: &str, prep: bool) -> (tempfile::TempDir, RunnerHttp, DelegatedPermit) {
+pub(super) fn client(origin: &str, prep: bool) -> (tempfile::TempDir, RunnerHttp, DelegatedPermit) {
     let f = fixture(if prep {
         "phase_v2_upgrade"
     } else {

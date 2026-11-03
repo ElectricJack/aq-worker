@@ -61,8 +61,7 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
             handle: None,
             observer: None,
             pending_output: Vec::new(),
-            viewer_enabled: false,
-            viewer: None,
+            output_taken_without_sequencer: false,
             stopped: None,
             transport: Some(owner),
             outcome: Outcome::Unknown,
@@ -119,4 +118,22 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
     assert!(tokio::net::TcpStream::connect(address).await.is_err());
     assert!(entry.physical.lock().unwrap().stopped.is_none());
     drop(stop); // No physical host or stopped proof exists in this safety test.
+}
+
+#[test]
+fn diagnostic_drain_prevents_adopting_a_complete_blank_baseline() {
+    let mut physical = Physical {
+        handle: None,
+        observer: None,
+        pending_output: vec![aq_session_host::terminal_output::ControlEvent::Bytes(
+            b"prefix".to_vec(),
+        )],
+        output_taken_without_sequencer: false,
+        stopped: None,
+        transport: None,
+        outcome: Outcome::Unknown,
+    };
+    physical.ensure_complete_output_available().unwrap();
+    assert_eq!(physical.poll_unsequenced_output().unwrap().len(), 1);
+    assert!(physical.ensure_complete_output_available().is_err());
 }

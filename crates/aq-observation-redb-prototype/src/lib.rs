@@ -461,14 +461,18 @@ impl Store {
         self.commit(tx)
     }
     pub fn source(&self, id: Uuid) -> Result<SourceRow> {
+        self.source_optional(id)?.context("source absent")
+    }
+    pub fn source_optional(&self, id: Uuid) -> Result<Option<SourceRow>> {
         let tx = self.db.begin_read()?;
         let table = tx.open_table(SOURCES)?;
-        decode(
-            table
-                .get(id.as_bytes().as_slice())?
-                .context("source absent")?
-                .value(),
-        )
+        table
+            .get(id.as_bytes().as_slice())?
+            .map(|v| decode(v.value()))
+            .transpose()
+    }
+    pub fn source_count(&self) -> Result<u64> {
+        Ok(self.db.begin_read()?.open_table(SOURCES)?.len()?)
     }
     /// Prototype adapter input is already-normalized evidence; no parser auth claim.
     pub fn append(
@@ -519,8 +523,8 @@ impl Store {
                         && event.body.binding == source.source.binding
                         && event.body.provenance.source_id == id
                         && event.body.provenance.source_generation == source.source.generation
-                        && event.body.provenance.native_session_key
-                            == source.source.native_session_key
+                        && &event.body.provenance.native_session_key
+                            == source.source.provenance_session_key()
                         && event.body.provenance.parser == source.source.parser(),
                     "fact scope/sequence/parser"
                 );
@@ -887,7 +891,7 @@ impl Store {
                     && row
                         .generations
                         .contains(&e.body.provenance.source_generation)
-                    && e.body.provenance.native_session_key == row.source.native_session_key
+                    && &e.body.provenance.native_session_key == row.source.provenance_session_key()
                     && row.parsers.contains(&e.body.provenance.parser),
                 "fact source scope"
             );

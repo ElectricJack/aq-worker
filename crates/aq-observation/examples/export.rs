@@ -4,7 +4,7 @@ use serde_json::json;
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
 fn source(format: Format) -> Source {
-    Source{binding:serde_json::from_value(json!({"project_id":Uuid::from_u128(1),"task_id":Uuid::from_u128(2),"lineage_id":Uuid::from_u128(3),"attempt_id":Uuid::from_u128(4),"attempt_generation":1,"session":{"kind":"remote","node_id":Uuid::from_u128(5),"boot_id":Uuid::from_u128(6),"session_id":Uuid::from_u128(7),"attempt_id":Uuid::from_u128(4),"assignment_generation":1}})).unwrap(),source_id:Uuid::from_u128(8),generation:1,native_session_key:Text::new("native-fixture").unwrap(),format,provider:Text::new("fixture-provider").unwrap(),account_reference:Text::new("fixture-account").unwrap()}
+    Source{binding:serde_json::from_value(json!({"project_id":Uuid::from_u128(1),"task_id":Uuid::from_u128(2),"lineage_id":Uuid::from_u128(3),"attempt_id":Uuid::from_u128(4),"attempt_generation":1,"session":{"kind":"remote","node_id":Uuid::from_u128(5),"boot_id":Uuid::from_u128(6),"session_id":Uuid::from_u128(7),"attempt_id":Uuid::from_u128(4),"assignment_generation":1}})).unwrap(),source_id:Uuid::from_u128(8),generation:1,native_session_key:Text::new("native-fixture").unwrap(),format,provider:Text::new("fixture-provider").unwrap(),account_reference:Text::new("fixture-account").unwrap(), registered_session_key: None }
 }
 pub fn documents() -> Vec<(&'static str, serde_json::Value)> {
     let formats = [

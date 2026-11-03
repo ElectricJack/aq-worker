@@ -147,11 +147,28 @@ pub enum HarnessReadiness {
     Ready,
     Exited,
 }
+/// Exact local transcript metadata from this launched harness. The adapter
+/// obtains the native key/member from its launch, never a provider-home search.
+#[derive(Clone, Debug)]
+pub struct TranscriptSource {
+    pub launch: LaunchIntent,
+    pub root: PathBuf,
+    pub member: String,
+    pub native_session_key: aq_session_protocol::Text,
+    pub format_id: String,
+    pub provider: aq_session_protocol::Text,
+    pub account_reference: aq_session_protocol::Text,
+}
 /// Trusted, version-pinned adapters construct native argv/config. They must
 /// refuse unsupported model, scopes, context or hard budgets; no fallback.
 pub trait HarnessAdapter {
     fn prepare(&self, manifest: &LaunchManifest, workspace: &Path) -> Result<AdapterLaunch>;
     fn readiness(&self, observation: &HostObservation) -> Result<HarnessReadiness>;
+    /// Called only with the exact host launch identity after launch. None is
+    /// explicit unavailable observation support, never permission to discover.
+    fn transcript_source(&self, _: &LaunchIntent) -> Result<Option<TranscriptSource>> {
+        Ok(None)
+    }
     /// Optional closed private input; bytes remain outside serialized commands.
     fn private_input(&self, _: &LaunchManifest, _: &Path) -> Result<Option<PrivateLaunchInput>> {
         Ok(None)
@@ -757,7 +774,9 @@ impl SessionHost {
         }
         authority.record_launch_intent(&intent)?;
         authority.checkpoint("launch-intent-durable")?;
-        let private_source = publication.map(|p| p.publish()).transpose()?;
+        let private_source = publication
+            .map(|p| p.publish(&config.workspace))
+            .transpose()?;
         private_inputs::verify_at_exec(&config, &directory)?;
         let mut command = Command::new(&config.helper);
         command

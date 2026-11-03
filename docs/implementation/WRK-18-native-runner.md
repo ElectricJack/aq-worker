@@ -21,6 +21,38 @@ The first runtime is intentionally one fresh attempt with one logical slot. The
 state root is owner-0700, locked for the invocation, and must have no existing
 journal/material children. Existing roots require stop/preserve and historical
 reconciliation; no code silently initializes or adopts an old live boot.
+
+For a preserved attempt with durable physical-stop history, stop the foreground
+worker and use the same enrollment file and native state configuration:
+
+```sh
+aq-worker --config /absolute/worker.toml reconcile-native \
+  --native-config /absolute/native.json --attempt-id <original-attempt-uuid>
+```
+
+Find the original attempt UUID in the keys of
+`<state_dir>/journal/journal.json`'s `state.attempts` object. The command locks
+the original state root, validates the existing journal, and replays any missing
+Started/Stopped acknowledgments using the retained frozen or refresh profile.
+Each acknowledgment is saved before proceeding. If a frozen B1 result report
+exists, it replays that exact report as well. Retry the same command after a
+transport failure; it preserves original task/attempt/operation IDs and never
+polls for an offer, seeds a task, launches a harness or requires executor/Git
+preflight. An absent journal, unknown attempt or uncertain physical stop refuses
+without starting new work.
+
+`StopReported` means the server acknowledged the stopped lifecycle but no frozen
+result report exists; `ResultRecorded` means the server retained the exact B1
+report. A missing result claim or source-retention receipt is never invented.
+Neither disposition proves task settlement or releases local resource holds.
+The server must separately release or settle `holds_task` for a stopped attempt
+without a result report; that matching server change is a cross-repository
+follow-up. Preserve this state root and its Git/material evidence until that
+server/operator recovery completes. `run-native` continues to refuse admission
+from historical state, including after reconciliation. Attempts that stopped
+before establishing Running and its paired outbox still require operator
+recovery; this command does not manufacture Started evidence for them.
+
 `run_once` first calls the trusted executor's `preflight(&NativeConfig)`. That
 implementation must verify its concrete installed profile and independently
 selected qualifications. The old generic 256 MiB installed-file helper remains

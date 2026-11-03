@@ -1,0 +1,17 @@
+{
+  "task": "clear-crest-61.1",
+  "capture_date": "2026-11-02",
+  "cli_version": "0.166.0",
+  "format_id": "codex-rollout-jsonl-67f0994",
+  "selection": "Exact current launched CODEX_THREAD_ID resolved through threads.rollout_path in local state index; no directory discovery",
+  "source_sha256": "73772f52a284ac2de96bacaf8f365405b32cdd66c6a4c2a9acdd11a25acf15b4",
+  "fixture_sha256": "92cc8d266cd08173cf325235e34f86c59c5e38c40bdfb9352e15220f023bee98",
+  "records": {
+    "session_meta": 1,
+    "task_started": 1,
+    "turn_context": 1,
+    "token_count": 4
+  },
+  "sanitization": "Dropped cwd, instructions, environment, git, account, raw prompts and tool content; replaced session/turn identifiers and timestamps. Preserved native model, CLI version, record types and numeric token counters.",
+  "limits": "Active-session excerpt: no completion, invoice, mixed-model or cross-provider qualification."
+}

@@ -1,0 +1,63 @@
+   Compiling syn v3.0.9
+   Compiling tokio v1.54.1
+   Compiling synstructure v0.14.0
+   Compiling zerofrom-derive v0.1.8
+   Compiling zerofrom v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling zerovec-derive v0.11.7
+   Compiling yoke v0.8.4
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling zerovec v0.11.9
+   Compiling tinystr v0.8.5
+   Compiling icu_locale_core v2.4.0
+   Compiling potential_utf v0.1.6
+   Compiling zerotrie v0.2.5
+   Compiling icu_provider v2.4.0
+   Compiling icu_collections v2.4.0
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde v1.0.229
+   Compiling serde_derive_internals v0.30.0
+   Compiling serde_json v1.0.154
+   Compiling schemars_derive v1.2.3
+   Compiling ref-cast v1.0.27
+   Compiling thiserror-impl v2.0.21
+   Compiling getrandom v0.2.17
+   Compiling ring v0.17.14
+   Compiling thiserror v2.0.21
+   Compiling schemars v1.2.3
+   Compiling icu_properties v2.4.0
+   Compiling icu_normalizer v2.4.0
+   Compiling rustls-webpki v0.103.16
+   Compiling idna_adapter v1.2.2
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-protocol)
+   Compiling tracing-core v0.1.36
+   Compiling hyper v1.12.0
+   Compiling aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-lifecycle-protocol)
+   Compiling rustls v0.23.46
+   Compiling tracing v0.1.44
+   Compiling idna v1.1.0
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling url v2.5.8
+   Compiling tokio-rustls v0.26.6
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.10
+   Compiling tower-http v0.6.11
+   Compiling log v0.4.35
+   Compiling aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-observation)
+   Compiling reqwest v0.12.28
+   Compiling aq-observation-engine v0.0.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-observation-engine)
+   Compiling aq-observation-admission v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-observation-admission-0.1.0)
+   Compiling aq-observation-redb-prototype v0.0.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-observation-redb-prototype)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.57s
+     Running tests/readers.rs (target/debug/deps/readers-130bf92358d31c49)
+
+running 5 tests
+test file_generation_identity_and_bounded_anchor_changes_report_durable_gaps_without_retarget ... ok
+test explicit_generation_retains_native_identity_and_requires_owner_history_boundary ... ok
+test first_rotation_reports_one_control_gap_and_holds_until_owner_generation ... ok
+test file_partial_idle_poll_restart_and_oversized_source_keep_explicit_cursor ... ok
+test foreign_handles_symlinks_and_root_replacement_refuse_original_cursor ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s

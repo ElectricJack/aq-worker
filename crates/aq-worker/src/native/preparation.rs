@@ -13,7 +13,7 @@ pub mod launch;
 pub mod result;
 pub use execution::{DurablePhaseExecution, PhaseExecutionCommit, RetainedPhaseExecutionHistory};
 #[path = "hydration.rs"]
-mod hydration;
+pub(crate) mod hydration;
 mod join;
 use super::{
     ArtifactAssembly, VerifiedArtifact,

@@ -15,6 +15,7 @@ pub fn source(id: u128) -> Source {
         format: Format::ClaudeV1Jsonl9a9b8e8,
         provider: Text::new("fixture-provider").unwrap(),
         account_reference: Text::new("logical-account").unwrap(),
+        registered_session_key: None,
     }
 }
 pub fn row(call: u64) -> Vec<u8> {

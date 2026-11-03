@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "aq-admission"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "aq-lifecycle-protocol",
  "aq-session-protocol",
@@ -303,6 +303,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "toml",
  "uuid",
  "zeroize",
 ]
@@ -382,9 +383,12 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "aq-admission 0.1.11",
- "aq-admission 0.3.0",
+ "aq-admission 0.3.2",
  "aq-agent-result-local",
  "aq-codex-mapper",
+ "aq-observation",
+ "aq-observation-engine",
+ "aq-observation-redb-prototype",
  "aq-phase-terminal-protocol",
  "aq-protocol",
  "aq-responses-transport",
@@ -393,6 +397,7 @@ dependencies = [
  "aq-terminal-bridge",
  "aq-terminal-relay",
  "aq-terminal-relay-protocol",
+ "aq-terminal-renderer",
  "aq-worker",
  "aq-worker-protocol",
  "axum",

@@ -1,0 +1,34 @@
+# aq-worker owned overlay for the separate aq-e0-qual project. It is applied on
+# top of the unmodified published E0 compose.yaml + compose.dev.yaml with
+# `docker compose -p aq-e0-qual`, so every named volume is fresh and owned by
+# this project. The E0 source and the aq-e0-* projects are never written.
+services:
+  qual-vault-init:
+    image: ${AQ_SERVER_IMAGE:?set AQ_SERVER_IMAGE}
+    user: '0:0'
+    entrypoint: [/bin/sh, /qual-vault-init.sh]
+    volumes:
+      - ${AQ_QUAL_INIT_SCRIPT:?run scripts/e0-qual-stack.py}:/qual-vault-init.sh:ro
+      - ${AQ_QUAL_DIR:?run scripts/e0-qual-stack.py}:/qual-src:ro
+      - qual_vault:/qual-vault
+    network_mode: none
+    restart: 'no'
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+  server:
+    image: ${AQ_QUAL_SERVER_IMAGE:?set AQ_QUAL_SERVER_IMAGE}
+    command: !override
+      - 'export PGPASSWORD="$$(cat /run/secrets/postgres_password)" DATABASE_URL="postgres://agent_q@postgres:5432/agent_q"; vault=/vault; if test -f /qual-vault/config.toml; then vault=/qual-vault; fi; exec aq-server serve --vault "$$vault"'
+    volumes: !override
+      - dev_vault:/vault:ro
+      - qual_vault:/qual-vault:ro
+      - dev_auth:/run/aq-dev:ro
+      - dev_source:/var/lib/aq
+      - dev_git_run:/run/aq-git:ro
+      - dev_postgres_socket:/run/aq-postgresql:ro
+    depends_on:
+      qual-vault-init: {condition: service_completed_successfully}
+volumes:
+  qual_vault:

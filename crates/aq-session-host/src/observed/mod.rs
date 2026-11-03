@@ -100,6 +100,9 @@ pub(crate) struct Spec {
     pub program: ElfIdentity,
 }
 impl ObservedStartup {
+    pub fn manifest(&self) -> &LaunchManifest {
+        &self.rendered.manifest
+    }
     pub fn new(
         rendered: RenderedStartup,
         terminal: TerminalIdentity,
@@ -320,6 +323,46 @@ impl SessionHost {
         adapter: &impl ObservedHarnessAdapter,
         authority: &mut impl LaunchAuthority,
     ) -> Result<PendingObservedSession> {
+        Self::prepare_observed_inner(
+            root, launch_id, startup, permit, local, adapter, authority, None,
+        )
+    }
+    /// Observed sandbox launch with the same closed gate and baseline lease;
+    /// the agent identity is sealed before its executable can be released.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_observed_as_agent(
+        root: &Path,
+        launch_id: Uuid,
+        startup: &ObservedStartup,
+        permit: ExecutionPermit,
+        local: &LocalEnvironment,
+        adapter: &impl ObservedHarnessAdapter,
+        authority: &mut impl LaunchAuthority,
+        agent: users::AgentIdentity,
+    ) -> Result<PendingObservedSession> {
+        agent.validate_workspace(&local.workspace)?;
+        Self::prepare_observed_inner(
+            root,
+            launch_id,
+            startup,
+            permit,
+            local,
+            adapter,
+            authority,
+            Some(agent),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_observed_inner(
+        root: &Path,
+        launch_id: Uuid,
+        startup: &ObservedStartup,
+        permit: ExecutionPermit,
+        local: &LocalEnvironment,
+        adapter: &impl ObservedHarnessAdapter,
+        authority: &mut impl LaunchAuthority,
+        agent: Option<users::AgentIdentity>,
+    ) -> Result<PendingObservedSession> {
         let qualification = adapter.observed_qualification(&startup.rendered.manifest)?;
         ensure!(
             qualification.executable == startup.spec.program.artifact
@@ -334,7 +377,7 @@ impl SessionHost {
             local,
             Adapter::Task(adapter),
             authority,
-            None,
+            agent,
         )?;
         Ok(PendingObservedSession {
             handle,

@@ -9,12 +9,19 @@ pub use manifest::FrozenLaunch;
 pub(crate) fn boot_ns() -> anyhow::Result<u64> {
     super::super::http::boot_ns()
 }
+pub mod channels;
+pub mod hydrate;
+pub mod observations;
+pub mod output;
+mod output_runtime;
+mod startup;
+pub use startup::SandboxStartup;
 pub mod permit_transport;
 mod transport;
 use crate::config::WorkerConfig;
 use anyhow::{Result, ensure};
 use aq_admission_sandbox::sandbox::DelegatedPermit;
-use aq_session_host::{HarnessAdapter, LocalEnvironment};
+use aq_session_host::LocalEnvironment;
 use aq_session_protocol::Digest;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -97,32 +104,41 @@ impl Default for RunOptions {
     }
 }
 #[allow(clippy::too_many_arguments)]
-pub async fn run(
+pub async fn run<'a>(
     worker: &WorkerConfig,
     frozen: &FrozenLaunch,
     permit: DelegatedPermit,
     state_dir: &Path,
     local: &LocalEnvironment,
-    adapter: &impl HarnessAdapter,
+    startup: impl Into<SandboxStartup<'a>>,
     transport: &mut impl RunnerTransport,
     shutdown: watch::Receiver<bool>,
     options: RunOptions,
 ) -> Result<RunOutcome> {
     run_inner(
-        worker, frozen, permit, state_dir, local, adapter, transport, shutdown, options, None,
+        worker,
+        frozen,
+        permit,
+        state_dir,
+        local,
+        startup.into(),
+        transport,
+        shutdown,
+        options,
+        None,
     )
     .await
 }
 /// Separated-user entrypoint. Bootstrap the runner before starting Tokio, keep
 /// state private, and hydrate an agent-accessible workspace outside that state.
 #[allow(clippy::too_many_arguments)]
-pub async fn run_as_agent(
+pub async fn run_as_agent<'a>(
     worker: &WorkerConfig,
     frozen: &FrozenLaunch,
     permit: DelegatedPermit,
     state_dir: &Path,
     local: &LocalEnvironment,
-    adapter: &impl HarnessAdapter,
+    startup: impl Into<SandboxStartup<'a>>,
     transport: &mut impl RunnerTransport,
     shutdown: watch::Receiver<bool>,
     options: RunOptions,
@@ -139,7 +155,7 @@ pub async fn run_as_agent(
         permit,
         state_dir,
         local,
-        adapter,
+        startup.into(),
         transport,
         shutdown,
         options,
@@ -154,7 +170,7 @@ async fn run_inner(
     permit: DelegatedPermit,
     state_dir: &Path,
     local: &LocalEnvironment,
-    adapter: &impl HarnessAdapter,
+    startup: SandboxStartup<'_>,
     transport: &mut impl RunnerTransport,
     mut shutdown: watch::Receiver<bool>,
     options: RunOptions,
@@ -186,6 +202,7 @@ async fn run_inner(
     if let Some(http) = &authority {
         http.bind_execution(frozen, &permit)?;
     }
+    startup.validate(frozen, authority.as_ref())?;
     transport.preflight(worker)?;
     let authority_lost = || authority.as_ref().is_some_and(|http| http.authority_lost());
     ensure!(!authority_lost(), "runner authority lost before launch");
@@ -231,17 +248,20 @@ async fn run_inner(
     let initial = local_permit(frozen, request.revision, now, deadline)?;
     journal.record("initial-permit", &initial)?;
     let root = journal.directory.join("hosts");
-    let mut handle = match host::launch(
-        &root,
-        frozen.launch_id,
-        &frozen.manifest,
-        initial,
-        local,
-        adapter,
-        &mut journal,
-        agent,
-    ) {
-        Ok(handle) => handle,
+    let adapter = startup.adapter();
+    let (mut handle, output_runtime) = match startup
+        .launch(
+            &root,
+            frozen,
+            initial,
+            local,
+            &mut journal,
+            agent,
+            shutdown.clone(),
+        )
+        .await
+    {
+        Ok(launched) => launched,
         Err(_) => {
             let proof = journal
                 .intent
@@ -254,6 +274,44 @@ async fn run_inner(
                 reason: "launch failed",
                 stop_proven: proof.is_some(),
             });
+        }
+    };
+    // Collection/storage/delivery have their own thread and connection pool.
+    // Missing source support is recorded explicitly; it grants no execution time.
+    let observations = (|| -> Result<Option<observations::ObservationTask>> {
+        let Some(descriptor) = adapter.transcript_source(&handle.identity().intent)? else {
+            journal.record(
+                "observation-incomplete",
+                &"launched transcript metadata unavailable",
+            )?;
+            return Ok(None);
+        };
+        let http = authority
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("observation permit channel unavailable"))?;
+        let source = observations::source_for_launch(
+            frozen,
+            &descriptor,
+            // The launch does not deliver the server's observation catalog
+            // entry yet, so the legacy launch-ID identity remains in use.
+            None,
+        )?;
+        let channels = channels::SandboxChannels::new(http)?;
+        Ok(Some(observations::ObservationTask::start(
+            journal.directory.join("observations"),
+            source,
+            descriptor,
+            &handle.identity().intent,
+            vec![local.workspace.clone(), handle.directory().to_owned()],
+            channels,
+            agent.map_or_else(|| unsafe { libc::geteuid() }, |a| a.uid),
+        )?))
+    })();
+    let observations = match observations {
+        Ok(task) => task,
+        Err(_) => {
+            let _ = journal.record("observation-incomplete", &"transcript admission refused");
+            None
         }
     };
     let interval = options.renewal_interval.as_nanos() as u64;
@@ -357,6 +415,10 @@ async fn run_inner(
             }
         }
     };
+    // Signal only; never await telemetry before stopping writers.
+    if let Some(task) = &observations {
+        task.stop();
+    }
     let proof = match host::stop(&mut handle) {
         Ok(proof) => proof,
         Err(_) => {
@@ -366,6 +428,9 @@ async fn run_inner(
             });
         }
     };
+    if let Some(runtime) = output_runtime {
+        runtime.stop().await;
+    }
     journal.record("stopped", &proof)?;
     if reason != "harness exited" {
         journal.record("preserved", &reason)?;
@@ -523,3 +588,12 @@ mod tests {
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod channels_tests;
+#[cfg(test)]
+mod hydrate_tests;
+
+#[cfg(test)]
+mod observations_tests;
+#[cfg(test)]
+mod output_tests;

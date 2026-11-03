@@ -55,7 +55,12 @@ impl ReaderState {
             return Ok(Some(SourceChange::Rotated));
         }
         ensure!(
-            root.uid() == unsafe { libc::geteuid() } && root.mode() & 0o022 == 0,
+            root.uid()
+                == self
+                    .permit
+                    .owner_uid
+                    .unwrap_or_else(|| unsafe { libc::geteuid() })
+                && root.mode() & 0o022 == 0,
             "source root ownership changed"
         );
         Ok(None)
@@ -67,7 +72,11 @@ impl ReaderState {
             root.is_dir()
                 && root.dev() == self.root_identity.device
                 && root.ino() == self.root_identity.inode
-                && root.uid() == unsafe { libc::geteuid() }
+                && root.uid()
+                    == self
+                        .permit
+                        .owner_uid
+                        .unwrap_or_else(|| unsafe { libc::geteuid() })
                 && root.mode() & 0o022 == 0
                 && std::fs::canonicalize(&self.permit.root)? == self.permit.root,
             "source root identity/ownership changed"

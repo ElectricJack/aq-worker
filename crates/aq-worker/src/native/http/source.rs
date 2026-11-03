@@ -11,7 +11,7 @@ pub struct SourceChunk {
     pub offset: u64,
     pub bytes: Vec<u8>,
 }
-fn version(response: &Response) -> Result<()> {
+pub(crate) fn version(response: &Response) -> Result<()> {
     ensure!(
         response
             .headers()
@@ -31,7 +31,7 @@ fn version(response: &Response) -> Result<()> {
     );
     Ok(())
 }
-fn transfer(binding: &LaunchBinding, manifest: &TransferManifest) -> Result<()> {
+pub(crate) fn transfer(binding: &LaunchBinding, manifest: &TransferManifest) -> Result<()> {
     binding.validate()?;
     manifest.validate()?;
     let SessionIdentity::Remote { session_id, .. } = binding.session else {

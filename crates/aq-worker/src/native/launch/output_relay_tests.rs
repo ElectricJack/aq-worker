@@ -2,7 +2,7 @@
 //! Actual host attachment and daemon composition are qualified separately.
 use super::*;
 use aq_session_protocol::{SessionIdentity, TerminalHost};
-use aq_terminal_bridge::{http::NodeCredential, output::OutputTail};
+use aq_terminal_bridge::http::NodeCredential;
 use axum::{
     Json, Router,
     extract::State,
@@ -42,10 +42,10 @@ fn peer() -> Peer {
 }
 #[test]
 fn bounded_tail_packet_preserves_literal_sequences_and_explicit_eviction_gap() {
-    let mut tail = OutputTail::new(terminal(), &policy(4, 8)).unwrap();
+    let mut tail = TerminalOutput::tail_only(terminal(), &policy(4, 8)).unwrap();
     tail.accept(&ControlEvent::Bytes(b"abcdefghijklmnopqrst".to_vec()))
         .unwrap();
-    let p = prepare(&tail, &peer(), 0).unwrap().unwrap();
+    let p = prepare(&tail, &peer(), 0, false).unwrap().unwrap();
     assert_eq!(p.through, 5);
     assert_eq!(p.request.gaps[0].first_missing, 1);
     assert_eq!(p.request.gaps[0].last_missing, 3);
@@ -63,20 +63,20 @@ fn bounded_tail_packet_preserves_literal_sequences_and_explicit_eviction_gap() {
             && p.request.receipts.is_empty()
             && p.request.fence_acks.is_empty()
     );
-    assert!(prepare(&tail, &peer(), 5).unwrap().is_none());
+    assert!(prepare(&tail, &peer(), 5, false).unwrap().is_none());
 }
 #[test]
 fn worst_case_json_bytes_are_bounded_and_prefix_never_skips_unselected_frames() {
     let negotiated = policy(65536, 1048576);
     let framing = local_framing(&negotiated);
     assert!(framing.max_frame_bytes < negotiated.max_frame_bytes);
-    let mut tail = OutputTail::new(terminal(), &framing).unwrap();
+    let mut tail = TerminalOutput::tail_only(terminal(), &framing).unwrap();
     for _ in 0..16 {
         tail.accept(&ControlEvent::Bytes(vec![255; 65536])).unwrap()
     }
     let mut through = 0;
     let mut seen = vec![];
-    while let Some(p) = prepare(&tail, &peer(), through).unwrap() {
+    while let Some(p) = prepare(&tail, &peer(), through, false).unwrap() {
         assert!(serde_json::to_vec(&p.request).unwrap().len() <= MAX_UPLOAD);
         assert_eq!(p.request.frames[0].sequence, through + 1);
         seen.extend(p.request.frames.iter().map(|f| f.sequence));
@@ -96,7 +96,7 @@ fn worst_case_json_bytes_are_bounded_and_prefix_never_skips_unselected_frames() 
 }
 #[test]
 fn unknown_producer_discontinuity_does_not_invent_an_exact_gap_or_restart() {
-    let mut tail = OutputTail::new(terminal(), &policy(8, 16)).unwrap();
+    let mut tail = TerminalOutput::tail_only(terminal(), &policy(8, 16)).unwrap();
     tail.accept(&ControlEvent::Bytes(b"literal".to_vec()))
         .unwrap();
     tail.accept(&ControlEvent::Paused).unwrap();
@@ -292,11 +292,10 @@ async fn transport_fixture_policy(
             info: None,
             through: 0,
             pending: None,
+            rate: OutputRate::default(),
         }),
         draining: AtomicBool::new(false),
-        viewer_requested: AtomicBool::new(false),
-        viewer_opening: AtomicBool::new(false),
-        last_viewer_request: Mutex::new(None),
+        snapshot_requested: AtomicBool::new(false),
         task: Mutex::new(None),
     });
     let outputs = Arc::new(Mutex::new(Outputs::default()));
@@ -500,18 +499,39 @@ async fn watch_metadata_is_bounded_expiring_and_never_advances_on_unsupported_ef
         peer: peer(),
         exchange_id: Uuid::new_v4(),
         cursor: 1,
-        effects: (1..=32).map(|id| watch(id, 100)).collect(),
+        effects: (1..=4).map(|id| watch(id, 100)).collect(),
     };
-    assert_eq!(state.accept(&envelope, &terminal(), 1).unwrap(), 32);
+    assert_eq!(state.accept(&envelope, &terminal(), 1).unwrap(), 4);
     envelope.cursor = 2;
     envelope.effects = vec![watch(33, 100)];
     assert!(state.accept(&envelope, &terminal(), 1).is_err());
     assert_eq!(state.cursor, 1);
-    assert_eq!(state.watches.len(), 32);
+    assert_eq!(state.watches.len(), 4);
     envelope.effects = vec![watch(33, 200)];
     assert_eq!(state.accept(&envelope, &terminal(), 100).unwrap(), 1);
     assert_eq!(state.cursor, 2);
+    // Watches for this node's other terminals also consume its 32 slots.
     envelope.cursor = 3;
+    envelope.effects = (100..131)
+        .map(|id| {
+            let wire::Effect::Watch(mut w) = watch(id, 200) else {
+                unreachable!()
+            };
+            w.terminal.terminal_id = Uuid::from_u128(1000 + id / 4);
+            wire::Effect::Watch(w)
+        })
+        .collect();
+    assert_eq!(state.accept(&envelope, &terminal(), 100).unwrap(), 1);
+    assert_eq!(state.watches.len(), 32);
+    envelope.cursor = 4;
+    let wire::Effect::Watch(mut extra) = watch(999, 200) else {
+        unreachable!()
+    };
+    extra.terminal.terminal_id = Uuid::from_u128(9999);
+    envelope.effects = vec![wire::Effect::Watch(extra)];
+    assert!(state.accept(&envelope, &terminal(), 100).is_err());
+    assert_eq!(state.cursor, 3);
+    envelope.cursor = 4;
     envelope.effects = vec![wire::Effect::Fence(wire::Fence {
         terminal: terminal(),
         fence_id: Uuid::new_v4(),
@@ -519,6 +539,6 @@ async fn watch_metadata_is_bounded_expiring_and_never_advances_on_unsupported_ef
         controller: None,
     })];
     assert!(state.accept(&envelope, &terminal(), 100).is_err());
-    assert_eq!(state.cursor, 2);
+    assert_eq!(state.cursor, 3);
     server.abort();
 }
