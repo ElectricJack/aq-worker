@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--lib",
+    "controller::"
+  ],
+  "exit_code": 101,
+  "log": "docs/implementation/B5a-evidence/revision-controller-initial.log"
+}

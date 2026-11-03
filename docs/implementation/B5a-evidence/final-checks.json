@@ -1,0 +1,57 @@
+[
+  {
+    "command": "cargo test --locked --workspace capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason",
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/acceptance-capacity-final.log"
+  },
+  {
+    "command": "cargo test --locked -p aq-worker --lib controller::",
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/controller-synced.log"
+  },
+  {
+    "command": "cargo test --locked -p aq-worker --lib native::runner::",
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/native-synced.log"
+  },
+  {
+    "command": "cargo test --locked -p aq-worker --bin aq-worker run_requires_explicit_controller_configuration",
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/cli.log"
+  },
+  {
+    "command": "cargo clippy --locked --workspace --all-targets -- -D warnings",
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/clippy.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "-p",
+      "aq-worker",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-fmt-worker.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-fmt-workspace.log"
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check",
+      "HEAD^"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-whitespace.log"
+  }
+]

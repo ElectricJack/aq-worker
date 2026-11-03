@@ -1,0 +1,13 @@
+    Blocking waiting for file lock on build directory
+    Checking hyper-util v0.1.21
+    Checking tower v0.5.3
+    Checking tower-http v0.6.11
+    Checking aq-session-host v0.1.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-host)
+    Checking hyper-rustls v0.27.10
+    Checking reqwest v0.12.28
+    Checking aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-responses-transport)
+    Checking aq-admission v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/protocol/aq-admission)
+    Checking aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-terminal-bridge)
+    Checking axum v0.8.9
+    Checking aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 39s
