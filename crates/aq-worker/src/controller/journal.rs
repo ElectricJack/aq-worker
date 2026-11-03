@@ -101,7 +101,10 @@ impl State {
                 *key == sandbox.backend_id
                     && !key.is_empty()
                     && sandbox.owner.node_id == self.identity.node_id
-                    && !sandbox.owner.boot_id.is_nil()
+                    // Boat inventory without a local mapping has no trustworthy boot.
+                    // Such entries are orphans only: they can be stopped/preserved,
+                    // never adopted as an attempt or used for grant issuance.
+                    && (!sandbox.owner.boot_id.is_nil() || sandbox.kind == crate::backend::BackendKind::Boat)
                     && !sandbox.owner.attempt_id.is_nil(),
                 "orphan scope mismatch"
             );

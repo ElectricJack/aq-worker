@@ -16,6 +16,8 @@ pub(super) struct Provider {
     pub offline: bool,
     pub no_current_grant: bool,
     pub poll: Option<PollPage>,
+    pub emitted: Vec<NodeEvent>,
+    pub events_offline: bool,
 }
 impl PermitProvider for Provider {
     type Request = u64;
@@ -84,6 +86,11 @@ impl PermitProvider for Provider {
     }
     async fn poll(&mut self, _: &WorkerIdentity) -> Result<Option<PollPage>> {
         Ok(self.poll.take())
+    }
+    async fn emit(&mut self, event: &NodeEvent) -> Result<()> {
+        ensure!(!self.events_offline, "node event transport unavailable");
+        self.emitted.push(event.clone());
+        Ok(())
     }
     async fn retain(&mut self, s: &SandboxIdentity) -> Result<Option<DestroyAuthorization>> {
         self.events.push("handoff");
@@ -328,4 +335,59 @@ async fn unknown_orphan_is_retained_after_grace_and_operator_release_is_supporte
         DestroyAuthorization::operator_released(sandbox, "operator-reviewed-release").unwrap();
     c.destroy(id, &release).await.unwrap();
     assert_eq!(c.state().attempts[&id].phase, Phase::Destroyed);
+}
+
+#[tokio::test]
+async fn disk_watchdog_stops_and_preserves_only_the_attempt_over_its_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config();
+    cfg.max_concurrent_sandboxes = 2;
+    let mut c = Controller::open(
+        &dir.path().join("node"),
+        Uuid::from_u128(1),
+        cfg,
+        FakeBackend::default(),
+        Provider::default(),
+    )
+    .unwrap();
+    let over = running(&mut c, 10).await;
+    let under = running(&mut c, 11).await;
+    let sandbox = c.state().attempts[&over].sandbox.clone().unwrap();
+    let other = c.state().attempts[&under].sandbox.clone().unwrap();
+    assert_eq!(
+        c.state().attempts[&over]
+            .create
+            .resources
+            .as_ref()
+            .and_then(|r| r.disk_bytes),
+        Some(1),
+        "the reservation's disk bytes are the sandbox limit"
+    );
+    c.backend.set_disk_usage(&sandbox, 1);
+    c.watch_disk_at(now_ms()).await.unwrap();
+
+    let a = &c.state().attempts[&over];
+    let cleanup = a.cleanup.as_ref().unwrap();
+    assert_eq!(cleanup.reason, CleanupReason::SandboxDiskLimitExceeded);
+    assert_eq!(
+        serde_json::to_value(cleanup.reason).unwrap(),
+        "sandbox_disk_limit_exceeded"
+    );
+    assert_eq!(a.phase, Phase::Stopped);
+    assert!(a.stopped.is_some());
+    let inspected = c.backend.inspect(&sandbox).await.unwrap();
+    assert_eq!(inspected.state, SandboxState::Stopped);
+    assert!(inspected.disk_present, "SBX5: preserved, not destroyed");
+
+    let b = &c.state().attempts[&under];
+    assert!(b.cleanup.is_none());
+    assert_eq!(b.phase, Phase::Running);
+    assert_eq!(
+        c.backend.inspect(&other).await.unwrap().state,
+        SandboxState::Running
+    );
+    // Without retention authorization the handoff retry never destroys it.
+    c.retry_handoffs_at(now_ms()).await.unwrap();
+    assert!(c.backend.inspect(&sandbox).await.unwrap().disk_present);
+    assert_eq!(c.inventory().disk_limit, Some(DiskLimitMode::Watchdog));
 }

@@ -1,0 +1,28 @@
+COMMAND: ['cargo', 'test', '--locked', '-p', 'aq-worker', '--test', 'boat_backend', '--test', 'controller_cli']
+    Blocking waiting for file lock on build directory
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 31s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-c7b3b4c4fc6e3933)
+
+running 12 tests
+test boat_live_conformance ... ignored, requires approved dedicated BOAT_LIVE_CONFIG and BOAT_API_KEY; runs paid VMs
+test boat_mapping_survives_restart_and_rejects_changed_request ... ok
+test boat_orphan_retention_authority_can_delete_after_restart_without_inventing_boot ... ok
+test boat_policy_deadlines_and_secret_delivery ... ok
+test boat_rejects_unsafe_requests_and_mutated_snapshot ... ok
+test boat_restart_keeps_delete_operation_and_journal_failure_fences_effects ... ok
+test boat_run_configuration_is_exclusive_and_key_file_is_private ... ok
+test boat_http_conformance ... ok
+test boat_uncertain_archive_and_delete_never_confirm ... ok
+test boat_vm_sizes_and_ttl_updates_are_bounded ... ok
+test sweep_ignores_sandboxes_without_node_prefix ... ok
+test boat_unavailable_refuses_offers_without_orphans ... ok
+
+test result: ok. 11 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.85s
+
+     Running tests/controller_cli.rs (target/debug/deps/controller_cli-5ecdc3d1fc5c7d78)
+
+running 1 test
+test run_reports_missing_worker_config_and_malformed_controller_config ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s

@@ -556,10 +556,18 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
         Cmd::Run { controller_config } => {
             let result: anyhow::Result<()> = async {
                 use aq_worker::controller::{Controller, RunConfig, UnavailableProvider};
-                use aq_worker::backend::docker_local::DockerLocalBackend;
+                use aq_worker::backend::{SelectedBackend, boat::{BoatBackend, BoatKey}, docker_local::DockerLocalBackend};
                 let worker = WorkerConfig::load(&path)?;
                 let config = RunConfig::load(&controller_config)?;
-                let backend = DockerLocalBackend::connect_unix(config.docker_local).await?;
+                let backend = match (config.docker_local, config.boat) {
+                    (Some(docker), None) => SelectedBackend::Docker(Box::new(DockerLocalBackend::connect_unix(docker).await?)),
+                    (None, Some(boat)) => {
+                        anyhow::ensure!(boat.node_id == worker.node_id, "boat node identity differs from enrollment");
+                        let key = BoatKey::load(&boat.key_file)?;
+                        SelectedBackend::Boat(Box::new(BoatBackend::connect(boat, key)?))
+                    }
+                    _ => anyhow::bail!("configure exactly one placement backend"),
+                };
                 let mut controller = Controller::open(&config.state_dir, worker.node_id, config.node, backend, UnavailableProvider)?;
                 let client = Client::from_config(&worker)?;
                 let (tx, rx) = tokio::sync::watch::channel(false);

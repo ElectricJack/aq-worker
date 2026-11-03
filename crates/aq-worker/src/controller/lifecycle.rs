@@ -12,7 +12,8 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         );
         a.phase = Phase::CreateIntent;
         self.save(id, a.clone())?;
-        let sandbox = self.backend.create(&a.create).await?;
+        let result = self.backend.create(&a.create).await;
+        let sandbox = self.backend_result(result)?;
         ensure!(
             sandbox.kind == self.backend.kind()
                 && sandbox.owner == a.create.owner
@@ -79,9 +80,11 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         });
         a.phase = Phase::MaterialIntent;
         self.save(id, a.clone())?;
-        self.backend
+        let result = self
+            .backend
             .deliver_private_material(&sandbox, material.payload)
-            .await?;
+            .await;
+        self.backend_result(result)?;
         a.phase = Phase::MaterialDelivered;
         self.save(id, a.clone())?;
         self.admit_effect(&a)?;
@@ -91,9 +94,22 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         );
         a.phase = Phase::StartIntent;
         self.save(id, a.clone())?;
-        self.backend.start_runner(&sandbox).await?;
+        let result = self.backend.start_runner(&sandbox).await;
+        self.backend_result(result)?;
         a.phase = Phase::Running;
         self.save(id, a)
+    }
+    // Preserve the durable effect intent: unavailable does not mean no VM exists.
+    fn backend_result<T>(
+        &mut self,
+        result: std::result::Result<T, crate::backend::BackendError>,
+    ) -> Result<T> {
+        match result {
+            Err(crate::backend::BackendError::Unavailable(_)) => {
+                self.refuse(RefusalReason::BackendUnavailable)
+            }
+            other => other.map_err(Into::into),
+        }
     }
     pub(super) fn record_proof(
         &mut self,
@@ -152,6 +168,14 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         let sandbox = a.sandbox.clone().ok_or_else(|| {
             anyhow::anyhow!("sandbox identity not recorded; reconciliation required")
         })?;
+        // SBX23: any stop may end in preservation (handoff failure). While the
+        // runner is still reachable, drop only template-declared paths.
+        if a.phase == Phase::Running {
+            let paths = self.config.preserve.paths_for(&a.create.template_digest);
+            if let Err(error) = self.backend.drop_reconstructible(&sandbox, &paths).await {
+                tracing::info!(attempt=%id, ?error, "runner unreachable; reconstructible paths kept");
+            }
+        }
         a.phase = Phase::StopIntent;
         self.save(id, a.clone())?;
         let confirmation = self.backend.stop(&sandbox).await;

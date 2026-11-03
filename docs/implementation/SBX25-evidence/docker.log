@@ -1,0 +1,13 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.74s
+     Running tests/docker_local_backend.rs (target/debug/deps/docker_local_backend-9faebc50c40e49a3)
+
+running 6 tests
+test disk_admission_refuses_shared_root_fs_unless_overridden ... ok
+test disk_usage_measures_graph_root_and_preserved_sizes ... ok
+test disk_watchdog_sampling_flags_only_the_sandbox_over_its_limit ... ok
+test measured_disk_usage_keeps_unknown_sizes_absent ... ok
+test hard_disk_limit_carries_storage_size_only_in_hard_mode ... ok
+test measured_disk_usage_sizes_volume_only_preserved_sandboxes ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.02s

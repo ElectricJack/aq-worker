@@ -233,7 +233,7 @@ def credential_path(name):
                      'oauth_creds.json', '.credentials.json'}
             or any(p in {'.codex', '.claude', '.gemini', '.aws', '.azure'} for p in parts[:-1])
             or any('/' + p + '/' in '/' + name.lower() + '/' for p in
-                   ['.config/gcloud', '.config/gh', '.config/doctl', '.config/oci'])
+                   ['.config/gcloud', '.config/gh', '.config/doctl', '.config/oci', '.config/ascii/boat'])
             or ('.ssh' in parts[:-1] and base.startswith('id_'))
             or ('.docker' in parts[:-1] and base == 'config.json'))
 
@@ -453,3 +453,52 @@ def scan_oci(path):
         return _scan_oci(path)
     except (OSError, EOFError, tarfile.TarError, KeyError, TypeError, AttributeError, RecursionError) as error:
         raise ValueError('invalid OCI image archive') from error
+
+
+def scan_snapshot(path):
+    """Scan captured VM changes and Docker volumes without extracting any member.
+
+    Boat omits unmodified stock-image files; the OCI is scanned separately. This
+    scan covers every captured member, including deleted-layer residue stored by
+    Docker. No credential-bearing paths or links receive a content exception.
+    """
+    path = Path(path)
+    if path.stat().st_size > MAX_ARCHIVE:
+        raise ValueError('snapshot size limit')
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    entries = files = expanded = 0
+    names = set()
+    try:
+        with tarfile.open(path, mode='r|*') as archive:
+            for item in archive:
+                entries += 1
+                expanded += item.size
+                if entries > MAX_ENTRIES or expanded > MAX_EXPANDED:
+                    raise ValueError('snapshot expanded limits')
+                name = safe_path(item.name)
+                if name in names:
+                    raise ValueError('duplicate snapshot member')
+                names.add(name)
+                if credential_path(name) and not item.isdir():
+                    raise ValueError('credential snapshot path')
+                if item.issym() or item.islnk():
+                    target = posixpath.normpath(posixpath.join(posixpath.dirname(name), item.linkname)) if item.issym() else item.linkname
+                    if credential_link_path(name) or credential_link_path(target):
+                        raise ValueError('credential snapshot link')
+                    if target.startswith('/'):
+                        target = target[1:]
+                    safe_path(target)
+                elif item.isfile():
+                    scan_content(archive.extractfile(item))
+                    files += 1
+                elif not item.isdir():
+                    raise ValueError('unsupported snapshot member')
+    except (OSError, EOFError, tarfile.TarError) as error:
+        raise ValueError('invalid snapshot archive') from error
+    if not files:
+        raise ValueError('empty snapshot refuses admission')
+    return {'archive_digest': 'sha256:' + digest.hexdigest(), 'files_scanned': files,
+            'credential_scan_policy': 'aq-credential-scan-v1'}

@@ -12,6 +12,10 @@ pub fn run(args: &[OsString]) -> anyhow::Result<()> {
         directory.path().join("credential_scan.py"),
         include_bytes!("../../../packaging/sandbox/credential_scan.py"),
     )?;
+    fs::write(
+        directory.path().join("boat_materialize.py"),
+        include_bytes!("../../../packaging/sandbox/boat_materialize.py"),
+    )?;
     let status = Command::new("python3")
         .arg("-I")
         .arg(tool)

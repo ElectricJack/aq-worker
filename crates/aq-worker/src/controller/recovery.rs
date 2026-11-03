@@ -441,6 +441,44 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         }
         Ok(())
     }
+    /// SBX20 watchdog: stop (never destroy) each known attempt whose sampled
+    /// disk usage reached its limit; the work volume is preserved (SBX5).
+    /// Unknown sandboxes are left to the orphan sweep; others are untouched.
+    pub async fn watch_disk_at(&mut self, now: u64) -> Result<()> {
+        self.journal.check()?;
+        if self.backend.disk_limit().mode.is_none() {
+            return Ok(());
+        }
+        let usage = self.backend.disk_usage(self.identity().node_id).await?;
+        for sample in usage.into_iter().filter(DiskUsage::exceeded) {
+            let id = sample.sandbox.owner.attempt_id;
+            let Some(a) = self.state().attempts.get(&id).cloned() else {
+                continue;
+            };
+            if a.stopped.is_some()
+                || sample.sandbox.owner != a.create.owner
+                || sample.sandbox.kind != self.backend.kind()
+                || sample.sandbox.backend_id != a.create.name
+                || a.sandbox.as_ref().is_some_and(|s| *s != sample.sandbox)
+            {
+                continue;
+            }
+            tracing::warn!(
+                attempt = %id,
+                used_bytes = sample.used_bytes,
+                limit_bytes = sample.limit_bytes,
+                "sandbox_disk_limit_exceeded; stopping and preserving the attempt"
+            );
+            if a.sandbox.is_none() {
+                let mut a = a.clone();
+                a.sandbox = Some(sample.sandbox.clone());
+                self.save(id, a)?;
+            }
+            self.mark_cleanup(id, CleanupReason::SandboxDiskLimitExceeded, now)?;
+            self.stop(id).await?;
+        }
+        Ok(())
+    }
     /// Separate from sweep so a deadline can never itself authorize deletion.
     pub async fn retry_handoffs_at(&mut self, now: u64) -> Result<()> {
         self.journal.check()?;
@@ -464,25 +502,42 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             }
             let mut a = self.attempt(id)?;
             let s = a.sandbox.clone().unwrap();
-            if a.destroy_authorization.is_none()
-                && let Ok(Ok(Some(auth))) = tokio::time::timeout(
+            let due = a
+                .preserved
+                .as_ref()
+                .is_none_or(|p| now >= p.next_handoff_ms);
+            if a.destroy_authorization.is_none() && due {
+                match tokio::time::timeout(
                     std::time::Duration::from_millis(self.config.recovery.sweep_interval_ms),
                     self.provider.retain(&s),
                 )
                 .await
-            {
-                ensure!(
-                    auth.authorizes(&s),
-                    "retention receipt belongs to another sandbox"
-                );
-                a.destroy_authorization = Some(auth);
-                self.save(id, a.clone())?;
+                {
+                    Ok(Ok(Some(auth))) => {
+                        ensure!(
+                            auth.authorizes(&s),
+                            "retention receipt belongs to another sandbox"
+                        );
+                        a.destroy_authorization = Some(auth);
+                        self.save(id, a.clone())?;
+                    }
+                    _ => {
+                        self.preserve_failed_handoff(id, now)?;
+                        a = self.attempt(id)?;
+                    }
+                }
             }
-            if now >= a.cleanup.as_ref().unwrap().destroy_after_ms
+            // A preserved sandbox is already past its grace; once handed off
+            // it is destroyed in this same pass (within one sweep interval).
+            if (a.preserved.is_some() || now >= a.cleanup.as_ref().unwrap().destroy_after_ms)
                 && let Some(auth) = a.destroy_authorization
             {
                 tracing::info!(attempt=%id,reason=?a.cleanup.as_ref().unwrap().reason,"destroying retained sandbox");
                 self.destroy_at(id, &auth).await?;
+                continue;
+            }
+            if a.preserved.is_some() {
+                self.tend_preserved(id, now).await?;
             }
         }
         let keys: Vec<_> = self
@@ -533,6 +588,109 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 tracing::info!(sandbox=%key,reason=?o.cleanup.reason,"destroyed retained orphan");
             }
         }
+        Ok(())
+    }
+    /// SBX22: first failure records the preservation; each failure doubles
+    /// the bounded handoff backoff. The disk reservation is kept throughout.
+    fn preserve_failed_handoff(&mut self, id: Uuid, now: u64) -> Result<()> {
+        let mut a = self.attempt(id)?;
+        let interval = self.config.recovery.sweep_interval_ms;
+        let p = a.preserved.get_or_insert_with(|| Preservation {
+            preserved_at_ms: now,
+            expires_at_ms: now.saturating_add(self.config.preserve.max_age_ms),
+            bytes_held: a.request.disk_bytes,
+            handoff_failures: 0,
+            next_handoff_ms: now,
+            notified_ms: None,
+            final_notice_ms: None,
+            standing_release: None,
+        });
+        p.handoff_failures = p.handoff_failures.saturating_add(1);
+        let backoff = interval
+            .saturating_mul(1u64 << p.handoff_failures.min(20))
+            .min(MAX_HANDOFF_BACKOFF_MS);
+        p.next_handoff_ms = now.saturating_add(backoff);
+        if p.handoff_failures == 1 {
+            tracing::warn!(attempt=%id, bytes_held=p.bytes_held, "sandbox preserved; handoff failed");
+        }
+        self.save(id, a)
+    }
+    async fn emit_preserved(&mut self, id: Uuid, notice: PreserveNotice) -> bool {
+        let Ok(a) = self.attempt(id) else {
+            return false;
+        };
+        let Some(p) = a.preserved else {
+            return false;
+        };
+        let event = NodeEvent::SandboxPreserved {
+            attempt_id: id,
+            node: self.identity().node_id,
+            bytes_held: p.bytes_held,
+            expires_at: p.expires_at_ms,
+            notice,
+        };
+        matches!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(self.config.recovery.sweep_interval_ms),
+                self.provider.emit(&event),
+            )
+            .await,
+            Ok(Ok(()))
+        )
+    }
+    /// Notifications and `max_age` handling for one preserved, unretained sandbox.
+    async fn tend_preserved(&mut self, id: Uuid, now: u64) -> Result<()> {
+        let p = self.attempt(id)?.preserved.unwrap();
+        let action = self.config.preserve.expiry_action;
+        let notice = match (p.notified_ms, action) {
+            (None, _) => Some(PreserveNotice::Preserved),
+            (Some(last), PreserveExpiryAction::Notify)
+                if now >= p.expires_at_ms && now >= last.saturating_add(DAY_MS) =>
+            {
+                Some(PreserveNotice::Reminder)
+            }
+            (Some(_), PreserveExpiryAction::Destroy)
+                if p.final_notice_ms.is_none() && now >= p.expires_at_ms.saturating_sub(DAY_MS) =>
+            {
+                Some(PreserveNotice::FinalNotice)
+            }
+            _ => None,
+        };
+        if let Some(notice) = notice
+            && self.emit_preserved(id, notice).await
+        {
+            let mut a = self.attempt(id)?;
+            let p = a.preserved.as_mut().unwrap();
+            match notice {
+                PreserveNotice::FinalNotice => p.final_notice_ms = Some(now),
+                _ => p.notified_ms = Some(now),
+            }
+            self.save(id, a)?;
+        }
+        let mut a = self.attempt(id)?;
+        let p = a.preserved.clone().unwrap();
+        if action != PreserveExpiryAction::Destroy {
+            return Ok(());
+        }
+        // Destroy only after the final notice was delivered at least 24h ago.
+        let Some(final_notice) = p.final_notice_ms else {
+            return Ok(());
+        };
+        if now < p.expires_at_ms.max(final_notice.saturating_add(DAY_MS)) {
+            return Ok(());
+        }
+        let sandbox = a.sandbox.clone().unwrap();
+        let release = format!(
+            "standing-release:preserve.expiry_action=destroy:attempt={id}:expires_at={}",
+            p.expires_at_ms
+        );
+        let auth = DestroyAuthorization::operator_released(sandbox, release.clone())?;
+        a.preserved.as_mut().unwrap().standing_release = Some(release);
+        a.destroy_authorization = Some(auth.clone());
+        // Journal the standing operator release before the destructive effect.
+        self.save(id, a)?;
+        tracing::warn!(attempt=%id, "preserve.max_age reached; destroying under standing release");
+        self.destroy_at(id, &auth).await?;
         Ok(())
     }
 }

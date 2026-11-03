@@ -10,7 +10,8 @@ use tokio::sync::watch;
 pub struct RunConfig {
     pub state_dir: PathBuf,
     pub node: NodeConfig,
-    pub docker_local: crate::backend::docker_local::DockerLocalConfig,
+    pub docker_local: Option<crate::backend::docker_local::DockerLocalConfig>,
+    pub boat: Option<crate::backend::boat::BoatConfig>,
     /// C4: advertise templates resolved from the C3b allowlist file.
     #[serde(default)]
     pub template_allowlist: Option<super::allowlist::TemplateAllowlistConfig>,
@@ -35,17 +36,24 @@ impl RunConfig {
             config.state_dir.is_absolute(),
             "controller root must be absolute"
         );
-        // Every advertised template must be allowed by this actual backend.
+        ensure!(
+            config.docker_local.is_some() ^ config.boat.is_some(),
+            "configure exactly one placement backend"
+        );
+        if let Some(boat) = &config.boat {
+            boat.validate()?;
+        }
+        // Every advertised template must be allowed by the selected backend.
         for template in &config.node.templates {
-            ensure!(
-                config
-                    .docker_local
-                    .templates
-                    .iter()
-                    .any(|allowed| allowed.digest.as_str()
-                        == format!("sha256:{}", template.digest.as_str())),
-                "advertised template is not configured in backend"
-            );
+            let digest = format!("sha256:{}", template.digest.as_str());
+            let allowed = match (&config.docker_local, &config.boat) {
+                (Some(docker), None) => {
+                    docker.templates.iter().any(|t| t.digest.as_str() == digest)
+                }
+                (None, Some(boat)) => boat.templates.iter().any(|t| t.digest.as_str() == digest),
+                _ => false,
+            };
+            ensure!(allowed, "advertised template is not configured in backend");
         }
         Ok(config)
     }
@@ -125,6 +133,15 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             self.config.recovery.sweep_interval_ms,
         ));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // SBX20: the always-on disk watchdog runs on its own cadence.
+        let disk = self.backend.disk_limit();
+        let watch_ms = if disk.mode.is_some() {
+            disk.watch_interval_ms.max(1)
+        } else {
+            u64::MAX / 4
+        };
+        let mut disk_tick = tokio::time::interval(std::time::Duration::from_millis(watch_ms));
+        disk_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             if *shutdown.borrow() {
                 return self.set_draining(true);
@@ -133,6 +150,9 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 _ = shutdown.changed() => return self.set_draining(true),
                 _ = tick.tick() => {
                     self.recover_once().await?;
+                }
+                _ = disk_tick.tick(), if disk.mode.is_some() => {
+                    self.watch_disk_at((self.clock)()?).await?;
                 }
             }
         }

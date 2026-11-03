@@ -1,0 +1,4 @@
+COMMAND: cargo fmt -p aq-worker -- --check
+EXIT: 0
+COMMAND: git diff origin/main --check
+EXIT: 0 (C7 delta; upstream evidence retains its original whitespace)
