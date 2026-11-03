@@ -14,18 +14,23 @@ MAX_EXPANDED = 64 * 1024**3
 MAX_ENTRIES = 1_000_000
 MAX_JSON = 1024 * 1024
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
-SECRET = re.compile(
+TOKEN_PATTERN = re.compile(
     rb'(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}'
     rb'|github_pat_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{30,}|AKIA[A-Z0-9]{16}'
     rb'|https?://[^\s/:\x22\x27]+:[^\s/@\x22\x27]+@'
     rb'|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{16,}'
-    rb'|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'
-    rb'|(?i:(?:[A-Z0-9_]*(?:API_KEY|ACCESS_TOKEN|SECRET_ACCESS_KEY|PASSWORD))'
-    rb'[\x22\x27]?\s*[=:]\s*[\x22\x27]?[A-Za-z0-9_/-]{4,}))')
+    rb'|(?i:authorization\s*:\s*(?:bearer|basic)\s+[A-Za-z0-9_+/=-]{4,})'
+    rb'|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)')
+ASSIGNMENT = re.compile(rb'(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{0,127})[\x22\x27]?\s*=\s*[\x22\x27]?([A-Za-z0-9_+/.-]{4,})')
+JSON_ASSIGNMENT = re.compile(rb'"([A-Za-z][A-Za-z0-9_]{0,127})"\s*:\s*"[A-Za-z0-9_+/=.:,-]{4,4096}"')
+CREDENTIAL_LABEL = re.compile(r'(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|ACCESS_KEY_ID|SECRET_ACCESS_KEY|OPENAI_KEY)\Z')
 
 
 def secret_shaped(value):
-    return bool(SECRET.search(value.encode() if isinstance(value, str) else value))
+    data = value.encode() if isinstance(value, str) else value
+    return bool(TOKEN_PATTERN.search(data) or any(
+        CREDENTIAL_LABEL.search(match[1].decode('ascii').upper())
+        for pattern in (ASSIGNMENT, JSON_ASSIGNMENT) for match in pattern.finditer(data)))
 
 
 def json_bytes(data):
@@ -70,9 +75,18 @@ def credential_env(name):
     name = name.upper()
     return (any(word in name for word in ['API_KEY', 'ACCESS_TOKEN', 'AUTH_TOKEN',
                                          'SECRET', 'PASSWORD', 'CREDENTIAL'])
+            or name.endswith('_TOKEN')
             or name in {'AWS_ACCESS_KEY_ID', 'AWS_SESSION_TOKEN', 'GITHUB_TOKEN',
                         'GH_TOKEN', 'GITLAB_TOKEN', 'HF_TOKEN', 'NPM_TOKEN',
                         'AZURE_OPENAI_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY'})
+
+
+def credential_link_path(name):
+    # Conservatively refuse aliases of credential directories rather than
+    # interpreting a later layer through a mutable symlink graph.
+    return credential_path(name) or any(part in {
+        '.codex', '.claude', '.gemini', '.ssh', '.docker', '.aws', '.azure', '.config'
+    } for part in name.lower().strip('/').split('/'))
 
 
 def scan_content(stream, capture=False):
@@ -130,11 +144,13 @@ def _scan_oci(path):
                 if entries > MAX_ENTRIES:
                     raise ValueError('OCI entry limit')
                 name = safe_path(item.name)
+                if name in seen:
+                    raise ValueError('duplicate OCI member')
+                seen.add(name)
                 if item.isdir():
                     continue
-                if not item.isfile() or name in seen:
-                    raise ValueError('invalid or duplicate OCI member')
-                seen.add(name)
+                if not item.isfile():
+                    raise ValueError('invalid OCI member')
                 total += item.size
                 if total > MAX_ARCHIVE:
                     raise ValueError('OCI expanded size limit')
@@ -233,7 +249,7 @@ def _scan_oci(path):
                         raise ValueError('credential path detected')
                     if item.issym() or item.islnk():
                         target = posixpath.normpath(posixpath.join(posixpath.dirname(name), item.linkname)) if item.issym() else item.linkname
-                        if credential_path(target):
+                        if credential_link_path(name) or credential_link_path(target):
                             raise ValueError('credential link detected')
                     if name in {'opt', 'opt/aq', 'opt/aq/manifest.json'} and not item.isdir():
                         if name != 'opt/aq/manifest.json' or not item.isfile():

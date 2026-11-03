@@ -10,7 +10,10 @@ installed worker; no repository checkout is needed.
 Builds are an explicit operator action on a configured build node, outside
 attempt capacity. The runner never invokes this command. Configure a named
 Docker context and a named BuildKit builder with OCI export support. The
-builder and its cache are trusted infrastructure. Registry credentials used
+builder and its cache are trusted infrastructure. For example, provision a
+named builder with `docker buildx create --name aq-templates --driver
+docker-container --bootstrap default`; the ordinary Docker driver may not
+support OCI export. Registry credentials used
 by Docker stay in the build node's Docker configuration; they are not passed
 as build args, secrets, environment variables, SSH mounts or build-context
 files. Build stdout/stderr are suppressed because arbitrary installers could
@@ -51,7 +54,7 @@ output or trustworthy third-party installers.
   "schema_version": 1,
   "role": "template-build",
   "docker_context": "default",
-  "buildkit_builder": "default",
+  "buildkit_builder": "aq-templates",
   "builder_identity": "desktop-1",
   "os_image": "aq-sandbox-os@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "runtime_image": "aq-sandbox-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -120,7 +123,7 @@ manifest digest; the advertised image reference becomes pullable only after
 that separate publication succeeds.
 
 Provenance contains a SHA-256 of canonical recipe JSON (sorted keys, compact
-separators, ASCII escapes), base image digest, runtime-bundle image digest,
+separators, ASCII escapes), output image manifest digest, base image digest, runtime-bundle image digest,
 installed harness version map, UTC build time, configured builder identity,
 and fixed finalize/credential-scan policy versions. Digests and explicit
 builder identity establish traceability; this is not signed build attestation.
@@ -157,9 +160,12 @@ layer DiffIDs, then scans every inherited layer, including files later
 removed or whiteouted. It rejects Codex auth.json (conservatively at any
 path, covering arbitrary CODEX_HOME), Claude/Gemini credential directories,
 Git credentials, netrc, SSH private-key names, Docker credentials and cloud
-CLI configs. It checks symlink/hardlink targets, provider-key/credential
+CLI configs. It conservatively refuses symlink/hardlink aliases of credential directories
+(including .docker, .ssh and .config) and checks provider-key/credential
 environment variables, config/history, known provider token prefixes, private
-key markers, credential assignments, credential-bearing URLs and JWT shapes.
+key markers, credential assignments, HTTP Authorization headers, credential-bearing
+URLs and JWT shapes. Complete quoted JSON credential values and shell assignments
+are checked; ordinary credential-store metadata labels are allowed.
 Values and suspect paths are never printed. This is pattern/path detection,
 not proof that an arbitrary encrypted or unknown-format file is non-secret.
 False positives refuse admission; secrets must never be inputs to a build.

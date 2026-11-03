@@ -196,13 +196,41 @@ class TemplateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'compression'):
                 scanner.scan_oci(archive)
 
+    def test_credential_directory_aliases_cannot_hide_auth_files(self):
+        scanner = load('credential_scan')
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'image.tar'
+            for directory_name, credential_name in [('.docker', 'config.json'),
+                                                     ('.ssh', 'id_rsa'),
+                                                     ('.config', 'gcloud/access_tokens.db')]:
+                with self.subTest(directory=directory_name):
+                    oci(archive, [{'root/' + directory_name: ('/creds',)},
+                                  {'creds/' + credential_name: b'{"auths":{"example":{"auth":"dXNlcjpwYXNz"}}}',
+                                   'opt/aq/manifest.json': json.dumps(bundle()).encode()}])
+                    with self.assertRaisesRegex(ValueError, 'credential'):
+                        scanner.scan_oci(archive)
+
+    def test_outer_oci_directory_collision_refuses(self):
+        scanner = load('credential_scan')
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'image.tar'
+            oci(archive)
+            with tarfile.open(archive, 'a') as tar:
+                duplicate = tarfile.TarInfo('./index.json/')
+                duplicate.type = tarfile.DIRTYPE
+                tar.addfile(duplicate)
+            with self.assertRaisesRegex(ValueError, 'duplicate'):
+                scanner.scan_oci(archive)
+
     def test_nonstandard_secret_shapes_refuse_recipe_and_image(self):
         scanner = load('credential_scan')
         tool = load('template_tool')
         # These catch credentials supplied through URL userinfo, JWTs or lowercase fields.
         secrets = ['https://username:password@example.com/private',
                    'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhYmMifQ.abcdefghijklmnopqrstuv',
-                   'api_key=some-private-value']
+                   'api_key=some-private-value', '"api_key":"some-private-value"',
+                   'AWS_SECRET_ACCESS_KEY=opaque-token-value', 'ANTHROPIC_AUTH_TOKEN=opaque-token-value', 'GITHUB_TOKEN=opaque-token-value',
+                   'Authorization: Bearer opaque-token-value', 'Authorization: Basic dXNlcjpwYXNz']
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory) / 'image.tar'
             for secret in secrets:
@@ -214,6 +242,13 @@ class TemplateTests(unittest.TestCase):
                     oci(archive, [{'random/file': secret.encode()}])
                     with self.assertRaisesRegex(ValueError, 'credential'):
                         scanner.scan_oci(archive)
+
+    def test_credential_metadata_labels_are_not_secret_assignments(self):
+        scanner = load('credential_scan')
+        for label in ['api_key_model_discovery=enabled', 'cli_auth_credentials_store=file',
+                      'OPENAI_API_KEY\":Codex API key byte format',
+                      'OPENAI_API_KEY\":\"scoped Codex auth encoding', 'has_username_or_password://']:
+            self.assertFalse(scanner.secret_shaped(label))
 
     def test_recipe_bounds_secrets_public_prefetch_and_parent_policy(self):
         tool = load('template_tool')
@@ -277,6 +312,8 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(entry, result)
             self.assertEqual(entry['image_reference'], 'registry.example/aq/template@' + digest)
             provenance = entry['provenance']
+            self.assertEqual(provenance['image_digest'], digest)
+            self.assertEqual(json.loads((root / 'output/provenance.json').read_text())['image_digest'], digest)
             self.assertEqual(provenance['base_digest'], 'sha256:' + 'a' * 64)
             self.assertEqual(provenance['runtime_bundle_digest'], 'sha256:' + 'b' * 64)
             self.assertEqual(provenance['builder_identity'], 'desktop-1')
@@ -318,6 +355,10 @@ class BuildTests(unittest.TestCase):
 
     def test_cli_build_uses_embedded_tools_without_source_tree(self):
         binary = os.environ['AQ_TEMPLATE_BINARY']
+        # The scanner itself is embedded in runtime bytes; its patterns must
+        # not classify their own source representation as a credential.
+        with open(binary, 'rb') as stream:
+            load('credential_scan').scan_content(stream)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             digest = self.setup_build(root)

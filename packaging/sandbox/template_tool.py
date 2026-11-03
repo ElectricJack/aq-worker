@@ -149,10 +149,12 @@ def validate_entry(entry):
     if not scan.DIGEST.fullmatch(entry['image_digest']) or not entry['image_reference'].endswith('@' + entry['image_digest']):
         raise ValueError('allowlist digest mismatch')
     provenance = entry['provenance']
-    expected = {'recipe_digest', 'base_digest', 'runtime_bundle_digest', 'harness_versions',
+    expected = {'image_digest', 'recipe_digest', 'base_digest', 'runtime_bundle_digest', 'harness_versions',
                 'built_at', 'builder_identity', 'finalize_policy', 'credential_scan_policy'}
     if not isinstance(provenance, dict) or set(provenance) != expected:
         raise ValueError('invalid allowlist provenance')
+    if provenance['image_digest'] != entry['image_digest']:
+        raise ValueError('provenance image digest mismatch')
     for key in ['recipe_digest', 'base_digest', 'runtime_bundle_digest']:
         if not scan.DIGEST.fullmatch(provenance[key]):
             raise ValueError('invalid provenance digest')
@@ -240,7 +242,8 @@ def build(recipe_path, config_path, output_path):
             raise ValueError('BuildKit build/finalize failed; template not admitted') from error
     scanned = scan.scan_oci(output / 'image.oci.tar')
     versions = {item['name']: item['version'] for item in scanned['bundle_manifest']['harnesses']}
-    provenance = {'recipe_digest': 'sha256:' + hashlib.sha256(canonical(recipe)).hexdigest(),
+    provenance = {'image_digest': scanned['image_digest'],
+                  'recipe_digest': 'sha256:' + hashlib.sha256(canonical(recipe)).hexdigest(),
                   'base_digest': base.split('@')[1],
                   'runtime_bundle_digest': cfg['runtime_image'].split('@')[1],
                   'harness_versions': versions,
