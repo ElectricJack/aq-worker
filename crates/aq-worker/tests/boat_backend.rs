@@ -12,6 +12,8 @@ use uuid::Uuid;
 #[path = "support/boat_double.rs"]
 mod boat_double;
 use boat_double::BoatDouble;
+#[path = "support/boat_vm_time.rs"]
+mod vm_time;
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -51,6 +51,15 @@ pub trait PlacementBackend: Send {
         &mut self,
         node_id: Uuid,
     ) -> impl Future<Output = Result<Vec<InventoryEntry>, BackendError>> + Send;
+    /// Controller proof: complete inventory plus abandonment before any create
+    /// intent. Backends with lifecycle accounting may persist a zero interval.
+    fn record_not_created(
+        &mut self,
+        _request: &CreateRequest,
+        _at_ms: u64,
+    ) -> impl Future<Output = Result<(), BackendError>> + Send {
+        async { Ok(()) }
+    }
     fn stop(
         &mut self,
         sandbox: &SandboxIdentity,
