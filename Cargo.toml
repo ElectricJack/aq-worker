@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/aq-responses-transport", "crates/aq-codex-mapper", "crates/aq-agent-client", "crates/aq-agent-result-local", "crates/aq-observation-engine", "crates/aq-observation-redb-prototype", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-terminal-bridge", "crates/aq-terminal-renderer", "crates/aq-worker-protocol", "crates/aq-worker"]
 
-exclude = ["vendor/aq-admission-0.1.11", "vendor/aq-phase-terminal-protocol-0.1.2", "vendor/aq-admission-0.1.10", "vendor/aq-phase-terminal-protocol-0.1.1", "vendor/aq-phase-terminal-protocol-0.1.0", "vendor/aq-admission-0.1.9", "vendor/aq-admission-0.1.7", "vendor/aq-admission-0.1.6", "vendor/aq-agent-api-0.1.0", "vendor/aq-terminal-relay-protocol-0.1.0", "vendor/aq-terminal-relay-0.1.0", "vendor/aq-session-api-0.1.0"]
+exclude = [".aq", "vendor/aq-admission-0.1.11", "vendor/aq-phase-terminal-protocol-0.1.2", "vendor/aq-admission-0.1.10", "vendor/aq-phase-terminal-protocol-0.1.1", "vendor/aq-phase-terminal-protocol-0.1.0", "vendor/aq-admission-0.1.9", "vendor/aq-admission-0.1.7", "vendor/aq-admission-0.1.6", "vendor/aq-agent-api-0.1.0", "vendor/aq-terminal-relay-protocol-0.1.0", "vendor/aq-terminal-relay-0.1.0", "vendor/aq-session-api-0.1.0"]
 
 [patch.crates-io]
 aq-admission = { path = "vendor/aq-admission-0.1.11" }

@@ -611,12 +611,11 @@ async fn drive_running_owned(
     }
     // Stop and its journal precede the bounded metadata-only final flush.
     // A failed flush retains the execution error but does not gate B1 recording.
-    if let Some(control) = control_receipts {
-        if let Err(error) = control.flush_control_receipts().await {
-            if operation.is_ok() {
-                operation = Err(error);
-            }
-        }
+    if let Some(control) = control_receipts
+        && let Err(error) = control.flush_control_receipts().await
+        && operation.is_ok()
+    {
+        operation = Err(error);
     }
     let stopped = async {
         let state = pipeline.snapshot().await?;

@@ -1,0 +1,25 @@
+COMMAND: ["cargo", "test", "--locked", "-p", "aq-worker", "--features", "test-support", "--lib", "--", "runtime_clock_reaches", "phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive_owner", "phase_execution_outlives_preparation_without_retiming_historical_source_proof", "phase_input_expiry_and_foreign_observation_refuse_without_intents", "expired_initial_token_never_reads_or_publishes_positive", "native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline", "phase_execution_expiry_during_fsync_is_history_only_and_keeps_resources", "positive_cannot_survive_expiry_during_read_but_scoped_missing_can", "changed_phase_intent_or_receipt_cannot_replace_first_history", "replay_before_first_persistence_retains_original_transmission_after_proposal_expiry", "native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence"]
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.62s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-2878010d4b99d179)
+
+running 15 tests
+test native::http::test_clock::runtime_clock_reaches_async_and_blocking_workers_and_cleans_up ... ok
+test native::journal::tests::hydration_scenarios::native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence ... ok
+test native::journal::tests::hydration_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_expiry_during_fsync_is_history_only_and_keeps_resources ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive_owner ... ok
+test native::journal::tests::hydration_scenarios::phase_input_expiry_and_foreign_observation_refuse_without_intents ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::expired_initial_token_never_reads_or_publishes_positive ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_outlives_preparation_without_retiming_historical_source_proof ... ok
+test native::journal::tests::preparation_v2_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::preparation_v2_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::positive_cannot_survive_expiry_during_read_but_scoped_missing_can ... ok
+test native::journal::tests::refresh_physical_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline ... ok
+test native::journal::tests::refresh_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::refresh_physical_scenarios::native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence ... ok
+test native::journal::tests::refresh_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 25.40s
+

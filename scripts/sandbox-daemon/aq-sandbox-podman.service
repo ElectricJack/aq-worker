@@ -1,0 +1,26 @@
+# systemd --user unit for the dedicated docker-local sandbox daemon.
+# Install: copy aq-sandbox-podman.sh to ~/.local/bin, this file to
+# ~/.config/systemd/user/, then `systemctl --user daemon-reload &&
+# systemctl --user enable --now aq-sandbox-podman.service`.
+# WSL2: needs `[boot] systemd=true` in /etc/wsl.conf; the user manager only
+# runs while a WSL session is open unless `loginctl enable-linger` is set.
+# Autostart policy is out of scope for C2 (E6a/E6b) and is not enabled here.
+[Unit]
+Description=AQ dedicated rootless sandbox daemon (Podman API)
+Documentation=file:%h/.local/opt/aq-sandbox-podman
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/aq-sandbox-podman.sh serve
+# Qualification fallback when newuidmap/newgidmap are unavailable; every
+# container then shares one host UID (see docs/implementation/C2.md).
+#Environment=AQ_SANDBOX_SINGLE_UID=1
+# Containers outlive a daemon restart (conmon keeps them), so only the API
+# process is stopped; the worker treats the gap as unknown, never gone.
+KillMode=process
+Restart=on-failure
+RestartSec=5
+Delegate=cpu memory pids
+
+[Install]
+WantedBy=default.target

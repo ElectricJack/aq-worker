@@ -1,0 +1,40 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 1 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C1-evidence/test_cargo_check.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 1 item
+
+docs/implementation/C1-evidence/test_cargo_check.py COMMAND: ['cargo', 'test', '--locked', '-p', 'aq-worker', '--test', 'execution']
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.90s
+     Running tests/execution.rs (target/debug/deps/execution-144e7abe8b5e0702)
+
+running 17 tests
+test admission_replay_and_changed_bytes_are_distinct ... ok
+test competing_projects_share_one_durable_capacity_budget ... ok
+test actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test exclusive_owner_and_unknown_state_format_fail_closed ... ok
+test launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired ... ok
+test observations_and_directive_receipts_cross_durable_boundary ... ok
+test orderly_journal_release_does_not_wait_for_an_unrelated_fork_child ... ok
+test oversized_journal_is_refused_before_deserialization ... ok
+test profiled_tmux_launch_remains_refused_until_authority_integration ... ok
+test request_send_time_includes_network_delay_and_suspend ... ok
+test directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+test uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test write_failures_never_acknowledge_unpersisted_admission ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.17s
+
+.
+
+============================== 1 passed in 13.33s ==============================

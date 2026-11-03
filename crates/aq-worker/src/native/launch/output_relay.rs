@@ -509,14 +509,12 @@ async fn drain(outputs: Weak<Mutex<Outputs>>, entry: Weak<Entry>, relay: Weak<Re
             // or hold a physical/journal lock over its guardian handshake.
             tokio::task::spawn_blocking(move || {
                 let opened = open_viewer(&opening_entry, &opening_relay.terminal);
-                if let Ok(viewer) = opened {
-                    if let Ok(mut physical) = opening_entry.physical.lock() {
-                        if !opening_entry.stop.load(Ordering::SeqCst)
-                            && matches!(physical.outcome, Outcome::Running)
-                        {
-                            physical.viewer = Some(viewer);
-                        }
-                    }
+                if let Ok(viewer) = opened
+                    && let Ok(mut physical) = opening_entry.physical.lock()
+                    && !opening_entry.stop.load(Ordering::SeqCst)
+                    && matches!(physical.outcome, Outcome::Running)
+                {
+                    physical.viewer = Some(viewer);
                 }
                 opening_relay.viewer_opening.store(false, Ordering::SeqCst);
             });

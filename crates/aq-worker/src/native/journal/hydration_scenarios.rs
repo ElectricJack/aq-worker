@@ -1097,9 +1097,7 @@ async fn phase_physical(
     let before = h.pipeline().snapshot().await.unwrap();
     let a = &before.attempts[&h.id];
     let cap = a.reservation.deadline_ns;
-    while boot_ns().unwrap() <= cap {
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
+    crate::native::http::test_clock::expire(cap).await;
     let spec = h
         .pipeline()
         .artifact_phase(h.id, accepted.clone(), h.reference.clone())
@@ -1191,9 +1189,12 @@ async fn shorter_phase(
 }
 #[tokio::test]
 async fn phase_input_expiry_and_foreign_observation_refuse_without_intents() {
+    let clock = crate::native::http::test_clock::TestClock::new();
     let h = Inputs::new_phase(synthetic()).await;
     let short = shorter_phase(&h, 50).await;
-    tokio::time::sleep(std::time::Duration::from_millis(70)).await;
+    // Acceptance succeeds before the cap even if HTTP is delayed by shared load.
+    // Refuse at the exact original deadline, without granting a fresh interval.
+    clock.advance_to(short.deadline_ns());
     assert!(
         h.pipeline()
             .artifacts_phase(h.id, short.clone())

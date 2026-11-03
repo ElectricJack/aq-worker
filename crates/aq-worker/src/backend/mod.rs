@@ -7,8 +7,9 @@ mod lifecycle;
 pub use lifecycle::*;
 mod fake;
 pub use fake::{FakeBackend, Fault};
-#[cfg(feature = "test-support")]
+#[cfg(feature = "backend-conformance")]
 pub mod conformance;
+pub mod docker_local;
 
 use std::future::Future;
 use uuid::Uuid;
