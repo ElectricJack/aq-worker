@@ -11,6 +11,7 @@ This repository contains the extracted foundation connector and an execution-pro
 - [Profiled tmux sessions and outbound terminal access](docs/specs/0003-profiled-tmux-sessions.md) (design; not current synthetic-runtime functionality)
 - [Session observation, transcript accounting and suspension](docs/specs/0004-session-observation-and-suspension.md) (design; includes cross-node continuation startup)
 - [Worker protocol ownership](protocol/README.md)
+- [Qualified opt-in Docker settings for Codex workspace tools](docs/operations/codex-docker-security.md)
 - [Local source workspaces](docs/source-workspaces.md)
 - [Resumable source transfer candidate](docs/source-transfers.md)
 - [Scoped agent client and protected provisioning](crates/aq-agent-client/README.md)
