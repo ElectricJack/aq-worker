@@ -22,16 +22,17 @@ foundation types are independently preserved in `aq-protocol` 0.1.0.
 
 ## Native sandbox contract (B1)
 
-The next native execution contract is **aq-admission 0.2.0**, owned here at
+The next native execution contract is **aq-admission 0.3.0**, owned here at
 [`aq-admission/`](aq-admission/README.md). It carries forward the frozen native
 wire types and adds delegated runner permits, node re-adoption, sandbox channel
-identity and backend/template registration. The Rust source generates the
+identity, backend/template registration and (B1b) acceptance-to-permit issuance,
+preparation-to-execution upgrade and registration-v2 enrollment envelopes. The Rust source generates the
 [sandbox schema](aq-admission/artifacts/sandbox-v1.schema.json); both endpoints
 consume the [published conformance fixtures](aq-admission/artifacts/sandbox-v1.fixtures.json).
 The schema drift test is part of the workspace CI test command.
 
 The legacy `aq-worker-protocol` execution-v2 publication and installed native
 0.1.11 endpoints retain their existing contracts. New sandbox consumers pin
-`aq-admission = "=0.2.0"` and the exact release source revision/fingerprint;
+`aq-admission = "=0.3.0"` and the exact release source revision/fingerprint;
 publication alone does not install new endpoints. See [B1 evidence](../docs/implementation/B1.md)
 for publication state and downstream migration responsibilities.
