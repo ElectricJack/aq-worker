@@ -46,10 +46,18 @@ impl RunConfig {
 /// Explicit production fence until B2 publishes its authenticated transport.
 /// Never substitute a legacy endpoint or synthesize a grant locally.
 pub struct UnavailableProvider;
+#[derive(Debug)]
+pub struct ProviderUnavailable;
+impl std::fmt::Display for ProviderUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("B2 registration/issuance provider is not installed")
+    }
+}
+impl std::error::Error for ProviderUnavailable {}
 impl PermitProvider for UnavailableProvider {
     type Request = ();
     async fn register(&mut self, _: &Registration) -> Result<()> {
-        anyhow::bail!("B2 registration/issuance provider is not installed")
+        Err(ProviderUnavailable.into())
     }
     async fn issue(
         &mut self,
@@ -57,10 +65,34 @@ impl PermitProvider for UnavailableProvider {
         _: &SandboxIdentity,
         _: &LaunchManifest,
     ) -> Result<IssuedMaterial> {
-        anyhow::bail!("B2 registration/issuance provider is not installed")
+        Err(ProviderUnavailable.into())
     }
 }
 impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
+    /// Keep the foundation connector alive when B2 is absent. The controller
+    /// remains unregistered (GrantDenied), owns its root, and never admits work.
+    /// Other controller errors and terminal connector failures still stop run.
+    pub async fn run_with_heartbeat(
+        &mut self,
+        shutdown: watch::Receiver<bool>,
+        heartbeat: impl Future<Output = std::result::Result<(), crate::client::CallError>>,
+    ) -> Result<()> {
+        tokio::pin!(heartbeat);
+        let result = tokio::select! {
+            result = self.run(shutdown) => match result {
+                Err(e) if e.is::<ProviderUnavailable>() => {
+                    tracing::warn!("{e:#}; admission fenced; foundation heartbeat remains active");
+                    heartbeat.await.map_err(anyhow::Error::from)
+                }
+                result => result,
+            },
+            result = &mut heartbeat => result.map_err(anyhow::Error::from),
+        };
+        // Drain on either service exit while preserving the primary cause.
+        let drain = self.set_draining(true);
+        result.and(drain)
+    }
+
     /// Own identity and root for the service lifetime. B2 will compose native
     /// offer/acceptance observations with reserve/accept_with/launch. There is
     /// deliberately no guessed polling or issuance route in this service.

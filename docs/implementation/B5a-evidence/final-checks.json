@@ -23,5 +23,35 @@
     "command": "cargo clippy --locked --workspace --all-targets -- -D warnings",
     "exit_code": 0,
     "log": "docs/implementation/B5a-evidence/clippy.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "-p",
+      "aq-worker",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-fmt-worker.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-fmt-workspace.log"
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check",
+      "HEAD^"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-whitespace.log"
   }
 ]

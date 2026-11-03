@@ -189,6 +189,15 @@ fn exit_for(e: &CallError) -> ExitCode {
     }
 }
 
+fn run_error(e: &anyhow::Error) -> (String, ExitCode) {
+    (
+        format!("{e:#}"),
+        e.downcast_ref::<CallError>()
+            .map(exit_for)
+            .unwrap_or_else(|| ExitCode::from(2)),
+    )
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -450,22 +459,21 @@ async fn main() -> ExitCode {
                 });
                 let mut heartbeat_shutdown = rx.clone();
                 tracing::info!(node_id = %controller.identity().node_id, boot_id = %controller.identity().boot_id, "node controller starting");
-                let result = tokio::select! {
-                    result = controller.run(rx) => result,
-                    result = run_loop(&client, async move {
+                let result = controller.run_with_heartbeat(rx, run_loop(&client, async move {
                         while !*heartbeat_shutdown.borrow() {
                             if heartbeat_shutdown.changed().await.is_err() { break; }
                         }
-                    }) => result.map_err(anyhow::Error::from),
-                };
+                    })).await;
                 watcher.abort();
                 result
             }.await;
             match result {
                 Ok(()) => ExitCode::SUCCESS,
-                Err(_) => usage_err(
-                    "node controller unavailable; B2 registration/issuance provider must be installed; preserve state for reconciliation",
-                ),
+                Err(e) => {
+                    let (message, code) = run_error(&e);
+                    eprintln!("error: {message}");
+                    code
+                }
             }
         }
         Cmd::Enroll {
@@ -560,4 +568,42 @@ fn production_cli_does_not_expose_lost_b1_ack_replay() {
 fn run_requires_explicit_controller_configuration() {
     assert!(Cli::try_parse_from(["aq-worker", "run"]).is_err());
     assert!(Cli::try_parse_from(["aq-worker", "run", "--controller-config", "/node.json"]).is_ok());
+}
+
+#[cfg(test)]
+#[test]
+fn run_errors_preserve_cause_and_connector_exit_codes() {
+    use aq_protocol::CompatibilityError;
+    for (error, expected) in [
+        (CallError::Revoked, 3),
+        (CallError::InvalidCredential, 3),
+        (
+            CallError::Incompatible(CompatibilityError {
+                error: "unsupported_protocol".into(),
+                message: "protocol mismatch".into(),
+                supported_min: 2,
+                supported_max: 2,
+            }),
+            4,
+        ),
+        (CallError::AccessRejected, 5),
+        (CallError::Other("probe nonce mismatch".into()), 2),
+    ] {
+        let cause = error.to_string();
+        let error = anyhow::Error::new(error).context("foundation connector");
+        let (message, code) = run_error(&error);
+        assert_eq!(code, ExitCode::from(expected));
+        assert!(message.contains(&cause));
+        assert!(message.contains("foundation connector"));
+    }
+    for cause in [
+        "controller root already owned",
+        "journal checksum mismatch",
+        "Docker socket unavailable",
+    ] {
+        let error = anyhow::anyhow!("{cause}").context("controller startup");
+        let (message, code) = run_error(&error);
+        assert_eq!(code, ExitCode::from(2));
+        assert_eq!(message, format!("controller startup: {cause}"));
+    }
 }

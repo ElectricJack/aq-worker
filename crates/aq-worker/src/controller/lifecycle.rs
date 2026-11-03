@@ -91,6 +91,15 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             a.sandbox.as_ref() == Some(proof.sandbox()),
             "backend proof names another sandbox"
         );
+        if proof.kind() == WriterProofKind::Destroyed
+            && !(matches!(a.phase, Phase::DestroyIntent | Phase::Destroyed)
+                && a.destroy_authorization
+                    .as_ref()
+                    .is_some_and(|auth| auth.authorizes(proof.sandbox())))
+        {
+            self.journal.poisoned = true;
+            anyhow::bail!("backend reported destruction without durable destroy authority");
+        }
         a.phase = match proof.kind() {
             WriterProofKind::StoppedNoProcesses => Phase::Stopped,
             WriterProofKind::Destroyed => Phase::Destroyed,

@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--bin",
+    "aq-worker",
+    "run_"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5a-evidence/revision-cli.log"
+}

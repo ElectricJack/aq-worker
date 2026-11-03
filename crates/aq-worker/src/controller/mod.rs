@@ -1,7 +1,7 @@
 //! Durable node controller. All agent execution remains inside the backend.
 mod journal;
 mod service;
-pub use service::{RunConfig, UnavailableProvider};
+pub use service::{ProviderUnavailable, RunConfig, UnavailableProvider};
 mod lifecycle;
 mod storage;
 mod types;

@@ -1,0 +1,9 @@
+{
+  "command": [
+    "cargo",
+    "fmt",
+    "--check"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5a-evidence/revision-fmt-workspace.log"
+}

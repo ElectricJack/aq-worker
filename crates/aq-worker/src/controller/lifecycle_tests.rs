@@ -305,3 +305,48 @@ async fn expired_permit_cannot_deliver_or_start() {
     assert_eq!(c.inventory().reserved_sandboxes, 1);
     assert!(!dir.path().join(format!("node/permit-{id}.json")).exists());
 }
+
+#[tokio::test]
+async fn destroyed_stop_proof_without_authority_poisons_and_retains_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = open(&dir, false);
+    let id = accept(&mut c).await;
+    c.launch(id, &()).await.unwrap();
+    c.backend.inner.inject(Fault::DestroyedOnStop);
+    let error = c.stop(id).await.unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("without durable destroy authority")
+    );
+    assert_eq!(c.state().attempts[&id].phase, Phase::StopIntent);
+    assert!(c.state().attempts[&id].stopped.is_none());
+    assert_eq!(c.inventory().reserved_sandboxes, 1);
+    assert_eq!(
+        c.inventory().available_disk_bytes,
+        config().capacity.disk_bytes - 1
+    );
+    assert_eq!(c.inventory().refusal, Some(RefusalReason::GrantDenied));
+}
+
+#[tokio::test]
+async fn destroyed_inspection_without_authority_poisons_and_retains_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = open(&dir, false);
+    let id = accept(&mut c).await;
+    c.launch(id, &()).await.unwrap();
+    c.stop(id).await.unwrap();
+    c.backend.inner.inject(Fault::DestroyedOnInspect);
+    let error = c.inspect(id).await.unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("without durable destroy authority")
+    );
+    assert_eq!(c.state().attempts[&id].phase, Phase::Stopped);
+    assert_eq!(
+        c.inventory().available_disk_bytes,
+        config().capacity.disk_bytes - 1
+    );
+    assert_eq!(c.inventory().refusal, Some(RefusalReason::GrantDenied));
+}
