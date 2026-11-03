@@ -139,8 +139,13 @@ impl RunnerRenewalResponse {
             _ => Err(ContractError::DeadlineMismatch),
         }
     }
-    /// B2 must additionally authenticate the credential, compare the exact origin
-    /// and revision to retained server state, and atomically persist the mutation.
+    /// Runner-side acceptance against trusted state retained BEFORE renewal.
+    /// `current` validates the request's installed permit; a correlated renewed
+    /// permit can extend its expiry up to the unchanged original hard deadline.
+    /// Never derive `current` from the response being checked. Call only on an
+    /// authenticated server reply. B2 must additionally authenticate the credential,
+    /// compare exact origin/revision to retained state, atomically persist the
+    /// mutation, and validate issuance against its post-renewal grant context.
     pub fn validate_for(
         &self,
         request: &RunnerRenewalRequest,
@@ -187,7 +192,13 @@ impl RunnerRenewalResponse {
                         && permit.issued_at_ms >= request.permit.issued_at_ms,
                     ContractError::DeadlineMismatch,
                 )?;
-                permit.validate_for(current, RunnerOperation::Renew, now_ms)?;
+                // Shape/scope are checked by self.validate(), and binding/hard
+                // deadline above are correlated with the live installed permit.
+                // Its old grant expiry must not cap the newly issued lease.
+                check(
+                    permit.issued_at_ms <= now_ms && now_ms < permit.expires_at_ms,
+                    ContractError::Expired,
+                )?;
                 self.delivery
                     .as_ref()
                     .ok_or(ContractError::InvalidShape)?

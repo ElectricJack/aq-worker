@@ -169,6 +169,7 @@
           "type": "string"
         },
         "schema_version": {
+          "const": 1,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -292,6 +293,7 @@
           "type": "string"
         },
         "schema_version": {
+          "const": 1,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -469,6 +471,7 @@
           "type": "array"
         },
         "schema_version": {
+          "const": 1,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -504,6 +507,7 @@
           "type": "array"
         },
         "schema_version": {
+          "const": 1,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -587,6 +591,7 @@
           "$ref": "#/$defs/ArtifactRef"
         },
         "schema_version": {
+          "const": 1,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -612,6 +617,7 @@
           "$ref": "#/$defs/Register"
         },
         "schema_version": {
+          "const": 2,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -726,6 +732,7 @@
           "type": "integer"
         },
         "schema_version": {
+          "const": 1,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -762,6 +769,7 @@
           "type": "integer"
         },
         "schema_version": {
+          "const": 1,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
