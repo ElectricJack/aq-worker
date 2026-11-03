@@ -1,0 +1,43 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.74s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-85b5f771be1e69d4)
+
+running 15 tests
+test controller::tests::unavailable_provider_refuses_before_backend_effects ... FAILED
+test controller::tests::run_registers_holds_root_and_drains_on_shutdown ... FAILED
+test controller::tests::registration_advertises_actual_backend_and_template_versions ... ok
+test controller::tests::startup_rejects_second_owner_bad_version_symlink_and_missing_state ... ok
+test controller::tests::root_replacement_prevents_reservation_or_acceptance ... ok
+test controller::tests::reservation_is_durable_before_acceptance_and_timeout_holds_capacity ... ok
+test controller::tests::unregistered_and_wrong_boot_offers_are_refused ... ok
+test controller::tests::capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason ... ok
+test controller::lifecycle_tests::failed_intent_write_prevents_create_and_poison_blocks_admission ... ok
+test controller::lifecycle_tests::ambiguous_create_is_not_retried_or_released ... ok
+test controller::tests::startup_rotates_boot_and_holds_old_reservations ... ok
+test controller::lifecycle_tests::wrong_permit_cannot_deliver_or_start ... ok
+test controller::lifecycle_tests::journal_records_intent_before_backend_create ... ok
+test controller::lifecycle_tests::stop_and_destroy_require_confirmation_and_retention ... ok
+test controller::tests::capacity_checks_spend_resources_environment_and_drain ... ok
+
+failures:
+
+---- controller::tests::unavailable_provider_refuses_before_backend_effects stdout ----
+
+thread 'controller::tests::unavailable_provider_refuses_before_backend_effects' (1828629) panicked at crates/aq-worker/src/controller/tests.rs:343:5:
+assertion failed: c.run(rx).await.is_err()
+
+---- controller::tests::run_registers_holds_root_and_drains_on_shutdown stdout ----
+
+thread 'controller::tests::run_registers_holds_root_and_drains_on_shutdown' (1828626) panicked at crates/aq-worker/src/controller/tests.rs:329:5:
+assertion failed: tokio::time::timeout(std::time::Duration::from_millis(25),
+            &mut service).await.is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    controller::tests::run_registers_holds_root_and_drains_on_shutdown
+    controller::tests::unavailable_provider_refuses_before_backend_effects
+
+test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 236 filtered out; finished in 0.82s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

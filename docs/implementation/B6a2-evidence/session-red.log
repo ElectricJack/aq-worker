@@ -1,0 +1,27 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 34s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-137b6e47490acd4b)
+
+running 1 test
+test native::runner::sandbox::auth_tests::runner_refuses_foreign_session_on_mail_and_terminal_routes ... FAILED
+
+failures:
+
+---- native::runner::sandbox::auth_tests::runner_refuses_foreign_session_on_mail_and_terminal_routes stdout ----
+
+thread 'native::runner::sandbox::auth_tests::runner_refuses_foreign_session_on_mail_and_terminal_routes' (2924657) panicked at crates/aq-worker/src/native/runner/sandbox/auth_tests.rs:267:9:
+assertion failed: http.post(route, &permit.binding,
+            &json!({"recipient":{"session_id":Uuid::new_v4()}})).await.is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    native::runner::sandbox::auth_tests::runner_refuses_foreign_session_on_mail_and_terminal_routes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 265 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

@@ -1,0 +1,52 @@
+   Compiling uuid v1.29.0
+   Compiling tracing v0.1.44
+   Compiling hyper v1.12.0
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-protocol)
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.10
+   Compiling tower-http v0.6.11
+   Compiling aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-lifecycle-protocol)
+   Compiling toml_datetime v0.6.11
+   Compiling serde_spanned v0.6.9
+   Compiling toml_edit v0.22.27
+   Compiling reqwest v0.12.28
+   Compiling aq-session-api v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-session-api-0.1.0)
+   Compiling chrono v0.4.45
+   Compiling aq-terminal-relay v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-terminal-relay-0.1.0)
+   Compiling aq-session-host v0.1.6 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-host)
+   Compiling toml v0.8.23
+   Compiling aq-admission v0.1.11 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-admission-0.1.11)
+   Compiling tracing-subscriber v0.3.23
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-terminal-bridge)
+   Compiling aq-phase-terminal-protocol v0.1.2 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-phase-terminal-protocol-0.1.2)
+   Compiling aq-codex-mapper v0.1.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-codex-mapper)
+   Compiling aq-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-protocol)
+   Compiling aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-responses-transport)
+   Compiling aq-admission v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/protocol/aq-admission)
+   Compiling aq-agent-result-local v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-agent-result-local)
+   Compiling aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker-protocol)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s
+     Running `target/debug/aq-worker --help`
+Agent Q worker connector
+
+Usage: aq-worker [OPTIONS] <COMMAND>
+
+Commands:
+  template      Build or scan sandbox templates on an explicitly configured build node
+  enroll        Enroll this machine. Secrets are read from a prompt or from stdin lines (code, then CF client id and secret with --cf-service-token)
+  run           Own node identity, capacity and sandbox lifecycle until stopped
+  run-native    Execute one fresh native attempt using an installed qualified executor. Until a concrete production executor is installed, refuses before admission
+  sandbox-run   Consume a frozen local handoff. HTTP transport awaits B2/B6a2 wiring
+  check-native  Validate native configuration and installed executor without admission
+  status        Print the node id and server (never the credential)
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+      --config <CONFIG>  Path to worker.toml (default: $XDG_CONFIG_HOME/agent-q/worker.toml)
+  -h, --help             Print help
+  -V, --version          Print version

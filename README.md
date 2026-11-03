@@ -26,7 +26,9 @@ Sibling links assume side-by-side checkouts. They are documentation references, 
 
 Run `cargo test --workspace --locked --all-features` and
 `cargo fmt -- --check` from the repository root
-without sibling repositories or external services.
+without sibling repositories or external services. The taskless supervisor host
+qualification tests require Linux with `/usr/bin/tmux` installed (CI installs
+tmux explicitly); they exercise real local processes without a provider.
 The formatting command checks every member of this virtual workspace, including
 its tests and examples. Omit `-- --check` to apply formatting.
 
@@ -55,6 +57,10 @@ them. All local build dependencies are inside that extracted tree. Keep the
 temporary directory for inspection, then remove it when finished.
 
 The foundation connector retains `aq-worker enroll`, `run`, and `status`.
+`run` requires `--controller-config /absolute/node.json` in addition to enrollment
+configuration. Until B2 is installed, it logs the registration refusal and keeps
+foundation probe/heartbeat/reconnect active with admission fenced. It cannot
+execute sandboxes. See [controller configuration and limits](docs/implementation/B5a.md).
 `aq-fixture-agent` is a synthetic deterministic test process, not a real agent harness.
 See [implementation evidence](docs/implementation/README.md).
 

@@ -1,0 +1,11 @@
+All commands below returned exit status 0 on source ebc4b27f0bf4883d972865184086c35a82663b58:
+cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key
+cargo test --locked --workspace aq_proxy_injects_access_header_without_exposing_token
+cargo test --locked -p aq-worker --test sandbox_security --test sandbox_runner
+cargo test --locked -p aq-session-host --test supervisor_session
+cargo test --locked -p aq-session-host users::tests
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+scripts/test-b6b-root.sh target/debug/aq-b6b-user-probe
+aq git pull --branch main --brief
+origin/main 5e05a02816d95122877f6e9fe29ba3055f1f371f is an ancestor of source HEAD; pull changed no files.

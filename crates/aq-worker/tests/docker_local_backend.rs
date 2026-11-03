@@ -155,6 +155,40 @@ async fn refuses_non_rootless_daemon() {
 }
 
 #[tokio::test]
+async fn refuses_daemon_that_drops_resource_limits() {
+    const NO_DRIVER: BackendError = BackendError::InvalidRequest(
+        "sandbox daemon reports no cgroup driver; resource limits would be silently dropped",
+    );
+    const NOT_V2: BackendError = BackendError::InvalidRequest(
+        "sandbox daemon must use cgroup v2; resource limits would be silently dropped",
+    );
+    let socket = owned_socket();
+    let config = DockerLocalConfig::new(socket.path.clone());
+    let cases = [
+        (Some("systemd"), Some("2"), None),
+        (Some("cgroupfs"), Some("2"), None),
+        // docker:dind-rootless
+        (Some("none"), Some("2"), Some(NO_DRIVER)),
+        (None, Some("2"), Some(NO_DRIVER)),
+        (Some("systemd"), Some("1"), Some(NOT_V2)),
+        (Some("cgroupfs"), Some("1"), Some(NOT_V2)),
+        (Some("systemd"), None, Some(NOT_V2)),
+    ];
+    for (driver, version, expected) in cases {
+        let result = bounded(DockerLocalBackend::connect(
+            config.clone(),
+            ScriptedDocker::new().cgroup(driver, version),
+        ))
+        .await;
+        assert_eq!(
+            result.err(),
+            expected,
+            "driver {driver:?} version {version:?}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn connect_times_out_as_uncertain() {
     let socket = owned_socket();
     let mut config = DockerLocalConfig::new(socket.path.clone());

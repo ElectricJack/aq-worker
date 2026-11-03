@@ -130,6 +130,7 @@ fn begin(journal: &mut Journal, id: Uuid, p: &ProposedPreparation) -> AcceptRequ
 
 #[tokio::test]
 async fn phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (dir, mut journal, id, client, _peer, p) = reserved().await;
     let q = begin(&mut journal, id, &p);
     let revision = journal.state().revision;
@@ -147,7 +148,7 @@ async fn phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths
     assert!(journal.state().attempts[&id].preparation.is_none());
     let revision = journal.state().revision;
     assert_eq!(first.record_revision, revision);
-    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+    crate::native::http::test_clock::expire(p.original_deadline_ns()).await;
     let retry = begin(&mut journal, id, &p);
     assert_eq!(
         canonical_bytes(&retry).unwrap(),
@@ -190,10 +191,11 @@ async fn phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths
 
 #[tokio::test]
 async fn replay_before_first_persistence_retains_original_transmission_after_proposal_expiry() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (_dir, mut journal, id, client, _peer, p) = reserved().await;
     let q = begin(&mut journal, id, &p);
     let first = client.accept_preparation(&p, &q, None).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+    crate::native::http::test_clock::expire(p.original_deadline_ns()).await;
     let again = client
         .accept_preparation(&p, &q, Some(&first))
         .await
@@ -211,12 +213,13 @@ async fn replay_before_first_persistence_retains_original_transmission_after_pro
 
 #[tokio::test]
 async fn expiry_before_recording_keeps_received_history_and_every_resource_hold() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (_dir, mut journal, id, client, peer, p) = reserved().await;
     let q = begin(&mut journal, id, &p);
     peer.remaining.store(100, Ordering::SeqCst);
     let observed = client.accept_preparation(&p, &q, None).await.unwrap();
     let held = journal.available().unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    crate::native::http::test_clock::expire(observed.deadline_ns()).await;
     journal.record_phase_preparation(id, &observed).unwrap();
     assert!(journal.check_phase_preparation(id, &observed).is_err());
     assert_eq!(
@@ -228,6 +231,7 @@ async fn expiry_before_recording_keeps_received_history_and_every_resource_hold(
 
 #[tokio::test]
 async fn intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for receipt in [false, true] {
         for (fault, published) in [
             (WriteFault::BeforeWrite, false),
@@ -277,6 +281,7 @@ async fn intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history() 
 
 #[tokio::test]
 async fn changed_phase_intent_or_receipt_cannot_replace_first_history() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (_dir, mut journal, id, client, _peer, p) = reserved().await;
     let q = begin(&mut journal, id, &p);
     let revision = journal.state().revision;
@@ -307,6 +312,7 @@ async fn changed_phase_intent_or_receipt_cannot_replace_first_history() {
 
 #[tokio::test]
 async fn valid_checksum_cannot_hide_phase_association_or_clock_corruption() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for mode in 0..5 {
         let (dir, mut journal, id, client, _peer, p) = reserved().await;
         let q = begin(&mut journal, id, &p);
@@ -343,6 +349,7 @@ async fn valid_checksum_cannot_hide_phase_association_or_clock_corruption() {
 
 #[tokio::test]
 async fn legacy_protocol_choice_cannot_be_switched_to_phase_after_publication() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (_dir, mut journal, id, _client, _peer, p) = reserved().await;
     journal.begin_accept(id, capabilities()).unwrap();
     let revision = journal.state().revision;
@@ -357,6 +364,7 @@ async fn legacy_protocol_choice_cannot_be_switched_to_phase_after_publication() 
 
 #[tokio::test]
 async fn actual_poll_redelivery_and_original_proposal_are_retained_as_distinct_history() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let dir = tempfile::tempdir().unwrap();
     let mut journal =
         Journal::create_identity(&dir.path().join("native"), identity(), phase_limits()).unwrap();

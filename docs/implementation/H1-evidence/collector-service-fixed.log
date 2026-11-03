@@ -1,0 +1,20 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+error[E0505]: cannot move out of `native` because it is borrowed
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:375:75
+    |
+290 |     let native = temp.path().join("native");
+    |         ------ binding `native` declared here
+...
+375 |         Collector::open_for_owner(&root, src, &native, "rollout.jsonl", &[native], unsafe {
+    |         -------------------------             -------                     ^^^^^^ move out of `native` occurs here
+    |         |                                     |
+    |         |                                     borrow of `native` occurs here
+    |         borrow later used by call
+    |
+help: consider cloning the value if the performance cost is acceptable
+    |
+375 |         Collector::open_for_owner(&root, src, &native.clone(), "rollout.jsonl", &[native], unsafe {
+    |                                                      ++++++++
+
+For more information about this error, try `rustc --explain E0505`.
+error: could not compile `aq-worker` (lib test) due to 1 previous error

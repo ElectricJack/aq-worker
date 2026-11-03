@@ -1,0 +1,54 @@
+Template revalidation after merge of main e833abea
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2
+Foreground runner: CI_STABILITY_REPEATS=20 CI_STABILITY_SELECT=5 CI_STABILITY_LOG_DIR=.aq/tmp/ci-stability/merged-templates aq test .aq/tmp/ci-stability/test_focused.py -q -s
+Per-round command: cargo test --locked --all-features -p aq-worker --test templates
+
+run-01-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.05s
+sha256=b819abe99a76bb6302dcedcc452ca890e3066e64e4f8d03ba7c9d44db8a5d4a1
+run-02-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.07s
+sha256=1de99240ba75aa3a0165cb8dcd0ffab1efef951feb959d94ca7c0dc2cbd670ae
+run-03-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.69s
+sha256=29a20b505e853ff90c4bb716d874f67f2931b23843eaa623c608ac2d8ef275ff
+run-04-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.38s
+sha256=0b84a493fc4abfefcca098f08903d603fe54d9c3434528ee1982a64ec102b439
+run-05-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.62s
+sha256=788cdadd5f34b8c114415b68349e1e0e3ad37140bd18dd218debcbde83a373e3
+run-06-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.46s
+sha256=17a7add5e796482d57460553992b8111648d90b707cc1b1564a0408a0db9f91b
+run-07-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.10s
+sha256=98af839fede0bcab75408f22ff132d11cc5602d85248038fd386a9e6e98d8a65
+run-08-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.96s
+sha256=94eeaf4d02f9e6f33d79603684ee5fad3ebea3a9bbe6bb700ee93682631be3b1
+run-09-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.09s
+sha256=2aec325d5baa4448112008a6411206933bae3f5d1e185d51b94ae6a0d281677a
+run-10-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.24s
+sha256=69b11cc0158db0a793c27bf4750321c88896bde0de9bd6e829c743a86c0fac1b
+run-11-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.46s
+sha256=c6dbd4284c6a09bbb4d84ede05f52759e6cc36a62f4c821523c3c6df7be49379
+run-12-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.87s
+sha256=ace930d2baef15c8916c3c5fcdf03df2084ea91d70f678f831b15b64867f2c7a
+run-13-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.70s
+sha256=2574901a0a0d2dcccc1a5e99c9f7f3e907a4380e256bb5024ac7a7c6f78beffa
+run-14-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.83s
+sha256=4c4adad21d5d4d77782cd9e22d036bae3958b06af0cb96715c61ff1802c57935
+run-15-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.71s
+sha256=3dcacf6acce3e0eb0940ccf9d78e3ae8fef572ab55a2f3e3ec70365a0fcd5a93
+run-16-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.68s
+sha256=18479ab0c26ac05ba3ec8225d53f926ed08545553c7d8dc99d3b6263485f743f
+run-17-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.57s
+sha256=40cfe1087f204e46ca56a43994277d2653a99a4f02af549d5375813210cfaec3
+run-18-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.20s
+sha256=2e74abc3a845c2408205fd32eddd79c0c438f00562d0c3e5d6eb7504c16f9f6f
+run-19-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.86s
+sha256=b721f0859de0d3a8ae3e0d28059d280791220249f39bc8cf58c37302de29a003
+run-20-5.log: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.19s
+sha256=1aba1f0b8696a8be34acce883ac6b1c0806056b838990704344393ea89305cab
+
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 2 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest -n 6 --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' .aq/tmp/ci-stability/test_focused.py -q -s
+bringing up nodes...
+bringing up nodes...
+
+.
+1 passed in 152.65s (0:02:32)

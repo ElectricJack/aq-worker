@@ -1,0 +1,11 @@
+{
+  "source_base": "9358faf1958fc1950c7266f5be2ad7820cdef82c",
+  "implementation_commit": "0e20ef5212b1d21e91f6c97dedd5fb4b2c17a8ca",
+  "merge_commit": "c637bbd558b487eb90b178bbabb49d7c965f9ab3",
+  "origin_main": "2d2fcf4577d4c21d8d666b9abfd7ccb44c031bf9",
+  "commands": [
+    "aq git pull --branch main",
+    "git merge origin/main"
+  ],
+  "controller_diff_after_merge": ""
+}

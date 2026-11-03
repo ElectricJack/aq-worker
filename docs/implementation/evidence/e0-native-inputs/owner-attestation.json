@@ -1,0 +1,155 @@
+{
+  "authority": "owner-attested (recorded by agent for the owner)",
+  "authorization": "sharp-harbor-18 owner decision 2026-11-02, task comment 1793671179.038809",
+  "limits": [
+    "owner attestation is not measured qualification evidence",
+    "no provider authentication, model capacity or token counting tested",
+    "no native admission, material lease, registration or polling performed",
+    "no E0 source, live configuration, catalog or private credential modified"
+  ],
+  "missing_owner_inputs": {
+    "context": [
+      "maximum_tokens_per_utf8_byte",
+      "fixed_overhead_tokens",
+      "counting_evidence",
+      "capacity_kind",
+      "capacity_tokens",
+      "capacity_evidence",
+      "observed_at_ms",
+      "expires_at_ms"
+    ],
+    "credential": [
+      "profile",
+      "revision",
+      "account_reference",
+      "endpoint_reference",
+      "allowed_node_ids",
+      "private_secret_file",
+      "material_delivery"
+    ],
+    "model": [
+      "provider",
+      "model",
+      "native_reasoning",
+      "reasoning_configuration_reference",
+      "max_output_tokens"
+    ],
+    "publication": [
+      "project_policy",
+      "replacement_catalog",
+      "catalog_activation",
+      "project_binding_update"
+    ],
+    "qualification": [
+      "runtime",
+      "runtime_qualification",
+      "adapter",
+      "renderer",
+      "environment",
+      "harness_qualification",
+      "scoped_presence",
+      "installation_and_result_client_manifests"
+    ]
+  },
+  "native_configuration_emitted": false,
+  "recorded_at_ms": 1793672711622,
+  "records": [
+    {
+      "authority": "owner-attested (recorded by agent for the owner)",
+      "binary": "/home/jkern/.local/bin/codex",
+      "cli_version": "0.166.0",
+      "harness": "codex",
+      "kind": "host_cli"
+    },
+    {
+      "auth_mode": "chatgpt",
+      "authentication_validity": "not tested",
+      "authority": "owner-attested (recorded by agent for the owner)",
+      "file_store_record_present": true,
+      "kind": "owner_login",
+      "lease_input_created": false,
+      "owner_only_regular_file": true,
+      "path": "/home/jkern/.codex/auth.json",
+      "permissions": "0600"
+    },
+    {
+      "authority": "owner-attested (recorded by agent for the owner)",
+      "build_metadata_present": false,
+      "codex_version": "0.166.0",
+      "image_id": "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d",
+      "kind": "runtime_image",
+      "platform": "linux/amd64",
+      "programs": {
+        "aq-agent": {
+          "bytes": 5396720,
+          "sha256": "37f3a5a1107bbe9314474c314b7b8a718710b0d5cceafb362842a7242de2638c"
+        },
+        "aq-git": {
+          "bytes": 3142096,
+          "sha256": "9de33fd4e79d68a9cb8c72532ee03825dca3a3dbaf979bcd8770a53ef8fe9d3a"
+        },
+        "aq-session-host": {
+          "bytes": 1791336,
+          "sha256": "9e8cdf0633061ffe5eece467ecf23849213b0cc7af0f63d11b9151373b1c24b6"
+        },
+        "aq-worker": {
+          "bytes": 20263504,
+          "sha256": "6785361916b0fbb630a3b5118ce71227d84b733e9db175dcf011a7a74de9b064"
+        },
+        "codex": {
+          "bytes": 319346888,
+          "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8"
+        },
+        "tmux": {
+          "bytes": 1152952,
+          "sha256": "48418cb9d1a947623cb3f0fc294ddf9179173231a39e83c076d5e0f4a50411b4"
+        }
+      },
+      "scope": "installed bytes and version only; source label is not build provenance; no runtime qualification",
+      "source_revision_label": "dc62cfc0faf2109485b1c9f17a024f6fcb37ebd5"
+    },
+    {
+      "authority": "owner-attested (recorded by agent for the owner)",
+      "base": {
+        "algorithm": "sha1",
+        "hex": "2e32645bab743729bfaeb0f2eec417c2ace7794b"
+      },
+      "configuration_sections_present": {
+        "intelligence": false,
+        "profiled_execution": false
+      },
+      "kind": "e0_context_and_retention",
+      "receipt_sha256": {
+        "seed-evidence.json": "0ef2c2b875553a6a044742d97941c05746305027db267dfdd9951a69ba513090",
+        "source-base-exchanges.json": "569ea962e6fc3eddb37ce1397a07ed1969e58732ded79ce77014713e4ec7bce8",
+        "state/seed.json": "8b9eea5fcf552670738abeb2911f8c0a623b8c8465fb80e258c4f19222f7262e"
+      },
+      "retention_handle": "e0000000-0000-4000-8000-000000000011",
+      "saved_catalog_candidates": [
+        {
+          "model": "configuration-required",
+          "provider": "configuration-required",
+          "reasoning_configuration_reference": "configuration-required:1"
+        }
+      ],
+      "saved_graph_task_verified": true,
+      "seed": {
+        "designation": {
+          "base_branch": "main",
+          "credential_ref": "none",
+          "local_fixture": false,
+          "url": "https://github.com/ElectricJack/aq-scratch.git"
+        },
+        "node_id": "806c44f7-0e2a-4094-b976-687e4e54aedf",
+        "project_id": "e0000000-0000-4000-8000-000000000002",
+        "repository_id": "e0000000-0000-4000-8000-000000000003",
+        "task_id": "e0000000-0000-4000-8000-000000000004",
+        "workspace_id": "e0000000-0000-4000-8000-000000000001"
+      },
+      "source_revision": "8f6c49fd91850b924524494e26c5c17d14072796",
+      "verification_scope": "saved E0 receipts only; live graph and retention not rechecked"
+    }
+  ],
+  "schema_version": 1,
+  "status": "blocked_missing_owner_qualification"
+}

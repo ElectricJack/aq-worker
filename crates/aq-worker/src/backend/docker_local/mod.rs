@@ -97,6 +97,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
                 "sandbox daemon must be rootless",
             ));
         }
+        require_enforced_limits(&info)?;
         Ok(backend)
     }
 
@@ -151,6 +152,29 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         }
         parse_json(&response.body)
     }
+}
+
+/// SBX10: per-sandbox CPU, memory and PID limits must be enforced. A daemon
+/// without a cgroup driver (e.g. `docker:dind-rootless`) or on cgroup v1 (no
+/// rootless delegation) accepts `NanoCpus`/`Memory`/`PidsLimit` and silently
+/// drops them, so it is refused rather than launching unlimited sandboxes. A
+/// missing field is treated as unenforced.
+pub fn require_enforced_limits(info: &Value) -> Result<(), BackendError> {
+    let field = |name: &str| info.get(name).and_then(Value::as_str);
+    match field("CgroupDriver") {
+        None | Some("") | Some("none") => {
+            return Err(BackendError::InvalidRequest(
+                "sandbox daemon reports no cgroup driver; resource limits would be silently dropped",
+            ));
+        }
+        Some(_) => {}
+    }
+    if field("CgroupVersion") != Some("2") {
+        return Err(BackendError::InvalidRequest(
+            "sandbox daemon must use cgroup v2; resource limits would be silently dropped",
+        ));
+    }
+    Ok(())
 }
 
 fn parse_json(body: &[u8]) -> Result<serde_json::Value, BackendError> {

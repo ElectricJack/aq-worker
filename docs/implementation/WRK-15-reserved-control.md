@@ -1,5 +1,9 @@
 # WRK-15 format5 reserved-control correction
 
+Historical component qualification. [H1](H1.md) adds subsequent sandbox-runner
+adoption and scoped real Codex rollout qualification; the results below remain
+bound to their original source checkpoints.
+
 Source checkpoint `83eec309f956cc13bf22a7da1c3d84b292408c0f` corrects a full-capacity failure in the frozen experimental0.0.4 store. [The inventory](WRK-15-reserved-control.json) pins code, original reproducer, measurements and qualification logs. This remains an experimental component with no default worker/source/Started runtime adoption.
 
 ## Original failure remains documented

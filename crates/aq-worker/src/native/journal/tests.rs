@@ -122,8 +122,9 @@ fn new_initialization_has_new_logical_boot_and_cannot_overwrite_existing_root() 
     let another = Journal::create(&dir.path().join("other"), node, limits()).unwrap();
     assert_ne!(old, another.state().identity.boot_id);
 }
-#[test]
-fn interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses() {
+#[tokio::test]
+async fn interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for (fault, published) in [
         (WriteFault::BeforeWrite, false),
         (WriteFault::AfterFileSync, false),
@@ -352,6 +353,7 @@ fn oversized_member_and_unknown_root_member_fail_closed() {
 }
 #[tokio::test]
 async fn actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     use crate::{config::WorkerConfig, native::http::NativeClient};
     use aq_admission::control::{ControlReply, PreparationDelivery};
     use axum::{Json, Router, http::HeaderMap, routing::post};
@@ -407,6 +409,8 @@ async fn actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_or
             .deadline_ns
             <= first
     );
+    crate::native::http::test_clock::expire(cap).await;
+    assert!(client.accept(&request, cap, Some(&observed)).await.is_err());
     drop(journal);
     let recovered = Journal::open(&root, identity().node_id, limits()).unwrap();
     assert!(recovered.recovery_required());

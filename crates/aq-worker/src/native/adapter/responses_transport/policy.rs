@@ -147,13 +147,8 @@ pub(super) mod tests {
             .unwrap(),
             body
         );
-        let expired = ResponsesScope::new(
-            scope.binding.clone(),
-            &scope.model,
-            crate::native::http::boot_ns().unwrap() + 1_000_000,
-        )
-        .unwrap();
-        std::thread::sleep(Duration::from_millis(2));
+        let mut expired = scope;
+        expired.policy.expire_for_test();
         assert!(expired.prepare(&self::body()).is_err());
     }
     #[test]

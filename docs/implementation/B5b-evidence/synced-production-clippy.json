@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "clippy",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--lib",
+    "--bin",
+    "aq-worker",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5b-evidence/synced-production-clippy.log"
+}

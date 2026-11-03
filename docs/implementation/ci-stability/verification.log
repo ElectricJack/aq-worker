@@ -1,0 +1,117 @@
+Rust/Cargo 1.96.1; CARGO_BUILD_JOBS=2; RUST_TEST_THREADS=2
+Foreground semaphore: CI_STABILITY_REPEATS=20 CI_STABILITY_LOG_DIR=.aq/tmp/ci-stability/repeated aq test .aq/tmp/ci-stability/test_focused.py -q -s
+The wrapper invokes the following commands sequentially for each of 20 rounds:
+1: cargo test --locked --all-features -p aq-worker --test sandbox_runner runner_cannot_report_before_handoff_receipts -- --exact
+2: cargo test --locked --all-features -p aq-session-host --test supervisor_session supervisor_session_physical_restart_observation_renew_and_stopped_proof -- --exact
+3: cargo test --locked --all-features -p aq-session-host --test supervisor_session supervisor_session_starts_under_central_permit -- --exact
+4: cargo test --locked --all-features -p aq-worker --test journal_migration
+5: cargo test --locked --all-features -p aq-worker --test templates
+
+Per-command results (SHA-256 identifies the complete raw log in .aq/tmp/ci-stability/repeated):
+01-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.26s; sha256=fbf0e62c5316425bcf2ebca8e62d1aaf3615064ddd11bb6640112539e60f5618
+01-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.47s; sha256=073ab6829027f81d8cd30e8eee8337e12b0e1af68b58f9f9145abe786b47e284
+01-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 17.58s; sha256=8d90196b3b3120907cb9655a644cb057069497af8354c801c82824ef3c8682d4
+01-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s; sha256=b78e449fe40d89ecfa7f60eb86d6667e33d1519f3c42d463519a7db68bce9d99
+01-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.31s; sha256=f244b714fe141f0da83404cefa11a672441884a4c658ce92c27ed05aff526c35
+02-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.77s; sha256=da2ce0e887169ef9ce397997cf2bcdc767ca8da1e72f2de4438ce3dce779ba2e
+02-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.49s; sha256=7991aab1c19fa04c2a6298091924a0fcfd5eb72963563b7187315a0c5735bf8c
+02-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 19.48s; sha256=c574d60d6e5d05abde9bd768d7ac94643802e1c09b28a5dc24b1c2547e8bd63d
+02-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s; sha256=821d9ce30f4d621306ef61d64067d21fc6a3b6974c0e86cfc525b9c99e323682
+02-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.64s; sha256=a85ea28927017dd607d060a12233c14d551ca74eb48256dc61f0d3036c97886b
+03-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.00s; sha256=6408484810c1f23e50945b4e758228e95897a7470f8d4992fd858a0a2e5ca1a6
+03-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.41s; sha256=8658731ef71e0dfd4bf294359abca89e0935f361df539ab5f05b2c784bddafbd
+03-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 17.97s; sha256=8942e39a7a03449a9742264b7f4132dbe4bc1e6eeb97233d5f111994d0c4b690
+03-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s; sha256=d1cd7515eb96d7cfe88e8302ada9e508869f75a4bcf314af59d27211f3d72896
+03-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.40s; sha256=aca60d3a2e91ca08c4fe1a21f9317414d8aa52598ebd9aa280980f19d4fe1736
+04-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.08s; sha256=8e24d2f61a3c4f33fe23bf5021d0976d209f291b3d3379436fa8dccb9aad6929
+04-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.87s; sha256=960153f369e30e1e240360336bd4a55186024a32e05474d39a3957eea0e19556
+04-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 21.34s; sha256=e13754548bccb267ec8ed77dc46a0dc831324b25672a05c837cad8605d40ef77
+04-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s; sha256=54f507159399c4a3505ffdb1a4e086d43ce28eba0ae4662b0e65e9d0992e0602
+04-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.62s; sha256=92499bdb95894146f20ceb456f8aadd3523ad76aae09467d5b812b0c6f48e6a2
+05-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.34s; sha256=d7e7bc247b17e12277f0cbabf2a11a9458d82ee7de07a65dc0d97e691cb87444
+05-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.51s; sha256=7b9773fac142fea97cb5fdec524180294c9d7ab4e4bb1acac74f3d32fbdaa583
+05-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 18.29s; sha256=4d3fd5dd6ba71982c7b30523227ad4b10871e1be8154fd49a1135b488d08657f
+05-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s; sha256=c34590b5169e82af2c34a9ce7a49d774a766a5338a1c2b3a681b0980767d85b0
+05-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.74s; sha256=76343d2e1f3d62114af16667abd94a2a81883f26c86b4b69864441521d2e54a1
+06-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.86s; sha256=bf733eeef3a47bbbc9095531e95de09cc364d46776ba7fd784eecafff9564230
+06-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.43s; sha256=cb5c15afcaf7c96f3c0c7c980abcc46474058f8c011bed3c7388ef299285a0c6
+06-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 20.69s; sha256=e6ceff897fbb8b10d717602cde1f07691c216181893d9485654c51d87c816dd2
+06-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s; sha256=85673bfbefbed0778fc2b9c01cd0b2bdd15968fa58d5bffe4aacfb4c835dad8f
+06-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.40s; sha256=6fb78b7797c3f936b2a179fb21d93a45f2f98776602b10373bb2102851b1c0bc
+07-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.02s; sha256=0514e4be5109bcf7cac5359a9ed40a9414a6fbe42cd044b5b33cb51e9bc4677c
+07-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.50s; sha256=a9859e579607623b4cb4bb4ca56b9465f6c246a21778d71d7aa966b63ec64ae8
+07-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 20.71s; sha256=70c653105d8b31c294d97cfddbf80e7fea839c1f6e1391c4c5d5ec645ba9042b
+07-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s; sha256=1643c2abc78515436c368c17228573dca4160ffcbc3295db1ae57dd1cd4e2adb
+07-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.43s; sha256=bebe33a5a745c15e0bc4da304fac5bee9c10881777a5f27945b01e9613e613e7
+08-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.43s; sha256=f83c4d34c1e8dfa4571072cd83500414049bde71f1042314e457ad74d3101832
+08-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.51s; sha256=d3d0020dc99c5c16327193ded7a5577f70fb93fc4db0fd0f8f76bbf14a4a5cad
+08-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 22.38s; sha256=d3ce4047b4bd0de2e6889b190a1ffffedc89122ea834a449183c71455dd4c89e
+08-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s; sha256=b846f3f969e951dbf0f30752cdac59f48acfb77a67cca93f151e2e6384222b45
+08-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.82s; sha256=600f8b8f096c5a3591542a45991cf3febee6697a5a3282b7f9cca39ae95d403f
+09-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.04s; sha256=5445a5f2d2bb120b27a64c34b4b06e6bd7a7ffa49cb9def220bcd7bc1e2d3fb4
+09-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.40s; sha256=7199c81ce987c108d71014cb2dc0c89d2ca855c40e47de9514aa7564f4dddf4f
+09-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 25.08s; sha256=84a7402210d7764e2ded4b35a6d89faea575bc85d0ffc60f159ad76442684dd6
+09-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s; sha256=abc46b0679f16bc90f5aa4bbd36baa577a8c382f4c52e55768a3341833358e51
+09-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.35s; sha256=fe72293bbd422a4281918e705c88a098831b6cadf4e68c245249cf2dd2aba6a6
+10-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.72s; sha256=a0d0db04f4e8d8208043c72512de726cb3e0e0340dcb65e7ad26a2f6a96dc841
+10-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.47s; sha256=a46bbfa519db62269557933735693f73ace2161772fa1a2779a8ca729c12c2b7
+10-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 24.07s; sha256=d72ad122c035921dab30017aa22c435ecd781ef86a2d453d03bdb95b32f87eb1
+10-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s; sha256=922a2ac2a1b12b148178e6f47c96d17405c9ee9b4b4f8aa6a02c7c88ac90ba79
+10-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.22s; sha256=b1522b1f262d3ff9053a1fd489cad46514b6bfe6374e48016ac8a51c747fba04
+11-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.10s; sha256=40ec71c56a72db997238a9bdc8ccfadc6bd9133e4b2e0d54754f2fd4b954e0bc
+11-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.59s; sha256=4e93577b645b8d372971155826fa9f68ce46525807e5aa6d574fdc5dc2901717
+11-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 22.00s; sha256=aa31359ec6affe286b336d8aa6a50075febc3341c7bc5caab5fe9427531089ee
+11-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s; sha256=bd4c97de2d2571111f773aa2fe346be30da2ab966c733068cd91c759bf7a6c4b
+11-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.10s; sha256=7a886cac228a3dff467a2ceedecb5a992c7ca1dfeb33e8a801fe0ffc07c14546
+12-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.60s; sha256=65be686ece8cb0b5e3ac00082748ae057329c21712eb90795f68db5ee9d45d87
+12-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.38s; sha256=bc1b13eb00fbaf172598ce8297154c7cf9f638c8c77302781ad124b7b7c96de5
+12-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 20.93s; sha256=42205d588dc824e78de707b99349446ea8e5f5d13c07aa087b56a5319dbbf1b7
+12-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s; sha256=8d2bc9807ed1cd4bb18374d311f00421a3014b7ee80b2da3dd47056315352d11
+12-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.03s; sha256=ec26b4cc597c02170276fb9c862426809eb744b83e4bb586250d45a89c8f22af
+13-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.88s; sha256=8a0d917f5861dcf0577f4cd97f4ff5c2ecd4440e4edc01cce9d1522912601fc8
+13-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.44s; sha256=464e5d69fa969b3363ab6408a8365bc77b7ae27fc6c6cfe28d7d18afe6d3185a
+13-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 20.88s; sha256=71828ac275746cc995b217b34f3db3aaa87cbcc6ca3d3269a9762dd1be778339
+13-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s; sha256=4f96a364b58ae8380d6ce89287ba32064f7691377c12408f99c1e250ac0366c4
+13-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.73s; sha256=afbeed065de6f29ceb461f3d1dbb37b219549a9be52959d18a765157d461da12
+14-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.92s; sha256=234840de82b351f1cebfcb918b4375d15930a21c9be628627f191c883535e462
+14-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.55s; sha256=eebd81bf71dd09ca8d36efad32a9a91a510e93e75db127ce9d2f69300a1c1c64
+14-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 24.42s; sha256=a201e41561355aa13f2aa649207090377f31aae2268f6cffadb3c3cb8d48fb76
+14-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s; sha256=199b240a3bde9a94e0072749bae73de87c494ff55e085a77e36d9602eb558ddd
+14-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.30s; sha256=06628eb2d81b235ae5f2c619897d8f40c311410da51618878084970a3e4b6931
+15-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.95s; sha256=f8a2917599bb1117c80ede234f8cd91ce4727b25466e760933e6ac8dfb3a8058
+15-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.53s; sha256=b81c7e32e26b9f0cdedda748379ef5ea61e1e0d55dc8e083949023e2a2166464
+15-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 19.19s; sha256=934a6514e41331310de411dd2d00e663eb7ee930dd5ce5d2f3216799b2ec48b4
+15-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s; sha256=3c9a097b2f92b39afe0d36a74a3d62ab59002aea6428132faae60ce2af015f55
+15-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.23s; sha256=d613c085a6d667aac7941fd7674ef45141c6d532db496156eeb353df41d1db29
+16-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.55s; sha256=6e7713a43146b3eb38b88532d8defc12f35b88eced73c32c6fe02fdbde6b5126
+16-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.43s; sha256=4afcbab98d88c9fbec3fd854d8e6eaef1a7a9baf6c69931f799ea0d453c49195
+16-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 16.06s; sha256=671543229079c8a3482038963d65de815f8018e6771a04988a762b99f4f5ade6
+16-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s; sha256=ec2f788d50b18bb73743a74db30f2e5fe689362ebd2b77efd6f166e778734f26
+16-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.05s; sha256=4145acb945b734f6e061c870e56916213f5549734cdb25d4dd00674923f979a5
+17-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.04s; sha256=36e48354fee9010407e04e64b7f873e15cd93d7f6e6d44561e2b8de06dbf85d5
+17-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.47s; sha256=7f0fca06ecd08d4d52d1d69b719cd531f9f7215d649778112599164a36f33626
+17-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 20.23s; sha256=942dfccf8e384d2812c01fb74cd3ce25643f8b9b5cd650bae417ae859d32c01d
+17-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.98s; sha256=d8aa638e4379875d9dfab13febe9ca54661ef671d2f830f0392f9aae64beffaf
+17-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.91s; sha256=a96a8d86f60184dfd39a20bdb02d4433386700ebf90dbd4def6bd0782d7f0c16
+18-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 3.33s; sha256=9b2cddf191531e3201e7597bcdcc730a34d3b168ce6b3f0fef367c21eee6eb10
+18-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.35s; sha256=d495a9b75c02fb28995b509f17c929a04e903968f0c87b8aa375858097051f6d
+18-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 22.56s; sha256=5b82b6ae8e4bd3ece5f55464d81436c61ad83e45758ba4aceb8b8e3113580d2c
+18-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s; sha256=26f91119b7b01651453bc20f4d196405f8c60caba745f145ff47d8cd95927042
+18-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.89s; sha256=afe8065db320c5ef3c52e59cd2f16cbc18d772034575b052164999ca0504cf5b
+19-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.50s; sha256=83f3a384e65082881bfbaabb52ff0a4825cc1037d68d03af711657dc1a194694
+19-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.40s; sha256=d339cd151731890c98bc4e661f75e398048a5d90bbb70fcf69fd1ecc21c5bfdc
+19-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 18.08s; sha256=c6d1e71ecfff1d882af9c7ed9921a62c59e44515722c7ffc1246e5c8ba6efdf7
+19-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s; sha256=c41c8140722bb8606e0568c4195090e32472d90f9a4d188abc8041432d2f09b9
+19-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.37s; sha256=3cbb2a6c63536467e773792d91f5a5591842ce9f61f96cbe68fba8395e5497da
+20-1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 1.28s; sha256=8fd4e468e0429d76924b50669e00cedb8f5a6b5001ebfe56bbb088c40f1da860
+20-2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.33s; sha256=d7852566c1635f72bb0d40bd1f57b8e1abefa78972bd16f86a0ada2fedb64d5e
+20-3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 16.53s; sha256=bba406c4fa755d5407d7fcb632d62ba4230d26f37c920307d9410a60d16a71be
+20-4: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s; sha256=da38425e429312ee6a856cc953bdd495c417b68bd854fa878e4889a62faffbf5
+20-5: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.49s; sha256=91da378a686fc926f676a543fb470934aab7d5dd3f9b4516e231d76061b018b7
+
+Total: 100/100 commands passed; 220 Rust test invocations; no failures or ignored tests.
+The additional startup stress test performs 50 launches per invocation: 1,000 launches across 20 invocations.
+
+Initial diagnostic run: the extra startup stress test timed out awaiting guardian identity at iteration 25.
+See initial-startup-timeout.log. The immediate 50-launch recheck and all 20 final invocations passed.
+Launch deadlines remain unchanged. Full main CI remains an integration-owner verification step.

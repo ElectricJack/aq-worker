@@ -1,15 +1,19 @@
 name: check
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.1
         with:
           components: rustfmt, clippy
       - run: cmp protocol/execution-v2.schema.json crates/aq-worker-protocol/fixtures/execution-v2.schema.json
       - run: cmp protocol/conformance-v2.json crates/aq-worker-protocol/fixtures/conformance-v2.json
+      - run: python3 scripts/package-admission.py --check
       - run: cargo fmt --all -- --check
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      # The numeric-UID security probe deliberately uses --pull=never.
+      - run: docker pull ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
       - run: cargo test --workspace --locked --all-features
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings

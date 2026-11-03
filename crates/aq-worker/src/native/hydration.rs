@@ -4,7 +4,7 @@ use crate::source::{GitClient, Workspace};
 use aq_worker_protocol::TransferManifest;
 use serde_json::{Value, json};
 #[path = "hydration/files.rs"]
-mod files;
+pub(crate) mod files;
 /// Fresh local owner result, intentionally neither serializable nor constructible
 /// outside this owner. It is not launch authority and cannot be reopened from a
 /// journal receipt. Later Prepare must join it with all original inputs.
@@ -322,9 +322,32 @@ fn validate_current(
     retention: &Value,
     inspect: &Value,
 ) -> Result<()> {
-    let b = s.binding()?;
-    let m = s.manifest.as_ref().context("source manifest absent")?;
-    let native = s.verified.as_ref().context("verified manifest absent")?;
+    validate_retained(
+        git,
+        s.binding()?,
+        s.manifest.as_ref().context("source manifest absent")?,
+        s.verified.as_ref().context("verified manifest absent")?,
+        s.operations["create"].operation_id,
+        imported,
+        created,
+        retention,
+        inspect,
+    )
+}
+/// Shared by node and runner hydration: the import, retention handle and
+/// workspace must all be the exact verified retained base, currently clean.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn validate_retained(
+    git: &GitClient,
+    b: &aq_worker_protocol::SourceBinding,
+    m: &TransferManifest,
+    native: &crate::source::GitManifest,
+    create_operation: Uuid,
+    imported: &Value,
+    created: &Value,
+    retention: &Value,
+    inspect: &Value,
+) -> Result<()> {
     let handle = imported["retention_handle"]
         .as_str()
         .and_then(|v| Uuid::parse_str(v).ok())
@@ -359,7 +382,7 @@ fn validate_current(
             && created["binding_generation"] == b.binding_generation
             && created["base"] == b.base.hex
             && created["lifecycle"] == "active"
-            && created["allocating_operation"] == s.operations["create"].operation_id.to_string()
+            && created["allocating_operation"] == create_operation.to_string()
             && inspect["head"] == serde_json::to_value(&b.base)?
             && inspect["clean"] == true,
         "native workspace is not current exact clean base"

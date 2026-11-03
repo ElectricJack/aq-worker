@@ -1,0 +1,56 @@
+CI prerequisite and e833abea merge validation
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 PYTHONDONTWRITEBYTECODE=1
+AQ_TEMPLATE_BINARY=<worktree>/target/debug/aq-worker
+Foreground runner: aq test .aq/tmp/ci-stability/test_ci_prerequisite.py -q -s
+
+The local default Docker credential helper failed before pulling (WSL UtilAcceptVsock / error getting credentials). The anonymous public pull used a temporary empty CLI config; no host Docker configuration was changed. GitHub Actions uses its standard Docker config.
+
+$ docker --config <temporary empty directory> pull ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+docker.io/library/ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3: Pulling from library/ubuntu
+Digest: sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+Status: Image is up to date for ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+docker.io/library/ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+
+Exit status: 0
+
+$ cargo test --locked --all-features -p aq-worker --test sandbox_security
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 01s
+     Running tests/sandbox_security.rs (target/debug/deps/sandbox_security-010aa91e619dcf41)
+
+running 8 tests
+test aq_proxy_injects_access_header_without_exposing_token ... ok
+test aq_proxy_refuses_compressed_access_echo ... ok
+test aq_proxy_refuses_non_machine_origins_and_unsafe_access_files ... ok
+test aq_proxy_shutdown_cancels_concurrent_incomplete_requests ... ok
+test runner_private_files_refuse_oversized_and_malformed_secrets ... ok
+test runner_private_layout_refuses_unsafe_secret_files ... ok
+test runner_responses_proxy_keeps_provider_key_at_upstream ... ok
+test agent_user_cannot_read_permit_or_proxy_key ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
+
+
+Exit status: 0
+
+$ python3 scripts/tests/test_template_tool.py
+...................
+----------------------------------------------------------------------
+Ran 19 tests in 7.241s
+
+OK
+
+Exit status: 0
+
+$ cargo fmt -p aq-worker -p aq-session-host -- --check
+
+Exit status: 0
+
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 3 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest -n 6 --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' .aq/tmp/ci-stability/test_ci_prerequisite.py -q -s
+bringing up nodes...
+bringing up nodes...
+
+.
+1 passed in 76.66s (0:01:16)

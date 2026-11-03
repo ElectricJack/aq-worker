@@ -1,0 +1,103 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 0 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest -n 6 --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/B5a-evidence/test_cargo.py -q
+bringing up nodes...
+bringing up nodes...
+
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________________________ test_cargo_command ______________________________
+[gw0] linux -- Python 3.12.3 /home/jkern/dev/agent-queue2/.venv/bin/python
+
+    def test_cargo_command():
+        command = shlex.split(os.environ["B5A_COMMAND"])
+        log = Path(os.environ["B5A_LOG"])
+        with log.open("w") as out:
+            result = subprocess.run(command, stdout=out, stderr=subprocess.STDOUT,
+                                    env={**os.environ, "CARGO_BUILD_JOBS": "2"})
+        if record := os.environ.get("B5A_RESULT"):
+            Path(record).write_text(json.dumps({"command": command,
+                "exit_code": result.returncode, "log": str(log)}, indent=2) + "\n")
+>       assert result.returncode == 0, log.read_text()[-12000:]
+E       AssertionError:     Checking aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+E         error: unused import: `PathBuf`
+E           --> crates/aq-worker/src/source_transfer.rs:19:18
+E            |
+E         19 |     path::{Path, PathBuf},
+E            |                  ^^^^^^^
+E            |
+E            = note: `-D unused-imports` implied by `-D warnings`
+E            = help: to override `-D warnings` add `#[allow(unused_imports)]`
+E
+E         error: struct `RetainedHandle` is never constructed
+E            --> crates/aq-worker/src/source.rs:944:8
+E             |
+E         944 | struct RetainedHandle {
+E             |        ^^^^^^^^^^^^^^
+E             |
+E             = note: `-D dead-code` implied by `-D warnings`
+E             = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+E
+E         error: method `staged_bytes` is never used
+E             --> crates/aq-worker/src/source.rs:1405:8
+E              |
+E         1404 | impl GitClient {
+E              | -------------- method in this implementation
+E         1405 |     fn staged_bytes(&self, source: &SourceState, extra: Option<Uuid>) -> Result<u64> {
+E              |        ^^^^^^^^^^^^
+E
+E         error: this `if` has identical blocks
+E            --> crates/aq-worker/src/controller/recovery.rs:217:72
+E             |
+E         217 |                   if a.cleanup.is_some() || a.phase == Phase::StopIntent {
+E             |  ________________________________________________________________________^
+E         218 | |                     self.mark_cleanup(id, CleanupReason::NoCurrentGrant, now)?;
+E         219 | |                     self.stop(id).await?;
+E         220 | |                 } else if a.grant.as_ref().is_none_or(|g| {
+E             | |_________________^
+E             |
+E         note: same as this
+E            --> crates/aq-worker/src/controller/recovery.rs:223:20
+E             |
+E         223 |                   }) {
+E             |  ____________________^
+E         224 | |                     self.mark_cleanup(id, CleanupReason::NoCurrentGrant, now)?;
+E         225 | |                     self.stop(id).await?;
+E         226 | |                 }
+E             | |_________________^
+E             = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#if_same_then_else
+E             = note: `-D clippy::if-same-then-else` implied by `-D warnings`
+E             = help: to override `-D warnings` add `#[allow(clippy::if_same_then_else)]`
+E
+E         error: this `if` statement can be collapsed
+E            --> crates/aq-worker/src/controller/recovery.rs:512:13
+E             |
+E         512 | /             if now >= o.cleanup.destroy_after_ms
+E         513 | |                 && self.state().orphans[&key].stopped.is_some()
+E         514 | |                 && let Some(auth) = o.authorization
+E         ...   |
+E         531 | |             }
+E             | |_____________^
+E             |
+E             = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+E             = note: `-D clippy::collapsible-if` implied by `-D warnings`
+E             = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+E         help: collapse nested if block
+E             |
+E         514 ~                 && let Some(auth) = o.authorization
+E         515 ~                 && let Confirmation::Confirmed(proof) =
+E         516 |                     self.backend.destroy(&o.entry.sandbox, &auth).await
+E         ...
+E         528 |                     tracing::info!(sandbox=%key,reason=?o.cleanup.reason,"destroyed retained orphan");
+E         529 ~                 }
+E             |
+E
+E         error: could not compile `aq-worker` (lib) due to 5 previous errors
+E
+E       assert 101 == 0
+E        +  where 101 = CompletedProcess(args=['cargo', 'clippy', '--locked', '-p', 'aq-worker', '--lib', '--bin', 'aq-worker', '--', '-D', 'warnings'], returncode=101).returncode
+
+docs/implementation/B5a-evidence/test_cargo.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED docs/implementation/B5a-evidence/test_cargo.py::test_cargo_command - A...
+1 failed in 23.77s

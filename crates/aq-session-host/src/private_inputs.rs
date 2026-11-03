@@ -4,6 +4,7 @@ use super::*;
 use std::os::fd::{AsRawFd, FromRawFd};
 use zeroize::Zeroizing;
 const MAX_MATERIAL: u64 = 65536;
+pub(crate) mod reconciliation;
 /// Independent original installed-material pins, never newly installed bytes.
 pub struct OriginalPrivateMaterial {
     pub digest: Digest,
@@ -41,13 +42,13 @@ impl ScopedCodexAuthBinding {
         self.validate()?;
         ensure!(
             self.launch_id == config.launch_id
-                && self.binding.session == config.manifest.bindings.session
-                && self.binding.attempt_id == config.manifest.bindings.attempt_id
+                && self.binding.session == config.manifest.task()?.bindings.session
+                && self.binding.attempt_id == config.manifest.task()?.bindings.attempt_id
                 && self.binding.assignment_generation
-                    == config.manifest.bindings.assignment_generation
+                    == config.manifest.task()?.bindings.assignment_generation
                 && self.binding.launch_manifest_digest == canonical_digest(&config.manifest)?
                 && self.binding.graph_access_profile_digest
-                    == config.manifest.bindings.graph_access_profile.digest
+                    == config.manifest.task()?.bindings.graph_access_profile.digest
                 && self.deadline_boot_ms == config.permit.expires_boot_ms,
             "scoped auth exact launch binding/deadline"
         );
@@ -83,13 +84,13 @@ impl ChatgptAuthPin {
         self.binding.validate()?;
         ensure!(
             self.launch_id == config.launch_id
-                && self.binding.session == config.manifest.bindings.session
-                && self.binding.attempt_id == config.manifest.bindings.attempt_id
+                && self.binding.session == config.manifest.task()?.bindings.session
+                && self.binding.attempt_id == config.manifest.task()?.bindings.attempt_id
                 && self.binding.assignment_generation
-                    == config.manifest.bindings.assignment_generation
+                    == config.manifest.task()?.bindings.assignment_generation
                 && self.binding.launch_manifest_digest == canonical_digest(&config.manifest)?
                 && self.binding.graph_access_profile_digest
-                    == config.manifest.bindings.graph_access_profile.digest
+                    == config.manifest.task()?.bindings.graph_access_profile.digest
                 && self.deadline_boot_ms == config.permit.expires_boot_ms,
             "ChatGPT auth exact launch binding/deadline"
         );
@@ -637,6 +638,7 @@ impl SessionHandle {
             .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW)
             .open(&self.directory)?;
         private_directory(&root)?;
+        let _refresh_guard = reconciliation::cleanup_guard(&root, &r)?;
         match std::fs::symlink_metadata(self.directory.join("codex-home")) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 self.private_source.take();
@@ -689,7 +691,7 @@ impl SessionHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn login(refresh: &str) -> Vec<u8> {
+    pub(super) fn login(refresh: &str) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"offline-id","access_token":"offline-access","refresh_token":refresh,"account_id":"offline-account"},"last_refresh":"2026-11-01T00:00:00Z"})).unwrap()
     }
     #[test]
@@ -788,7 +790,7 @@ mod tests {
             0
         );
     }
-    fn scoped() -> (ScopedCodexAuthBinding, LaunchManifest) {
+    pub(super) fn scoped() -> (ScopedCodexAuthBinding, LaunchManifest) {
         let manifest: LaunchManifest =
             serde_json::from_str(include_str!("../tests/fixtures/manifest.json")).unwrap();
         let binding = aq_session_protocol::LaunchBinding {
@@ -811,7 +813,7 @@ mod tests {
             manifest,
         )
     }
-    fn source(root: &Path) -> (File, Digest, u64, Digest) {
+    pub(super) fn source(root: &Path) -> (File, Digest, u64, Digest) {
         let dir = root.join("source");
         std::fs::create_dir(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -832,7 +834,7 @@ mod tests {
             Digest::of(record),
         )
     }
-    fn root(path: &Path) -> PathBuf {
+    pub(super) fn root(path: &Path) -> PathBuf {
         let p = path.join("launch");
         std::fs::create_dir(&p).unwrap();
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -966,7 +968,7 @@ mod tests {
                 expires_boot_ms: scope.deadline_boot_ms,
             },
             resource_policy: ResourcePolicy::CallerAdmission(manifest.harness.environment.clone()),
-            manifest,
+            manifest: manifest.into(),
             workspace: "/work".into(),
             helper: "/helper".into(),
             tmux: "/usr/bin/tmux".into(),
@@ -975,6 +977,7 @@ mod tests {
             rendered_startup: None,
             private_input: None,
             observed: None,
+            agent_identity: None,
             command: LocalCommand {
                 executable: "/opt/codex".into(),
                 arguments: vec![
@@ -997,7 +1000,9 @@ mod tests {
         config.launch_id = Uuid::new_v4();
         assert!(scope.verify_launch(&config).is_err());
         config.launch_id = scope.launch_id;
-        config.manifest.model.max_output_tokens += 1;
+        if let LaunchDocument::Task(m) = &mut config.manifest {
+            m.model.max_output_tokens += 1;
+        }
         assert!(scope.verify_launch(&config).is_err());
         let mut foreign = scope.clone();
         foreign.origin = "https://provider.example".into();

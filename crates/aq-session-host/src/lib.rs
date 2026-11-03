@@ -2,8 +2,14 @@
 //! state; a dedicated helper owns every tmux/pane descendant and permit expiry.
 #[cfg(feature = "test-support")]
 pub mod capsule;
+mod host_plan;
 mod local_ipc;
+use host_plan::{Adapter, LaunchDocument};
+pub use host_plan::{HostAdapter, HostInput, HostPlan, HostStartup, HostSubject};
 mod private_inputs;
+pub use private_inputs::reconciliation::{
+    LoginRefreshAck, LoginRefreshPhase, LoginRefreshRequest, LoginRefreshStatus, LoginWriteBack,
+};
 pub use private_inputs::{
     OriginalPrivateMaterial, PrivateCleanup, PrivateLaunchInput, ScopedCodexAuthBinding,
 };
@@ -33,6 +39,7 @@ use std::{
     time::{Duration, Instant},
 };
 use uuid::Uuid;
+pub mod users;
 pub const HOST_PROFILE: &str = "linux-subreaper-tmux-foreground-v1";
 pub const MAX_PERMIT_MS: u64 = 120000;
 /// Only the sealed named interactive PTY factory selects this limit.
@@ -140,11 +147,28 @@ pub enum HarnessReadiness {
     Ready,
     Exited,
 }
+/// Exact local transcript metadata from this launched harness. The adapter
+/// obtains the native key/member from its launch, never a provider-home search.
+#[derive(Clone, Debug)]
+pub struct TranscriptSource {
+    pub launch: LaunchIntent,
+    pub root: PathBuf,
+    pub member: String,
+    pub native_session_key: aq_session_protocol::Text,
+    pub format_id: String,
+    pub provider: aq_session_protocol::Text,
+    pub account_reference: aq_session_protocol::Text,
+}
 /// Trusted, version-pinned adapters construct native argv/config. They must
 /// refuse unsupported model, scopes, context or hard budgets; no fallback.
 pub trait HarnessAdapter {
     fn prepare(&self, manifest: &LaunchManifest, workspace: &Path) -> Result<AdapterLaunch>;
     fn readiness(&self, observation: &HostObservation) -> Result<HarnessReadiness>;
+    /// Called only with the exact host launch identity after launch. None is
+    /// explicit unavailable observation support, never permission to discover.
+    fn transcript_source(&self, _: &LaunchIntent) -> Result<Option<TranscriptSource>> {
+        Ok(None)
+    }
     /// Optional closed private input; bytes remain outside serialized commands.
     fn private_input(&self, _: &LaunchManifest, _: &Path) -> Result<Option<PrivateLaunchInput>> {
         Ok(None)
@@ -244,6 +268,7 @@ enum StartupInput<'a> {
     Constituents(&'a LaunchManifest),
     Rendered(&'a RenderedStartup),
     Observed(&'a observed::ObservedStartup),
+    Plan(&'a HostPlan, &'a [u8]),
 }
 /// Memory/CPU/process limits are enforced by the qualified environment, not by
 /// this tmux host. Callers must choose admission-only or supply exact evidence.
@@ -335,8 +360,10 @@ pub trait LaunchAuthority {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SealedLaunch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    agent_identity: Option<users::AgentIdentity>,
     launch_id: Uuid,
-    manifest: LaunchManifest,
+    manifest: LaunchDocument,
     permit: ExecutionPermit,
     workspace: PathBuf,
     helper: PathBuf,
@@ -360,7 +387,10 @@ impl SealedLaunch {
         digest: &Digest,
         now: u64,
     ) -> Result<()> {
-        let interactive = self.manifest.terminal.input_enabled
+        if let LaunchDocument::Plan(plan) = &self.manifest {
+            return plan.validate_permit_at(permit, supervisor::machine()?.0.parse()?, now);
+        }
+        let interactive = self.manifest.terminal().input_enabled
             && self
                 .observed
                 .as_ref()
@@ -368,10 +398,13 @@ impl SealedLaunch {
         permit.validate_at_scoped(session, digest, now, interactive)
     }
     fn wall_deadline(&self) -> Result<u64> {
+        if let LaunchDocument::Plan(plan) = &self.manifest {
+            return Ok(plan.deadline_boot_ms);
+        }
         let wall = self
             .permit
             .issued_boot_ms
-            .checked_add(self.manifest.resources.wall_time_ms)
+            .checked_add(self.manifest.resources().wall_time_ms)
             .context("wall deadline overflow")?;
         Ok(self
             .observed
@@ -381,7 +414,7 @@ impl SealedLaunch {
     fn intent(&self) -> Result<LaunchIntent> {
         Ok(LaunchIntent {
             launch_id: self.launch_id,
-            session: self.manifest.bindings.session.clone(),
+            session: self.manifest.session().clone(),
             manifest_digest: canonical_digest(&self.manifest)?,
             configuration_digest: Digest::of(&serde_json::to_vec(self)?),
         })
@@ -471,8 +504,9 @@ impl SessionHost {
             StartupInput::Constituents(manifest),
             permit,
             local,
-            adapter,
+            Adapter::Task(adapter),
             authority,
+            None,
         )
         .map(|(handle, _)| handle)
     }
@@ -493,33 +527,62 @@ impl SessionHost {
             StartupInput::Rendered(startup),
             permit,
             local,
-            adapter,
+            Adapter::Task(adapter),
             authority,
+            None,
         )
         .map(|(handle, _)| handle)
     }
+    /// Sandbox-only launch: seal the agent identity with the exact command.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_as_agent(
+        root: &Path,
+        launch_id: Uuid,
+        manifest: &LaunchManifest,
+        permit: ExecutionPermit,
+        local: &LocalEnvironment,
+        adapter: &impl HarnessAdapter,
+        authority: &mut impl LaunchAuthority,
+        agent: users::AgentIdentity,
+    ) -> Result<SessionHandle> {
+        agent.validate_workspace(&local.workspace)?;
+        Self::launch_inner(
+            root,
+            launch_id,
+            StartupInput::Constituents(manifest),
+            permit,
+            local,
+            Adapter::Task(adapter),
+            authority,
+            Some(agent),
+        )
+        .map(|(handle, _)| handle)
+    }
+    #[allow(clippy::too_many_arguments)]
     fn launch_inner(
         root: &Path,
         launch_id: Uuid,
         startup: StartupInput<'_>,
         permit: ExecutionPermit,
         local: &LocalEnvironment,
-        adapter: &impl HarnessAdapter,
+        adapter: Adapter<'_>,
         authority: &mut impl LaunchAuthority,
+        agent_identity: Option<users::AgentIdentity>,
     ) -> Result<(SessionHandle, Option<observed::gate::Client>)> {
         let manifest = match &startup {
-            StartupInput::Constituents(m) => *m,
-            StartupInput::Rendered(r) => &r.manifest,
-            StartupInput::Observed(r) => &r.rendered.manifest,
+            StartupInput::Constituents(m) => (*m).clone().into(),
+            StartupInput::Rendered(r) => r.manifest.clone().into(),
+            StartupInput::Observed(r) => r.rendered.manifest.clone().into(),
+            StartupInput::Plan(p, _) => LaunchDocument::Plan(Box::new((*p).clone())),
         };
         let reaper_slot = reaper::Slot::reserve()?;
         manifest.validate()?;
         ensure!(!launch_id.is_nil(), "nil launch ID");
-        let digest = canonical_digest(manifest)?;
-        let interactive = manifest.terminal.input_enabled
+        let digest = canonical_digest(&manifest)?;
+        let interactive = manifest.terminal().input_enabled
             && matches!(&startup, StartupInput::Observed(value) if value.spec.interactive());
         permit.validate_at_scoped(
-            &manifest.bindings.session,
+            manifest.session(),
             &digest,
             ownership::raw_boot_ms(),
             interactive,
@@ -546,7 +609,18 @@ impl SessionHost {
             String::from_utf8(version)?.trim() == local.tmux_version,
             "tmux version mismatch"
         );
-        for secret in &manifest.credentials {
+        if let LaunchDocument::Plan(plan) = &manifest {
+            plan.validate_permit_at(
+                &permit,
+                supervisor::machine()?.0.parse()?,
+                ownership::raw_boot_ms(),
+            )?;
+        }
+        for secret in manifest
+            .task()
+            .map(|m| m.credentials.as_slice())
+            .unwrap_or(&[])
+        {
             ensure!(
                 local
                     .credential_profiles
@@ -554,16 +628,16 @@ impl SessionHost {
                 "credential profile unavailable"
             );
         }
-        let prepared = adapter.prepare(manifest, &local.workspace)?;
+        let prepared = adapter.prepare(&manifest, &local.workspace)?;
         ensure!(
             prepared.manifest_digest == digest
-                && prepared.adapter == manifest.harness.adapter
-                && prepared.cli_version == manifest.harness.cli_version.as_str()
-                && prepared.environment == manifest.harness.environment,
+                && prepared.adapter == manifest.harness().adapter
+                && prepared.cli_version == manifest.harness().cli_version.as_str()
+                && prepared.environment == manifest.harness().environment,
             "adapter/CLI/environment mismatch"
         );
         require_capabilities(
-            &manifest.harness.required_capabilities,
+            &manifest.harness().required_capabilities,
             &prepared.capabilities,
         )?;
         if let ResourcePolicy::RequireQualifiedEnvironment(required) = &local.resource_policy {
@@ -573,7 +647,7 @@ impl SessionHost {
             );
         }
         prepared.command.validate()?;
-        let private_input = adapter.private_input(manifest, &local.workspace)?;
+        let private_input = adapter.private_input(&manifest, &local.workspace)?;
         ensure!(
             local.context_material.len() <= 128,
             "context material bounds"
@@ -594,11 +668,18 @@ impl SessionHost {
                 local.context_material.is_empty(),
                 "rendered startup cannot append constituent material"
             );
-            rendered.binding.verify(manifest, &rendered.bytes)?;
+            rendered.binding.verify(manifest.task()?, &rendered.bytes)?;
             (vec![rendered.bytes.clone()], Some(rendered.binding.clone()))
+        } else if let StartupInput::Plan(plan, bytes) = &startup {
+            ensure!(
+                local.context_material.is_empty(),
+                "host plan cannot append context material"
+            );
+            plan.verify_startup(bytes)?;
+            (vec![bytes.to_vec()], None)
         } else {
             let mut context = Vec::new();
-            for reference in &manifest.context.references {
+            for reference in &manifest.task()?.context.references {
                 if reference.delivery == aq_session_protocol::ContextDelivery::Startup {
                     let material = local
                         .context_material
@@ -645,6 +726,7 @@ impl SessionHost {
             .map(|input| private_inputs::Publication::reserve(&directory, input))
             .transpose()?;
         let config = SealedLaunch {
+            agent_identity,
             launch_id,
             manifest: manifest.clone(),
             permit,
@@ -684,6 +766,9 @@ impl SessionHost {
             &directory.join("launch.json"),
             &serde_json::to_vec(&config)?,
         )?;
+        if config.agent_identity.is_some() {
+            users::publish_context(launch_id, &context)?;
+        }
         for (index, bytes) in context.into_iter().enumerate() {
             durable_new(&directory.join(format!("context-{index}.bin")), &bytes)?;
         }
@@ -939,6 +1024,17 @@ impl SessionHandle {
         {
             ensure!(old.permit == *permit, "changed renewal sequence payload");
         } else {
+            if matches!(config.manifest, LaunchDocument::Plan(_)) {
+                let prior = ledger.latest.as_ref().map_or(&config.permit, |r| &r.permit);
+                ensure!(
+                    now >= state.observed_boot_ms
+                        && prior.sequence == state.permit_sequence
+                        && prior.sequence.checked_add(1) == Some(permit.sequence)
+                        && permit.issued_boot_ms >= prior.issued_boot_ms
+                        && permit.expires_boot_ms > prior.expires_boot_ms,
+                    "host renewal must advance exact live prior permit"
+                );
+            }
             ensure!(
                 permit.sequence > state.permit_sequence
                     && ledger
@@ -1061,22 +1157,54 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     Ok(serde_json::from_slice(&read_bytes(path, MAX_LOCAL_FILE)?)?)
 }
 pub fn durable_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    durable_write_with(path, false, |file| file.write_all(bytes))
+}
+fn durable_write_with(
+    path: &Path,
+    replace: bool,
+    write: impl FnOnce(&mut File) -> std::io::Result<()>,
+) -> Result<()> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    let source = CString::new(temp.as_os_str().as_bytes())?;
+    let destination = CString::new(path.as_os_str().as_bytes())?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    File::open(path.parent().context("state parent")?)?.sync_all()?;
-    Ok(())
+        .open(&temp)?;
+    let result = (|| {
+        write(&mut file)?;
+        file.sync_all()?;
+        // Readers treat existence as publication. Never expose partial bytes.
+        if replace {
+            std::fs::rename(&temp, path)?;
+        } else {
+            // Preserve exclusive creation, including existing symlinks.
+            let renamed = unsafe {
+                libc::renameat2(
+                    libc::AT_FDCWD,
+                    source.as_ptr(),
+                    libc::AT_FDCWD,
+                    destination.as_ptr(),
+                    libc::RENAME_NOREPLACE,
+                )
+            };
+            if renamed != 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+        }
+        File::open(path.parent().context("state parent")?)?.sync_all()?;
+        Ok(())
+    })();
+    // Only remove the temporary file we exclusively created. After a successful
+    // rename it is already absent; a failed write must not publish a request.
+    let _ = std::fs::remove_file(&temp);
+    result
 }
 fn durable_replace(path: &Path, bytes: &[u8]) -> Result<()> {
-    let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
-    durable_new(&temp, bytes)?;
-    std::fs::rename(&temp, path)?;
-    File::open(path.parent().context("state parent")?)?.sync_all()?;
-    Ok(())
+    durable_write_with(path, true, |file| file.write_all(bytes))
 }
 fn bounded_command(command: &mut Command) -> Result<Vec<u8>> {
     bounded_command_input(command, None, Duration::from_millis(250))
@@ -1314,6 +1442,111 @@ mod tests {
 mod io_tests {
     use super::*;
     #[test]
+    fn new_request_is_invisible_to_polling_reader_during_slow_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("start.request");
+        let bytes = br#"{"permit":{"sequence":1},"guardian":"fixture"}"#;
+        let (partial_tx, partial_rx) = std::sync::mpsc::channel();
+        let (polled_tx, polled_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let path = &path;
+            let reader = scope.spawn(move || {
+                partial_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                // The writer is held after one byte until the reader has polled
+                // the exact path the guardian watches. This deterministically
+                // exposes the old create_new-before-write publication race.
+                for _ in 0..100 {
+                    assert!(!path.exists(), "partial request was published");
+                    std::thread::yield_now();
+                }
+                polled_tx.send(()).unwrap();
+                let end = Instant::now() + Duration::from_secs(5);
+                loop {
+                    match read_bytes(path, MAX_LOCAL_FILE) {
+                        Ok(observed) => {
+                            let _: serde_json::Value = serde_json::from_slice(&observed).unwrap();
+                            assert_eq!(observed, bytes);
+                            break;
+                        }
+                        Err(error) => assert_eq!(
+                            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+                            std::io::ErrorKind::NotFound
+                        ),
+                    }
+                    assert!(Instant::now() < end, "request was never published");
+                    std::thread::yield_now();
+                }
+            });
+            durable_write_with(path, false, |file| {
+                file.write_all(&bytes[..1])?;
+                partial_tx.send(()).unwrap();
+                polled_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                file.write_all(&bytes[1..])
+            })
+            .unwrap();
+            reader.join().unwrap();
+        });
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+    #[test]
+    fn new_request_never_clobbers_existing_entries_and_cleans_failed_writes() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("start.request");
+        assert!(
+            durable_write_with(&path, false, |file| {
+                file.write_all(b"{")?;
+                Err(std::io::Error::other("injected write failure"))
+            })
+            .is_err()
+        );
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        durable_new(&path, b"original").unwrap();
+        assert!(durable_new(&path, b"replacement").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+        let link = dir.path().join("link");
+        symlink(&path, &link).unwrap();
+        assert!(durable_new(&link, b"replacement").is_err());
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        let dangling = dir.path().join("dangling");
+        symlink(dir.path().join("absent"), &dangling).unwrap();
+        assert!(durable_new(&dangling, b"replacement").is_err());
+        assert!(std::fs::symlink_metadata(&dangling).unwrap().is_symlink());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
+    }
+    #[test]
+    fn concurrent_new_requests_have_exactly_one_complete_winner() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("start.request");
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let publishers: Vec<_> = [b"first".as_slice(), b"second".as_slice()]
+                .into_iter()
+                .map(|bytes| {
+                    let path = &path;
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        durable_write_with(path, false, |file| {
+                            file.write_all(bytes)?;
+                            barrier.wait();
+                            Ok(())
+                        })
+                    })
+                })
+                .collect();
+            let successes = publishers
+                .into_iter()
+                .map(|publisher| publisher.join().unwrap())
+                .filter(Result::is_ok)
+                .count();
+            assert_eq!(successes, 1);
+        });
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(bytes == b"first" || bytes == b"second");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+    #[test]
     #[ignore = "subprocess output fixture invoked by bounded output test"]
     fn large_stdout_fixture() {
         std::io::stdout().write_all(&vec![b'x'; 60000]).unwrap();
@@ -1430,8 +1663,9 @@ mod rendered_tests {
             expires_boot_ms: 100,
         };
         let sealed = SealedLaunch {
+            agent_identity: None,
             launch_id: Uuid::from_u128(1),
-            manifest,
+            manifest: manifest.into(),
             permit,
             workspace: "/tmp/work".into(),
             helper: "/tmp/helper".into(),
@@ -1452,6 +1686,14 @@ mod rendered_tests {
             observed: None,
             private_input: None,
         };
+        assert_eq!(
+            serde_json::to_vec(&sealed.manifest).unwrap(),
+            serde_json::to_vec(sealed.manifest.task().unwrap()).unwrap()
+        );
+        assert_eq!(
+            canonical_digest(&sealed.manifest).unwrap(),
+            canonical_digest(sealed.manifest.task().unwrap()).unwrap()
+        );
         let bytes = serde_json::to_vec(&sealed).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(value.get("rendered_startup").is_none());

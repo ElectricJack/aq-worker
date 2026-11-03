@@ -1,0 +1,47 @@
+   Compiling aq-session-host v0.1.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-terminal-bridge)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 17s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-70769a83131d85ba)
+
+running 22 tests
+test controller::tests::registration_advertises_actual_backend_and_template_versions ... ok
+test controller::tests::startup_rejects_second_owner_bad_version_symlink_and_missing_state ... ok
+test controller::tests::heartbeat_does_not_hide_controller_journal_failure ... FAILED
+test controller::tests::root_replacement_prevents_reservation_or_acceptance ... ok
+test controller::tests::run_registers_holds_root_and_drains_on_shutdown ... ok
+test controller::tests::unavailable_provider_refuses_before_backend_effects ... ok
+test controller::tests::unavailable_provider_preserves_terminal_heartbeat_error ... ok
+test controller::tests::reservation_is_durable_before_acceptance_and_timeout_holds_capacity ... ok
+test controller::tests::capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason ... ok
+test controller::lifecycle_tests::failed_intent_write_prevents_create_and_poison_blocks_admission ... ok
+test controller::tests::unregistered_and_wrong_boot_offers_are_refused ... ok
+test controller::lifecycle_tests::ambiguous_create_is_not_retried_or_released ... ok
+test controller::tests::startup_rotates_boot_and_holds_old_reservations ... ok
+test controller::lifecycle_tests::expired_permit_cannot_deliver_or_start ... ok
+test controller::lifecycle_tests::wrong_permit_cannot_deliver_or_start ... ok
+test controller::lifecycle_tests::destroyed_stop_proof_without_authority_poisons_and_retains_disk ... ok
+test controller::lifecycle_tests::journal_records_intent_before_backend_create ... ok
+test controller::lifecycle_tests::destroyed_inspection_without_authority_poisons_and_retains_disk ... ok
+test controller::lifecycle_tests::unknown_inventory_retains_capacity_and_stopped_disk_is_reserved ... ok
+test controller::lifecycle_tests::stop_and_destroy_require_confirmation_and_retention ... ok
+test controller::tests::capacity_checks_spend_resources_environment_and_drain ... ok
+test controller::tests::unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shutdown ... ok
+
+failures:
+
+---- controller::tests::heartbeat_does_not_hide_controller_journal_failure stdout ----
+
+thread 'controller::tests::heartbeat_does_not_hide_controller_journal_failure' (2087935) panicked at crates/aq-worker/src/controller/tests.rs:508:5:
+assertion `left == right` failed
+  left: Some(GrantDenied)
+ right: Some(Draining)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    controller::tests::heartbeat_does_not_hide_controller_journal_failure
+
+test result: FAILED. 21 passed; 1 failed; 0 ignored; 0 measured; 236 filtered out; finished in 1.27s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

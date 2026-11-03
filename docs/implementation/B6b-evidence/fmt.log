@@ -1,0 +1,3 @@
+cargo fmt --all -- --check: PASS on final staged source tree 0cc6a6d5aebcf676a65e680c621b1b960b56772b in a standalone git-archive snapshot.
+The nested AQ worktree makes Cargo resolve excluded vendor packages against the outer workspace, so full --all formatting is checked outside it; no repository manifests were changed to work around this.
+cargo fmt --check: PASS directly in the final worktree.

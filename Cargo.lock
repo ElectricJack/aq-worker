@@ -100,6 +100,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-admission"
+version = "0.3.1"
+dependencies = [
+ "aq-lifecycle-protocol",
+ "aq-session-protocol",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "aq-agent-api"
 version = "0.1.0"
 dependencies = [
@@ -228,7 +241,7 @@ dependencies = [
 name = "aq-phase-terminal-protocol"
 version = "0.1.2"
 dependencies = [
- "aq-admission",
+ "aq-admission 0.1.11",
  "aq-session-protocol",
  "schemars",
  "serde",
@@ -276,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "aq-session-host"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "aq-responses-transport",
@@ -368,9 +381,13 @@ name = "aq-worker"
 version = "0.5.1"
 dependencies = [
  "anyhow",
- "aq-admission",
+ "aq-admission 0.1.11",
+ "aq-admission 0.3.1",
  "aq-agent-result-local",
  "aq-codex-mapper",
+ "aq-observation",
+ "aq-observation-engine",
+ "aq-observation-redb-prototype",
  "aq-phase-terminal-protocol",
  "aq-protocol",
  "aq-responses-transport",

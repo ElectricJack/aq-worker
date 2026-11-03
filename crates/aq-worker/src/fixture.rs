@@ -1,9 +1,9 @@
 //! Synthetic execution fixture behind the Linux subreaper guardian profile.
-use crate::{
-    guardian::{self, GuardianIdentity, GuardianPhase, GuardianState, LaunchBinding, Operation},
-    journal::ProcessEvidence,
+use crate::guardian::{
+    self, GuardianIdentity, GuardianPhase, GuardianState, LaunchBinding, Operation,
 };
 use anyhow::{Context, Result, bail, ensure};
+use aq_session_host::ownership::ProcessEvidence;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,

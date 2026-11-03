@@ -516,7 +516,7 @@ pub(crate) fn wait_closed(
                 .as_ref()
                 .context("observed rendered payload missing")?;
             rendered.verify(
-                &config.manifest,
+                config.manifest.task()?,
                 &read_bytes(&directory.join("context-0.bin"), 1_048_576)?,
             )?;
             ensure!(

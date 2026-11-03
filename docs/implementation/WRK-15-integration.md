@@ -1,5 +1,9 @@
 # Observation component integration
 
+Historical component qualification. [H1](H1.md) adds subsequent sandbox-runner
+adoption and scoped real Codex rollout qualification; the results below remain
+bound to their original source checkpoints.
+
 Worker source `5a41740` integrates the independently qualified observation engine,
 indexed redb experiment and private transport-owner HTTP peer alongside the
 existing worker and scoped graph client. The merge preserves the WRK-05 client

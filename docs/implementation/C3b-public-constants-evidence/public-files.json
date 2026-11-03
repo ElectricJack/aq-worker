@@ -1,0 +1,1046 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "sha256": "022f0b59a434e93b3906fa929819b695b3be59a52c0bb75d40a96e34a4f1a3f5",
+      "bytes": 76431,
+      "example_image_path": "usr/lib/python3.11/test/support/__init__.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/test/support/__init__.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "053399b53d6802732e584d20b02eb4a09b798d54d2828c8839c4f320a604aaa1",
+      "bytes": 5165592,
+      "example_image_path": "opt/rust/lib/rustlib/x86_64-unknown-linux-gnu/bin/wasm-component-ld",
+      "upstream": {
+        "url": "https://static.rust-lang.org/dist/rust-1.96.1-x86_64-unknown-linux-gnu.tar.xz",
+        "member": "rust-1.96.1-x86_64-unknown-linux-gnu/rustc/lib/rustlib/x86_64-unknown-linux-gnu/bin/wasm-component-ld",
+        "archive_sha256": "d29ccb1559a177c4e72291f6e5f629de7fe8885e7521ca47802627544b121e95"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "139887f10ade68539e130584636d00fc63c5a29cbe35708dee9ffdb39c872998",
+      "bytes": 74850,
+      "example_image_path": "opt/node/lib/node_modules/npm/node_modules/@npmcli/config/lib/definitions/definitions.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/@npmcli/config/lib/definitions/definitions.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "21551173569fc409b3f5842d3e68298808d0c9f1cc50b7cda46e5b213c361e70",
+      "bytes": 77205,
+      "example_image_path": "opt/node/lib/node_modules/npm/docs/output/using-npm/config.html",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/docs/output/using-npm/config.html",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "2bc1acfa3c7f8d2c419173ec2d986261d04d85fc1adba2bf39bf00b88aba1491",
+      "bytes": 108140,
+      "example_image_path": "usr/lib/python3.11/email/_header_value_parser.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/email/_header_value_parser.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 7,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "314c299639bf01f9c30dc4c8ee9327c022665f279194cd8435626eb3c9d6a031",
+      "bytes": 47683,
+      "example_image_path": "usr/lib/python3.11/multiprocessing/managers.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/multiprocessing/managers.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 2,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "3cfe31f01747fcf285f47e7173c6b3686a21e4fc9ccad69687dce69711773c09",
+      "bytes": 10696,
+      "example_image_path": "opt/node/lib/node_modules/npm/lib/commands/profile.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/lib/commands/profile.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 8,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "3dafc27aaa5c71358f0515241cce7492b24b03a9d93be6ab940f306e3febfa0f",
+      "bytes": 962955,
+      "example_image_path": "opt/aq/node/lib/node_modules/corepack/dist/lib/corepack.cjs",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/corepack/dist/lib/corepack.cjs",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 5,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "401f791a56480b5b53e207d71a904e6352c5e7fc3f7cc9124c75bd1c59a5c011",
+      "bytes": 12421,
+      "example_image_path": "usr/lib/python3.11/cgitb.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/cgitb.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "42ab6060f316e121e374e6621d8c1c98b8db323903c3df289a810c45a8ae46a7",
+      "bytes": 13501,
+      "example_image_path": "usr/lib/python3.11/shlex.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/shlex.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 6,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "43decd0ad71f8e4b312d1c95ee5b1ea446cebb006c6fcb718dd81d0a7bfc8278",
+      "bytes": 53658,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/diff/dist/diff.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/node_modules/diff/dist/diff.js",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "45ff414dec518bb1c5745cbcb840c8fcfdd1285b4becc7207456c07323a88ce7",
+      "bytes": 30544,
+      "example_image_path": "opt/node/lib/node_modules/npm/node_modules/@npmcli/config/lib/index.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/@npmcli/config/lib/index.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 3,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "4793d88688041eb7660ffc8fa249a0e41f2dad7bbdcd2441073424b154b8bb02",
+      "bytes": 46442,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/docs/content/using-npm/config.md",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/docs/content/using-npm/config.md",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "4b473feca4862b5c66ec0efa39ea2d40d07c845886b6081813b07d489fabd897",
+      "bytes": 35626,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/socks/build/client/socksclient.js",
+      "upstream": {
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-10.34.5.tgz",
+        "member": "package/dist/node_modules/socks/build/client/socksclient.js",
+        "archive_sha256": "ccb5c479cab1b00621325bfe7d4c9a8a8031e7a525d7249e275ecbec81b08db2"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "4b6976de2e62e12adaa5e6ef190b1d3f3fbf062e0f8ea5f4014fca45fb918a66",
+      "bytes": 20959320,
+      "example_image_path": "opt/rust/bin/clippy-driver",
+      "upstream": {
+        "url": "https://static.rust-lang.org/dist/rust-1.96.1-x86_64-unknown-linux-gnu.tar.xz",
+        "member": "rust-1.96.1-x86_64-unknown-linux-gnu/clippy-preview/bin/clippy-driver",
+        "archive_sha256": "d29ccb1559a177c4e72291f6e5f629de7fe8885e7521ca47802627544b121e95"
+      },
+      "finding_count": 2,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "594e5cabc1baa4b1b49d3aa614138a44183a8ae7f8d87291281bbc344c9b38fb",
+      "bytes": 39081,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/postcss-selector-parser/dist/parser.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/postcss-selector-parser/dist/parser.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 22,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "5b16b23087ed45b8f5718ad6834bee324dbb860755c7c40d8b9dc594075d58a7",
+      "bytes": 50001,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/diff/lib/index.mjs",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/node_modules/diff/lib/index.mjs",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "6394e8e650d04c26ed20b6058d5e93119f544ef1bd00aefb942297d2e2f6c7e1",
+      "bytes": 6929,
+      "example_image_path": "usr/lib/python3.11/netrc.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/netrc.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "67cec2a2dcd392951ec014ae7d07148255103861c92d3f233beaeeec21b5fd93",
+      "bytes": 7750,
+      "example_image_path": "usr/include/c++/12/barrier",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/g/gcc-12/libstdc++-12-dev_12.2.0-14+deb12u1_amd64.deb",
+        "member": "./usr/include/c++/12/barrier",
+        "archive_sha256": "d28def6c23630432b57cb38a4c2fd67a79d4e0484027386ca6e8d6005c3d7a73"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "6a50ad6f05e138502614667a050fb0093485a11009db3fb2b087fbfff31327f9",
+      "bytes": 5292,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/node-gyp/gyp/pylib/packaging/_tokenizer.py",
+      "upstream": {
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-10.34.5.tgz",
+        "member": "package/dist/node_modules/node-gyp/gyp/pylib/packaging/_tokenizer.py",
+        "archive_sha256": "ccb5c479cab1b00621325bfe7d4c9a8a8031e7a525d7249e275ecbec81b08db2"
+      },
+      "finding_count": 3,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "6a76a94b951b273aa87335d7c9c4d7273e4c59485c784b057f681443b32d9004",
+      "bytes": 41087,
+      "example_image_path": "usr/lib/python3.11/nntplib.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/nntplib.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 6,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "6d80018a3fa9fed44c5b78f881987ee3ab3fb1238b077b4e6dcb4b76da7db73b",
+      "bytes": 38413,
+      "example_image_path": "usr/lib/python3.11/functools.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/functools.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 4,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "75147eb66270082c23edf22ddcfa953c00cea398867b91cd8a4b167b1cf30ede",
+      "bytes": 124193,
+      "example_image_path": "usr/lib/python3.11/inspect.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/inspect.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "779b25d20249988bea2c1aa6bbeb218f5ae7ea8a9d30ce4f54ea37372965cc4b",
+      "bytes": 2209528,
+      "example_image_path": "usr/lib/x86_64-linux-gnu/libgnutls.so.30.34.3",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/g/gnutls28/libgnutls30_3.7.9-2+deb12u7_amd64.deb",
+        "member": "./usr/lib/x86_64-linux-gnu/libgnutls.so.30.34.3",
+        "archive_sha256": "30abec8c824feb1d2d7e9000a34083cccd19d139625e1b21547e3ac53b922f8e"
+      },
+      "finding_count": 9,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "78e47b6cc76acace7d0f5d1942d503334847602a14dab8304a0cf7895055f3ec",
+      "bytes": 212272,
+      "example_image_path": "usr/lib/python3.11/lib-dynload/_ssl.cpython-311-x86_64-linux-gnu.so",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/lib-dynload/_ssl.cpython-311-x86_64-linux-gnu.so",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "79aa94ebe1761811ea9b2da2ada409a8cb9abd7c6eac241d0c181a36684bb609",
+      "bytes": 26336,
+      "example_image_path": "usr/lib/python3.11/tokenize.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/tokenize.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 5,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "7ae8cae2e64856b34c80276deb1dcf60f76da27bc1e00382201ba7bb7dc33311",
+      "bytes": 12332,
+      "example_image_path": "etc/ssl/openssl.cnf",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/o/openssl/openssl_3.0.22-1~deb12u2_amd64.deb",
+        "member": "./etc/ssl/openssl.cnf",
+        "archive_sha256": "5cdf0b735b1c8a96ae0bf83ed328c83c2170f8320dedb035e98705b60b2d0cfe"
+      },
+      "finding_count": 3,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "7b341e6adb4e4341b211a221a7224849ea415fc1e39c014b05ae7d9a566819f4",
+      "bytes": 15198,
+      "example_image_path": "usr/lib/python3.11/poplib.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/poplib.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "7b8aba01c22e65e9d1998fd1e30dc9722e4c315f80c87bcc54826d9ddb944e59",
+      "bytes": 424672,
+      "example_image_path": "opt/pnpm/dist/worker.js",
+      "upstream": {
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-10.34.5.tgz",
+        "member": "package/dist/worker.js",
+        "archive_sha256": "ccb5c479cab1b00621325bfe7d4c9a8a8031e7a525d7249e275ecbec81b08db2"
+      },
+      "finding_count": 3,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "8142d37c6f2f372ef040419e7a111a6baf17df89f8078d02447d6c639ae20c1d",
+      "bytes": 121509208,
+      "example_image_path": "opt/aq/node/bin/node",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/bin/node",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 26,
+      "finding_kinds": [
+        "assignment",
+        "token"
+      ]
+    },
+    {
+      "sha256": "83b2068320f1a131c96658940e80522ec1f29150b338ce40eccf486e0ee05900",
+      "bytes": 73793,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/@npmcli/config/lib/definitions/definitions.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/node_modules/@npmcli/config/lib/definitions/definitions.js",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "89fc5f1fb236c8be718aa45e91022dd43ce73b6028e87e96d285ee9f8d11d182",
+      "bytes": 47321,
+      "example_image_path": "opt/node/lib/node_modules/npm/docs/content/using-npm/config.md",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/docs/content/using-npm/config.md",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "8e2067981d52721988a681543e9e04973ce30e40ea8c8ce65632f7d059089634",
+      "bytes": 4320,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/sigstore/dist/config.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/sigstore/dist/config.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "8fee0da896c802ccc73d8f0db740625ad0dd6b403a7bc5c86f4afdd17ba8941e",
+      "bytes": 15570,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/jsonparse/jsonparse.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/jsonparse/jsonparse.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 2,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "92d07fcfe098ec3e8545ddc388871c54f167933ce34b3f25f1f3525c027c5c29",
+      "bytes": 1071,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/@pkgjs/parseargs/examples/limit-long-syntax.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/@pkgjs/parseargs/examples/limit-long-syntax.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "a28408da12eb2e156377d63dcb891a27c0d16d79d07dd9794810ee3c8cc33cf8",
+      "bytes": 82093,
+      "example_image_path": "usr/share/perl/5.36.0/HTTP/Tiny.pm",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/perl/perl-modules-5.36_5.36.0-7+deb12u4_all.deb",
+        "member": "./usr/share/perl/5.36.0/HTTP/Tiny.pm",
+        "archive_sha256": "3ed38ffa8320e9bf7597cefa01b6a6ace4a08ccc77cdfd15ef7d8b711dea7166"
+      },
+      "finding_count": 3,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "a3b23fce07fb28a267ef35cd0b8230bff6eb68700578a315982fc7924636538b",
+      "bytes": 2774,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/spdx-expression-parse/scan.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/spdx-expression-parse/scan.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "a3f0c35cc25a58946ba505e8a1ff791b35491beca7270eda5eb8fb633480c570",
+      "bytes": 55662,
+      "example_image_path": "opt/node/lib/node_modules/npm/man/man7/config.7",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/man/man7/config.7",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "a73b2c25573d251489101c0d8f19ad3702eb9761166de5ed8437b472b6c038ce",
+      "bytes": 42878680,
+      "example_image_path": "opt/rust/bin/cargo",
+      "upstream": {
+        "url": "https://static.rust-lang.org/dist/rust-1.96.1-x86_64-unknown-linux-gnu.tar.xz",
+        "member": "rust-1.96.1-x86_64-unknown-linux-gnu/cargo/bin/cargo",
+        "archive_sha256": "d29ccb1559a177c4e72291f6e5f629de7fe8885e7521ca47802627544b121e95"
+      },
+      "finding_count": 465,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "a9041e01c48e06b0c3c73a1b5ab9348aea94001abafe3427ffdc0e89e9e81ed8",
+      "bytes": 62332,
+      "example_image_path": "usr/lib/python3.11/logging/handlers.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/logging/handlers.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 4,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "aa1b59263b4806f791b58530bc4936c893c2646e0984ea28a810c2cc171e3e5a",
+      "bytes": 52200,
+      "example_image_path": "usr/share/perl/5.36.0/TAP/Parser.pm",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/perl/perl-modules-5.36_5.36.0-7+deb12u4_all.deb",
+        "member": "./usr/share/perl/5.36.0/TAP/Parser.pm",
+        "archive_sha256": "3ed38ffa8320e9bf7597cefa01b6a6ace4a08ccc77cdfd15ef7d8b711dea7166"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "aa283456b6e3c72396b0bc8230d31072665f753d5b80e04efa556713339adbad",
+      "bytes": 28888,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/@npmcli/config/lib/index.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/node_modules/@npmcli/config/lib/index.js",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 3,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "adbdcde3b2ef2fc35495a03060ffa4c0d151e039f704126d51b1c20c5a8c8b17",
+      "bytes": 10819,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/lib/commands/profile.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/lib/commands/profile.js",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 8,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "ae27e6d635831267466cc821f5e0a18a9fdd754ceb6b90eb28fe4c999b173fea",
+      "bytes": 6160,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/lib/commands/token.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/lib/commands/token.js",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "ae8a80a8b51567b4f0965481682705e70c73dd6bfa145283f630d6833f1b4975",
+      "bytes": 13997,
+      "example_image_path": "usr/lib/python3.11/xml/etree/ElementPath.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/xml/etree/ElementPath.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 5,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "b14d10e0bb584f4b2211528be99d9a9e440dd9bd486249e74a1de8d6b9aee862",
+      "bytes": 25729,
+      "example_image_path": "usr/share/perl/5.36.0/Pod/Simple/PullParser.pm",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/perl/perl-modules-5.36_5.36.0-7+deb12u4_all.deb",
+        "member": "./usr/share/perl/5.36.0/Pod/Simple/PullParser.pm",
+        "archive_sha256": "3ed38ffa8320e9bf7597cefa01b6a6ace4a08ccc77cdfd15ef7d8b711dea7166"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "b154e27998d0ef0b32fcc665299cdb30883ffe039ede3c4faac3a9db6618d35d",
+      "bytes": 45418,
+      "example_image_path": "usr/lib/python3.11/smtplib.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/smtplib.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "b3c4dcd0af9b6e72cd1c56335db37447657114e8201271653bf35c5bfe7afba6",
+      "bytes": 2754,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/validate-npm-package-license/node_modules/spdx-expression-parse/scan.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/validate-npm-package-license/node_modules/spdx-expression-parse/scan.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "b6c106bbf7e36b5c67c98b6f8e9aaa3863a953908f3f509bdfd9eae2bb93dd79",
+      "bytes": 172865,
+      "example_image_path": "opt/git/libexec/git-core/git-p4",
+      "upstream": {
+        "url": "https://www.kernel.org/pub/software/scm/git/git-2.56.0.tar.xz",
+        "member": "git-2.56.0/git-p4.py",
+        "transformation": "replace shebang with #!/usr/bin/python",
+        "archive_sha256": "26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+      "bytes": 319346888,
+      "example_image_path": "opt/aq/harnesses/codex/codex",
+      "upstream": {
+        "url": "https://github.com/openai/codex/releases/download/rust-v0.166.0/codex-x86_64-unknown-linux-musl.tar.gz",
+        "member": "codex-x86_64-unknown-linux-musl",
+        "archive_sha256": "a0bf572d2f93f056c6712a6da348e96078dc84f3885fd7be67807ef389cb3978"
+      },
+      "finding_count": 12,
+      "finding_kinds": [
+        "assignment",
+        "token"
+      ]
+    },
+    {
+      "sha256": "bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829",
+      "bytes": 963574,
+      "example_image_path": "opt/node/lib/node_modules/corepack/dist/lib/corepack.cjs",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/corepack/dist/lib/corepack.cjs",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 5,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "bc5951aa3d6eaba20ff9688efa3420dc95785aae3709ec48ff6df46d6f409ee5",
+      "bytes": 1792040,
+      "example_image_path": "usr/lib/x86_64-linux-gnu/libunistring.so.2.2.0",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/libu/libunistring/libunistring2_1.0-2_amd64.deb",
+        "member": "./usr/lib/x86_64-linux-gnu/libunistring.so.2.2.0",
+        "archive_sha256": "d466bbfe011d764d793c1d9d777cad9c7cf65b938e11598f27408171ad95a951"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "bd9b76debdd6e652e985b399d5d8941b05cd4706d7bddb69ffb691836f0fa63d",
+      "bytes": 75798,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/docs/output/using-npm/config.html",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/docs/output/using-npm/config.html",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "c13178cde84b223f94cf06e7a7a1c7e4fbcba9dc44e15a1acc731d8c6969cd7a",
+      "bytes": 3291,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/lib/utils/auth.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/lib/utils/auth.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 2,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "c24d567d07e771ce3cb38b1cfbcd6f564da646904e8fb7b653f85c391a7b9f57",
+      "bytes": 7098,
+      "example_image_path": "opt/node/lib/node_modules/npm/lib/utils/oidc.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/lib/utils/oidc.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 2,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "c7e0512e654c8fc9fc234c235c6d10d46aad511976abb847a81507f7ce019538",
+      "bytes": 6066,
+      "example_image_path": "opt/node/lib/node_modules/npm/lib/commands/token.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/lib/commands/token.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "ca969fbb32c08be8395c744c64e131c2ba2c93067e1b483171dbc6ed439e1143",
+      "bytes": 8632942,
+      "example_image_path": "opt/pnpm/dist/pnpm.cjs",
+      "upstream": {
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-10.34.5.tgz",
+        "member": "package/dist/pnpm.cjs",
+        "archive_sha256": "ccb5c479cab1b00621325bfe7d4c9a8a8031e7a525d7249e275ecbec81b08db2"
+      },
+      "finding_count": 44,
+      "finding_kinds": [
+        "assignment",
+        "token"
+      ]
+    },
+    {
+      "sha256": "cc4124686b7b6d10f3fe1128f22714920852b639f939f58ff290701821ece3ec",
+      "bytes": 3485,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/sigstore/node_modules/@sigstore/sign/dist/signer/fulcio/index.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/@sigstore/sign/dist/signer/fulcio/index.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "d2bf673217a06bf4e450f355b9843482265664a3d6cfcfa00bc31944c9a8deb1",
+      "bytes": 44707,
+      "example_image_path": "usr/lib/python3.11/urllib/parse.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/urllib/parse.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 4,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "d918479037f14dc30c8d21df3767a010fe710685373baec7edf680ca8c3edbee",
+      "bytes": 129491488,
+      "example_image_path": "opt/node/bin/node",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/bin/node",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 27,
+      "finding_kinds": [
+        "assignment",
+        "token"
+      ]
+    },
+    {
+      "sha256": "d91acad36065d6a64bc95c0ed6a0f103c3224b59d7985938f22a12f481503721",
+      "bytes": 6869,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/npm-profile/lib/index.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/npm-profile/lib/index.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "dc3be105fb6b3e28074c4dbe0d4177c8445a803b5a935f3c4bbfe77701259c39",
+      "bytes": 54865,
+      "example_image_path": "usr/lib/python3.11/imaplib.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/imaplib.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "dc5e124f23281bca31e1c9118b5e1fa39b9b94520e07043ecc29838b804aa8b1",
+      "bytes": 13575,
+      "example_image_path": "usr/include/x86_64-linux-gnu/bits/socket.h",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
+        "member": "./usr/include/x86_64-linux-gnu/bits/socket.h",
+        "archive_sha256": "0218fc2befcd784c1b0c6292c0a137ce89fad054efaa579ad083bee0f2c01aae"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "de706af1044f8b6021263b02cc7325248eeec19614134b21fd2f916f3c56f19c",
+      "bytes": 21404,
+      "example_image_path": "usr/lib/python3.11/email/generator.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/email/generator.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "e2bffb462e4d43e6637b9450e259e8ba2a56626ba3037d68aa1cee68b3f61d4a",
+      "bytes": 11765,
+      "example_image_path": "usr/lib/python3.11/hashlib.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/hashlib.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 2,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "e4384aff3609138538cb34a4804053e05eed4f6c59e8f931e204912b2bd79de4",
+      "bytes": 10382,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/node-gyp/gyp/pylib/packaging/_parser.py",
+      "upstream": {
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-10.34.5.tgz",
+        "member": "package/dist/node_modules/node-gyp/gyp/pylib/packaging/_parser.py",
+        "archive_sha256": "ccb5c479cab1b00621325bfe7d4c9a8a8031e7a525d7249e275ecbec81b08db2"
+      },
+      "finding_count": 3,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "e45a6b41d7caebdb5f23d3b4f219adf64a214e946b082304b845d7b449a8aba5",
+      "bytes": 2633,
+      "example_image_path": "usr/share/perl/5.36.0/CPAN/HTTP/Credentials.pm",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/perl/perl-modules-5.36_5.36.0-7+deb12u4_all.deb",
+        "member": "./usr/share/perl/5.36.0/CPAN/HTTP/Credentials.pm",
+        "archive_sha256": "3ed38ffa8320e9bf7597cefa01b6a6ace4a08ccc77cdfd15ef7d8b711dea7166"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "e481655791a9b75f4d5957e40101d7d0b5d9c13a18d1ca233731d03365ad0aec",
+      "bytes": 260552,
+      "example_image_path": "usr/lib/x86_64-linux-gnu/libssh2.so.1.0.1",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/libs/libssh2/libssh2-1_1.10.0-3+deb12u1_amd64.deb",
+        "member": "./usr/lib/x86_64-linux-gnu/libssh2.so.1.0.1",
+        "archive_sha256": "fff72a194e493f88e100a2567e22472bb4ab828d429c2956965c6f2f134f1b3a"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "e4fcade34b0783ffaf01dad1d4f89ad59942db94e6a6bb992ff50d879203f855",
+      "bytes": 28489,
+      "example_image_path": "usr/lib/python3.11/plistlib.py",
+      "upstream": {
+        "url": "https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/plistlib.py",
+        "archive_sha256": "10f13e000ee757f5f2d2d3569f9e30546214a0c850acd78695feae373bfa3e53"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "e9ef76b36e5a19263d199ac35871a15aa2b33c00479192b71f6c8f46b91a1661",
+      "bytes": 12937,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/diff/lib/diff/json.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/node_modules/diff/lib/diff/json.js",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "f318905e29e58fc3fef4ea159309e29f6cef92d7c57ed1ec957ad0b7910d0098",
+      "bytes": 54612,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/man/man7/config.7",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+        "member": "node-v22.16.0-linux-x64/lib/node_modules/npm/man/man7/config.7",
+        "archive_sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "token"
+      ]
+    },
+    {
+      "sha256": "f3348315e7c74cba5596e5dd9e4092fee2742218730d882ec216f57c6c173536",
+      "bytes": 102724,
+      "example_image_path": "usr/lib/python3.11/urllib/request.py",
+      "upstream": {
+        "url": "https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb",
+        "member": "./usr/lib/python3.11/urllib/request.py",
+        "archive_sha256": "69f41cfa3f4ba17284e538f843069d7529c53c207d2ae17a5b02785944870e33"
+      },
+      "finding_count": 4,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "f797504db05192c01300f6eecdc70d46e7f066c44fc43487a2908ee8cc54a3ab",
+      "bytes": 48387,
+      "example_image_path": "opt/git/share/perl5/Git.pm",
+      "upstream": {
+        "url": "https://www.kernel.org/pub/software/scm/git/git-2.56.0.tar.xz",
+        "member": "git-2.56.0/perl/Git.pm",
+        "archive_sha256": "26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3"
+      },
+      "finding_count": 1,
+      "finding_kinds": [
+        "assignment"
+      ]
+    },
+    {
+      "sha256": "fc50e1fa09f89b75eebfb632d7c4063a26881ec10791246ae4b30cfc47a8bd84",
+      "bytes": 5374,
+      "example_image_path": "opt/aq/node/lib/node_modules/npm/node_modules/npm-registry-fetch/lib/auth.js",
+      "upstream": {
+        "url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz",
+        "member": "node-v24.11.0-linux-x64/lib/node_modules/npm/node_modules/npm-registry-fetch/lib/auth.js",
+        "archive_sha256": "46da9a098973ab7ba4fca76945581ecb2eaf468de347173897044382f10e0a0a"
+      },
+      "finding_count": 2,
+      "finding_kinds": [
+        "assignment"
+      ]
+    }
+  ]
+}

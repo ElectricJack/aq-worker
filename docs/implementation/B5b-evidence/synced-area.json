@@ -1,0 +1,15 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--test",
+    "backend_conformance",
+    "--test",
+    "controller_cli"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5b-evidence/synced-area.log"
+}

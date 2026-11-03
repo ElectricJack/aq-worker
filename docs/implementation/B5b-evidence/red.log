@@ -1,0 +1,277 @@
+   Compiling aq-session-host v0.1.6 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-terminal-bridge)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+error[E0583]: file not found for module `recovery`
+ --> crates/aq-worker/src/controller/mod.rs:6:1
+  |
+6 | mod recovery;
+  | ^^^^^^^^^^^^^
+  |
+  = help: to create the module `recovery`, create file "crates/aq-worker/src/controller/recovery.rs" or "crates/aq-worker/src/controller/recovery/mod.rs"
+  = note: if there is a `mod recovery` elsewhere in the crate already, import it with `use crate::...` instead
+
+error: `Result` is ambiguous
+  --> crates/aq-worker/src/controller/recovery_tests.rs:18:55
+   |
+18 |     async fn register(&mut self, r: &Registration) -> Result<()> { r.validate()?; Ok(()) }
+   |                                                       ^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `Result` could refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:2:5
+   |
+ 2 | use super::*;
+   |     ^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+note: `Result` could also refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:3:28
+   |
+ 3 | use aq_admission_sandbox::{sandbox::*, transport::PollPage};
+   |                            ^^^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #114095 <https://github.com/rust-lang/rust/issues/114095>
+   = note: `#[deny(ambiguous_glob_imports)]` (part of `#[deny(future_incompatible)]`) on by default
+
+error: `Result` is ambiguous
+  --> crates/aq-worker/src/controller/recovery_tests.rs:19:91
+   |
+19 |     async fn issue(&mut self, deadline: &u64, s: &SandboxIdentity, m: &LaunchManifest) -> Result<IssuedMaterial> {
+   |                                                                                           ^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `Result` could refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:2:5
+   |
+ 2 | use super::*;
+   |     ^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+note: `Result` could also refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:3:28
+   |
+ 3 | use aq_admission_sandbox::{sandbox::*, transport::PollPage};
+   |                            ^^^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #114095 <https://github.com/rust-lang/rust/issues/114095>
+
+error: `Result` is ambiguous
+  --> crates/aq-worker/src/controller/recovery_tests.rs:28:59
+   |
+28 |     async fn readopt(&mut self, r: &ReadoptionRequest) -> Result<ReadoptionResponse> {
+   |                                                           ^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `Result` could refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:2:5
+   |
+ 2 | use super::*;
+   |     ^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+note: `Result` could also refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:3:28
+   |
+ 3 | use aq_admission_sandbox::{sandbox::*, transport::PollPage};
+   |                            ^^^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #114095 <https://github.com/rust-lang/rust/issues/114095>
+
+error: `Result` is ambiguous
+  --> crates/aq-worker/src/controller/recovery_tests.rs:41:53
+   |
+41 |     async fn poll(&mut self, _: &WorkerIdentity) -> Result<Option<PollPage>> { Ok(self.poll.take()) }
+   |                                                     ^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `Result` could refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:2:5
+   |
+ 2 | use super::*;
+   |     ^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+note: `Result` could also refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:3:28
+   |
+ 3 | use aq_admission_sandbox::{sandbox::*, transport::PollPage};
+   |                            ^^^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #114095 <https://github.com/rust-lang/rust/issues/114095>
+
+error: `Result` is ambiguous
+  --> crates/aq-worker/src/controller/recovery_tests.rs:42:56
+   |
+42 |     async fn retain(&mut self, s: &SandboxIdentity) -> Result<Option<DestroyAuthorization>> {
+   |                                                        ^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `Result` could refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:2:5
+   |
+ 2 | use super::*;
+   |     ^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+note: `Result` could also refer to the type alias imported here
+  --> crates/aq-worker/src/controller/recovery_tests.rs:3:28
+   |
+ 3 | use aq_admission_sandbox::{sandbox::*, transport::PollPage};
+   |                            ^^^^^^^^^^
+   = help: consider adding an explicit import of `Result` to disambiguate
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #114095 <https://github.com/rust-lang/rust/issues/114095>
+
+warning: variable does not need to be mutable
+   --> crates/aq-worker/src/controller/lifecycle.rs:162:13
+    |
+162 |         let mut a = self.attempt(id)?;
+    |             ----^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no method named `observe_grant` found for mutable reference `&mut controller::Controller<fake::FakeBackend, recovery_tests::Provider>` in the current scope
+  --> crates/aq-worker/src/controller/recovery_tests.rs:60:7
+   |
+60 |     c.observe_grant(&execution, now_ms()).unwrap();
+   |       ^^^^^^^^^^^^^ method not found in `&mut controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+
+error[E0599]: no method named `has_orphans` found for reference `&controller::Controller<B, P>` in the current scope
+  --> crates/aq-worker/src/controller/mod.rs:96:87
+   |
+96 |             } else if self.journal.check().is_err() || self.recovery_required || self.has_orphans() || !self.registered {
+   |                                                                                       ^^^^^^^^^^^ method not found in `&controller::Controller<B, P>`
+
+error[E0599]: no method named `has_orphans` found for mutable reference `&mut controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/mod.rs:167:64
+    |
+167 |         if self.registered && !self.recovery_required && !self.has_orphans()
+    |                                                                ^^^^^^^^^^^ method not found in `&mut controller::Controller<B, P>`
+
+error[E0599]: no method named `has_orphans` found for mutable reference `&mut controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/mod.rs:173:17
+    |
+173 |         if self.has_orphans() { return self.refuse(RefusalReason::GrantDenied); }
+    |                 ^^^^^^^^^^^ method not found in `&mut controller::Controller<B, P>`
+
+error[E0599]: no method named `has_orphans` found for reference `&controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/mod.rs:312:26
+    |
+312 |                 && !self.has_orphans()
+    |                          ^^^^^^^^^^^ method not found in `&controller::Controller<B, P>`
+
+error[E0599]: no method named `reconcile_at` found for struct `controller::Controller<B, P>` in the current scope
+  --> crates/aq-worker/src/controller/recovery_tests.rs:81:7
+   |
+81 |     c.reconcile_at(now_ms()).await.unwrap();
+   |       ^^^^^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+   |
+  ::: crates/aq-worker/src/controller/mod.rs:20:1
+   |
+20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+   | ------------------------------------------------------------- method `reconcile_at` not found for this struct
+
+error[E0599]: no method named `sweep_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:104:7
+    |
+104 |     c.sweep_at(deadline).await.unwrap();
+    |       ^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `sweep_at` not found for this struct
+
+error[E0599]: no method named `retry_handoffs_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:105:7
+    |
+105 |     c.retry_handoffs_at(deadline).await.unwrap();
+    |       ^^^^^^^^^^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `retry_handoffs_at` not found for this struct
+
+error[E0599]: no method named `retry_handoffs_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:112:7
+    |
+112 |     c.retry_handoffs_at(deadline+c.config.recovery.orphan_grace_ms).await.unwrap();
+    |       ^^^^^^^^^^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `retry_handoffs_at` not found for this struct
+
+error[E0599]: no method named `reconcile_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:127:7
+    |
+127 |     c.reconcile_at(now_ms()).await.unwrap();
+    |       ^^^^^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `reconcile_at` not found for this struct
+
+error[E0599]: no method named `reconcile_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:128:7
+    |
+128 |     c.reconcile_at(now_ms()).await.unwrap();
+    |       ^^^^^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `reconcile_at` not found for this struct
+
+error[E0599]: no method named `reconcile_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:130:7
+    |
+130 |     c.reconcile_at(deadline).await.unwrap();
+    |       ^^^^^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `reconcile_at` not found for this struct
+
+error[E0599]: no method named `sweep_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:133:7
+    |
+133 |     c.sweep_at(deadline+c.config.recovery.deadline_margin_ms).await.unwrap();
+    |       ^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `sweep_at` not found for this struct
+
+error[E0599]: no method named `reconcile_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:149:7
+    |
+149 |     c.reconcile_at(now_ms()).await.unwrap();
+    |       ^^^^^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `reconcile_at` not found for this struct
+
+error[E0599]: no method named `reconcile_at` found for struct `controller::Controller<B, P>` in the current scope
+   --> crates/aq-worker/src/controller/recovery_tests.rs:153:7
+    |
+153 |     c.reconcile_at(now_ms()).await.unwrap();
+    |       ^^^^^^^^^^^^ method not found in `controller::Controller<fake::FakeBackend, recovery_tests::Provider>`
+    |
+   ::: crates/aq-worker/src/controller/mod.rs:20:1
+    |
+ 20 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+    | ------------------------------------------------------------- method `reconcile_at` not found for this struct
+
+Some errors have detailed explanations: E0583, E0599.
+For more information about an error, try `rustc --explain E0583`.
+warning: `aq-worker` (lib test) generated 1 warning
+error: could not compile `aq-worker` (lib test) due to 26 previous errors; 1 warning emitted

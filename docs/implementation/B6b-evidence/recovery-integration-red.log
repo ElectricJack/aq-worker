@@ -1,0 +1,90 @@
+   Compiling aq-session-host v0.1.6 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-session-host)
+error[E0061]: this function takes 8 arguments but 7 arguments were supplied
+   --> crates/aq-session-host/src/host_plan.rs:303:9
+    |
+303 |           Self::launch_inner(
+    |  _________^^^^^^^^^^^^^^^^^^-
+304 | |             root,
+305 | |             launch_id,
+306 | |             StartupInput::Plan(plan, startup),
+...   |
+310 | |             authority,
+311 | |         )
+    | |_________- argument #8 of type `std::option::Option<AgentIdentity>` is missing
+    |
+note: associated function defined here
+   --> crates/aq-session-host/src/lib.rs:545:8
+    |
+545 |     fn launch_inner(
+    |        ^^^^^^^^^^^^
+...
+553 |         agent_identity: Option<users::AgentIdentity>,
+    |         --------------------------------------------
+help: provide the argument
+    |
+303 |         Self::launch_inner(
+...
+310 |             authority,
+311 ~             /* std::option::Option<AgentIdentity> */,
+312 ~         )
+    |
+
+error[E0061]: this function takes 8 arguments but 7 arguments were supplied
+   --> crates/aq-session-host/src/host_plan.rs:303:9
+    |
+303 |           Self::launch_inner(
+    |  _________^^^^^^^^^^^^^^^^^^-
+304 | |             root,
+305 | |             launch_id,
+306 | |             StartupInput::Plan(plan, startup),
+...   |
+310 | |             authority,
+311 | |         )
+    | |_________- argument #8 of type `std::option::Option<users::AgentIdentity>` is missing
+    |
+note: associated function defined here
+   --> crates/aq-session-host/src/lib.rs:545:8
+    |
+545 |     fn launch_inner(
+    |        ^^^^^^^^^^^^
+...
+553 |         agent_identity: Option<users::AgentIdentity>,
+    |         --------------------------------------------
+help: provide the argument
+    |
+303 |         Self::launch_inner(
+...
+310 |             authority,
+311 ~             /* std::option::Option<users::AgentIdentity> */,
+312 ~         )
+    |
+
+error[E0308]: mismatched types
+   --> crates/aq-session-host/src/lib.rs:538:13
+    |
+532 |         Self::launch_inner(
+    |         ------------------ arguments to this function are incorrect
+...
+538 |             adapter,
+    |             ^^^^^^^ expected `Adapter<'_>`, found `&impl HarnessAdapter`
+    |
+    = note:   expected enum `host_plan::Adapter<'_>`
+            found reference `&impl HarnessAdapter`
+note: associated function defined here
+   --> crates/aq-session-host/src/lib.rs:545:8
+    |
+545 |     fn launch_inner(
+    |        ^^^^^^^^^^^^
+...
+551 |         adapter: Adapter<'_>,
+    |         --------------------
+help: try wrapping the expression in `host_plan::Adapter::Task`
+    |
+538 |             host_plan::Adapter::Task(adapter),
+    |             +++++++++++++++++++++++++       +
+
+Some errors have detailed explanations: E0061, E0308.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `aq-session-host` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aq-session-host` (lib test) due to 2 previous errors

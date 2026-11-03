@@ -7,6 +7,12 @@ struct Args {
     guardian: bool,
 }
 fn main() -> anyhow::Result<()> {
+    if matches!(
+        std::env::args().nth(1).as_deref(),
+        Some("guardian" | "pane")
+    ) {
+        return aq_session_host::helper_main();
+    }
     let args = Args::parse();
     if args.guardian {
         aq_worker::guardian::run(&args.launch_dir)

@@ -1,0 +1,88 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 0 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest -n 6 --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/B5a-evidence/test_cargo.py -q
+bringing up nodes...
+bringing up nodes...
+
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________________________ test_cargo_command ______________________________
+[gw0] linux -- Python 3.12.3 /home/jkern/dev/agent-queue2/.venv/bin/python
+
+    def test_cargo_command():
+        command = shlex.split(os.environ["B5A_COMMAND"])
+        log = Path(os.environ["B5A_LOG"])
+        with log.open("w") as out:
+            result = subprocess.run(command, stdout=out, stderr=subprocess.STDOUT,
+                                    env={**os.environ, "CARGO_BUILD_JOBS": "2"})
+        if record := os.environ.get("B5A_RESULT"):
+            Path(record).write_text(json.dumps({"command": command,
+                "exit_code": result.returncode, "log": str(log)}, indent=2) + "\n")
+>       assert result.returncode == 0, log.read_text()[-12000:]
+E       AssertionError:     Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-protocol)
+E             Checking tower-http v0.6.11
+E             Checking reqwest v0.12.28
+E             Checking aq-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-protocol)
+E             Checking aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker-protocol)
+E             Checking aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-lifecycle-protocol)
+E             Checking aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-terminal-relay-protocol-0.1.0)
+E             Checking aq-session-api v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-session-api-0.1.0)
+E             Checking aq-admission v0.1.11 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-admission-0.1.11)
+E             Checking aq-terminal-relay v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-terminal-relay-0.1.0)
+E             Checking aq-session-host v0.1.6 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-host)
+E             Checking aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-terminal-bridge)
+E             Checking aq-phase-terminal-protocol v0.1.2 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/vendor/aq-phase-terminal-protocol-0.1.2)
+E             Checking aq-admission v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/protocol/aq-admission)
+E             Checking aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-responses-transport)
+E             Checking aq-agent-result-local v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-agent-result-local)
+E             Checking aq-codex-mapper v0.1.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-codex-mapper)
+E             Checking aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+E         error[E0432]: unresolved import `crate::journal`
+E           --> crates/aq-worker/src/fixture.rs:4:5
+E            |
+E          4 |     journal::ProcessEvidence,
+E            |     ^^^^^^^ unresolved import
+E            |
+E         note: found an item that was configured out
+E           --> crates/aq-worker/src/lib.rs:12:9
+E            |
+E         11 | #[cfg(feature = "synthetic-runtime")]
+E            |       ----------------------------- the item is gated behind the `synthetic-runtime` feature
+E         12 | pub mod journal;
+E            |         ^^^^^^^
+E         help: a similar path exists
+E            |
+E          4 |     controller::journal::ProcessEvidence,
+E            |     ++++++++++++
+E
+E         error: unused import: `GitClient`
+E          --> crates/aq-worker/src/source_transfer.rs:6:14
+E           |
+E         6 |     source::{GitClient, GitManifest},
+E           |              ^^^^^^^^^
+E           |
+E           = note: `-D unused-imports` implied by `-D warnings`
+E           = help: to override `-D warnings` add `#[allow(unused_imports)]`
+E
+E         error: unused import: `Write`
+E           --> crates/aq-worker/src/source_transfer.rs:15:32
+E            |
+E         15 |     io::{Read, Seek, SeekFrom, Write},
+E            |                                ^^^^^
+E
+E         error: unused import: `files::discard_incoming`
+E           --> crates/aq-worker/src/source_transfer.rs:30:16
+E            |
+E         30 | pub(crate) use files::discard_incoming;
+E            |                ^^^^^^^^^^^^^^^^^^^^^^^
+E
+E         For more information about this error, try `rustc --explain E0432`.
+E         error: could not compile `aq-worker` (lib) due to 4 previous errors
+E
+E       assert 101 == 0
+E        +  where 101 = CompletedProcess(args=['cargo', 'clippy', '--locked', '-p', 'aq-worker', '--lib', '--bin', 'aq-worker', '--', '-D', 'warnings'], returncode=101).returncode
+
+docs/implementation/B5a-evidence/test_cargo.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED docs/implementation/B5a-evidence/test_cargo.py::test_cargo_command - A...
+1 failed in 55.28s

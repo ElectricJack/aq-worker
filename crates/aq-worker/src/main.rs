@@ -24,6 +24,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Build or scan sandbox templates on an explicitly configured build node.
+    Template {
+        #[command(subcommand)]
+        command: TemplateCmd,
+    },
     /// Enroll this machine. Secrets are read from a prompt or from stdin lines
     /// (code, then CF client id and secret with --cf-service-token).
     Enroll {
@@ -35,9 +40,14 @@ enum Cmd {
         #[arg(long)]
         cf_service_token: bool,
     },
-    /// Connect, heartbeat and reconnect until stopped.
-    Run,
+    /// Own node identity, capacity and sandbox lifecycle until stopped.
+    Run {
+        /// Operator JSON configuration; B2 transport must be installed for admission.
+        #[arg(long)]
+        controller_config: PathBuf,
+    },
     /// Run the protocol-2 synthetic execution candidate (no real provider harness).
+    #[cfg(feature = "synthetic-runtime")]
     RunExecution {
         #[arg(long)]
         state_dir: PathBuf,
@@ -98,6 +108,19 @@ enum Cmd {
         #[arg(long, requires_all = ["development_loopback", "fixture_preflight_gate"])]
         fixture_replay_lost_b1_ack: bool,
     },
+    /// Consume a frozen local handoff with a runner-private delegated permit.
+    SandboxRun {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        state_dir: PathBuf,
+        /// Runner-private permit JSON delivered by the node controller.
+        #[arg(long)]
+        permit_file: PathBuf,
+        /// Coordinator or runner-owned AQ proxy origin; no node enrollment file.
+        #[arg(long)]
+        server_url: String,
+    },
     /// Validate native configuration and installed executor without admission.
     CheckNative {
         #[arg(long)]
@@ -108,6 +131,21 @@ enum Cmd {
     FixtureResponses,
     /// Print the node id and server (never the credential).
     Status,
+}
+
+#[derive(Subcommand)]
+enum TemplateCmd {
+    /// Build, finalize, scan and allowlist a pinned recipe (requires Python 3 and BuildKit).
+    Build {
+        recipe: PathBuf,
+        #[arg(long)]
+        build_config: PathBuf,
+        /// New output directory for the OCI archive and provenance.
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Scan every layer of a single-platform OCI image archive without admission.
+    Scan { archive: PathBuf },
 }
 
 fn usage_err(msg: impl std::fmt::Display) -> ExitCode {
@@ -165,6 +203,15 @@ fn exit_for(e: &CallError) -> ExitCode {
     }
 }
 
+fn run_error(e: &anyhow::Error) -> (String, ExitCode) {
+    (
+        format!("{e:#}"),
+        e.downcast_ref::<CallError>()
+            .map(exit_for)
+            .unwrap_or_else(|| ExitCode::from(2)),
+    )
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -192,9 +239,20 @@ fn configured_native_executor(
     )?))
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let cli = Cli::parse();
+    let sandbox_agent = if matches!(&cli.command, Cmd::SandboxRun { .. }) {
+        match aq_session_host::users::bootstrap_sandbox_users() {
+            Ok(agent) => Some(agent),
+            Err(error) => return usage_err(error),
+        }
+    } else {
+        None
+    };
+    run(cli, sandbox_agent)
+}
+#[tokio::main]
+async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdentity>) -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -202,6 +260,30 @@ async fn main() -> ExitCode {
         .init();
     let path = cli.config.unwrap_or_else(default_path);
     match cli.command {
+        Cmd::Template { command } => {
+            let args = match command {
+                TemplateCmd::Build {
+                    recipe,
+                    build_config,
+                    output,
+                } => vec![
+                    "build".into(),
+                    recipe.into_os_string(),
+                    "--build-config".into(),
+                    build_config.into_os_string(),
+                    "--output".into(),
+                    output.into_os_string(),
+                ],
+                TemplateCmd::Scan { archive } => vec!["scan".into(), archive.into_os_string()],
+            };
+            match aq_worker::template::run(&args) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(_) => {
+                    usage_err("template operation refused; Python 3 and valid inputs required")
+                }
+            }
+        }
+        #[cfg(feature = "synthetic-runtime")]
         Cmd::RunExecution {
             state_dir,
             fixture_agent,
@@ -252,6 +334,31 @@ async fn main() -> ExitCode {
             match result {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => usage_err(format!("{e:#}")),
+            }
+        }
+        Cmd::SandboxRun {
+            manifest,
+            state_dir,
+            permit_file,
+            server_url,
+        } => {
+            let result = (|| -> anyhow::Result<()> {
+                let _agent = sandbox_agent
+                    .ok_or_else(|| anyhow::anyhow!("sandbox user bootstrap required"))?;
+                let frozen = aq_worker::native::runner::sandbox::FrozenLaunch::load(&manifest)?;
+                frozen.validate_local(&state_dir)?;
+                let _http = aq_worker::native::runner::sandbox::auth::RunnerHttp::for_execution(
+                    &server_url,
+                    &permit_file,
+                    &frozen,
+                )?;
+                anyhow::bail!(
+                    "sandbox runner B2 receipt codec is unavailable; permit transport validated, no launch attempted"
+                );
+            })();
+            match result {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => usage_err(e),
             }
         }
         Cmd::CheckNative { native_config } => {
@@ -387,21 +494,36 @@ async fn main() -> ExitCode {
             }
             Err(e) => usage_err(format!("{e:#}")),
         },
-        Cmd::Run => {
-            let cfg = match WorkerConfig::load(&path) {
-                Ok(c) => c,
-                Err(e) => return usage_err(format!("{e:#}")),
-            };
-            let client = match Client::from_config(&cfg) {
-                Ok(c) => c,
-                Err(e) => return usage_err(format!("{e:#}")),
-            };
-            tracing::info!(node_id = %cfg.node_id, server = %cfg.server_url, "worker starting");
-            match run_loop(&client, shutdown_signal()).await {
+        Cmd::Run { controller_config } => {
+            let result: anyhow::Result<()> = async {
+                use aq_worker::controller::{Controller, RunConfig, UnavailableProvider};
+                use aq_worker::backend::docker_local::DockerLocalBackend;
+                let worker = WorkerConfig::load(&path)?;
+                let config = RunConfig::load(&controller_config)?;
+                let backend = DockerLocalBackend::connect_unix(config.docker_local).await?;
+                let mut controller = Controller::open(&config.state_dir, worker.node_id, config.node, backend, UnavailableProvider)?;
+                let client = Client::from_config(&worker)?;
+                let (tx, rx) = tokio::sync::watch::channel(false);
+                let watcher = tokio::spawn(async move {
+                    shutdown_signal().await;
+                    let _ = tx.send(true);
+                });
+                let mut heartbeat_shutdown = rx.clone();
+                tracing::info!(node_id = %controller.identity().node_id, boot_id = %controller.identity().boot_id, "node controller starting");
+                let result = controller.run_with_heartbeat(rx, run_loop(&client, async move {
+                        while !*heartbeat_shutdown.borrow() {
+                            if heartbeat_shutdown.changed().await.is_err() { break; }
+                        }
+                    })).await;
+                watcher.abort();
+                result
+            }.await;
+            match result {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("error: {e}");
-                    exit_for(&e)
+                    let (message, code) = run_error(&e);
+                    eprintln!("error: {message}");
+                    code
                 }
             }
         }
@@ -490,4 +612,49 @@ fn production_cli_does_not_expose_lost_b1_ack_replay() {
         ])
         .is_err()
     );
+}
+
+#[cfg(test)]
+#[test]
+fn run_requires_explicit_controller_configuration() {
+    assert!(Cli::try_parse_from(["aq-worker", "run"]).is_err());
+    assert!(Cli::try_parse_from(["aq-worker", "run", "--controller-config", "/node.json"]).is_ok());
+}
+
+#[cfg(test)]
+#[test]
+fn run_errors_preserve_cause_and_connector_exit_codes() {
+    use aq_protocol::CompatibilityError;
+    for (error, expected) in [
+        (CallError::Revoked, 3),
+        (CallError::InvalidCredential, 3),
+        (
+            CallError::Incompatible(CompatibilityError {
+                error: "unsupported_protocol".into(),
+                message: "protocol mismatch".into(),
+                supported_min: 2,
+                supported_max: 2,
+            }),
+            4,
+        ),
+        (CallError::AccessRejected, 5),
+        (CallError::Other("probe nonce mismatch".into()), 2),
+    ] {
+        let cause = error.to_string();
+        let error = anyhow::Error::new(error).context("foundation connector");
+        let (message, code) = run_error(&error);
+        assert_eq!(code, ExitCode::from(expected));
+        assert!(message.contains(&cause));
+        assert!(message.contains("foundation connector"));
+    }
+    for cause in [
+        "controller root already owned",
+        "journal checksum mismatch",
+        "Docker socket unavailable",
+    ] {
+        let error = anyhow::anyhow!("{cause}").context("controller startup");
+        let (message, code) = run_error(&error);
+        assert_eq!(code, ExitCode::from(2));
+        assert_eq!(message, format!("controller startup: {cause}"));
+    }
 }

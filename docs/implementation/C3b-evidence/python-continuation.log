@@ -1,0 +1,44 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 3 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' scripts/tests/test_template_tool.py scripts/tests/test_package_sandbox.py -n 0
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 20 items
+
+scripts/tests/test_template_tool.py ............F.                       [ 70%]
+scripts/tests/test_package_sandbox.py ......                             [100%]
+
+=================================== FAILURES ===================================
+______ BuildTests.test_cli_build_uses_embedded_tools_without_source_tree _______
+
+self = <test_template_tool.BuildTests testMethod=test_cli_build_uses_embedded_tools_without_source_tree>
+
+    def test_cli_build_uses_embedded_tools_without_source_tree(self):
+        binary = os.environ['AQ_TEMPLATE_BINARY']
+        # The scanner itself is embedded in runtime bytes; its patterns must
+        # not classify their own source representation as a credential.
+        with open(binary, 'rb') as stream:
+>           load('credential_scan').scan_content(stream)
+
+scripts/tests/test_template_tool.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+stream = <_io.BufferedReader name='/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/target/debug/aq-worker'>
+capture = False
+
+    def scan_content(stream, capture=False):
+        tail = b''
+        collected = bytearray() if capture else None
+        while data := stream.read(1024 * 1024):
+            if secret_shaped(tail + data):
+>               raise ValueError('credential content detected')
+E               ValueError: credential content detected
+
+packaging/sandbox/credential_scan.py:97: ValueError
+=========================== short test summary info ============================
+FAILED scripts/tests/test_template_tool.py::BuildTests::test_cli_build_uses_embedded_tools_without_source_tree
+========================= 1 failed, 19 passed in 2.37s =========================

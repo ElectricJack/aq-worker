@@ -1,0 +1,11 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace",
+    "supervisor_session"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/F1a-host-evidence/t1-before-input-binding.log"
+}

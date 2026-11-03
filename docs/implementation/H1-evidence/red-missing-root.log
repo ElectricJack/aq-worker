@@ -1,0 +1,31 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+error[E0382]: borrow of moved value: `task`
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:390:5
+    |
+354 |     let mut task = ObservationTask::start(
+    |         -------- move occurs because `task` has type `observations::ObservationTask`, which does not implement the `Copy` trait
+...
+364 |     tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    |                                                             ----- value moved here
+365 |         loop {
+    |         ---- inside of this loop
+...
+371 |                         panic!("observation worker exited: {:?}", task.wait().await);
+    |                                                                   ---- variable moved due to use in coroutine
+...
+390 |     task.stop();
+    |     ^^^^ value borrowed here after move
+    |
+note: if `observations::ObservationTask` implemented `Clone`, you could clone the value
+   --> crates/aq-worker/src/native/runner/sandbox/observations.rs:219:1
+    |
+219 | pub struct ObservationTask {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^ consider implementing `Clone` for this type
+    |
+   ::: crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:371:67
+    |
+371 |                         panic!("observation worker exited: {:?}", task.wait().await);
+    |                                                                   ---- you could clone this value
+
+For more information about this error, try `rustc --explain E0382`.
+error: could not compile `aq-worker` (lib test) due to 1 previous error

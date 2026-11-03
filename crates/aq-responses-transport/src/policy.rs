@@ -51,6 +51,11 @@ impl ResponsesPolicy {
     pub fn original_deadline_boot_ns(&self) -> u64 {
         self.deadline_ns
     }
+    /// Remove deadline authority deterministically in dependent-crate tests.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn expire_for_test(&mut self) {
+        self.deadline_ns = 0;
+    }
     pub(super) fn remaining(&self) -> Result<Duration> {
         let now = boot_ns()?;
         ensure!(now < self.deadline_ns, "scoped Responses authority expired");
@@ -309,7 +314,7 @@ pub(super) mod tests {
             .unwrap(),
             body
         );
-        scope.deadline_ns = 0;
+        scope.expire_for_test();
         assert!(scope.prepare(&self::body()).is_err());
     }
     #[test]

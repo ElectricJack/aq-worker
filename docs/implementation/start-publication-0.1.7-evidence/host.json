@@ -1,0 +1,12 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-session-host",
+    "--all-features"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/start-publication-0.1.7-evidence/host.log"
+}
