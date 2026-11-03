@@ -1,5 +1,6 @@
 #[cfg(feature = "test-support")]
 mod fixture_responses_cli;
+mod native_diagnostics;
 #[cfg(feature = "test-support")]
 mod native_fixture;
 use std::io::{BufRead, IsTerminal};
@@ -369,8 +370,12 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             }
         }
         Cmd::CheckNative { native_config } => {
+            let disposition = "native configuration check refused";
+            let worker = match WorkerConfig::load(&path) {
+                Ok(worker) => worker,
+                Err(error) => return native_diagnostics::refuse(&error, None, disposition),
+            };
             let result = (|| -> anyhow::Result<()> {
-                let worker = WorkerConfig::load(&path)?;
                 let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
                 config.validate()?;
                 let mut executor = configured_native_executor(&worker, &config)?
@@ -383,7 +388,7 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     println!("Native configuration and installed executor are valid");
                     ExitCode::SUCCESS
                 }
-                Err(_) => usage_err("native configuration check refused"),
+                Err(error) => native_diagnostics::refuse(&error, Some(&worker), disposition),
             }
         }
         Cmd::ReconcileNative {
@@ -419,6 +424,11 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             #[cfg(feature = "test-support")]
             fixture_replay_lost_b1_ack,
         } => {
+            let disposition = "native execution unavailable or outcome unknown; preserve state for reconciliation";
+            let worker = match WorkerConfig::load(&path) {
+                Ok(worker) => worker,
+                Err(error) => return native_diagnostics::refuse(&error, None, disposition),
+            };
             let result = async {
                 #[cfg(feature = "test-support")]
                 let fixture = native_fixture::Options::from_flags(
@@ -431,7 +441,6 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                 if fixture.is_some() {
                     native_fixture::verify_environment()?;
                 }
-                let worker = WorkerConfig::load(&path)?;
                 let config = aq_worker::native::runner::NativeConfig::load(&native_config)
                     .inspect_err(|_| {
                         tracing::info!(stage = "native_config_load", "native execution refused");
@@ -505,9 +514,7 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     println!("native run: {disposition:?}; retained state preserved");
                     ExitCode::SUCCESS
                 }
-                Err(_) => usage_err(
-                    "native execution unavailable or outcome unknown; preserve state for reconciliation",
-                ),
+                Err(error) => native_diagnostics::refuse(&error, Some(&worker), disposition),
             }
         }
         #[cfg(feature = "test-support")]
