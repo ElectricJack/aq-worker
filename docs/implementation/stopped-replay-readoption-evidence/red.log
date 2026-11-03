@@ -1,0 +1,25 @@
+   Compiling aq-admission v0.3.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/protocol/aq-admission)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.45s
+     Running tests/sandbox.rs (target/debug/deps/sandbox-2bd311ecaf06fc49)
+
+running 4 tests
+test sandbox_stopped_readoption_preserves_ended_scope ... ok
+test sandbox_stopped_same_boot_replay ... ok
+test sandbox_stopped_original_boot_replay_after_readoption ... FAILED
+test sandbox_stopped_replay_refuses_mismatched_or_forged_boot ... ok
+
+failures:
+
+---- sandbox_stopped_original_boot_replay_after_readoption stdout ----
+
+thread 'sandbox_stopped_original_boot_replay_after_readoption' (3328899) panicked at protocol/aq-admission/tests/sandbox.rs:237:10:
+called `Result::unwrap()` on an `Err` value: BindingMismatch
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sandbox_stopped_original_boot_replay_after_readoption
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p aq-admission --test sandbox`

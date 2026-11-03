@@ -158,6 +158,174 @@ fn sandbox_published_fixtures_conform() {
     }
 }
 
+fn stopped_replay() -> (
+    DelegatedPermit,
+    PermitContext,
+    aq_admission::stopped::Request,
+    u64,
+) {
+    let fixtures: Vec<Fixture> =
+        serde_json::from_str(include_str!("../artifacts/sandbox-v1.fixtures.json")).unwrap();
+    let FixtureCase::StoppedReplay {
+        permit,
+        context,
+        original_request,
+        now_ms,
+        ..
+    } = fixtures
+        .into_iter()
+        .find(|f| f.name == "ended_stopped_exact_replay")
+        .unwrap()
+        .case
+    else {
+        panic!("stopped replay fixture required")
+    };
+    (permit, context, *original_request, now_ms)
+}
+
+fn readopt_stopped_permit(permit: &DelegatedPermit, now_ms: u64) -> DelegatedPermit {
+    let current = WorkerIdentity {
+        boot_id: id(0x9001),
+        ..permit.binding.node.clone()
+    };
+    let mut rebound = permit.clone();
+    rebound.binding.node = current.clone();
+    rebound.credential = credential("rebound_0000000");
+    let request = ReadoptionRequest {
+        schema_version: 1,
+        operation_id: id(0x9002),
+        previous: permit.binding.node.clone(),
+        current: current.clone(),
+        sandboxes: vec![LiveSandbox {
+            permit_id: permit.permit_id,
+            attempt_id: permit.binding.attempt_id,
+            grant_generation: permit.binding.grant_generation,
+            sandbox_id: permit.binding.sandbox_id,
+        }],
+    };
+    ReadoptionResponse {
+        schema_version: 1,
+        operation_id: request.operation_id,
+        previous: request.previous.clone(),
+        current,
+        results: vec![ReadoptionResult::Rebound {
+            permit: rebound.clone(),
+        }],
+    }
+    .validate_for(&request, std::slice::from_ref(permit), now_ms)
+    .unwrap();
+    rebound
+}
+
+#[test]
+fn sandbox_stopped_same_boot_replay() {
+    let (permit, context, original, now) = stopped_replay();
+    permit
+        .validate_stopped_replay(&context, &original, &original, now)
+        .unwrap();
+}
+
+#[test]
+fn sandbox_stopped_original_boot_replay_after_readoption() {
+    let (permit, mut context, original, now) = stopped_replay();
+    let rebound = readopt_stopped_permit(&permit, now);
+    context.binding = rebound.binding.clone();
+    let aq_admission::SessionIdentity::Remote { boot_id, .. } = original.evidence.binding.session
+    else {
+        panic!("remote history required")
+    };
+    assert_eq!(boot_id, permit.binding.node.boot_id);
+    assert_ne!(boot_id, rebound.binding.node.boot_id);
+    rebound
+        .validate_stopped_replay(&context, &original, &original, now)
+        .unwrap();
+    assert_eq!(
+        rebound.validate_stopped_replay(&context, &original, &original, rebound.expires_at_ms),
+        Err(ContractError::Expired)
+    );
+}
+
+#[test]
+fn sandbox_stopped_replay_refuses_mismatched_or_forged_boot() {
+    let (permit, old_context, original, now) = stopped_replay();
+    let rebound = readopt_stopped_permit(&permit, now);
+    let context = PermitContext {
+        binding: rebound.binding.clone(),
+        ..old_context.clone()
+    };
+    let mut forged = rebound.clone();
+    forged.binding.node.boot_id = id(0x9003);
+    for (permit, context) in [
+        (&permit, &context),
+        (&rebound, &old_context),
+        (&forged, &context),
+    ] {
+        assert_eq!(
+            permit.validate_stopped_replay(context, &original, &original, now),
+            Err(ContractError::BindingMismatch)
+        );
+    }
+    // Even a structurally valid report rewritten to the current boot is not
+    // the retained historical report. Neither current nor arbitrary boot wins.
+    for boot in [rebound.binding.node.boot_id, id(0x9003)] {
+        let mut changed = original.clone();
+        let aq_admission::SessionIdentity::Remote { boot_id, .. } =
+            &mut changed.evidence.binding.session
+        else {
+            panic!()
+        };
+        *boot_id = boot;
+        changed.proof.observation.guardian.intent.session =
+            changed.evidence.binding.session.clone();
+        let aq_admission::transport::StopDisposition::Stopped {
+            stop_receipt_digest,
+            ..
+        } = &mut changed.evidence.disposition
+        else {
+            panic!()
+        };
+        *stop_receipt_digest = changed.proof.digest().unwrap();
+        changed.validate().unwrap();
+        assert_eq!(
+            rebound.validate_stopped_replay(&context, &original, &changed, now),
+            Err(ContractError::ReplayConflict)
+        );
+    }
+}
+
+#[test]
+fn sandbox_stopped_readoption_preserves_ended_scope() {
+    let (permit, mut context, original, now) = stopped_replay();
+    let rebound = readopt_stopped_permit(&permit, now);
+    context.binding = rebound.binding.clone();
+    for operation in [
+        RunnerOperation::FetchPreparationMaterial,
+        RunnerOperation::Observe,
+        RunnerOperation::UploadArtifact,
+        RunnerOperation::Started,
+        RunnerOperation::Renew,
+        RunnerOperation::Terminal,
+        RunnerOperation::FetchExecutionMaterial,
+        RunnerOperation::AcceptOffer,
+        RunnerOperation::RegisterIncarnation,
+        RunnerOperation::Prepared,
+        RunnerOperation::MailboxPoll,
+        RunnerOperation::MailboxAck,
+    ] {
+        assert_eq!(
+            rebound.validate_for(&context, operation, now),
+            Err(ContractError::ScopeDenied),
+            "{operation:?}"
+        );
+    }
+    let mut preparation = rebound;
+    preparation.scope = PermitScope::Preparation;
+    assert_eq!(
+        preparation.validate_stopped_replay(&context, &original, &original, now),
+        Err(ContractError::ScopeDenied)
+    );
+}
+
 #[test]
 fn sandbox_context_is_validated_and_secret_debug_is_redacted() {
     let fixtures: Vec<Fixture> =
