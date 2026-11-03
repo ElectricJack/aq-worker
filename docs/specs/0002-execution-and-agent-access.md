@@ -6,6 +6,12 @@
 
 **Reconciled:** 2026-10-31, against the native preparation/grant separation.
 
+**Program tracking aliases:** `Tn` → `WRK-Tn`, preserving the numeric suffix.
+The test IDs form one continuous series across the
+[worker framework](0001-worker-framework.md) (T1–T20) and this supplement
+(T21–T28). These aliases apply to cross-spec tracking; the original tables and
+W requirement IDs remain unchanged.
+
 This specification supplies worker implementation requirements for the canonical [shared execution lifecycle](../../../aq-server/docs/architecture/0002-execution-and-recovery.md). The [worker framework](0001-worker-framework.md) remains authoritative for placement eligibility, capacity, cache policy and harness confinement. [AQ's daemon specification](../../../aq-server/docs/specs/0002-execution-and-agent-access.md) owns central authorization and graph delivery. These documents describe complementary mechanisms, not separate task state machines.
 
 ## 1. Requirements

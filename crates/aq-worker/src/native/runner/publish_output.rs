@@ -154,15 +154,13 @@ impl ControlPublisher {
         let task = tokio::spawn(async move {
             let started = std::time::Instant::now();
             loop {
-                if started.elapsed().as_millis() >= u128::from(aq_codex_mapper::READY_DELAY_MS) {
-                    if let Ok(view) = control.current_viewport().await {
-                        if aq_codex_mapper::classify_current_viewport(&view)
-                            == aq_codex_mapper::InteractiveViewport::AuthenticationRequired
-                        {
-                            status.store(true, Ordering::SeqCst);
-                            return;
-                        }
-                    }
+                if started.elapsed().as_millis() >= u128::from(aq_codex_mapper::READY_DELAY_MS)
+                    && let Ok(view) = control.current_viewport().await
+                    && aq_codex_mapper::classify_current_viewport(&view)
+                        == aq_codex_mapper::InteractiveViewport::AuthenticationRequired
+                {
+                    status.store(true, Ordering::SeqCst);
+                    return;
                 }
                 // The existing bridge retains original pending control exchanges.
                 let _ = control.poll_control_once().await;
