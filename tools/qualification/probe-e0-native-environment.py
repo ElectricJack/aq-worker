@@ -64,10 +64,16 @@ version = subprocess.run([str(root / 'codex'), '--version'], capture_output=True
 sandbox = subprocess.run([str(root / 'codex'), 'sandbox', '--', '/bin/true'], cwd=work,
                          capture_output=True, text=True, env=env, timeout=20)
 tmux = subprocess.run([str(root / 'tmux'), '-V'], capture_output=True, text=True, env=env, timeout=15)
+bwrap_path = pathlib.Path('/usr/bin/bwrap')
+with bwrap_path.open('rb') as stream:
+    bwrap = {'path': str(bwrap_path), 'sha256': hashlib.file_digest(stream, 'sha256').hexdigest(),
+             'bytes': bwrap_path.stat().st_size}
+bwrap['version'] = subprocess.run([str(bwrap_path), '--version'], capture_output=True, text=True,
+                                  env=env, timeout=15).stdout.strip()
 print(json.dumps({'uid': os.getuid(), 'gid': os.getgid(), 'status': selected,
     'image_device': name, 'image_mount_rows': len(image_rows),
     'image_mount_rows_read_only': all('ro' in r[5].split(',') for r in image_rows),
-    'opt_write': root_write, 'programs': programs,
+    'opt_write': root_write, 'programs': programs, 'os_bwrap': bwrap,
     'codex_version': version.stdout.strip(), 'tmux_version': tmux.stdout.strip(),
     'codex_sandbox_true_exit': sandbox.returncode}, sort_keys=True))
 '''
@@ -102,6 +108,9 @@ def verify(facts):
         'program_pins': {k: (v['sha256'], v['bytes']) for k, v in facts['programs'].items()} == PINS,
         'codex_0_166_0': facts['codex_version'] == 'codex-cli 0.166.0',
         'tmux_3_4': facts['tmux_version'] == 'tmux 3.4',
+        # Recorded measured pin for the environment body; the OS image provides it.
+        'os_bwrap_present': bool(re.fullmatch(r'[0-9a-f]{64}', facts['os_bwrap']['sha256']))
+            and facts['os_bwrap']['version'].startswith('bubblewrap '),
         'codex_sandbox_namespaces': facts['codex_sandbox_true_exit'] == 0,
     }
     return checks, sorted(k for k, ok in checks.items() if not ok)

@@ -51,6 +51,7 @@ class EnvironmentProbe(unittest.TestCase):
             'program_pins': lambda f: f['programs']['codex'].update(bytes=1),
             'codex_0_166_0': lambda f: f.update(codex_version='codex-cli 0.167.0'),
             'tmux_3_4': lambda f: f.update(tmux_version='tmux 3.5'),
+            'os_bwrap_present': lambda f: f['os_bwrap'].update(version=''),
             'codex_sandbox_namespaces': lambda f: f.update(codex_sandbox_true_exit=1),
         }
         self.assertEqual(sorted(regressions), sorted(self.report['checks']))

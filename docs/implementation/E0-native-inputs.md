@@ -223,15 +223,16 @@ container the probe mirrors the checks in `named_environment.rs` `inspect`.
 
 The retained canonical evidence is
 [`environment-probe.json`](evidence/e0-native-inputs/environment-probe.json),
-1985 bytes, sha256
-`88a42cda69d810000cbbcc514c4c5814acd0b6f7aafe4ba78ebc88f5498a7e1d`.
-All ten checks passed:
+2165 bytes, sha256
+`ab62ce165f795e22b2c988aa225e062eb2d118bf123ce4bdd37f619936d0eb97`.
+All eleven checks passed:
 
 - UID/GID 10001;
 - all five capability sets empty, and `NoNewPrivs=1`;
 - the single image-device mount row is `ro`, and a write gives `EROFS`;
 - all six program pins (sha256 and bytes) match the I0 receipt;
 - `codex-cli 0.166.0` and `tmux 3.4`;
+- an OS `bwrap` is present, and its pin is recorded (see below);
 - `codex sandbox -- /bin/true` exits 0 with a private `CODEX_HOME`.
 
 The measured seccomp result corrects an assumption. On this Docker Desktop
@@ -247,6 +248,27 @@ The one remaining filter is the host baseline. The probe therefore checks
 that unconfined removes exactly Docker's profile filter, measured against a
 default-profile baseline container of the same image. It does not check for
 `Seccomp == 0`.
+
+Two further measured findings affect the definition bodies:
+
+- **Runtime ref.** The worker example in the schema notes put the aq-worker
+  binary sha in `runtime.runtime`. That is wrong for E0. The server requires
+  every runtime ref to be a definition body with `sha256(body) == digest`
+  (`profiled_execution/producer/build.rs:249-292`,
+  `presence/qualification.rs:14-60`). The E0 reference recipe builds it as a
+  JSON body `aq.codex-finite-peer-runtime` that embeds the worker ProgramPin
+  (`tests/support/codex_runtime_recipe.rs:267-273`). The worker checks only
+  the id/version format and equality with the adapter, composite and
+  presence definitions (`native/runner/config.rs:226-262`); it never hashes
+  its own binary against the ref. The real runtime ref will therefore be the
+  digest of a runtime body that carries the measured aq-worker pin above.
+- **OS bubblewrap.** The I0 image provides `/usr/bin/bwrap`
+  **bubblewrap 0.8.0**, sha256
+  `85580dd52ed366ece8844e90fa75ac7c4de8802963071344e123221fb9f6f11e`,
+  72080 bytes. The recipe's environment body hard-codes a different binary
+  (`e3189039…`, 72160 bytes) and the premise "OS bwrap 0.9.0". The real
+  environment body must use the measured pin and version. Copying the
+  recipe constant would be fixture-as-real.
 
 This document is the measured basis for the environment qualification
 ArtifactRef. It is not yet admission: the server definition body, context
