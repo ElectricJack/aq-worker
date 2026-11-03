@@ -1,0 +1,28 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.98s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-85b5f771be1e69d4)
+
+running 21 tests
+test native::runner::codex::tests::https_factory_construction_is_not_preflight_or_admission ... ok
+test native::runner::codex::tests::production_factory_refuses_plaintext_and_proxy_credentials_before_admission ... ok
+test native::runner::codex::tests::legacy_profile_refuses_before_manifest_or_state_access ... ok
+test native::runner::tests::unavailable_executor_refuses_before_any_journal_or_network_admission ... ok
+test native::runner::codex::tests::model_bound_is_per_response_and_never_an_aggregate_spending_budget ... ok
+test native::runner::codex::tests::old_named_profile_cannot_advertise_known_result_adapter_without_channel ... ok
+test native::runner::codex::tests::result_factory_refuses_nonselected_runtime_even_with_matching_adapter_hash ... ok
+test native::runner::codex::tests::result_factory_refuses_nonselected_client_before_kernel_or_admission ... ok
+test native::runner::codex::tests::result_factory_wire_is_distinct_and_cannot_supply_arbitrary_folder ... ok
+test native::runner::codex::tests::trusted_profile_wire_is_closed_and_requires_environment_reference ... ok
+test native::runner::tests::private_config_refuses_symlink_public_mode_and_oversize ... ok
+test native::runner::tests::native_config_rejects_unsupported_capacity_and_changed_executable ... ok
+test native::runner::codex::tests::trusted_profile_requires_independent_matching_environment_before_installation ... ok
+test native::runner::tests::existing_native_state_is_opened_for_validated_recovery ... ok
+test native::runner::codex::tests::closed_settings_refuse_unsupported_advertised_functions_and_mutable_handoff_kind ... ok
+test native::runner::config_tests::duplicate_fields_are_rejected_before_any_value_materialization ... ok
+test native::runner::config_tests::full_artifact_features_and_unknown_fields_are_closed_without_fallback ... ok
+test native::runner::config_tests::exact_old_wire_stays_frozen_and_new_wire_selects_refresh_explicitly ... ok
+test native::runner::tests::native_config_load_accepts_exact_long_profiles_and_refuses_changed_contract ... ok
+test native::runner::profile_tests::orphan_mixed_and_changed_receipt_contexts_never_select_or_complete ... ok
+test native::runner::profile_tests::profiles_require_exact_execution_then_matching_terminal_context_and_pair ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 232 filtered out; finished in 1.45s
+

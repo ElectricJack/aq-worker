@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+aq-admission-sandbox = { package = "aq-admission", path = "../../protocol/aq-admission", version = "=0.2.0" }
 aq-agent-result-local = { path = "../aq-agent-result-local", version = "=0.1.0" }
 aq-responses-transport.workspace = true
 aq-codex-mapper = { path = "../aq-codex-mapper", version = "=0.1.1" }
@@ -40,7 +41,6 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-aq-admission-sandbox = { package = "aq-admission", path = "../../protocol/aq-admission", version = "=0.2.0" }
 # Lets plain `cargo test` integration tests reach backend::conformance.
 aq-worker = { path = ".", features = ["backend-conformance"] }
 aq-responses-transport = { workspace = true, features = ["test-support"] }

@@ -202,3 +202,16 @@ fn native_config_load_accepts_exact_long_profiles_and_refuses_changed_contract()
         assert!(NativeConfig::load(&path).is_err());
     }
 }
+
+#[test]
+fn existing_native_state_is_opened_for_validated_recovery() {
+    let (dir, c) = config();
+    let node = Uuid::new_v4();
+    let root = dir.path().join("journal");
+    let initial = Journal::create(&root, node, c.capacity.clone()).unwrap();
+    let old = initial.state().identity.boot_id;
+    drop(initial);
+    let reopened = open_journal(&c, node).unwrap();
+    assert!(reopened.recovery_required());
+    assert_eq!(reopened.state().identity.boot_id, old);
+}
