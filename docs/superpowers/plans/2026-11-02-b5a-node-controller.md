@@ -33,7 +33,7 @@
 
 - Create `crates/aq-worker/src/controller/{mod,types,storage,journal,tests}.rs`.
 - Modify `crates/aq-worker/src/lib.rs`, `main.rs`, `Cargo.toml` and `native/runner.rs`.
-- Consume `PlacementBackend`, `LifecycleRecord`, `StoppedWriterProof`, `DestroyAuthorization`, B1 `Registration`, `DelegatedPermit`, `BackendAdvertisement`, shared `LaunchManifest`.
+- Consume `PlacementBackend`, `StoppedWriterProof`, `DestroyAuthorization`, B1 `Registration`, `DelegatedPermit`, `BackendAdvertisement`, shared `LaunchManifest`.
 - Produce `Controller<B,P>::open(root,node,config,backend,provider)`, `register`, `reserve`, `accept_with`, `launch`, `inspect`, `stop`, `destroy`, `inventory`, `run`.
 - `PermitProvider::Request` is opaque, not serialized by the controller. `register(&Registration)` and `issue(&Request,&SandboxIdentity,&LaunchManifest)` perform authenticated control operations; issuance returns a validated DelegatedPermit plus opaque PrivateMaterial produced for B6. Never serialize a worker-local HTTP envelope.
 - `accept_with` records reservation/accept intent before invoking an injected native acceptance future, retaining uncertainty. Existing NativeClient poll/proposal/accept code remains unchanged pending B2 composition.
@@ -58,7 +58,7 @@
 - [x] Test run service shutdown and unsupported provider refusal without backend effects. Test existing native state takes the validated recovery path rather than the blanket existence guard.
 - [x] Run relevant tests; expected FAIL before changes.
 - [x] Wire `aq-worker run --controller-config` to the long-lived controller with existing DockerLocal backend construction. The shipped unavailable provider explicitly blocks admission until B2 installs routes; the generic service is exercised with a fake provider. Keep foundation enrollment/heartbeat. Replace native blanket existence refusal with journal open/validation and explicit recovery-required handling; never relaunch old attempts.
-- [ ] Run focused controller/native tests and both exact named workspace commands, fmt and clippy. Record all real outcomes and inherited baseline failures. No full CI run per worker policy.
+- [x] Run focused controller/native tests and both exact named workspace commands, fmt and clippy. Record all real outcomes and inherited baseline failures. No full CI run per worker policy.
 - [ ] Update `docs/implementation/B5a.md`, commit, sync main and push. Submit the evidence for AQ cross-family review and follow the review/close protocol.
 
 ## Execution ledger
@@ -67,3 +67,5 @@
 - Ruling: native HTTP composition is deferred by the supervisor; using an opaque provider request and payload preserves the contract ownership boundary. The CLI must explicitly refuse when that provider is unavailable. No end-to-end deployed execution claim.
 
 - Behavioral red/green evidence now covers the controller and native recovery; all 17 controller and 21 native-runner tests pass. Service shutdown and unavailable-provider assertions failed before their implementation. Registration operation intent was additionally tested red before adding the persisted field. Final workspace acceptance commands and review remain pending.
+
+- Final sync: origin/main 303c5f3 merged as 1259ffe. Both exact named workspace tests matched one test and passed; controller 17, native runner 21 and CLI 1 passed after sync; workspace Clippy with -D warnings and workspace-member fmt passed. fmt --all has the recorded nested vendor workspace-resolution limitation. Publication and AQ review follow the verified source snapshot.
