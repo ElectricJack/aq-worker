@@ -1,0 +1,58 @@
+[
+  {
+    "name": "rust",
+    "entry": {
+      "harness_versions": {
+        "codex": "0.166.0"
+      },
+      "image_digest": "sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5",
+      "image_reference": "ghcr.io/electricjack/aq-template@sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5",
+      "materializations": {},
+      "name": "rust",
+      "provenance": {
+        "base_digest": "sha256:f6344f0456cbc11ef543b0060a808b4532c3a928b5b110d875065efbf9e066bd",
+        "builder_identity": "c3b-public-constants-qualification",
+        "built_at": "2026-11-03T03:41:23.647189+00:00",
+        "credential_scan_policy": "aq-credential-scan-v1",
+        "finalize_policy": "aq-finalize-v1",
+        "harness_versions": {
+          "codex": "0.166.0"
+        },
+        "image_digest": "sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5",
+        "recipe_digest": "sha256:4de387c0b88e61e2bf080acb609c51622ca8792475444cffd0b234d3ceddfec4",
+        "runtime_bundle_digest": "sha256:13a64d6dfbedd8cb2e31b26a18670c71f6b43efd800eff94d62fc3b1d2bc2176"
+      },
+      "version": "1"
+    },
+    "archive": "/tmp/aq-c3b-public-qualification/admission-zzgn2__x/rust/image.oci.tar",
+    "archive_sha256": "f65edf2353962f3d522d23fb3813bc4b9091ddd2bce7f6b91212c5ffa87ed962"
+  },
+  {
+    "name": "node",
+    "entry": {
+      "harness_versions": {
+        "codex": "0.166.0"
+      },
+      "image_digest": "sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710",
+      "image_reference": "ghcr.io/electricjack/aq-template@sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710",
+      "materializations": {},
+      "name": "node",
+      "provenance": {
+        "base_digest": "sha256:f6344f0456cbc11ef543b0060a808b4532c3a928b5b110d875065efbf9e066bd",
+        "builder_identity": "c3b-public-constants-qualification",
+        "built_at": "2026-11-03T03:42:59.450734+00:00",
+        "credential_scan_policy": "aq-credential-scan-v1",
+        "finalize_policy": "aq-finalize-v1",
+        "harness_versions": {
+          "codex": "0.166.0"
+        },
+        "image_digest": "sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710",
+        "recipe_digest": "sha256:d6067a630ef0b3a4ab6d10c22942cf20aa6cf040e7feefe940da657ac5723ca8",
+        "runtime_bundle_digest": "sha256:13a64d6dfbedd8cb2e31b26a18670c71f6b43efd800eff94d62fc3b1d2bc2176"
+      },
+      "version": "1"
+    },
+    "archive": "/tmp/aq-c3b-public-qualification/admission-zzgn2__x/node/image.oci.tar",
+    "archive_sha256": "bfd7da2fa0aa7da5980654ce8806474e2c50cc78f70dc4cf2abd0c6de2fa3ed7"
+  }
+]
