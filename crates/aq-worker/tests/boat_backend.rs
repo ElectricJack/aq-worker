@@ -559,6 +559,13 @@ async fn boat_orphan_retention_authority_can_delete_after_restart_without_invent
 #[tokio::test]
 #[ignore = "requires approved dedicated BOAT_LIVE_CONFIG and BOAT_API_KEY; runs paid VMs"]
 async fn boat_live_conformance() {
+    if std::env::var_os("BOAT_LIVE_CONFIG").is_none() || std::env::var_os("BOAT_API_KEY").is_none()
+    {
+        eprintln!(
+            "NOT RUN: live Boat qualification requires both BOAT_LIVE_CONFIG and BOAT_API_KEY"
+        );
+        return;
+    }
     // The live fixture runs the same lifecycle scenarios with one-shot faults at
     // the client boundary, and cleans every prefixed sandbox on panic or success.
     live::run().await;
