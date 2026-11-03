@@ -97,7 +97,10 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 cpu = self.config.capacity.cpu_millis;
             }
         }
+        let disk_limit = self.backend.disk_limit();
         Inventory {
+            disk_limit: disk_limit.mode,
+            shared_root_fs: disk_limit.shared_root_fs,
             identity: self.identity().clone(),
             generation: self.state().revision,
             reserved_sandboxes: count,
@@ -298,6 +301,9 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             cpu_millis,
             memory_bytes: m.resources.memory_bytes,
             pids: m.resources.process_limit,
+            // SBX20: the reservation's disk bytes bound the attempt; zero
+            // leaves the backend's node default in force.
+            disk_bytes: Some(request.disk_bytes).filter(|bytes| *bytes > 0),
         });
         if create.validate().is_err() {
             return self.refuse(RefusalReason::CapacityChanged);

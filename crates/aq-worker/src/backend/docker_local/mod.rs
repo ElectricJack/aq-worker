@@ -15,13 +15,15 @@ pub use transport::*;
 
 use crate::backend::{
     BackendError, BackendKind, Capability, ConfinementMode, Confirmation, CreateRequest,
-    DestroyAuthorization, InventoryEntry, PlacementBackend, PrivateMaterial, SandboxIdentity,
-    SandboxState, StoppedWriterProof, TemplateDigest, UnconfirmedReason,
+    DestroyAuthorization, DiskLimitMode, DiskLimitStatus, DiskUsage, InventoryEntry,
+    PlacementBackend, PrivateMaterial, SandboxIdentity, SandboxState, StoppedWriterProof,
+    TemplateDigest, UnconfirmedReason,
 };
 use policy::{
-    container_state, create_body, encode, entry_from_labels, labels_match, node_filter, volume_name,
+    container_state, create_body, disk_limit_from_labels, encode, entry_from_labels, labels_match,
+    node_filter, volume_body, volume_name,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     time::Duration,
@@ -68,6 +70,8 @@ impl From<CallError> for BackendError {
 pub struct DockerLocalBackend<T: DockerTransport = UnixSocketTransport> {
     config: DockerLocalConfig,
     transport: T,
+    /// SBX20: admitted by operator override onto a shared root filesystem.
+    shared_root_fs: bool,
 }
 
 impl DockerLocalBackend<UnixSocketTransport> {
@@ -81,7 +85,11 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     /// Validates the configuration and proves the daemon is a rootless one.
     pub async fn connect(config: DockerLocalConfig, transport: T) -> Result<Self, BackendError> {
         config.validate()?;
-        let backend = Self { config, transport };
+        let mut backend = Self {
+            config,
+            transport,
+            shared_root_fs: false,
+        };
         let info = backend.get_json("/info").await?;
         let rootless = info
             .get("SecurityOptions")
@@ -98,6 +106,17 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             ));
         }
         require_enforced_limits(&info)?;
+        backend.shared_root_fs = storage_shares_root(&info);
+        if backend.shared_root_fs && !backend.config.shared_root_fs {
+            return Err(BackendError::InvalidRequest(
+                "sandbox daemon storage shares the root filesystem; set shared_root_fs to override",
+            ));
+        }
+        if backend.config.hard_disk_limit && !backing_filesystem_is_xfs(&info) {
+            return Err(BackendError::InvalidRequest(
+                "hard disk limit requires XFS (prjquota) sandbox storage",
+            ));
+        }
         Ok(backend)
     }
 
@@ -175,6 +194,33 @@ pub fn require_enforced_limits(info: &Value) -> Result<(), BackendError> {
         ));
     }
     Ok(())
+}
+
+/// SBX20 admission: the daemon's storage root (graphroot) must be on a
+/// filesystem distinct from `/`, compared by `st_dev`. A missing or
+/// unreadable root cannot be proven distinct and counts as shared.
+pub fn storage_shares_root(info: &Value) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let root = info
+        .get("DockerRootDir")
+        .or_else(|| info.pointer("/Store/GraphRoot"))
+        .or_else(|| info.pointer("/store/graphRoot"))
+        .and_then(Value::as_str)
+        .filter(|root| root.starts_with('/'));
+    let Some(root) = root else { return true };
+    match (std::fs::metadata(root), std::fs::metadata("/")) {
+        (Ok(storage), Ok(host)) => storage.dev() == host.dev(),
+        _ => true,
+    }
+}
+
+/// `DriverStatus` is a list of `[key, value]` pairs.
+fn backing_filesystem_is_xfs(info: &Value) -> bool {
+    info["DriverStatus"].as_array().is_some_and(|pairs| {
+        pairs.iter().any(|pair| {
+            pair[0].as_str() == Some("Backing Filesystem") && pair[1].as_str() == Some("xfs")
+        })
+    })
 }
 
 fn parse_json(body: &[u8]) -> Result<serde_json::Value, BackendError> {
@@ -298,10 +344,10 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     /// otherwise. Any other occupant of the name is a conflict.
     async fn ensure_volume(
         &self,
-        name: &str,
+        request: &CreateRequest,
         labels: &BTreeMap<String, String>,
     ) -> Result<(), BackendError> {
-        let volume = volume_name(name);
+        let volume = volume_name(&request.name);
         let path = format!("/volumes/{volume}");
         let check = |found: Option<Value>| match found {
             Some(found) if labels_match(&found["Labels"], labels) => Ok(()),
@@ -310,7 +356,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         if let Some(found) = self.get_optional(&path).await? {
             return check(Some(found));
         }
-        let body = json!({ "Name": volume, "Driver": "local", "Labels": labels });
+        let body = volume_body(&self.config, request, labels);
         let response = self
             .send(DockerMethod::Post, "/volumes/create", Some(&body))
             .await?;
@@ -439,7 +485,7 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
         if let Some(found) = self.get_optional(&inspect).await? {
             return same(Some(found));
         }
-        self.ensure_volume(name, &labels).await?;
+        self.ensure_volume(request, &labels).await?;
         let body = create_body(&self.config, request, &image, resources);
         let path = format!("/containers/create?name={}", encode(name));
         let response = self.send(DockerMethod::Post, &path, Some(&body)).await?;
@@ -551,6 +597,75 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
             return Err(unknown);
         }
         Ok(entries.into_values().collect())
+    }
+
+    fn disk_limit(&self) -> DiskLimitStatus {
+        DiskLimitStatus {
+            mode: Some(if self.config.hard_disk_limit {
+                DiskLimitMode::Hard
+            } else {
+                DiskLimitMode::Watchdog
+            }),
+            shared_root_fs: self.shared_root_fs,
+            watch_interval_ms: self.config.disk_watch_interval_ms,
+        }
+    }
+
+    /// SBX20 sample: container writable layer (`SizeRw`) plus the work
+    /// volume's `UsageData.Size`. A volume size the daemon has not computed
+    /// (-1 or absent) counts as zero; a running container without `SizeRw`
+    /// is an incomplete sample and therefore Err.
+    async fn disk_usage(&mut self, node_id: Uuid) -> Result<Vec<DiskUsage>, BackendError> {
+        let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
+        let filter = node_filter(node_id);
+        let containers = self
+            .get_json(&format!(
+                "/containers/json?all=true&size=true&filters={filter}"
+            ))
+            .await?;
+        let containers = containers.as_array().ok_or(unknown.clone())?;
+        if !containers.iter().any(|c| c["State"] == "running") {
+            return Ok(Vec::new());
+        }
+        let df = self.get_json("/system/df?type=volume").await?;
+        let mut volumes = BTreeMap::new();
+        match &df["Volumes"] {
+            Value::Null => {}
+            Value::Array(list) => {
+                for volume in list {
+                    let name = volume["Name"].as_str().ok_or(unknown.clone())?;
+                    if let Some(size) = volume["UsageData"]["Size"].as_u64() {
+                        volumes.insert(name.to_string(), size);
+                    }
+                }
+            }
+            _ => return Err(unknown),
+        }
+        let mut usage = Vec::new();
+        for container in containers {
+            if container["State"].as_str() != Some("running") {
+                continue;
+            }
+            let name = container["Names"][0]
+                .as_str()
+                .map(|name| name.trim_start_matches('/'))
+                .ok_or(unknown.clone())?;
+            let labels = &container["Labels"];
+            let entry = entry_from_labels(name, labels, SandboxState::Running, None, true)?;
+            if entry.sandbox.owner.node_id != node_id {
+                return Err(unknown);
+            }
+            let limit_bytes =
+                disk_limit_from_labels(&self.config, labels).ok_or(unknown.clone())?;
+            let layer = container["SizeRw"].as_u64().ok_or(unknown.clone())?;
+            let volume = volumes.get(&volume_name(name)).copied().unwrap_or(0);
+            usage.push(DiskUsage {
+                sandbox: entry.sandbox,
+                used_bytes: layer.saturating_add(volume),
+                limit_bytes,
+            });
+        }
+        Ok(usage)
     }
 
     async fn stop(&mut self, sandbox: &SandboxIdentity) -> Confirmation<StoppedWriterProof> {

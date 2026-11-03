@@ -1,6 +1,6 @@
 //! Controller-owned local state, never an HTTP wire contract.
 use crate::backend::{
-    Capability, CreateRequest, PrivateMaterial, SandboxIdentity, StoppedWriterProof,
+    Capability, CreateRequest, DiskLimitMode, PrivateMaterial, SandboxIdentity, StoppedWriterProof,
 };
 use anyhow::Result;
 use aq_admission_sandbox::{
@@ -134,6 +134,10 @@ pub struct Inventory {
     pub available_cpu_millis: u64,
     pub available_disk_bytes: u64,
     pub refusal: Option<RefusalReason>,
+    /// SBX20 enforcement advertised as `disk-limit=watchdog|hard`.
+    pub disk_limit: Option<DiskLimitMode>,
+    /// SBX20: admitted onto a shared root filesystem by operator override.
+    pub shared_root_fs: bool,
 }
 /// Authenticated provider result. Payload packaging is the provider/runner's
 /// responsibility, not a new controller-authored wire envelope. No Debug/Serde.
@@ -239,6 +243,9 @@ pub enum CleanupReason {
     HardDeadline,
     Cancellation,
     Stopped,
+    /// SBX20 typed failure: the attempt reached its per-attempt disk limit.
+    #[serde(rename = "sandbox_disk_limit_exceeded")]
+    SandboxDiskLimitExceeded,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

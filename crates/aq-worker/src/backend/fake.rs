@@ -30,8 +30,14 @@ struct Sandbox {
 pub struct FakeBackend {
     sandboxes: BTreeMap<String, Sandbox>,
     faults: VecDeque<Fault>,
+    disk_used: BTreeMap<String, u64>,
 }
 impl FakeBackend {
+    /// Reported SBX20 watchdog usage for one sandbox; no bytes are written.
+    pub fn set_disk_usage(&mut self, identity: &SandboxIdentity, used_bytes: u64) {
+        self.disk_used
+            .insert(identity.backend_id.clone(), used_bytes);
+    }
     /// A one-shot fault is consumed only by its corresponding operation.
     pub fn inject(&mut self, fault: Fault) {
         self.faults.push_back(fault);
@@ -130,6 +136,30 @@ impl PlacementBackend for FakeBackend {
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::PersistentDiskDuringAttempt]
+    }
+    fn disk_limit(&self) -> DiskLimitStatus {
+        DiskLimitStatus {
+            mode: Some(DiskLimitMode::Watchdog),
+            shared_root_fs: false,
+            watch_interval_ms: 10_000,
+        }
+    }
+    async fn disk_usage(&mut self, node_id: Uuid) -> Result<Vec<DiskUsage>, BackendError> {
+        Ok(self
+            .sandboxes
+            .values()
+            .filter(|s| {
+                s.inventory.sandbox.owner.node_id == node_id
+                    && s.inventory.state == SandboxState::Running
+            })
+            .filter_map(|s| {
+                Some(DiskUsage {
+                    sandbox: s.inventory.sandbox.clone(),
+                    used_bytes: self.disk_used.get(&s.request.name).copied().unwrap_or(0),
+                    limit_bytes: s.request.resources?.disk_bytes?,
+                })
+            })
+            .collect())
     }
     async fn create(&mut self, request: &CreateRequest) -> Result<SandboxIdentity, BackendError> {
         request.validate()?;
