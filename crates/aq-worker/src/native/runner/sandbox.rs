@@ -9,6 +9,8 @@ pub use manifest::FrozenLaunch;
 pub(crate) fn boot_ns() -> anyhow::Result<u64> {
     super::super::http::boot_ns()
 }
+pub mod channels;
+pub mod hydrate;
 pub mod permit_transport;
 mod transport;
 use crate::config::WorkerConfig;
@@ -523,3 +525,7 @@ mod tests {
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod channels_tests;
+#[cfg(test)]
+mod hydrate_tests;
