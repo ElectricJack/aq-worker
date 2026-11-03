@@ -1,0 +1,26 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 16s
+     Running tests/templates.rs (target/debug/deps/templates-0c734e17c51bccdc)
+
+running 3 tests
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.010s
+
+OK
+test credential_scan_fails_build_with_auth_json ... ok
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.212s
+
+OK
+test finalize_refuses_template_missing_tmux_or_users ... ok
+.
+----------------------------------------------------------------------
+Ran 1 test in 16.168s
+
+OK
+test template_cli_build_and_scan_use_embedded_tools ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.82s
+

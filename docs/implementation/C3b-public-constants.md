@@ -87,6 +87,24 @@ nearby real tokens still refuse. `metadata-red.log` and `metadata-green.log`
 record the targeted regression. This avoids a recursive fingerprint of the
 worker binary that embeds its own scanner.
 
+A later build placed `struct SandboxIdentity` after the label instead, so the
+fixed neighbor no longer matched and the embedded CLI scan refused
+(bright-quest-86). The neighbor is codegen/linker layout, not content. The
+exception is now anchored to the exact label `persistent-disk-during-attempt`
+alone; it remains zero-width and limited to the `sk-` branch. Provider keys
+appended directly to the label (`sk-proj-`, `sk-ant-`, `ghp_`, `AKIA`), the
+label without its `persistent-di` prefix, altered spellings and truncations
+still refuse.
+`capability-label-root-cause.log` replays the scanner's chunking over the
+failing binary before and after the change. `capability-label-templates-red.log`
+and `capability-label-templates-green.log` hold the focused `templates` target.
+`capability-label-python-green.log` holds the template-tool suite, and
+`capability-label-workspace.log` holds the locked `--no-fail-fast` workspace run
+(923 passed, 99 ignored). Its one failure was `driver`
+`post_stop_observation_outage_preserves_and_replays_before_report`, which hit
+EAGAIN (os error 11) spawning the CLI under host load. That target passed 5/5
+when rerun alone.
+
 The Rust area runs both existing named acceptance cases,
 `finalize_refuses_template_missing_tmux_or_users` and
 `credential_scan_fails_build_with_auth_json`, as well as standalone embedded

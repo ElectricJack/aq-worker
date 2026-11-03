@@ -169,11 +169,12 @@ are checked; ordinary credential-store metadata labels are allowed.
 The exact JSON pair `"credentials":"private-codex-chatgpt-auth-json"` is a
 public protocol format label embedded in the worker, so it is allowed;
 arbitrary credential values, suffix variants and shell assignments still refuse.
-The exact compiled Serde context
-`persistent-disk-during-attemptbackend_idstruct ` (with its trailing space)
-does not turn the `sk-` inside `disk-` into a provider key. This exception
-consumes no bytes and applies only to that occurrence in the `sk-` branch;
-credential assignments, URLs, altered contexts and nearby keys still refuse.
+The exact public Serde capability label `persistent-disk-during-attempt`
+does not turn the `sk-` inside `disk-` into a provider key, whatever literal
+codegen places after it in `.rodata`. This exception consumes no bytes and
+applies only to that occurrence in the `sk-` branch. Bytes adjacent to the
+label are scanned independently, so appended provider keys, credential
+assignments, URLs, altered labels and nearby keys still refuse.
 Layer file content also recognizes a fixed catalog of 74 independently verified
 public distribution files containing self-test vectors, format strings, source
 code or documentation examples. An exception requires the SHA-256 and byte count
