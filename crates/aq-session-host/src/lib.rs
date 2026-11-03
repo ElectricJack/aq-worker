@@ -2,7 +2,10 @@
 //! state; a dedicated helper owns every tmux/pane descendant and permit expiry.
 #[cfg(feature = "test-support")]
 pub mod capsule;
+mod host_plan;
 mod local_ipc;
+use host_plan::{Adapter, LaunchDocument};
+pub use host_plan::{HostAdapter, HostInput, HostPlan, HostStartup, HostSubject};
 mod private_inputs;
 pub use private_inputs::reconciliation::{
     LoginRefreshAck, LoginRefreshPhase, LoginRefreshRequest, LoginRefreshStatus, LoginWriteBack,
@@ -247,6 +250,7 @@ enum StartupInput<'a> {
     Constituents(&'a LaunchManifest),
     Rendered(&'a RenderedStartup),
     Observed(&'a observed::ObservedStartup),
+    Plan(&'a HostPlan, &'a [u8]),
 }
 /// Memory/CPU/process limits are enforced by the qualified environment, not by
 /// this tmux host. Callers must choose admission-only or supply exact evidence.
@@ -339,7 +343,7 @@ pub trait LaunchAuthority {
 #[serde(deny_unknown_fields)]
 struct SealedLaunch {
     launch_id: Uuid,
-    manifest: LaunchManifest,
+    manifest: LaunchDocument,
     permit: ExecutionPermit,
     workspace: PathBuf,
     helper: PathBuf,
@@ -363,7 +367,10 @@ impl SealedLaunch {
         digest: &Digest,
         now: u64,
     ) -> Result<()> {
-        let interactive = self.manifest.terminal.input_enabled
+        if let LaunchDocument::Plan(plan) = &self.manifest {
+            return plan.validate_permit_at(permit, supervisor::machine()?.0.parse()?, now);
+        }
+        let interactive = self.manifest.terminal().input_enabled
             && self
                 .observed
                 .as_ref()
@@ -371,10 +378,13 @@ impl SealedLaunch {
         permit.validate_at_scoped(session, digest, now, interactive)
     }
     fn wall_deadline(&self) -> Result<u64> {
+        if let LaunchDocument::Plan(plan) = &self.manifest {
+            return Ok(plan.deadline_boot_ms);
+        }
         let wall = self
             .permit
             .issued_boot_ms
-            .checked_add(self.manifest.resources.wall_time_ms)
+            .checked_add(self.manifest.resources().wall_time_ms)
             .context("wall deadline overflow")?;
         Ok(self
             .observed
@@ -384,7 +394,7 @@ impl SealedLaunch {
     fn intent(&self) -> Result<LaunchIntent> {
         Ok(LaunchIntent {
             launch_id: self.launch_id,
-            session: self.manifest.bindings.session.clone(),
+            session: self.manifest.session().clone(),
             manifest_digest: canonical_digest(&self.manifest)?,
             configuration_digest: Digest::of(&serde_json::to_vec(self)?),
         })
@@ -474,7 +484,7 @@ impl SessionHost {
             StartupInput::Constituents(manifest),
             permit,
             local,
-            adapter,
+            Adapter::Task(adapter),
             authority,
         )
         .map(|(handle, _)| handle)
@@ -496,7 +506,7 @@ impl SessionHost {
             StartupInput::Rendered(startup),
             permit,
             local,
-            adapter,
+            Adapter::Task(adapter),
             authority,
         )
         .map(|(handle, _)| handle)
@@ -507,22 +517,23 @@ impl SessionHost {
         startup: StartupInput<'_>,
         permit: ExecutionPermit,
         local: &LocalEnvironment,
-        adapter: &impl HarnessAdapter,
+        adapter: Adapter<'_>,
         authority: &mut impl LaunchAuthority,
     ) -> Result<(SessionHandle, Option<observed::gate::Client>)> {
         let manifest = match &startup {
-            StartupInput::Constituents(m) => *m,
-            StartupInput::Rendered(r) => &r.manifest,
-            StartupInput::Observed(r) => &r.rendered.manifest,
+            StartupInput::Constituents(m) => (*m).clone().into(),
+            StartupInput::Rendered(r) => r.manifest.clone().into(),
+            StartupInput::Observed(r) => r.rendered.manifest.clone().into(),
+            StartupInput::Plan(p, _) => LaunchDocument::Plan(Box::new((*p).clone())),
         };
         let reaper_slot = reaper::Slot::reserve()?;
         manifest.validate()?;
         ensure!(!launch_id.is_nil(), "nil launch ID");
-        let digest = canonical_digest(manifest)?;
-        let interactive = manifest.terminal.input_enabled
+        let digest = canonical_digest(&manifest)?;
+        let interactive = manifest.terminal().input_enabled
             && matches!(&startup, StartupInput::Observed(value) if value.spec.interactive());
         permit.validate_at_scoped(
-            &manifest.bindings.session,
+            manifest.session(),
             &digest,
             ownership::raw_boot_ms(),
             interactive,
@@ -549,7 +560,18 @@ impl SessionHost {
             String::from_utf8(version)?.trim() == local.tmux_version,
             "tmux version mismatch"
         );
-        for secret in &manifest.credentials {
+        if let LaunchDocument::Plan(plan) = &manifest {
+            plan.validate_permit_at(
+                &permit,
+                supervisor::machine()?.0.parse()?,
+                ownership::raw_boot_ms(),
+            )?;
+        }
+        for secret in manifest
+            .task()
+            .map(|m| m.credentials.as_slice())
+            .unwrap_or(&[])
+        {
             ensure!(
                 local
                     .credential_profiles
@@ -557,16 +579,16 @@ impl SessionHost {
                 "credential profile unavailable"
             );
         }
-        let prepared = adapter.prepare(manifest, &local.workspace)?;
+        let prepared = adapter.prepare(&manifest, &local.workspace)?;
         ensure!(
             prepared.manifest_digest == digest
-                && prepared.adapter == manifest.harness.adapter
-                && prepared.cli_version == manifest.harness.cli_version.as_str()
-                && prepared.environment == manifest.harness.environment,
+                && prepared.adapter == manifest.harness().adapter
+                && prepared.cli_version == manifest.harness().cli_version.as_str()
+                && prepared.environment == manifest.harness().environment,
             "adapter/CLI/environment mismatch"
         );
         require_capabilities(
-            &manifest.harness.required_capabilities,
+            &manifest.harness().required_capabilities,
             &prepared.capabilities,
         )?;
         if let ResourcePolicy::RequireQualifiedEnvironment(required) = &local.resource_policy {
@@ -576,7 +598,7 @@ impl SessionHost {
             );
         }
         prepared.command.validate()?;
-        let private_input = adapter.private_input(manifest, &local.workspace)?;
+        let private_input = adapter.private_input(&manifest, &local.workspace)?;
         ensure!(
             local.context_material.len() <= 128,
             "context material bounds"
@@ -597,11 +619,18 @@ impl SessionHost {
                 local.context_material.is_empty(),
                 "rendered startup cannot append constituent material"
             );
-            rendered.binding.verify(manifest, &rendered.bytes)?;
+            rendered.binding.verify(manifest.task()?, &rendered.bytes)?;
             (vec![rendered.bytes.clone()], Some(rendered.binding.clone()))
+        } else if let StartupInput::Plan(plan, bytes) = &startup {
+            ensure!(
+                local.context_material.is_empty(),
+                "host plan cannot append context material"
+            );
+            plan.verify_startup(bytes)?;
+            (vec![bytes.to_vec()], None)
         } else {
             let mut context = Vec::new();
-            for reference in &manifest.context.references {
+            for reference in &manifest.task()?.context.references {
                 if reference.delivery == aq_session_protocol::ContextDelivery::Startup {
                     let material = local
                         .context_material
@@ -942,6 +971,17 @@ impl SessionHandle {
         {
             ensure!(old.permit == *permit, "changed renewal sequence payload");
         } else {
+            if matches!(config.manifest, LaunchDocument::Plan(_)) {
+                let prior = ledger.latest.as_ref().map_or(&config.permit, |r| &r.permit);
+                ensure!(
+                    now >= state.observed_boot_ms
+                        && prior.sequence == state.permit_sequence
+                        && prior.sequence.checked_add(1) == Some(permit.sequence)
+                        && permit.issued_boot_ms >= prior.issued_boot_ms
+                        && permit.expires_boot_ms > prior.expires_boot_ms,
+                    "host renewal must advance exact live prior permit"
+                );
+            }
             ensure!(
                 permit.sequence > state.permit_sequence
                     && ledger
@@ -1434,7 +1474,7 @@ mod rendered_tests {
         };
         let sealed = SealedLaunch {
             launch_id: Uuid::from_u128(1),
-            manifest,
+            manifest: manifest.into(),
             permit,
             workspace: "/tmp/work".into(),
             helper: "/tmp/helper".into(),
@@ -1455,6 +1495,14 @@ mod rendered_tests {
             observed: None,
             private_input: None,
         };
+        assert_eq!(
+            serde_json::to_vec(&sealed.manifest).unwrap(),
+            serde_json::to_vec(sealed.manifest.task().unwrap()).unwrap()
+        );
+        assert_eq!(
+            canonical_digest(&sealed.manifest).unwrap(),
+            canonical_digest(sealed.manifest.task().unwrap()).unwrap()
+        );
         let bytes = serde_json::to_vec(&sealed).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(value.get("rendered_startup").is_none());

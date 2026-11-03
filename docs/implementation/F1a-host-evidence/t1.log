@@ -1,0 +1,700 @@
+   Compiling aq-session-host v0.1.6 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-terminal-bridge)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 28s
+     Running unittests src/lib.rs (target/debug/deps/aq_admission-18419037a8799e9c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/common.rs (target/debug/deps/common-c93a2260d50601fa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/contracts.rs (target/debug/deps/contracts-778ee39022bc24fe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.01s
+
+     Running tests/control.rs (target/debug/deps/control-ad1051536fd8b23c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/control_common.rs (target/debug/deps/control_common-66c981de79b9a32d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/execution_spec.rs (target/debug/deps/execution_spec-adb5fe78056cdcd9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/granted_closure.rs (target/debug/deps/granted_closure-8b3973bbd8cfa46c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/granted_closure_common.rs (target/debug/deps/granted_closure_common-a2a5a12070c8b8b0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/outcome.rs (target/debug/deps/outcome-d044995dba69c8ad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/placement.rs (target/debug/deps/placement-5b95a4569097d4fb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/preparation_refresh.rs (target/debug/deps/preparation_refresh-ca18760efc18729e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+     Running tests/preparation_refresh_common.rs (target/debug/deps/preparation_refresh_common-1e66bf6645a8f566)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/preparation_v2.rs (target/debug/deps/preparation_v2-1637b895f5fce358)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+     Running tests/preparation_v2_baseline.rs (target/debug/deps/preparation_v2_baseline-31817e49c48d8e42)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/preparation_v2_common.rs (target/debug/deps/preparation_v2_common-5734641bab5a03d5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/result_record.rs (target/debug/deps/result_record-0147fbda804614a6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/sandbox.rs (target/debug/deps/sandbox-bf3466ce4869405a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/scoped_presence.rs (target/debug/deps/scoped_presence-4b8be76fb06f386e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/scoped_presence_common.rs (target/debug/deps/scoped_presence_common-204b87652ce92356)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/spec_common.rs (target/debug/deps/spec_common-04d829ce29f664db)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/started.rs (target/debug/deps/started-38c3eed117424f5a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/started_common.rs (target/debug/deps/started_common-fa9709457434d7d4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/startup.rs (target/debug/deps/startup-99f32099fb46707d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/startup_common.rs (target/debug/deps/startup_common-99f88352e7771a5a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/stopped.rs (target/debug/deps/stopped-458463af2a1d2c52)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/task_lineage.rs (target/debug/deps/task_lineage-798897a62ff4d3bc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/transport.rs (target/debug/deps/transport-02584bdc6ffa8002)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_agent_client-906728576e6c6b05)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/aq_agent-22e9ff5ae9651cbd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (target/debug/deps/client-cfdf8d09473cb996)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests/completion.rs (target/debug/deps/completion-32f8965d627541c4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/contract_artifact.rs (target/debug/deps/contract_artifact-d46680e3db9cb9ef)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/provisioning.rs (target/debug/deps/provisioning-2910068b53b42e5a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/recovery.rs (target/debug/deps/recovery-b2a28ae118edce36)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_agent_result_local-519e1a7a1486c9d9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_codex_mapper-f3097e08a925e5b5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_lifecycle_protocol-0aaebe09f726ba4e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-4382d246653630a7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation-7e5f4314e3ed44f9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/artifacts.rs (target/debug/deps/artifacts-d843542fc67f4611)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/boots.rs (target/debug/deps/boots-0f3514edaa02cc95)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/crash.rs (target/debug/deps/crash-d24e633c95a779b4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/discovery.rs (target/debug/deps/discovery-6c7da6384f3c1d11)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/normalizers.rs (target/debug/deps/normalizers-e20395ae7c37624e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/reparse.rs (target/debug/deps/reparse-a8a096a8891efe01)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/sources.rs (target/debug/deps/sources-0c55453a107c63c9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/spool.rs (target/debug/deps/spool-616f3a1db8928a22)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation_admission-6b913886ac6f7c0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ownership.rs (target/debug/deps/ownership-6a79949916bbe666)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation_engine-18faa7683b01700f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/artifacts.rs (target/debug/deps/artifacts-272d758830124c25)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/delta.rs (target/debug/deps/delta-ac4169b653788157)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/normalizers.rs (target/debug/deps/normalizers-1ad1e2f8c5d4dfd1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation_redb_prototype-f4d88d7fdc81cd32)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/boots.rs (target/debug/deps/boots-81932437cdd9ea2d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/diagnostics.rs (target/debug/deps/diagnostics-88949af4fa22e200)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/engine.rs (target/debug/deps/engine-eec23df7b5bfd8d2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/faults.rs (target/debug/deps/faults-3b9f76f69434193f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/http_owner.rs (target/debug/deps/http_owner-42bdf6adcd1f6602)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/local_intent.rs (target/debug/deps/local_intent-0c303a92359bdf6b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+     Running tests/owner.rs (target/debug/deps/owner-3300f53b9b8e7cfe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/prefix.rs (target/debug/deps/prefix-8e7bbae6ebec8c69)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/readers.rs (target/debug/deps/readers-05d9d2b3cec1e143)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/records.rs (target/debug/deps/records-d30f57060402b1e3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/reparse.rs (target/debug/deps/reparse-4fef495b3fce544c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/store.rs (target/debug/deps/store-5d807bfaa6e97a20)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_protocol-4fd7cd1e37b4e34d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_responses_transport-cf7208e931f6be49)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_session_host-baa0085fe7ad2c83)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 56 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/aq_session_host-d1ce540b9d1fe2c1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capsule_candidate.rs (target/debug/deps/capsule_candidate-ec4f51130f206067)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-75b594e58d7d5ee4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+     Running tests/named_readonly.rs (target/debug/deps/named_readonly-ccbcfaf5e5d28f0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/prepared_responses.rs (target/debug/deps/prepared_responses-45055abf730f11d7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/supervisor_session.rs (target/debug/deps/supervisor_session-7587c21a3ced6e08)
+
+running 7 tests
+test supervisor_session_contract_and_v1_validation ... ok
+test supervisor_session_permit_binds_every_plan_input_and_original_deadline ... ok
+test supervisor_session_adapter_mismatch_refuses_before_durable_intent ... ok
+test supervisor_session_guardian_loss_is_unknown_even_after_processes_exit ... ok
+test supervisor_session_physical_restart_observation_renew_and_stopped_proof ... ok
+test supervisor_session_callback_failures_never_replay_start ... ok
+test supervisor_session_expiry_and_recovery_do_not_resurrect ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.08s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_session_protocol-fa592383e6beedd0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-c1a2921025cfba46)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_bridge-ce00a6d093337942)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/fake_peer.rs (target/debug/deps/fake_peer-2d68c2b05460082c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/http.rs (target/debug/deps/http-c86c5f196d8812c8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_relay.rs (target/debug/deps/local_relay-ec8c92703f6ac475)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_renderer-3a80f8413af66c00)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/model.rs (target/debug/deps/model-f06d3636fa53554a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-d0538436ca38c0dd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 259 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aq-fixture-agent.rs (target/debug/deps/aq_fixture_agent-7c66775e49b5d4f6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/aq_worker-7257bcf95477701b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/backend_conformance.rs (target/debug/deps/backend_conformance-df584f89ed1f64c1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.00s
+
+     Running tests/backoff.rs (target/debug/deps/backoff-3004c3d94f167333)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/client.rs (target/debug/deps/client-dc6ab8fc9965d2e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+     Running tests/config.rs (target/debug/deps/config-ba73d398a2fabc8a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/controller_cli.rs (target/debug/deps/controller_cli-f6ba2cd030c05d3d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/docker_local_backend.rs (target/debug/deps/docker_local_backend-00545dd879b805da)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+     Running tests/driver.rs (target/debug/deps/driver-6dea72afbc2ea725)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/execution.rs (target/debug/deps/execution-cd52429061106185)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.00s
+
+     Running tests/foundation_fixtures.rs (target/debug/deps/foundation_fixtures-7dc6fb0f938c914d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/foundation_lifecycle.rs (target/debug/deps/foundation_lifecycle-e79738d52fc58383)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/guardian.rs (target/debug/deps/guardian-626e7b3cc6f25715)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/journal_migration.rs (target/debug/deps/journal_migration-135454185739bbc4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/native_control.rs (target/debug/deps/native_control-fdd96d5d7e786dbb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/native_http.rs (target/debug/deps/native_http-72d5b4f0d126acad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests/native_materials.rs (target/debug/deps/native_materials-d6b2c468ce1a50e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_phase_history.rs (target/debug/deps/native_phase_history-5c9bec3206a513c2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/native_phase_terminal.rs (target/debug/deps/native_phase_terminal-482b21efbb5099ae)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_preparation_v2.rs (target/debug/deps/native_preparation_v2-9e4208de9707f7c6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running tests/native_source.rs (target/debug/deps/native_source-e72430b97156a200)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/native_startup.rs (target/debug/deps/native_startup-40cf451425c49061)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/permit_fixture_conformance.rs (target/debug/deps/permit_fixture_conformance-4e0971503c0e6984)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/runtime_bundle.rs (target/debug/deps/runtime_bundle-549a7d505db4d59f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/sandbox_runner.rs (target/debug/deps/sandbox_runner-9fde5f9f7e7852b7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/source.rs (target/debug/deps/source-a9d82913e594be43)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+     Running tests/templates.rs (target/debug/deps/templates-3cbe3cdfc450f822)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/transfer_client.rs (target/debug/deps/transfer_client-b7140d578d6a1e14)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker_protocol-e85b9d33e4c2876a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-47cfe5d7a4caeb62)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/m4.rs (target/debug/deps/m4-133e1c1d5c4eed50)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s

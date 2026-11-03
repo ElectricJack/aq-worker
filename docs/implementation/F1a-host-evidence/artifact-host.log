@@ -1,0 +1,319 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling libc v0.2.191
+   Compiling syn v3.0.9
+   Compiling cfg-if v1.0.5
+   Compiling getrandom v0.2.17
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling typenum v1.20.1
+   Compiling rand_core v0.6.4
+   Compiling itoa v1.0.18
+   Compiling stable_deref_trait v1.2.1
+   Compiling smallvec v1.16.4
+   Compiling synstructure v0.14.0
+   Compiling crypto-common v0.1.7
+   Compiling zeroize v1.9.1
+   Compiling serde_core v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling zerofrom v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling yoke v0.8.4
+   Compiling zerovec-derive v0.11.7
+   Compiling displaydoc v0.2.7
+   Compiling bytes v1.12.1
+   Compiling zerovec v0.11.9
+   Compiling pin-project-lite v0.2.17
+   Compiling parking_lot_core v0.9.12
+   Compiling subtle v2.6.1
+   Compiling futures-core v0.3.34
+   Compiling find-msvc-tools v0.1.15
+   Compiling scopeguard v1.2.0
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling getrandom v0.4.3
+   Compiling shlex v2.0.1
+   Compiling cc v1.10.0
+   Compiling lock_api v0.4.14
+   Compiling tinystr v0.8.5
+   Compiling serde_derive v1.0.229
+   Compiling errno v0.3.14
+   Compiling writeable v0.6.4
+   Compiling serde_json v1.0.154
+   Compiling cpufeatures v0.2.17
+   Compiling litemap v0.8.3
+   Compiling utf_types v1.0.0
+   Compiling utf8_iter v1.1.0
+   Compiling icu_locale_core v2.4.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling ring v0.17.14
+   Compiling parking_lot v0.12.5
+   Compiling potential_utf v0.1.6
+   Compiling zerotrie v0.2.5
+   Compiling tokio-macros v2.7.2
+   Compiling mio v1.2.4
+   Compiling socket2 v0.6.5
+   Compiling once_cell v1.21.4
+   Compiling memchr v2.8.3
+   Compiling icu_properties_data v2.4.0
+   Compiling icu_normalizer_data v2.4.0
+   Compiling ref-cast v1.0.27
+   Compiling tokio v1.54.1
+   Compiling icu_provider v2.4.0
+   Compiling icu_collections v2.4.0
+   Compiling http v1.5.0
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde_derive_internals v0.30.0
+   Compiling block-buffer v0.10.4
+   Compiling zerocopy v0.8.63
+   Compiling percent-encoding v2.3.2
+   Compiling thiserror v2.0.21
+   Compiling digest v0.10.7
+   Compiling schemars_derive v1.2.3
+   Compiling http-body v1.1.0
+   Compiling uuid v1.29.0
+   Compiling thiserror-impl v2.0.21
+   Compiling rustls-pki-types v1.15.1
+   Compiling futures-task v0.3.34
+   Compiling untrusted v0.9.0
+   Compiling httparse v1.10.1
+   Compiling slab v0.4.12
+   Compiling dyn-clone v1.0.20
+   Compiling futures-util v0.3.34
+   Compiling schemars v1.2.3
+   Compiling icu_normalizer v2.4.0
+   Compiling icu_properties v2.4.0
+   Compiling sha2 v0.10.9
+   Compiling inout v0.1.4
+   Compiling tower-service v0.3.3
+   Compiling try-lock v0.2.5
+   Compiling rustls v0.23.46
+   Compiling anyhow v1.0.104
+   Compiling want v0.3.2
+   Compiling cipher v0.4.4
+   Compiling aq-session-protocol v0.1.0 (/tmp/aq-f1a-host-release-final/aq-session-host-0.1.6-source/crates/aq-session-protocol)
+   Compiling ppv-lite86 v0.2.21
+   Compiling idna_adapter v1.2.2
+   Compiling rustls-webpki v0.103.16
+   Compiling form_urlencoded v1.2.2
+   Compiling tracing-core v0.1.36
+   Compiling universal-hash v0.5.1
+   Compiling opaque-debug v0.3.1
+   Compiling bitflags v2.13.2
+   Compiling atomic-waker v1.1.2
+   Compiling hyper v1.12.0
+   Compiling poly1305 v0.8.0
+   Compiling tracing v0.1.44
+   Compiling idna v1.1.0
+   Compiling rand_chacha v0.3.1
+   Compiling chacha20 v0.9.1
+   Compiling futures-channel v0.3.34
+   Compiling sync_wrapper v1.0.2
+   Compiling aead v0.5.2
+   Compiling ipnet v2.12.2
+   Compiling tower-layer v0.3.3
+   Compiling base64 v0.23.1
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.6
+   Compiling chacha20poly1305 v0.10.1
+   Compiling rand v0.8.8
+   Compiling url v2.5.8
+   Compiling aq-terminal-relay-protocol v0.1.0 (/tmp/aq-f1a-host-release-final/aq-session-host-0.1.6-source/vendor/aq-terminal-relay-protocol-0.1.0)
+   Compiling webpki-roots v1.0.11
+   Compiling ryu v1.0.23
+   Compiling rustix v1.1.6
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.10
+   Compiling tower-http v0.6.11
+   Compiling http-body-util v0.1.5
+   Compiling log v0.4.35
+   Compiling base64 v0.22.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling reqwest v0.12.28
+   Compiling aq-session-host v0.1.6 (/tmp/aq-f1a-host-release-final/aq-session-host-0.1.6-source/crates/aq-session-host)
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling aq-responses-transport v0.1.0 (/tmp/aq-f1a-host-release-final/aq-session-host-0.1.6-source/crates/aq-responses-transport)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 03s
+     Running unittests src/lib.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/aq_session_host-51052a30f628e931)
+
+running 62 tests
+test io_tests::large_stdout_fixture ... ignored, subprocess output fixture invoked by bounded output test
+test capsule::seal::tests::sealed_exact_input_cannot_be_written_or_misidentified_as_program ... ok
+test capsule::seal::tests::ordinary_regular_file_is_not_mistaken_for_a_sealed_descriptor ... ok
+test capsule::owner_tests::cleanup_timeout_hands_child_to_existing_reaper_without_blocking_wait_or_stop_proof ... ok
+test capsule::seal::tests::malformed_static_header_refuses_without_overflow_or_interpreter_fallback ... ok
+test observed::executable::tests::actual_native_codex_image_is_sealed_and_charged_without_execution ... ignored, requires explicitly pinned actual native Codex ELF; never executes it
+test observed::exec::tests::interactive_prompt_uses_existing_rendered_utf8_and_bounded_argv ... ok
+test observed::exec::tests::scoped_child_environment_omits_private_host_record_route_and_keeps_legacy_contract ... ok
+test observed::exec::tests::eof_without_matching_live_image_is_not_exec_proof ... ok
+test observed::named_image::tests::named_readonly_kernel_image_is_charged_once_and_bound_to_live_route ... ignored, requires explicit readonly namespace fixture; hashes host ELF only, never launches Codex
+test observed::exec::tests::dead_original_server_refuses_even_while_the_pane_identity_is_live ... ok
+test io_tests::command_stdout_above_pipe_capacity_is_drained_before_exit ... ok
+test io_tests::nonregular_and_symlink_material_is_refused ... ok
+test observed::executable::tests::byte_entry_digest_header_and_nonregular_sources_refuse_before_admission ... ok
+test io_tests::command_input_and_output_above_pipe_capacity_progress_under_one_deadline ... ok
+test observed::named_environment::tests::visible_writable_filesystem_refuses_image_device ... ok
+test observed::executable::tests::sealed_actual_bytes_survive_path_change_and_cannot_be_written_or_grown ... ok
+test observed::named_environment::tests::caller_thread_writer_is_not_hidden_by_leader_descriptor_table ... ok
+test observed::named_environment::tests::inherited_writable_descriptor_to_exact_inode_refuses_even_without_path_lookup ... ok
+test observed::named_image::tests::named_preflight_checks_actual_bytes_architecture_and_executable_type ... ok
+test private_inputs::tests::scoped_auth_requires_exact_launch_manifest_deadline_and_single_route ... ok
+test private_inputs::tests::subscription_login_is_explicit_closed_bounded_and_errors_hide_tokens ... ok
+test observed::executable::tests::native_profile_is_explicit_charged_and_keeps_legacy_image_limit ... ok
+test capsule::prepared::tests::correctly_rehashed_conflicting_scope_and_recipe_still_refuse ... ok
+test capsule::prepared::tests::synthetic_publication_is_private_and_commit_metadata_does_not_contain_capability_bytes ... ok
+test private_inputs::tests::publication_refuses_changed_original_bytes_without_writing_auth ... ok
+test reader_lease::tests::queued_old_drain_cannot_extend_from_dequeue_or_revive_expiry ... ok
+test reader_lease::tests::packet_fd_is_bounded_and_close_on_exec_and_extra_mutation_fields_refuse ... ok
+test reaper::tests::reservation_exhaustion_refuses_before_spawning ... ok
+test rendered_tests::final_payload_is_literal_and_bound_to_exact_single_descriptor ... ok
+test terminal_output::tests::bounded_continuation_does_not_widen_line_decoded_byte_or_eof_bounds ... ok
+test rendered_tests::legacy_sealed_configuration_omits_new_optional_field ... ok
+test terminal_output::tests::chunks_preserve_unicode_ansi_octal_and_literal_backslash_without_interpretation ... ok
+test terminal_output::tests::extended_output_and_pause_are_explicit_not_silent_recovery ... ok
+test terminal_output::tests::malformed_foreign_and_oversized_streams_fail_closed ... ok
+test private_inputs::tests::subscription_publication_refuses_changed_original_before_writing ... ok
+test tests::explicit_interactive_permit_hour_does_not_widen_default_limit_or_expiry ... ok
+test tests::independent_permit_is_exact_bounded_and_expiring ... ok
+test tests::local_command_bounds_and_protected_environment ... ok
+test private_inputs::tests::reserved_metadata_has_no_auth_bytes_and_original_record_is_rechecked ... ok
+test private_inputs::tests::symlink_replacement_and_nonprivate_auth_refuse ... ok
+test private_inputs::tests::subscription_publication_reuses_original_material_pins_and_private_home ... ok
+test private_inputs::tests::scoped_auth_contains_only_fresh_capability_and_rechecks_original ... ok
+test terminal_viewer::tests::actual_readonly_pty_attach_redraws_idle_pane_and_detach_preserves_process ... ok
+test terminal_output::tests::dense_packet_continuation_preserves_every_event_and_escape_boundary ... ok
+test private_inputs::reconciliation::tests::disposable_private_home_cannot_be_selected_as_the_desktop_owner ... ok
+test private_inputs::reconciliation::tests::directory_symlink_components_and_pending_foreign_secrets_are_not_followed ... ok
+test private_inputs::reconciliation::tests::foreign_acknowledgement_cannot_authorize_cleanup ... ok
+test private_inputs::reconciliation::tests::ordinary_cleanup_cannot_bypass_pending_reconciliation_even_for_unchanged_bytes ... ok
+test private_inputs::reconciliation::tests::changed_rotated_file_after_ack_is_preserved ... ok
+test private_inputs::reconciliation::tests::mutation_during_server_exchange_preserves_both_copies ... ok
+test private_inputs::reconciliation::tests::replay_refuses_retargeted_owner_and_changed_journal_binding ... ok
+test private_inputs::reconciliation::tests::lost_ack_retains_rotated_copy_and_restarts_with_identical_operation ... ok
+test private_inputs::reconciliation::tests::actual_rotated_file_unlink_failure_keeps_ack_and_private_bytes_for_recovery ... ok
+test private_inputs::reconciliation::tests::competing_desktop_and_session_locks_refuse_without_touching_auth ... ok
+test private_inputs::reconciliation::tests::unknown_home_files_block_completion_and_are_never_recursively_deleted ... ok
+test private_inputs::reconciliation::tests::durable_owner_and_ack_precede_cleanup_and_completed_replay_is_idempotent ... ok
+test private_inputs::reconciliation::tests::owner_publication_crash_is_recovered_without_rollback_or_new_operation ... ok
+test private_inputs::reconciliation::tests::public_host_api_requires_exact_stopped_proof_and_pinned_configuration ... ok
+test private_inputs::reconciliation::tests::concurrent_owner_rotation_is_preserved_before_write_and_on_retry ... ok
+test private_inputs::reconciliation::tests::symlink_hardlink_and_nonprivate_files_are_refused ... ok
+test private_inputs::reconciliation::tests::durable_ack_and_unlink_failures_retry_cleanup_without_server_resubmission ... ok
+
+test result: ok. 59 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 6.49s
+
+     Running unittests src/bin/aq-session-capsule-candidate.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/aq_session_capsule_candidate-30b5d79648f57d28)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/aq_session_host-5516fa94e7305be6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capsule_candidate.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/capsule_candidate-058c9af5bf678edd)
+
+running 11 tests
+test assembled_static_capsule_has_private_views_trusted_proxy_and_actual_echild ... ignored, explicit rootless namespace/static helper qualification; no Codex/provider
+test dropped_handle_closes_control_and_physically_ends_capsule_without_publishing_proof ... ignored, explicit rootless namespace/static helper qualification; no Codex/provider
+test original_deadline_ends_descendants_and_only_actual_queued_echild_counts_as_stop ... ignored, explicit rootless namespace/static BOOTTIME expiry; no Codex/provider
+test pinned_root_survives_path_replacement_and_real_submount_is_refused ... ignored, explicit rootless FD-root and real submount canary; no agent/provider
+test prepared_actual_auth_config_mode_symlink_and_extra_member_are_refused ... ignored, explicit actual derived-file mutation static capsule; no provider
+test prepared_changed_intent_nonce_origin_deadline_and_recipe_are_terminal ... ignored, explicit conflicting metadata/closed recipe static capsule; no provider
+test prepared_missing_commit_abort_and_drop_kill_the_paused_stub_without_running ... ignored, explicit missing-commit/control-loss static capsule; no provider
+test prepared_original_deadline_refuses_late_commit_without_extension ... ignored, explicit original deadline and late commit static capsule; no provider
+test prepared_pause_publishes_no_guest_execution_then_exact_commit_executes_once ... ignored, explicit synthetic prepared static capsule; no real key/provider
+test replaced_mount_route_refuses_before_untrusted_exec ... ignored, explicit rootless namespace/static helper refusal; no Codex/provider
+test unsupported_roles_write_modes_and_expired_deadlines_refuse_without_launch ... ok
+
+test result: ok. 1 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_tmux.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/local_tmux-e44fc1ca8048e9c9)
+
+running 40 tests
+test caller_crashes_at_durable_start_boundaries_never_relaunch ... ignored, requires explicit local tmux 3.4 qualification
+test central_and_remote_interaction_stop_and_no_relaunch ... ignored, requires explicit local tmux 3.4 qualification
+test copied_launch_directory_and_old_mailbox_cannot_reset_physical_input_history ... ignored, requires explicit local tmux 3.4 qualification
+test dead_or_stopped_owner_and_lost_ready_or_ack_cannot_leave_a_blocking_reader ... ignored, explicit local tmux independent owner failure qualification
+test encrypted_mailbox_tamper_and_missing_key_refuse_without_stopping_expiry ... ignored, requires explicit local tmux 3.4 qualification
+test exact_observation_and_unstarted_recovery_never_launch_or_inject ... ignored, requires explicit local tmux 3.4 qualification
+test execution_expiry_stops_writers_even_while_observer_client_remains_sigstopped ... ignored, explicit local tmux 3.4 bounded output qualification
+test existing_pane_is_refused_and_never_used_for_the_agent ... ignored, requires explicit local tmux 3.4 qualification
+test failed_durable_start_and_socket_collision_never_launch_native_child ... ignored, requires explicit local tmux 3.4 qualification
+test guarded_literal_unicode_resize_and_durable_duplicate_receipts ... ignored, requires explicit local tmux 3.4 qualification
+test guardian_crashes_across_socket_and_pane_creation_never_claim_stop ... ignored, requires explicit local tmux 3.4 qualification
+test guardian_loss_remains_uncertain_even_after_known_processes_disappear ... ignored, requires explicit local tmux 3.4 qualification
+test helper_expiry_survives_caller_death_without_recovery_control ... ignored, requires explicit local tmux 3.4 qualification
+test injecting_crash_before_or_after_physical_effect_is_unknown_never_replayed ... ignored, requires explicit local tmux 3.4 qualification
+test launch_child_fixture ... ignored, subprocess fixture, called by local crash tests only
+test local_configuration_refusals_happen_before_durable_launch_or_process ... ignored, requires explicit local tmux 3.4 qualification
+test malformed_renewal_stops_and_wall_limit_cannot_be_extended ... ignored, requires explicit local tmux 3.4 qualification
+test native_exec_profile_delivers_exact_sealed_stdin_under_actual_guardian ... ignored, actual native-exec profile: requires local cc/static ELF and tmux
+test native_exec_refuses_original_record_changed_after_private_publication ... ignored, actual native-exec original material preexec refusal: requires cc/static ELF and tmux
+test native_exec_scoped_auth_refuses_changed_original_record_at_exec ... ignored, actual scoped original-source refusal: static ELF and tmux only, no agent/provider
+test native_exec_scoped_capability_is_published_under_intent_and_cleaned_after_echild ... ignored, actual scoped private auth/ECHILD: static ELF and tmux only, no agent/provider
+test observed_baseline_durability_reader_and_expiry_fail_closed_without_exec ... ignored, actual local tmux baseline refusal/reader loss/expiry qualification
+test observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec ... ignored, actual local tmux sealed FD baseline/exec qualification
+test observed_helper_stays_starting_without_exec_or_started_until_original_expiry ... ignored, actual local tmux closed observed gate qualification
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... ignored, actual local tmux missed exec evidence fault qualification
+test pane_exit_has_no_fallback_and_escaped_descendants_require_kernel_stop ... ignored, requires explicit local tmux 3.4 qualification
+test paused_injecting_deadline_and_new_controller_cannot_clear_unknown ... ignored, requires explicit local tmux 3.4 qualification
+test permit_expiry_is_independent_and_late_renewal_cannot_revive ... ignored, requires explicit local tmux 3.4 qualification
+test quiet_drained_reader_renews_but_undrained_reader_expires_without_stopping_harness ... ignored, explicit local tmux guardian read-lease qualification
+test read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart ... ignored, explicit local tmux 3.4 bounded output qualification
+test reader_owner_child_fixture ... ignored, explicit guardian reader-lease process fixture
+test rendered_payload_tampered_after_intent_is_refused_before_native_exec ... ignored, actual local tmux host qualification
+test rendered_startup_reaches_owned_harness_as_one_exact_payload ... ignored, actual local tmux host qualification
+test renewal_compare_publish_is_serialized_while_guardian_is_stopped ... ignored, requires explicit local tmux 3.4 qualification
+test renewals_are_monotonic_and_resource_cost_is_observed ... ignored, requires explicit local tmux 3.4 qualification
+test replayed_valid_encrypted_ledger_cannot_repeat_an_applied_input ... ignored, requires explicit local tmux 3.4 qualification
+test slow_data_only_polls_cannot_renew_an_undrained_reader_forever ... ignored, explicit actual slow-consumer read-lease qualification
+test sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control ... ignored, explicit local tmux 3.4 bounded output qualification
+test sustained_adopted_child_exits_cannot_starve_expiry_or_stop_proof ... ignored, requires explicit local tmux 3.4 qualification
+test tmux_pane_identifier_reuse_does_not_authorize_the_replacement_process ... ignored, requires explicit local tmux 3.4 qualification
+
+test result: ok. 0 passed; 0 failed; 40 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/named_readonly.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/named_readonly-18e18b74a98ec671)
+
+running 1 test
+test named_retained_fd_exec_has_stable_self_helper_exact_stdin_and_physical_echild ... ignored, requires confined wrapper plus prepared named-readonly-peer.c static image; never executes Codex
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/prepared_responses.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/prepared_responses-b34e615c34e70977)
+
+running 5 tests
+test actual_isolated_guest_uses_derived_cap_and_receives_finite_scoped_sse ... ignored, explicit finite synthetic capsule+Responses composition; no Codex/provider
+test cancellation_and_original_expiry_fence_completed_guest_requests_before_upstream ... ignored, explicit aggregate cancellation/original expiry; no Codex/provider
+test dropped_aggregate_fences_late_callback_without_claiming_closed_or_stopped ... ignored, explicit aggregate Drop cancellation/uncertainty; no Codex/provider
+test failed_commit_retains_physical_owner_until_transport_has_joined ... ignored, explicit retained commit failure cleanup ordering; no Codex/provider
+test wrong_model_or_local_cap_never_reaches_parent_upstream ... ignored, explicit closed model/cap negative guest requests; no Codex/provider
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/supervisor_session.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/supervisor_session-7fbd3b9e7da15969)
+
+running 7 tests
+test supervisor_session_contract_and_v1_validation ... ok
+test supervisor_session_permit_binds_every_plan_input_and_original_deadline ... ok
+test supervisor_session_adapter_mismatch_refuses_before_durable_intent ... ok
+test supervisor_session_guardian_loss_is_unknown_even_after_processes_exit ... ok
+test supervisor_session_physical_restart_observation_renew_and_stopped_proof ... ok
+test supervisor_session_callback_failures_never_replay_start ... ok
+test supervisor_session_expiry_and_recovery_do_not_resurrect ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.52s
+
+   Doc-tests aq_session_host
+
+running 1 test
+test crates/aq-session-host/src/observed/mod.rs - observed::BlankBaselineRecord (line 374) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s

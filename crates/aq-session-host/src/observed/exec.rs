@@ -65,7 +65,7 @@ pub(crate) fn enter(
             .rendered_startup
             .as_ref()
             .context("interactive startup descriptor absent")?
-            .verify(&config.manifest, &bytes)?;
+            .verify(config.manifest.task()?, &bytes)?;
         validate_interactive_prompt(&bytes)?;
         args.push(CString::new(bytes)?);
     }
@@ -167,7 +167,7 @@ pub(crate) fn startup_stdin(config: &SealedLaunch, directory: &Path) -> Result<O
         .as_ref()
         .context("native startup descriptor missing")?;
     let bytes = read_bytes(&directory.join("context-0.bin"), 1_048_576)?;
-    rendered.verify(&config.manifest, &bytes)?;
+    rendered.verify(config.manifest.task()?, &bytes)?;
     use std::os::fd::FromRawFd;
     let fd = unsafe {
         libc::memfd_create(

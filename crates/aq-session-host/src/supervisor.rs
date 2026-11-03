@@ -11,7 +11,7 @@ use ownership::{
 #[cfg(feature = "test-support")]
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
-fn machine() -> Result<(String, String)> {
+pub(crate) fn machine() -> Result<(String, String)> {
     Ok((
         std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?
             .trim()
@@ -191,7 +191,7 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
         }
         if state.phase == HostPhase::Stopping {
             let started = *stop_started.get_or_insert(now);
-            let grace = config.manifest.resources.stop_grace_ms.min(1000);
+            let grace = config.manifest.resources().stop_grace_ms.min(1000);
             signal_children_bounded(if now.saturating_sub(started) < grace {
                 libc::SIGTERM
             } else {
@@ -328,6 +328,13 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                             permit.expires_boot_ms <= wall_deadline,
                             "renewal exceeds attempt wall limit"
                         );
+                        if matches!(config.manifest, LaunchDocument::Plan(_)) {
+                            ensure!(
+                                state.permit_sequence.checked_add(1) == Some(permit.sequence)
+                                    && permit.expires_boot_ms > state.permit_deadline_boot_ms,
+                                "host renewal must advance exact live prior permit"
+                            );
+                        }
                         state.permit_sequence = permit.sequence;
                         state.permit_deadline_boot_ms = permit.expires_boot_ms;
                         save(dir, &state)?;
@@ -438,9 +445,10 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
         !dir.join("stop.request").exists() && raw_boot_ms() < config.wall_deadline()?,
         "pane cancelled/wall limit expired"
     );
+    config.manifest.verify_startup(dir)?;
     if let Some(rendered) = &config.rendered_startup {
         let bytes = read_bytes(&dir.join("context-0.bin"), 1_048_576)?;
-        rendered.verify(&config.manifest, &bytes)?;
+        rendered.verify(config.manifest.task()?, &bytes)?;
     }
     if config.observed.is_some() {
         return observed::gate::wait_closed(dir, &config, &identity, &server);

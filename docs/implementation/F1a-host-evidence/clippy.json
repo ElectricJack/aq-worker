@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "clippy",
+    "--locked",
+    "--manifest-path",
+    "/tmp/aq-f1a-host-release-qualified/aq-session-host-0.1.6-source/Cargo.toml",
+    "-p",
+    "aq-session-host",
+    "--all-targets",
+    "--all-features",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/F1a-host-evidence/clippy.log"
+}

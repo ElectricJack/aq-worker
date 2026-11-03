@@ -265,22 +265,22 @@ impl Spec {
                     NATIVE_EXEC_PROFILE =>
                         self.program.profile == Some(executable::ImageProfile::NativeExecStdinV1)
                             && self.program.bytes <= MAX_NATIVE_EXEC_BYTES
-                            && !config.manifest.terminal.input_enabled,
+                            && !config.manifest.terminal().input_enabled,
                     NAMED_READONLY_EXEC_PROFILE =>
                         matches!(&self.program.profile,
                         Some(executable::ImageProfile::NamedReadonlyExecStdinV1(e)) if e.role==named_image::NamedImageRole::Program)
                             && self.program.bytes <= MAX_NAMED_EXEC_BYTES
-                            && !config.manifest.terminal.input_enabled,
+                            && !config.manifest.terminal().input_enabled,
                     NAMED_READONLY_INTERACTIVE_PROFILE =>
                         matches!(&self.program.profile,
                         Some(executable::ImageProfile::NamedReadonlyExecStdinV1(e)) if e.role==named_image::NamedImageRole::Program)
                             && self.program.bytes <= MAX_NAMED_EXEC_BYTES
-                            && config.manifest.terminal.input_enabled
+                            && config.manifest.terminal().input_enabled
                             && config.command.arguments.last().is_some_and(|v| v == "--"),
                     _ => false,
                 }
                 && !self.baseline_id.is_nil()
-                && self.terminal.session == config.manifest.bindings.session
+                && self.terminal.session == config.manifest.task()?.bindings.session
                 && config.rendered_startup.is_some()
                 && config.tmux_version == "tmux 3.4"
                 && self.columns > 0
@@ -295,7 +295,7 @@ impl Spec {
                     <= config
                         .permit
                         .issued_boot_ms
-                        .checked_add(config.manifest.resources.wall_time_ms)
+                        .checked_add(config.manifest.resources().wall_time_ms)
                         .context("observed wall deadline overflow")?,
             "observed closed profile or authority bounds"
         );
@@ -332,7 +332,7 @@ impl SessionHost {
             StartupInput::Observed(startup),
             permit,
             local,
-            adapter,
+            Adapter::Task(adapter),
             authority,
         )?;
         Ok(PendingObservedSession {
