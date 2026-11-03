@@ -169,6 +169,13 @@ fn exit_for(e: &CallError) -> ExitCode {
     }
 }
 
+fn run_failure(error: &anyhow::Error) -> (ExitCode, String) {
+    let code = error
+        .downcast_ref::<CallError>()
+        .map_or(ExitCode::from(2), exit_for);
+    (code, format!("{error:#}"))
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -420,9 +427,11 @@ async fn main() -> ExitCode {
             }.await;
             match result {
                 Ok(()) => ExitCode::SUCCESS,
-                Err(_) => usage_err(
-                    "node controller unavailable; B2 registration/issuance provider must be installed; preserve state for reconciliation",
-                ),
+                Err(error) => {
+                    let (code, diagnostic) = run_failure(&error);
+                    eprintln!("error: {diagnostic}");
+                    code
+                }
             }
         }
         Cmd::Enroll {
@@ -517,4 +526,35 @@ fn production_cli_does_not_expose_lost_b1_ack_replay() {
 fn run_requires_explicit_controller_configuration() {
     assert!(Cli::try_parse_from(["aq-worker", "run"]).is_err());
     assert!(Cli::try_parse_from(["aq-worker", "run", "--controller-config", "/node.json"]).is_ok());
+}
+
+#[cfg(test)]
+#[test]
+fn run_errors_preserve_diagnostics_and_foundation_exit_codes() {
+    for (error, expected) in [
+        (CallError::Revoked, 3),
+        (CallError::InvalidCredential, 3),
+        (CallError::AccessRejected, 5),
+        (
+            CallError::Incompatible(aq_protocol::CompatibilityError {
+                error: "unsupported_protocol".into(),
+                message: "unsupported foundation protocol".into(),
+                supported_min: 1,
+                supported_max: 1,
+            }),
+            4,
+        ),
+        (CallError::Other("heartbeat failed".into()), 2),
+    ] {
+        let message = error.to_string();
+        let wrapped = anyhow::Error::new(error).context("foundation heartbeat");
+        let (code, diagnostic) = run_failure(&wrapped);
+        assert_eq!(code, ExitCode::from(expected));
+        assert!(diagnostic.contains(&message));
+        assert!(diagnostic.contains("foundation heartbeat"));
+    }
+    let (code, diagnostic) = run_failure(&anyhow::anyhow!("controller root already locked"));
+    assert_eq!(code, ExitCode::from(2));
+    assert!(diagnostic.contains("controller root already locked"));
+    assert!(!diagnostic.contains("B2"));
 }

@@ -70,12 +70,26 @@ rejects unsupported, malformed, foreign-node, replaced-root or symlink state.
 The parent directory must exist; first initialization creates an absent root,
 while an existing root must contain valid state. Failed journal writes poison
 the invocation. A new boot retains all outstanding
-reservations but cannot execute old acceptance or create intents.
+reservations but cannot execute old acceptance or create intents. The recovery
+fence is fixed for the invocation: even after explicit stop proofs clear all
+inherited reservations, admission remains denied until restart. B5b owns any
+future in-process reconciliation transition.
+
+A pre-created or interrupted empty root is refused too. Only when the operator
+knows this was a new initialization with no prior journal, reservations or
+sandbox history, stop the process and remove the empty directory with `rmdir`
+then restart (its parent must exist). `rmdir` must fail for any nonempty root;
+never delete pending journals, private material or evidence to bypass this fence.
+An empty root of unknown provenance may represent lost history and requires
+reconciliation, not this new-initialization procedure.
 
 `reserve` checks the actual backend's capabilities, exact advertised template
 and harness version, sandbox count, estimated spend, preparation backlog,
 CPU/memory, disk reserve, node/boot binding and deadline. Refusals are typed,
-journaled and exposed in the local inventory. `accept_with` persists reservation
+journaled and exposed in the local inventory. Preparation backlog conservatively
+counts every reservation without positive stopped-writer proof whose phase is
+not `Running`, including `Reserved`, ambiguous acceptance/create and `StopIntent`.
+It is not a count of active preparation processes. `accept_with` persists reservation
 and acceptance operation ID before calling the native acceptance future. An
 error retains the reservation and the ambiguous acceptance intent. The trusted
 callback must return `Ok` only for a validated positive native acceptance;
@@ -89,12 +103,22 @@ in separate private files, with only permit/sandbox IDs in the snapshot. The
 provider supplies the opaque runner payload over C1's private channel; it is
 responsible for packaging the same validated permit and manifest. Material
 handoff and start each have a preceding durable intent. This does not grant
-agent execution authority.
+agent execution authority. If create returns an untrusted/mismatched identity,
+or recording its result fails, the durable `CreateIntent` may have no backend
+ID. Capacity stays held. B5a cannot stop or destroy that unidentified object;
+B5b must reconcile inventory using the persisted exact ownership/create intent.
+The controller must not adopt an unvalidated returned identity just to permit
+cleanup.
 
 Positive matching backend stop proof releases sandbox/CPU/memory capacity;
 unknown state, lost responses and backend failures retain it. Disk reservations
-remain held until confirmed destruction. Destruction additionally requires
-caller-supplied retention/operator authority. No automatic cleanup or replacement
+remain held until confirmed destruction. A controller-requested destruction additionally requires
+caller-supplied retention/operator authority, durably recorded before the call.
+An authoritative matching `Destroyed` observation from C1 may also release disk
+without a local destroy intent: observing an already destroyed object requests
+no deletion. The backend is trusted to attest destruction (including absence of
+writers and disk), not merely an unknown/missing object. The external-destruction
+regression test exercises this distinction without a controller destroy call. No automatic cleanup or replacement
 is implemented here. Private local evidence is retained for B5b's retention work.
 
 `aq-worker run --controller-config /absolute/node.json` consumes operator JSON:
@@ -103,7 +127,12 @@ Enrollment remains the existing `--config` file. The configured advertisement
 must name only digests allowed by that backend. The generic service registers,
 holds the root and waits for shutdown; the CLI keeps the foundation heartbeat
 alongside it. The shipped `UnavailableProvider` refuses before admission, pending
-B2 integration. There is no hidden legacy or synthetic fallback. No claim is made
+B2 integration. Its typed unavailability keeps the service/root lock and
+foundation heartbeat alive with admission disabled (`GrantDenied`); shutdown
+records draining. Other registration, startup and heartbeat errors still fail
+with their actual diagnostic. Foundation credential rejection, protocol
+incompatibility and Access rejection retain exit codes 3, 4 and 5 respectively;
+other failures use 2. There is no hidden legacy or synthetic fallback. No claim is made
 that an operator can execute a sandbox through this CLI before B2 is installed.
 
 `run-native` now opens and validates an existing journal. It then reports that

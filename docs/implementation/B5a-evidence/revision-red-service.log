@@ -1,0 +1,22 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 32s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-85b5f771be1e69d4)
+
+running 1 test
+test controller::tests::unavailable_provider_keeps_service_and_heartbeat_alive_without_admission ... FAILED
+
+failures:
+
+---- controller::tests::unavailable_provider_keeps_service_and_heartbeat_alive_without_admission stdout ----
+
+thread 'controller::tests::unavailable_provider_keeps_service_and_heartbeat_alive_without_admission' (2086510) panicked at crates/aq-worker/src/controller/tests.rs:368:38:
+service exited before heartbeat: Err(B2 registration/issuance provider is not installed)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    controller::tests::unavailable_provider_keeps_service_and_heartbeat_alive_without_admission
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 252 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

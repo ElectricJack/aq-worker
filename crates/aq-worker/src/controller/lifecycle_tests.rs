@@ -305,3 +305,39 @@ async fn expired_permit_cannot_deliver_or_start() {
     assert_eq!(c.inventory().reserved_sandboxes, 1);
     assert!(!dir.path().join(format!("node/permit-{id}.json")).exists());
 }
+
+#[tokio::test]
+async fn authoritative_external_destruction_releases_disk_without_requesting_deletion() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = open(&dir, false);
+    let id = accept(&mut c).await;
+    c.launch(id, &()).await.unwrap();
+    let sandbox = c.state().attempts[&id].sandbox.clone().unwrap();
+    // An external authorized actor operates the backend. The controller has
+    // issued neither a stop nor a destroy, and still holds all reservations.
+    assert!(c.backend.inner.stop(&sandbox).await.is_confirmed());
+    let auth =
+        DestroyAuthorization::retained(sandbox.clone(), "external-retention-receipt").unwrap();
+    assert!(
+        c.backend
+            .inner
+            .destroy(&sandbox, &auth)
+            .await
+            .is_confirmed()
+    );
+    assert_eq!(c.state().attempts[&id].phase, Phase::Running);
+    assert!(c.state().attempts[&id].destroy_authorization.is_none());
+    assert_eq!(c.inventory().reserved_sandboxes, 1);
+    assert_eq!(
+        c.inventory().available_disk_bytes,
+        config().capacity.disk_bytes - 1
+    );
+    assert_eq!(c.inspect(id).await.unwrap().state, SandboxState::Destroyed);
+    assert_eq!(c.state().attempts[&id].phase, Phase::Destroyed);
+    assert!(c.state().attempts[&id].destroy_authorization.is_none());
+    assert_eq!(c.inventory().reserved_sandboxes, 0);
+    assert_eq!(
+        c.inventory().available_disk_bytes,
+        config().capacity.disk_bytes
+    );
+}

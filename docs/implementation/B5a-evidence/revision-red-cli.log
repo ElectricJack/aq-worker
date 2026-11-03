@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.81s
+     Running unittests src/main.rs (target/debug/deps/aq_worker-592ea89875fa2edd)
+
+running 1 test
+test run_errors_preserve_diagnostics_and_foundation_exit_codes ... FAILED
+
+failures:
+
+---- run_errors_preserve_diagnostics_and_foundation_exit_codes stdout ----
+
+thread 'run_errors_preserve_diagnostics_and_foundation_exit_codes' (2087039) panicked at crates/aq-worker/src/main.rs:540:9:
+assertion `left == right` failed
+  left: ExitCode(unix_exit_status(2))
+ right: ExitCode(unix_exit_status(3))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    run_errors_preserve_diagnostics_and_foundation_exit_codes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p aq-worker --bin aq-worker`

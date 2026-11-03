@@ -339,7 +339,7 @@ async fn run_registers_holds_root_and_drains_on_shutdown() {
 }
 
 #[tokio::test]
-async fn unavailable_provider_refuses_before_backend_effects() {
+async fn unavailable_provider_keeps_service_and_heartbeat_alive_without_admission() {
     let dir = tempfile::tempdir().unwrap();
     let backend = FakeBackend::default();
     let mut c = Controller::open(
@@ -350,10 +350,50 @@ async fn unavailable_provider_refuses_before_backend_effects() {
         super::UnavailableProvider,
     )
     .unwrap();
-    let (_tx, rx) = tokio::sync::watch::channel(false);
-    assert!(c.run(rx).await.is_err());
-    assert!(c.state().attempts.is_empty());
     assert_eq!(c.inventory().refusal, Some(RefusalReason::GrantDenied));
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    let mut beats = 0;
+    {
+        let service = c.run(rx);
+        tokio::pin!(service);
+        // The production CLI races these same independent futures. An unavailable
+        // provider must not complete the service and cancel the heartbeat.
+        let heartbeat = async {
+            for _ in 0..3 {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                beats += 1;
+                let persisted: serde_json::Value = serde_json::from_slice(
+                    &fs::read(dir.path().join("node/journal.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(persisted["state"]["last_refusal"], "grant_denied");
+                assert!(
+                    Controller::open(
+                        &dir.path().join("node"),
+                        Uuid::from_u128(1),
+                        config(),
+                        FakeBackend::default(),
+                        Provider
+                    )
+                    .is_err()
+                );
+            }
+        };
+        tokio::select! {
+            result = &mut service => panic!("service exited before heartbeat: {result:?}"),
+            _ = heartbeat => {}
+        }
+        tx.send(true).unwrap();
+        service.await.unwrap();
+    }
+    assert_eq!(beats, 3);
+    assert!(!c.registered);
+    assert!(c.state().attempts.is_empty());
+    assert_eq!(c.inventory().refusal, Some(RefusalReason::Draining));
+    assert_eq!(
+        reason(c.reserve(request(c.identity(), 10)).unwrap_err()),
+        RefusalReason::Draining
+    );
     assert!(
         c.backend
             .list_owned(c.identity().node_id)
@@ -361,4 +401,40 @@ async fn unavailable_provider_refuses_before_backend_effects() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn actual_registration_failure_is_not_treated_as_unavailable() {
+    struct FailedProvider;
+    impl PermitProvider for FailedProvider {
+        type Request = ();
+        async fn register(&mut self, _: &Registration) -> Result<()> {
+            Err(crate::client::CallError::InvalidCredential.into())
+        }
+        async fn issue(
+            &mut self,
+            _: &(),
+            _: &SandboxIdentity,
+            _: &LaunchManifest,
+        ) -> Result<IssuedMaterial> {
+            panic!("failed registration must not issue material")
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = Controller::open(
+        &dir.path().join("node"),
+        Uuid::from_u128(1),
+        config(),
+        FakeBackend::default(),
+        FailedProvider,
+    )
+    .unwrap();
+    let (_tx, rx) = tokio::sync::watch::channel(false);
+    let error = c.run(rx).await.unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<crate::client::CallError>(),
+        Some(crate::client::CallError::InvalidCredential)
+    ));
+    assert!(!c.registered);
+    assert!(c.state().attempts.is_empty());
 }

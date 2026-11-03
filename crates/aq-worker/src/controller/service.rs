@@ -46,10 +46,20 @@ impl RunConfig {
 /// Explicit production fence until B2 publishes its authenticated transport.
 /// Never substitute a legacy endpoint or synthesize a grant locally.
 pub struct UnavailableProvider;
+
+/// Deliberate absence of an admission transport, distinct from its failures.
+#[derive(Debug)]
+pub struct ProviderUnavailable;
+impl std::fmt::Display for ProviderUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("B2 registration/issuance provider is not installed; admission disabled")
+    }
+}
+impl std::error::Error for ProviderUnavailable {}
 impl PermitProvider for UnavailableProvider {
     type Request = ();
     async fn register(&mut self, _: &Registration) -> Result<()> {
-        anyhow::bail!("B2 registration/issuance provider is not installed")
+        Err(ProviderUnavailable.into())
     }
     async fn issue(
         &mut self,
@@ -57,7 +67,7 @@ impl PermitProvider for UnavailableProvider {
         _: &SandboxIdentity,
         _: &LaunchManifest,
     ) -> Result<IssuedMaterial> {
-        anyhow::bail!("B2 registration/issuance provider is not installed")
+        Err(ProviderUnavailable.into())
     }
 }
 impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
@@ -68,9 +78,20 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         if *shutdown.borrow() {
             return self.set_draining(true);
         }
-        tokio::select! {
-            result = self.register() => result?,
+        let registration = tokio::select! {
+            result = self.register() => result,
             _ = shutdown.changed() => return self.set_draining(true),
+        };
+        if let Err(error) = registration {
+            if !error.is::<ProviderUnavailable>() {
+                return Err(error);
+            }
+            // No registration means no admission. Retain the root lock and
+            // heartbeat service; actual provider/transport failures still fail.
+            let mut state = self.state().clone();
+            state.last_refusal = Some(RefusalReason::GrantDenied);
+            self.journal.persist(state)?;
+            tracing::warn!("{ProviderUnavailable}");
         }
         loop {
             if *shutdown.borrow() {

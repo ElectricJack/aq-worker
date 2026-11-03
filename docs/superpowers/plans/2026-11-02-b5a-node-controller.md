@@ -69,3 +69,15 @@
 - Behavioral red/green evidence now covers the controller and native recovery; all 17 controller and 21 native-runner tests pass. Service shutdown and unavailable-provider assertions failed before their implementation. Registration operation intent was additionally tested red before adding the persisted field. Final workspace acceptance commands and review remain pending.
 
 - Final sync: origin/main 303c5f3 merged as 1259ffe. Both exact named workspace tests matched one test and passed; controller 17, native runner 21 and CLI 1 passed after sync; workspace Clippy with -D warnings and workspace-member fmt passed. fmt --all has the recorded nested vendor workspace-resolution limitation. Publication and AQ review follow the verified source snapshot.
+
+## Review revision 1
+
+- Add behavioral regression tests for unavailable-provider service lifetime and
+  concurrent heartbeat progress; retain admission refusal and root ownership.
+- Restore CLI error diagnostics and typed foundation exit codes, with tests.
+- Keep authoritative observation of external destruction distinct from requesting
+  deletion; exercise that distinction with the fake backend.
+- Clarify invocation-long recovery fencing, ambiguous create ownership, preparation
+  accounting and safe recovery of a known-new empty root.
+- Record explicit formatting/diff exit codes, rerun affected checks, publish and
+  return all eight dispositions to the existing cross-family review.

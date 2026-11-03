@@ -55,6 +55,10 @@ them. All local build dependencies are inside that extracted tree. Keep the
 temporary directory for inspection, then remove it when finished.
 
 The foundation connector retains `aq-worker enroll`, `run`, and `status`.
+`run` now requires `--controller-config /absolute/node.json` in addition to the
+enrollment `--config` file. It maintains the foundation heartbeat and controller
+root lock; sandbox admission remains disabled until B2's authenticated provider
+is installed. See [B5a configuration and limitations](docs/implementation/B5a.md).
 `aq-fixture-agent` is a synthetic deterministic test process, not a real agent harness.
 See [implementation evidence](docs/implementation/README.md).
 
