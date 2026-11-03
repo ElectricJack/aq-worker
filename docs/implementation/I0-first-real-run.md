@@ -1,11 +1,117 @@
 # I0: first real ChatGPT native run qualification
 
-Task `azure-horizon-22.1`. **Acceptance is unmet.** On 2026-11-03, run 11 reached
-real Codex 0.166.0 on the owner's ChatGPT login through `aq-worker run-native`
-against `aq-e0-qual`, but no source was retained and settlement was not reached.
-The owner's `~/.codex/auth.json` was not refreshed and still equals its baseline.
+Tasks `azure-horizon-22.1` (runs 9–11) and `calm-stone-85` (run 12). **Acceptance
+is unmet.** On 2026-11-03, run 12 completed a real Codex 0.166.0 run on the owner's
+ChatGPT login through `aq-worker run-native` against `aq-e0-qual`, with exit 0. It
+submitted a report (outcome `expired`, no change) and retained source centrally.
+Settlement could not be reached: the qualification server does not serve the
+settlement or combined-review routes (all 404). In aq-server `61b8d0e5`, no public
+route creates the combined decision that evaluation needs. The owner's
+`~/.codex/auth.json` was not refreshed and still equals its baseline.
 
-## aq-e0-qual runs — 2026-11-03
+## Run 12 — 2026-11-03 (`calm-stone-85`)
+
+Machine-readable, secret-free evidence:
+[`evidence/i0-first-real-run/run12.json`](evidence/i0-first-real-run/run12.json).
+
+Inputs:
+
+- Node `f761410b-43f5-4106-ab80-f044dd446da0`, profile `owner-chatgpt-codex`,
+  `gpt-6.1-sol` high, target `ElectricJack/aq-scratch` `main`.
+- Server `ElectricJack/aq-server` `61b8d0e5`, image `sha256:098efcb5…`.
+- Worker image `sha256:20abe635…`, built from `f4703fe`. That revision contains the
+  fixes for 22.1.1 (Codex companion files), 22.1.2 (workspace pre-trust), 22.1.3
+  (stopped-attempt reconcile) and 22.1.4 (redacted failure causes).
+- New seeded graph task `e0a10000-0000-4000-8000-000000000006`. The tasks for runs 9
+  and 11 are still held.
+
+| Invocation | Result | Cause |
+| --- | --- | --- |
+| run 12a | exit 2 in 0.7 s; no server contact, no material lease | The status tap ran outside the Docker host network, so the first enrollment heartbeat got "connection refused". The tap now runs as container `aq-i0-tap12`. |
+| run 12-409 | exit 2 in 2.5 s; probe 200, profiled poll 409; not admitted, no lease | The server trigger `admission_definition_identity_guard` refuses a changed definition body at an unchanged version, with an opaque 409. Fixed by `worker_i0.definition_version` "2", `PROFILED_REVISION` 5 and `INTELLIGENCE_REVISION` 3 ([`definitions.py`](../../scripts/e0-qual/definitions.py)). The credential stays at version 1, bound to its registered image. |
+| **run 12** | **exit 0, 916.4 s**, "native run: AttemptStopped; retained state preserved" | See below. |
+
+**Run 12.**
+
+- Run IDs:
+  - Container `aq-i0-run12`, 15:09:48Z to 15:24:50Z.
+  - Attempt `ab352201-950e-5a77-9008-a374c85f2f00`, grant `53c38069…`, launch
+    `c4c9673b…`, terminal `c3c32118-c3f3-4b54-9066-15d0043bfb40`.
+- Every worker route answered 200: probe, register, inventory, poll, proposal,
+  accept, prepare, `started`, `stopped`, material lease, results and profiled
+  source. The execution-source begin/manifest/bundle/finalize calls did too. There
+  were 64 heartbeats and 32 artifact calls.
+- No owner terminal input was sent. Unlike run 11, the report shows Codex
+  inspected the task and attempted a result submit, so tool calls ran.
+- Report `7439f3bc-d47d-4a7d-8f30-7b86f262d343` has outcome **`expired`**. Its
+  conclusion says the pinned task named no concrete edit or acceptance criteria,
+  so nothing was changed. The in-session result writer was unavailable and the
+  initial submit was rejected; Codex did not claim completion.
+- **First I0 retained source.** Retention handle `1640c116…` is retained and
+  active, accepted 15:24:51Z. Its checkpoint `0b52d2d6…` equals base `2e32645`,
+  so there is no source change.
+- The server shows the attempt stopped (reason "reconciliation"), with `holds_task`
+  true and retention `pending`.
+
+**Terminal relay.**
+
+- Every output upload was refused: 214 × 409 "watch snapshot resynchronization
+  required" and 4 × 500.
+- Cause, in aq-server `61b8d0e5`:
+  - `Runtime::frame`/`snapshot` (`terminal/runtime.rs`) refuse when no buffer
+    exists.
+  - A buffer is only reserved by a Watch or Capture mutation (`terminal/service.rs`).
+  - No owner watcher was attached, so every upload was refused.
+- The run itself was unaffected.
+- Relay `poll` and `output-poll` also returned 8 and 13 opaque 500s.
+
+**Settlement.** These public routes were probed at `:32848` with the dev owner
+identity, in protocol order:
+
+- GET `/api/reviews/combined/{id}`
+- GET `/api/reviews/decisions`
+- POST `/api/settlement/evaluations`
+- GET `/api/settlement/evaluations/{id}`
+- POST `/api/settlement/completions/{id}/reconcile`
+
+Each one answered 404 "no such route". Resolve (`POST /api/reviews/combined/{id}/resolve`)
+needs a decision to exist first, so it was not called. Afterwards there are no
+settlement evaluation, decision-request or completion rows.
+
+Causes:
+
+1. The reviews/settlement router is not mounted on the qualification server
+   (`quick-glacier-78`: no human-review runtime, keyring or trusted Unix PG).
+2. Even when mounted, evaluation requires an existing combined decision
+   (`combined_completion_in_tx`). Combined decisions are created only by
+   `prepare_combined_as` + `admit_combined` (`reviews/combined.rs`). Those have no
+   HTTP or production caller, and `prepare_combined` also requires a Settled
+   effects ledger.
+
+So run 12 cannot be settled through the public routes on this server.
+
+**Login.** None was refreshed.
+
+- The login reached the container only through the private material lease. The
+  leased material is byte-identical to the pre-run baseline.
+- After the run, the owner's `~/.codex/auth.json` (0600, 4017 bytes) is still
+  byte-identical to the baseline.
+- No other login file exists in the worker state volume. `docker diff aq-i0-run12`
+  shows no auth paths.
+- No writeback was needed.
+- `aq-i0-run12`, `aq-i0-run12-409` and `aq-i0-run12a` are kept.
+
+**Remaining acceptance.**
+
+1. Mount the settlement and combined-review routes on the qualification server.
+2. Add a public way to admit a combined decision for a profiled report.
+3. Give the run a task with a concrete edit, so the outcome can be
+   `SourceChangeReviewed` instead of `expired`.
+4. Attach a terminal watcher, or have the server accept uploads before a watch.
+
+The node measurement expires 2026-11-04 07:22:45 UTC.
+
+## aq-e0-qual runs 9–11 — 2026-11-03 (`azure-horizon-22.1`)
 
 The reopen asked for one real run against `aq-e0-qual` with profile
 `owner-chatgpt-codex`, target `ElectricJack/aq-scratch` `main`, on node

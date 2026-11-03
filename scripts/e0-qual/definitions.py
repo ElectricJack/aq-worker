@@ -41,7 +41,15 @@ CLIENT_RESERVATION = 64 * 1024 * 1024
 SOURCE_DISK_BYTES = 2 * 10737418240 + 1073741824 + 1024 * 1024
 # Server refuses changed profiled content at an unchanged revision; bump on every content change.
 # 2: SOURCE_DISK_BYTES corrected to the real aq-git reservation (I0).
-PROFILED_REVISION = 2
+# 3: I0 re-run: worker image f4703fe (full Codex 22.1.1 package), server rebuilt from aq-server main,
+#    and the seccomp premise corrected to the owner-approved I0 deviation.
+# 4: owner-chatgpt-codex@1 restored to its registered (immutable) definition.
+# 5: image-bound definitions moved to version worker_i0.definition_version (see below).
+PROFILED_REVISION = 5
+# Same rule for [intelligence]: its harness qualification digest follows the image program pins.
+# 2: I0 re-run image f4703fe.
+# 3: harness qualification and adapter refs moved to worker_i0.definition_version.
+INTELLIGENCE_REVISION = 3
 TERMINAL_KEY_ID = "e0-qual-relay-1"
 TERMINAL_KEY_FILE = "terminal-relay-key"
 DISK_BYTES = 24 * 1024 * 1024 * 1024
@@ -84,8 +92,8 @@ def sha(data):
     return hashlib.sha256(data if isinstance(data, bytes) else data.encode()).hexdigest()
 
 
-def ref(identifier, body):
-    return {"id": identifier, "version": "1", "digest": sha(body)}
+def ref(identifier, body, version="1"):
+    return {"id": identifier, "version": version, "digest": sha(body)}
 
 
 def snake(kind):
@@ -120,15 +128,15 @@ class Builder:
     def __init__(self):
         self.definitions = []
 
-    def raw(self, identifier, body):
-        artifact = ref(identifier, body)
-        if any((d["artifact"]["id"], d["artifact"]["version"]) == (identifier, "1") for d in self.definitions):
+    def raw(self, identifier, body, version="1"):
+        artifact = ref(identifier, body, version)
+        if any(d["artifact"]["id"] == identifier for d in self.definitions):
             raise ValueError(f"duplicate definition {identifier}")
         self.definitions.append({"artifact": artifact, "kind": "definition", "body": body})
         return artifact
 
-    def add(self, identifier, value):
-        return self.raw(identifier, canonical(value))
+    def add(self, identifier, value, version="1"):
+        return self.raw(identifier, canonical(value), version)
 
 
 def measured(stack):
@@ -168,7 +176,7 @@ def build(stack):
     pins = stack.PINS
     i0 = pins["worker_i0"]
     programs = i0["programs"]
-    server_source = pins["e0_source"]["revision"]
+    server_source = pins["server_source"]["revision"]
     project, repository = stack.PROJECT, stack.REPOSITORY
     model = pins["model"]
     credential_pin = pins["credential_profile"]
@@ -199,22 +207,26 @@ def build(stack):
     permission_digest = sha(canonical(permission_plan))
 
     b = Builder()
+    # The server keeps definition bodies immutable per identity/version (admission_definition_identity_guard)
+    # and refuses the offer with an opaque 409 on a changed body. These definitions embed the worker image
+    # and its program pins, so they carry a version that is bumped with every worker_i0 image change.
+    image_version = i0["definition_version"]
     policy = b.add(f"aq.e0-qual-project-policy:{project}",
                    {"schema_version": 1, "kind": "source_change_reviewed_human_owner_no_checks_v1"})
     runtime = b.add("aq.e0-qual-runtime", {"schema_version": 1, "worker": worker, "worker_source": i0["source_revision"],
-                                           "runtime_version": i0["runtime_version"], "scope": scope})
+                                           "runtime_version": i0["runtime_version"], "scope": scope}, image_version)
     bwrap = programs["bwrap"]
     environment = b.add(ENVIRONMENT, {
         "schema_version": 1, "scope": scope, "images": {"codex": codex, "host": host, "tmux": tmux, "client": client},
         "premises": [
             f"programs are read from the read-only root filesystem of image {pins['images']['worker_i0']} under {RUNTIME_DIR}",
             "worker container runs as uid 10001 with --read-only, --cap-drop=ALL and no-new-privileges",
-            "worker container uses the Docker default seccomp profile; seccomp=unconfined was used only for the measurement container",
+            "worker container runs with seccomp=unconfined (owner-approved I0/E0 deviation; not a production premise)",
             f"OS bwrap {bwrap['version']} provisioned read-only at {bwrap['path']}",
             f"private state is the fresh volume {WORKER_VOLUME} mounted at {STATE} (0700, uid 10001)"],
         "primary_image_reservation_bytes": 536870912, "additional_client_image_reservation_bytes": CLIENT_RESERVATION,
         "bwrap": {"sha256": bwrap["sha256"], "bytes": bwrap["bytes"], "path": bwrap["path"],
-                  "provisioning": "readonly OS environment; not a NamedExecManifest image pin"}})
+                  "provisioning": "readonly OS environment; not a NamedExecManifest image pin"}}, image_version)
     raw = {}
     for identifier, path, digest in RAW_BODIES:
         body = subprocess.run(["git", "-C", str(stack.HERE.parent), "show", f"{i0['source_revision']}:{path}"],
@@ -227,27 +239,31 @@ def build(stack):
                        "environment": environment,
                        "executable": {"path": client["path"], "artifact": client["artifact"]},
                        "executable_bytes": client["bytes"]}
-    client_ref = b.add("aq.agent-result-client-installation", client_manifest)
+    client_ref = b.add("aq.agent-result-client-installation", client_manifest, image_version)
     composite = {"schema_version": 1, "profile": PROFILE, "runtime": runtime, "environment": environment,
                  "client_manifest": client_ref, "client_executable": client["artifact"], "contract": contract,
                  "recipe": recipe, "permission_digest": permission_digest, "reserved_client_bytes": CLIENT_RESERVATION}
-    adapter = b.add("aq.codex-result-local-adapter", composite)
+    adapter = b.add("aq.codex-result-local-adapter", composite, image_version)
     qualification = b.add("aq.e0-qual-runtime-qualification", {
         "schema_version": 1, "runtime": runtime, "adapter": adapter, "environment": environment,
         "server_source": server_source, "scope": scope,
         "qualification": "pinned published I0 image programs, exact I0 public result contract/recipe/startup bodies, "
                          "owner-approved desktop ChatGPT interactive profile",
         "not_evidence": ["no current node health or inventory", "no successful execution claimed by configuration",
-                         "worker preflight result is recorded separately"]})
+                         "worker preflight result is recorded separately"]}, image_version)
     harness_q = b.add("aq.e0-qual-harness-qualification", {
         "schema_version": 1, "runtime": runtime, "qualification": qualification, "adapter": adapter,
         "environment": environment, "codex": codex, "host": host, "tmux": tmux, "scope": scope,
         "max_output_tokens": MAX_OUTPUT_TOKENS,
         "max_output_tokens_basis": "AQ planning reservation only; Codex 0.166.0 keeps its default output limit "
-                                   "(owner decision), so this is not a Codex or provider setting"})
+                                   "(owner decision), so this is not a Codex or provider setting"}, image_version)
+    # owner-chatgpt-codex@1 is immutable once registered (the server refuses a changed definition at
+    # the same identity/version), so its scope keeps the image it was registered with; the image the
+    # run actually uses is pinned by the runtime/environment definitions above.
+    credential_scope = scope.replace(pins["images"]["worker_i0"], credential_pin["registered_image"])
     credential = b.add(CREDENTIAL, {
         "schema_version": 1, "provider": credential_pin["provider"], "account_reference": "owner-chatgpt-account",
-        "endpoint_reference": "codex-default-chatgpt-endpoint", "scope": "desktop dev worker only; " + scope,
+        "endpoint_reference": "codex-default-chatgpt-endpoint", "scope": "desktop dev worker only; " + credential_scope,
         "attestation": OWNER_ATTESTED + ": the owner's ChatGPT account and the Codex default endpoint",
         "secret": "owner ChatGPT login file delivered by the server material owner; not included here"})
     rows, capacity, observed = measured(stack)
@@ -259,12 +275,12 @@ def build(stack):
         "basis": "measured: three bounded Codex 0.166.0 exec calls in the I0 image (gpt-6.1-sol, high); "
                  "provider-reported input_tokens include Codex's own prompt and tools; every call satisfies "
                  "input_tokens <= prompt_utf8_bytes * 1 + 16384",
-        "measurements": rows})
+        "measurements": rows}, image_version)
     capacity_ref = b.add("aq.e0-qual-capacity", {
         "schema_version": 1, "adapter": adapter, "scope": scope, "capacity_kind": "qualified_model_window",
         "capacity_tokens": capacity,
         "basis": "measured: model_context_windows reported in the Codex rollout of each of the three calls",
-        "observed_windows": [r["rollout_model_context_windows"] for r in rows]})
+        "observed_windows": [r["rollout_model_context_windows"] for r in rows]}, image_version)
     fact = {"schema_version": 1,
             "subject": {"runtime": runtime, "runtime_qualification": qualification, "harness": "codex",
                         "cli_version": "0.166.0", "adapter": adapter, "environment": environment,
@@ -355,7 +371,7 @@ def build(stack):
                                                     "hex": source["base"]["hex"]}},
                               "retention_handle": source["retention_handle"]}],
                 "context_qualifications": [fact], "definition_bodies": definitions}
-    intelligence = {"revision": 1, "credentials": [{
+    intelligence = {"revision": INTELLIGENCE_REVISION, "credentials": [{
         "kind": "subscription-login",
         "credential": {"profile": credential, "provider": credential_pin["provider"],
                        "account_reference": "owner-chatgpt-account",
