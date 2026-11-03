@@ -257,7 +257,7 @@ impl Owner {
                         !pending_observation
                             && host.phase == HostPhase::Running
                             && config.observed.as_ref().is_some_and(|s| s.interactive())
-                            && config.manifest.terminal.input_enabled,
+                            && config.manifest.terminal().input_enabled,
                         "viewer requires original interactive Running"
                     );
                 }

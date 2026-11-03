@@ -10,6 +10,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / 'packaging/sandbox'
@@ -255,6 +256,67 @@ class TemplateTests(unittest.TestCase):
                            'credentials=private-codex-chatgpt-auth-json']:
             self.assertTrue(scanner.secret_shaped(credential))
 
+    def test_compiled_capability_metadata_is_not_a_provider_token(self):
+        scanner = load('credential_scan')
+        # Serde concatenates these public labels in the worker's .rodata.
+        metadata = 'persistent-disk-during-attemptbackend_idstruct SandboxIdentity'
+        self.assertFalse(scanner.secret_shaped(metadata))
+        for value in [metadata + ' sk-proj-' + 'x' * 40,
+                      'TOKEN=' + metadata,
+                      'https://' + metadata.replace(' ', '-') + ':password@example.com',
+                      'sk-during-attemptbackend_idstruct' + 'x' * 40,
+                      metadata.replace('backend_idstruct ', 'backend_idstruct-secret')]:
+            self.assertTrue(scanner.secret_shaped(value))
+
+    def test_public_constants_require_exact_reviewed_content(self):
+        scanner = load('credential_scan')
+        # A miniature public source example stands in for a reviewed upstream
+        # file. Production fingerprints are verified against public archives.
+        public = b'password = "public-example"\n'
+        fingerprint = hashlib.sha256(public).hexdigest()
+        self.assertTrue(scanner.secret_shaped(public))
+        with patch.dict(scanner.PUBLIC_FILE_CONSTANTS, {fingerprint: len(public)}, clear=True):
+            self.assertIsNone(scanner.scan_content(io.BytesIO(public)))
+            for changed in [public * 2, public[:-1], public + b'sk-proj-' + b'x' * 40,
+                            public.replace(b'public-example', b'actual-secrets!'),
+                            b'-----BEGIN OPENSSH PRIVATE KEY-----']:
+                with self.assertRaisesRegex(ValueError, 'credential'):
+                    scanner.scan_content(io.BytesIO(changed))
+            # Captured bundle/config-style metadata never gains an exception.
+            with self.assertRaisesRegex(ValueError, 'credential'):
+                scanner.scan_content(io.BytesIO(public), capture=True)
+
+    def test_public_constants_do_not_bypass_paths_or_deleted_layer_checks(self):
+        scanner = load('credential_scan')
+        public = b'password = "public-example"\n'
+        fingerprint = hashlib.sha256(public).hexdigest()
+        with patch.dict(scanner.PUBLIC_FILE_CONSTANTS, {fingerprint: len(public)}, clear=True):
+            with tempfile.TemporaryDirectory() as directory:
+                archive = Path(directory) / 'image.tar'
+                manifest = {'opt/aq/manifest.json': json.dumps(bundle()).encode()}
+                oci(archive, [{'usr/lib/public-file': public}, manifest])
+                self.assertEqual(scanner.scan_oci(archive)['layers_scanned'], 2)
+                for files in [{'root/.codex/auth.json': public},
+                              {'usr/lib/public-file': public + b'\nTOKEN=private-value'}]:
+                    oci(archive, [files, {'usr/lib/.wh.public-file': b'', **manifest}])
+                    with self.assertRaisesRegex(ValueError, 'credential'):
+                        scanner.scan_oci(archive)
+
+    def test_public_constants_and_credentials_across_stream_boundaries(self):
+        scanner = load('credential_scan')
+        public = b'public-prefix\0-----BEGIN PRIVATE KEY-----\0public-suffix'
+        fingerprint = hashlib.sha256(public).hexdigest()
+        class Chunks(io.BytesIO):
+            def read(self, size):
+                return super().read(min(size, 7))
+        with patch.dict(scanner.PUBLIC_FILE_CONSTANTS, {fingerprint: len(public)}, clear=True):
+            self.assertIsNone(scanner.scan_content(Chunks(public)))
+            for value in [public + b'\0ghp_' + b'x' * 40,
+                          b'padding' + public,
+                          public.replace(b'public-suffix', b'actual-secret')]:
+                with self.assertRaisesRegex(ValueError, 'credential'):
+                    scanner.scan_content(Chunks(value))
+
     def test_recipe_bounds_secrets_public_prefetch_and_parent_policy(self):
         tool = load('template_tool')
         cfg = config()
@@ -348,6 +410,26 @@ class BuildTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     tool.build(root / 'recipe.json', root / 'builder.json', root / failure)
                 self.assertFalse((root / 'templates/allowlist.json').exists())
+
+    def test_modified_public_file_never_changes_existing_allowlist(self):
+        tool = load('template_tool')
+        public = b'password = "public-example"\n'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.setup_build(root)
+            manifest = {'opt/aq/manifest.json': json.dumps(bundle()).encode()}
+            oci(root / 'fixture.tar', [{'usr/lib/public-file': public}, manifest])
+            with patch.dict(tool.scan.PUBLIC_FILE_CONSTANTS,
+                            {hashlib.sha256(public).hexdigest(): len(public)}, clear=True):
+                tool.build(root / 'recipe.json', root / 'builder.json', root / 'clean')
+                before = (root / 'templates/allowlist.json').read_bytes()
+                updated = recipe()
+                updated['version'] = '2'
+                (root / 'recipe.json').write_text(json.dumps(updated))
+                oci(root / 'fixture.tar', [{'usr/lib/public-file': public + b'TOKEN=private-value'}, manifest])
+                with self.assertRaisesRegex(ValueError, 'credential'):
+                    tool.build(root / 'recipe.json', root / 'builder.json', root / 'refused')
+                self.assertEqual((root / 'templates/allowlist.json').read_bytes(), before)
 
     def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
         tool = load('template_tool')

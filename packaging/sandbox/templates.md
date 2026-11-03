@@ -169,6 +169,24 @@ are checked; ordinary credential-store metadata labels are allowed.
 The exact JSON pair `"credentials":"private-codex-chatgpt-auth-json"` is a
 public protocol format label embedded in the worker, so it is allowed;
 arbitrary credential values, suffix variants and shell assignments still refuse.
+The exact compiled Serde context
+`persistent-disk-during-attemptbackend_idstruct ` (with its trailing space)
+does not turn the `sk-` inside `disk-` into a provider key. This exception
+consumes no bytes and applies only to that occurrence in the `sk-` branch;
+credential assignments, URLs, altered contexts and nearby keys still refuse.
+Layer file content also recognizes a fixed catalog of 74 independently verified
+public distribution files containing self-test vectors, format strings, source
+code or documentation examples. An exception requires the SHA-256 and byte count
+of the **entire original file**, read to EOF. Names, installed locations, ELF
+headers and claimed package versions grant no exception. Any edit, appended
+credential, truncation or unreviewed upstream version refuses when its content
+matches the strict scanner. Credential paths/links, image config/history,
+environment checks and bundle metadata keep their independent strict checks;
+every layer, including deleted files, is still examined. The catalog ships
+inside the scanner and cannot be configured by an image or build input.
+Public archive/member fingerprints and a reproduction command are recorded in
+`docs/implementation/C3b-public-constants.md`. Package updates that introduce new
+matches require fresh public-byte verification and a reviewed catalog change.
 Values and suspect paths are never printed. This is pattern/path detection,
 not proof that an arbitrary encrypted or unknown-format file is non-secret.
 False positives refuse admission; secrets must never be inputs to a build.

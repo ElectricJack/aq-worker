@@ -52,6 +52,13 @@ pub enum RunnerOperation {
     ReportResult,
     AcceptOffer,
     RegisterIncarnation,
+    /// Preparation receipt submission (frozen Prepared). Preparation scope only.
+    Prepared,
+    /// Session-addressed mailbox fetch. Execution scope only: no session exists
+    /// before the grant. This is not the node's offer poll, which no permit allows.
+    MailboxPoll,
+    /// Acknowledge a durably persisted mailbox receipt. Execution scope only.
+    MailboxAck,
 }
 /// The server assigns one channel per sandbox and retains it across boot changes.
 /// Both terminal and observation streams use this same identity.
@@ -139,7 +146,7 @@ impl DelegatedPermit {
         let allowed = match (self.scope, context.phase) {
             (PermitScope::Preparation, GrantPhase::Preparing) => matches!(
                 operation,
-                FetchPreparationMaterial | Observe | UploadArtifact
+                FetchPreparationMaterial | Observe | UploadArtifact | Prepared
             ),
             (PermitScope::Execution, GrantPhase::Granted) => matches!(
                 operation,
@@ -150,6 +157,8 @@ impl DelegatedPermit {
                     | FetchExecutionMaterial
                     | UploadArtifact
                     | ReportResult
+                    | MailboxPoll
+                    | MailboxAck
             ),
             _ => false,
         };

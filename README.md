@@ -26,7 +26,9 @@ Sibling links assume side-by-side checkouts. They are documentation references, 
 
 Run `cargo test --workspace --locked --all-features` and
 `cargo fmt -- --check` from the repository root
-without sibling repositories or external services.
+without sibling repositories or external services. The taskless supervisor host
+qualification tests require Linux with `/usr/bin/tmux` installed (CI installs
+tmux explicitly); they exercise real local processes without a provider.
 The formatting command checks every member of this virtual workspace, including
 its tests and examples. Omit `-- --check` to apply formatting.
 

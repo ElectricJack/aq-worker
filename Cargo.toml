@@ -19,7 +19,7 @@ publish = false
 [workspace.dependencies]
 aq-agent-result-local = { path = "crates/aq-agent-result-local", version = "=0.1.0" }
 aq-responses-transport = { path = "crates/aq-responses-transport", version = "=0.1.0" }
-aq-session-host = { path = "crates/aq-session-host", version = "=0.1.5" }
+aq-session-host = { path = "crates/aq-session-host", version = "=0.1.7" }
 aq-session-protocol = { path = "crates/aq-session-protocol", version = "=0.1.0" }
 aq-protocol = { path = "crates/aq-protocol", version = "=0.1.0" }
 aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.2.0" }
@@ -43,6 +43,18 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 libc = "0.2"
+
+# Bound target/ growth: full (debug = 2) DWARF made each test binary several
+# hundred MB, and incremental caches add gigabytes per slot. Line tables keep
+# file:line in backtraces for workspace code; third-party crates drop debuginfo.
+# `[profile.test]` inherits these settings. `incremental = false` replaces a
+# per-invocation CARGO_INCREMENTAL=0 (the env var still overrides it).
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "thin"

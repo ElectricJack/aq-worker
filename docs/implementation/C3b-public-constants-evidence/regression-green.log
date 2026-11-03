@@ -1,0 +1,65 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: waiting 0s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, calm-delta-18.5, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 2s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, calm-delta-18.5, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 4s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, calm-delta-18.5, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 6s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, calm-delta-18.5, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 8s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, calm-delta-18.5, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 10s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, calm-delta-18.5, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 12s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, calm-delta-18.5, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 14s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, calm-delta-18.5, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 16s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 18s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 20s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 22s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 24s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 26s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 28s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 30s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 32s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 34s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 36s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 38s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 40s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 42s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 44s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 46s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, wise-vault-78, wise-vault-78
+aq test: waiting 48s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, smart-grove-55, keen-current-13, noble-summit-37.5, 
+wise-vault-78
+aq test: slot 5 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' scripts/tests/test_template_tool.py -k public_constants -n 0
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 17 items / 14 deselected / 3 selected
+
+scripts/tests/test_template_tool.py ...                                  [100%]
+
+======================= 3 passed, 14 deselected in 0.52s =======================

@@ -1,0 +1,30 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 2 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C3b-public-constants-evidence/verify_public_files.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 1 item
+
+docs/implementation/C3b-public-constants-evidence/verify_public_files.py verified 11 public members from https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb
+verified 3 public members from https://static.rust-lang.org/dist/rust-1.96.1-x86_64-unknown-linux-gnu.tar.xz
+verified 20 public members from https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz
+verified 10 public members from https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb
+verified 12 public members from https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz
+verified 5 public members from https://registry.npmjs.org/pnpm/-/pnpm-10.34.5.tgz
+verified 1 public members from https://deb.debian.org/debian/pool/main/g/gcc-12/libstdc++-12-dev_12.2.0-14+deb12u1_amd64.deb
+verified 1 public members from https://deb.debian.org/debian/pool/main/g/gnutls28/libgnutls30_3.7.9-2+deb12u7_amd64.deb
+verified 1 public members from https://deb.debian.org/debian/pool/main/o/openssl/openssl_3.0.22-1~deb12u2_amd64.deb
+verified 4 public members from https://deb.debian.org/debian/pool/main/p/perl/perl-modules-5.36_5.36.0-7+deb12u4_all.deb
+verified 2 public members from https://www.kernel.org/pub/software/scm/git/git-2.56.0.tar.xz
+verified 1 public members from https://github.com/openai/codex/releases/download/rust-v0.166.0/codex-x86_64-unknown-linux-musl.tar.gz
+verified 1 public members from https://deb.debian.org/debian/pool/main/libu/libunistring/libunistring2_1.0-2_amd64.deb
+verified 1 public members from https://deb.debian.org/debian/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb
+verified 1 public members from https://deb.debian.org/debian/pool/main/libs/libssh2/libssh2-1_1.10.0-3+deb12u1_amd64.deb
+verified all 74 catalog fingerprints
+.
+
+======================== 1 passed in 112.59s (0:01:52) =========================

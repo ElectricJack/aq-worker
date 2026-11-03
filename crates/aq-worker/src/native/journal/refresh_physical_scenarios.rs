@@ -186,6 +186,7 @@ async fn actual_refresh_inputs_join_execution_and_reopen_stay_typed_history_only
 #[tokio::test]
 async fn refresh_unpolled_request_retains_actual_bundle_before_network_and_retry_keeps_first_owner()
 {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let mut h = Inputs::new_phase(export).await;
@@ -340,6 +341,7 @@ async fn refresh_shared_saved_owner_cannot_be_rehashed_around_capture_or_mixed_p
 
 #[tokio::test]
 async fn production_collect_dispatch_retains_actual_refresh_inputs_without_launch() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new_collect(export).await;

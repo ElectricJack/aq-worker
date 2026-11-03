@@ -1,0 +1,27 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.56s
+     Running tests/sandbox_security.rs (target/debug/deps/sandbox_security-360572a370d1b3ef)
+
+running 1 test
+test aq_proxy_injects_access_header_without_exposing_token ... FAILED
+
+failures:
+
+---- aq_proxy_injects_access_header_without_exposing_token stdout ----
+
+thread 'aq_proxy_injects_access_header_without_exposing_token' (2317967) panicked at crates/aq-worker/tests/sandbox_security.rs:63:13:
+assertion failed: head.contains("accept-encoding: identity\r\n")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'aq_proxy_injects_access_header_without_exposing_token' (2317967) panicked at crates/aq-worker/tests/sandbox_security.rs:89:9:
+assertion `left == right` failed
+  left: 502
+ right: 200
+
+
+failures:
+    aq_proxy_injects_access_header_without_exposing_token
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p aq-worker --test sandbox_security`

@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--manifest-path",
+    "/tmp/aq-f1a-host-release-final/aq-session-host-0.1.6-source/Cargo.toml",
+    "-p",
+    "aq-session-host",
+    "--all-features",
+    "--test",
+    "local_tmux",
+    "central_and_remote_interaction_stop_and_no_relaunch",
+    "--",
+    "--ignored"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/F1a-host-evidence/legacy-local.log"
+}

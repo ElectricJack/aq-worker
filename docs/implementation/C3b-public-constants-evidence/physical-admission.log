@@ -1,0 +1,74 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 3 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C3b-public-constants-evidence/verify_public_files.py docs/implementation/C3b-public-constants-evidence/test_seed_admission.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 2 items
+
+docs/implementation/C3b-public-constants-evidence/verify_public_files.py verified 11 public members from https://deb.debian.org/debian/pool/main/p/python3.11/libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb
+verified 3 public members from https://static.rust-lang.org/dist/rust-1.96.1-x86_64-unknown-linux-gnu.tar.xz
+verified 20 public members from https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz
+verified 10 public members from https://security.debian.org/debian-security/pool/updates/main/p/python3.11/libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb
+verified 12 public members from https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz
+verified 5 public members from https://registry.npmjs.org/pnpm/-/pnpm-10.34.5.tgz
+verified 1 public members from https://deb.debian.org/debian/pool/main/g/gcc-12/libstdc++-12-dev_12.2.0-14+deb12u1_amd64.deb
+verified 1 public members from https://deb.debian.org/debian/pool/main/g/gnutls28/libgnutls30_3.7.9-2+deb12u7_amd64.deb
+verified 1 public members from https://deb.debian.org/debian/pool/main/o/openssl/openssl_3.0.22-1~deb12u2_amd64.deb
+verified 4 public members from https://deb.debian.org/debian/pool/main/p/perl/perl-modules-5.36_5.36.0-7+deb12u4_all.deb
+F
+docs/implementation/C3b-public-constants-evidence/test_seed_admission.py QUALIFICATION OUTPUT: /tmp/aq-c3b-public-qualification/admission-blc2t8l_
+COMMAND: ["/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/target/debug/aq-worker", "template", "build", "/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/docs/implementation/C3b-public-constants-evidence/rust.recipe.json", "--build-config", "/tmp/aq-c3b-public-qualification/admission-blc2t8l_/builder.json", "--output", "/tmp/aq-c3b-public-qualification/admission-blc2t8l_/rust"]
+ADMITTED: rust sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5
+COMMAND: ["/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/target/debug/aq-worker", "template", "build", "/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/docs/implementation/C3b-public-constants-evidence/node.recipe.json", "--build-config", "/tmp/aq-c3b-public-qualification/admission-blc2t8l_/builder.json", "--output", "/tmp/aq-c3b-public-qualification/admission-blc2t8l_/node"]
+ADMITTED: node sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710
+.
+
+=================================== FAILURES ===================================
+________________________ test_public_file_fingerprints _________________________
+
+    def test_public_file_fingerprints():
+>       verify(Path(os.environ['C3B_PUBLIC_CACHE']))
+
+docs/implementation/C3b-public-constants-evidence/verify_public_files.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cache = PosixPath('/tmp/aq-c3b-public-verification')
+
+    def verify(cache):
+        root = Path(__file__).resolve().parents[3]
+        spec = importlib.util.spec_from_file_location('credential_scan', root / 'packaging/sandbox/credential_scan.py')
+        scanner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(scanner)
+        records = json.loads(Path(__file__).with_name('public-files.json').read_text())['files']
+        assert scanner.PUBLIC_FILE_CONSTANTS == {r['sha256']: r['bytes'] for r in records}
+        sources = {}
+        for record in records:
+            source = record['upstream']
+            sources.setdefault((source['url'], source['archive_sha256']), []).append(record)
+        cache.mkdir(parents=True, exist_ok=True)
+        for (url, expected), members in sources.items():
+            path = cache / expected
+            if not path.exists():
+                urllib.request.urlretrieve(url, path)
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == expected, 'public archive digest mismatch'
+            data = io.BytesIO(subprocess.check_output(['dpkg-deb', '--fsys-tarfile', str(path)])) if url.endswith('.deb') else path
+            with tarfile.open(fileobj=data) if isinstance(data, io.BytesIO) else tarfile.open(data) as archive:
+                for record in members:
+                    source = record['upstream']
+                    content = archive.extractfile(source['member']).read()
+                    if 'transformation' in source:
+>                       assert source['transformation'] == 'replace shebang with #!/usr/bin/python3'
+E                       AssertionError: assert 'replace sheb...sr/bin/python' == 'replace sheb...r/bin/python3'
+E                         
+E                         - replace shebang with #!/usr/bin/python3
+E                         ?                                       -
+E                         + replace shebang with #!/usr/bin/python
+
+docs/implementation/C3b-public-constants-evidence/verify_public_files.py:41: AssertionError
+=========================== short test summary info ============================
+FAILED docs/implementation/C3b-public-constants-evidence/verify_public_files.py::test_public_file_fingerprints
+=================== 1 failed, 1 passed in 401.04s (0:06:41) ====================

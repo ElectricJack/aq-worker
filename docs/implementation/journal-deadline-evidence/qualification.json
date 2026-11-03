@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "task_id": "noble-impact-55",
+  "base_commit": "5e05a02816d95122877f6e9fe29ba3055f1f371f",
+  "final_merge": {
+    "command": "git merge origin/main",
+    "result": "Already up to date.",
+    "log": "final-merge.log"
+  },
+  "scope": "Test-only runtime-scoped CLOCK_BOOTTIME control; real HTTP and file/directory fsync retained. No production code, fixture deadline, scanner/security policy, or ignore annotation changes.",
+  "changed_source_sha256": {
+    "crates/aq-worker/src/native/journal/tests.rs": "c3a201b616a0a519d9ad77bcc12b792973d07cdcd9b09f4aae29a59ff56ef256",
+    "crates/aq-worker/src/native/journal/granted_scenarios.rs": "6345e760f08a23b8af376f86372ab1f74104859d5b557f82b4669622b45dc998",
+    "crates/aq-worker/src/native/journal/refresh_physical_scenarios.rs": "bb17ef1e0808a73ac313bda167f368a1d43562fd76685e7018c38f7fe71e2be5"
+  },
+  "common_environment": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "RUST_TEST_THREADS": "2",
+    "TOKIO_WORKER_THREADS": "2"
+  },
+  "environment_evidence": "environment.log",
+  "checks": [
+    {
+      "name": "journal",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "aq-worker",
+        "--lib",
+        "--all-features",
+        "--locked",
+        "--offline",
+        "native::journal"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 297.792,
+      "log": "journal.log"
+    },
+    {
+      "name": "workspace",
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-features",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 884.629,
+      "log": "workspace.log"
+    },
+    {
+      "name": "templates-default-profile",
+      "command": [
+        "env",
+        "-u",
+        "CARGO_PROFILE_DEV_DEBUG",
+        "-u",
+        "CARGO_PROFILE_TEST_DEBUG",
+        "cargo",
+        "test",
+        "-p",
+        "aq-worker",
+        "--test",
+        "templates",
+        "--all-features",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 101,
+      "log": "templates-default-profile.log"
+    },
+    {
+      "name": "final-targeted",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "aq-worker",
+        "--lib",
+        "--all-features",
+        "--locked",
+        "--offline",
+        "--",
+        "granted_scenarios",
+        "actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap",
+        "production_collect_dispatch_retains_actual_refresh_inputs_without_launch"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 21.361,
+      "log": "final-targeted.log"
+    }
+  ],
+  "totals": {
+    "regression.log": {
+      "completed_groups": 1,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "regression-kernel-clock.log": {
+      "completed_groups": 1,
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0
+    },
+    "journal.log": {
+      "completed_groups": 1,
+      "passed": 117,
+      "failed": 0,
+      "ignored": 29
+    },
+    "workspace.log": {
+      "completed_groups": 115,
+      "passed": 891,
+      "failed": 1,
+      "ignored": 99
+    },
+    "templates-default-profile.log": {
+      "completed_groups": 1,
+      "passed": 2,
+      "failed": 1,
+      "ignored": 0
+    },
+    "final-targeted.log": {
+      "completed_groups": 1,
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "affected_tests": [
+    "actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap",
+    "received_grant_is_durable_before_usable_and_replay_preserves_first_clocks_and_bundle",
+    "production_collect_dispatch_retains_actual_refresh_inputs_without_launch",
+    "delayed_fsync_uses_explicit_deadline_instead_of_elapsed_wall_time"
+  ],
+  "regression": {
+    "command": "cargo test -p aq-worker --lib --all-features --locked --offline delayed_fsync_uses_explicit_deadline_instead_of_elapsed_wall_time",
+    "corrected_exit_code": 0,
+    "kernel_clock_control_expected_exit_code": 101,
+    "kernel_clock_control_mutation": "Insert drop(_clock) immediately after barrier(&pause).await only in the new regression, restoring kernel sampling after real file fsync. Keep fixture setup and HTTP clock-controlled. Restore exact source in finally.",
+    "finding": "A real delay longer than the original 100ms receipt window yields Usable with a frozen runtime clock and HistoryOnly with kernel-clock completion. Explicit expiry then rejects the original usable grant while retaining history and the input owner.",
+    "logs": [
+      "regression.log",
+      "regression-kernel-clock.log"
+    ]
+  },
+  "full_qualification": {
+    "status": "failed_independent_template_cli_scanner",
+    "exit_code": 101,
+    "failure": "template_cli_build_and_scan_use_embedded_tools -> scripts/tests/test_template_tool.py:448 -> packaging/sandbox/credential_scan.py:277: ValueError credential content detected while scanning normal CLI binary",
+    "default_debug_reproduction": "templates-default-profile.log: 2 passed, 1 failed, exit101, with both CARGO_PROFILE_DEV_DEBUG and CARGO_PROFILE_TEST_DEBUG unset; build/Rust/Tokio limits remain2",
+    "scope_evidence": "All changed source lives under native/journal.rs cfg(test) module (lines757-758), excluded from the normal CLI. No diff in packaging/, scripts/, crates/aq-worker/tests/templates.rs or other production source.",
+    "followup_task": "bright-quest-86",
+    "coverage_limit": "Cargo stopped at the failed template test group; later groups and doctests were not completed. No complete workspace pass is claimed. All three affected cases and the new regression passed in this full run."
+  },
+  "formatting": {
+    "changed_files": {
+      "command": "rustfmt --check --edition 2024 --config skip_children=true crates/aq-worker/src/native/journal/tests.rs crates/aq-worker/src/native/journal/granted_scenarios.rs crates/aq-worker/src/native/journal/refresh_physical_scenarios.rs",
+      "exit_code": 0,
+      "log": "rustfmt.log"
+    },
+    "workspace": {
+      "command": "cargo fmt --all --check",
+      "status": "unavailable_existing_vendor_workspace_discovery",
+      "log": "fmt.log"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+stage=root-entrypoint uid=0 euid=0
+CapInh:	0000000000000000
+CapPrm:	00000000000000e0
+CapEff:	00000000000000e0
+CapBnd:	00000000000000e0
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+PR_CAPBSET_DROP(CAP_KILL): result=-1 errno=1 (Operation not permitted)
+stage=agent-cleared-current-sets uid=21002 euid=21002
+CapInh:	0000000000000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	00000000000000e0
+CapAmb:	0000000000000000
+NoNewPrivs:	1
+PR_CAPBSET_DROP(CAP_KILL): result=-1 errno=1 (Operation not permitted)

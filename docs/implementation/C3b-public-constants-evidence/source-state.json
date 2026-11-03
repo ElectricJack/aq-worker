@@ -1,0 +1,18 @@
+{
+  "task": "calm-delta-18.5.1",
+  "initial_source_base": "9a00f05",
+  "synchronized_main": "981682178b4ed8254497637af163e70da30aac5f",
+  "scanner_sha256": "579a13c2c42ded55e6d0939e9bdb8dcf836be7e1dba6771a4ed2ce9ee828cf1a",
+  "public_file_count": 74,
+  "qualification_output": "/tmp/aq-c3b-public-qualification/admission-blc2t8l_",
+  "production_published": false,
+  "final_qualification_output": "/tmp/aq-c3b-public-qualification/admission-zzgn2__x",
+  "final_checks": {
+    "python_area": "25 passed",
+    "rust_area": "8 passed",
+    "public_byte_verification": "74 fingerprints; 1 passed",
+    "physical_seed_admission": "Rust and Node; 1 passed",
+    "clippy": "passed",
+    "fmt": "passed"
+  }
+}

@@ -1,0 +1,22 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.47s
+     Running tests/sandbox_security.rs (target/debug/deps/sandbox_security-360572a370d1b3ef)
+
+running 1 test
+test aq_proxy_refuses_non_machine_origins_and_unsafe_access_files ... FAILED
+
+failures:
+
+---- aq_proxy_refuses_non_machine_origins_and_unsafe_access_files stdout ----
+
+thread 'aq_proxy_refuses_non_machine_origins_and_unsafe_access_files' (2268326) panicked at crates/aq-worker/tests/sandbox_security.rs:219:9:
+assertion failed: AqApiProxy::start(origin, &files.root().join("access.json")).await.is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    aq_proxy_refuses_non_machine_origins_and_unsafe_access_files
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p aq-worker --test sandbox_security`

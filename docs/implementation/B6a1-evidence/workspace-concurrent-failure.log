@@ -1,0 +1,1282 @@
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export
+  |
+  = note: the example target `export` in package `aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-lifecycle-protocol)` has the same output filename as the example target `export` in package `aq-admission v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/protocol/aq-admission)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export.dwp
+  |
+  = note: the example target `export` in package `aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-lifecycle-protocol)` has the same output filename as the example target `export` in package `aq-admission v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/protocol/aq-admission)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export
+  |
+  = note: the example target `export` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation)` has the same output filename as the example target `export` in package `aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-lifecycle-protocol)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export.dwp
+  |
+  = note: the example target `export` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation)` has the same output filename as the example target `export` in package `aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-lifecycle-protocol)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export
+  |
+  = note: the example target `export` in package `aq-observation-admission v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/vendor/aq-observation-admission-0.1.0)` has the same output filename as the example target `export` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export.dwp
+  |
+  = note: the example target `export` in package `aq-observation-admission v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/vendor/aq-observation-admission-0.1.0)` has the same output filename as the example target `export` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export
+  |
+  = note: the example target `export` in package `aq-observation-engine v0.0.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation-engine)` has the same output filename as the example target `export` in package `aq-observation-admission v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/vendor/aq-observation-admission-0.1.0)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export.dwp
+  |
+  = note: the example target `export` in package `aq-observation-engine v0.0.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation-engine)` has the same output filename as the example target `export` in package `aq-observation-admission v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/vendor/aq-observation-admission-0.1.0)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/measure
+  |
+  = note: the example target `measure` in package `aq-observation-redb-prototype v0.0.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation-redb-prototype)` has the same output filename as the example target `measure` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/measure.dwp
+  |
+  = note: the example target `measure` in package `aq-observation-redb-prototype v0.0.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation-redb-prototype)` has the same output filename as the example target `measure` in package `aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export
+  |
+  = note: the example target `export` in package `aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-session-protocol)` has the same output filename as the example target `export` in package `aq-observation-engine v0.0.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation-engine)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/target/debug/examples/export.dwp
+  |
+  = note: the example target `export` in package `aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-session-protocol)` has the same output filename as the example target `export` in package `aq-observation-engine v0.0.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation-engine)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling aq-observation-redb-prototype v0.0.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation-redb-prototype)
+   Compiling aq-terminal-renderer v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-terminal-renderer)
+   Compiling aq-observation-admission v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/vendor/aq-observation-admission-0.1.0)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-worker)
+   Compiling aq-observation-engine v0.0.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation-engine)
+   Compiling aq-worker-protocol v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-worker-protocol)
+   Compiling aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-observation)
+   Compiling aq-admission v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/protocol/aq-admission)
+   Compiling aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-lifecycle-protocol)
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-session-protocol)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.07s
+     Running unittests src/lib.rs (target/debug/deps/aq_admission-18419037a8799e9c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/common.rs (target/debug/deps/common-c93a2260d50601fa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/contracts.rs (target/debug/deps/contracts-778ee39022bc24fe)
+
+running 7 tests
+test material_bytes_and_receipts_are_exact_attempt_binding_not_presence_claims ... ok
+test artifact_requires_real_matching_bytes_and_current_retention_metadata ... ok
+test mutations_reject_unknown_duplicate_nil_unbounded_and_wrong_versions ... ok
+test retained_role_and_byte_coverage_validates_against_resealed_public_offer ... ok
+test shipped_shared_offer_uses_exact_existing_launch_binding_bridge ... ok
+test published_schema_and_fixtures_drift_test_packaged_artifacts ... ok
+test source_requires_explicit_safe_ref_or_matching_immutable_object_and_freshness ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/control.rs (target/debug/deps/control-ad1051536fd8b23c)
+
+running 10 tests
+test immutable_six_receipts_have_fresh_nonce_clocks_without_retiming_history ... ok
+test initial_revision_cannot_change_expiry_and_new_revision_extends_only_live_prior_permit ... ok
+test material_receipt_time_is_server_watermark_not_unqualified_worker_wall_clock ... ok
+test frozen_six_wire_publication_bytes_match_the_exact_archived_baseline ... ok
+test mismatched_original_owner_material_and_historical_clocks_never_get_positive_delivery ... ok
+test native_poll_refuses_scope_duplicate_cancellation_and_requested_limit_overflow ... ok
+test reconciliation_is_readonly_complete_scoped_and_cannot_hide_unknown_attempts ... ok
+test renewal_outlives_delivery_lease_only_for_exact_same_grant_owner_and_hard_deadline ... ok
+test typed_decode_rejects_nil_versions_scope_unknown_duplicates_and_oversized_bodies ... ok
+test published_control_fixtures_schema_and_independent_hashes_do_not_drift ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/control_common.rs (target/debug/deps/control_common-66c981de79b9a32d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/execution_spec.rs (target/debug/deps/execution_spec-adb5fe78056cdcd9)
+
+running 3 tests
+test publication_is_independent_and_decode_rejects_caller_secret_unknown_duplicate_fields ... ok
+test spec_observation_context_and_canonical_bytes_must_all_be_retained ... ok
+test typed_worker_artifact_is_digest_bound_without_a_manifest_cycle ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/granted_closure.rs (target/debug/deps/granted_closure-8b3973bbd8cfa46c)
+
+running 5 tests
+test actual_host_optional_shape_does_not_weaken_the_post_started_contract ... ok
+test frozen_017_wire_artifacts_are_preserved ... ok
+test serialization_is_not_original_owner_or_current_authority ... ok
+test strict_decode_rejects_duplicates_floats_oversize_and_release_semantics ... ok
+test synthetic_fixtures_schemas_and_independent_vectors_do_not_drift ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/granted_closure_common.rs (target/debug/deps/granted_closure_common-a2a5a12070c8b8b0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/outcome.rs (target/debug/deps/outcome-d044995dba69c8ad)
+
+running 6 tests
+test changed_review_requirements_change_the_pinned_definition ... ok
+test byte_limit_covers_canonical_definition_and_raw_input ... ok
+test requirements_have_unique_ids_and_preserve_nonempty_bounded_text ... ok
+test fixture_matches_independent_python_canonical_vectors_and_public_schema ... ok
+test unknown_policy_shapes_and_approval_shortcuts_cannot_decode ... ok
+test resealing_does_not_allow_different_task_source_or_context ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/placement.rs (target/debug/deps/placement-5b95a4569097d4fb)
+
+running 5 tests
+test bounded_project_round_robin_preserves_priority_then_advances_cursor ... ok
+test oversized_head_does_not_hide_later_fit_and_resources_are_reserved_in_proposal ... ok
+test stale_boot_capacity_candidate_and_duplicate_subjects_never_become_authority ... ok
+test stable_ties_and_snapshot_bounds_are_explicit ... ok
+test warmth_is_only_after_eligibility_and_cold_nodes_can_prepare ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/preparation_refresh.rs (target/debug/deps/preparation_refresh-ca18760efc18729e)
+
+running 14 tests
+test actual_fact_revision_is_the_current_registry_and_not_a_restamped_original ... ok
+test actual_original_accepted_and_credential_associations_cannot_be_rehashed_away ... ok
+test canonical_signed64_registry_revisions_and_exact_owner_configuration_are_required ... ok
+test all_known_registry_floors_reject_rollback_even_above_the_original_revision ... ok
+test explicit_interactive_policy_three_extends_only_the_new_mode_to_one_hour ... ok
+test long_delivery_is_explicit_and_keeps_original_clock_bounds_and_contract ... ok
+test fresh_profile_never_extends_original_accepted_or_replayed_execution_deadlines ... ok
+test normative_schema_contract_and_facts_are_exact_and_never_claim_owner_authentication ... ok
+test principal_inventory_context_and_private_backing_pins_remain_mandatory ... ok
+test profile_negotiation_is_exact_from_proposal_and_never_upgrades_old_history ... ok
+test real_typed_refresh_chain_preserves_selected_pins_and_independent_phase_clocks ... ok
+test strict_new_wire_refuses_unknown_duplicate_oversized_or_wrong_family_documents ... ok
+test unrelated_observation_revision_advances_do_not_reselect_or_invalidate_configuration ... ok
+test unavailable_cooldown_unknown_and_expired_facts_still_refuse_initial_execution ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.83s
+
+     Running tests/preparation_refresh_common.rs (target/debug/deps/preparation_refresh_common-1e66bf6645a8f566)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/preparation_v2.rs (target/debug/deps/preparation_v2-1637b895f5fce358)
+
+running 16 tests
+test accepted_phase_requires_explicit_new_worker_duration_bound ... ok
+test acceptance_cannot_change_hold_request_or_retime_expired_proposal ... ok
+test cold_preparation_and_execution_are_distinct_immutable_phases ... ok
+test exact_contract_and_complete_unique_features_are_mandatory ... ok
+test changed_current_choice_context_source_and_unknown_facts_deny_initial_confirmation ... ok
+test exact_qualified_018_wire_artifacts_are_preserved ... ok
+test exact_unique_artifacts_and_linked_transfer_roles_refuse_substitution ... ok
+test generated_artifacts_and_independent_canonical_vectors_match ... ok
+test grant_issuance_must_be_inside_phase_and_current_budget ... ok
+test historical_receipt_does_not_become_live_from_expired_delivery ... ok
+test independent_execution_replay_never_extends_or_revives_old_sample ... ok
+test mandatory_owner_fact_set_hash_and_lifetime_are_bounded ... ok
+test original_artifact_retention_caps_accepted_preparation ... ok
+test serialization_and_decode_are_bounded_and_unknown_fields_refuse ... ok
+test structural_claims_are_not_authenticated_owner_truth ... ok
+test v2_decoder_never_falls_back_to_legacy_or_different_schema ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+
+     Running tests/preparation_v2_baseline.rs (target/debug/deps/preparation_v2_baseline-31817e49c48d8e42)
+
+running 1 test
+test untouched_019_phase_wire_schema_pins_clocks_and_errors_stay_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/preparation_v2_common.rs (target/debug/deps/preparation_v2_common-5734641bab5a03d5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/result_record.rs (target/debug/deps/result_record-0147fbda804614a6)
+
+running 3 tests
+test changed_report_and_foreign_owner_reference_never_reuse_ack ... ok
+test no_stop_unknown_fields_duplicate_ids_and_byte_overflow_refuse ... ok
+test recorded_ack_matches_independent_vectors_without_acceptance_authority ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/sandbox.rs (target/debug/deps/sandbox-bf3466ce4869405a)
+
+running 10 tests
+test sandbox_awaiting_readoption_has_no_deadline_extension ... ok
+test sandbox_context_is_validated_and_secret_debug_is_redacted ... ok
+test sandbox_decoding_rejects_unknown_duplicate_fields_and_oversized_frames ... ok
+test sandbox_published_fixtures_conform ... ok
+test sandbox_registration_rejects_duplicates_bounds_and_false_capabilities ... ok
+test sandbox_renewal_accepts_only_live_correlated_extensions_from_prior_state ... ok
+test sandbox_renewal_delivery_cannot_retime_replay_or_revive_local_expiry ... ok
+test sandbox_schema_constrains_versions_and_missing_capability_bounds ... ok
+test sandbox_schema_drift ... ok
+test sandbox_phase_receipt_projections_keep_native_identity_and_deadlines ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests/scoped_presence.rs (target/debug/deps/scoped_presence-4b8be76fb06f386e)
+
+running 9 tests
+test actual_private_record_hash_links_exact_historical_installation_without_retrieval_extension ... ok
+test decoders_reject_unknown_duplicate_fields_protocol_and_raw_size ... ok
+test inventory_has_only_explicit_provisionability_and_bounds_distinct_profiles ... ok
+test network_delay_cannot_turn_old_issuance_into_new_observation_age ... ok
+test changed_private_binding_and_cross_boot_lease_receipt_refuse ... ok
+test positive_requires_live_local_permit_and_later_private_read_but_negative_never_grants ... ok
+test receipt_replay_pins_original_observation_and_scope_without_fresh_authority ... ok
+test published_schemas_fixtures_and_private_record_have_independent_drift_checks ... ok
+test references_are_bounded_by_actual_utf8_bytes_not_only_characters ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/scoped_presence_common.rs (target/debug/deps/scoped_presence_common-204b87652ce92356)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/spec_common.rs (target/debug/deps/spec_common-04d829ce29f664db)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/started.rs (target/debug/deps/started-38c3eed117424f5a)
+
+running 3 tests
+test receipt_is_exact_historical_ack_and_strict_boundaries_refuse_unsupported_input ... ok
+test public_artifacts_and_independent_python_canonical_vectors_match ... ok
+test started_identity_is_original_owner_bound_not_a_renewal_or_physical_stop ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/started_common.rs (target/debug/deps/started_common-fa9709457434d7d4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/startup.rs (target/debug/deps/startup-99f32099fb46707d)
+
+running 6 tests
+test byte_for_byte_native_payload_retains_constituents_without_duplicate_delivery ... ok
+test independently_hashed_published_payload_descriptor_and_schema_do_not_drift ... ok
+test one_launch_cannot_pin_two_alternative_native_startup_descriptors ... ok
+test missing_reordered_duplicate_or_extra_startup_inputs_refuse ... ok
+test span_witness_checks_actual_constituent_bytes_and_descriptor_is_launch_bound ... ok
+test overhead_overflow_payload_alias_unretained_and_unknown_fields_refuse ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/startup_common.rs (target/debug/deps/startup_common-99f88352e7771a5a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/stopped.rs (target/debug/deps/stopped-458463af2a1d2c52)
+
+running 4 tests
+test acknowledgement_is_historical_and_bound_to_the_original_request ... ok
+test exact_physical_owner_cannot_be_substituted_or_regressed ... ok
+test expired_stop_is_valid_but_unknown_or_digest_only_is_not_proof ... ok
+test public_schema_and_independent_canonical_vectors_match ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/task_lineage.rs (target/debug/deps/task_lineage-798897a62ff4d3bc)
+
+running 2 tests
+test namespace_cannot_be_reset_by_attempt_and_nil_scope_refuses ... ok
+test independent_python_raw_uuid_vectors_are_stable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/transport.rs (target/debug/deps/transport-02584bdc6ffa8002)
+
+running 4 tests
+test exact_stop_replay_is_immutable_and_journal_order_is_launch_scoped ... ok
+test roundtrip_budget_is_charged_and_replay_cannot_restart_ttl ... ok
+test stop_journal_requires_durable_closed_reservation_and_unknown_never_releases ... ok
+test published_transport_replays_and_mutations_reject_duplicate_unknown_and_scope ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_agent_client-906728576e6c6b05)
+
+running 5 tests
+test files::result_publication_tests::two_uncoordinated_publications_have_exactly_one_winner ... ok
+test files::result_publication_tests::create_only_outbox_never_replaces_an_existing_file ... ok
+test journal::tests::restart_cannot_reset_delay_attempts_or_clock_fences ... ok
+test journal::tests::retained_retry_policy_cannot_widen_the_resolved_profile ... ok
+test journal::tests::concurrent_clients_and_full_intent_retention_refuse_without_eviction ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.11s
+
+     Running unittests src/main.rs (target/debug/deps/aq_agent-22e9ff5ae9651cbd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/client.rs (target/debug/deps/client-cfdf8d09473cb996)
+
+running 7 tests
+test lost_response_survives_process_reopen_with_exact_id_bytes_and_receipt ... ok
+test node_credential_symlink_permissions_and_expiry_are_refused_before_network ... ok
+test published_read_shapes_and_live_context_use_only_session_authority ... ok
+test required_context_and_access_profile_binding_cannot_be_silently_changed ... ok
+test actual_cli_preserves_operation_states_and_safe_error_output ... ok
+test status_lookup_without_local_intent_still_validates_receipt_scope ... ok
+test response_version_binding_and_offline_state_never_become_applied ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+     Running tests/completion.rs (target/debug/deps/completion-32f8965d627541c4)
+
+running 10 tests
+test changed_binding_directory_or_symlink_refuses_before_any_publish ... ok
+test acknowledgment_pins_foreign_bytes_and_owner_loss_cannot_become_live_acceptance ... ok
+test cli_env_channel_needs_no_graph_config_and_missing_channel_never_falls_back ... ok
+test control_fault_after_publication_preserves_original_possible_effect ... ok
+test input_file_is_bounded_regular_and_privilege_fields_are_rejected ... ok
+test missing_owner_original_execution_expiry_and_changed_boot_refuse_new_publication ... ok
+test new_publication_wait_cannot_outlive_original_execution_deadline ... ok
+test new_publication_waits_for_exact_worker_ack_without_replacing_original ... ok
+test lost_original_with_existing_ack_refuses_replacement_even_with_presence ... ok
+test one_original_outbox_reopens_and_conflicting_conclusion_never_replaces_it ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.98s
+
+     Running tests/contract_artifact.rs (target/debug/deps/contract_artifact-d46680e3db9cb9ef)
+
+running 1 test
+test published_archive_and_extracted_dependency_match_the_frozen_inventory ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/provisioning.rs (target/debug/deps/provisioning-2910068b53b42e5a)
+
+running 12 tests
+test allocation_quota_and_binding_survive_restart_without_implicit_reclaim ... ok
+test changed_startup_bytes_and_impossible_disk_reservation_refuse ... ok
+test exact_retained_response_recovers_local_install_without_http ... ok
+test explicit_agent_egress_never_copies_node_cf_identity ... ok
+test explicit_new_intent_can_recover_loss_before_server_commit_at_same_cas_version ... ok
+test explicit_refresh_atomically_replaces_credential_while_agent_journal_is_open ... ok
+test lost_reply_never_reissues_plaintext_and_explicit_cas_rotation_recovers ... ok
+test mismatched_real_response_stays_unknown_and_never_publishes_config ... ok
+test node_owner_lock_and_conservative_minimum_are_enforced ... ok
+test private_atomic_install_has_real_context_and_no_node_credential ... ok
+test context_bundle_bound_is_distinct_from_one_megabyte_wire_bound ... ok
+test symlink_permissions_and_unexpected_temp_refuse_before_http ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
+
+     Running tests/recovery.rs (target/debug/deps/recovery-b2a28ae118edce36)
+
+running 5 tests
+test bounded_paginated_list_returns_server_cursor_without_new_authority ... ok
+test client_refuses_new_payload_list_retry_and_foreign_request_before_http ... ok
+test foreign_response_bindings_ids_status_and_malformed_body_refuse ... ok
+test foreign_workspace_duplicate_ids_limit_overrun_and_lookup_cursor_refuse ... ok
+test known_lookup_and_retry_use_only_retained_ids_and_node_credential ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_agent_result_local-519e1a7a1486c9d9)
+
+running 5 tests
+test tests::conclusion_enforces_full_utf8_byte_bound_and_existing_label_semantics ... ok
+test tests::canonical_frozen_submission_and_ack_pins_reject_other_incarnation_or_bytes ... ok
+test tests::recorded_is_an_exact_record_reference_not_a_task_completion_claim ... ok
+test tests::strict_input_never_accepts_duplicate_or_privileged_fields ... ok
+test tests::presence_only_refuses_original_boot_ceiling_or_scope_changes ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_codex_mapper-f3097e08a925e5b5)
+
+running 9 tests
+test result_local::tests::lexical_paths_cannot_smuggle_other_writable_or_private_roots ... ok
+test result_local::tests::removing_only_declared_delta_recovers_exact_original_recipe_bytes ... ok
+test result_local::tests::quoted_paths_are_literal_config_values_and_recipe_stays_bounded ... ok
+test result_local::tests::result_recipe_exposes_only_declared_channel_and_submission_child ... ok
+test tests::interactive_v1_composer_and_auth_dialog_rules_keep_no_escape_behavior ... ok
+test tests::interactive_tui_uses_v1_model_prompt_mode_and_preserves_exec_recipe ... ok
+test tests::pure_recipe_does_not_require_remote_identity_or_existing_filesystem ... ok
+test tests::scoped_endpoint_accepts_only_nonzero_port_and_emits_metadata ... ok
+test tests::unsupported_settings_cannot_map_a_recipe ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_lifecycle_protocol-0aaebe09f726ba4e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-4382d246653630a7)
+
+running 14 tests
+test available_raw_bytes_must_agree_with_the_declared_source_span ... ok
+test central_binding_needs_no_fake_worker_identity ... ok
+test checkpoint_is_a_claim_not_stop_proof_or_task_settlement ... ok
+test compute_release_disk_release_and_retained_suspension_are_independent ... ok
+test acknowledgment_schema_and_exact_cursor_pairing_are_independent_of_task_outcome ... ok
+test finite_utf8_batches_strict_fields_and_integer_units_refuse ... ok
+test fresh_cross_node_continuation_and_exact_bootstrap_ack_are_fenced ... ok
+test missing_raw_source_is_a_gap_and_never_a_fabricated_digest ... ok
+test mismatched_node_boot_attempt_generation_and_atomic_batch_failure_refuse ... ok
+test old_session_capabilities_and_unknown_required_versions_refuse ... ok
+test packet_and_source_event_digest_conflicts_are_not_accepted_as_retries ... ok
+test schema_publishes_finite_batch_and_reference_bounds ... ok
+test unknown_zero_cumulative_generations_corrections_and_non_invoice_cost_remain_distinct ... ok
+test public_artifacts_drift_and_all_packets_roundtrip ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation-7e5f4314e3ed44f9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/artifacts.rs (target/debug/deps/artifacts-d843542fc67f4611)
+
+running 2 tests
+test source_formats_are_exact_and_native_release_or_complete_accounting_is_not_implied ... ok
+test generated_source_reparse_capability_and_normalized_goldens_do_not_drift ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/boots.rs (target/debug/deps/boots-0f3514edaa02cc95)
+
+running 2 tests
+test missing_or_corrupt_spool_never_silently_reseeds_and_boot_admission_is_not_a_label ... ok
+test admitted_boot_preserves_global_sequence_old_facts_and_same_boot_batch_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running tests/crash.rs (target/debug/deps/crash-d24e633c95a779b4)
+
+running 2 tests
+test durable_temp_child ... ok
+
+running 1 test
+test retained_fsynced_temp_survives_process_exit_and_reopen_refuses_without_deletion ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/discovery.rs (target/debug/deps/discovery-6c7da6384f3c1d11)
+
+running 3 tests
+test exact_known_key_never_falls_back_to_newer_or_unrelated_session ... ok
+test codex_discovery_refuses_ambiguous_or_exhausted_scan_instead_of_guessing ... ok
+test gemini_short_filename_prefix_is_never_sufficient_without_full_metadata_key ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/normalizers.rs (target/debug/deps/normalizers-e20395ae7c37624e)
+
+running 10 tests
+test codex_cumulative_native_counts_unknown_zero_and_repeated_last_are_distinct ... ok
+test claude_call_chunks_dedupe_and_corrections_reference_known_prior_fact ... ok
+test codex_structured_questions_and_lost_context_do_not_become_task_or_model_authority ... ok
+test framing_partial_budget_and_oversized_records_remain_explicit ... ok
+test cumulative_reset_and_mixed_model_attribution_never_invent_delta_or_invoice ... ok
+test gemini_patch_rewind_and_replay_keep_mutation_provenance_without_raw_content ... ok
+test malformed_duplicate_negative_and_identity_mismatch_are_not_empty_success ... ok
+test historical_changed_usage_is_gap_not_new_charge_or_budget_reset ... ok
+test opencode_public_dto_preserves_all_native_usage_but_cost_has_no_invoice_receipt ... ok
+test state_restart_replays_exact_native_records_and_parser_drift_refuses ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/reparse.rs (target/debug/deps/reparse-a8a096a8891efe01)
+
+running 4 tests
+test immutable_reparse_intent_and_unknown_historical_facts_are_explicit ... ok
+test explicit_verified_reparse_corrects_only_known_fact_and_finishes_without_duplicate_usage ... ok
+test retained_bytes_owner_scope_and_prior_reference_are_required ... ok
+test replay_cursor_and_correction_facts_share_crash_boundary ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+     Running tests/sources.rs (target/debug/deps/sources-0c55453a107c63c9)
+
+running 2 tests
+test scoped_reader_keeps_partial_bytes_and_refuses_rotation_missing_and_truncation ... ok
+test bounded_anchor_detects_rewrite_and_symlink_never_reads_target ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/spool.rs (target/debug/deps/spool-616f3a1db8928a22)
+
+running 10 tests
+test crash_faults_have_both_cursor_and_facts_or_neither ... ok
+test frozen_pending_packet_does_not_change_when_new_facts_arrive_and_changed_id_payload_refuses ... ok
+test journal_corruption_and_orphan_temporary_refuse_without_deleting_evidence ... ok
+test lost_batch_ack_replays_identical_packet_after_restart_and_stale_or_changed_receipt_cannot_prune ... ok
+test missing_rotation_and_truncation_are_durable_gaps_not_empty_transcript_success ... ok
+test multiple_sources_share_one_node_sequence_without_cross_binding_or_capability_fallback ... ok
+test overflow_holds_cursor_or_records_reserved_gap_and_holds_reconciliation_while_control_remains_readable ... ok
+test public_record_cursor_cas_and_native_record_provenance_use_no_private_database ... ok
+test retry_exhaustion_keeps_facts_and_accepts_exact_late_receipt ... ok
+test source_cursor_facts_and_native_dedupe_commit_atomically_and_never_store_raw_text ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.52s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation_admission-6b913886ac6f7c0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ownership.rs (target/debug/deps/ownership-6a79949916bbe666)
+
+running 10 tests
+test equal_revision_requires_identical_owner_and_boot_revision_is_exact ... ok
+test activated_zero_cursor_never_becomes_permission_to_create ... ok
+test hashes_match_public_canonical_json_and_invalid_receipts_cannot_be_digest_proofs ... ok
+test late_prepare_reply_on_replaced_node_boot_cannot_create ... ok
+test lost_prepare_reply_retains_one_owner_and_changes_conflict ... ok
+test pending_old_packets_allow_boot_transition_without_acknowledging_them ... ok
+test old_boot_receipt_cannot_roll_back_current_owner ... ok
+test scope_markers_history_and_boot_quota_refuse ... ok
+test strict_bounded_decoders_and_status_cannot_replace_create_receipt ... ok
+test published_schemas_examples_and_python_digest_vectors_match ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation_engine-18faa7683b01700f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/artifacts.rs (target/debug/deps/artifacts-272d758830124c25)
+
+running 2 tests
+test source_formats_are_exact_and_native_release_or_complete_accounting_is_not_implied ... ok
+test generated_source_reparse_capability_and_normalized_goldens_do_not_drift ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/delta.rs (target/debug/deps/delta-ac4169b653788157)
+
+running 4 tests
+test gemini_suffix_over_budget_is_explicit_gap_and_never_partial_history_deletion ... ok
+test four_source_fixture_semantics_match_pinned_reference_with_explicit_parser_identity_mapping ... ok
+test row_storage_failure_holds_instead_of_advancing_with_invented_native_gap ... ok
+test replay_point_reads_and_delta_size_do_not_scale_with_unrelated_seen_history ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/normalizers.rs (target/debug/deps/normalizers-1ad1e2f8c5d4dfd1)
+
+running 10 tests
+test codex_cumulative_native_counts_unknown_zero_and_repeated_last_are_distinct ... ok
+test claude_call_chunks_dedupe_and_corrections_reference_known_prior_fact ... ok
+test codex_structured_questions_and_lost_context_do_not_become_task_or_model_authority ... ok
+test framing_partial_budget_and_oversized_records_remain_explicit ... ok
+test cumulative_reset_and_mixed_model_attribution_never_invent_delta_or_invoice ... ok
+test gemini_patch_rewind_and_replay_keep_mutation_provenance_without_raw_content ... ok
+test malformed_duplicate_negative_and_identity_mismatch_are_not_empty_success ... ok
+test historical_changed_usage_is_gap_not_new_charge_or_budget_reset ... ok
+test opencode_public_dto_preserves_all_native_usage_but_cost_has_no_invoice_receipt ... ok
+test state_restart_replays_exact_native_records_and_parser_drift_refuses ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_observation_redb_prototype-f4d88d7fdc81cd32)
+
+running 2 tests
+test budget::tests::parser_ids_or_flags_cannot_spend_control_reserve ... ok
+test budget::tests::exact_public_monitor_refs_are_rejected_on_raw_ingress ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/boots.rs (target/debug/deps/boots-81932437cdd9ea2d)
+
+running 2 tests
+test boot_transition_requires_retained_admitted_owner_and_current_sequence ... ok
+test retained_boot_fences_live_sources_preserves_packet_and_drains_same_boot_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/diagnostics.rs (target/debug/deps/diagnostics-88949af4fa22e200)
+
+running 3 tests
+test history_diagnostic_cannot_hide_caller_or_ordinary_records ... ok
+test cold_fingerprint_is_stable_after_reopen_and_changes_with_atomic_collection ... ok
+test unknown_format_and_impossible_limits_refuse_without_rewriting_existing_bytes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running tests/engine.rs (target/debug/deps/engine-eec23df7b5bfd8d2)
+
+running 5 tests
+test batch_retains_no_partial_source_state_when_foreign_record_follows_valid_record ... ok
+test normalized_delta_cursor_seen_facts_and_delivery_survive_atomic_restart ... ok
+test raw_bypass_and_wrong_native_scope_are_refused_and_logical_quota_rolls_back_whole_delta ... ok
+test thirty_two_record_batch_commits_once_and_quota_commits_only_accepted_prefix ... ok
+test ordinary_quota_cannot_consume_reserved_gap_loss_is_atomic_and_fences_source ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.14s
+
+     Running tests/faults.rs (target/debug/deps/faults-3b9f76f69434193f)
+
+running 3 tests
+test crash_child ... ok
+test every_mutating_backend_boundary_io_error_reopens_to_old_or_new_projection ... ok
+test every_mutating_backend_boundary_process_exit_reopens_to_old_or_new_projection has been running for over 60 seconds
+test every_mutating_backend_boundary_process_exit_reopens_to_old_or_new_projection ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 105.89s
+
+     Running tests/http_owner.rs (target/debug/deps/http_owner-42bdf6adcd1f6602)
+
+running 4 tests
+test dropped_reply_never_retries_and_errors_do_not_expose_credentials ... ok
+test exact_http_route_auth_and_bounded_valid_reply ... ok
+test unsafe_origin_private_input_and_cross_node_requests_refused_without_network ... ok
+test redirect_missing_cache_malformed_oversized_and_encoded_replies_refused ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.06s
+
+     Running tests/local_intent.rs (target/debug/deps/local_intent-0c303a92359bdf6b)
+
+running 15 tests
+test activation_operation_immutable_and_changed_binding_status_refused ... ok
+test held_owner_root_or_intent_replacement_refuses_mutation ... ok
+test corrupt_empty_or_missing_managed_store_and_corrupt_intent_are_preserved ... ok
+test owner_crash_boundary_child ... ok
+test lost_prepare_and_activation_replies_recover_only_existing_store ... ok
+test owner_database_error_cuts_preserve_activation_and_boot_fence_atomicity ... ok
+test owner_database_process_exits_preserve_activation_and_boot_fence_atomicity ... ok
+test owner_lock_replacement_refuses_original_owner_mutation_and_second_open ... ok
+test owner_process_child ... ok
+test owner_real_process_exit_boundaries_reopen_consistently_or_hold_without_reseed ... ok
+test owner_io_boundaries_reopen_consistently_or_hold_without_reseed ... ok
+test prepare_receipt_replay_after_remote_activation_never_creates_at_zero_cursor ... ok
+test real_prepare_create_activate_exact_marker_and_fresh_resume_gate ... ok
+test remote_boot_commit_loss_replays_exact_request_and_fences_old_sources_once ... ok
+test two_process_open_and_create_refuse_and_redb_lock_survives_replaced_owner_locks ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 72.22s
+
+     Running tests/owner.rs (target/debug/deps/owner-3300f53b9b8e7cfe)
+
+running 2 tests
+test anonymous_prototype_or_unknown_existing_format_cannot_become_admitted_store ... ok
+test only_explicit_new_owner_admission_creates_store_and_missing_data_never_reseeds ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running tests/prefix.rs (target/debug/deps/prefix-8e7bbae6ebec8c69)
+
+running 1 test
+test exact_escaped_envelope_sizes_choose_same_maximal_prefix_as_reference_algorithm ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.08s
+
+     Running tests/readers.rs (target/debug/deps/readers-05d9d2b3cec1e143)
+
+running 5 tests
+test file_generation_identity_and_bounded_anchor_changes_report_durable_gaps_without_retarget ... ok
+test explicit_generation_retains_native_identity_and_requires_owner_history_boundary ... ok
+test first_rotation_reports_one_control_gap_and_holds_until_owner_generation ... ok
+test file_partial_idle_poll_restart_and_oversized_source_keep_explicit_cursor ... ok
+test foreign_handles_symlinks_and_root_replacement_refuse_original_cursor ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+
+     Running tests/records.rs (target/debug/deps/records-d30f57060402b1e3)
+
+running 1 test
+test scoped_public_record_cursor_cas_and_provenance_use_no_private_database ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/reparse.rs (target/debug/deps/reparse-4fef495b3fce544c)
+
+running 5 tests
+test replay_crash_child ... ok
+test replay_intent_cursor_corrections_and_finish_share_every_mutating_crash_boundary ... ok
+test unknown_historical_records_emit_gaps_and_never_new_usage_charge ... ok
+test verified_known_prior_correction_retains_old_parser_and_live_cursor_then_finishes_once ... ok
+test wrong_bytes_owner_prior_and_changed_intent_refuse_without_cursor_advance ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.63s
+
+     Running tests/store.rs (target/debug/deps/store-5d807bfaa6e97a20)
+
+running 8 tests
+test database_basename_replacement_refuses_mutation_of_detached_inode ... ok
+test empty_or_short_existing_database_is_rejected_before_engine_without_changing_bytes ... ok
+test private_root_exclusivity_missing_corruption_and_physical_cap_fail_closed ... ok
+test exact_delivery_send_unknown_restart_and_ack_match_reference_spool ... ok
+test private_root_rename_and_direct_backend_replacement_are_fenced ... ok
+test retry_bound_keeps_exact_intent_and_late_ack_after_reopen ... ok
+test scope_changed_identity_quota_and_invalid_receipt_refuse_without_new_effect ... ok
+test transaction_disk_cap_holds_cursor_and_reopens_without_reseed ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.98s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_protocol-4fd7cd1e37b4e34d)
+
+running 1 test
+test tests::api_error_round_trips ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_responses_transport-cf7208e931f6be49)
+
+running 15 tests
+test lifecycle_tests::consumed_listener_requires_exact_listening_numeric_loopback_before_credential_read ... ok
+test lifecycle_tests::every_forward_rechecks_credential_and_metadata_pins_remain_original ... ok
+test lifecycle_tests::cancelled_initial_reads_hold_physical_admission_and_excess_never_queues ... ok
+test lifecycle_tests::held_initial_credential_read_is_deadline_bounded_and_late_result_never_serves ... ok
+test policy::tests::changed_selection_ambiguous_json_stateful_and_unbounded_requests_refuse ... ok
+test policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+test policy::tests::injects_exact_response_cap_preserving_every_other_setting ... ok
+test policy::tests::server_side_references_and_hosted_tools_refuse_before_cap_insertion ... ok
+test lifecycle_tests::held_request_credential_cannot_forward_after_acknowledged_stop_or_expiry ... ok
+test tests::endpoint_and_key_scope_refuse_before_serving ... ok
+test tests::exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_preserved_sse ... ok
+test tests::exact_http_route_host_capability_and_framing_refuse_without_forwarding ... ok
+test tests::stop_cancels_pending_upstream_and_ambiguous_http_never_forwards ... ok
+test tests::upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect ... ok
+test tests::bounded_stream_preserves_exact_limit_and_aborts_surplus_without_second_status ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.73s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_session_host-79dae8bef677b356)
+
+running 56 tests
+test io_tests::command_stdout_above_pipe_capacity_is_drained_before_exit ... ok
+test io_tests::large_stdout_fixture ... ignored, subprocess output fixture invoked by bounded output test
+test io_tests::nonregular_and_symlink_material_is_refused ... ok
+test observed::exec::tests::dead_original_server_refuses_even_while_the_pane_identity_is_live ... ok
+test observed::exec::tests::eof_without_matching_live_image_is_not_exec_proof ... ok
+test observed::exec::tests::interactive_prompt_uses_existing_rendered_utf8_and_bounded_argv ... ok
+test observed::exec::tests::scoped_child_environment_omits_private_host_record_route_and_keeps_legacy_contract ... ok
+test observed::executable::tests::actual_native_codex_image_is_sealed_and_charged_without_execution ... ignored, requires explicitly pinned actual native Codex ELF; never executes it
+test observed::executable::tests::byte_entry_digest_header_and_nonregular_sources_refuse_before_admission ... ok
+test io_tests::command_input_and_output_above_pipe_capacity_progress_under_one_deadline ... ok
+test observed::executable::tests::sealed_actual_bytes_survive_path_change_and_cannot_be_written_or_grown ... ok
+test observed::named_environment::tests::caller_thread_writer_is_not_hidden_by_leader_descriptor_table ... ok
+test observed::named_environment::tests::inherited_writable_descriptor_to_exact_inode_refuses_even_without_path_lookup ... ok
+test observed::named_environment::tests::visible_writable_filesystem_refuses_image_device ... ok
+test observed::named_image::tests::named_preflight_checks_actual_bytes_architecture_and_executable_type ... ok
+test observed::named_image::tests::named_readonly_kernel_image_is_charged_once_and_bound_to_live_route ... ignored, requires explicit readonly namespace fixture; hashes host ELF only, never launches Codex
+test observed::executable::tests::native_profile_is_explicit_charged_and_keeps_legacy_image_limit ... ok
+test private_inputs::reconciliation::tests::changed_rotated_file_after_ack_is_preserved ... ok
+test private_inputs::reconciliation::tests::actual_rotated_file_unlink_failure_keeps_ack_and_private_bytes_for_recovery ... ok
+test private_inputs::reconciliation::tests::competing_desktop_and_session_locks_refuse_without_touching_auth ... ok
+test private_inputs::reconciliation::tests::directory_symlink_components_and_pending_foreign_secrets_are_not_followed ... ok
+test private_inputs::reconciliation::tests::concurrent_owner_rotation_is_preserved_before_write_and_on_retry ... ok
+test private_inputs::reconciliation::tests::disposable_private_home_cannot_be_selected_as_the_desktop_owner ... ok
+test private_inputs::reconciliation::tests::durable_owner_and_ack_precede_cleanup_and_completed_replay_is_idempotent ... ok
+test private_inputs::reconciliation::tests::foreign_acknowledgement_cannot_authorize_cleanup ... ok
+test private_inputs::reconciliation::tests::lost_ack_retains_rotated_copy_and_restarts_with_identical_operation ... ok
+test private_inputs::reconciliation::tests::durable_ack_and_unlink_failures_retry_cleanup_without_server_resubmission ... ok
+test private_inputs::reconciliation::tests::mutation_during_server_exchange_preserves_both_copies ... ok
+test private_inputs::reconciliation::tests::ordinary_cleanup_cannot_bypass_pending_reconciliation_even_for_unchanged_bytes ... ok
+test private_inputs::reconciliation::tests::owner_publication_crash_is_recovered_without_rollback_or_new_operation ... ok
+test private_inputs::reconciliation::tests::public_host_api_requires_exact_stopped_proof_and_pinned_configuration ... ok
+test private_inputs::reconciliation::tests::replay_refuses_retargeted_owner_and_changed_journal_binding ... ok
+test private_inputs::reconciliation::tests::unknown_home_files_block_completion_and_are_never_recursively_deleted ... ok
+test private_inputs::tests::publication_refuses_changed_original_bytes_without_writing_auth ... ok
+test private_inputs::tests::reserved_metadata_has_no_auth_bytes_and_original_record_is_rechecked ... ok
+test private_inputs::tests::scoped_auth_contains_only_fresh_capability_and_rechecks_original ... ok
+test private_inputs::tests::scoped_auth_requires_exact_launch_manifest_deadline_and_single_route ... ok
+test private_inputs::tests::subscription_login_is_explicit_closed_bounded_and_errors_hide_tokens ... ok
+test private_inputs::tests::subscription_publication_refuses_changed_original_before_writing ... ok
+test private_inputs::tests::subscription_publication_reuses_original_material_pins_and_private_home ... ok
+test private_inputs::tests::symlink_replacement_and_nonprivate_auth_refuse ... ok
+test reader_lease::tests::packet_fd_is_bounded_and_close_on_exec_and_extra_mutation_fields_refuse ... ok
+test reader_lease::tests::queued_old_drain_cannot_extend_from_dequeue_or_revive_expiry ... ok
+test reaper::tests::reservation_exhaustion_refuses_before_spawning ... ok
+test rendered_tests::final_payload_is_literal_and_bound_to_exact_single_descriptor ... ok
+test rendered_tests::legacy_sealed_configuration_omits_new_optional_field ... ok
+test terminal_output::tests::bounded_continuation_does_not_widen_line_decoded_byte_or_eof_bounds ... ok
+test terminal_output::tests::chunks_preserve_unicode_ansi_octal_and_literal_backslash_without_interpretation ... ok
+test private_inputs::reconciliation::tests::symlink_hardlink_and_nonprivate_files_are_refused ... ok
+test terminal_output::tests::extended_output_and_pause_are_explicit_not_silent_recovery ... ok
+test terminal_output::tests::malformed_foreign_and_oversized_streams_fail_closed ... ok
+test terminal_viewer::tests::actual_readonly_pty_attach_redraws_idle_pane_and_detach_preserves_process ... ok
+test tests::explicit_interactive_permit_hour_does_not_widen_default_limit_or_expiry ... ok
+test tests::independent_permit_is_exact_bounded_and_expiring ... ok
+test tests::local_command_bounds_and_protected_environment ... ok
+test terminal_output::tests::dense_packet_continuation_preserves_every_event_and_escape_boundary ... ok
+
+test result: ok. 53 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 4.15s
+
+     Running unittests src/main.rs (target/debug/deps/aq_session_host-820f9d53a37067ed)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capsule_candidate.rs (target/debug/deps/capsule_candidate-e2bced7b23470bd4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-197a05c16aafc516)
+
+running 38 tests
+test caller_crashes_at_durable_start_boundaries_never_relaunch ... ignored, requires explicit local tmux 3.4 qualification
+test central_and_remote_interaction_stop_and_no_relaunch ... ignored, requires explicit local tmux 3.4 qualification
+test copied_launch_directory_and_old_mailbox_cannot_reset_physical_input_history ... ignored, requires explicit local tmux 3.4 qualification
+test dead_or_stopped_owner_and_lost_ready_or_ack_cannot_leave_a_blocking_reader ... ignored, explicit local tmux independent owner failure qualification
+test encrypted_mailbox_tamper_and_missing_key_refuse_without_stopping_expiry ... ignored, requires explicit local tmux 3.4 qualification
+test exact_observation_and_unstarted_recovery_never_launch_or_inject ... ignored, requires explicit local tmux 3.4 qualification
+test execution_expiry_stops_writers_even_while_observer_client_remains_sigstopped ... ignored, explicit local tmux 3.4 bounded output qualification
+test failed_durable_start_and_socket_collision_never_launch_native_child ... ignored, requires explicit local tmux 3.4 qualification
+test guarded_literal_unicode_resize_and_durable_duplicate_receipts ... ignored, requires explicit local tmux 3.4 qualification
+test guardian_loss_remains_uncertain_even_after_known_processes_disappear ... ignored, requires explicit local tmux 3.4 qualification
+test helper_expiry_survives_caller_death_without_recovery_control ... ignored, requires explicit local tmux 3.4 qualification
+test injecting_crash_before_or_after_physical_effect_is_unknown_never_replayed ... ignored, requires explicit local tmux 3.4 qualification
+test launch_child_fixture ... ignored, subprocess fixture, called by local crash tests only
+test local_configuration_refusals_happen_before_durable_launch_or_process ... ignored, requires explicit local tmux 3.4 qualification
+test malformed_renewal_stops_and_wall_limit_cannot_be_extended ... ignored, requires explicit local tmux 3.4 qualification
+test native_exec_profile_delivers_exact_sealed_stdin_under_actual_guardian ... ignored, actual native-exec profile: requires local cc/static ELF and tmux
+test native_exec_refuses_original_record_changed_after_private_publication ... ignored, actual native-exec original material preexec refusal: requires cc/static ELF and tmux
+test native_exec_scoped_auth_refuses_changed_original_record_at_exec ... ignored, actual scoped original-source refusal: static ELF and tmux only, no agent/provider
+test native_exec_scoped_capability_is_published_under_intent_and_cleaned_after_echild ... ignored, actual scoped private auth/ECHILD: static ELF and tmux only, no agent/provider
+test observed_baseline_durability_reader_and_expiry_fail_closed_without_exec ... ignored, actual local tmux baseline refusal/reader loss/expiry qualification
+test observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec ... ignored, actual local tmux sealed FD baseline/exec qualification
+test observed_helper_stays_starting_without_exec_or_started_until_original_expiry ... ignored, actual local tmux closed observed gate qualification
+test observed_short_exec_without_live_kernel_evidence_never_records_started ... ignored, actual local tmux missed exec evidence fault qualification
+test pane_exit_has_no_fallback_and_escaped_descendants_require_kernel_stop ... ignored, requires explicit local tmux 3.4 qualification
+test paused_injecting_deadline_and_new_controller_cannot_clear_unknown ... ignored, requires explicit local tmux 3.4 qualification
+test permit_expiry_is_independent_and_late_renewal_cannot_revive ... ignored, requires explicit local tmux 3.4 qualification
+test quiet_drained_reader_renews_but_undrained_reader_expires_without_stopping_harness ... ignored, explicit local tmux guardian read-lease qualification
+test read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_restart ... ignored, explicit local tmux 3.4 bounded output qualification
+test reader_owner_child_fixture ... ignored, explicit guardian reader-lease process fixture
+test rendered_payload_tampered_after_intent_is_refused_before_native_exec ... ignored, actual local tmux host qualification
+test rendered_startup_reaches_owned_harness_as_one_exact_payload ... ignored, actual local tmux host qualification
+test renewal_compare_publish_is_serialized_while_guardian_is_stopped ... ignored, requires explicit local tmux 3.4 qualification
+test renewals_are_monotonic_and_resource_cost_is_observed ... ignored, requires explicit local tmux 3.4 qualification
+test replayed_valid_encrypted_ledger_cannot_repeat_an_applied_input ... ignored, requires explicit local tmux 3.4 qualification
+test slow_data_only_polls_cannot_renew_an_undrained_reader_forever ... ignored, explicit actual slow-consumer read-lease qualification
+test sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control ... ignored, explicit local tmux 3.4 bounded output qualification
+test sustained_adopted_child_exits_cannot_starve_expiry_or_stop_proof ... ignored, requires explicit local tmux 3.4 qualification
+test tmux_pane_identifier_reuse_does_not_authorize_the_replacement_process ... ignored, requires explicit local tmux 3.4 qualification
+
+test result: ok. 0 passed; 0 failed; 38 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/named_readonly.rs (target/debug/deps/named_readonly-5b6689a947c07957)
+
+running 1 test
+test named_retained_fd_exec_has_stable_self_helper_exact_stdin_and_physical_echild ... ignored, requires confined wrapper plus prepared named-readonly-peer.c static image; never executes Codex
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/prepared_responses.rs (target/debug/deps/prepared_responses-4806ecdf85d5ad5a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_session_protocol-fa592383e6beedd0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/conformance.rs (target/debug/deps/conformance-c1a2921025cfba46)
+
+running 19 tests
+test authority_and_deadline_rechecked_before_effect ... ok
+test canonical_and_schema_drift ... ok
+test central_identity_is_not_a_worker ... ok
+test bounded_input_backlog ... ok
+test controller_lease_identity_is_immutable_within_generation ... ok
+test fixture_generation_drift ... ok
+test exact_capabilities_and_launch_binding ... ok
+test literal_input_conflicts_and_unknown_never_replays ... ok
+test nil_poll_refuses_and_terminal_capability_mandatory ... ok
+test nil_rebinding_and_aggregate_context_refuse ... ok
+test outbound_batches_deduplicate_and_conflict ... ok
+test published_artifact_mirrors_match_when_in_repository ... ok
+test resize_ids_do_not_rebind_after_intervening_command ... ok
+test resize_is_fenced_ordered_and_idempotent ... ok
+test snapshot_boundary_conflicts_gaps_and_backlog ... ok
+test stale_capture_and_controller_cannot_resolve_unknown ... ok
+test unknown_mutation_fields_and_oversized_text_refuse ... ok
+test unknown_required_capability_is_not_self_authorizing ... ok
+test maximum_snapshot_roundtrips_bounded_wire ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_bridge-1f0c909555aa3d18)
+
+running 3 tests
+test output::tests::exact_eviction_ranges_keep_physical_epoch_and_monotonic_sequence ... ok
+test output::tests::node_reserves_policy_capacity_and_never_rebinds_a_terminal_id ... ok
+test output::tests::pause_and_exit_never_fabricate_gap_extent_snapshot_or_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fake_peer.rs (target/debug/deps/fake_peer-ffefdddfce4a30ca)
+
+running 12 tests
+test changed_bytes_stale_boot_epoch_and_host_replacement_are_refused ... ok
+test corruption_missing_journal_and_competing_owner_fail_closed ... ok
+test bounded_recovery_rotates_past_a_busy_terminal_and_preserves_other_metadata_progress ... ok
+test identical_journal_inode_replacement_is_detected_while_owner_is_live ... ok
+test lost_host_reply_after_effect_recovers_unknown_without_resubmission ... ok
+test lost_network_ack_restarts_with_identical_metadata_never_another_input ... ok
+test lost_preparation_is_durably_refused_and_stale_token_cannot_inject ... ok
+test original_started_registration_joins_existing_bridge_without_replacing_input_history ... ok
+test root_and_lock_replacement_poison_the_old_owner_and_cannot_adopt_copied_history ... ok
+test submitted_local_mailbox_is_observed_without_cancel_or_another_submission ... ok
+test two_exclusive_installers_have_one_owner_and_open_never_creates_missing_members ... ok
+test finite_history_refuses_new_ids_but_keeps_exact_retries_and_reserved_metadata ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.20s
+
+     Running tests/http.rs (target/debug/deps/http-d003f5f477bb1361)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_relay.rs (target/debug/deps/local_relay-ec18d196e2473b8d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_terminal_renderer-3a80f8413af66c00)
+
+running 1 test
+test model::tests::resized_rows_cannot_accumulate_hidden_spare_capacity_in_history ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/model.rs (target/debug/deps/model-f06d3636fa53554a)
+
+running 16 tests
+test cursor_attributes_tabs_margins_and_cell_editing_have_independent_expected_states ... ok
+test configured_history_retention_is_finite_and_explicit ... ok
+test frozen_binary_vector_preserves_both_screens_and_partial_colour_parser ... ok
+test identity_order_digest_and_gap_are_permanent_refusals_not_resets ... ok
+test large_valid_owned_state_refuses_image_instead_of_truncating_cells ... ok
+test malformed_or_cross_terminal_images_are_bounded_and_cannot_continue ... ok
+test overlapping_mouse_and_underline_modes_preserve_fallback_state ... ok
+test recorded_synthetic_cli_repertoire_is_supported_without_blanket_fallback ... ok
+test rep_after_combining_refuses_instead_of_disagreeing_with_actual_tmux_oracle ... ok
+test reset_and_alternate_reallocation_are_charged_before_work_expansion ... ok
+test resize_is_explicit_ordered_clip_profile_not_inferred_reflow ... ok
+test retained_vector_hashes_drift_only_with_an_explicit_fixture_update ... ok
+test title_icon_and_partial_utf8_osc_state_survive_codec_without_control_effects ... ok
+test unsupported_compound_unicode_and_controls_never_silently_drop_state ... ok
+test utf8_and_control_bounds_fail_before_unbounded_work_or_replacement ... ok
+test every_stream_prefix_image_restores_hidden_buffers_modes_and_partial_parser ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-4dbcf8575b9944ef)
+
+running 236 tests
+test backend::docker_local::tar::tests::single_file_rejects_corrupt_header ... ok
+test backend::docker_local::tar::tests::material_archive_round_trips_with_private_modes ... ok
+test backend::types::tests::mount_alias_names_are_validated ... ok
+test backend::types::tests::resource_limits_reject_zero ... ok
+test finite_responses_fixture::tests::completion_preserves_exact_text_through_sse_delta_and_final_item ... ok
+test backend::types::tests::create_request_without_resources_deserializes ... ok
+test finite_responses_fixture::tests::empty_poll_retains_real_session_identity_without_new_input ... ok
+test finite_responses_fixture::tests::distinct_turns_keep_exact_tool_arguments_and_function_call_identity ... ok
+test finite_responses_fixture::tests::request_refuses_wrong_model_cap_policy_and_credential_material ... ok
+test journal::owner_lock_tests::forked_guard_drop_cannot_unlock_the_original_owner ... ok
+test native::adapter::codex::tests::authentication_is_private_bounded_and_cannot_inject_json ... ok
+test native::adapter::codex::tests::changed_payload_settings_private_mode_and_hard_budget_are_refused ... ok
+test native::adapter::codex::tests::exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata ... ok
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_base_command_golden ... ok
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_scoped_command_golden ... ok
+test native::adapter::codex::tests::fatal_or_empty_stream_cannot_report_completion_or_later_readiness ... ok
+test native::adapter::codex::tests::jsonl_readiness_requires_actual_order_and_handles_chunk_boundaries ... ok
+test native::adapter::codex::tests::native_mapping_reuses_preflight_image_after_mutable_program_path_changes ... ok
+test native::adapter::codex::tests::scoped_provider_retains_closed_origin_validation ... ok
+test native::adapter::codex::tests::tool_environment_config_starts_empty_and_adds_only_fixed_trusted_path ... ok
+test native::adapter::named_exec::tests::named_installation_pins_environment_and_reuses_all_readonly_owners ... ignored, requires explicit readonly namespace fixture; reads pinned ELF files only, never launches Codex
+test native::adapter::named_exec::tests::named_manifest_is_distinct_and_cannot_accept_a_qualification_boolean ... ok
+test native::adapter::native_exec::tests::explicit_profile_preserves_exact_size_digest_and_independent_identity ... ok
+test native::adapter::native_exec::tests::undeclared_profile_or_actual_size_mismatch_refuse ... ok
+test native::adapter::codex::tests::actual_offline_process_receives_only_exact_stdin_and_explicit_environment ... ok
+test native::adapter::responses_transport::policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+test native::adapter::responses_transport::policy::tests::injects_exact_response_cap_preserving_every_other_setting ... ok
+test native::adapter::responses_transport::policy::tests::server_side_references_and_hosted_tools_refuse_before_cap_insertion ... ok
+test native::adapter::responses_transport::tests::endpoint_and_key_scope_refuse_before_serving ... ok
+test native::adapter::responses_transport::policy::tests::changed_selection_ambiguous_json_stateful_and_unbounded_requests_refuse ... ok
+test native::adapter::responses_transport::tests::exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_preserved_sse ... ok
+test native::adapter::responses_transport::tests::exact_http_route_host_capability_and_framing_refuse_without_forwarding ... ok
+test native::adapter::responses_transport::tests::stop_cancels_pending_upstream_and_ambiguous_http_never_forwards ... ok
+test native::adapter::result_client::tests::result_client_exact_digest_environment_observation_and_byte_bounds_are_separate ... ok
+test native::adapter::result_client::tests::result_client_manifest_is_closed_distinct_and_bounded ... ok
+test native::adapter::result_client::tests::result_client_selection_requires_actual_contract_and_independent_references ... ok
+test native::adapter::result_client::tests::selected_definition_revision_preserves_actual_body_digest_and_historical_default ... ok
+test native::adapter::result_profile::tests::composite_selection_is_canonical_closed_and_independently_pinned ... ok
+test native::adapter::responses_transport::tests::upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect ... ok
+test native::adapter::result_profile::tests::result_profile_preserves_existing_permission_domain_and_pins_whole_plan ... ok
+test native::adapter::result_profile::tests::retained_definition_requires_its_original_role_descriptor_bytes_and_selection ... ok
+test native::adapter::result_profile::tests::selected_definition_revision_preserves_schema_and_exact_retained_pins ... ok
+test native::adapter::tests::actual_files_remain_pinned_and_named_replacement_refuses ... ok
+test native::adapter::tests::changed_content_mode_symlink_and_pin_refuse ... ok
+test native::adapter::tests::independently_chosen_pins_and_closed_wire_shape_required ... ok
+test native::adapter::tests::manifest_bound_and_oversized_sparse_file_refuse_before_hashing ... ok
+test native::http::test_clock::runtime_clock_reaches_async_and_blocking_workers_and_cleans_up ... ok
+test native::journal::phase_terminal_budget::tests::revision_growth_cannot_spend_reserved_host_or_safety_capacity ... ok
+test native::journal::phase_terminal_budget::tests::worst_case_four_envelopes_and_base_fit_reserved_host_budget ... ok
+test native::http::refresh_terminal_tests::refresh_terminal_and_history_use_exact_new_profile_on_shared_routes ... ok
+test native::journal::tests::capacity_and_clock_limits_refuse_before_any_new_durable_record ... ok
+test native::journal::tests::changed_private_root_permissions_refuse_further_capacity_or_writes ... ok
+test native::journal::tests::actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap ... ok
+test native::journal::tests::different_kernel_boot_is_historical_without_comparing_local_clocks ... ok
+test native::journal::tests::exclusive_owner_and_unsafe_paths_refuse ... ok
+test native::journal::tests::checksum_and_structural_association_are_both_checked_on_reopen ... ok
+test native::journal::tests::expired_reservation_is_still_held_and_cannot_reaccept ... ok
+test native::journal::tests::hydration_scenarios::failed_inline_batch_keeps_exact_plan_without_partial_receipt_completion ... ok
+test native::journal::tests::hydration_scenarios::actual_native_pipeline_journals_every_external_intent_and_keeps_lost_import_id ... ok
+test native::journal::tests::hydration_scenarios::format_three_refusal_preserves_old_journal_and_pending_files ... ok
+test native::journal::tests::hydration_scenarios::failed_range_is_exact_pending_and_format_two_is_never_upgraded ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::abandoned_unpolled_commit_future_already_retains_inputs_without_grant_history ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::cancelled_fsync_waiter_retains_bundle_and_completion_for_explicit_retry ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_current_source_keeps_received_history_but_refuses_usable_wrapper ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_prepare_network_association_refuses_but_retains_inputs_for_narrow_retry ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_private_material_keeps_received_history_without_exposing_or_using_bytes ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_same_operation_grant_cannot_replace_first_receipt_or_owner ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::every_old_format_is_refused_before_rewriting_journal_or_pending_evidence ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::expiry_during_fsync_retains_history_and_never_yields_usable_wrapper ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::receipt_expiring_before_commit_is_history_only_without_releasing_inputs ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::received_grant_is_durable_before_usable_and_replay_preserves_first_clocks_and_bundle ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::every_grant_write_fault_preserves_holds_and_reopen_never_restores_authority ... ok
+test native::journal::tests::hydration_scenarios::held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::valid_grant_history_survives_restart_but_changed_associations_are_refused ... ok
+test native::journal::tests::hydration_scenarios::historical_receipts_cannot_bypass_fresh_retention_or_head_checks ... ok
+test native::journal::tests::hydration_scenarios::inline_batch_overlaps_only_two_reads_and_preserves_control_capacity ... ok
+test native::journal::tests::hydration_scenarios::inline_batch_uses_two_durable_commits_and_replay_reuses_every_original_request ... ok
+test native::journal::tests::hydration_scenarios::missing_native_inspection_capabilities_refuse_without_adopting_source_plan ... ok
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_actual_running_then_stop_retains_typed_history ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_cancelled_waiter_keeps_one_exact_admitted_job ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_every_permission_write_cut_is_unknown_and_never_relaunched ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_guardian_loss_is_unknown_never_a_stopped_proof ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_invalid_sealed_program_never_falls_back_to_shell ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_original_expiry_stops_guardian_while_baseline_writer_is_paused ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_reopen_only_stops_exact_existing_host_and_never_restores_execution ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_root_replacement_after_intent_never_switches_namespace ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_started_outbox_never_fakes_ack_and_replays_exact_fact ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_stop_progresses_while_baseline_writer_is_paused ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_host_unadmitted_claim_is_released_but_stop_fence_cannot_be_reset ... ignored, requires explicitly pinned native host/helper/synthetic ELF and actual tmux3.4
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_ack_write_cuts_reopen_old_or_whole_ack_without_freeing_holds ... ignored, requires pinned native synthetic host and actual tmux3.4; fsync cut copies are history-only
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_actual_pair_lost_ack_immutable_retry_and_restart_readback ... ignored, requires pinned native synthetic host and actual tmux3.4; phase terminal peer is synthetic
+test native::journal::tests::hydration_scenarios::native_host_scenarios::native_phase_terminal_unacked_restart_retries_without_live_authority_or_discard ... ignored, requires pinned native synthetic host and actual tmux3.4; historical report after restart only
+test native::journal::tests::hydration_scenarios::inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion ... ok
+test native::journal::tests::hydration_scenarios::native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence ... ok
+test native::journal::tests::hydration_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline ... ok
+test native::journal::tests::hydration_scenarios::oversized_source_geometry_refuses_before_any_range_or_git_mutation ... ok
+test native::journal::tests::hydration_scenarios::phase_cancelled_artifact_batch_keeps_exact_ids_and_no_partial_completion ... ok
+test native::journal::tests::hydration_scenarios::phase_and_legacy_input_provenance_cannot_cross_on_reopen ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive_owner ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_expiry_during_fsync_is_history_only_and_keeps_resources ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_current_private_record_and_git_changes_refuse_without_erasing_history ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_foreign_actual_observation_cannot_rebind_prepared_owner_and_retry_keeps_first_bundle ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_is_durable_before_usable_and_preserves_original_bundle_and_caps ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_outlives_preparation_without_retiming_historical_source_proof ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_history_reopen_refuses_changed_runtime_request_and_sender_cap ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_replay_never_replaces_first_history_or_extends_caps ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_unpolled_and_cancelled_futures_preserve_exclusive_bundle_and_commit ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::production_request_retains_prepared_owners_before_http_and_on_unknown_outcome ... ok
+test native::journal::tests::hydration_scenarios::phase_input_expiry_and_foreign_observation_refuse_without_intents ... ok
+test native::journal::tests::hydration_scenarios::phase_input_write_cuts_hold_old_or_complete_plan_and_history_only_reopen ... ok
+test native::journal::tests::hydration_scenarios::phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry ... ok
+test native::journal::tests::hydration_scenarios::phase_origin_tampering_cannot_be_hidden_by_valid_journal_checksum ... ok
+test native::journal::tests::hydration_scenarios::phase_prepare_cancelled_fsync_retains_exact_request_and_replay_does_not_retime ... ok
+test native::journal::tests::hydration_scenarios::phase_execution_scenarios::phase_execution_write_cuts_reopen_history_only_and_preserve_all_holds ... ok
+test native::journal::tests::hydration_scenarios::phase_shared_malformed_owner_is_rejected_even_when_every_input_copy_matches ... ok
+test native::journal::tests::hydration_scenarios::pinned_git_native_source_http_import_retention_and_clean_workspace ... ignored, requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout
+test native::journal::tests::hydration_scenarios::pinned_git_phase_inputs_and_prepare_after_original_proposal_expiry ... ignored, requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout
+test native::journal::tests::hydration_scenarios::pinned_git_received_initial_grant_retains_actual_workspace_and_material_owners ... ignored, requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout
+test native::journal::tests::hydration_scenarios::phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reopen ... ok
+test native::journal::tests::hydration_scenarios::prepare_join_fsync_cuts_retain_original_or_complete_intent_and_reopen_without_authority ... ok
+test native::journal::tests::hydration_scenarios::prepare_join_retains_exact_request_and_requires_actual_inputs_again_for_retry ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::actual_private_read_publishes_exact_initial_scope_without_global_installation_claim ... ok
+test native::journal::tests::hydration_scenarios::prepare_join_refuses_missing_inputs_renderer_and_retention_changed_after_hydration ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::cancelled_actual_read_remains_owned_and_is_published_only_by_explicit_retry ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::cancelled_network_publication_keeps_original_body_for_exact_retry ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::changed_installation_record_is_negative_without_serializing_untrusted_record ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::exact_presence_retry_never_recaptures_private_bytes_or_extends_observation ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::expired_initial_token_never_reads_or_publishes_positive ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::failed_factory_does_not_burn_singleton_and_old_inventory_cannot_name_new_report ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::formatted_definition_is_accepted_and_pipeline_publisher_cannot_be_reset ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::historical_private_files_and_received_grant_cannot_construct_a_new_positive_producer ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::full_read_interval_is_bounded_even_with_a_still_live_initial_grant ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::inventory_lost_ack_keeps_original_operation_seed_and_conservative_deadline ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::opaque_token_and_inventory_from_other_pipeline_cannot_be_rebound ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::namespace_replacement_during_actual_read_is_never_positive_even_with_same_bytes ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::saturated_bulk_reads_do_not_consume_scoped_control_publication ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::positive_cannot_survive_expiry_during_read_but_scoped_missing_can ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::wrong_or_oversized_receipts_fail_closed_and_keep_identical_operation ... ok
+test native::journal::tests::hydration_scenarios::production_collect_dispatch_retains_actual_frozen_inputs_without_launch ... ok
+test native::journal::tests::hydration_scenarios::presence_scenarios::unsafe_or_absent_private_members_never_become_positive ... ok
+test native::journal::tests::inputs_scenarios::artifact_requests_are_durable_batched_exact_and_retry_keeps_ids ... ok
+test native::journal::tests::inputs_scenarios::expired_download_stays_pending_and_bulk_does_not_occupy_control ... ok
+test native::journal::tests::inputs_scenarios::installed_material_pin_is_independent_durable_and_has_no_plaintext ... ok
+test native::journal::tests::inputs_scenarios::old_format_refusal_does_not_rewrite_or_discard_pending ... ok
+test native::journal::tests::inputs_scenarios::original_request_associations_and_metadata_bounds_are_rechecked ... ok
+test native::journal::tests::hydration_scenarios::source_file_sync_and_cursor_commit_faults_reopen_old_or_matching_new_history ... ok
+test native::journal::tests::inputs_scenarios::unknown_journal_write_prevents_http_and_reopen_never_reauthorizes ... ok
+test native::journal::tests::inputs_scenarios::postrename_pin_survives_but_is_historical_and_never_recreates_material ... ok
+test native::journal::tests::missing_corrupt_newer_and_wrong_node_journals_are_not_empty_nodes ... ok
+test native::journal::tests::new_initialization_has_new_logical_boot_and_cannot_overwrite_existing_root ... ok
+test native::journal::tests::oversized_member_and_unknown_root_member_fail_closed ... ok
+test native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses ... ok
+test native::journal::tests::preparation_v2_scenarios::actual_poll_redelivery_and_original_proposal_are_retained_as_distinct_history ... ok
+test native::journal::tests::preparation_v2_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::preparation_v2_scenarios::expiry_before_recording_keeps_received_history_and_every_resource_hold ... ok
+test native::journal::tests::preparation_v2_scenarios::legacy_protocol_choice_cannot_be_switched_to_phase_after_publication ... ok
+test native::journal::tests::preparation_v2_scenarios::phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths ... ok
+test native::journal::tests::preparation_v2_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+test native::journal::tests::preparation_v2_scenarios::intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history ... ok
+test native::journal::tests::preparation_v2_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption ... FAILED
+test native::journal::tests::refresh_physical_scenarios::actual_refresh_inputs_join_execution_and_reopen_stay_typed_history_only ... ok
+test native::journal::tests::refresh_physical_scenarios::native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline ... ok
+test native::journal::tests::refresh_physical_scenarios::native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence ... ok
+test native::journal::tests::refresh_physical_scenarios::production_collect_dispatch_retains_actual_refresh_inputs_without_launch ... ok
+test native::journal::tests::refresh_physical_scenarios::refresh_shared_saved_owner_cannot_be_rehashed_around_capture_or_mixed_profile_history ... ok
+test native::journal::tests::refresh_physical_scenarios::refresh_unpolled_request_retains_actual_bundle_before_network_and_retry_keeps_first_owner ... FAILED
+test native::journal::tests::refresh_scenarios::actual_poll_redelivery_and_original_proposal_are_retained_as_distinct_history ... ok
+test native::journal::tests::refresh_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::refresh_scenarios::expiry_before_recording_keeps_received_history_and_every_resource_hold ... ok
+test native::journal::tests::refresh_scenarios::frozen_profile_client_refuses_refresh_reply_on_same_uri_without_fallback ... ok
+test native::journal::tests::refresh_scenarios::intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history ... ok
+test native::journal::tests::refresh_scenarios::legacy_protocol_choice_cannot_be_switched_to_phase_after_publication ... ok
+test native::journal::tests::refresh_scenarios::phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths ... ok
+test native::journal::tests::refresh_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+test native::journal::tests::refresh_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption ... ok
+test native::journal::tests::reservation_acceptance_survive_restart_without_restoring_live_authority ... ok
+test native::journal::tests::root_replacement_cannot_redirect_an_open_writers_effects ... ok
+test native::journal::tests::symlink_hardlink_and_nonprivate_members_refuse ... ok
+test native::journal::tests::unknown_attempts_and_changed_acceptance_retries_do_not_consume_revision ... ok
+test native::materials::scoped_transport_tests::retained_transport_generates_fresh_cap_and_refuses_changed_original_before_forwarding ... ok
+test native::materials::scoped_transport_tests::retained_transport_refuses_manifest_substitution_without_starting_upstream ... ok
+test native::preparation::granted::reservation_tests::cancelled_waiter_cannot_split_fsync_and_retained_membership ... ok
+test native::preparation::granted::reservation_tests::failed_publication_retains_history_and_requires_recovery_without_membership ... ok
+test native::preparation::granted::reservation_tests::new_pipeline_reservation_publishes_membership_and_refuses_duplicate_without_change ... ok
+test native::preparation::hydration::files::tests::digest_missing_prefix_and_unowned_tail_refuse_without_overwrite ... ok
+test native::preparation::hydration::files::tests::empty_marker_and_foreign_published_artifact_are_held ... ok
+test native::preparation::hydration::files::tests::fsynced_tail_replays_exactly_and_complete_publish_reopens ... ok
+test native::preparation::hydration::files::tests::growing_reader_is_bounded_and_metadata_changes_are_refused ... ok
+test native::preparation::hydration::files::tests::marker_and_directory_replacement_stop_owned_writes ... ok
+test native::preparation::hydration::files::tests::symlinks_and_special_members_are_never_followed ... ok
+test native::preparation::launch::output_relay::started::tests::changed_running_or_ack_cannot_replace_retained_request ... ok
+test native::preparation::launch::output_relay::started::tests::frozen_and_refresh_capture_validate_their_exact_context_and_ack ... ok
+test native::preparation::launch::output_relay::started::tests::mixed_profile_wrong_context_and_cross_profile_replacements_are_refused ... ok
+test native::preparation::launch::output_relay::started::tests::pending_ack_allows_capture_but_refuses_registration_for_both_profiles ... ok
+test native::preparation::launch::scoped_transport_scenarios::logical_stop_fence_closes_transport_before_any_async_physical_stop_poll ... ok
+test native::preparation::launch::synthetic::tests::synthetic_profile_rejects_offer_commands_geometry_and_nonprivate_or_replaced_roots ... ok
+test native::preparation::result::source::tests::checkpoint_inspection_accepts_actual_nested_dirty_workspace_and_current_head ... ok
+test native::preparation::result::source::tests::checkpoint_inspection_refuses_flat_inactive_and_changed_full_allocation ... ok
+test native::preparation::result::source::tests::checkpoint_inspection_refuses_wrong_scope_or_malformed_current_head ... ok
+test native::preparation::result::source::tests::result_export_distinguishes_raw_upload_hash_from_native_receipt_hash ... ok
+test native::preparation::result::source::tests::result_export_refuses_symlink_manifest_and_out_of_scope_reply ... ok
+test native::preparation::result::source::tests::result_export_rejects_changed_bundle_before_retention ... ok
+test native::preparation::result::tests::result_ack_is_projection_and_unknown_pending_is_preserved ... ok
+test native::preparation::result::tests::result_format11_header_is_refused_before_pending_cleanup ... ok
+test native::preparation::result::tests::result_history_exact_claim_identity_order_and_canonical_bytes ... ok
+test native::preparation::result::tests::result_history_protects_scope_budget_and_does_not_project_unclaimed_success ... ok
+test native::preparation::result::tests::result_module_alone_does_not_prove_counted_startup_delivery ... ok
+test native::preparation::result::tests::result_namespace_is_owned_and_allocates_disjoint_attempt_children ... ok
+test native::preparation::result::tests::result_storage_control_custody_and_first_intake_lock_are_actual ... ok
+test native::preparation::result::tests::result_storage_refuses_links_special_members_and_wrong_modes ... ok
+test native::preparation::result::tests::result_storage_refuses_route_replacement_and_workspace_overlap ... ok
+test native::runner::codex::tests::closed_settings_refuse_unsupported_advertised_functions_and_mutable_handoff_kind ... ok
+test native::runner::codex::tests::https_factory_construction_is_not_preflight_or_admission ... ok
+test native::runner::codex::tests::legacy_profile_refuses_before_manifest_or_state_access ... ok
+test native::runner::codex::tests::model_bound_is_per_response_and_never_an_aggregate_spending_budget ... ok
+test native::runner::codex::tests::old_named_profile_cannot_advertise_known_result_adapter_without_channel ... ok
+test native::runner::codex::tests::production_factory_refuses_plaintext_and_proxy_credentials_before_admission ... ok
+test native::runner::codex::tests::result_factory_refuses_nonselected_client_before_kernel_or_admission ... ok
+test native::runner::codex::tests::result_factory_refuses_nonselected_runtime_even_with_matching_adapter_hash ... ok
+test native::runner::codex::tests::result_factory_wire_is_distinct_and_cannot_supply_arbitrary_folder ... ok
+test native::runner::codex::tests::trusted_profile_requires_independent_matching_environment_before_installation ... ok
+test native::runner::codex::tests::trusted_profile_wire_is_closed_and_requires_environment_reference ... ok
+test native::runner::config_tests::duplicate_fields_are_rejected_before_any_value_materialization ... ok
+test native::runner::config_tests::exact_old_wire_stays_frozen_and_new_wire_selects_refresh_explicitly ... ok
+test native::runner::config_tests::full_artifact_features_and_unknown_fields_are_closed_without_fallback ... ok
+test native::runner::profile_tests::orphan_mixed_and_changed_receipt_contexts_never_select_or_complete ... ok
+test native::journal::tests::refresh_physical_scenarios::refresh_fsync_loss_reopens_history_without_live_authority_and_keeps_every_capacity_hold ... ok
+test native::runner::sandbox::tests::central_retention_receipts_require_exact_attempt_and_result_evidence ... ok
+test native::runner::tests::native_config_load_accepts_exact_long_profiles_and_refuses_changed_contract ... ok
+test native::runner::tests::native_config_rejects_unsupported_capacity_and_changed_executable ... ok
+test native::runner::tests::private_config_refuses_symlink_public_mode_and_oversize ... ok
+test native::runner::tests::unavailable_executor_refuses_before_any_journal_or_network_admission ... ok
+test source_transfer::steps::tests::central_claim_binds_both_distinct_transport_and_artifact_and_canonical_manifest ... ok
+test source_transfer::steps::tests::planning_does_not_commit_a_chunk_and_reopened_proposal_reuses_exact_identity ... ok
+test source_transfer::steps::tests::source_http_progress_is_not_retention_and_changed_ids_cannot_advance ... ok
+test native::runner::profile_tests::profiles_require_exact_execution_then_matching_terminal_context_and_pair ... ok
+
+failures:
+
+---- native::journal::tests::preparation_v2_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption stdout ----
+
+thread 'native::journal::tests::preparation_v2_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption' (2029285) panicked at crates/aq-worker/src/native/journal/preparation_v2_scenarios.rs:122:10:
+called `Result::unwrap()` on an `Err` value: phase local observation expired
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- native::journal::tests::refresh_physical_scenarios::refresh_unpolled_request_retains_actual_bundle_before_network_and_retry_keeps_first_owner stdout ----
+
+thread 'native::journal::tests::refresh_physical_scenarios::refresh_unpolled_request_retains_actual_bundle_before_network_and_retry_keeps_first_owner' (2030298) panicked at crates/aq-worker/src/native/journal/refresh_physical_scenarios.rs:32:1:
+called `Result::unwrap()` on an `Err` value: phase local observation expired
+
+
+failures:
+    native::journal::tests::preparation_v2_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption
+    native::journal::tests::refresh_physical_scenarios::refresh_unpolled_request_retains_actual_bundle_before_network_and_retry_keeps_first_owner
+
+test result: FAILED. 216 passed; 2 failed; 18 ignored; 0 measured; 0 filtered out; finished in 192.45s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

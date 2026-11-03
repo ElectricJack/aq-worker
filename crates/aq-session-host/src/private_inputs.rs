@@ -42,13 +42,13 @@ impl ScopedCodexAuthBinding {
         self.validate()?;
         ensure!(
             self.launch_id == config.launch_id
-                && self.binding.session == config.manifest.bindings.session
-                && self.binding.attempt_id == config.manifest.bindings.attempt_id
+                && self.binding.session == config.manifest.task()?.bindings.session
+                && self.binding.attempt_id == config.manifest.task()?.bindings.attempt_id
                 && self.binding.assignment_generation
-                    == config.manifest.bindings.assignment_generation
+                    == config.manifest.task()?.bindings.assignment_generation
                 && self.binding.launch_manifest_digest == canonical_digest(&config.manifest)?
                 && self.binding.graph_access_profile_digest
-                    == config.manifest.bindings.graph_access_profile.digest
+                    == config.manifest.task()?.bindings.graph_access_profile.digest
                 && self.deadline_boot_ms == config.permit.expires_boot_ms,
             "scoped auth exact launch binding/deadline"
         );
@@ -84,13 +84,13 @@ impl ChatgptAuthPin {
         self.binding.validate()?;
         ensure!(
             self.launch_id == config.launch_id
-                && self.binding.session == config.manifest.bindings.session
-                && self.binding.attempt_id == config.manifest.bindings.attempt_id
+                && self.binding.session == config.manifest.task()?.bindings.session
+                && self.binding.attempt_id == config.manifest.task()?.bindings.attempt_id
                 && self.binding.assignment_generation
-                    == config.manifest.bindings.assignment_generation
+                    == config.manifest.task()?.bindings.assignment_generation
                 && self.binding.launch_manifest_digest == canonical_digest(&config.manifest)?
                 && self.binding.graph_access_profile_digest
-                    == config.manifest.bindings.graph_access_profile.digest
+                    == config.manifest.task()?.bindings.graph_access_profile.digest
                 && self.deadline_boot_ms == config.permit.expires_boot_ms,
             "ChatGPT auth exact launch binding/deadline"
         );
@@ -968,7 +968,7 @@ mod tests {
                 expires_boot_ms: scope.deadline_boot_ms,
             },
             resource_policy: ResourcePolicy::CallerAdmission(manifest.harness.environment.clone()),
-            manifest,
+            manifest: manifest.into(),
             workspace: "/work".into(),
             helper: "/helper".into(),
             tmux: "/usr/bin/tmux".into(),
@@ -977,6 +977,7 @@ mod tests {
             rendered_startup: None,
             private_input: None,
             observed: None,
+            agent_identity: None,
             command: LocalCommand {
                 executable: "/opt/codex".into(),
                 arguments: vec![
@@ -999,7 +1000,9 @@ mod tests {
         config.launch_id = Uuid::new_v4();
         assert!(scope.verify_launch(&config).is_err());
         config.launch_id = scope.launch_id;
-        config.manifest.model.max_output_tokens += 1;
+        if let LaunchDocument::Task(m) = &mut config.manifest {
+            m.model.max_output_tokens += 1;
+        }
         assert!(scope.verify_launch(&config).is_err());
         let mut foreign = scope.clone();
         foreign.origin = "https://provider.example".into();

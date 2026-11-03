@@ -1,0 +1,9 @@
+{
+  "command": [
+    "python3",
+    "docs/implementation/start-publication-0.1.7-evidence/check_legacy_race.py",
+    "/tmp/aq-host-0.1.7-1j9j7sns/aq-session-host-0.1.7-source"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/start-publication-0.1.7-evidence/legacy-race.log"
+}

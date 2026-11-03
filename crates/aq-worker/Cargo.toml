@@ -5,7 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-aq-admission-sandbox = { package = "aq-admission", path = "../../protocol/aq-admission", version = "=0.2.0" }
+aq-admission-sandbox = { package = "aq-admission", path = "../../protocol/aq-admission", version = "=0.3.0" }
 aq-agent-result-local = { path = "../aq-agent-result-local", version = "=0.1.0" }
 aq-responses-transport.workspace = true
 aq-codex-mapper = { path = "../aq-codex-mapper", version = "=0.1.1" }
@@ -50,7 +50,7 @@ axum.workspace = true
 chrono.workspace = true
 
 [features]
-backend-conformance = []
+backend-conformance = ["aq-responses-transport/test-support"]
 test-support = ["backend-conformance", "aq-responses-transport/test-support","aq-terminal-bridge/test-support","aq-worker-protocol/test-support", "aq-session-host/test-support"]
 
 [[bin]]
@@ -62,3 +62,8 @@ required-features = ["test-support"]
 name = "native-prepare-smoke"
 path = "src/bin/native-prepare-smoke.rs"
 required-features = ["test-support"]
+
+[[bin]]
+name = "aq-b6b-user-probe"
+path = "tests/support/b6b_user_probe.rs"
+required-features = ["backend-conformance"]
