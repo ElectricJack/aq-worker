@@ -21,11 +21,17 @@ pub enum RenewalOutcome {
     /// A transient loss grants no time; retry the same operation until expiry.
     Unavailable,
 }
-/// Implementations must authenticate with the supplied existing worker config,
+/// Legacy fixture seam. PermitTransport supplies the dedicated permit client;
+/// implementations must never use node credentials in a sandbox. They must
 /// validate central receipts and retain immutable source/result bytes before
 /// returning receipts. No implementation may treat locally generated IDs as
 /// evidence of a server mutation. Fixture implementations are not HTTP wiring.
 pub trait RunnerTransport {
+    /// Snapshot before a mutable exchange future, so every channel can revoke
+    /// authority while renewal is pending. Existing fixture transports opt out.
+    fn authority_client(&self) -> Option<super::auth::RunnerHttp> {
+        None
+    }
     fn preflight(&mut self, worker: &WorkerConfig) -> Result<()>;
     fn renew<'a>(
         &'a mut self,

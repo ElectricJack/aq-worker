@@ -1,0 +1,30 @@
+warning: field `revision` is never read
+  --> crates/aq-worker/src/native/runner/sandbox/auth.rs:87:5
+   |
+81 | struct Authority {
+   |        --------- field in this struct
+...
+87 |     revision: Option<u64>,
+   |     ^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `accept_renewal` is never used
+   --> crates/aq-worker/src/native/runner/sandbox/auth.rs:247:19
+    |
+133 | impl RunnerHttp {
+    | --------------- method in this implementation
+...
+247 |     pub(crate) fn accept_renewal(&self, request: &RunnerRenewalRequest, response: &super::RenewalDelivery, nonce: Uuid, sent: u64, ...
+    |                   ^^^^^^^^^^^^^^
+
+warning: `aq-worker` (lib) generated 2 warnings
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+error[E0432]: unresolved import `super::permit_transport`
+   --> crates/aq-worker/src/native/runner/sandbox/auth_tests.rs:169:17
+    |
+169 |     use super::{permit_transport::{PermitTransport,RunnerExchange},RunnerTransport,TransportFuture,RenewalOutcome,RetentionReceipts...
+    |                 ^^^^^^^^^^^^^^^^ could not find `permit_transport` in `super`
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `aq-worker` (lib test) due to 1 previous error
