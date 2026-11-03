@@ -4,6 +4,9 @@
 pub mod capsule;
 mod local_ipc;
 mod private_inputs;
+pub use private_inputs::reconciliation::{
+    LoginRefreshAck, LoginRefreshPhase, LoginRefreshRequest, LoginRefreshStatus, LoginWriteBack,
+};
 pub use private_inputs::{
     OriginalPrivateMaterial, PrivateCleanup, PrivateLaunchInput, ScopedCodexAuthBinding,
 };

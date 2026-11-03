@@ -103,6 +103,20 @@ pub fn decode_document(bytes: &[u8]) -> Result<SandboxDocument> {
 pub fn schema() -> serde_json::Value {
     let mut schema =
         serde_json::to_value(schemars::schema_for!(SandboxDocument)).expect("sandbox schema");
+    // Include versions on imported legacy types without changing their frozen
+    // schema exports. Registration wraps the version-1 native payload in v2.
+    for (name, version) in [
+        ("DelegatedPermit", 1),
+        ("LaunchBinding", 1),
+        ("ReadoptionRequest", 1),
+        ("ReadoptionResponse", 1),
+        ("Register", 1),
+        ("Registration", 2),
+        ("RunnerRenewalRequest", 1),
+        ("RunnerRenewalResponse", 1),
+    ] {
+        schema["$defs"][name]["properties"]["schema_version"]["const"] = version.into();
+    }
     schema["$comment"] = serde_json::json!(
         "Maximum encoded frame 1 MiB. Rust validators additionally enforce nonnil identities, UTF-8 byte bounds, duplicate rejection, currency and harness constraints, exact request/node/boot/attempt/generation/sandbox/channel correlation, operation scope, original and current deadlines, and replay equality. Authentication, revocation, current incarnation fencing, channel allocation uniqueness, aggregate limits and atomic replay persistence are server responsibilities. Awaiting node re-adoption grants no deadline extension."
     );

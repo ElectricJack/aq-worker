@@ -24,6 +24,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Build or scan sandbox templates on an explicitly configured build node.
+    Template {
+        #[command(subcommand)]
+        command: TemplateCmd,
+    },
     /// Enroll this machine. Secrets are read from a prompt or from stdin lines
     /// (code, then CF client id and secret with --cf-service-token).
     Enroll {
@@ -108,6 +113,21 @@ enum Cmd {
     FixtureResponses,
     /// Print the node id and server (never the credential).
     Status,
+}
+
+#[derive(Subcommand)]
+enum TemplateCmd {
+    /// Build, finalize, scan and allowlist a pinned recipe (requires Python 3 and BuildKit).
+    Build {
+        recipe: PathBuf,
+        #[arg(long)]
+        build_config: PathBuf,
+        /// New output directory for the OCI archive and provenance.
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Scan every layer of a single-platform OCI image archive without admission.
+    Scan { archive: PathBuf },
 }
 
 fn usage_err(msg: impl std::fmt::Display) -> ExitCode {
@@ -202,6 +222,29 @@ async fn main() -> ExitCode {
         .init();
     let path = cli.config.unwrap_or_else(default_path);
     match cli.command {
+        Cmd::Template { command } => {
+            let args = match command {
+                TemplateCmd::Build {
+                    recipe,
+                    build_config,
+                    output,
+                } => vec![
+                    "build".into(),
+                    recipe.into_os_string(),
+                    "--build-config".into(),
+                    build_config.into_os_string(),
+                    "--output".into(),
+                    output.into_os_string(),
+                ],
+                TemplateCmd::Scan { archive } => vec!["scan".into(), archive.into_os_string()],
+            };
+            match aq_worker::template::run(&args) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(_) => {
+                    usage_err("template operation refused; Python 3 and valid inputs required")
+                }
+            }
+        }
         Cmd::RunExecution {
             state_dir,
             fixture_agent,

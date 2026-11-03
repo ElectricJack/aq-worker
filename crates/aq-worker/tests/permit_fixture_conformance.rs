@@ -17,6 +17,12 @@ fn permit_fixture_conformance() {
         "execution_before_grant",
         "readoption_replay",
         "unknown_required_capability",
+        "phase_v2_renewal",
+        "phase_refresh_renewal",
+        "phase_renewal_after_readoption",
+        "renewal_exceeds_original_hard_deadline",
+        "renewal_wrong_nonce",
+        "renewal_delivery_expiry_mismatch",
     ] {
         assert!(names.contains(required), "missing {required}");
     }

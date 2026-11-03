@@ -93,6 +93,15 @@ therefore declines new execution explicitly. Never infer support from schema
 version or silently discard requirements. Frozen readers reject new registration
 fields; connectivity-only operation may remain available by existing rules.
 
+`negotiate` operates on capability names and cannot validate a backend kind.
+B2/B5 must first validate the entire `Registration`/`BackendAdvertisement`, then
+derive backend support names solely from that validated advertisement. In
+particular, a Docker-local advertisement with `vm-isolation` must fail before
+negotiation. `delegated-runner-v1` is a protocol capability, separate from the
+four backend capabilities; add it to the supported set only when the peer's
+installed delegated runner protocol adapter has been independently established.
+Do not copy an unvalidated peer-supplied list into `supported`.
+
 Wire shape checks enforce a 1 MiB frame cap, strict unknown/duplicate JSON fields,
 nonnil identities, bounded inventories and duplicate rejection. Request-dependent
 validation adds correlation, scope, deadlines and replay semantics. JSON Schema
@@ -115,8 +124,18 @@ the exact origin, current permit and revision against authenticated server
 records and persist operation replay atomically. It must not route phase
 executions through the legacy-only initial-authority loader.
 
-The consumer validates responses against trusted current grant context and the
-physical transmission nonce, then uses `client_deadline_ns` with retained local
+The runner calls `RunnerRenewalResponse::validate_for` with its **pre-renewal**
+trusted context, retained request and physical transmission nonce. The request
+permit must remain live within that installed grant expiry. The correlated
+renewed permit may extend beyond the old grant expiry, but must preserve binding,
+permit ID, execution scope and hard deadline, advance revision, never decrease
+expiry/issue time, remain live, and match the delivery clock and nonce. The prior
+context is never constructed from the response under validation. This is a pure
+consumer acceptance check on an authenticated server reply; B2 still authenticates
+the credential/origin/revision and checks the issued permit against its separately
+committed post-renewal context with `DelegatedPermit::validate_for`.
+
+After acceptance the runner uses `client_deadline_ns` with retained local
 hard/prior deadlines and installed revision. New revisions can extend a live
 lease only up to its original hard deadline; replayed revisions retain the
 earlier local deadline. Awaiting re-adoption contains no delivery clock and

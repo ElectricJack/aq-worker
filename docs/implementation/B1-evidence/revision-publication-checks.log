@@ -1,0 +1,11 @@
+$ rustc +1.96.1 --version
+rustc 1.96.1 (31fca3adb 2026-06-26)
+exit=0
+$ cargo +1.96.1 fmt -- --check
+exit=0
+$ git diff --check
+exit=0
+$ python3 scripts/package-admission.py --check
+aq-admission-0.2.0: sha256=352ed85f192a1ccbe116352a77a443504e8c5cd9023e7923961bcb5570ec7978, 119 files
+exit=0
+Archive SHA-256 and all 119 source file hashes independently verified: 352ed85f192a1ccbe116352a77a443504e8c5cd9023e7923961bcb5570ec7978
