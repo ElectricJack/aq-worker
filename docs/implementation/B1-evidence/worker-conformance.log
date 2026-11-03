@@ -1,0 +1,8 @@
+Command: cargo test --locked --workspace permit_fixture_conformance
+Complete command exit: 0 (AQ wrapper: 1 passed). Exact matched-test excerpt:
+     Running tests/permit_fixture_conformance.rs (target/debug/deps/permit_fixture_conformance-02a0669fd5449775)
+
+running 1 test
+test permit_fixture_conformance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

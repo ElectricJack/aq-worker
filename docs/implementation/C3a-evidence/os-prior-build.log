@@ -1,0 +1,70 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.93kB 0.0s done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/rust:1.96.1-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663
+#2 DONE 0.0s
+
+#3 [git-build 1/8] FROM docker.io/library/rust:1.96.1-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
+#4 DONE 0.0s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [aq-sandbox-os 1/6] FROM docker.io/library/debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 69B done
+#7 DONE 0.1s
+
+#8 [git-build 2/8] COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
+#8 DONE 0.4s
+
+#9 [git-build 4/8] WORKDIR /inputs
+#9 CACHED
+
+#10 [aq-sandbox-os 2/6] COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
+#10 CACHED
+
+#11 [aq-sandbox-os 5/6] RUN ln -s /opt/git/bin/git /usr/local/bin/git     && git --version && tmux -V && bwrap --version
+#11 CACHED
+
+#12 [git-build 8/8] RUN make -j2 prefix=/opt/git RUNTIME_PREFIX=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease all     && make prefix=/opt/git RUNTIME_PREFIX=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease install
+#12 CACHED
+
+#13 [aq-sandbox-os 3/6] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates tmux bubblewrap bash perl libcurl4 libexpat1 libssl3 zlib1g     libstdc++6 libgcc-s1 libatomic1 ncurses-term     && rm -rf /var/lib/apt/lists/*     && groupadd --gid 10001 runner     && useradd --uid 10001 --gid runner --create-home --shell /bin/bash runner     && groupadd --gid 10002 agent     && useradd --uid 10002 --gid agent --create-home --shell /bin/bash agent     && mkdir -p /usr/share/aq-sandbox     && dpkg-query -W -f='${Package}=${Version}\n' > /usr/share/aq-sandbox/debian-packages.txt
+#13 CACHED
+
+#14 [git-build 2/8] COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
+#14 CACHED
+
+#15 [aq-sandbox-os 4/6] COPY --from=git-build /opt/git /opt/git
+#15 CACHED
+
+#16 [git-build 6/8] RUN sha256sum --check SHA256SUMS && mkdir /git     && tar -xf git.tar.xz -C /git --strip-components=1
+#16 CACHED
+
+#17 [git-build 5/8] COPY git.tar.xz SHA256SUMS ./
+#17 CACHED
+
+#18 [git-build 3/8] RUN apt-get update && apt-get install -y --no-install-recommends     libssl-dev libcurl4-openssl-dev libexpat1-dev gettext zlib1g-dev     && rm -rf /var/lib/apt/lists/*
+#18 CACHED
+
+#19 [git-build 7/8] WORKDIR /git
+#19 CACHED
+
+#20 [aq-sandbox-os 6/6] WORKDIR /workspace
+#20 CACHED
+
+#21 exporting to image
+#21 exporting layers done
+#21 writing image sha256:876630cf2870b3af7f44620c0a9a40543c80a0c3511afa7edf9e76861ea7d063 0.0s done
+#21 naming to docker.io/library/aq-sandbox-os:c3a-before 0.0s done
+#21 DONE 0.1s

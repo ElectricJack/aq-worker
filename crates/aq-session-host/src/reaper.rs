@@ -63,15 +63,14 @@ impl Slot {
         Self::reserve_from(registry()?)
     }
     fn reserve_from(registry: Arc<Registry>) -> Result<Self> {
-        ensure!(
-            registry
-                .slots
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n
-                    < MAX_LOCAL_GUARDIANS)
-                    .then_some(n + 1))
-                .is_ok(),
-            "local guardian reaper capacity exhausted"
-        );
+        // fetch_update renamed try_update on newer stable; keep until toolchain pin.
+        #[allow(deprecated)]
+        let reserved = registry
+            .slots
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < MAX_LOCAL_GUARDIANS).then_some(n + 1)
+            });
+        ensure!(reserved.is_ok(), "local guardian reaper capacity exhausted");
         Ok(Self {
             registry,
             transferred: false,

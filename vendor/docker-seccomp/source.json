@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/moby/profiles",
+  "revision": "6fe7deb1b9fb7c0397a4593480d7d22b9ee8caef",
+  "source_url": "https://raw.githubusercontent.com/moby/profiles/6fe7deb1b9fb7c0397a4593480d7d22b9ee8caef/seccomp/default.json",
+  "source_sha256": "6416b47770785a41ac59073cdc77d9fe98517df2799dc83ef207e622de3053f6",
+  "license": "Apache-2.0",
+  "derived_profile": "tools/qualification/seccomp/codex-bwrap-amd64.json",
+  "derived_sha256": "5d15c1aefca13c3484cc52c31b92e95c06f76ec0f9ba8ae4cd2be3aaf0edb06f",
+  "qualified_architecture": "linux/amd64"
+}

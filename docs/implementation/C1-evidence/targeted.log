@@ -1,0 +1,75 @@
+aq test: no interpreter found for /tmp (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 5 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' /tmp/test_c1_cargo.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /tmp
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 1 item
+
+../../../../../../../../../tmp/test_c1_cargo.py COMMAND: ['cargo', 'test', '--locked', '-p', 'aq-worker', '--features', 'test-support', '--test', 'backend_conformance', '--test', 'execution', '--test', 'journal_migration']
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.35s
+     Running tests/backend_conformance.rs (target/debug/deps/backend_conformance-fc07fe04879dc264)
+
+running 18 tests
+test backend_advertisement_strings_match_contract ... ok
+test contradictory_destroyed_journal_never_adopts_a_live_sandbox ... ok
+test create_crash_before_record ... ok
+test create_replay_rejects_changed_digest_or_boot ... ok
+test deadline_sweep_stops_rather_than_deletes ... ok
+test destroy_failure_keeps_resources_protected ... ok
+test foreign_inventory_and_wrong_retention_cannot_delete ... ok
+test invalid_digest_and_empty_retention_evidence_are_rejected ... ok
+test inventory_faults_discover_unknown_work_and_exclude_foreign_scope ... ok
+test lifecycle_records_require_matching_confirmation_and_retention ... ok
+test preserve_before_destroy_with_unretained_work ... ok
+test provision_run_handoff_and_confirmed_destroy ... ok
+test retained_running_sandbox_still_requires_stop_before_deletion ... ok
+test reusable_conformance_suite_against_fake ... ok
+test stop_failure_and_unknown_state_do_not_prove_stopped_writers ... ok
+test stopped_status_without_process_count_is_not_proof ... ok
+test unknown_sandbox_in_inventory ... ok
+test unsupported_operations_and_capabilities_refuse_explicitly ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/execution.rs (target/debug/deps/execution-9be75dda98966f43)
+
+running 17 tests
+test admission_replay_and_changed_bytes_are_distinct ... ok
+test competing_projects_share_one_durable_capacity_budget ... ok
+test actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test exclusive_owner_and_unknown_state_format_fail_closed ... ok
+test launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired ... ok
+test observations_and_directive_receipts_cross_durable_boundary ... ok
+test orderly_journal_release_does_not_wait_for_an_unrelated_fork_child ... ok
+test oversized_journal_is_refused_before_deserialization ... ok
+test profiled_tmux_launch_remains_refused_until_authority_integration ... ok
+test request_send_time_includes_network_delay_and_suspend ... ok
+test directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+test uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test write_failures_never_acknowledge_unpersisted_admission ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.57s
+
+     Running tests/journal_migration.rs (target/debug/deps/journal_migration-e8aa90e7d8309ea2)
+
+running 5 tests
+test frozen_v1_reader_refuses_current_format_without_modifying_new_state ... ok
+test drain_survives_restart_and_does_not_restore_launch_authority ... ok
+test legacy_active_launch_without_guardian_stays_uncertain_even_with_missing_pid ... ok
+test v1_retired_and_stopped_reports_upgrade_without_reinterpreting_evidence ... ok
+test v2_guardian_report_upgrades_exactly_and_old_reader_refuses_v3_unchanged ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+.
+
+============================== 1 passed in 52.93s ==============================

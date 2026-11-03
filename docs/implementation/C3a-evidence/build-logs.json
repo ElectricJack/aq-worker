@@ -1,0 +1,32 @@
+{
+  "os-build.log": {
+    "raw_source": "/tmp/c3a-final-os-build.log",
+    "raw_sha256": "bebbc3cb7ab7e29c68995532d5276adca1ee591fa7a7f88173189c9fa634ea1e",
+    "normalization": "line endings and trailing whitespace only"
+  },
+  "os-prior-build.log": {
+    "raw_source": "/tmp/c3a-prior-os-build.log",
+    "raw_sha256": "d188b07e3fce54e227abbc6e6a4a129ea45ab71ca3d938f370f30a76895c73ec",
+    "normalization": "line endings and trailing whitespace only"
+  },
+  "runtime-build.log": {
+    "raw_source": "/tmp/c3a-final-runtime-build.log",
+    "raw_sha256": "73a151229724d2bd2598662d48d77875903680a3fe44bab1cbd61d9c61329b3f",
+    "normalization": "line endings and trailing whitespace only"
+  },
+  "runtime-prior-build.log": {
+    "raw_source": "/tmp/c3a-prior-runtime-build.log",
+    "raw_sha256": "095a45fb519ae12d91a5badd7437035c2bce94de4830ea013b62451a85df270f",
+    "normalization": "line endings and trailing whitespace only"
+  },
+  "compose-before-build.log": {
+    "raw_source": "/tmp/c3a-compose-before-build.log",
+    "raw_sha256": "cbcb18be3df95f450a2e8df11969026ed9427d52e4e4f64969f6e81e99e27562",
+    "normalization": "line endings and trailing whitespace only"
+  },
+  "compose-after-build.log": {
+    "raw_source": "/tmp/c3a-compose-after-build.log",
+    "raw_sha256": "91ccb55bf81be18ffe9d2f4f9b1a1e138f5fc8419574c0e17770daeb752d32ae",
+    "normalization": "line endings and trailing whitespace only"
+  }
+}

@@ -15,7 +15,23 @@ Optional Rust wire types derive from the same declared schema source or generate
 
 Foundation enrollment, heartbeat and probe retain their version-1 semantics during extraction. The execution protocol has explicit version/capability negotiation; publishing these documents does not add execution fields to the existing routes or declare an API version shipped.
 
-The current candidate package is `aq-worker-protocol` 0.1.1 (execution version 2).
+The current candidate package is `aq-worker-protocol` 0.2.0 (execution version 2).
 Version 0.1.1 retains the 0.1.0 wire shape and strengthens optional-identity
 validation plus fake-peer result authorization/retention tests. Connectivity
 foundation types are independently preserved in `aq-protocol` 0.1.0.
+
+## Native sandbox contract (B1)
+
+The next native execution contract is **aq-admission 0.2.0**, owned here at
+[`aq-admission/`](aq-admission/README.md). It carries forward the frozen native
+wire types and adds delegated runner permits, node re-adoption, sandbox channel
+identity and backend/template registration. The Rust source generates the
+[sandbox schema](aq-admission/artifacts/sandbox-v1.schema.json); both endpoints
+consume the [published conformance fixtures](aq-admission/artifacts/sandbox-v1.fixtures.json).
+The schema drift test is part of the workspace CI test command.
+
+The legacy `aq-worker-protocol` execution-v2 publication and installed native
+0.1.11 endpoints retain their existing contracts. New sandbox consumers pin
+`aq-admission = "=0.2.0"` and the exact release source revision/fingerprint;
+publication alone does not install new endpoints. See [B1 evidence](../docs/implementation/B1.md)
+for publication state and downstream migration responsibilities.

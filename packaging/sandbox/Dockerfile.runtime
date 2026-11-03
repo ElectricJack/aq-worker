@@ -1,0 +1,35 @@
+# This build context contains public artifacts and a committed worker archive only.
+FROM @@BUILDER@@ AS runner-build
+WORKDIR /inputs
+COPY worker-source.tar source.json worker-source.sha256 ./
+RUN sha256sum --check worker-source.sha256 && mkdir /worker \
+    && tar -xf worker-source.tar -C /worker
+WORKDIR /worker
+ENV CARGO_BUILD_JOBS=2
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/worker/target,sharing=locked \
+    cargo build --locked --release -p aq-worker --bin aq-worker -p aq-session-host --bin aq-session-host \
+    && mkdir /out && cp target/release/aq-worker target/release/aq-session-host /out/
+
+FROM @@BUILDER@@ AS bundle
+COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
+RUN apt-get update && apt-get install -y --no-install-recommends python3 xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /inputs
+COPY aq-git codex node.tar.xz SHA256SUMS ./
+RUN sha256sum --check SHA256SUMS && test "$(uname -m)" = x86_64 \
+    && mkdir -p /opt/aq/bin /opt/aq/node /opt/aq/harnesses/codex \
+    && cp aq-git /opt/aq/bin/aq-git && cp codex /opt/aq/harnesses/codex/codex \
+    && tar -xf node.tar.xz -C /opt/aq/node --strip-components=1 \
+    && chmod 755 /opt/aq/bin/aq-git /opt/aq/harnesses/codex/codex \
+    && ln -s ../harnesses/codex/codex /opt/aq/bin/codex
+COPY --from=runner-build /out/ /opt/aq/bin/
+COPY pins.json source.json /opt/aq/
+COPY bundle_manifest.py /inputs/bundle_manifest.py
+RUN /opt/aq/bin/aq-worker --version && /opt/aq/bin/aq-git --version \
+    && /opt/aq/bin/codex --version && /opt/aq/node/bin/node --version \
+    && python3 /inputs/bundle_manifest.py /opt/aq \
+    && find /opt/aq -exec touch -h -d '@0' {} +
+
+FROM scratch AS aq-sandbox-runtime
+COPY --from=bundle /opt/aq /opt/aq

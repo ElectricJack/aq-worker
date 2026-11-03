@@ -220,6 +220,7 @@ async fn replay_before_first_persistence_retains_original_transmission_after_pro
 
 #[tokio::test]
 async fn expiry_before_recording_keeps_received_history_and_every_resource_hold() {
+    let clock = crate::native::http::test_clock::TestClock::new();
     let (_dir, mut journal, id, client, peer, p) = reserved().await;
     let q = begin(&mut journal, id, &p);
     peer.remaining.store(100, Ordering::SeqCst);
@@ -228,7 +229,7 @@ async fn expiry_before_recording_keeps_received_history_and_every_resource_hold(
         .await
         .unwrap();
     let held = journal.available().unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    clock.advance_to(observed.deadline_ns());
     journal.record_refresh_preparation(id, &observed).unwrap();
     assert!(journal.check_refresh_preparation(id, &observed).is_err());
     assert_eq!(
@@ -294,6 +295,7 @@ async fn intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history() 
 
 #[tokio::test]
 async fn changed_phase_intent_or_receipt_cannot_replace_first_history() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (_dir, mut journal, id, client, _peer, p) = reserved().await;
     let q = begin(&mut journal, id, &p);
     let revision = journal.state().revision;
