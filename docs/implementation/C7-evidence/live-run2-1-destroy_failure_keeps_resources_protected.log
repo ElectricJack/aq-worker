@@ -1,0 +1,12 @@
+# boat_live_conformance live run 2.1, personal account, stock busybox@sha256:a7dbc319..., BOAT_LIVE_SCENARIOS=destroy_failure_keeps_resources_protected
+# adapter at 9e04f06 (includes b60e424 command-timeout fix); start 2026-11-03T17:23:22Z
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-7729c51d9bddcb94)
+
+running 1 test
+LIVE PASS destroy_failure_keeps_resources_protected in 39.6s
+test boat_live_conformance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 39.95s
+
+# exit 0 end 2026-11-03T17:24:03Z

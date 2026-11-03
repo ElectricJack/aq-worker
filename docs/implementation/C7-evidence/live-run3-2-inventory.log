@@ -1,0 +1,10 @@
+# read-only inventory after live run 3.2 (key read from node-local file; not shown)
+== GET /sandboxes?limit=50&includeDeleted=false (2026-11-03T18:10:16Z)
+{"ok":true,"type":"sandbox.list","sandboxes":[],"pageInfo":{"nextCursor":null,"hasMore":false,"limit":50}}
+[HTTP 200 0.222983s]
+== GET /saved-snapshots (2026-11-03T18:10:16Z)
+{"ok":true,"type":"snapshot.saved.list","snapshots":[],"allowance":{"org":null,"orgName":null,"included":10,"free":10,"used":0,"extra":0,"extraMonthlyDollars":0,"extraDailyDollars":0,"pricePerExtraMonthlyDollars":1.68,"pricePerExtraDailyDollars":0.056}}
+[HTTP 200 0.255675s]
+== GET /snapshots (2026-11-03T18:10:17Z)
+{"ok":true,"type":"snapshot.list","snapshots":[],"pageInfo":{"nextCursor":null,"hasMore":false,"limit":50}}
+[HTTP 200 0.251029s]
