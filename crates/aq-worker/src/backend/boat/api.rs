@@ -10,6 +10,19 @@ pub(super) struct Api {
     url: String,
     org: String,
     key: BoatKey,
+    timeout_ms: u64,
+}
+/// Server-side bound sent with every sandbox command.
+pub(super) const COMMAND_TIMEOUT_SECS: u64 = 60;
+/// A command call legitimately blocks for up to its server-side bound, so its
+/// HTTP deadline must outlast that or a healthy long command reads as Transport.
+fn request_timeout(path: &str, api_timeout_ms: u64) -> Duration {
+    let extra = if path.ends_with("/commands") {
+        COMMAND_TIMEOUT_SECS * 1000
+    } else {
+        0
+    };
+    Duration::from_millis(api_timeout_ms.saturating_add(extra))
 }
 impl Api {
     pub fn new(config: &BoatConfig, key: BoatKey) -> Result<Self, BackendError> {
@@ -23,6 +36,7 @@ impl Api {
             url: config.api_url.trim_end_matches('/').into(),
             org: config.attempt_org.clone(),
             key,
+            timeout_ms: config.api_timeout_ms,
         })
     }
     pub async fn raw(
@@ -35,6 +49,7 @@ impl Api {
         let mut request = self
             .client
             .request(method.clone(), format!("{}{path}", self.url))
+            .timeout(request_timeout(path, self.timeout_ms))
             .bearer_auth(self.key.expose())
             .header("X-Boat-Org", &self.org);
         if let Some(key) = idempotency {
@@ -139,4 +154,19 @@ pub(super) fn encode(s: &str) -> String {
         .unwrap()
         .trim_start_matches('=')
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn command_requests_outlast_their_server_side_bound() {
+        assert_eq!(
+            request_timeout("/sandboxes/bx_1", 30_000),
+            Duration::from_secs(30)
+        );
+        let command = request_timeout("/sandboxes/bx_1/commands", 30_000);
+        assert!(command > Duration::from_secs(COMMAND_TIMEOUT_SECS));
+        assert_eq!(command, Duration::from_secs(90));
+    }
 }

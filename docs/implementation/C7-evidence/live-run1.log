@@ -1,0 +1,23 @@
+# boat_live_conformance, personal account, stock busybox@sha256:a7dbc319..., BOAT_LIVE_SCENARIOS=create_provision_run_observe_handoff_destroy,destroy_failure_keeps_resources_protected
+# run window 2026-11-03T16:42:53Z..16:48:19Z; adapter at a5d5ba3 (before the command-timeout fix)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.43s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-7729c51d9bddcb94)
+
+running 1 test
+test boat_live_conformance has been running for over 60 seconds
+LIVE PASS create_provision_run_observe_handoff_destroy in 197.5s
+
+thread 'boat_live_conformance' (565102) panicked at crates/aq-worker/src/backend/conformance.rs:106:60:
+called `Result::unwrap()` on an `Err` value: Unavailable(Transport)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test boat_live_conformance ... FAILED
+
+failures:
+
+failures:
+    boat_live_conformance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 286.71s
+
+error: test failed, to rerun pass `-p aq-worker --test boat_backend`

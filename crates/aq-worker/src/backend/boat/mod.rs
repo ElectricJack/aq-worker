@@ -133,7 +133,7 @@ impl BoatBackend {
             .json(
                 Method::POST,
                 &format!("/sandboxes/{id}/commands"),
-                Some(json!({"command":command,"timeoutSeconds":60})),
+                Some(json!({"command":command,"timeoutSeconds":api::COMMAND_TIMEOUT_SECS})),
                 None,
             )
             .await?;
