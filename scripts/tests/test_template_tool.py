@@ -247,8 +247,13 @@ class TemplateTests(unittest.TestCase):
         scanner = load('credential_scan')
         for label in ['api_key_model_discovery=enabled', 'cli_auth_credentials_store=file',
                       'OPENAI_API_KEY\":Codex API key byte format',
-                      'OPENAI_API_KEY\":\"scoped Codex auth encoding', 'has_username_or_password://']:
+                      'OPENAI_API_KEY\":\"scoped Codex auth encoding', 'has_username_or_password://',
+                      '"credentials":"private-codex-chatgpt-auth-json"']:
             self.assertFalse(scanner.secret_shaped(label))
+        for credential in ['"credentials":"opaque-private-value"',
+                           '"credentials":"private-codex-chatgpt-auth-json-secret"',
+                           'credentials=private-codex-chatgpt-auth-json']:
+            self.assertTrue(scanner.secret_shaped(credential))
 
     def test_recipe_bounds_secrets_public_prefetch_and_parent_policy(self):
         tool = load('template_tool')

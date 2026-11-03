@@ -166,6 +166,9 @@ environment variables, config/history, known provider token prefixes, private
 key markers, credential assignments, HTTP Authorization headers, credential-bearing
 URLs and JWT shapes. Complete quoted JSON credential values and shell assignments
 are checked; ordinary credential-store metadata labels are allowed.
+The exact JSON pair `"credentials":"private-codex-chatgpt-auth-json"` is a
+public protocol format label embedded in the worker, so it is allowed;
+arbitrary credential values, suffix variants and shell assignments still refuse.
 Values and suspect paths are never printed. This is pattern/path detection,
 not proof that an arbitrary encrypted or unknown-format file is non-secret.
 False positives refuse admission; secrets must never be inputs to a build.

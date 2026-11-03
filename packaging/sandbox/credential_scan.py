@@ -22,7 +22,7 @@ TOKEN_PATTERN = re.compile(
     rb'|(?i:authorization\s*:\s*(?:bearer|basic)\s+[A-Za-z0-9_+/=-]{4,})'
     rb'|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)')
 ASSIGNMENT = re.compile(rb'(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{0,127})[\x22\x27]?\s*=\s*[\x22\x27]?([A-Za-z0-9_+/.-]{4,})')
-JSON_ASSIGNMENT = re.compile(rb'"([A-Za-z][A-Za-z0-9_]{0,127})"\s*:\s*"[A-Za-z0-9_+/=.:,-]{4,4096}"')
+JSON_ASSIGNMENT = re.compile(rb'"([A-Za-z][A-Za-z0-9_]{0,127})"\s*:\s*"([A-Za-z0-9_+/=.:,-]{4,4096})"')
 CREDENTIAL_LABEL = re.compile(r'(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|ACCESS_KEY_ID|SECRET_ACCESS_KEY|OPENAI_KEY)\Z')
 
 
@@ -30,7 +30,12 @@ def secret_shaped(value):
     data = value.encode() if isinstance(value, str) else value
     return bool(TOKEN_PATTERN.search(data) or any(
         CREDENTIAL_LABEL.search(match[1].decode('ascii').upper())
-        for pattern in (ASSIGNMENT, JSON_ASSIGNMENT) for match in pattern.finditer(data)))
+        for match in ASSIGNMENT.finditer(data)) or any(
+        CREDENTIAL_LABEL.search(match[1].decode('ascii').upper())
+        # Public protocol format identifier embedded in the Codex mapper,
+        # not an authentication value. Keep this exception exact and JSON-only.
+        and (match[1], match[2]) != (b'credentials', b'private-codex-chatgpt-auth-json')
+        for match in JSON_ASSIGNMENT.finditer(data)))
 
 
 def json_bytes(data):
