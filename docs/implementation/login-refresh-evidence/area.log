@@ -1,0 +1,64 @@
+COMMAND: ['cargo', 'test', '--locked', '-p', 'aq-session-host', '--lib']
+   Compiling aq-session-host v0.1.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.08s
+     Running unittests src/lib.rs (target/debug/deps/aq_session_host-94b8c16fe1927a75)
+
+running 56 tests
+test io_tests::command_stdout_above_pipe_capacity_is_drained_before_exit ... ok
+test io_tests::large_stdout_fixture ... ignored, subprocess output fixture invoked by bounded output test
+test io_tests::nonregular_and_symlink_material_is_refused ... ok
+test observed::exec::tests::dead_original_server_refuses_even_while_the_pane_identity_is_live ... ok
+test observed::exec::tests::eof_without_matching_live_image_is_not_exec_proof ... ok
+test observed::exec::tests::interactive_prompt_uses_existing_rendered_utf8_and_bounded_argv ... ok
+test observed::exec::tests::scoped_child_environment_omits_private_host_record_route_and_keeps_legacy_contract ... ok
+test observed::executable::tests::actual_native_codex_image_is_sealed_and_charged_without_execution ... ignored, requires explicitly pinned actual native Codex ELF; never executes it
+test observed::executable::tests::byte_entry_digest_header_and_nonregular_sources_refuse_before_admission ... ok
+test io_tests::command_input_and_output_above_pipe_capacity_progress_under_one_deadline ... ok
+test observed::executable::tests::sealed_actual_bytes_survive_path_change_and_cannot_be_written_or_grown ... ok
+test observed::named_environment::tests::caller_thread_writer_is_not_hidden_by_leader_descriptor_table ... ok
+test observed::named_environment::tests::inherited_writable_descriptor_to_exact_inode_refuses_even_without_path_lookup ... ok
+test observed::named_environment::tests::visible_writable_filesystem_refuses_image_device ... ok
+test observed::named_image::tests::named_preflight_checks_actual_bytes_architecture_and_executable_type ... ok
+test observed::named_image::tests::named_readonly_kernel_image_is_charged_once_and_bound_to_live_route ... ignored, requires explicit readonly namespace fixture; hashes host ELF only, never launches Codex
+test private_inputs::reconciliation::tests::actual_rotated_file_unlink_failure_keeps_ack_and_private_bytes_for_recovery ... ok
+test observed::executable::tests::native_profile_is_explicit_charged_and_keeps_legacy_image_limit ... ok
+test private_inputs::reconciliation::tests::changed_rotated_file_after_ack_is_preserved ... ok
+test private_inputs::reconciliation::tests::competing_desktop_and_session_locks_refuse_without_touching_auth ... ok
+test private_inputs::reconciliation::tests::directory_symlink_components_and_pending_foreign_secrets_are_not_followed ... ok
+test private_inputs::reconciliation::tests::disposable_private_home_cannot_be_selected_as_the_desktop_owner ... ok
+test private_inputs::reconciliation::tests::concurrent_owner_rotation_is_preserved_before_write_and_on_retry ... ok
+test private_inputs::reconciliation::tests::durable_owner_and_ack_precede_cleanup_and_completed_replay_is_idempotent ... ok
+test private_inputs::reconciliation::tests::foreign_acknowledgement_cannot_authorize_cleanup ... ok
+test private_inputs::reconciliation::tests::durable_ack_and_unlink_failures_retry_cleanup_without_server_resubmission ... ok
+test private_inputs::reconciliation::tests::lost_ack_retains_rotated_copy_and_restarts_with_identical_operation ... ok
+test private_inputs::reconciliation::tests::mutation_during_server_exchange_preserves_both_copies ... ok
+test private_inputs::reconciliation::tests::ordinary_cleanup_cannot_bypass_pending_reconciliation_even_for_unchanged_bytes ... ok
+test private_inputs::reconciliation::tests::owner_publication_crash_is_recovered_without_rollback_or_new_operation ... ok
+test private_inputs::reconciliation::tests::public_host_api_requires_exact_stopped_proof_and_pinned_configuration ... ok
+test private_inputs::reconciliation::tests::replay_refuses_retargeted_owner_and_changed_journal_binding ... ok
+test private_inputs::reconciliation::tests::unknown_home_files_block_completion_and_are_never_recursively_deleted ... ok
+test private_inputs::tests::publication_refuses_changed_original_bytes_without_writing_auth ... ok
+test private_inputs::tests::reserved_metadata_has_no_auth_bytes_and_original_record_is_rechecked ... ok
+test private_inputs::tests::scoped_auth_contains_only_fresh_capability_and_rechecks_original ... ok
+test private_inputs::tests::scoped_auth_requires_exact_launch_manifest_deadline_and_single_route ... ok
+test private_inputs::tests::subscription_login_is_explicit_closed_bounded_and_errors_hide_tokens ... ok
+test private_inputs::tests::subscription_publication_refuses_changed_original_before_writing ... ok
+test private_inputs::tests::subscription_publication_reuses_original_material_pins_and_private_home ... ok
+test private_inputs::tests::symlink_replacement_and_nonprivate_auth_refuse ... ok
+test reader_lease::tests::packet_fd_is_bounded_and_close_on_exec_and_extra_mutation_fields_refuse ... ok
+test reader_lease::tests::queued_old_drain_cannot_extend_from_dequeue_or_revive_expiry ... ok
+test reaper::tests::reservation_exhaustion_refuses_before_spawning ... ok
+test rendered_tests::final_payload_is_literal_and_bound_to_exact_single_descriptor ... ok
+test rendered_tests::legacy_sealed_configuration_omits_new_optional_field ... ok
+test terminal_output::tests::bounded_continuation_does_not_widen_line_decoded_byte_or_eof_bounds ... ok
+test terminal_output::tests::chunks_preserve_unicode_ansi_octal_and_literal_backslash_without_interpretation ... ok
+test private_inputs::reconciliation::tests::symlink_hardlink_and_nonprivate_files_are_refused ... ok
+test terminal_output::tests::extended_output_and_pause_are_explicit_not_silent_recovery ... ok
+test terminal_output::tests::malformed_foreign_and_oversized_streams_fail_closed ... ok
+test terminal_viewer::tests::actual_readonly_pty_attach_redraws_idle_pane_and_detach_preserves_process ... ok
+test tests::explicit_interactive_permit_hour_does_not_widen_default_limit_or_expiry ... ok
+test tests::independent_permit_is_exact_bounded_and_expiring ... ok
+test tests::local_command_bounds_and_protected_environment ... ok
+test terminal_output::tests::dense_packet_continuation_preserves_every_event_and_escape_boundary ... ok
+
+test result: ok. 53 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 4.36s
