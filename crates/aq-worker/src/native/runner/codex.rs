@@ -574,20 +574,17 @@ async fn drive_running_owned(
             {
                 anyhow::bail!("Codex interactive authentication required; session quarantined");
             }
-            if *shutdown.borrow() {
-                cause = ResultStopCause::Cancelled;
+            let cancelled = *shutdown.borrow();
+            if let Some(stop) = loop_stop_cause(
+                cancelled,
+                || Ok(super::super::http::boot_ns()? >= deadline_ns),
+                || Ok(host.observe()?.phase == HostPhase::Running),
+                result_enabled.then(|| pipeline.poll_result_claim(id)),
+            )
+            .await?
+            {
+                cause = stop;
                 break;
-            }
-            if super::super::http::boot_ns()? >= deadline_ns {
-                cause = ResultStopCause::Expired;
-                break;
-            }
-            if host.observe()?.phase != HostPhase::Running {
-                cause = ResultStopCause::Natural;
-                break;
-            }
-            if result_enabled {
-                pipeline.poll_result_claim(id).await?;
             }
             tokio::select! {
                 _=tokio::time::sleep(std::time::Duration::from_millis(250))=>{},
@@ -694,6 +691,38 @@ async fn drive_running_owned(
     }
     operation?;
     Ok(())
+}
+
+/// One run-loop decision. Cancellation, deadline expiry and natural pane exit
+/// keep their precedence and are observed before the result claim is polled, so
+/// an expired grant is never turned into a claim-recording error. A durably
+/// recorded in-session result claim then ends the session at once instead of
+/// holding it open until the wall deadline and reporting Expired (I0 run 13c).
+async fn loop_stop_cause<P>(
+    cancelled: bool,
+    expired: impl FnOnce() -> Result<bool>,
+    running: impl FnOnce() -> Result<bool>,
+    poll_result: Option<P>,
+) -> Result<Option<crate::native::result::ResultStopCause>>
+where
+    P: std::future::Future<Output = Result<bool>>,
+{
+    use crate::native::result::ResultStopCause;
+    if cancelled {
+        return Ok(Some(ResultStopCause::Cancelled));
+    }
+    if expired()? {
+        return Ok(Some(ResultStopCause::Expired));
+    }
+    if !running()? {
+        return Ok(Some(ResultStopCause::Natural));
+    }
+    if let Some(poll) = poll_result
+        && poll.await?
+    {
+        return Ok(Some(ResultStopCause::ResultRecorded));
+    }
+    Ok(None)
 }
 
 async fn stop_requested(shutdown: &mut watch::Receiver<bool>, deadline_ns: u64) {

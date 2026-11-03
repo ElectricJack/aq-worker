@@ -1,11 +1,28 @@
 //! Actual stopped custody. A deserialized anchor cannot construct this owner.
 use super::*;
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ResultStopCause {
     Natural,
     Cancelled,
     Expired,
     Failure,
+    /// The worker ended a still-running session because its explicit in-session
+    /// result claim was durably recorded. This is not a deadline expiry.
+    ResultRecorded,
+}
+impl ResultStopCause {
+    /// Process outcome retained in the stop anchor. root_status is the tmux
+    /// SERVER wait status and proves no harness exit code, so natural pane exit
+    /// and a worker stop after a recorded result both remain Unknown; the
+    /// recorded claim, not the process outcome, carries the completed work.
+    pub fn process_outcome(self) -> aq_admission::transport::ProcessOutcome {
+        use aq_admission::transport::ProcessOutcome;
+        match self {
+            Self::Cancelled => ProcessOutcome::Cancelled,
+            Self::Expired => ProcessOutcome::Expired,
+            Self::Natural | Self::Failure | Self::ResultRecorded => ProcessOutcome::Unknown,
+        }
+    }
 }
 /// Retains the actual opaque kernel StoppedProof and original result/input owner.
 /// No Clone/Deserialize/reopen. It grants source capture only, never execution.
@@ -95,20 +112,10 @@ impl InputPipeline {
                     "result actual stopped proof differs"
                 );
                 let (_, receipt) = crate::native::journal::result_terminal_stop(a)?;
-                // root_status is the tmux SERVER wait status. It proves no harness
-                // exit code; natural pane disappearance must remain Unknown.
-                let outcome = match cause {
-                    ResultStopCause::Cancelled => {
-                        aq_admission::transport::ProcessOutcome::Cancelled
-                    }
-                    ResultStopCause::Expired => {
-                        ensure!(boot_ns()? >= c.scope.deadline, "result premature expiry");
-                        aq_admission::transport::ProcessOutcome::Expired
-                    }
-                    ResultStopCause::Natural | ResultStopCause::Failure => {
-                        aq_admission::transport::ProcessOutcome::Unknown
-                    }
-                };
+                if matches!(cause, ResultStopCause::Expired) {
+                    ensure!(boot_ns()? >= c.scope.deadline, "result premature expiry");
+                }
+                let outcome = cause.process_outcome();
                 if let Some(stop) = &old.stop {
                     ensure!(
                         stop.proof_digest == proof_digest && stop.stopped_receipt == receipt,
