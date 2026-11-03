@@ -1,0 +1,32 @@
+# docker run --rm --memory 4g --memory-swap 4g --cpus 2 --cap-drop ALL --security-opt no-new-privileges --user agent -e CARGO_HOME=/work/cargo-home <rust@1 sha256:42ac1990…> sh measure.sh
+# aq-server source: git archive of 283e4cc7
+== env
+CARGO_HOME=/work/cargo-home
+CARGO_INCREMENTAL=0
+CARGO_PROFILE_DEV_DEBUG=line-tables-only
+CARGO_PROFILE_TEST_DEBUG=line-tables-only
+== /.cargo/config.toml
+[build]
+jobs = 1
+== limits
+memory.max=4294967296 cpu.max=200000 100000 nproc=24
+== linker
+rustc 1.96.1 (31fca3adb 2026-06-26)
+host: x86_64-unknown-linux-gnu
+fetched
+cargo exit 0
+largest single process max RSS (KiB): 2380116
+wall seconds: 439
+== cgroup
+memory.peak bytes=2925645824
+max 0
+oom 0
+oom_kill 0
+anon 266240
+file 1815519232
+== jobs evidence
+300
+/work/test.out:test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+/work/test.err:    Finished `test` profile [unoptimized + debuginfo] target(s) in 7m 16s
+/work/test.err:     Running tests/config.rs (target/debug/deps/config-80d1cf7012d67ff4)
+== linker used
