@@ -128,6 +128,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             .capabilities()
             .iter()
             .map(|c| match c {
+                Capability::SharedBuildCache => sandbox::BackendCapability::SharedBuildCache,
                 Capability::VmIsolation => sandbox::BackendCapability::VmIsolation,
                 Capability::NestedDocker => sandbox::BackendCapability::NestedDocker,
                 Capability::SuspendSnapshot => sandbox::BackendCapability::SuspendSnapshot,

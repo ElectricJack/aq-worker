@@ -1118,3 +1118,38 @@ fn sandbox_handoff_vectors_derive_from_frozen_phase_payloads() {
         );
     }
 }
+
+#[test]
+fn shared_build_cache_registration_round_trips_and_negotiates() {
+    let mut reg = registration();
+    reg.backend
+        .capabilities
+        .push(BackendCapability::SharedBuildCache);
+    reg.validate().unwrap();
+    let bytes = serde_json::to_vec(&SandboxDocument::Register(reg)).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("shared-build-cache"));
+    decode_document(&bytes).unwrap();
+    let required = vec!["shared-build-cache".to_owned()];
+    assert_eq!(
+        negotiate(&required, &required).unwrap(),
+        CompatibilityReply::Compatible
+    );
+    assert_eq!(
+        negotiate(&required, &[]).unwrap(),
+        CompatibilityReply::UnsupportedRequiredCapability { missing: required }
+    );
+    let mut reg = registration();
+    reg.backend.kind = BackendKind::Boat;
+    reg.backend.capabilities = vec![
+        BackendCapability::VmIsolation,
+        BackendCapability::NestedDocker,
+        BackendCapability::SuspendSnapshot,
+        BackendCapability::PersistentDiskDuringAttempt,
+        BackendCapability::SharedBuildCache,
+    ];
+    reg.validate().unwrap();
+    reg.backend
+        .capabilities
+        .push(BackendCapability::SharedBuildCache);
+    assert_eq!(reg.validate(), Err(ContractError::InvalidShape));
+}

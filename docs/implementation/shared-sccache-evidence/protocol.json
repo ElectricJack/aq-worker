@@ -1,0 +1,15 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-admission@0.3.3",
+    "--test",
+    "sandbox",
+    "--",
+    "--test-threads=2"
+  ],
+  "exit_code": 0,
+  "log": "/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/docs/implementation/shared-sccache-evidence/protocol.log"
+}

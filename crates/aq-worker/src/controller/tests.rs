@@ -509,3 +509,63 @@ async fn heartbeat_does_not_hide_controller_journal_failure() {
     // A replaced root cannot persist draining; admission remains fenced.
     assert_eq!(c.inventory().refusal, Some(RefusalReason::GrantDenied));
 }
+
+#[tokio::test]
+async fn shared_sccache_node_config_controls_backend_registration() {
+    use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig, SandboxConfig};
+    use crate::backend::docker_local::{
+        DockerRequest, DockerResponse, DockerTransport, TransportError,
+    };
+    struct Daemon;
+    impl DockerTransport for Daemon {
+        async fn send(
+            &self,
+            _: DockerRequest,
+        ) -> std::result::Result<DockerResponse, TransportError> {
+            Ok(DockerResponse { status: 200, body: serde_json::to_vec(&serde_json::json!({
+                "SecurityOptions": ["name=rootless"], "CgroupDriver": "systemd", "CgroupVersion": "2"
+            })).unwrap() })
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("sandbox.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let path = dir.path().join("controller.json");
+    let mut node = config();
+    node.templates.clear();
+    let base = serde_json::json!({
+        "state_dir": dir.path().join("state"), "node": node,
+        "docker_local": {"socket": socket}
+    });
+    assert!(!DockerLocalConfig::new(socket).shared_sccache);
+    assert!(!SandboxConfig::default().shared_sccache);
+    for enabled in [None, Some(false), Some(true)] {
+        let mut doc = base.clone();
+        if let Some(enabled) = enabled {
+            doc["sandbox"] = serde_json::json!({"shared_sccache": enabled});
+        }
+        fs::write(&path, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let config = RunConfig::load(&path).unwrap();
+        assert_eq!(config.docker_local.shared_sccache, enabled.unwrap_or(false));
+        let backend = DockerLocalBackend::connect(config.docker_local, Daemon)
+            .await
+            .unwrap();
+        let c = Controller::open(
+            &config.state_dir,
+            Uuid::from_u128(1),
+            config.node,
+            backend,
+            Provider,
+        )
+        .unwrap();
+        let registration = c.registration().unwrap();
+        registration.validate().unwrap();
+        assert_eq!(
+            registration
+                .backend
+                .capabilities
+                .contains(&sandbox::BackendCapability::SharedBuildCache),
+            enabled.unwrap_or(false)
+        );
+    }
+}

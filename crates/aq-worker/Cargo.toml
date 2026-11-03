@@ -8,7 +8,7 @@ publish.workspace = true
 aq-observation = { path = "../aq-observation", version = "=0.1.0" }
 aq-observation-engine = { path = "../aq-observation-engine", version = "=0.0.1" }
 aq-observation-redb-prototype = { path = "../aq-observation-redb-prototype", version = "=0.0.5" }
-aq-admission-sandbox = { package = "aq-admission", path = "../../protocol/aq-admission", version = "=0.3.2" }
+aq-admission-sandbox = { package = "aq-admission", path = "../../protocol/aq-admission", version = "=0.3.3" }
 aq-agent-result-local = { path = "../aq-agent-result-local", version = "=0.1.0" }
 aq-responses-transport.workspace = true
 aq-codex-mapper = { path = "../aq-codex-mapper", version = "=0.1.1" }

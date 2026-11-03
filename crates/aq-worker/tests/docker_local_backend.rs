@@ -416,6 +416,88 @@ async fn launch_policy_is_fixed() {
 }
 
 #[tokio::test]
+async fn shared_sccache_is_opt_in_and_required_capability_is_enforced() {
+    let mut h = harness().await;
+    assert!(!h.backend.config().shared_sccache);
+    assert!(
+        !h.backend
+            .capabilities()
+            .contains(&Capability::SharedBuildCache)
+    );
+    let mut request = request(1, 2, 3);
+    request
+        .required_capabilities
+        .push(Capability::SharedBuildCache);
+    assert_eq!(
+        h.backend.create(&request).await,
+        Err(BackendError::UnsupportedCapability(
+            Capability::SharedBuildCache
+        ))
+    );
+    assert!(h.docker.requests().is_empty());
+    request.required_capabilities.pop();
+    h.backend.create(&request).await.unwrap();
+    let body = h.docker.container(&request.name).unwrap().body;
+    assert_eq!(body["Env"], json!([]));
+    assert_eq!(body["HostConfig"]["Mounts"].as_array().unwrap().len(), 1);
+    assert!(
+        h.docker
+            .volume("aq-00000000000000000000000000000001-sccache")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn shared_sccache_reuses_capped_volume_and_survives_attempt_destroy() {
+    let mut h = harness_with(ScriptedDocker::new(), |config| config.shared_sccache = true).await;
+    assert!(
+        h.backend
+            .capabilities()
+            .contains(&Capability::SharedBuildCache)
+    );
+    let mut first = request(1, 2, 3);
+    first
+        .required_capabilities
+        .push(Capability::SharedBuildCache);
+    let sandbox = h.backend.create(&first).await.unwrap();
+    let body = h.docker.container(&first.name).unwrap().body;
+    assert_eq!(
+        body["Env"],
+        json!(["SCCACHE_DIR=/var/cache/sccache", "SCCACHE_CACHE_SIZE=10G"])
+    );
+    assert_eq!(
+        body["HostConfig"]["Mounts"][1],
+        json!({
+            "Type": "volume", "Source": "aq-00000000000000000000000000000001-sccache",
+            "Target": "/var/cache/sccache", "ReadOnly": false
+        })
+    );
+    h.docker.put_file(
+        &first.name,
+        "/var/cache/sccache/entry",
+        b"compiled".to_vec(),
+    );
+    let second = request(1, 5, 4);
+    h.backend.create(&second).await.unwrap();
+    assert_eq!(
+        h.docker.container(&second.name).unwrap().body["HostConfig"]["Mounts"][1],
+        body["HostConfig"]["Mounts"][1]
+    );
+    let release = DestroyAuthorization::operator_released(sandbox.clone(), "test").unwrap();
+    assert!(h.backend.destroy(&sandbox, &release).await.is_confirmed());
+    assert!(h.docker.volume(&format!("{}-work", first.name)).is_none());
+    let cache = h
+        .docker
+        .volume("aq-00000000000000000000000000000001-sccache")
+        .unwrap();
+    assert_eq!(cache.files["/entry"].data, b"compiled");
+    assert_eq!(cache.labels, json!({}));
+    let inventory = h.backend.list_owned(Uuid::from_u128(1)).await.unwrap();
+    assert_eq!(inventory.len(), 1);
+    assert_eq!(inventory[0].name, second.name);
+}
+
+#[tokio::test]
 async fn refuses_unallowlisted_template() {
     let mut h = harness().await;
     let mut request = request(1, 2, 3);

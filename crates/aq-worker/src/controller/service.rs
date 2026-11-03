@@ -11,6 +11,8 @@ pub struct RunConfig {
     pub state_dir: PathBuf,
     pub node: NodeConfig,
     pub docker_local: crate::backend::docker_local::DockerLocalConfig,
+    #[serde(default)]
+    pub sandbox: crate::backend::docker_local::SandboxConfig,
     /// C4: advertise templates resolved from the C3b allowlist file.
     #[serde(default)]
     pub template_allowlist: Option<super::allowlist::TemplateAllowlistConfig>,
@@ -27,6 +29,7 @@ impl RunConfig {
             "controller configuration too large"
         );
         let mut config: Self = serde_json::from_slice(&bytes)?;
+        config.docker_local.shared_sccache = config.sandbox.shared_sccache;
         if let Some(allowlist) = &config.template_allowlist {
             let resolved = super::allowlist::load(allowlist, path)?;
             config.node.templates.extend(resolved);

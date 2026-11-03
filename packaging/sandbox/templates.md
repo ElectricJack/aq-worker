@@ -239,3 +239,33 @@ must be unique in the allowlist, matching aq-server's reading of the file
 `InstalledHarness.environment.digest` C4 pins, and `harnesses` lists the
 entry's exact `harness_versions`. Each resolved digest must also be a
 `docker_local.templates` entry or the configuration is refused.
+
+## Shared compiler cache (SBX26)
+
+The node controller JSON opts in with a top-level sandbox block:
+
+```json
+"sandbox": {"shared_sccache": true}
+```
+
+The default is false. On docker-local, enabling it mounts the dedicated sandbox
+daemon's node-owned volume `aq-<node UUID without hyphens>-sccache` read-write at
+`/var/cache/sccache` in every attempt and sets `SCCACHE_DIR=/var/cache/sccache` and
+`SCCACHE_CACHE_SIZE=10G`. The 10G cap is sccache's eviction budget, not a disk
+quota. This volume persists across attempts and node boots; attempt cleanup
+removes only the attempt's work volume. Cache contents are disposable and shared
+among all attempts on that node, creating a cross-attempt integrity trade-off.
+Never enable this option on nodes running untrusted projects. Its sandbox
+filesystem storage budget is 0 GB when off and 10 GB when enabled.
+Operators may remove the cache volume when no sandbox uses it.
+
+Templates using this cache must provide sccache, configure their compiler to
+use it (for Rust, `RUSTC_WRAPPER=sccache`), and ensure the cache directory is
+writable by the build user. Provision the volume with that ownership or initialize
+it from a template's writable `/var/cache/sccache` directory. The opt-in does not
+install tools or change compiler selection. Single-use Rust builds retain
+`CARGO_INCREMENTAL=0` from the template tool.
+
+Registration advertises `shared-build-cache` only when this option is enabled.
+Offers cannot enable it or select a host path. Peers requiring the capability
+must consume aq-admission 0.3.3 or later and negotiate it before acceptance.

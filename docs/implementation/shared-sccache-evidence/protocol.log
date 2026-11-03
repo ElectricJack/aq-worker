@@ -1,0 +1,24 @@
+   Compiling aq-admission v0.3.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/protocol/aq-admission)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.47s
+     Running tests/sandbox.rs (target/debug/deps/sandbox-efde7a21f253af11)
+
+running 16 tests
+test sandbox_context_is_validated_and_secret_debug_is_redacted ... ok
+test sandbox_awaiting_readoption_has_no_deadline_extension ... ok
+test sandbox_decoding_rejects_unknown_duplicate_fields_and_oversized_frames ... ok
+test sandbox_phase_receipt_projections_keep_native_identity_and_deadlines ... ok
+test sandbox_handoff_vectors_derive_from_frozen_phase_payloads ... ok
+test sandbox_registration_rejects_duplicates_bounds_and_false_capabilities ... ok
+test sandbox_published_fixtures_conform ... ok
+test sandbox_renewal_accepts_only_live_correlated_extensions_from_prior_state ... ok
+test sandbox_schema_constrains_versions_and_missing_capability_bounds ... ok
+test sandbox_schema_drift ... ok
+test sandbox_renewal_delivery_cannot_retime_replay_or_revive_local_expiry ... ok
+test sandbox_stopped_original_boot_replay_after_readoption ... ok
+test sandbox_stopped_readoption_preserves_ended_scope ... ok
+test sandbox_stopped_replay_refuses_mismatched_or_forged_boot ... ok
+test shared_build_cache_registration_round_trips_and_negotiates ... ok
+test sandbox_stopped_same_boot_replay ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+

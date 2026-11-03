@@ -22,6 +22,7 @@ pub enum BackendCapability {
     NestedDocker,
     SuspendSnapshot,
     PersistentDiskDuringAttempt,
+    SharedBuildCache,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -61,7 +62,7 @@ pub struct TemplateAdvertisement {
 #[serde(deny_unknown_fields)]
 pub struct BackendAdvertisement {
     pub kind: BackendKind,
-    #[schemars(length(max = 4))]
+    #[schemars(length(max = 5))]
     pub capabilities: Vec<BackendCapability>,
     #[schemars(range(min = 1, max = 65535))]
     pub max_concurrent_sandboxes: u32,
@@ -73,7 +74,7 @@ impl BackendAdvertisement {
     pub fn validate(&self) -> Result<()> {
         check(
             (1..=65535).contains(&self.max_concurrent_sandboxes)
-                && self.capabilities.len() <= 4
+                && self.capabilities.len() <= 5
                 && self.templates.len() <= 128,
             ContractError::InvalidShape,
         )?;
@@ -178,6 +179,7 @@ pub fn negotiate(required: &[String], supported: &[String]) -> Result<Compatibil
         "nested-docker",
         "suspend-snapshot",
         "persistent-disk-during-attempt",
+        "shared-build-cache",
     ];
     let missing: Vec<_> = required
         .iter()
