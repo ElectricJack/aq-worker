@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--test",
+    "controller_cli",
+    "--test",
+    "client",
+    "--test",
+    "foundation_lifecycle",
+    "--test",
+    "backend_conformance"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5a-evidence/revision-area.log"
+}

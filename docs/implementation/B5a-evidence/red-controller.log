@@ -1,0 +1,117 @@
+warning: field `backend` is never read
+  --> crates/aq-worker/src/controller/mod.rs:11:5
+   |
+10 | pub struct Controller<B: PlacementBackend, P: PermitProvider> {
+   |            ---------- field in this struct
+11 |     backend: B,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `open_journal` is never used
+   --> crates/aq-worker/src/native/runner.rs:244:4
+    |
+244 | fn open_journal(config: &NativeConfig, node: Uuid) -> Result<Journal> {
+    |    ^^^^^^^^^^^^
+
+warning: `aq-worker` (lib) generated 2 warnings
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 14s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-85b5f771be1e69d4)
+
+running 12 tests
+test controller::tests::unregistered_and_wrong_boot_offers_are_refused ... FAILED
+test controller::lifecycle_tests::stop_and_destroy_require_confirmation_and_retention ... FAILED
+test controller::lifecycle_tests::journal_records_intent_before_backend_create ... FAILED
+test controller::lifecycle_tests::wrong_permit_cannot_deliver_or_start ... FAILED
+test controller::lifecycle_tests::ambiguous_create_is_not_retried_or_released ... FAILED
+test controller::tests::capacity_checks_spend_resources_environment_and_drain ... FAILED
+test controller::tests::reservation_is_durable_before_acceptance_and_timeout_holds_capacity ... FAILED
+test controller::tests::registration_advertises_actual_backend_and_template_versions ... FAILED
+test controller::tests::capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason ... FAILED
+test controller::tests::startup_rejects_second_owner_bad_version_symlink_and_missing_state ... FAILED
+test controller::tests::root_replacement_prevents_reservation_or_acceptance ... FAILED
+test controller::tests::startup_rotates_boot_and_holds_old_reservations ... FAILED
+
+failures:
+
+---- controller::tests::unregistered_and_wrong_boot_offers_are_refused stdout ----
+
+thread 'controller::tests::unregistered_and_wrong_boot_offers_are_refused' (1789089) panicked at crates/aq-worker/src/controller/mod.rs:16:49:
+not yet implemented: fresh incarnation
+
+---- controller::lifecycle_tests::stop_and_destroy_require_confirmation_and_retention stdout ----
+
+thread 'controller::lifecycle_tests::stop_and_destroy_require_confirmation_and_retention' (1789080) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- controller::lifecycle_tests::journal_records_intent_before_backend_create stdout ----
+
+thread 'controller::lifecycle_tests::journal_records_intent_before_backend_create' (1789079) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+---- controller::lifecycle_tests::wrong_permit_cannot_deliver_or_start stdout ----
+
+thread 'controller::lifecycle_tests::wrong_permit_cannot_deliver_or_start' (1789081) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+---- controller::lifecycle_tests::ambiguous_create_is_not_retried_or_released stdout ----
+
+thread 'controller::lifecycle_tests::ambiguous_create_is_not_retried_or_released' (1789078) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+---- controller::tests::capacity_checks_spend_resources_environment_and_drain stdout ----
+
+thread 'controller::tests::capacity_checks_spend_resources_environment_and_drain' (1789082) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+---- controller::tests::reservation_is_durable_before_acceptance_and_timeout_holds_capacity stdout ----
+
+thread 'controller::tests::reservation_is_durable_before_acceptance_and_timeout_holds_capacity' (1789085) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+---- controller::tests::registration_advertises_actual_backend_and_template_versions stdout ----
+
+thread 'controller::tests::registration_advertises_actual_backend_and_template_versions' (1789084) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+---- controller::tests::capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason stdout ----
+
+thread 'controller::tests::capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason' (1789083) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+---- controller::tests::startup_rejects_second_owner_bad_version_symlink_and_missing_state stdout ----
+
+thread 'controller::tests::startup_rejects_second_owner_bad_version_symlink_and_missing_state' (1789087) panicked at crates/aq-worker/src/controller/tests.rs:78:5:
+assertion failed: Controller::open(&dir.path().join("node"), Uuid::from_u128(1), config(),
+        FakeBackend::default(), Provider).is_err()
+
+---- controller::tests::root_replacement_prevents_reservation_or_acceptance stdout ----
+
+thread 'controller::tests::root_replacement_prevents_reservation_or_acceptance' (1789086) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+---- controller::tests::startup_rotates_boot_and_holds_old_reservations stdout ----
+
+thread 'controller::tests::startup_rotates_boot_and_holds_old_reservations' (1789088) panicked at crates/aq-worker/src/controller/mod.rs:19:58:
+not yet implemented: registration
+
+
+failures:
+    controller::lifecycle_tests::ambiguous_create_is_not_retried_or_released
+    controller::lifecycle_tests::journal_records_intent_before_backend_create
+    controller::lifecycle_tests::stop_and_destroy_require_confirmation_and_retention
+    controller::lifecycle_tests::wrong_permit_cannot_deliver_or_start
+    controller::tests::capacity_checks_spend_resources_environment_and_drain
+    controller::tests::capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason
+    controller::tests::registration_advertises_actual_backend_and_template_versions
+    controller::tests::reservation_is_durable_before_acceptance_and_timeout_holds_capacity
+    controller::tests::root_replacement_prevents_reservation_or_acceptance
+    controller::tests::startup_rejects_second_owner_bad_version_symlink_and_missing_state
+    controller::tests::startup_rotates_boot_and_holds_old_reservations
+    controller::tests::unregistered_and_wrong_boot_offers_are_refused
+
+test result: FAILED. 0 passed; 12 failed; 0 ignored; 0 measured; 236 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

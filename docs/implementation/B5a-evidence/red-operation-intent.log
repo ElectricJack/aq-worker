@@ -1,0 +1,10 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-worker)
+error[E0432]: unresolved import `aq_worker::controller::RunConfig`
+   --> crates/aq-worker/src/main.rs:396:57
+    |
+396 |                 use aq_worker::controller::{Controller, RunConfig, UnavailableProvider};
+    |                                                         ^^^^^^^^^ no `RunConfig` in `controller`
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `aq-worker` (bin "aq-worker" test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

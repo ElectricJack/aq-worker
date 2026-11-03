@@ -100,16 +100,12 @@ pub async fn run_once<E: NativeExecutor>(
         .open(&config.state_dir)?;
     fs2::FileExt::try_lock_exclusive(&held).context("native state scope already owned")?;
     check_root(&config, &held)?;
+    let journal = open_journal(&config, worker.node_id)?;
     ensure!(
-        !config.state_dir.join("journal").exists() && !config.state_dir.join("materials").exists(),
-        "existing native state requires historical recovery; fresh invocation refused"
+        !journal.recovery_required(),
+        "validated native history requires B5b reconciliation before admission"
     );
     let (heartbeat, shutdown) = heartbeat::Heartbeat::start(worker, shutdown).await?;
-    let journal = Journal::create(
-        &config.state_dir.join("journal"),
-        worker.node_id,
-        config.capacity.clone(),
-    )?;
     let identity = journal.state().identity.clone();
     std::fs::DirBuilder::new()
         .mode(0o700)
@@ -241,3 +237,19 @@ mod config_tests;
 #[cfg(test)]
 #[path = "runner/profile_tests.rs"]
 mod profile_tests;
+
+fn open_journal(config: &NativeConfig, node: Uuid) -> Result<Journal> {
+    let root = config.state_dir.join("journal");
+    match std::fs::symlink_metadata(&root) {
+        Ok(_) => Journal::open(&root, node, config.capacity.clone()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            ensure!(
+                std::fs::symlink_metadata(config.state_dir.join("materials"))
+                    .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
+                "orphan native materials require reconciliation"
+            );
+            Journal::create(&root, node, config.capacity.clone())
+        }
+        Err(error) => Err(error.into()),
+    }
+}

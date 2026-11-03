@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--lib",
+    "native::runner::"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5a-evidence/revision-native.log"
+}
