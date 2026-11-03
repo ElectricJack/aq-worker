@@ -43,9 +43,7 @@ async fn phase_physical(
     let before = h.pipeline().snapshot().await.unwrap();
     let a = &before.attempts[&h.id];
     let cap = a.reservation.deadline_ns;
-    while boot_ns().unwrap() <= cap {
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
+    crate::native::http::test_clock::expire(cap).await;
     let spec = h
         .pipeline()
         .artifact_refresh(h.id, accepted.clone(), h.reference.clone())

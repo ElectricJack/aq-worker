@@ -26,6 +26,8 @@ mod refresh_history;
 mod refresh_terminal;
 mod scoped_presence;
 pub mod source;
+#[cfg(test)]
+pub(crate) mod test_clock;
 
 #[derive(Clone)]
 pub struct NativeClient {
@@ -110,6 +112,10 @@ fn body_type(response: &Response) -> Result<()> {
     Ok(())
 }
 pub(super) fn boot_ns() -> Result<u64> {
+    #[cfg(test)]
+    if let Some(now) = test_clock::now() {
+        return Ok(now);
+    }
     let mut time = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,

@@ -126,6 +126,7 @@ async fn phase_execution_replay_never_replaces_first_history_or_extends_caps() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn phase_execution_outlives_preparation_without_retiming_historical_source_proof() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let mut h = Inputs::new_phase(export).await;
@@ -137,9 +138,8 @@ async fn phase_execution_outlives_preparation_without_retiming_historical_source
     let old_source_cap = inputs.workspace().deadline_ns();
     let o = Arc::new(observed(&h, &inputs, None).await);
     let request = inputs.request().clone();
-    while boot_ns().unwrap() <= old_source_cap {
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    }
+    crate::native::http::test_clock::expire(old_source_cap).await;
+    assert!(boot_ns().unwrap() > old_source_cap);
     let PhaseExecutionCommit::Usable(owner) = h
         .pipeline()
         .record_phase_execution(inputs, o.clone())
@@ -197,6 +197,7 @@ async fn phase_execution_outlives_preparation_without_retiming_historical_source
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn phase_execution_expiry_during_fsync_is_history_only_and_keeps_resources() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new_phase(export).await;
@@ -210,9 +211,7 @@ async fn phase_execution_expiry_during_fsync_is_history_only_and_keeps_resources
     let pipeline = h.pipeline().clone();
     let task = tokio::spawn(async move { pipeline.record_phase_execution(inputs, o).await });
     pause_entered(&pause).await;
-    while boot_ns().unwrap() <= end {
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-    }
+    crate::native::http::test_clock::expire(end).await;
     pause.release();
     assert!(matches!(
         task.await.unwrap().unwrap(),
@@ -368,6 +367,7 @@ async fn phase_execution_current_private_record_and_git_changes_refuse_without_e
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive_owner() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let legacy = Inputs::new(export).await;
