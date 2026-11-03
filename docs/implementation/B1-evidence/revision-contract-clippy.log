@@ -1,0 +1,13 @@
+    Blocking waiting for file lock on build directory
+    Checking crypto-common v0.1.7
+    Checking uuid v1.29.0
+    Checking digest v0.10.7
+    Checking serde v1.0.229
+    Checking ref-cast v1.0.27
+    Checking sha2 v0.10.9
+    Checking thiserror v2.0.21
+    Checking schemars v1.2.3
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-protocol)
+    Checking aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-lifecycle-protocol)
+    Checking aq-admission v0.2.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/protocol/aq-admission)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 29.56s
