@@ -1,10 +1,11 @@
 //! Fresh control deliveries are process-local observations, not host permits.
 //! The driver must durably own operations, reservations and recovery separately.
 use super::*;
+use anyhow::Context;
 use aq_admission::{
     control as wire,
     startup::NativeOffer,
-    transport::{Accept, Poll, PreparationPlan, Prepare, Reconcile, Renew},
+    transport::{Accept, DeliveryClock, Poll, PreparationPlan, Prepare, Reconcile, Renew},
 };
 
 pub struct PollObservation {
@@ -102,6 +103,26 @@ fn live(deadline: u64) -> Result<()> {
     ensure!(boot_ns()? < deadline, "native local authority expired");
     Ok(())
 }
+/// Local deadline for an offered poll delivery. The server retimes
+/// `valid_for_ms` from the immutable offer expiry when it builds the reply,
+/// i.e. after its own poll processing (selection alone is ~0.7-0.9 s). That
+/// elapsed time is therefore already deducted from `valid_for_ms`; anchoring
+/// the remaining window at poll send would deduct it a second time from a
+/// window that is only ~1.4-1.8 s (I0 run 13 offer_window_race). Anchor at
+/// response receipt instead. The server remains authoritative for a late
+/// Accept; this only stops the worker discarding a still-live offer.
+fn offer_deadline_ns(clock: &DeliveryClock, sent_ns: u64, received_ns: u64) -> Result<u64> {
+    clock.validate()?;
+    ensure!(received_ns >= sent_ns, "monotonic response interval");
+    received_ns
+        .checked_add(
+            clock
+                .valid_for_ms
+                .checked_mul(1_000_000)
+                .context("native offer deadline overflow")?,
+        )
+        .context("native offer deadline overflow")
+}
 impl NativeClient {
     async fn control_reply(
         &self,
@@ -151,10 +172,7 @@ impl NativeClient {
             .offers
             .iter()
             .map(|v| {
-                let deadline = v
-                    .offered
-                    .clock
-                    .client_deadline_ns(got.sent_ns, got.received_ns)?;
+                let deadline = offer_deadline_ns(&v.offered.clock, got.sent_ns, got.received_ns)?;
                 live(deadline)?;
                 Ok(deadline)
             })
@@ -353,5 +371,52 @@ impl NativeClient {
         };
         page.validate_for(request, got.nonce)?;
         Ok(page)
+    }
+}
+
+#[cfg(test)]
+mod offer_deadline_tests {
+    use super::*;
+    const MS: u64 = 1_000_000;
+
+    /// I0 runs 13a/13b: the server stamps a ~1.4 s window after ~0.9 s of poll
+    /// processing. A send-anchored deadline expires ~0.5 s after receipt, so the
+    /// following proposal round trip lost by -22 ms / +1 ms. The receipt-anchored
+    /// deadline keeps the full stated window after the reply arrives.
+    #[test]
+    fn offer_window_is_anchored_at_poll_receipt_not_send() {
+        let clock = DeliveryClock::new(1_000_900, 1_002_300).unwrap();
+        assert_eq!(clock.valid_for_ms, 1_400);
+        let (sent, received) = (10_000 * MS, 10_920 * MS);
+        let send_anchored = clock.client_deadline_ns(sent, received).unwrap();
+        assert_eq!(send_anchored - received, 480 * MS);
+        let deadline = offer_deadline_ns(&clock, sent, received).unwrap();
+        assert_eq!(deadline, received + 1_400 * MS);
+        // A proposal sent 500 ms after receipt is still inside the window.
+        assert!(received + 500 * MS < deadline && received + 500 * MS >= send_anchored);
+    }
+
+    #[test]
+    fn poll_latency_beyond_the_stated_window_still_leaves_the_stated_window() {
+        // Send-anchoring refused this delivery outright ("consumed remaining TTL").
+        let clock = DeliveryClock::new(1_500, 2_000).unwrap();
+        let (sent, received) = (MS, 700 * MS);
+        assert!(clock.client_deadline_ns(sent, received).is_err());
+        assert_eq!(
+            offer_deadline_ns(&clock, sent, received).unwrap(),
+            received + 500 * MS
+        );
+    }
+
+    #[test]
+    fn offer_deadline_refuses_invalid_clocks_and_intervals() {
+        let clock = DeliveryClock::new(1_500, 2_000).unwrap();
+        assert!(offer_deadline_ns(&clock, 20, 10).is_err());
+        assert!(offer_deadline_ns(&clock, 0, u64::MAX).is_err());
+        let mut bad = clock.clone();
+        bad.valid_for_ms = 0;
+        assert!(offer_deadline_ns(&bad, 0, 1).is_err());
+        bad.valid_for_ms = 120_001;
+        assert!(offer_deadline_ns(&bad, 0, 1).is_err());
     }
 }
