@@ -1,0 +1,23 @@
+Mutation: drop only this regression TestClock at the entered fsync barrier, restoring kernel CLOCK_BOOTTIME for completion.
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized] target(s) in 1m 19s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-bdece74eabfdfb5a)
+
+running 1 test
+test native::journal::tests::hydration_scenarios::granted_scenarios::delayed_fsync_uses_explicit_deadline_instead_of_elapsed_wall_time ... FAILED
+
+failures:
+
+---- native::journal::tests::hydration_scenarios::granted_scenarios::delayed_fsync_uses_explicit_deadline_instead_of_elapsed_wall_time stdout ----
+
+thread 'native::journal::tests::hydration_scenarios::granted_scenarios::delayed_fsync_uses_explicit_deadline_instead_of_elapsed_wall_time' (2514674) panicked at crates/aq-worker/src/native/journal/granted_scenarios.rs:284:9:
+wall-time storage delay expired a frozen test receipt
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    native::journal::tests::hydration_scenarios::granted_scenarios::delayed_fsync_uses_explicit_deadline_instead_of_elapsed_wall_time
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 284 filtered out; finished in 2.63s
+
+error: test failed, to rerun pass `-p aq-worker --lib`
