@@ -88,3 +88,11 @@
 **Signal test RED/GREEN:** real execution exposed Linux's same-session SIGCONT exception in the direct subprocess fixture. The standalone fixture now calls `setsid` before its agent transition. Both direct and real tmux probes require distinct runner/agent sessions, verify the target's live runner UID, and require both signal 0 and SIGCONT to fail with EPERM. The first exact workspace rerun passes one named user test; final qualification also covers the explicit residual CapBnd assertion and accurate capability wording.
 
 **Recovery outcome:** both named acceptance tests and every scoped check pass under the superseding supervisor scope ruling. Final evidence: `docs/implementation/B6b.md` recovery section and `B6b-evidence/recovery-*.log`. No SETPCAP, bootstrap privilege, image, backend-policy, production transport or journal-fixture changes were made during recovery.
+
+### Owner close feedback: one privileged-exec probe
+
+Owner message `msg-9c640dff06c94d82b92702877b766033` replaces the earlier all-empty-bounding requirement with: zero Inh/Prm/Eff/Amb, no_new_privs set, CapBnd a subset of KILL/SETGID/SETUID, and one fast real exec probe showing those privileges cannot be regained. No SETPCAP or bootstrap changes; targeted named checks only.
+
+- [x] Before bootstrap, copy the fixture executable into a root-owned directory, set the copy mode 04755 and the directory 0755, and verify root ownership/setuid bit. Pass its path only to the standalone agent probe.
+- [x] After the existing agent probe, exec that root-owned setuid executable with a `suid-exec-probe` role. Require real/effective UID remain agent, NNP remain 1, and all four active capability sets remain empty. This is one privileged exec, with no production code or fixture capability changes.
+- [x] Run the exact user acceptance filter: one actual test passed in 3.64s with the privileged-exec assertions. Formatting and incremental Clippy pass (2.26s). Final publication/close record carries this follow-up; no broad test suites were repeated.

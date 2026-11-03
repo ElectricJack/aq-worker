@@ -5,7 +5,15 @@ use aq_session_host::{
     *,
 };
 use aq_worker::native::runner::sandbox::private::RunnerFiles;
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, time::Duration};
+use std::{
+    fs,
+    os::unix::{
+        fs::{MetadataExt, PermissionsExt},
+        process::CommandExt,
+    },
+    path::Path,
+    time::Duration,
+};
 const RUNNER: AgentIdentity = AgentIdentity {
     uid: 21001,
     gid: 21001,
@@ -24,7 +32,32 @@ fn main() -> Result<()> {
         // Linux permits cross-UID SIGCONT within a shared session.
         ensure!(unsafe { libc::setsid() } >= 0, "fixture agent session");
         AGENT.drop_privileges()?;
-        return agent_probe(Path::new(&args[2]), args[3].parse()?);
+        agent_probe(Path::new(&args[2]), args[3].parse()?)?;
+        return Err(std::process::Command::new(&args[4])
+            .arg("suid-exec-probe")
+            .env_clear()
+            .exec()
+            .into());
+    }
+    if args.get(1).is_some_and(|s| s == "suid-exec-probe") {
+        ensure!(
+            unsafe { libc::getuid() } == AGENT.uid && unsafe { libc::geteuid() } == AGENT.uid,
+            "setuid exec regained root identity"
+        );
+        let status = fs::read_to_string("/proc/self/status")?;
+        ensure!(
+            status.lines().any(|line| line == "NoNewPrivs:\t1"),
+            "exec lost no_new_privs"
+        );
+        for field in ["CapInh", "CapPrm", "CapEff", "CapAmb"] {
+            ensure!(
+                status
+                    .lines()
+                    .any(|line| line == format!("{field}:\t0000000000000000")),
+                "setuid exec regained capabilities"
+            );
+        }
+        return Ok(());
     }
     if args.get(1).is_some_and(|s| s == "harness") {
         let runner_pid = args[3].parse()?;
@@ -55,6 +88,19 @@ fn main() -> Result<()> {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+    // One privileged exec proves no_new_privs suppresses a real root-owned
+    // setuid binary. The fixture is prepared before dropping root, without
+    // granting any capability beyond the original KILL/SETGID/SETUID set.
+    let suid_directory = tempfile::tempdir()?;
+    let suid_executable = suid_directory.path().join("suid-probe");
+    fs::copy(std::env::current_exe()?, &suid_executable)?;
+    fs::set_permissions(&suid_executable, fs::Permissions::from_mode(0o4755))?;
+    fs::set_permissions(suid_directory.path(), fs::Permissions::from_mode(0o755))?;
+    let metadata = fs::symlink_metadata(&suid_executable)?;
+    ensure!(
+        metadata.is_file() && metadata.uid() == 0 && metadata.mode() & 0o7777 == 0o4755,
+        "privileged exec fixture must be root-owned and setuid"
+    );
     // Fixture-local accounts exercise the same name lookup as sandbox-run.
     let mut passwd = fs::read_to_string("/etc/passwd")?;
     passwd.push_str(
@@ -84,6 +130,7 @@ fn main() -> Result<()> {
             "agent-probe",
             files.root().to_str().unwrap(),
             &std::process::id().to_string(),
+            suid_executable.to_str().unwrap(),
         ])
         .env_clear()
         .output()?;
@@ -157,7 +204,7 @@ fn main() -> Result<()> {
         "agent descendant still writing"
     );
     println!(
-        "runner UID 21001, agent UID 21002; credential denial, empty groups and Inh/Prm/Eff/Amb, residual CapBnd=0xe0, no_new_privs=1, outside-pane signal 0/SIGCONT denied with EPERM, tmux execution and descendant stop proven"
+        "runner UID 21001, agent UID 21002; credential denial, empty groups and Inh/Prm/Eff/Amb, residual CapBnd=0xe0, no_new_privs=1, root-owned 04755 exec retained agent UID and empty active capabilities, outside-pane signal 0/SIGCONT denied with EPERM, tmux execution and descendant stop proven"
     );
     Ok(())
 }

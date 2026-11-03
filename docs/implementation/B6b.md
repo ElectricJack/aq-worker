@@ -2,7 +2,7 @@
 
 Task: `noble-summit-37.8`. Implementation plan: [runner users and proxies](../superpowers/plans/2026-11-02-B6b-runner-users-proxies.md).
 
-Status: **PASS** for both named acceptance tests and all current scoped checks under supervisor ruling `msg-7ea45832655a419ea5723f75e6c1212f`. The approved residual bounding set is documented below. Historical claim-epoch-1 full-suite failures remain part of this record; no full-suite pass is claimed.
+Status: **PASS** for both named acceptance tests and all current scoped checks under supervisor ruling `msg-7ea45832655a419ea5723f75e6c1212f` and final owner decision `msg-9c640dff06c94d82b92702877b766033`. The approved residual bounding set is documented below. Historical claim-epoch-1 full-suite failures remain part of this record; no full-suite pass is claimed.
 
 ## Behavior and integration
 
@@ -86,3 +86,11 @@ Recovery qualification source: `ebc4b27f0bf4883d972865184086c35a82663b58`, alrea
 | `scripts/test-b6b-root.sh target/debug/aq-b6b-user-probe` | all kernel assertions passed | [kernel evidence](B6b-evidence/recovery-kernel-probe.log) |
 
 [Exit-status ledger](B6b-evidence/recovery-status.log). No historical whole-suite failures were weakened or silently treated as passes. Production transport/Codex configuration remain with B6a2/C6a, as required by the task boundary. Recovery introduces no production privilege or backend policy changes.
+
+## Final owner feedback: privileged exec
+
+Close was held for owner message `msg-9c640dff06c94d82b92702877b766033`. Its final acceptance explicitly allows a bounding set contained in the original KILL/SETGID/SETUID mask and requires one fast proof that the agent cannot regain privileges by exec. No bootstrap prerequisite or capability grant may change. The fixture continues to require exact `CapBnd=0xe0`, an allowed subset, plus empty Inh/Prm/Eff/Amb and `no_new_privs=1`.
+
+The root fixture now copies its executable into a root-owned directory before bootstrap, sets directory mode 0755 and executable mode 04755, and verifies file type, root ownership and the setuid mode. After the existing standalone agent permission/signal probe, it performs exactly one real exec of that root-owned setuid copy. The exec role requires real/effective UID remain 21002, no_new_privs remain 1, and Inh/Prm/Eff/Amb remain zero. Any regained identity or capability fails the existing named acceptance test. The actual tmux pane still performs the independent-session signal-denial assertions; no extra test case, privilege, namespace or production change is added.
+
+`CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 TOKIO_WORKER_THREADS=2 cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key` passed one actual named test in 3.64 seconds ([final owner-required output](B6b-evidence/owner-required-user.log)). `cargo fmt --check` passed ([output](B6b-evidence/owner-fmt.log)); `CARGO_BUILD_JOBS=2 cargo clippy --locked --all-targets -- -D warnings` passed its incremental check in 2.26 seconds ([output](B6b-evidence/owner-clippy.log)). Each command exited 0. The earlier recovery table records checks on the preceding source; only this test fixture changed after that table, and no broad test suites were repeated for the owner follow-up. The final publication SHA is recorded in the task close.
