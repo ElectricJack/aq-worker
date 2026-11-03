@@ -148,3 +148,64 @@ published checkpoint, so no merge commit or source change was needed. No push
 to `main` occurred. The supervisor is escalating the remaining values to the
 owner. This task cannot close successfully without them; the active claim is
 retained pending the relayed decisions.
+
+## Owner method decision and E0 application blocker (claim epoch 5)
+
+Owner decision 2026-11-02 (task comment `1793676397.3807435`), recorded as
+owner-approved: model `gpt-6.1-sol` with `native_reasoning = high` (v1
+standard-high Codex class) and the Codex default `max_output_tokens`. Up to
+three short real calls on the owner's ChatGPT login may be used to measure the
+counting multiplier, overhead and capacity, recorded as measured evidence.
+`seccomp=unconfined` is approved only for the local I0/E0 qualification
+container. Credential profile `owner-chatgpt-codex` revision 1 uses the
+owner's ChatGPT account and the Codex default endpoint, and allows only the
+desktop dev worker node. Catalog and project-policy revision 2 apply to
+`ElectricJack/aq-scratch`. Default branch: `main`.
+
+That decision does not authorize changing E0. The E0 stack also gives no
+public route to apply the server configuration. I checked this in the E0
+source snapshot `8f6c49f` under `~/.local/state/aq-platform-e0-final/source`:
+
+- `scripts/dev-stack.py` `prepare()` (lines 32-69) always builds
+  `vault/config.toml` from `vault.example/config.toml` plus two fixed blocks.
+  These are `[agent_access]` and `[source_retention]`. If the retained vault
+  differs, it raises "development vault differs from generated configuration".
+  A fresh `AQ_DEV_STATE_DIR` builds the same content. There is no overlay or
+  extra-section input for `[intelligence]` or `[profiled_execution]`.
+- `scripts/dev-init-volumes.sh` copies only `config.toml` and `graph_token`
+  into the server's private volumes. A retained copy that differs is refused
+  ("use a fresh Compose project"). The `dev-state-init` service in
+  `compose.dev.yaml` mounts only the `graph_token` secret.
+- `server_material_v1` requires the credential `secret_file` to be owned by
+  UID 10001 with mode 0600, inside the server container. No route exists to
+  place the owner's auth file there.
+- `allowed_node_ids` is a list of explicit UUIDs (`intelligence/config.rs:21`,
+  `inventory.rs:205`). The only existing worker identity is the seeded,
+  offline `e0-local-development` node `806c44f7-0e2a-4094-b976-687e4e54aedf`.
+  Its private credential is in `secrets.dev/dev_worker.json`. A fresh stack
+  enrolls a different node only after the server starts, which is after its
+  vault is fixed.
+
+Applying `[intelligence]`/`[profiled_execution]` therefore needs one of these:
+an edit to E0 source, writing directly into the volume (`docker cp`/exec or
+deleting `dev_vault`), or bypassing `prepare()`. The task forbids all three
+("Preserve E0 source", no admission bypass). I made no such change. I spent
+no real provider calls, because a context fact expires within 24 hours and
+cannot be used until the configuration can be applied. I wrote no private
+lease input and made no catalog activation or binding change.
+
+These are decisions for the supervisor and owner:
+
+1. Authorize a reviewed E0 dev-stack change, or a separate stack generator.
+   It would accept an owner-supplied private vault overlay plus a private
+   credential secret, installed as 10001:0600 at
+   `/run/aq-dev/owner-chatgpt-codex.auth.json`. It would run with fresh
+   state, fresh secrets and a new Compose project.
+2. Choose the worker identity for `allowed_node_ids`. One option is to reuse
+   the seeded node `806c44f7-…` with its retained credential on the desktop
+   dev worker. Another is to enroll a new node first and generate the vault
+   afterwards.
+3. Confirm that the three measurement calls should run just before
+   application, inside the I0 image with a clean private `CODEX_HOME`.
+   Measured with the host `~/.codex/config.toml` (243 KB of MCP and other
+   configuration), the overhead would not match the container.
