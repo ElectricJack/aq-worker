@@ -1,11 +1,14 @@
 # E6a: Local WSL2 worker container
 
-Task `smart-falcon-16.8`, claim epoch 1, branch `aq/smart-falcon-16.8`.
+Task `smart-falcon-16.8`, branch `aq/smart-falcon-16.8`. Original evidence below
+is from claim epoch 1; the **Resume verification** section records epoch 3 and
+the final scope authorized by the reopen feedback.
 
 - Source base: `7979083`.
 - Plan: `docs/superpowers/plans/2026-11-02-E6a-local-wsl2-worker.md`, committed
   before source changes as `df9df92`.
-- E6a is not marked for adversarial review. It uses direct integration.
+- E6a is not marked for adversarial review. The reopen feedback requires a PR;
+  integration remains owned by the project's integration service.
 - Operator guide: [`docs/operations/install-worker.md`](../operations/install-worker.md).
 
 ## What was built
@@ -106,7 +109,7 @@ velocity rule.
 | Enroll with node + runner tokens; runner token never in argv, history or logs; 0600 | Done (tests + live) |
 | Re-point between servers keeping identity and journal; sandbox behaviour documented | Done (live + guide) |
 | `install-worker.md` (prerequisites, install, enroll, autostart, re-point, uninstall, sleep/shutdown) | Done |
-| **Fresh install, enroll, Windows restart → worker back online and reconciled (recorded drill)** | **Not done.** A real Windows restart or `wsl --shutdown` kills the AQ daemon and every pool worker, including the session doing this task, so it can't be run from inside it. It must be run by the owner: `drill-restart.sh before local http://127.0.0.1:32838/api/workers`, restart Windows, log on, then `drill-restart.sh after …`. Append the log, `~/.local/state/agent-q/drill-restart.log`, here. |
+| **Fresh install, enroll, Windows restart → worker back online and reconciled (recorded drill)** | **Owner-run follow-up, explicitly deferred by reopen feedback.** No Windows restart or `wsl --shutdown` was attempted. Run `drill-restart.sh before local http://127.0.0.1:32838/api/workers`, restart Windows and log on, then `drill-restart.sh after …`. Append `~/.local/state/agent-q/drill-restart.log` here. The epoch-3 unit restart below is not evidence of a Windows reboot. |
 
 ## Known limits and notes
 
@@ -128,3 +131,98 @@ velocity rule.
   not delete.
 - The plan also named `install-autostart.ps1`; the file is
   `aq-wsl-autostart.ps1`.
+
+## Resume verification (2026-11-03, claim epoch 3)
+
+The reopen feedback confirms B5b/C2 are complete and directs this worker to
+build and verify the remaining installation, push, open a PR and close. The
+real Windows reboot drill is owner-run and must not be attempted in-session.
+
+Base at resume: `276020fd26560769f9cb1a861975cd6517bcfa78`, with
+`origin/main` at `862de4c1d85889ca18f2d212e33a8425fb147d2a` merged. The
+original plan/implementation and dependency merge ancestry are preserved;
+the resume implementation is one final commit after its plan (recorded in the
+task close and PR).
+The resume plan was committed before code changes as `bc7c2a3`.
+
+Changes and findings:
+
+- Added `packaging/worker/tests/test_worker_ctl.py`. The first run reproduced
+  two failures: switching profiles and uninstall left enabled but unloaded
+  instances enabled. `aq-worker-ctl` now combines loaded units with enable
+  links under `default.target.wants`. A real `systemctl --user list-unit-files`
+  query reports only the indirect template, so it cannot enumerate instances.
+- The six fast tests cover stdin-only enrollment forwarding, private default
+  config, exact config/state/socket mounts and `--init`, switching without
+  changing identity/journal files, uninstall retaining those files, and drill
+  success/failure for changed/unchanged boot IDs. They use fake engine/systemd
+  commands and local file URLs; no network, real sleeps or host restarts.
+  `AQ_DRILL_SCHTASKS` lets fixtures avoid Windows interop.
+- Corrected the guide's Windows script path resolution, `/config` enrollment
+  versus `/state` journal locations, both Access token flags, and the boundary
+  between connectivity and agent execution.
+- The existing production `run` still uses `UnavailableProvider`: admission
+  is fenced until the B2 registration/issuance provider is installed. The
+  current image's heartbeat and controller reconciliation work, as verified
+  below. No controller recovery or sandbox token-delivery code was changed.
+- The original cross-repo re-pin observation is historical: aq-server's
+  current local `vendor/worker-candidate.json` is already version `0.5.1`,
+  revision `44fe1a5e2edc10e8bfa7e6819c94c12dc81ecd12`. This task's image
+  continues to build this checkout directly, independently of that archive.
+
+Environment: WSL2 Ubuntu, Rust 1.96.1, Python 3.12.3, Docker Desktop 29.3.1.
+Cargo checks used the existing `docs/implementation/H1-evidence/test_cargo.py`
+driver through `aq test`, with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`.
+Exact wrapper form, substituting the command/log from the table:
+
+```sh
+H1_COMMAND='<cargo command>' H1_LOG="$PWD/docs/implementation/E6a-evidence/<log>" \
+  aq test docs/implementation/H1-evidence/test_cargo.py -q
+```
+
+All log paths below are under `docs/implementation/E6a-evidence/`.
+
+| Command | Result | Log |
+| --- | --- | --- |
+| `aq test packaging/worker/tests/test_worker_ctl.py -q` | First: 2 failed / 4 passed; final: 6 passed | `resume-packaging-red.log`, `resume-packaging-tests.log` |
+| `cargo test --locked -p aq-worker --lib config::` | 2 passed, both named token-storage/path tests | `resume-config-tests.log`, `resume-config-gate.log` |
+| `cargo test --locked -p aq-worker --bin aq-worker` | 9 passed, including `read_secrets_orders_code_cf_runner` and `enroll_never_accepts_runner_token_in_argv` | `resume-cli-tests.log`, `resume-cli-gate.log` |
+| `cargo test --locked -p aq-worker --lib controller_restart_reconciles_journal_against_backend_inventory` | 1 passed, nonzero match | `resume-reconcile-tests.log`, `resume-reconcile-gate.log` |
+| `cargo clippy --locked -p aq-worker --lib --bin aq-worker -- -D warnings` | exit 0 | `resume-clippy.log`, `resume-clippy-gate.log` |
+| `cargo fmt -p aq-worker --check` | exit 0 | `resume-fmt.log` |
+| `bash -n packaging/worker/aq-worker-ctl packaging/worker/drill-restart.sh` | exit 0 | `resume-shell-syntax.log` |
+| `AQ_WORKER_IMAGE=aq-worker:e6a-resume packaging/worker/aq-worker-ctl build` | exit 0; image `sha256:7cb279ccf8ed6d6b291a9dae1c362b60dcd0b27d4f7706b76cdfb6c37715e855`, 105809077 bytes | `resume-image-build.log` |
+| `docker run --rm --init --user "$(id -u):$(id -g)" aq-worker:e6a-resume --version` | `aq-worker 0.5.1` | `resume-container.log` |
+
+The initial build completed its image but its shell wrapper failed after the
+control script was edited while that invocation was running. The final build
+above repeated the stable script and exited 0. Its image was tagged
+`aq-worker:dev`, then the existing `aq-worker@local.service` was restarted.
+No Windows logon, shutdown, suspend or reboot was performed. `shellcheck` is
+unavailable; no full workspace suite was run, per the targeted-check policy.
+
+Live restart commands (Windows task query omitted for this unit-only check):
+
+```sh
+export AQ_DRILL_LOG="$PWD/docs/implementation/E6a-evidence/resume-unit-restart.log"
+export AQ_DRILL_SCHTASKS=/nonexistent
+packaging/worker/drill-restart.sh before local http://127.0.0.1:32838/api/workers
+docker tag aq-worker:e6a-resume aq-worker:dev
+systemctl --user restart aq-worker@local.service
+packaging/worker/drill-restart.sh after local http://127.0.0.1:32838/api/workers
+```
+
+All six drill assertions passed (`resume-unit-restart.log`): node
+`6f00545b-ff6f-4024-a377-3a0d74a8b63f` was unchanged, boot changed from
+`3eb59890-d190-4fd6-965b-ed87810e326a` to
+`b6f3b5ad-5d22-4d4f-9c74-cefa207313aa`, journal revision advanced 26 → 30,
+both units were active and the server reported online. Container inspection
+confirmed the new image, uid/gid 1000, `init=true`, read-only root, dropped
+capabilities and exactly the three expected mounts, without the host Docker
+socket (`resume-container.log`). The retained orphan journal entry survived.
+
+Owner follow-up: execute the guide's before/Windows-restart/after drill from a
+fresh install or the installed `local` profile, and attach the secret-free
+`~/.local/state/agent-q/drill-restart.log` here. Only that run can establish
+recovery after an actual Windows reboot. The Startup-folder fallback also
+remains unexercised, as recorded in the original candidate table.

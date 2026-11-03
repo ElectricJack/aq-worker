@@ -52,7 +52,8 @@ socket, which is mode 0600 and owned by your WSL user.
   For a server on the same desktop (E0), use `http://host.docker.internal:<port>`.
   `127.0.0.1` would be the container itself.
 - An enrollment code from the server, plus a runner Access service token
-  (client id and secret) if the server sits behind Cloudflare Access.
+  (client id and secret) if the server sits behind Cloudflare Access. The node
+  uses a separate Access service token; provide it with `--cf-service-token`.
 
 ## Install
 
@@ -79,7 +80,7 @@ daemon restarts or stops the worker too.
 A profile is one server. Pick a short name such as `home` or `local`.
 
 ```sh
-aq-worker-ctl enroll local --server https://aq.example.com --name my-desktop --runner-access-token
+aq-worker-ctl enroll local --server https://aq.example.com --name my-desktop --cf-service-token --runner-access-token
 ```
 
 You are prompted, without echo, for:
@@ -91,6 +92,7 @@ You are prompted, without echo, for:
 Without a TTY, the same values are read as lines on stdin, in that order. For
 example: `printf '%s\n' "$code" ... | aq-worker-ctl enroll ...`. Avoid typing
 secrets into a command line that is saved in shell history.
+For E0 without Access, omit both token flags.
 
 Secrets are never accepted as arguments. `--runner-access-token` is a flag with
 no value. This keeps them out of `ps`, shell history, systemd units and logs,
@@ -118,6 +120,12 @@ journalctl --user -u aq-worker@local -f
 
 When it is healthy, the log shows `node controller starting node_id=… boot_id=…`
 followed by `probe succeeded`, and the server lists the node as `online`.
+
+The current production `run` command keeps admission fenced until the B2
+registration/issuance provider is installed; its log says so explicitly. The
+foundation heartbeat and restart reconciliation still run. An `online` node
+therefore verifies connectivity, while executing agent work also requires
+that provider and the B6b/B7 sandbox token handoff.
 
 ## Autostart
 
@@ -156,7 +164,8 @@ provides it.
    To run it from WSL, `cd /mnt/c` first and pass a Windows path:
 
    ```sh
-   cd /mnt/c && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w packaging/windows/aq-wsl-autostart.ps1)" -Status
+   autostart_script="$(wslpath -w "$(pwd)/packaging/windows/aq-wsl-autostart.ps1")"
+   (cd /mnt/c && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$autostart_script" -Status)
    ```
 
    From a `\\wsl.localhost` working directory, `powershell.exe` fails with
@@ -172,6 +181,11 @@ replace the keepalive: the distro still needs something to boot it at logon.
 evidence and checks: same node id, new boot id, journal advanced, both units
 active, server `online`.
 
+The actual Windows reboot remains an owner-run follow-up. The recorded
+in-session checks cover unit restart and keepalive recovery; they do not prove
+recovery after a Windows reboot. Run this drill outside an active AQ worker
+session, since shutting down WSL also stops the local AQ daemon and workers.
+
 ```sh
 packaging/worker/drill-restart.sh before local http://<server>/api/workers
 # restart Windows, log on, wait a minute
@@ -180,9 +194,11 @@ packaging/worker/drill-restart.sh after local http://<server>/api/workers
 
 ## What happens on restart, sleep and WSL shutdown
 
-The controller's identity (`node_id`) and journal live on the `/state` volume,
-so they survive container recreation, `wsl --shutdown`, Windows restarts and
-image upgrades. Each start is a new `boot_id`.
+Enrollment (`node_id` and credentials) lives in `/config/agent-q/worker.toml`;
+the controller journal lives under `/state/controller` and records that same
+node identity. Keep both volumes: together they survive container recreation,
+`wsl --shutdown`, Windows restarts and image upgrades. Each start is a new
+`boot_id`.
 
 On each start the controller reconciles the sandboxes it owns before it admits
 new work (B5b):

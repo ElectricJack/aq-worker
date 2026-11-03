@@ -40,7 +40,7 @@ PY
   echo "uptime: $(uptime -s) ($(cut -d' ' -f1 /proc/uptime)s)"
   echo "linger: $(loginctl show-user "$USER" -p Linger --value 2>/dev/null || echo unknown)"
   echo "units: sandbox=$(systemctl --user is-active aq-sandbox-podman.service || true) worker=$(systemctl --user is-active "aq-worker@$p.service" || true)"
-  SCHTASKS=/mnt/c/Windows/System32/schtasks.exe
+  SCHTASKS="${AQ_DRILL_SCHTASKS:-/mnt/c/Windows/System32/schtasks.exe}"
   if [[ -x "$SCHTASKS" ]]; then
     (cd /mnt/c && "$SCHTASKS" /Query /TN "AQ WSL worker keepalive" /FO LIST 2>&1 | tr -d '\r' | grep -E 'Status|Last Run Time|Last Result' | sed 's/^/task: /') || echo "task: query failed"
   fi

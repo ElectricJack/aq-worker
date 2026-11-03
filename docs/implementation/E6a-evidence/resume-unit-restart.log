@@ -1,0 +1,17 @@
+=== before 2026-11-03T05:48:30-08:00 profile=local
+uptime: 2026-11-02 09:07:18 (74471.86s)
+linger: yes
+units: sandbox=active worker=active
+journal/server: {"node_id": "6f00545b-ff6f-4024-a377-3a0d74a8b63f", "boot_id": "3eb59890-d190-4fd6-965b-ed87810e326a", "revision": 26, "orphans": ["aq-6f00545bff6f4024a3773a0d74a8b63f-40a0b821273c450c9b150858868b76f4"], "attempts": [], "server_status": "online"}
+=== after 2026-11-03T05:48:39-08:00 profile=local
+uptime: 2026-11-02 09:07:18 (74480.71s)
+linger: yes
+units: sandbox=active worker=active
+journal/server: {"node_id": "6f00545b-ff6f-4024-a377-3a0d74a8b63f", "boot_id": "b6f3b5ad-5d22-4d4f-9c74-cefa207313aa", "revision": 30, "orphans": ["aq-6f00545bff6f4024a3773a0d74a8b63f-40a0b821273c450c9b150858868b76f4"], "attempts": [], "server_status": "online"}
+PASS same node_id
+PASS new boot_id
+PASS journal revision advanced
+PASS sandbox daemon active
+PASS worker unit active
+PASS server reports online
+DRILL PASS

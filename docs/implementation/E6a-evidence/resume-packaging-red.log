@@ -1,0 +1,46 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 1 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest -n 6 --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' packaging/worker/tests/test_worker_ctl.py -q
+bringing up nodes...
+bringing up nodes...
+
+..FF..                                                                   [100%]
+=================================== FAILURES ===================================
+______ test_switch_disables_enabled_unloaded_profiles_and_preserves_state ______
+[gw0] linux -- Python 3.12.3 /home/jkern/dev/agent-queue2/.venv/bin/python
+
+host = (PosixPath('/tmp/pytest-of-jkern/pytest-734/popen-gw0/test_switch_disables_enabled_u0'), {'SHELL': '/bin/bash', 'COREP...ED_PACKAGE_ROOT': '/home/jkern/.local/share/pnpm/nodejs/24.15.0/lib/node_modules/@openai/codex', 'COLORTERM': '', ...})
+
+    def test_switch_disables_enabled_unloaded_profiles_and_preserves_state(host):
+        for profile in ("home", "loaded", "unloaded"):
+            enroll_fixture(host, profile)
+            (Path(host[1]["AQ_WORKER_STATE_ROOT"]) / profile / "journal.json").write_text(profile)
+        files = {p: p.read_bytes() for p in host[0].rglob("*") if p.is_file()}
+        result = run(host, "use", "home")
+        assert result.returncode == 0, result.stderr
+        commands = calls(host)
+        for old in ("loaded", "unloaded"):
+>           assert ["systemctl", "--user", "disable", "--now", f"aq-worker@{old}.service"] in commands
+E           AssertionError: assert ['systemctl', '--user', 'disable', '--now', 'aq-worker@unloaded.service'] in [['systemctl', '--user', 'list-units', '--all', '--plain', '--no-legend', ...], ['systemctl', '--user', 'disable', '--...enable', '--now', 'aq-worker@home.service'], ['systemctl', '--user', '--no-pager', 'status', 'aq-worker@home.service']]
+
+packaging/worker/tests/test_worker_ctl.py:126: AssertionError
+_______ test_uninstall_disables_enabled_unloaded_profiles_but_keeps_data _______
+[gw0] linux -- Python 3.12.3 /home/jkern/dev/agent-queue2/.venv/bin/python
+
+host = (PosixPath('/tmp/pytest-of-jkern/pytest-734/popen-gw0/test_uninstall_disables_enable0'), {'SHELL': '/bin/bash', 'COREP...ED_PACKAGE_ROOT': '/home/jkern/.local/share/pnpm/nodejs/24.15.0/lib/node_modules/@openai/codex', 'COLORTERM': '', ...})
+
+    def test_uninstall_disables_enabled_unloaded_profiles_but_keeps_data(host):
+        cfg = enroll_fixture(host, "unloaded")
+        journal = Path(host[1]["AQ_WORKER_STATE_ROOT"]) / "unloaded/journal.json"
+        journal.write_text("retained journal")
+        result = run(host, "uninstall")
+        assert result.returncode == 0, result.stderr
+>       assert ["systemctl", "--user", "disable", "--now", "aq-worker@unloaded.service"] in calls(host)
+E       AssertionError: assert ['systemctl', '--user', 'disable', '--now', 'aq-worker@unloaded.service'] in [['systemctl', '--user', 'list-units', '--all', '--plain', '--no-legend', ...], ['systemctl', '--user', 'disable', '--now', 'aq-worker@loaded.service'], ['systemctl', '--user', 'daemon-reload']]
+E        +  where [['systemctl', '--user', 'list-units', '--all', '--plain', '--no-legend', ...], ['systemctl', '--user', 'disable', '--now', 'aq-worker@loaded.service'], ['systemctl', '--user', 'daemon-reload']] = calls((PosixPath('/tmp/pytest-of-jkern/pytest-734/popen-gw0/test_uninstall_disables_enable0'), {'SHELL': '/bin/bash', 'COREP...ED_PACKAGE_ROOT': '/home/jkern/.local/share/pnpm/nodejs/24.15.0/lib/node_modules/@openai/codex', 'COLORTERM': '', ...}))
+
+packaging/worker/tests/test_worker_ctl.py:137: AssertionError
+=========================== short test summary info ============================
+FAILED packaging/worker/tests/test_worker_ctl.py::test_switch_disables_enabled_unloaded_profiles_and_preserves_state
+FAILED packaging/worker/tests/test_worker_ctl.py::test_uninstall_disables_enabled_unloaded_profiles_but_keeps_data
+2 failed, 4 passed in 5.10s

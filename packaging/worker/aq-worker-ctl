@@ -134,11 +134,25 @@ cmd_container_run() {
 
 # Exactly one profile runs at a time: the rootless sandbox daemon is shared and
 # each node only sees its own (aq.node-labelled) sandboxes.
+worker_units() {
+  # Enabled instances need not be loaded (for example before their first boot).
+  # list-unit-files reports the template, not its enabled instances. Read the
+  # links created by enable for this unit's WantedBy=default.target as well.
+  local link
+  {
+    systemctl --user list-units --all --plain --no-legend 'aq-worker@*.service'
+    for link in "$UNIT_DIR"/default.target.wants/aq-worker@?*.service; do
+      [[ -L "$link" ]] || continue
+      basename "$link"
+    done
+  } | awk '$1 ~ /^aq-worker@.+\.service$/ {print $1}' | sort -u
+}
+
 cmd_use() {
   local p="$1" u
   profile_ok "$p"
   [[ -f "$(cfg_dir "$p")/agent-q/worker.toml" ]] || die "profile $p is not enrolled"
-  for u in $(systemctl --user list-units --all --plain --no-legend 'aq-worker@*.service' | awk '{print $1}'); do
+  for u in $(worker_units); do
     [[ "$u" == "aq-worker@$p.service" ]] || systemctl --user disable --now "$u"
   done
   systemctl --user enable --now "aq-worker@$p.service"
@@ -159,7 +173,7 @@ cmd_status() {
 
 cmd_uninstall() {
   local purge="${1:-}" u
-  for u in $(systemctl --user list-units --all --plain --no-legend 'aq-worker@*.service' | awk '{print $1}'); do
+  for u in $(worker_units); do
     systemctl --user disable --now "$u" || true
   done
   rm -f "$UNIT_DIR/aq-worker@.service" "$BIN_DIR/aq-worker-ctl"
