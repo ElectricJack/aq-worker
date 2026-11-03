@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "aq-admission"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aq-lifecycle-protocol",
  "aq-session-protocol",
@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "aq-session-host"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "aq-responses-transport",
@@ -382,7 +382,7 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "aq-admission 0.1.11",
- "aq-admission 0.2.0",
+ "aq-admission 0.3.0",
  "aq-agent-result-local",
  "aq-codex-mapper",
  "aq-phase-terminal-protocol",

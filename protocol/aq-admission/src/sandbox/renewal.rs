@@ -59,7 +59,7 @@ impl PhaseExecutionAuthority {
         value.validate()?;
         Ok(value)
     }
-    fn validate_binding(&self, permit: &DelegatedPermit) -> Result<()> {
+    pub(super) fn validate_binding(&self, permit: &DelegatedPermit) -> Result<()> {
         self.validate()?;
         permit.validate()?;
         check(

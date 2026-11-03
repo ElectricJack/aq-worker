@@ -1,11 +1,13 @@
 //! Pure delegated sandbox contracts. Validation is never authentication or a grant.
 mod fixtures;
+mod handoff;
 mod permit;
 mod readoption;
 mod registration;
 mod renewal;
 use crate::transport::WorkerIdentity;
 pub use fixtures::*;
+pub use handoff::*;
 pub use permit::*;
 pub use readoption::*;
 pub use registration::*;
@@ -72,6 +74,12 @@ pub enum SandboxDocument {
     Renewal(RenewalReply),
     Channel(RunnerChannelIdentity),
     Compatibility(CompatibilityReply),
+    PreparationAuthority(PreparationAuthority),
+    PermitIssuanceRequest(PermitIssuanceRequest),
+    PermitIssuanceResponse(PermitIssuanceResponse),
+    PermitUpgradeRequest(PermitUpgradeRequest),
+    PermitUpgradeResponse(PermitUpgradeResponse),
+    RegistrationResponse(RegistrationResponse),
 }
 impl SandboxDocument {
     /// Shape only. Call the request/context-dependent validator before use.
@@ -87,6 +95,12 @@ impl SandboxDocument {
             Self::Renewal(v) => v.validate(),
             Self::Channel(v) => v.validate(),
             Self::Compatibility(v) => v.validate(),
+            Self::PreparationAuthority(v) => v.validate(),
+            Self::PermitIssuanceRequest(v) => v.validate(),
+            Self::PermitIssuanceResponse(v) => v.validate(),
+            Self::PermitUpgradeRequest(v) => v.validate(),
+            Self::PermitUpgradeResponse(v) => v.validate(),
+            Self::RegistrationResponse(v) => v.validate(),
         }
     }
 }
@@ -108,17 +122,22 @@ pub fn schema() -> serde_json::Value {
     for (name, version) in [
         ("DelegatedPermit", 1),
         ("LaunchBinding", 1),
+        ("PermitIssuanceRequest", 1),
+        ("PermitIssuanceResponse", 1),
+        ("PermitUpgradeRequest", 1),
+        ("PermitUpgradeResponse", 1),
         ("ReadoptionRequest", 1),
         ("ReadoptionResponse", 1),
         ("Register", 1),
         ("Registration", 2),
+        ("RegistrationResponse", 2),
         ("RunnerRenewalRequest", 1),
         ("RunnerRenewalResponse", 1),
     ] {
         schema["$defs"][name]["properties"]["schema_version"]["const"] = version.into();
     }
     schema["$comment"] = serde_json::json!(
-        "Maximum encoded frame 1 MiB. Rust validators additionally enforce nonnil identities, UTF-8 byte bounds, duplicate rejection, currency and harness constraints, exact request/node/boot/attempt/generation/sandbox/channel correlation, operation scope, original and current deadlines, and replay equality. Authentication, revocation, current incarnation fencing, channel allocation uniqueness, aggregate limits and atomic replay persistence are server responsibilities. Awaiting node re-adoption grants no deadline extension."
+        "Maximum encoded frame 1 MiB. Rust validators additionally enforce nonnil identities, UTF-8 byte bounds, duplicate rejection, currency and harness constraints, exact request/node/boot/attempt/generation/sandbox/channel correlation, operation scope, original and current deadlines, and replay equality. Authentication, revocation, current incarnation fencing, channel allocation uniqueness, aggregate limits and atomic replay persistence are server responsibilities. Awaiting node re-adoption grants no deadline extension. Permit issuance, grant upgrade and registration envelopes correlate to their frozen phase payloads by digest and exact identity; a preparation permit authorizes Prepared, and mailbox poll/ack require execution scope."
     );
     schema
 }

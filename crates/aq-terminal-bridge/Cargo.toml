@@ -6,7 +6,7 @@ publish = false
 description = "Finite guarded terminal input bridge; no launch or snapshot authority"
 
 [dependencies]
-aq-session-host = { path = "../aq-session-host", version = "=0.1.6" }
+aq-session-host = { path = "../aq-session-host", version = "=0.1.7" }
 aq-session-protocol = { path = "../aq-session-protocol", version = "=0.1.0" }
 aq-terminal-relay-protocol = { path = "../../vendor/aq-terminal-relay-protocol-0.1.0", version = "=0.1.0" }
 aq-terminal-relay = { path = "../../vendor/aq-terminal-relay-0.1.0", version = "=0.1.0" }

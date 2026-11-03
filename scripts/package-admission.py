@@ -11,7 +11,8 @@ import tarfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "protocol/aq-admission"
 RELEASE = ROOT / "protocol/releases"
-NAME = "aq-admission-0.2.0"
+VERSION = "0.3.0"
+NAME = f"aq-admission-{VERSION}"
 
 
 def publication():
@@ -36,7 +37,7 @@ def publication():
         stream.write(payload.getvalue())
     packed = compressed.getvalue()
     manifest = {
-        "package": "aq-admission", "version": "0.2.0",
+        "package": "aq-admission", "version": VERSION,
         "owner": "aq-worker", "source_path": "protocol/aq-admission",
         "archive": f"{NAME}.tar.gz", "sha256": hashlib.sha256(packed).hexdigest(),
         "files": hashes,
