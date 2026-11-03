@@ -135,9 +135,12 @@ fn map_mode(settings: Settings<'_>, paths: Paths<'_>, interactive: bool) -> Resu
         "sandbox_workspace_write.exclude_tmpdir_env_var=true".into(),
         "sandbox_workspace_write.network_access=false".into(),
         "shell_environment_policy.inherit=\"none\"".into(),
-        // Codex's tool sandbox helper also needs PATH for trusted OS helpers.
-        // This is an explicit fixed value, never inherited operator context.
-        "shell_environment_policy.set.PATH=\"/usr/bin:/bin\"".into(),
+        // Fixed template toolchain paths and Cargo defaults. Never inherit
+        // operator/attempt context or evaluate shell profiles to recover them.
+        "shell_environment_policy.set.PATH=\"/usr/local/bin:/usr/bin:/bin\"".into(),
+        "shell_environment_policy.set.CARGO_INCREMENTAL=\"0\"".into(),
+        "shell_environment_policy.set.CARGO_PROFILE_DEV_DEBUG=\"line-tables-only\"".into(),
+        "shell_environment_policy.set.CARGO_PROFILE_TEST_DEBUG=\"line-tables-only\"".into(),
         "features.shell_snapshot=false".into(),
         "features.shell_snapshot_v2=false".into(),
         "allow_login_shell=false".into(),

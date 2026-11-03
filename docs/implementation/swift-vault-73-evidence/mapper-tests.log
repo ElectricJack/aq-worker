@@ -1,0 +1,23 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 0 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C1-evidence/test_cargo_check.py -n 0 -q -s
+COMMAND: ['cargo', 'test', '--locked', '--offline', '-p', 'aq-codex-mapper', '--lib']
+   Compiling aq-codex-mapper v0.1.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-codex-mapper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.99s
+     Running unittests src/lib.rs (target/debug/deps/aq_codex_mapper-23640342abef57ee)
+
+running 9 tests
+test result_local::tests::lexical_paths_cannot_smuggle_other_writable_or_private_roots ... ok
+test result_local::tests::removing_only_declared_delta_recovers_exact_original_recipe_bytes ... ok
+test result_local::tests::quoted_paths_are_literal_config_values_and_recipe_stays_bounded ... ok
+test tests::interactive_tui_uses_v1_model_prompt_mode_and_preserves_exec_recipe ... ok
+test result_local::tests::result_recipe_exposes_only_declared_channel_and_submission_child ... ok
+test tests::interactive_v1_composer_and_auth_dialog_rules_keep_no_escape_behavior ... ok
+test tests::pure_recipe_does_not_require_remote_identity_or_existing_filesystem ... ok
+test tests::scoped_endpoint_accepts_only_nonzero_port_and_emits_metadata ... ok
+test tests::unsupported_settings_cannot_map_a_recipe ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+.
+1 passed in 1.18s
