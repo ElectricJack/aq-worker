@@ -11,6 +11,8 @@ mod prepare;
 #[cfg(test)]
 pub(crate) use prepare::collect as test_collect;
 mod profile;
+mod recovery;
+pub use recovery::{ReconcileDisposition, reconcile_native};
 pub(super) mod publish_output;
 use super::{
     http::NativeClient,
@@ -103,7 +105,7 @@ pub async fn run_once<E: NativeExecutor>(
     let journal = open_journal(&config, worker.node_id)?;
     ensure!(
         !journal.recovery_required(),
-        "validated native history requires B5b reconciliation before admission"
+        "native history cannot admit new work; use reconcile-native to report retained outcome"
     );
     let (heartbeat, shutdown) = heartbeat::Heartbeat::start(worker, shutdown).await?;
     let identity = journal.state().identity.clone();

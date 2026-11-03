@@ -127,6 +127,13 @@ enum Cmd {
         #[arg(long)]
         native_config: PathBuf,
     },
+    /// Replay retained reports for one stopped native attempt; preserves all local state.
+    ReconcileNative {
+        #[arg(long)]
+        native_config: PathBuf,
+        #[arg(long)]
+        attempt_id: uuid::Uuid,
+    },
     /// Pure finite qualification vectors/request checks; never executes a model.
     #[cfg(feature = "test-support")]
     FixtureResponses,
@@ -384,6 +391,28 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                 Err(error) => native_diagnostics::refuse(&error, Some(&worker), disposition),
             }
         }
+        Cmd::ReconcileNative {
+            native_config,
+            attempt_id,
+        } => {
+            let result = async {
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
+                aq_worker::native::runner::reconcile_native(&worker, &config, attempt_id).await
+            }
+            .await;
+            match result {
+                Ok(disposition) => {
+                    println!(
+                        "native reconciliation: {attempt_id} {disposition:?}; retained state preserved; server settlement/release is separate"
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => usage_err(format!(
+                    "native reconciliation failed: {error:#}; preserve state and retry the same attempt"
+                )),
+            }
+        }
         Cmd::RunNative {
             native_config,
             #[cfg(feature = "test-support")]
@@ -618,6 +647,31 @@ fn production_cli_does_not_expose_lost_b1_ack_replay() {
             "--fixture-replay-lost-b1-ack"
         ])
         .is_err()
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn reconcile_native_requires_an_explicit_preserved_attempt() {
+    assert!(
+        Cli::try_parse_from([
+            "aq-worker",
+            "reconcile-native",
+            "--native-config",
+            "/native.json"
+        ])
+        .is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "aq-worker",
+            "reconcile-native",
+            "--native-config",
+            "/native.json",
+            "--attempt-id",
+            "2d41bbec-0000-4000-8000-000000000001"
+        ])
+        .is_ok()
     );
 }
 
