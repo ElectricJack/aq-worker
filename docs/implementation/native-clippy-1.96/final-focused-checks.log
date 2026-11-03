@@ -1,0 +1,8 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-4 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 0 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest -n 6 --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C1-evidence/test_cargo_check.py -q -s
+bringing up nodes...
+bringing up nodes...
+
+.
+1 passed in 5.39s
