@@ -41,6 +41,10 @@ loopback-only registry mirror with the intended GHCR repository paths and exact
 base/runtime manifest bytes. A staged `allowlist.candidate.json` records
 successful local C3b admission only; it is not the active production allowlist,
 and its GHCR references are not pullable until publication succeeds.
+The current local builds fail credential scanning on an inherited public
+GnuTLS library, so no candidate allowlist or C3b provenance was emitted.
+Follow-up `calm-delta-18.5.1` tracks that refusal. Do not publish these rejected
+archives or fabricate admission records.
 
 The exact built digests, artifacts, commands and unresolved checks are recorded
 in `docs/implementation/C3c.md`. A local build cannot establish GHCR visibility.

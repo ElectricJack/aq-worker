@@ -1,0 +1,8 @@
+{
+  "recipe_schema": "passed",
+  "recipe_digests": "passed",
+  "rendered_definitions": "passed",
+  "oci_manifest_digests": "passed",
+  "allowlist_candidate_exists": false,
+  "ghcr_published": false
+}

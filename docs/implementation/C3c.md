@@ -181,11 +181,35 @@ failed through the desktop credential helper. It was preloaded anonymously
 from the loopback registry with an empty public Docker config; tests then
 use `--pull=never`. No GHCR auth refusal was bypassed.
 
+After synchronization, the same Python area again reported **22 passed**
+(`python-post-sync.log`) and `cargo fmt --check` passed (`fmt-post-sync.log`).
+`seed-invariants.json` records successful schema validation, canonical recipe
+hashes, agreement of recorded Dockerfiles with C3b rendering, and OCI manifest
+hashes. It also confirms that no candidate allowlist exists; it is diagnostic
+metadata, not a separate test suite or admission evidence.
+
 Repository proof source revisions and exact Docker commands are recorded in
 `C3c-evidence/qualification.json` and the proof logs. Each source tree comes
 from `git archive REVISION`, without sibling trees. Rust proofs execute
 `cargo build --locked`; dashboard executes `pnpm install --frozen-lockfile &&
-pnpm build`. Final outcomes are recorded below after completion.
+pnpm build`. All six repository proofs passed:
+
+| Repository | Committed source revision | Result |
+| --- | --- | --- |
+| aq-server | `841e19ff6260ce7a97c600227e94c3c42c1abec5` | Passed; Cargo 8m 09s |
+| aq-worker | `eaebd788085a7f74cfec49e6eb3b8763800c2ec3` | Passed; Cargo 5m 05s |
+| aq-git | `e05d4e67c9bc53ed0b69ec3c8cff9fa9ad24c287` | Passed; Cargo 54.26s |
+| aq-graph | `9e957b25a6e027aa30895535c4bc19859fa52883` | Passed; Cargo 2m 38s |
+| aq-playbooks | `6798552f46360b7d1891b1ff9514b4ce71bfb6fc` | Passed; Cargo 1m 20s |
+| aq-dashboard | `eee9d8396f1bb157d79ff31e1cdb583645e4f62d` | Passed; frozen install and production build |
+
+`repository-proofs.log` reports **5 passed, 3 deselected in 1118.67s**;
+`dashboard-proof.log` reports **1 passed, 7 deselected in 18.57s**. Cargo
+durations in the table exclude archive/download setup; the full pytest
+duration includes it. The worker proof intentionally uses the committed
+pre-recipe source revision recorded before qualification; Rust source is
+unchanged by C3c. The separate worker area suite tested the implementation
+checkout. These six proofs do not establish credential-scan admission.
 
 ## Remaining publication/admission steps
 
@@ -214,7 +238,8 @@ pnpm build`. Final outcomes are recorded below after completion.
 
 Prepared publication commands below have **not** been run. They require fresh,
 successfully admitted `rust-admitted` and `node-admitted` outputs and an
-operator-provisioned registry auth file. The auth file is mounted only into
+operator-provisioned Skopeo-compatible registry auth file (a Docker Desktop
+helper-only configuration is insufficient). The auth file is mounted only into
 the separate publisher container. Run from the repository root in Bash:
 
 ```sh
@@ -255,3 +280,37 @@ visibility unverified and production admission unapplied.
 No scheduled rebuild automation, server catalog mapping, backend snapshots,
 architecture/spec changes or runtime behavior changes were made. Full-suite
 CI remains integration-owned under prime's focused validation scope.
+
+## Review and integration boundary
+
+Author review checked the existing C3b parser against both recipes, download
+checksums, agent PATH and permissions, private runtime/toolchain separation,
+empty prefetch, finalize order, source mount boundaries, and exact manifest
+preservation. C3c has no required adversarial review marker. Scanner policy and
+runtime code remain unchanged, and the open scanner child remains actionable.
+
+Prime requested merging `origin/dev`; that ref is absent, so the attempted
+merge refused (`C3c-evidence/dev-merge.log`). `origin/HEAD` points to
+`origin/main`. Guarded `aq git pull --branch main --brief` succeeded without
+changing the tree; the main baseline remained
+`9a00f05142957accfdb66cc7a7f40fe9e563356e`.
+
+The prepared publication block was extracted and passed `bash -n`; no commands
+in that block were executed. GHCR credential provisioning, remote publication,
+anonymous visibility verification and production allowlist installation remain
+unmet. The separate C3b scanner refusal must also be resolved before template
+publication. Local packaging proofs cannot satisfy these acceptance criteria.
+
+After the final proofs, the dedicated builder and loopback registry were
+stopped with `docker buildx stop aq-c3c-qualification` and
+`docker stop aq-c3c-registry`. Their configuration, cache/registry volume,
+local image references and `/tmp/aq-c3c-calm-delta-18.5` artifacts are retained
+for the operator and scanner follow-up; no unrelated Docker resources were
+changed. To resume local work before host cleanup, start the registry with
+`docker start aq-c3c-registry` and bootstrap the existing builder with
+`docker buildx inspect aq-c3c-qualification --bootstrap`.
+
+The branch was preserved on `aq/calm-delta-18.5` through guarded `aq git push`.
+The final task close records its exact evidence commit. The task is closed
+with `--outcome fail --work-outcome blocked`, because **needs GHCR token** and
+the separate scanner refusal leave publication/admission acceptance unmet.

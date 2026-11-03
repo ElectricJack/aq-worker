@@ -1,5 +1,5 @@
 {
-  "normalization": "line endings and trailing whitespace only; active repository proof log excluded until completion",
+  "normalization": "line endings and trailing whitespace only; all producers completed before final normalization",
   "files": [
     {
       "file": "build-node.log",
@@ -25,6 +25,11 @@
       "file": "dev-merge.log",
       "original_sha256": "9162286b906e591849c292017642670ee8b0a04e953bc8ee2868c5cdeb36dcaa",
       "normalized_sha256": "9162286b906e591849c292017642670ee8b0a04e953bc8ee2868c5cdeb36dcaa"
+    },
+    {
+      "file": "fmt-post-sync.log",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normalized_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "file": "fmt.log",
@@ -77,9 +82,19 @@
       "normalized_sha256": "c940fed2f9925079f6a63f77976c7619ac1a969f4a2b4f77c8fd1d0a43e00c6c"
     },
     {
+      "file": "python-post-sync.log",
+      "original_sha256": "4f18f58dc5f2b8146de2bbb1d36e5e58095be73ea445efea6d9baed99f875408",
+      "normalized_sha256": "4f18f58dc5f2b8146de2bbb1d36e5e58095be73ea445efea6d9baed99f875408"
+    },
+    {
       "file": "recipes-red.log",
       "original_sha256": "33b0955c49560524c60c944ab405af35b76a7576cf33c72c71f0ab60996b31ca",
       "normalized_sha256": "1b8ac1194584d061b645817125292a33f3ec8546f520b0dfb5192a04bc204cd9"
+    },
+    {
+      "file": "repository-proofs.log",
+      "original_sha256": "ca852f1b96afe89e677c588525e83ad203c06c4b0c89789d12b3d90d621af0ef",
+      "normalized_sha256": "ca852f1b96afe89e677c588525e83ad203c06c4b0c89789d12b3d90d621af0ef"
     },
     {
       "file": "runtime-local-push.log",
