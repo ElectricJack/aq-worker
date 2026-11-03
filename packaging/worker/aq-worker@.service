@@ -1,0 +1,19 @@
+# AQ node worker container for one server profile (E6a).
+# Enable exactly one: aq-worker-ctl use <profile>
+[Unit]
+Description=AQ worker container (%i)
+Requires=aq-sandbox-podman.service
+After=aq-sandbox-podman.service network-online.target
+# Docker Desktop's WSL integration can come up after the distro boots; keep retrying.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/aq-worker-ctl container-run %i
+ExecStop=/usr/bin/env docker stop --timeout 30 aq-worker-%i
+Restart=always
+RestartSec=10
+TimeoutStopSec=45
+
+[Install]
+WantedBy=default.target

@@ -43,6 +43,7 @@ fn request(case: u128) -> CreateRequest {
         cpu_millis: 1000,
         memory_bytes: 1024 * 1024 * 1024,
         pids: 64,
+        disk_bytes: None,
     })
 }
 async fn backend(api: &BoatDouble, dir: &std::path::Path) -> BoatBackend {
@@ -287,6 +288,7 @@ fn launch(identity: &WorkerIdentity) -> LaunchRequest {
 }
 fn node(r: &LaunchRequest) -> NodeConfig {
     NodeConfig {
+        preserve: Default::default(),
         runtime: ArtifactRef {
             id: Text::new("runtime").unwrap(),
             version: Text::new("1").unwrap(),
@@ -460,6 +462,7 @@ async fn boat_vm_sizes_and_ttl_updates_are_bounded() {
             cpu_millis: cpu,
             memory_bytes: mem,
             pids: 128,
+            disk_bytes: None,
         });
         let s = f.backend.create(&r).await.unwrap();
         f.backend

@@ -1,0 +1,26 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+error[E0433]: cannot find module or crate `aq_observation` in this scope
+ --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:2:5
+  |
+2 | use aq_observation::lifecycle::*;
+  |     ^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `aq_observation`
+  |
+  = help: if you wanted to use a crate named `aq_observation`, use `cargo add aq_observation` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `super::observations`
+ --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:1:12
+  |
+1 | use super::observations::*;
+  |            ^^^^^^^^^^^^ could not find `observations` in `super`
+
+error[E0432]: unresolved import `aq_observation_engine`
+ --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:3:5
+  |
+3 | use aq_observation_engine::{Format, Source};
+  |     ^^^^^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `aq_observation_engine`
+  |
+  = help: if you wanted to use a crate named `aq_observation_engine`, use `cargo add aq_observation_engine` to add it to your `Cargo.toml`
+
+Some errors have detailed explanations: E0432, E0433.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `aq-worker` (lib test) due to 3 previous errors

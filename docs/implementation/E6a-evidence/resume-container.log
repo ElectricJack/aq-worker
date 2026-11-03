@@ -1,0 +1,8 @@
+image=sha256:7cb279ccf8ed6d6b291a9dae1c362b60dcd0b27d4f7706b76cdfb6c37715e855 init=true user=1000:1000 readonly=true caps=[ALL] security=[no-new-privileges]
+/run/user/1000/aq-sandbox -> /run/aq-sandbox
+/home/jkern/.config/agent-q/servers/local -> /config
+/home/jkern/.local/state/agent-q/workers/local -> /state
+aq-worker 0.5.1
+[2m2026-11-03T13:48:33.172551Z[0m [32m INFO[0m [2maq_worker[0m[2m:[0m node controller starting [3mnode_id[0m[2m=[0m6f00545b-ff6f-4024-a377-3a0d74a8b63f [3mboot_id[0m[2m=[0mb6f3b5ad-5d22-4d4f-9c74-cefa207313aa
+[2m2026-11-03T13:48:33.200164Z[0m [33m WARN[0m [2maq_worker::controller::service[0m[2m:[0m B2 registration/issuance provider is not installed; admission fenced; foundation heartbeat remains active
+[2m2026-11-03T13:48:33.220522Z[0m [32m INFO[0m [2maq_worker::client[0m[2m:[0m probe succeeded

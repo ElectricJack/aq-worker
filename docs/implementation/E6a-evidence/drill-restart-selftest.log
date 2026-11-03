@@ -1,0 +1,29 @@
+=== before 2026-11-02T23:03:30-08:00 profile=local
+uptime: 2026-11-02 08:51:57 (51093.31s)
+linger: yes
+units: sandbox=active worker=active
+journal/server: {"node_id": "6f00545b-ff6f-4024-a377-3a0d74a8b63f", "boot_id": "35a4f266-b02c-4a23-8366-709dba073c4c", "revision": 18, "orphans": ["aq-6f00545bff6f4024a3773a0d74a8b63f-40a0b821273c450c9b150858868b76f4"], "attempts": [], "server_status": "online"}
+=== after 2026-11-02T23:03:36-08:00 profile=local
+uptime: 2026-11-02 08:51:57 (51099.46s)
+linger: yes
+units: sandbox=active worker=active
+journal/server: {"node_id": "6f00545b-ff6f-4024-a377-3a0d74a8b63f", "boot_id": "6a90cad5-51ad-4160-a4e5-b99db89a145d", "revision": 22, "orphans": ["aq-6f00545bff6f4024a3773a0d74a8b63f-40a0b821273c450c9b150858868b76f4"], "attempts": [], "server_status": "online"}
+PASS same node_id
+PASS new boot_id
+PASS journal revision advanced
+PASS sandbox daemon active
+PASS worker unit active
+PASS server reports online
+DRILL PASS
+=== before 2026-11-02T23:03:46-08:00 profile=local
+uptime: 2026-11-02 08:51:57 (51108.76s)
+linger: yes
+units: sandbox=active worker=active
+task: query failed
+journal/server: {"node_id": "6f00545b-ff6f-4024-a377-3a0d74a8b63f", "boot_id": "6a90cad5-51ad-4160-a4e5-b99db89a145d", "revision": 22, "orphans": ["aq-6f00545bff6f4024a3773a0d74a8b63f-40a0b821273c450c9b150858868b76f4"], "attempts": [], "server_status": "online"}
+=== before 2026-11-02T23:04:30-08:00 profile=local
+uptime: 2026-11-02 08:51:58 (51152.18s)
+linger: yes
+units: sandbox=active worker=active
+task: Status:        Running
+journal/server: {"node_id": "6f00545b-ff6f-4024-a377-3a0d74a8b63f", "boot_id": "6a90cad5-51ad-4160-a4e5-b99db89a145d", "revision": 22, "orphans": ["aq-6f00545bff6f4024a3773a0d74a8b63f-40a0b821273c450c9b150858868b76f4"], "attempts": [], "server_status": "online"}

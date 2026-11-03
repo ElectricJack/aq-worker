@@ -117,7 +117,7 @@ fn hash_exact(reader: &mut impl Read, expected: u64) -> Result<String> {
     );
     Ok(format!("{:x}", hash.finalize()))
 }
-pub(super) struct Staging {
+pub(crate) struct Staging {
     root: File,
     path: PathBuf,
     slot: File,
@@ -127,7 +127,7 @@ pub(super) struct Staging {
     owner_pid: u32,
 }
 impl Staging {
-    pub(super) fn open(root: &Path, manifest: &TransferManifest, owner: &[u8]) -> Result<Self> {
+    pub(crate) fn open(root: &Path, manifest: &TransferManifest, owner: &[u8]) -> Result<Self> {
         ensure!(owner.len() <= 16384, "native source owner marker bound");
         let rootfd = OpenOptions::new()
             .read(true)
@@ -220,7 +220,7 @@ impl Staging {
             Err(_) => child(&self.slot, "download", write),
         }
     }
-    pub(super) fn append(&self, file: &TransferFile, offset: u64, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn append(&self, file: &TransferFile, offset: u64, bytes: &[u8]) -> Result<()> {
         self.check()?;
         ensure!(
             !bytes.is_empty() && bytes.len() <= 262144,
@@ -258,7 +258,7 @@ impl Staging {
         same_file(&f, &member(&dir, name, false)?)?;
         Ok(())
     }
-    pub(super) fn verify(&self, m: &TransferManifest) -> Result<GitManifest> {
+    pub(crate) fn verify(&self, m: &TransferManifest) -> Result<GitManifest> {
         let dir = self.directory(false)?;
         ensure!(
             (1..=1048576).contains(&m.manifest_bytes),
@@ -309,7 +309,7 @@ impl Staging {
         );
         Ok(native)
     }
-    pub(super) fn publish(&self, manifest: &TransferManifest) -> Result<()> {
+    pub(crate) fn publish(&self, manifest: &TransferManifest) -> Result<()> {
         self.check()?;
         if child(&self.incoming, &self.artifact, false).is_ok() {
             self.verify(manifest)?;

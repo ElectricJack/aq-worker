@@ -13,6 +13,7 @@ import tempfile
 IMAGE = Path('/opt/aq-runtime')
 METADATA = Path('/usr/share/agent-q')
 PROGRAMS = ('aq-worker', 'aq-session-host', 'aq-agent', 'aq-git', 'codex', 'tmux')
+CODEX_COMPANIONS = ('codex-code-mode-host', 'codex-path/rg', 'codex-resources/bwrap')
 
 
 def require(condition, message):
@@ -70,16 +71,28 @@ def check_dependencies(path, env):
         require('not found' not in output, f'{path}: missing shared library')
 
 
+def check_codex_layout(pins):
+    """Refuse the version-only installation that cannot execute any tool calls."""
+    for name in ('codex', *CODEX_COMPANIONS):
+        path = IMAGE / name
+        require(path.is_file() and not path.is_symlink(), f'{name}: missing regular Codex executable')
+        metadata = path.stat()
+        require(metadata.st_mode & 0o111 and not metadata.st_mode & 0o022,
+                f'{name}: unsafe installed executable')
+        pin = pins['inputs'][name]
+        require(digest(path) == pin['sha256'] and metadata.st_size == pin['bytes'],
+                f'{name}: Codex pin mismatch')
+        elf_interpreter(path)
+
+
 def smoke():
     pins = json.loads((METADATA / 'pins.json').read_text())
+    check_codex_layout(pins)
     build = json.loads((METADATA / 'build.json').read_text())
     observed = installation()
     require(observed == json.loads((METADATA / 'images.json').read_text()), 'installed bytes changed')
-    codex = next(row for row in observed['programs'] if row['name'] == 'codex')
-    require(codex['sha256'] == pins['inputs']['codex']['sha256']
-            and codex['bytes'] == pins['inputs']['codex']['bytes'], 'Codex ELF pin mismatch')
     # Check Git's installed helper ELFs too; version alone misses lazy helper dependencies.
-    executables = [IMAGE / name for name in PROGRAMS]
+    executables = [IMAGE / name for name in (*PROGRAMS, *CODEX_COMPANIONS)]
     for path in Path('/opt/aq-git-runtime').rglob('*'):
         if path.is_file() and not path.is_symlink():
             with path.open('rb') as stream:
@@ -108,6 +121,9 @@ def smoke():
         # retain its exact source/package version and ELF hash in the manifests.
         command([str(IMAGE / 'aq-session-host')], env, 'helper needs mode and launch directory', code=1)
         command([str(IMAGE / 'codex'), '--help'], env, 'Codex CLI')
+        command([str(IMAGE / 'codex-code-mode-host'), '--help'], env, '--listen')
+        command([str(IMAGE / 'codex-path/rg'), '--version'], env, 'ripgrep')
+        command([str(IMAGE / 'codex-resources/bwrap'), '--version'], env, 'bubblewrap')
         command(['/usr/bin/bwrap', '--version'], env, 'bubblewrap')
         command(['/usr/bin/rg', '--version'], env, 'ripgrep')
         command(['/usr/bin/tini', '--version'], env, 'tini')
@@ -130,6 +146,7 @@ if __name__ == '__main__':
     parser.add_argument('--record', action='store_true')
     args = parser.parse_args()
     if args.record:
+        check_codex_layout(json.loads((METADATA / 'pins.json').read_text()))
         (METADATA / 'images.json').write_text(json.dumps(installation(), indent=2) + '\n')
     else:
         smoke()

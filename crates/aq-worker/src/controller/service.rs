@@ -12,6 +12,9 @@ pub struct RunConfig {
     pub node: NodeConfig,
     pub docker_local: Option<crate::backend::docker_local::DockerLocalConfig>,
     pub boat: Option<crate::backend::boat::BoatConfig>,
+    /// C4: advertise templates resolved from the C3b allowlist file.
+    #[serde(default)]
+    pub template_allowlist: Option<super::allowlist::TemplateAllowlistConfig>,
 }
 impl RunConfig {
     pub fn load(path: &Path) -> Result<Self> {
@@ -24,7 +27,11 @@ impl RunConfig {
             bytes.len() <= 1_048_576,
             "controller configuration too large"
         );
-        let config: Self = serde_json::from_slice(&bytes)?;
+        let mut config: Self = serde_json::from_slice(&bytes)?;
+        if let Some(allowlist) = &config.template_allowlist {
+            let resolved = super::allowlist::load(allowlist, path)?;
+            config.node.templates.extend(resolved);
+        }
         ensure!(
             config.state_dir.is_absolute(),
             "controller root must be absolute"
@@ -126,6 +133,15 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             self.config.recovery.sweep_interval_ms,
         ));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // SBX20: the always-on disk watchdog runs on its own cadence.
+        let disk = self.backend.disk_limit();
+        let watch_ms = if disk.mode.is_some() {
+            disk.watch_interval_ms.max(1)
+        } else {
+            u64::MAX / 4
+        };
+        let mut disk_tick = tokio::time::interval(std::time::Duration::from_millis(watch_ms));
+        disk_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             if *shutdown.borrow() {
                 return self.set_draining(true);
@@ -134,6 +150,9 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 _ = shutdown.changed() => return self.set_draining(true),
                 _ = tick.tick() => {
                     self.recover_once().await?;
+                }
+                _ = disk_tick.tick(), if disk.mode.is_some() => {
+                    self.watch_disk_at((self.clock)()?).await?;
                 }
             }
         }

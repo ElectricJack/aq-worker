@@ -164,7 +164,7 @@ fn exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata
     );
     for setting in [
         "shell_environment_policy.inherit=\"none\"",
-        "shell_environment_policy.set.PATH=\"/usr/bin:/bin\"",
+        "shell_environment_policy.set.PATH=\"/usr/local/bin:/usr/bin:/bin\"",
         "features.shell_snapshot=false",
         "features.shell_snapshot_v2=false",
         "allow_login_shell=false",
@@ -192,7 +192,7 @@ fn exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata
     assert_eq!(out, payload);
 }
 #[test]
-fn tool_environment_config_starts_empty_and_adds_only_fixed_trusted_path() {
+fn tool_environment_config_starts_empty_and_adds_only_fixed_template_defaults() {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("home");
     std::fs::create_dir(&home).unwrap();
@@ -219,8 +219,17 @@ fn tool_environment_config_starts_empty_and_adds_only_fixed_trusted_path() {
     assert_eq!(policy["inherit"].as_str(), Some("none"));
     assert_eq!(policy["experimental_use_profile"].as_bool(), Some(false));
     let set = policy["set"].as_table().unwrap();
-    assert_eq!(set.len(), 1);
-    assert_eq!(set["PATH"].as_str(), Some("/usr/bin:/bin"));
+    assert_eq!(set.len(), 4);
+    assert_eq!(set["PATH"].as_str(), Some("/usr/local/bin:/usr/bin:/bin"));
+    assert_eq!(set["CARGO_INCREMENTAL"].as_str(), Some("0"));
+    assert_eq!(
+        set["CARGO_PROFILE_DEV_DEBUG"].as_str(),
+        Some("line-tables-only")
+    );
+    assert_eq!(
+        set["CARGO_PROFILE_TEST_DEBUG"].as_str(),
+        Some("line-tables-only")
+    );
 }
 #[test]
 fn changed_payload_settings_private_mode_and_hard_budget_are_refused() {

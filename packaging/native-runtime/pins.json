@@ -19,6 +19,25 @@
       "url": "https://github.com/tmux/tmux/releases/download/3.4/tmux-3.4.tar.gz",
       "sha256": "551ab8dea0bf505c0ad6b7bb35ef567cdde0ccb84357df142c254f35a23e19aa"
     },
+    "codex-code-mode-host": {
+      "version": "0.166.0",
+      "target": "x86_64-unknown-linux-musl",
+      "source_path": "bin/codex-code-mode-host",
+      "bytes": 77997328,
+      "sha256": "657f4e902726e05867c937b583049d5997e057f8cd0ab40450633c9c9ef8d630"
+    },
+    "codex-path/rg": {
+      "version": "0.166.0",
+      "target": "x86_64-unknown-linux-musl",
+      "bytes": 5408904,
+      "sha256": "e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849"
+    },
+    "codex-resources/bwrap": {
+      "version": "0.166.0",
+      "target": "x86_64-unknown-linux-musl",
+      "bytes": 529776,
+      "sha256": "77360cb751ccedc5971391444ac86a8a33c15b04d6b4a6fe45f5d25496e62c4c"
+    },
     "codex": {
       "version": "0.166.0",
       "target": "x86_64-unknown-linux-musl",

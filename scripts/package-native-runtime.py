@@ -45,7 +45,9 @@ def package(revision, inputs, destination):
         context = Path(temporary)
         archive = context / 'worker-source.tar'
         subprocess.run(['git', 'archive', '--format=tar', '--output', str(archive), revision,
-                        'Cargo.toml', 'Cargo.lock', 'crates', 'vendor', str(PACKAGE)],
+                        'Cargo.toml', 'Cargo.lock', 'crates', 'vendor', 'protocol/aq-admission',
+                        'packaging/sandbox/template_tool.py', 'packaging/sandbox/credential_scan.py',
+                        str(PACKAGE)],
                        cwd=ROOT, check=True)
         with tarfile.open(archive) as source:
             source.extractall(context / 'source', filter='data')
@@ -53,6 +55,7 @@ def package(revision, inputs, destination):
         packaging = source / PACKAGE
         pins = json.loads((packaging / 'pins.json').read_text())
         for name, pin in pins['inputs'].items():
+            (context / name).parent.mkdir(parents=True, exist_ok=True)
             checked_copy(inputs / name, context / name, pin)
         for name in ('Dockerfile', 'smoke.py', 'pins.json'):
             shutil.copyfile(packaging / name, context / name)
@@ -75,7 +78,7 @@ def package(revision, inputs, destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--revision', default='HEAD', help='committed worker revision (default HEAD)')
-    parser.add_argument('--inputs', required=True, type=Path, help='directory of the four pinned public inputs')
+    parser.add_argument('--inputs', required=True, type=Path, help='directory of pinned public inputs, including Codex companions')
     parser.add_argument('--output', required=True, type=Path, help='new Docker context directory')
     args = parser.parse_args()
     print(json.dumps(package(args.revision, args.inputs, args.output), indent=2))

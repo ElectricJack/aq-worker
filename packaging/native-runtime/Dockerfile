@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 FROM rust:1.96.1-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663 AS build
 WORKDIR /inputs
-COPY SHA256SUMS worker-source.tar build.json pins.json smoke.py aq-git-source.tar.gz git-2.56.0.tar.xz tmux-3.4.tar.gz codex ./
+COPY SHA256SUMS worker-source.tar build.json pins.json smoke.py aq-git-source.tar.gz git-2.56.0.tar.xz tmux-3.4.tar.gz codex codex-code-mode-host ./
+COPY codex-path/rg ./codex-path/rg
+COPY codex-resources/bwrap ./codex-resources/bwrap
 RUN sha256sum --check SHA256SUMS && test "$(uname -m)" = x86_64
 RUN mkdir /worker /aq-git /out && tar -xf worker-source.tar -C /worker \
     && tar -xzf aq-git-source.tar.gz -C /aq-git
@@ -37,16 +39,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && chown -R 10001:10001 /state /config
 COPY --from=build /out/ /opt/aq-runtime/
 COPY --from=build /inputs/codex /opt/aq-runtime/codex
+COPY --from=build /inputs/codex-code-mode-host /opt/aq-runtime/codex-code-mode-host
+COPY --from=build /inputs/codex-path/rg /opt/aq-runtime/codex-path/rg
+COPY --from=build /inputs/codex-resources/bwrap /opt/aq-runtime/codex-resources/bwrap
 COPY --from=tools /opt/tmux/bin/tmux /opt/aq-runtime/tmux
 COPY --from=tools /opt/aq-git-runtime /opt/aq-git-runtime
 COPY --from=build /inputs/build.json /inputs/pins.json /usr/share/agent-q/
 COPY --from=build /inputs/smoke.py /usr/local/lib/aq-native-runtime-smoke.py
-RUN chmod 755 /opt/aq-runtime/* \
+RUN chmod 755 /opt/aq-runtime/* /opt/aq-runtime/codex-path/rg /opt/aq-runtime/codex-resources/bwrap \
     && for name in aq-worker aq-session-host aq-agent aq-git codex tmux; do ln -s /opt/aq-runtime/$name /usr/local/bin/$name; done \
     && ln -s /opt/aq-git-runtime/bin/git /usr/bin/git \
     && dpkg-query -W -f='${Package}=${Version}\n' > /usr/share/agent-q/debian-packages.txt \
     && python3 /usr/local/lib/aq-native-runtime-smoke.py --record
-ENV PATH="/opt/aq-runtime:/opt/aq-git-runtime/bin:/usr/local/bin:/usr/bin:/bin" \
+ENV PATH="/opt/aq-runtime/codex-path:/opt/aq-runtime:/opt/aq-git-runtime/bin:/usr/local/bin:/usr/bin:/bin" \
     HOME=/state/home XDG_CONFIG_HOME=/config TERM=xterm-256color LANG=C.UTF-8
 USER 10001:10001
 # Exercise the installed closure as the final unprivileged user, without secrets.

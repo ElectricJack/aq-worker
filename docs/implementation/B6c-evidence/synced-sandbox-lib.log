@@ -1,0 +1,18 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.81s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-53dae0d62afb911f)
+
+running 10 tests
+test native::runner::sandbox::auth_tests::runner_channel_refusal_is_shared_authority_loss ... ok
+test native::runner::sandbox::auth_tests::runner_authenticates_with_delegated_permit_and_refuses_foreign_scope ... ok
+test native::runner::sandbox::auth_tests::runner_exchange_refusal_and_unavailability_have_distinct_authority ... ok
+test native::runner::sandbox::auth_tests::runner_readoption_replies_extend_nothing ... ok
+test native::runner::sandbox::auth_tests::runner_grant_upgrade_and_renewal_keep_original_scope ... ok
+test native::runner::sandbox::auth_tests::runner_refuses_foreign_session_on_mail_and_terminal_routes ... ok
+test native::runner::sandbox::channels_tests::idle_sandbox_holds_no_terminal_poll ... ok
+test native::runner::sandbox::hydrate_tests::hydration_refuses_retained_bundle_digest_mismatch ... ok
+test native::runner::sandbox::tests::central_retention_receipts_require_exact_attempt_and_result_evidence ... ok
+test native::runner::sandbox::hydrate_tests::hydrated_workspace_matches_retained_revision ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 288 filtered out; finished in 0.44s
+

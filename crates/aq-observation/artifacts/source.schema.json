@@ -150,6 +150,17 @@
     "provider": {
       "$ref": "#/$defs/Text"
     },
+    "registered_session_key": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Text"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Owner-registered provenance key (profiled attempts use\n`aq.attempt/<attempt_id>/<generation>`). Emitted events carry it, while\nnative transcript identity checks keep using `native_session_key`."
+    },
     "source_id": {
       "format": "uuid",
       "type": "string"

@@ -131,6 +131,7 @@ mod tests {
             format: aq_observation::Format::ClaudeV1Jsonl9a9b8e8,
             provider: Text::new("synthetic").unwrap(),
             account_reference: Text::new("synthetic").unwrap(),
+            registered_session_key: None,
         };
         let mut row = SourceRow {
             source,
@@ -191,6 +192,7 @@ mod tests {
             format: aq_observation::Format::ClaudeV1Jsonl9a9b8e8,
             provider: Text::new("synthetic").unwrap(),
             account_reference: Text::new("synthetic").unwrap(),
+            registered_session_key: None,
         };
         store.attach(source).unwrap();
         let before = store.audit_fingerprint().unwrap();

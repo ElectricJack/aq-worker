@@ -3,7 +3,9 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import struct
 import subprocess
+import tarfile
 
 import pytest
 
@@ -48,13 +50,26 @@ def test_context_uses_committed_allowlist_and_never_walks_input_or_worktree(tmp_
         (directory / 'Cargo.toml').write_text('[package]\nversion = "1.2.3"\n')
     (repo / 'vendor').mkdir()
     (repo / 'vendor/public').write_text('public')
+    protocol = repo / 'protocol/aq-admission'
+    protocol.mkdir(parents=True)
+    (protocol / 'Cargo.toml').write_text('[package]\nname = "aq-admission"\nversion = "0.3.2"\n')
+    embedded = repo / 'packaging/sandbox'
+    embedded.mkdir(parents=True)
+    for name in ('template_tool.py', 'credential_scan.py'):
+        (embedded / name).write_text('# committed embedded tool\n')
     packaging = repo / packager.PACKAGE
     packaging.mkdir(parents=True)
     inputs = tmp_path / 'inputs'
     inputs.mkdir()
     (inputs / 'asset').write_bytes(b'public')
     (inputs / 'auth.json').write_text('INPUT SECRET')
-    pins = {'inputs': {'asset': {'sha256': hashlib.sha256(b'public').hexdigest()}}}
+    names = ('asset', *smoke.CODEX_COMPANIONS)
+    for name in smoke.CODEX_COMPANIONS:
+        path = inputs / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'public')
+    (inputs / 'codex-resources/auth.json').write_text('NESTED SECRET')
+    pins = {'inputs': {name: {'sha256': hashlib.sha256(b'public').hexdigest()} for name in names}}
     (packaging / 'pins.json').write_text(json.dumps(pins))
     for name in ('Dockerfile', 'smoke.py'):
         (packaging / name).write_text('public')
@@ -70,13 +85,69 @@ def test_context_uses_committed_allowlist_and_never_walks_input_or_worktree(tmp_
     output = tmp_path / 'context'
     result = packager.package('HEAD', inputs, output)
     assert result['versions'] == {name: '1.2.3' for name in ('aq-worker', 'aq-agent', 'aq-session-host')}
-    assert set(path.name for path in output.iterdir()) == {
-        'worker-source.tar', 'Dockerfile', 'smoke.py', 'pins.json', 'asset', 'build.json', 'SHA256SUMS'}
+    files = [path for path in output.rglob('*') if path.is_file()]
+    assert {str(path.relative_to(output)) for path in files} == {
+        'worker-source.tar', 'Dockerfile', 'smoke.py', 'pins.json', 'build.json', 'SHA256SUMS', *names}
     assert all(b'SECRET' not in path.read_bytes() and b'TRACKED AUTH' not in path.read_bytes()
-               for path in output.iterdir())
+               for path in files)
     subprocess.run(['sha256sum', '-c', 'SHA256SUMS'], cwd=output, check=True, capture_output=True)
+    with tarfile.open(output / 'worker-source.tar') as archive:
+        assert archive.extractfile('protocol/aq-admission/Cargo.toml').read() == (protocol / 'Cargo.toml').read_bytes()
+        for name in ('template_tool.py', 'credential_scan.py'):
+            assert archive.extractfile(f'packaging/sandbox/{name}').read() == (embedded / name).read_bytes()
     with pytest.raises(ValueError, match='already exists'):
         packager.package('HEAD', inputs, output)
+    (inputs / 'codex-code-mode-host').unlink()
+    with pytest.raises(FileNotFoundError, match='codex-code-mode-host'):
+        packager.package('HEAD', inputs, tmp_path / 'incomplete')
+    assert not (tmp_path / 'incomplete').exists()
+
+
+@pytest.fixture
+def codex_layout(tmp_path, monkeypatch):
+    monkeypatch.setattr(smoke, 'IMAGE', tmp_path)
+    header = bytearray(64)
+    header[:6] = b'\x7fELF\x02\x01'
+    struct.pack_into('<H', header, 18, 62)
+    struct.pack_into('<HH', header, 54, 56, 0)
+    pins = {'inputs': {}}
+    for name in ('codex', *smoke.CODEX_COMPANIONS):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(header)
+        path.chmod(0o755)
+        pins['inputs'][name] = {'sha256': hashlib.sha256(header).hexdigest(), 'bytes': len(header)}
+    return pins
+
+
+def test_codex_preflight_accepts_complete_pinned_layout(codex_layout):
+    smoke.check_codex_layout(codex_layout)
+
+
+@pytest.mark.parametrize('name', smoke.CODEX_COMPANIONS)
+@pytest.mark.parametrize('damage', ['missing', 'modified', 'not_executable'])
+def test_codex_preflight_refuses_incomplete_or_changed_companions(codex_layout, name, damage):
+    path = smoke.IMAGE / name
+    if damage == 'missing':
+        path.unlink()
+    elif damage == 'modified':
+        path.write_bytes(b'wrong release')
+    else:
+        path.chmod(0o644)
+    with pytest.raises(ValueError, match=name):
+        smoke.check_codex_layout(codex_layout)
+
+
+def test_image_copies_and_pins_the_codex_tool_closure():
+    packaging = ROOT / 'packaging/native-runtime'
+    pins = json.loads((packaging / 'pins.json').read_text())
+    dockerfile = (packaging / 'Dockerfile').read_text()
+    for name in smoke.CODEX_COMPANIONS:
+        assert f'COPY --from=build /inputs/{name} /opt/aq-runtime/{name}\n' in dockerfile
+        assert pins['inputs'][name]['version'] == pins['inputs']['codex']['version']
+        assert len(pins['inputs'][name]['sha256']) == 64
+        assert pins['inputs'][name]['bytes'] > 0
+    assert 'ENV PATH="/opt/aq-runtime/codex-path:' in dockerfile
 
 
 def test_wrong_architecture_or_wrapper_is_not_an_elf(tmp_path):

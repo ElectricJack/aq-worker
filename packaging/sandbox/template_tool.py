@@ -13,6 +13,10 @@ _spec.loader.exec_module(scan)
 FINALIZE = ('getent passwd runner >/dev/null && getent passwd agent >/dev/null && '
             'command -v tmux >/dev/null && command -v bwrap >/dev/null && '
             'command -v git >/dev/null && test -s /opt/aq/manifest.json')
+# Sandboxes are single-use, so Cargo's incremental cache is pure disk cost.
+# Only these three settings are overridden; other repository profile values stand.
+CARGO_ENV = ('ENV CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only '
+             'CARGO_PROFILE_TEST_DEBUG=line-tables-only')
 
 
 def text(value, limit=128, pattern=None):
@@ -93,7 +97,8 @@ def dockerfile(recipe, base, config):
         lines += ['RUN ' + json.dumps(['git', 'init', '--bare', dest]),
                   'RUN ' + json.dumps(['git', '-C', dest, 'fetch', '--no-tags', '--depth=1',
                                        item['repository'], item['commit']])]
-    lines += ['WORKDIR /workspace',
+    lines += [CARGO_ENV,
+              'WORKDIR /workspace',
               'COPY --from=' + config['runtime_image'] + ' /opt/aq /opt/aq',
               'RUN ' + json.dumps(['/bin/sh', '-ec', FINALIZE])]
     return '\n'.join(lines) + '\n'

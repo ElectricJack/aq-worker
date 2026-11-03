@@ -136,19 +136,69 @@ impl CreateRequest {
 /// Smallest memory limit Docker-compatible runtimes accept.
 pub const MIN_MEMORY_BYTES: u64 = 6 * 1024 * 1024;
 
-/// CPU, memory and PID limits copied from the node reservation.
+/// CPU, memory, PID and disk limits copied from the node reservation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceLimits {
     pub cpu_millis: u32,
     pub memory_bytes: u64,
     pub pids: u32,
+    /// SBX20 reservation disk bytes. Omitted when absent so journaled
+    /// requests from before SBX20 keep their request hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_bytes: Option<u64>,
 }
 impl ResourceLimits {
     pub fn validate(&self) -> Result<(), BackendError> {
-        if self.cpu_millis == 0 || self.pids == 0 || self.memory_bytes < MIN_MEMORY_BYTES {
+        if self.cpu_millis == 0
+            || self.pids == 0
+            || self.memory_bytes < MIN_MEMORY_BYTES
+            || self.disk_bytes == Some(0)
+        {
             return Err(BackendError::InvalidRequest("invalid reservation limits"));
         }
         Ok(())
+    }
+}
+
+/// SBX20 enforcement a backend provides for the per-attempt disk limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiskLimitMode {
+    /// Sampled usage; breaching attempts are stopped and preserved.
+    Watchdog,
+    /// Storage-driver quota in addition to the always-on watchdog.
+    Hard,
+}
+impl DiskLimitMode {
+    /// Advertised capability label, e.g. `disk-limit=watchdog`.
+    pub fn capability(self) -> &'static str {
+        match self {
+            Self::Watchdog => "disk-limit=watchdog",
+            Self::Hard => "disk-limit=hard",
+        }
+    }
+}
+
+/// What a backend enforces for disk, reported in node inventory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DiskLimitStatus {
+    /// `None`: the backend does not bound disk and reports no usage.
+    pub mode: Option<DiskLimitMode>,
+    /// Operator override: sandbox storage shares the root filesystem.
+    pub shared_root_fs: bool,
+    pub watch_interval_ms: u64,
+}
+
+/// One sampled running sandbox: writable layer plus its work volume.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskUsage {
+    pub sandbox: SandboxIdentity,
+    pub used_bytes: u64,
+    pub limit_bytes: u64,
+}
+impl DiskUsage {
+    pub fn exceeded(&self) -> bool {
+        self.used_bytes >= self.limit_bytes
     }
 }
 
@@ -389,13 +439,36 @@ mod tests {
     }
 
     #[test]
+    fn absent_disk_limit_keeps_pre_sbx20_encoding() {
+        let limits = ResourceLimits {
+            cpu_millis: 500,
+            memory_bytes: 64 * 1024 * 1024,
+            pids: 32,
+            disk_bytes: None,
+        };
+        let value = serde_json::to_value(limits).unwrap();
+        assert!(value.get("disk_bytes").is_none());
+        let parsed: ResourceLimits = serde_json::from_value(
+            serde_json::json!({"cpu_millis":500,"memory_bytes":67108864,"pids":32}),
+        )
+        .unwrap();
+        assert_eq!(parsed, limits);
+    }
+
+    #[test]
     fn resource_limits_reject_zero() {
         let ok = ResourceLimits {
             cpu_millis: 500,
             memory_bytes: 64 * 1024 * 1024,
             pids: 32,
+            disk_bytes: None,
         };
         assert!(request().with_resources(ok).validate().is_ok());
+        let with_disk = ResourceLimits {
+            disk_bytes: Some(1),
+            ..ok
+        };
+        assert!(request().with_resources(with_disk).validate().is_ok());
         for bad in [
             ResourceLimits {
                 cpu_millis: 0,
@@ -404,6 +477,10 @@ mod tests {
             ResourceLimits { pids: 0, ..ok },
             ResourceLimits {
                 memory_bytes: 6 * 1024 * 1024 - 1,
+                ..ok
+            },
+            ResourceLimits {
+                disk_bytes: Some(0),
                 ..ok
             },
         ] {

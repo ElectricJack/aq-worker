@@ -1,4 +1,5 @@
 //! Durable node controller. All agent execution remains inside the backend.
+pub mod allowlist;
 mod journal;
 mod service;
 pub use service::{ProviderUnavailable, RunConfig, UnavailableProvider};
@@ -44,6 +45,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             "invalid node capacity"
         );
         config.recovery.validate()?;
+        config.preserve.validate(backend.kind())?;
         let journal = journal::Journal::open(root, node)?;
         let recovery_required = journal.state.attempts.values().any(|a| a.stopped.is_none());
         let controller = Self {
@@ -95,7 +97,10 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 cpu = self.config.capacity.cpu_millis;
             }
         }
+        let disk_limit = self.backend.disk_limit();
         Inventory {
+            disk_limit: disk_limit.mode,
+            shared_root_fs: disk_limit.shared_root_fs,
             identity: self.identity().clone(),
             generation: self.state().revision,
             reserved_sandboxes: count,
@@ -192,6 +197,9 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         }
         if self.has_orphans() {
             return self.refuse(RefusalReason::GrantDenied);
+        }
+        if self.preserved_count() >= self.config.preserve.max_count {
+            return self.refuse(RefusalReason::NodePreservedCapacityReached);
         }
         if self
             .state()
@@ -293,6 +301,9 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             cpu_millis,
             memory_bytes: m.resources.memory_bytes,
             pids: m.resources.process_limit,
+            // SBX20: the reservation's disk bytes bound the attempt; zero
+            // leaves the backend's node default in force.
+            disk_bytes: Some(request.disk_bytes).filter(|bytes| *bytes > 0),
         });
         if create.validate().is_err() {
             return self.refuse(RefusalReason::CapacityChanged);
@@ -316,10 +327,19 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 grant: None,
                 cleanup: None,
                 cancellation: None,
+                preserved: None,
             },
         );
         self.journal.persist(state)?;
         Ok(id)
+    }
+    /// Preserved sandboxes still holding disk (SBX22 `preserve.max_count`).
+    pub fn preserved_count(&self) -> usize {
+        self.state()
+            .attempts
+            .values()
+            .filter(|a| a.preserved.is_some() && a.phase != Phase::Destroyed)
+            .count()
     }
     fn attempt(&self, id: Uuid) -> Result<Attempt> {
         self.journal.check()?;
@@ -381,6 +401,8 @@ fn now_ms() -> Result<u64> {
 }
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod preserve_tests;
 #[cfg(test)]
 mod recovery_ports;
 #[cfg(test)]

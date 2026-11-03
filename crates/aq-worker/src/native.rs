@@ -9,6 +9,7 @@ pub mod materials;
 mod phase_profile_shared;
 pub mod preparation;
 pub mod runner;
+pub mod terminal_output;
 pub use preparation::{launch, result};
 
 use anyhow::{Result, ensure};

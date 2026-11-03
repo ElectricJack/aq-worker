@@ -1,0 +1,22 @@
+# Windows-side autostart, 2026-11-02 (PST). powershell.exe run from /mnt/c (UNC cwd -> UtilAcceptVsock accept4 failed 110; also intermittent from /mnt/c, retried)
+$ aq-wsl-autostart.ps1 -Distro Ubuntu      (no elevation)
+registered task 'AQ WSL worker keepalive' (logon trigger, distro Ubuntu)
+registered task 'AQ Docker Desktop at logon'
+$ Get-ScheduledTask 'AQ WSL worker keepalive' triggers
+MSFT_TaskLogonTrigger  (current user)
+MSFT_TaskTimeTrigger   StartBoundary 2026-11-02T23:16:07-08:00 Interval PT1M (indefinite)
+Docker Desktop settings-store.json: AutoStart=False (hence the Docker Desktop logon task); IntegratedWslDistros=[Ubuntu]
+
+# Keepalive recovery (the Relay-parented `sleep infinity` held by the task)
+first version (logon trigger + RestartCount on failure only):
+23:11:17 kill -TERM keepalive -> 23:14:45 not restarted; task State=Ready LastTaskResult=0 NextRunTime=(none)
+  => conhost --headless exits 0 whatever wsl.exe returns (wsl.exe itself exited 15 for a killed session), so
+     restart-on-failure never fires, and a logon trigger's repetition only starts at the next logon.
+fixed version (added time trigger, every minute, IgnoreNew):
+23:15:07 re-registered -> 23:16:07 keepalive started by the time trigger (pid start 23:16:07)
+23:16:16 kill -TERM keepalive -> back after 92s; then 2 further re-fires observed: instances=1 (IgnoreNew, no duplicates)
+
+# Inside WSL
+loginctl show-user jkern -p Linger -> yes   (enable-linger succeeded without sudo, polkit self)
+systemctl --user is-enabled aq-sandbox-podman.service aq-worker@local.service -> enabled enabled
+/etc/wsl.conf: [boot] systemd=true; ~/.wslconfig: memory/swap only, no vmIdleTimeout (not needed: the keepalive session is activity)

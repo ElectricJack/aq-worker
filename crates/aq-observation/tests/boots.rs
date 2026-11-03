@@ -11,7 +11,7 @@ fn node(boot: u128) -> Node {
     }
 }
 fn source(id: u128, boot: u128, attempt: u128, key: &str) -> Source {
-    Source{binding:serde_json::from_value(json!({"project_id":Uuid::from_u128(1),"task_id":Uuid::from_u128(2),"lineage_id":Uuid::from_u128(3),"attempt_id":Uuid::from_u128(attempt),"attempt_generation":1,"session":{"kind":"remote","node_id":Uuid::from_u128(5),"boot_id":Uuid::from_u128(boot),"session_id":Uuid::from_u128(attempt+1),"attempt_id":Uuid::from_u128(attempt),"assignment_generation":1}})).unwrap(),source_id:Uuid::from_u128(id),generation:1,native_session_key:Text::new(key).unwrap(),format:Format::ClaudeV1Jsonl9a9b8e8,provider:Text::new("fixture-provider").unwrap(),account_reference:Text::new("fixture-account").unwrap()}
+    Source{binding:serde_json::from_value(json!({"project_id":Uuid::from_u128(1),"task_id":Uuid::from_u128(2),"lineage_id":Uuid::from_u128(3),"attempt_id":Uuid::from_u128(attempt),"attempt_generation":1,"session":{"kind":"remote","node_id":Uuid::from_u128(5),"boot_id":Uuid::from_u128(boot),"session_id":Uuid::from_u128(attempt+1),"attempt_id":Uuid::from_u128(attempt),"assignment_generation":1}})).unwrap(),source_id:Uuid::from_u128(id),generation:1,native_session_key:Text::new(key).unwrap(),format:Format::ClaudeV1Jsonl9a9b8e8,provider:Text::new("fixture-provider").unwrap(),account_reference:Text::new("fixture-account").unwrap(), registered_session_key: None }
 }
 fn row(key: &str, id: &str) -> Vec<u8> {
     let f: Value = serde_json::from_str(include_str!("fixtures/native-synthetic.json")).unwrap();

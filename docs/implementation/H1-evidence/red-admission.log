@@ -1,0 +1,22 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 40.18s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-481fad276cc0151b)
+
+running 1 test
+test native::runner::sandbox::observations_tests::observation_paths_identity_partial_and_loss_are_explicit ... FAILED
+
+failures:
+
+---- native::runner::sandbox::observations_tests::observation_paths_identity_partial_and_loss_are_explicit stdout ----
+
+thread 'native::runner::sandbox::observations_tests::observation_paths_identity_partial_and_loss_are_explicit' (3139574) panicked at crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:137:42:
+called `Result::unwrap()` on an `Err` value: source absent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    native::runner::sandbox::observations_tests::observation_paths_identity_partial_and_loss_are_explicit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 300 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

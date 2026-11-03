@@ -120,11 +120,15 @@ impl OutputPublisher {
                 // Transport retry is explicit, bounded and output-only; no
                 // execution/terminal-input operation uses this policy.
                 let base = if failures == 0 {
-                    250
+                    50
                 } else {
                     1000_u64.saturating_mul(u64::from(failures.min(4)))
                 };
-                let jitter = u64::from(rand::random::<u8>());
+                let jitter = if failures == 0 {
+                    0
+                } else {
+                    u64::from(rand::random::<u8>())
+                };
                 tokio::time::sleep(std::time::Duration::from_millis(base + jitter)).await;
             }
         });

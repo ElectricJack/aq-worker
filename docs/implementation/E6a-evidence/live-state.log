@@ -1,0 +1,29 @@
+## container (docker inspect aq-worker-local)
+init=true user=1000:1000 readonly=true capdrop=[ALL] secopt=[no-new-privileges] restart=no image=aq-worker:dev
+/run/user/1000/aq-sandbox -> /run/aq-sandbox
+~/.config/agent-q/servers/local -> /config
+~/.local/state/agent-q/workers/local -> /state
+
+docker.sock mounted: 0
+## process tree inside container
+PID COMMAND
+7237 /sbin/docker-init -- /usr/local/bin/aq-worker run --controller-config /config/agent-q/node.json
+7374 /usr/local/bin/aq-worker run --controller-config /config/agent-q/node.json
+## credential files (mode links owner path)
+755 3 jkern ~/.config/agent-q/servers
+700 3 jkern ~/.config/agent-q/servers/local
+700 2 jkern ~/.config/agent-q/servers/local/agent-q
+600 1 jkern ~/.config/agent-q/servers/local/agent-q/node.json
+600 1 jkern ~/.config/agent-q/servers/local/agent-q/runner-access.json
+600 1 jkern ~/.config/agent-q/servers/local/agent-q/worker.toml
+## sandbox daemon socket
+755 jkern directory /run/user/1000/aq-sandbox
+600 jkern socket /run/user/1000/aq-sandbox/podman.sock
+## units
+enabled
+enabled
+active
+active
+linger=yes
+## server view
+{'name': 'e6a-wsl-desktop', 'node_id': None, 'id': '6f00545b-ff6f-4024-a377-3a0d74a8b63f', 'status': 'online', 'worker_version': '0.5.1', 'last_seen_at': '2026-11-03T07:05:21.140310Z'}

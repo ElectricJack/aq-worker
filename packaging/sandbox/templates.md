@@ -104,9 +104,25 @@ vault paths and Docker executable are trusted operator inputs.
 Install steps and optional prefetch run before the runtime copy:
 
 ```dockerfile
+ENV CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_PROFILE_TEST_DEBUG=line-tables-only
+WORKDIR /workspace
 COPY --from=aq-sandbox-runtime@sha256:<digest> /opt/aq /opt/aq
 RUN <fixed finalize check>
 ```
+
+Every template's image environment disables Cargo's incremental cache and
+keeps only line-table debuginfo for the `dev` and `test` profiles. Sandboxes
+are single-use, so the incremental cache only costs disk. These three
+variables override the matching repository profile keys; no other Cargo or
+profile setting is changed. The `ENV` follows the install steps so their
+build cache is unaffected. A harness that clears its tool environment must
+forward these values itself for them to reach agent commands.
+
+The Rust recipe adds an install step that writes `/.cargo/config.toml` with
+`[build] jobs = 1`, sized for 2 vCPU / 4 GB sandboxes. It is the
+lowest-priority Cargo config and survives a cleared environment.
+Repository configs, `CARGO_BUILD_JOBS` and `-j` still override it. Rust
+1.96.1 already links with its bundled `rust-lld`, so no linker flag is set.
 
 Finalize requires runner and agent passwd entries, executable `tmux`, `bwrap`
 and `git` on PATH, and a nonempty `/opt/aq/manifest.json`. Missing requirements
@@ -201,3 +217,25 @@ verified blobs and one expanded layer. Gzip and uncompressed OCI layers are
 supported; zstd/multi-platform/nested-index/attestation archives explicitly
 refuse. A rejected OCI archive can still contain the detected secret; output
 is created with mode 0700 and must be handled as private forensic data.
+
+## Advertising allowlisted templates (C4)
+
+Sandbox node registration (schema 2) derives template advertisements from this
+allowlist through the controller configuration's optional `template_allowlist`
+block (path relative to the controller configuration file):
+
+```json
+"template_allowlist": {
+  "path": "templates/allowlist.json",
+  "advertise": [{"environment": "example-tools@1", "estimated_cold_start_ms": 1500,
+                 "estimated_cold_start_cost": {"currency": "USD", "micros": 20}}]
+}
+```
+
+Each `environment` resolves as `name@version` exactly, or a bare `name` that
+must be unique in the allowlist, matching aq-server's reading of the file
+(extra provenance fields are ignored). The advertised `digest` is the entry's
+`image_digest` without its `sha256:` prefix (64 lowercase hex), which is the
+`InstalledHarness.environment.digest` C4 pins, and `harnesses` lists the
+entry's exact `harness_versions`. Each resolved digest must also be a
+`docker_local.templates` entry or the configuration is refused.

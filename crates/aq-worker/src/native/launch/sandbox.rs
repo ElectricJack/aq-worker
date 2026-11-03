@@ -37,3 +37,22 @@ pub(crate) fn recover_stopped(root: &Path, intent: &LaunchIntent) -> Result<Stop
     let mut handle = SessionHost::recover(root, intent)?;
     stop(&mut handle)
 }
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_observed(
+    root: &Path,
+    id: Uuid,
+    startup: &aq_session_host::observed::ObservedStartup,
+    permit: ExecutionPermit,
+    local: &LocalEnvironment,
+    adapter: &impl aq_session_host::observed::ObservedHarnessAdapter,
+    authority: &mut impl LaunchAuthority,
+    agent: Option<aq_session_host::users::AgentIdentity>,
+) -> Result<aq_session_host::observed::PendingObservedSession> {
+    match agent {
+        Some(agent) => SessionHost::prepare_observed_as_agent(
+            root, id, startup, permit, local, adapter, authority, agent,
+        ),
+        None => SessionHost::prepare_observed(root, id, startup, permit, local, adapter, authority),
+    }
+}

@@ -155,6 +155,40 @@ async fn refuses_non_rootless_daemon() {
 }
 
 #[tokio::test]
+async fn refuses_daemon_that_drops_resource_limits() {
+    const NO_DRIVER: BackendError = BackendError::InvalidRequest(
+        "sandbox daemon reports no cgroup driver; resource limits would be silently dropped",
+    );
+    const NOT_V2: BackendError = BackendError::InvalidRequest(
+        "sandbox daemon must use cgroup v2; resource limits would be silently dropped",
+    );
+    let socket = owned_socket();
+    let config = DockerLocalConfig::new(socket.path.clone());
+    let cases = [
+        (Some("systemd"), Some("2"), None),
+        (Some("cgroupfs"), Some("2"), None),
+        // docker:dind-rootless
+        (Some("none"), Some("2"), Some(NO_DRIVER)),
+        (None, Some("2"), Some(NO_DRIVER)),
+        (Some("systemd"), Some("1"), Some(NOT_V2)),
+        (Some("cgroupfs"), Some("1"), Some(NOT_V2)),
+        (Some("systemd"), None, Some(NOT_V2)),
+    ];
+    for (driver, version, expected) in cases {
+        let result = bounded(DockerLocalBackend::connect(
+            config.clone(),
+            ScriptedDocker::new().cgroup(driver, version),
+        ))
+        .await;
+        assert_eq!(
+            result.err(),
+            expected,
+            "driver {driver:?} version {version:?}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn connect_times_out_as_uncertain() {
     let socket = owned_socket();
     let mut config = DockerLocalConfig::new(socket.path.clone());
@@ -193,6 +227,7 @@ const LIMITS: ResourceLimits = ResourceLimits {
     cpu_millis: 500,
     memory_bytes: 64 * 1024 * 1024,
     pids: 32,
+    disk_bytes: None,
 };
 const NOT_ALLOWLISTED: BackendError =
     BackendError::InvalidRequest("template digest not allowlisted");
@@ -1089,6 +1124,8 @@ async fn live(runner: &[&str], edit: impl FnOnce(&mut DockerLocalConfig)) -> Liv
     config.runner_command = Some(runner.iter().map(|arg| arg.to_string()).collect());
     config.api_timeout_ms = 30_000;
     config.stop_grace_secs = 1;
+    // SBX20: a dev daemon whose storage shares `/` must opt in explicitly.
+    config.shared_root_fs = std::env::var_os("AQ_DOCKER_LOCAL_SHARED_ROOT_FS").is_some();
     edit(&mut config);
     let faults = FaultTransport::new(UnixSocketTransport::new(socket));
     let mut backend = DockerLocalBackend::connect(config, faults.clone())
@@ -1307,5 +1344,168 @@ async fn live_wsl_suspend_resume_reconciles_sandboxes() {
     assert_eq!(
         live.backend.list_owned(live.node).await.map(|o| o.len()),
         Ok(0)
+    );
+}
+
+// SBX20: per-sandbox disk limit.
+const SHARED_ROOT: BackendError = BackendError::InvalidRequest(
+    "sandbox daemon storage shares the root filesystem; set shared_root_fs to override",
+);
+
+#[tokio::test]
+async fn disk_admission_refuses_shared_root_fs_unless_overridden() {
+    let socket = owned_socket();
+    let cache = tempfile::tempdir().unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    for root in [Some("/"), None] {
+        let docker = ScriptedDocker::new().root_dir(root);
+        let refused = bounded(DockerLocalBackend::connect(
+            base_config(&socket, &cache, &scratch),
+            docker,
+        ))
+        .await
+        .err();
+        assert_eq!(refused, Some(SHARED_ROOT), "{root:?}");
+    }
+    let mut config = base_config(&socket, &cache, &scratch);
+    config.shared_root_fs = true;
+    let backend = bounded(DockerLocalBackend::connect(
+        config,
+        ScriptedDocker::new().root_dir(Some("/")),
+    ))
+    .await
+    .unwrap();
+    let status = backend.disk_limit();
+    assert!(status.shared_root_fs, "the override is reported");
+    assert_eq!(status.mode, Some(DiskLimitMode::Watchdog));
+    assert_eq!(status.watch_interval_ms, 10_000);
+
+    // A distinct filesystem (the double reports /proc) needs no override.
+    let h = harness().await;
+    assert!(!h.backend.disk_limit().shared_root_fs);
+    assert_eq!(
+        h.backend.disk_limit().mode.map(DiskLimitMode::capability),
+        Some("disk-limit=watchdog")
+    );
+}
+
+#[tokio::test]
+async fn hard_disk_limit_carries_storage_size_only_in_hard_mode() {
+    // Watchdog (default): neither the container nor the volume is sized.
+    let mut h = harness().await;
+    let soft = request(1, 2, 3);
+    bounded(h.backend.create(&soft)).await.unwrap();
+    let body = h.docker.container(&soft.name).unwrap().body;
+    assert!(body["HostConfig"].get("StorageOpt").is_none());
+    let volume = format!("{}-work", soft.name);
+    assert_eq!(h.docker.volume_driver_opts(&volume), None);
+
+    // Hard mode needs XFS-backed storage.
+    let socket = owned_socket();
+    let cache = tempfile::tempdir().unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let mut config = base_config(&socket, &cache, &scratch);
+    config.hard_disk_limit = true;
+    assert_eq!(
+        bounded(DockerLocalBackend::connect(config, ScriptedDocker::new()))
+            .await
+            .err(),
+        Some(BackendError::InvalidRequest(
+            "hard disk limit requires XFS (prjquota) sandbox storage"
+        ))
+    );
+
+    let mut h = harness_with(ScriptedDocker::new().backing_fs("xfs"), |c| {
+        c.hard_disk_limit = true;
+    })
+    .await;
+    assert_eq!(
+        h.backend.disk_limit().mode.map(DiskLimitMode::capability),
+        Some("disk-limit=hard")
+    );
+    let limit = 5 * 1024 * 1024 * 1024u64;
+    let hard = request(1, 2, 4).with_resources(ResourceLimits {
+        disk_bytes: Some(limit),
+        ..LIMITS
+    });
+    bounded(h.backend.create(&hard)).await.unwrap();
+    let body = h.docker.container(&hard.name).unwrap().body;
+    assert_eq!(
+        body["HostConfig"]["StorageOpt"],
+        serde_json::json!({ "size": limit.to_string() })
+    );
+    assert_eq!(
+        h.docker.volume_driver_opts(&format!("{}-work", hard.name)),
+        Some(serde_json::json!({ "o": format!("size={limit}") }))
+    );
+    // Without a reservation value the node default (32 GB) applies.
+    let default = request(1, 2, 5);
+    bounded(h.backend.create(&default)).await.unwrap();
+    assert_eq!(
+        h.docker.container(&default.name).unwrap().body["HostConfig"]["StorageOpt"]["size"],
+        DEFAULT_DISK_LIMIT_BYTES.to_string()
+    );
+}
+
+#[tokio::test]
+async fn disk_watchdog_sampling_flags_only_the_sandbox_over_its_limit() {
+    let mut h = harness_with(ScriptedDocker::new().runner(Runner::StaysRunning), |_| {}).await;
+    let limit = 1024 * 1024u64;
+    let sized = |attempt| {
+        request(1, 2, attempt).with_resources(ResourceLimits {
+            disk_bytes: Some(limit),
+            ..LIMITS
+        })
+    };
+    let (over, under) = (sized(3), sized(4));
+    let over_sandbox = bounded(h.backend.create(&over)).await.unwrap();
+    let under_sandbox = bounded(h.backend.create(&under)).await.unwrap();
+    bounded(h.backend.start_runner(&over_sandbox))
+        .await
+        .unwrap();
+    bounded(h.backend.start_runner(&under_sandbox))
+        .await
+        .unwrap();
+    // Writable layer plus work volume together cross the limit.
+    h.docker.set_container_size(&over.name, limit / 2);
+    h.docker
+        .set_volume_size(&format!("{}-work", over.name), (limit / 2) as i64);
+    h.docker.set_container_size(&under.name, limit / 4);
+    // An unsized volume (-1) contributes nothing.
+    h.docker
+        .set_volume_size(&format!("{}-work", under.name), -1);
+
+    let mut usage = bounded(h.backend.disk_usage(Uuid::from_u128(1)))
+        .await
+        .unwrap();
+    usage.sort_by_key(|u| u.sandbox.backend_id.clone());
+    assert_eq!(usage.len(), 2);
+    let flagged: Vec<_> = usage.iter().filter(|u| u.exceeded()).collect();
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].sandbox, over_sandbox);
+    assert_eq!(flagged[0].used_bytes, limit);
+    assert_eq!(flagged[0].limit_bytes, limit);
+    let other = usage.iter().find(|u| u.sandbox == under_sandbox).unwrap();
+    assert_eq!(other.used_bytes, limit / 4);
+    // Another node's watchdog sees nothing of ours.
+    assert!(
+        bounded(h.backend.disk_usage(Uuid::from_u128(9)))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    // The controller's response: stop (never destroy) the offender only.
+    assert!(bounded(h.backend.stop(&over_sandbox)).await.is_confirmed());
+    assert!(deletes(&h.docker).is_empty());
+    let stopped = bounded(h.backend.inspect(&over_sandbox)).await.unwrap();
+    assert_eq!(stopped.state, SandboxState::Stopped);
+    assert!(stopped.disk_present);
+    assert_eq!(
+        bounded(h.backend.inspect(&under_sandbox))
+            .await
+            .unwrap()
+            .state,
+        SandboxState::Running
     );
 }

@@ -3,7 +3,8 @@
 use super::{FrozenLaunch, private::RunnerFiles};
 use anyhow::{Result, ensure};
 use aq_admission_sandbox::{control::DeliveryStamp, sandbox::*};
-use aq_session_protocol::SessionIdentity;
+use aq_session_protocol::{LaunchBinding, SessionIdentity};
+use aq_worker_protocol::{TransferFile, TransferManifest};
 use reqwest::{StatusCode, Url, header};
 use serde::Serialize;
 use serde_json::Value;
@@ -17,6 +18,7 @@ use std::{
 };
 use uuid::Uuid;
 
+const MAX_BODY: usize = 4 * 1024 * 1024;
 #[derive(Clone)]
 pub enum RunnerAuthority {
     Preparation(PreparationAuthority),
@@ -152,6 +154,16 @@ fn server_now(handoff: &RunnerHandoff, now: u64) -> Result<u64> {
         )
         .ok_or_else(|| anyhow::anyhow!("runner clock overflow"))
 }
+/// Holds stay below the 22 s request timeout; no proxy, redirect or retry.
+fn pool() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(22))
+        .build()?)
+}
 fn context(
     permit: &DelegatedPermit,
     handoff: &RunnerHandoff,
@@ -187,6 +199,10 @@ fn context(
     })
 }
 impl RunnerHttp {
+    pub(crate) fn shares_authority(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.shared, &other.shared) && self.origin == other.origin
+    }
+
     pub fn from_file(origin: &str, path: &Path, handoff: RunnerHandoff) -> Result<Self> {
         let bytes = RunnerFiles::read_secret(path)?;
         let permit: DelegatedPermit = serde_json::from_slice(&bytes)
@@ -231,15 +247,8 @@ impl RunnerHttp {
             )?
             .min(at_boot(permit.expires_at_ms, &handoff)?);
         ensure!(now < deadline_ns, "runner permit expired");
-        let http = reqwest::Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
-            .connect_timeout(Duration::from_secs(3))
-            .timeout(Duration::from_secs(22))
-            .build()?;
         Ok(Self {
-            http,
+            http: pool()?,
             origin,
             shared: Arc::new(Shared {
                 authority: Mutex::new(Authority {
@@ -296,6 +305,23 @@ impl RunnerHttp {
         );
         state.revision = Some(frozen.revision);
         Ok(())
+    }
+    /// Same permit authority and loss state on a separate connection pool, so
+    /// per-sandbox terminal/observation channels never queue behind (or take
+    /// connections from) renewal and cancellation traffic.
+    pub fn channel_pool(&self) -> Result<Self> {
+        Ok(Self {
+            http: pool()?,
+            origin: self.origin.clone(),
+            shared: self.shared.clone(),
+        })
+    }
+    /// Launch binding of the current authority (preparation or execution).
+    pub fn launch_binding(&self) -> LaunchBinding {
+        match &self.shared.authority.lock().unwrap().handoff.authority {
+            RunnerAuthority::Preparation(p) => p.binding.clone(),
+            RunnerAuthority::Execution(e) => e.grant.binding.clone(),
+        }
     }
     pub fn binding(&self) -> PermitBinding {
         self.shared.authority.lock().unwrap().permit.binding.clone()
@@ -386,9 +412,24 @@ impl RunnerHttp {
         binding: &PermitBinding,
         request: &impl Serialize,
     ) -> Result<Vec<u8>> {
+        self.post_bounded(route, binding, request, MAX_BODY, MAX_BODY)
+            .await
+    }
+    pub async fn post_bounded(
+        &self,
+        route: RunnerRoute,
+        binding: &PermitBinding,
+        request: &impl Serialize,
+        max_request: usize,
+        max_response: usize,
+    ) -> Result<Vec<u8>> {
+        ensure!(
+            max_request <= MAX_BODY && max_response <= MAX_BODY,
+            "runner body bound"
+        );
         let body = serde_json::to_value(request)?;
         let bytes = serde_json::to_vec(&body)?;
-        ensure!(bytes.len() <= 4 * 1024 * 1024, "runner request size");
+        ensure!(bytes.len() <= max_request, "runner request size");
         let authorization = self.authorize(route, binding, &body)?;
         let response = self
             .http
@@ -399,7 +440,8 @@ impl RunnerHttp {
             .send()
             .await
             .map_err(|_| anyhow::anyhow!("runner transport unavailable; disposition unknown"))?;
-        self.response(response).await
+        self.status(&response)?;
+        self.read(response, max_response).await
     }
     pub async fn source(
         &self,
@@ -413,22 +455,102 @@ impl RunnerHttp {
             SourceMember::Manifest => "manifest",
             SourceMember::Bundle => "bundle",
         };
+        let response = self
+            .source_get(
+                binding,
+                &format!(
+                    "{}/{member}?offset={offset}&limit={limit}",
+                    binding.attempt_id
+                ),
+            )
+            .await?;
+        self.read(response, MAX_BODY).await
+    }
+    async fn source_get(&self, binding: &PermitBinding, path: &str) -> Result<reqwest::Response> {
         let authorization = self.authorize(RunnerRoute::Material, binding, &Value::Null)?;
-        let path = format!(
-            "/v1/worker/profiled/source/{}/{member}?offset={offset}&limit={limit}",
-            binding.attempt_id
-        );
         let response = self
             .http
-            .get(self.origin.join(&path)?)
+            .get(
+                self.origin
+                    .join(&format!("/v1/worker/profiled/source/{path}"))?,
+            )
             .header(header::AUTHORIZATION, authorization)
             .header("aq-source-api-version", "1")
             .send()
             .await
             .map_err(|_| anyhow::anyhow!("runner source unavailable"))?;
-        self.response(response).await
+        self.status(&response)?;
+        Ok(response)
     }
-    async fn response(&self, mut response: reqwest::Response) -> Result<Vec<u8>> {
+    /// Retained source descriptor for this permit's attempt, bound to the
+    /// current launch (attempt, session, generation and resolved spec).
+    pub async fn source_status(&self, binding: &PermitBinding) -> Result<TransferManifest> {
+        let launch = self.launch_binding();
+        let response = self
+            .source_get(binding, &binding.attempt_id.to_string())
+            .await?;
+        crate::native::http::source::version(&response)?;
+        ensure!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .is_some_and(|v| v == "application/json"),
+            "runner source status body type"
+        );
+        let manifest: TransferManifest = serde_json::from_slice(&self.read(response, 8192).await?)
+            .map_err(|_| anyhow::anyhow!("invalid runner source status"))?;
+        crate::native::http::source::transfer(&launch, &manifest)?;
+        Ok(manifest)
+    }
+    /// One exact range of a retained member; the response must restate the
+    /// same descriptor and offset and carry exactly the requested byte count.
+    pub async fn source_chunk(
+        &self,
+        binding: &PermitBinding,
+        expected: &TransferManifest,
+        member: TransferFile,
+        offset: u64,
+        limit: u32,
+    ) -> Result<Vec<u8>> {
+        crate::native::http::source::transfer(&self.launch_binding(), expected)?;
+        let (name, size) = match member {
+            TransferFile::Manifest => ("manifest", expected.manifest_bytes),
+            TransferFile::Bundle => ("bundle", expected.bundle_bytes),
+        };
+        ensure!(
+            (1..=262_144).contains(&limit) && offset < size,
+            "runner source range"
+        );
+        let count = (size - offset).min(u64::from(limit)) as usize;
+        let response = self
+            .source_get(
+                binding,
+                &format!(
+                    "{}/{name}?offset={offset}&limit={limit}",
+                    binding.attempt_id
+                ),
+            )
+            .await?;
+        crate::native::http::source::version(&response)?;
+        crate::native::http::body_type(&response)?;
+        let manifest: TransferManifest =
+            crate::native::http::metadata(&response, "aq-source-transfer")?;
+        ensure!(&manifest == expected, "runner source transfer changed");
+        let offsets: Vec<_> = response
+            .headers()
+            .get_all("aq-source-offset")
+            .iter()
+            .collect();
+        ensure!(
+            offsets.len() == 1
+                && offsets[0].to_str().ok().and_then(|v| v.parse::<u64>().ok()) == Some(offset),
+            "runner source offset changed"
+        );
+        let bytes = self.read(response, count).await?;
+        ensure!(bytes.len() == count, "runner source short chunk");
+        Ok(bytes)
+    }
+    fn status(&self, response: &reqwest::Response) -> Result<()> {
         let status = response.status();
         // A server error/rate limit is availability loss; explicit route refusals
         // (including redirects) revoke all channels immediately. Never forward.
@@ -442,10 +564,11 @@ impl RunnerHttp {
             }
             anyhow::bail!("runner server unavailable");
         }
+        Ok(())
+    }
+    async fn read(&self, mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>> {
         ensure!(
-            response
-                .content_length()
-                .is_none_or(|n| n <= 4 * 1024 * 1024),
+            response.content_length().is_none_or(|n| n <= limit as u64),
             "runner response size"
         );
         let mut bytes = Vec::new();
@@ -455,7 +578,7 @@ impl RunnerHttp {
             .map_err(|_| anyhow::anyhow!("runner response unknown"))?
         {
             ensure!(
-                chunk.len() <= (4 * 1024 * 1024usize).saturating_sub(bytes.len()),
+                chunk.len() <= limit.saturating_sub(bytes.len()),
                 "runner response size"
             );
             bytes.extend_from_slice(&chunk);

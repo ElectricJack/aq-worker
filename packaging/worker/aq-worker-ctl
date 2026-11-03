@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+# aq-worker-ctl: run the AQ node worker as a container on WSL2 (E6a).
+#
+# One "profile" per server. Each profile has its own enrollment (node identity),
+# runner Access token, controller config and journal, so switching servers never
+# loses either side's identity or state:
+#   config  ~/.config/agent-q/servers/<profile>/agent-q/{worker.toml,runner-access.json,node.json}
+#   state   ~/.local/state/agent-q/workers/<profile>/  (controller journal under controller/)
+# The container sees them as /config and /state. Its only daemon access is the
+# dedicated rootless sandbox socket directory (aq-sandbox-podman, C2), mounted at
+# /run/aq-sandbox. The host Docker socket is never mounted.
+set -euo pipefail
+
+IMAGE="${AQ_WORKER_IMAGE:-aq-worker:dev}"
+ENGINE="${AQ_WORKER_ENGINE:-docker}"
+CONFIG_ROOT="${AQ_WORKER_CONFIG_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/servers}"
+STATE_ROOT="${AQ_WORKER_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-q/workers}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+SANDBOX_DIR="${AQ_SANDBOX_SOCKET_DIR:-$RUNTIME_DIR/aq-sandbox}"
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+BIN_DIR="$HOME/.local/bin"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+die() { echo "aq-worker-ctl: $*" >&2; exit 1; }
+
+profile_ok() {
+  [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || die "profile must match [a-z0-9][a-z0-9-]{0,31}"
+}
+
+cfg_dir() { echo "$CONFIG_ROOT/$1"; }
+state_dir() { echo "$STATE_ROOT/$1"; }
+
+ensure_dirs() {
+  install -d -m 700 "$CONFIG_ROOT" "$(cfg_dir "$1")" "$(cfg_dir "$1")/agent-q" "$(state_dir "$1")"
+}
+
+# Common, secret-free container arguments. Never add the host Docker socket here.
+container_args() {
+  local p="$1"
+  printf '%s\n' \
+    --init \
+    --user "$(id -u):$(id -g)" \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+    --add-host host.docker.internal:host-gateway \
+    -v "$(cfg_dir "$p"):/config" \
+    -v "$(state_dir "$p"):/state" \
+    -v "$SANDBOX_DIR:/run/aq-sandbox"
+}
+
+cmd_build() {
+  local root
+  root="$(cd "$HERE/../.." && pwd)"
+  "$ENGINE" build -f "$root/packaging/worker/Dockerfile" -t "$IMAGE" "$root"
+}
+
+cmd_install() {
+  install -d "$UNIT_DIR" "$BIN_DIR"
+  install -m 755 "$HERE/aq-worker-ctl" "$BIN_DIR/aq-worker-ctl"
+  install -m 644 "$HERE/aq-worker@.service" "$UNIT_DIR/aq-worker@.service"
+  local sd="$HERE/../../scripts/sandbox-daemon"
+  if [[ -f "$sd/aq-sandbox-podman.service" ]]; then
+    install -m 755 "$sd/aq-sandbox-podman.sh" "$BIN_DIR/aq-sandbox-podman.sh"
+    install -m 644 "$sd/aq-sandbox-podman.service" "$UNIT_DIR/aq-sandbox-podman.service"
+  fi
+  if ! command -v newuidmap >/dev/null; then
+    # C2 qualification fallback: without uidmap every sandbox shares one host UID.
+    install -d "$UNIT_DIR/aq-sandbox-podman.service.d"
+    printf '[Service]\nEnvironment=AQ_SANDBOX_SINGLE_UID=1\n' \
+      > "$UNIT_DIR/aq-sandbox-podman.service.d/single-uid.conf"
+    echo "warning: uidmap is not installed; sandbox daemon uses AQ_SANDBOX_SINGLE_UID=1 (sudo apt install uidmap, then remove $UNIT_DIR/aq-sandbox-podman.service.d/single-uid.conf)"
+  fi
+  systemctl --user daemon-reload
+  systemctl --user enable --now aq-sandbox-podman.service
+  if [[ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != yes ]]; then
+    echo "note: run 'sudo loginctl enable-linger $USER' so units start without a login session"
+  fi
+  echo "installed; next: aq-worker-ctl enroll <profile> --server URL [--runner-access-token]"
+}
+
+# Secrets (enrollment code, CF and runner Access ids/secrets) are read by
+# aq-worker itself from the TTY or this script's stdin; never from argv.
+cmd_enroll() {
+  local p="${1:-}"; shift || true
+  profile_ok "$p"
+  ensure_dirs "$p"
+  local tty=()
+  [[ -t 0 ]] && tty=(-t)
+  mapfile -t args < <(container_args "$p")
+  "$ENGINE" run --rm -i "${tty[@]}" "${args[@]}" "$IMAGE" enroll "$@"
+  [[ -f "$(cfg_dir "$p")/agent-q/node.json" ]] || cmd_node_config "$p"
+}
+
+# Default controller config: docker-local backend on the mounted sandbox socket,
+# journal under /state/controller. Templates stay empty until C3 pins exist.
+cmd_node_config() {
+  local p="$1" f
+  profile_ok "$p"
+  ensure_dirs "$p"
+  f="$(cfg_dir "$p")/agent-q/node.json"
+  [[ -e "$f" ]] && die "$f exists; edit it instead"
+  umask 077
+  cat > "$f" <<'JSON'
+{
+  "state_dir": "/state/controller",
+  "docker_local": { "socket": "/run/aq-sandbox/podman.sock", "templates": [] },
+  "node": {
+    "runtime": { "id": "aq-worker", "version": "dev", "digest": "0000000000000000000000000000000000000000000000000000000000000000" },
+    "capabilities": [],
+    "features": [],
+    "templates": [],
+    "max_concurrent_sandboxes": 2,
+    "spend_ceiling": null,
+    "capacity": { "memory_bytes": 8589934592, "cpu_millis": 4000, "disk_bytes": 53687091200, "max_preparing": 1 }
+  }
+}
+JSON
+  echo "wrote $f"
+}
+
+# ExecStart of aq-worker@<profile>.service: one foreground container.
+cmd_container_run() {
+  local p="$1"
+  profile_ok "$p"
+  [[ -f "$(cfg_dir "$p")/agent-q/worker.toml" ]] || die "profile $p is not enrolled"
+  [[ -S "$SANDBOX_DIR/podman.sock" ]] || die "sandbox socket $SANDBOX_DIR/podman.sock missing (aq-sandbox-podman.service)"
+  "$ENGINE" rm -f "aq-worker-$p" >/dev/null 2>&1 || true
+  mapfile -t args < <(container_args "$p")
+  exec "$ENGINE" run --rm --name "aq-worker-$p" --stop-timeout 30 \
+    --label aq.e6a.profile="$p" "${args[@]}" "$IMAGE" \
+    run --controller-config /config/agent-q/node.json
+}
+
+# Exactly one profile runs at a time: the rootless sandbox daemon is shared and
+# each node only sees its own (aq.node-labelled) sandboxes.
+worker_units() {
+  # Enabled instances need not be loaded (for example before their first boot).
+  # list-unit-files reports the template, not its enabled instances. Read the
+  # links created by enable for this unit's WantedBy=default.target as well.
+  local link
+  {
+    systemctl --user list-units --all --plain --no-legend 'aq-worker@*.service'
+    for link in "$UNIT_DIR"/default.target.wants/aq-worker@?*.service; do
+      [[ -L "$link" ]] || continue
+      basename "$link"
+    done
+  } | awk '$1 ~ /^aq-worker@.+\.service$/ {print $1}' | sort -u
+}
+
+cmd_use() {
+  local p="$1" u
+  profile_ok "$p"
+  [[ -f "$(cfg_dir "$p")/agent-q/worker.toml" ]] || die "profile $p is not enrolled"
+  for u in $(worker_units); do
+    [[ "$u" == "aq-worker@$p.service" ]] || systemctl --user disable --now "$u"
+  done
+  systemctl --user enable --now "aq-worker@$p.service"
+  systemctl --user --no-pager status "aq-worker@$p.service" | head -5
+}
+
+cmd_status() {
+  systemctl --user --no-pager list-units --all 'aq-sandbox-podman.service' 'aq-worker@*.service' || true
+  echo "linger: $(loginctl show-user "$USER" -p Linger --value 2>/dev/null || echo unknown)"
+  for d in "$CONFIG_ROOT"/*/; do
+    [[ -d "$d" ]] || continue
+    local p; p="$(basename "$d")"
+    local url; url="$(sed -n 's/^server_url = "\(.*\)"/\1/p' "$d/agent-q/worker.toml" 2>/dev/null)"
+    local node; node="$(sed -n 's/^node_id = "\(.*\)"/\1/p' "$d/agent-q/worker.toml" 2>/dev/null)"
+    echo "profile $p: server=${url:-?} node=${node:-?} enabled=$(systemctl --user is-enabled "aq-worker@$p.service" 2>/dev/null || echo no)"
+  done
+}
+
+cmd_uninstall() {
+  local purge="${1:-}" u
+  for u in $(worker_units); do
+    systemctl --user disable --now "$u" || true
+  done
+  rm -f "$UNIT_DIR/aq-worker@.service" "$BIN_DIR/aq-worker-ctl"
+  systemctl --user daemon-reload
+  if [[ "$purge" == --purge ]]; then
+    rm -rf "$CONFIG_ROOT" "$STATE_ROOT"
+    echo "removed worker profiles, credentials and journals"
+  else
+    echo "kept $CONFIG_ROOT and $STATE_ROOT (pass --purge to delete)"
+  fi
+  echo "aq-sandbox-podman.service left installed; disable it with: systemctl --user disable --now aq-sandbox-podman.service"
+}
+
+usage() {
+  cat <<'EOF'
+usage: aq-worker-ctl <command>
+  build                         build the worker image ($AQ_WORKER_IMAGE, default aq-worker:dev)
+  install                       install units + this script, start aq-sandbox-podman.service
+  enroll <profile> --server URL [--name N] [--cf-service-token] [--runner-access-token]
+                                secrets are prompted (TTY) or read from stdin lines
+  node-config <profile>         write a default node.json for the profile
+  use <profile>                 enable this profile's worker, disable every other one
+  status                        units, linger, profiles
+  container-run <profile>       foreground container (the unit's ExecStart)
+  uninstall [--purge]           remove units; --purge also deletes profiles and journals
+EOF
+}
+
+case "${1:-}" in
+  build) cmd_build ;;
+  install) cmd_install ;;
+  enroll) shift; cmd_enroll "$@" ;;
+  node-config) cmd_node_config "${2:-}" ;;
+  use) cmd_use "${2:-}" ;;
+  status) cmd_status ;;
+  container-run) cmd_container_run "${2:-}" ;;
+  uninstall) cmd_uninstall "${2:-}" ;;
+  *) usage; [[ -n "${1:-}" ]] && exit 2 || exit 0 ;;
+esac

@@ -83,7 +83,7 @@ fn secret(value: &str) -> Result<header::HeaderValue> {
     value.set_sensitive(true);
     Ok(value)
 }
-fn metadata<T: DeserializeOwned>(response: &Response, name: &str) -> Result<T> {
+pub(crate) fn metadata<T: DeserializeOwned>(response: &Response, name: &str) -> Result<T> {
     let mut values = response.headers().get_all(name).iter();
     let value = values
         .next()
@@ -97,7 +97,7 @@ fn metadata<T: DeserializeOwned>(response: &Response, name: &str) -> Result<T> {
         .map_err(|_| anyhow::anyhow!("invalid native metadata encoding"))?;
     serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid native metadata shape"))
 }
-fn body_type(response: &Response) -> Result<()> {
+pub(crate) fn body_type(response: &Response) -> Result<()> {
     ensure!(
         response
             .headers()
@@ -131,7 +131,7 @@ pub(super) fn boot_ns() -> Result<u64> {
         .and_then(|n| n.checked_add(nanos))
         .ok_or_else(|| anyhow::anyhow!("boot clock overflow"))
 }
-async fn body(mut response: Response, limit: usize) -> Result<Zeroizing<Vec<u8>>> {
+pub(crate) async fn body(mut response: Response, limit: usize) -> Result<Zeroizing<Vec<u8>>> {
     ensure!(
         response.content_length().is_none_or(|n| n <= limit as u64),
         "native response size"

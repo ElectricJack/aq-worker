@@ -1,0 +1,17 @@
+== rust template, launched as agent: 127.0.0.1:5138/electricjack/aq-template-staging@sha256:cfdf741b7ea51745fbf899c58378472e57ee10e75add1bdf1dbcde78a9cce643
+$ env | grep CARGO_ | sort
+CARGO_INCREMENTAL=0
+CARGO_PROFILE_DEV_DEBUG=line-tables-only
+CARGO_PROFILE_TEST_DEBUG=line-tables-only
+== node template, launched as agent: 127.0.0.1:5138/electricjack/aq-template-staging@sha256:3351026cfe4b15613146174e2bb519fae3454d61613ae7702f33a8f3406a3e99
+$ env | grep CARGO_ | sort
+CARGO_INCREMENTAL=0
+CARGO_PROFILE_DEV_DEBUG=line-tables-only
+CARGO_PROFILE_TEST_DEBUG=line-tables-only
+
+== rust template: cargo build/test of a fresh crate (rustc flags from cargo -v)
+incremental dir entries: 0
+dev build flags:
+-C debuginfo=line-tables-only
+test build flags:
+-C debuginfo=line-tables-only

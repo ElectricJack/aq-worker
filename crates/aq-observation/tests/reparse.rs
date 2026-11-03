@@ -43,6 +43,7 @@ fn fixture(temp: &tempfile::TempDir) -> (Spool, SourceFile, Vec<u8>, ReparsePlan
             format: Format::ClaudeV1Jsonl9a9b8e8,
             provider: Text::new("fixture-provider").unwrap(),
             account_reference: Text::new("fixture-account").unwrap(),
+            registered_session_key: None,
         },
         128,
     )

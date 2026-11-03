@@ -26,6 +26,11 @@ pub struct Source {
     pub format: Format,
     pub provider: Text,
     pub account_reference: Text,
+    /// Owner-registered provenance key (profiled attempts use
+    /// `aq.attempt/<attempt_id>/<generation>`). Emitted events carry it, while
+    /// native transcript identity checks keep using `native_session_key`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registered_session_key: Option<Text>,
 }
 impl Source {
     pub fn validate(&self) -> Result<()> {
@@ -37,7 +42,16 @@ impl Source {
         self.native_session_key.validate()?;
         self.provider.validate()?;
         self.account_reference.validate()?;
+        if let Some(key) = &self.registered_session_key {
+            key.validate()?;
+        }
         Ok(())
+    }
+    /// The session key emitted in observation provenance.
+    pub fn provenance_session_key(&self) -> &Text {
+        self.registered_session_key
+            .as_ref()
+            .unwrap_or(&self.native_session_key)
     }
     pub fn parser(&self) -> ArtifactRef {
         let (id, bytes) = match self.format {
@@ -360,7 +374,7 @@ impl Normalizer {
                     } else {
                         SourceKind::NativeTranscript
                     },
-                    native_session_key: next.source.native_session_key.clone(),
+                    native_session_key: next.source.provenance_session_key().clone(),
                     cursor: source_cursor.clone(),
                     parser: next.parser.clone(),
                     raw_record: RawRecordEvidence::Available {

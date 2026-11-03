@@ -1048,7 +1048,7 @@ fn loss_gap(
             source_id: source.source.source_id,
             source_generation: source.source.generation,
             source_kind: SourceKind::NativeTranscript,
-            native_session_key: source.source.native_session_key.clone(),
+            native_session_key: source.source.provenance_session_key().clone(),
             cursor: cursor.clone(),
             parser,
             raw_record: RawRecordEvidence::Available {

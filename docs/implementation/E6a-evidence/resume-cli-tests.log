@@ -1,0 +1,17 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.16s
+     Running unittests src/main.rs (target/debug/deps/aq_worker-c9164a5a2a16d4fe)
+
+running 9 tests
+test native_diagnostics::tests::native_diagnostics_preserve_context_and_redact_enrollment_secrets ... ok
+test native_diagnostics::tests::native_diagnostics_redact_parser_input_before_enrollment_loads ... ok
+test enroll_never_accepts_runner_token_in_argv ... ok
+test production_cli_does_not_expose_fixture_transport_flags ... ok
+test read_secrets_orders_code_cf_runner ... ok
+test production_cli_does_not_expose_lost_b1_ack_replay ... ok
+test run_errors_preserve_cause_and_connector_exit_codes ... ok
+test reconcile_native_requires_an_explicit_preserved_attempt ... ok
+test run_requires_explicit_controller_configuration ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

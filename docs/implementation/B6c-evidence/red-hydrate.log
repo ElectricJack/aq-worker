@@ -1,0 +1,52 @@
+   Compiling aq-admission v0.3.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/protocol/aq-admission)
+   Compiling aq-session-host v0.1.7 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-session-host)
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-terminal-bridge)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+error[E0432]: unresolved imports `super::channels::SandboxChannels`, `super::channels::TerminalDemand`
+ --> crates/aq-worker/src/native/runner/sandbox/channels_tests.rs:3:23
+  |
+3 | use super::channels::{SandboxChannels, TerminalDemand};
+  |                       ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^ no `TerminalDemand` in `native::runner::sandbox::channels`
+  |                       |
+  |                       no `SandboxChannels` in `native::runner::sandbox::channels`
+
+error[E0425]: cannot find function `hydrate` in module `hydrate`
+   --> crates/aq-worker/src/native/runner/sandbox/hydrate_tests.rs:361:29
+    |
+361 |     let hydrated = hydrate::hydrate(&http, &r.source, &git).await.unwrap();
+    |                             ^^^^^^^ not found in `hydrate`
+
+error[E0425]: cannot find function `hydrate` in module `hydrate`
+   --> crates/aq-worker/src/native/runner/sandbox/hydrate_tests.rs:409:22
+    |
+409 |     assert!(hydrate::hydrate(&http, &r.source, &git).await.is_err());
+    |                      ^^^^^^^ not found in `hydrate`
+
+error[E0277]: the trait bound `tokio::sync::Semaphore: Default` is not satisfied
+  --> crates/aq-worker/src/native/runner/sandbox/channels_tests.rs:24:5
+   |
+20 | #[derive(Clone, Default)]
+   |                 ------- in this derive macro expansion
+...
+24 |     release: Arc<Semaphore>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `tokio::sync::Semaphore`
+   |
+help: the following other types implement trait `Default`
+  --> /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/alloc/src/sync.rs:3723:0
+   |
+   = note: `std::sync::Arc<T>`
+  ::: /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/alloc/src/sync.rs:3775:0
+   |
+   = note: `std::sync::Arc<str>`
+  ::: /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/alloc/src/sync.rs:3790:0
+   |
+   = note: `std::sync::Arc<std::ffi::CStr>`
+  ::: /rustc/31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd/library/alloc/src/sync.rs:3809:0
+   |
+   = note: `std::sync::Arc<[T]>`
+   = note: required for `std::sync::Arc<tokio::sync::Semaphore>` to implement `Default`
+
+Some errors have detailed explanations: E0277, E0425, E0432.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `aq-worker` (lib test) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...

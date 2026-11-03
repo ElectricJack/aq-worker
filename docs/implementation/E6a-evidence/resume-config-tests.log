@@ -1,0 +1,16 @@
+   Compiling aq-session-host v0.1.7 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-session-host)
+   Compiling aq-observation v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-observation)
+   Compiling aq-observation-engine v0.0.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-observation-engine)
+   Compiling aq-observation-redb-prototype v0.0.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-observation-redb-prototype)
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-terminal-bridge)
+   Compiling aq-admission v0.3.2 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/protocol/aq-admission)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 30s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-1165a57a36dcd530)
+
+running 2 tests
+test config::tests::runner_access_path_sits_next_to_worker_toml ... ok
+test config::tests::runner_access_save_is_private_json ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 327 filtered out; finished in 0.03s
+

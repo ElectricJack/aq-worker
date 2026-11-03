@@ -7,6 +7,7 @@ mod lifecycle;
 pub use lifecycle::*;
 mod fake;
 pub use fake::{FakeBackend, Fault};
+pub mod boat_size;
 #[cfg(feature = "backend-conformance")]
 pub mod conformance;
 pub mod docker_local;
@@ -58,6 +59,17 @@ pub trait PlacementBackend: Send {
     ) -> impl Future<Output = Confirmation<StoppedWriterProof>> + Send {
         async { Confirmation::Unconfirmed(UnconfirmedReason::Unsupported) }
     }
+    /// SBX23: through a reachable runner, delete exactly the given
+    /// template-declared reconstructible paths before a preserving stop. Never
+    /// deletes anything undeclared. Err (incl. unsupported) means unreachable;
+    /// the controller then stops without deleting.
+    fn drop_reconstructible(
+        &mut self,
+        _sandbox: &SandboxIdentity,
+        _paths: &[String],
+    ) -> impl Future<Output = Result<(), BackendError>> + Send {
+        async { Err(BackendError::UnsupportedOperation) }
+    }
     /// Optional resume/fork must scrub old credentials and require fresh material
     /// before starting any runner. They do not grant execution authority.
     fn resume(
@@ -72,6 +84,18 @@ pub trait PlacementBackend: Send {
         _request: &CreateRequest,
     ) -> impl Future<Output = Result<SandboxIdentity, BackendError>> + Send {
         async { Err(BackendError::UnsupportedOperation) }
+    }
+    /// SBX20: how this backend bounds per-attempt disk. Default: not at all.
+    fn disk_limit(&self) -> DiskLimitStatus {
+        DiskLimitStatus::default()
+    }
+    /// SBX20 watchdog sample of running sandboxes owned by `node_id`. A
+    /// partial sample is Err, never a silently shorter list.
+    fn disk_usage(
+        &mut self,
+        _node_id: Uuid,
+    ) -> impl Future<Output = Result<Vec<DiskUsage>, BackendError>> + Send {
+        async { Ok(Vec::new()) }
     }
     /// Verify authorization scope, stop writers, then delete. Only confirmed
     /// deletion yields Destroyed proof; failure leaves resources protected.

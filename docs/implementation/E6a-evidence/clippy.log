@@ -1,0 +1,4 @@
+$ cargo clippy --locked -p aq-worker --lib --bin aq-worker -- -D warnings
+    Checking aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.49s
+exit=0
