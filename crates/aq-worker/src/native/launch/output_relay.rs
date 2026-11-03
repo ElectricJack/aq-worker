@@ -1,12 +1,15 @@
-//! Live-owner-only literal output. No renderer, input, snapshots or authority.
+//! Live-owner-only renderer snapshots and literal sequenced output.
 use super::*;
-use aq_session_host::terminal_output::ControlEvent;
-use aq_session_protocol::{OutputGap, TerminalIdentity, TerminalPolicy, Text};
-use aq_terminal_bridge::{
-    http::RelayHttp,
-    output::{OutputTails, TailState},
+use crate::native::terminal_output::{
+    MAX_NODE_SUBSCRIPTIONS, MAX_SESSION_VIEWERS, OutputBatch, OutputRate, OutputStreams,
+    TerminalOutput,
 };
-use aq_terminal_relay_protocol::{self as wire, Peer, PeerUpload, Register, UploadAck};
+use aq_session_host::terminal_output::ControlEvent;
+use aq_session_protocol::{TerminalIdentity, TerminalPolicy, Text};
+use aq_terminal_bridge::{http::RelayHttp, output::TailState};
+#[cfg(all(test, feature = "test-support"))]
+use aq_terminal_relay_protocol::PeerUpload;
+use aq_terminal_relay_protocol::{self as wire, Peer, Register, UploadAck};
 use std::sync::Weak;
 mod started;
 use started::RetainedStarted;
@@ -22,7 +25,7 @@ fn local_framing(policy: &TerminalPolicy) -> TerminalPolicy {
 }
 #[derive(Default)]
 pub(super) struct Outputs {
-    tails: OutputTails,
+    tails: OutputStreams,
     owners: BTreeMap<Uuid, Arc<Relay>>,
 }
 struct Relay {
@@ -35,9 +38,7 @@ struct Relay {
     network: tokio::sync::Mutex<Network>,
     polling: tokio::sync::Mutex<OutputPoll>,
     draining: AtomicBool,
-    viewer_requested: AtomicBool,
-    viewer_opening: AtomicBool,
-    last_viewer_request: Mutex<Option<Instant>>,
+    snapshot_requested: AtomicBool,
     task: Mutex<Option<tokio::task::AbortHandle>>,
 }
 struct Network {
@@ -46,6 +47,7 @@ struct Network {
     info: Option<aq_terminal_relay::api::TerminalInfo>,
     through: u64,
     pending: Option<Pending>,
+    rate: OutputRate,
 }
 fn watch_now_ms() -> Result<u64> {
     Ok(u64::try_from(
@@ -81,26 +83,38 @@ impl OutputPoll {
             let wire::Effect::Watch(watch) = effect else {
                 unreachable!()
             };
-            // Other terminals for the same authenticated node have independent
-            // relay handles/cursors. A Watch is metadata, never host authority.
-            if watch.terminal == *terminal {
-                watches.remove(&watch.subscription_id);
-                if watch.expires_at_ms > now {
-                    watches.insert(watch.subscription_id, watch.clone());
-                }
+            // Retain this node's metadata for the aggregate limit, including
+            // watches whose terminal is drained by another local owner.
+            ensure!(envelope.peer.matches(&watch.terminal), "foreign node watch");
+            watches.remove(&watch.subscription_id);
+            if watch.expires_at_ms > now {
+                watches.insert(watch.subscription_id, watch.clone());
             }
         }
-        ensure!(watches.len() <= 32, "native output subscription bound");
+        ensure!(
+            watches.len() <= MAX_NODE_SUBSCRIPTIONS,
+            "node output subscription bound"
+        );
+        let mut per_terminal = BTreeMap::<Uuid, usize>::new();
+        for watch in watches.values() {
+            *per_terminal.entry(watch.terminal.terminal_id).or_default() += 1;
+        }
+        ensure!(
+            per_terminal
+                .values()
+                .all(|count| *count <= MAX_SESSION_VIEWERS),
+            "native output subscription bound"
+        );
         self.watches = watches;
         self.cursor = envelope.cursor;
-        Ok(self.watches.len())
+        Ok(self
+            .watches
+            .values()
+            .filter(|watch| watch.terminal == *terminal)
+            .count())
     }
 }
-struct Pending {
-    request: PeerUpload,
-    digest: Digest,
-    through: u64,
-}
+type Pending = OutputBatch;
 impl Outputs {
     pub(super) fn attached(&self, id: Uuid) -> bool {
         self.owners.contains_key(&id)
@@ -249,7 +263,6 @@ impl PhaseOutputRelay {
         };
         let envelope = polling.http.output_poll(&request).await?;
         let now = watch_now_ms()?;
-        let was_empty = polling.watches.is_empty();
         let arrival = envelope.effects.iter().any(|event| {
             matches!(event,
             wire::Effect::Watch(w) if w.terminal == self.owner.terminal
@@ -257,13 +270,7 @@ impl PhaseOutputRelay {
         });
         let count = polling.accept(&envelope, &self.owner.terminal, now)?;
         if arrival && count > 0 {
-            let mut last = lock(&self.owner.last_viewer_request)?;
-            // A renewed Watch is not a new browser identity. Bound repeated
-            // real redraw requests; never reset output/upload sequences.
-            if was_empty || last.is_none_or(|at| at.elapsed() >= Duration::from_secs(30)) {
-                *last = Some(Instant::now());
-                self.owner.viewer_requested.store(true, Ordering::SeqCst);
-            }
+            self.owner.snapshot_requested.store(true, Ordering::SeqCst);
         }
         Ok(count)
     }
@@ -290,11 +297,17 @@ impl PhaseOutputRelay {
                 outputs.tails.tail_mut(&self.owner.terminal)?,
                 &self.owner.peer,
                 network.through,
+                self.owner.snapshot_requested.swap(false, Ordering::SeqCst),
             )?;
         }
         let Some(pending) = network.pending.as_ref() else {
             return Ok(None);
         };
+        let charge = pending.payload_bytes;
+        if !network.rate.admit(charge)? {
+            return Ok(None);
+        }
+        let pending = network.pending.as_ref().unwrap();
         ensure!(
             Digest::of(&serde_json::to_vec(&pending.request)?) == pending.digest,
             "native output pending bytes changed"
@@ -347,57 +360,12 @@ async fn register(
 }
 
 fn prepare(
-    tail: &aq_terminal_bridge::output::OutputTail,
+    tail: &TerminalOutput,
     peer: &Peer,
     through: u64,
+    fresh: bool,
 ) -> Result<Option<Pending>> {
-    let mut q = PeerUpload {
-        version: wire::VERSION,
-        capability: Text::new(wire::CAPABILITY)?,
-        peer: peer.clone(),
-        exchange_id: Uuid::new_v4(),
-        cursor: 0,
-        receipts: vec![],
-        epoch_receipts: vec![],
-        resize_receipts: vec![],
-        fence_acks: vec![],
-        frames: vec![],
-        snapshots: vec![],
-        gaps: vec![],
-    };
-    let mut high = through;
-    for gap in tail.gaps().filter(|g| g.last_missing > through).take(64) {
-        let g = OutputGap {
-            terminal: gap.terminal.clone(),
-            first_missing: gap.first_missing.max(through.saturating_add(1)),
-            last_missing: gap.last_missing,
-        };
-        q.gaps.push(g.clone());
-        if serde_json::to_vec(&q)?.len() > MAX_UPLOAD {
-            q.gaps.pop();
-            break;
-        }
-        high = high.max(g.last_missing);
-    }
-    for frame in tail.frames().filter(|f| f.sequence > through).take(64) {
-        q.frames.push(frame.clone());
-        if serde_json::to_vec(&q)?.len() > MAX_UPLOAD {
-            q.frames.pop();
-            break;
-        }
-        high = high.max(frame.sequence);
-    }
-    if q.frames.is_empty() && q.gaps.is_empty() {
-        return Ok(None);
-    }
-    q.validate()?;
-    let bytes = serde_json::to_vec(&q)?;
-    ensure!(bytes.len() <= MAX_UPLOAD, "native output upload bytes");
-    Ok(Some(Pending {
-        request: q,
-        digest: Digest::of(&bytes),
-        through: high,
-    }))
+    tail.prepare(peer, through, fresh)
 }
 impl InputPipeline {
     /// Start draining genuine local Running immediately. Upload waits for its actual
@@ -429,6 +397,19 @@ impl InputPipeline {
             .native_host
             .as_ref()
             .context("native output host history absent")?;
+        let baseline = history
+            .baseline
+            .as_ref()
+            .context("native output verified baseline absent")?
+            .clone();
+        ensure!(
+            history.guardian.as_ref() == Some(&baseline.guardian)
+                && baseline.terminal == history.intent.terminal
+                && baseline.renderer == history.intent.renderer
+                && baseline.columns == history.intent.columns
+                && baseline.rows == history.intent.rows,
+            "native output baseline binding mismatch"
+        );
         let terminal = history.intent.terminal.clone();
         let policy = a.reservation.offer.offered.offer.manifest.terminal.clone();
         // Output is still Watch-only, even when the separately owned finite
@@ -448,9 +429,16 @@ impl InputPipeline {
             !outputs.owners.contains_key(&host.entry.id),
             "native output already attached; no sequence reset"
         );
-        outputs
-            .tails
-            .attach(terminal.clone(), &local_framing(&policy))?;
+        // Holding Outputs excludes the diagnostic drain until ownership is
+        // installed. A prior drain has already lost the baseline's prefix.
+        lock(&host.entry.physical)?.ensure_complete_output_available()?;
+        outputs.tails.attach_blank(
+            terminal.clone(),
+            &local_framing(&policy),
+            baseline.renderer,
+            baseline.columns,
+            baseline.rows,
+        )?;
         let relay = Arc::new(Relay {
             terminal: terminal.clone(),
             attempt: host.entry.id,
@@ -469,11 +457,10 @@ impl InputPipeline {
                 info: None,
                 through: 0,
                 pending: None,
+                rate: OutputRate::default(),
             }),
             draining: AtomicBool::new(true),
-            viewer_requested: AtomicBool::new(false),
-            viewer_opening: AtomicBool::new(false),
-            last_viewer_request: Mutex::new(None),
+            snapshot_requested: AtomicBool::new(true),
             task: Mutex::new(None),
         });
         outputs.owners.insert(host.entry.id, relay.clone());
@@ -499,26 +486,6 @@ async fn drain(outputs: Weak<Mutex<Outputs>>, entry: Weak<Entry>, relay: Weak<Re
         else {
             return;
         };
-        if relay.viewer_requested.load(Ordering::SeqCst)
-            && !relay.viewer_opening.swap(true, Ordering::SeqCst)
-        {
-            relay.viewer_requested.store(false, Ordering::SeqCst);
-            let opening_entry = entry.clone();
-            let opening_relay = relay.clone();
-            // A disposable attach must not stall the original observer drain
-            // or hold a physical/journal lock over its guardian handshake.
-            tokio::task::spawn_blocking(move || {
-                let opened = open_viewer(&opening_entry, &opening_relay.terminal);
-                if let Ok(viewer) = opened
-                    && let Ok(mut physical) = opening_entry.physical.lock()
-                    && !opening_entry.stop.load(Ordering::SeqCst)
-                    && matches!(physical.outcome, Outcome::Running)
-                {
-                    physical.viewer = Some(viewer);
-                }
-                opening_relay.viewer_opening.store(false, Ordering::SeqCst);
-            });
-        }
         let stop = {
             let Ok(mut outputs) = outputs.try_lock() else {
                 continue;
@@ -557,30 +524,6 @@ async fn drain(outputs: Weak<Mutex<Outputs>>, entry: Weak<Entry>, relay: Weak<Re
             return;
         }
     }
-}
-
-fn open_viewer(
-    entry: &Entry,
-    terminal: &TerminalIdentity,
-) -> Result<aq_session_host::terminal_viewer::TerminalViewer> {
-    let handle = {
-        let mut physical = lock(&entry.physical)?;
-        ensure!(
-            physical.viewer_enabled
-                && !entry.stop.load(Ordering::SeqCst)
-                && matches!(physical.outcome, Outcome::Running),
-            "PTY viewer not available"
-        );
-        let handle = physical
-            .handle
-            .as_ref()
-            .context("PTY viewer actual host absent")?
-            .bind_terminal(terminal)?;
-        // Closing the old lease detaches only its disposable read-only client.
-        physical.viewer = None;
-        handle
-    };
-    aq_session_host::terminal_viewer::TerminalViewer::open(&handle)
 }
 
 #[cfg(all(test, feature = "test-support"))]

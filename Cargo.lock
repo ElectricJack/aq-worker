@@ -393,6 +393,7 @@ dependencies = [
  "aq-terminal-bridge",
  "aq-terminal-relay",
  "aq-terminal-relay-protocol",
+ "aq-terminal-renderer",
  "aq-worker",
  "aq-worker-protocol",
  "axum",

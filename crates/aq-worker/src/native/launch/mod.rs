@@ -117,39 +117,30 @@ struct Physical {
     handle: Option<SessionHandle>,
     observer: Option<aq_session_host::terminal_output::OutputObserver>,
     pending_output: Vec<aq_session_host::terminal_output::ControlEvent>,
-    viewer_enabled: bool,
-    viewer: Option<aq_session_host::terminal_viewer::TerminalViewer>,
+    output_taken_without_sequencer: bool,
     stopped: Option<StoppedProof>,
     transport: Option<crate::native::adapter::responses_transport::ScopedResponsesTransport>,
     outcome: Outcome,
 }
 impl Physical {
+    fn ensure_complete_output_available(&self) -> Result<()> {
+        ensure!(
+            !self.output_taken_without_sequencer,
+            "native output was consumed before sequencer attachment"
+        );
+        Ok(())
+    }
+    fn poll_unsequenced_output(
+        &mut self,
+    ) -> Result<Vec<aq_session_host::terminal_output::ControlEvent>> {
+        let result = self.poll_output();
+        if result.as_ref().map_or(true, |events| !events.is_empty()) {
+            self.output_taken_without_sequencer = true;
+        }
+        result
+    }
     fn poll_output(&mut self) -> Result<Vec<aq_session_host::terminal_output::ControlEvent>> {
-        let events = self.poll_control_output()?;
-        if !self.viewer_enabled {
-            return Ok(events);
-        }
-        // The original control observer still drains for its independent
-        // continuity/lease checks. Only the separate real PTY viewer supplies
-        // rendered bytes in the explicitly interactive profile.
-        let mut events: Vec<_> = events
-            .into_iter()
-            .filter(|event| {
-                !matches!(
-                    event,
-                    aq_session_host::terminal_output::ControlEvent::Bytes(_)
-                )
-            })
-            .collect();
-        if let Some(viewer) = &mut self.viewer {
-            match viewer.poll() {
-                Ok(bytes) => events.extend(bytes),
-                Err(_) => {
-                    self.viewer = None;
-                }
-            }
-        }
-        Ok(events)
+        self.poll_control_output()
     }
     fn poll_control_output(
         &mut self,
@@ -196,8 +187,7 @@ impl Registry {
                             handle: None,
                             observer: None,
                             pending_output: Vec::new(),
-                            viewer_enabled: false,
-                            viewer: None,
+                            output_taken_without_sequencer: false,
                             stopped: None,
                             transport: None,
                             outcome: Outcome::Unknown,
@@ -348,8 +338,7 @@ impl Registry {
                 handle: None,
                 observer: None,
                 pending_output: Vec::new(),
-                viewer_enabled: false,
-                viewer: None,
+                output_taken_without_sequencer: false,
                 stopped: None,
                 transport: None,
                 outcome: Outcome::Pending,
@@ -795,7 +784,7 @@ impl InputPipeline {
             "native output already has an exclusive drain owner"
         );
         let mut state = lock(&host.entry.physical)?;
-        state.poll_output()
+        state.poll_unsequenced_output()
     }
 }
 fn bootstrap(owner: &Arc<Mutex<Owned>>, _registry: &Registry, entry: &Arc<Entry>) -> Result<()> {
@@ -944,8 +933,22 @@ fn bootstrap_synthetic(
     let (mut observer, baseline) = pending.open_baseline_observer()?;
     let mut released = pending.release_after_baseline(&baseline, &mut authority)?;
     let until = Instant::now() + Duration::from_secs(3);
+    let mut bootstrap_output = Vec::new();
+    let mut bootstrap_bytes = 0;
     loop {
-        let _events = observer.poll()?;
+        let events = observer.poll()?;
+        bootstrap_bytes += events
+            .iter()
+            .map(|e| match e {
+                aq_session_host::terminal_output::ControlEvent::Bytes(bytes) => bytes.len(),
+                _ => 0,
+            })
+            .sum::<usize>();
+        ensure!(
+            bootstrap_bytes <= 65536 && bootstrap_output.len() + events.len() <= 64,
+            "native bootstrap output bound"
+        );
+        bootstrap_output.extend(events);
         if entry.stop.load(Ordering::SeqCst) {
             released.stop()?;
             anyhow::bail!("native host stopped before Running")
@@ -954,6 +957,7 @@ fn bootstrap_synthetic(
             let mut state = lock(&entry.physical)?;
             state.handle = Some(handle);
             state.observer = Some(observer);
+            state.pending_output = bootstrap_output;
             state.outcome = Outcome::Running;
             return Ok(());
         }

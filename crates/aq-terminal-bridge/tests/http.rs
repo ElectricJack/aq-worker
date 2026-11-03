@@ -77,6 +77,47 @@ fn client(origin: &str) -> RelayHttp {
     .unwrap()
 }
 
+#[tokio::test]
+async fn output_lane_transports_opaque_snapshot_without_control_receipts() {
+    let (origin, server) = serve(Router::new().route(
+        "/v1/terminal-relay/upload",
+        post(|h: HeaderMap, Json(r): Json<PeerUpload>| async move {
+            authorize(&h);
+            assert_eq!(r.snapshots[0].state, vec![255; MAX_SNAPSHOT_BYTES]);
+            Json(ack(&r))
+        }),
+    ))
+    .await;
+    let mut request = upload();
+    request.snapshots.push(Snapshot {
+        snapshot_id: Uuid::new_v4(),
+        capture_request_id: Uuid::new_v4(),
+        terminal: TerminalIdentity {
+            session: SessionIdentity::Remote {
+                node_id: Uuid::from_u128(1),
+                boot_id: Uuid::from_u128(2),
+                attempt_id: Uuid::from_u128(4),
+                assignment_generation: 1,
+                session_id: Uuid::from_u128(5),
+            },
+            terminal_id: Uuid::from_u128(6),
+            epoch: 1,
+        },
+        through_sequence: 2,
+        columns: 80,
+        rows: 24,
+        renderer: ArtifactRef {
+            id: Text::new("aq-terminal-renderer").unwrap(),
+            version: Text::new("0.1.0").unwrap(),
+            digest: Digest::of(b"fixture"),
+        },
+        state: vec![255; MAX_SNAPSHOT_BYTES],
+        digest: Digest::of(&vec![255; MAX_SNAPSHOT_BYTES]),
+    });
+    client(&origin).output_upload(&request).await.unwrap();
+    server.abort();
+}
+
 #[test]
 fn production_requires_https_and_credentials_remain_redacted() {
     let secret = NodeCredential::new("synthetic-node-credential".into()).unwrap();

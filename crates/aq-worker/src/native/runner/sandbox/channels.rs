@@ -16,6 +16,9 @@ use tokio::sync::{Mutex, watch};
 pub const MAX_FRAME: usize = 64 * 1024;
 pub const HOLD_MS: u32 = 20_000;
 const MAX_DEMAND: u32 = 32;
+use super::output::SandboxOutput;
+use crate::native::terminal_output::{MAX_SESSION_VIEWERS, TerminalOutput};
+use std::sync::{Arc, OnceLock};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TerminalDemand {
@@ -35,6 +38,7 @@ pub struct SandboxChannels {
     /// Held for the duration of the one terminal poll; also owns the cursor.
     cursor: Mutex<u64>,
     demand: watch::Sender<TerminalDemand>,
+    output: OnceLock<Arc<SandboxOutput>>,
 }
 impl SandboxChannels {
     pub fn new(http: &RunnerHttp) -> Result<Self> {
@@ -50,15 +54,61 @@ impl SandboxChannels {
             binding,
             cursor: Mutex::new(0),
             demand: watch::Sender::new(TerminalDemand::default()),
+            output: OnceLock::new(),
         })
+    }
+    pub(crate) fn validate_authority(&self, http: &RunnerHttp) -> Result<()> {
+        ensure!(
+            self.http.shares_authority(http),
+            "terminal channels use another permit authority"
+        );
+        Ok(())
+    }
+    pub(super) fn authority_lost(&self) -> bool {
+        self.http.authority_lost()
+    }
+    pub(super) async fn run_output(&self, output: Arc<SandboxOutput>) -> Result<()> {
+        let mut demand = self.demand.subscribe();
+        loop {
+            demand.wait_for(|d| !d.idle()).await?;
+            ensure!(!self.http.authority_lost(), "runner authority lost");
+            if let Some(envelope) = self.poll_terminal().await? {
+                for _ in envelope.effects {
+                    output.request_snapshot();
+                }
+            }
+        }
     }
     pub fn set_demand(&self, demand: TerminalDemand) -> Result<()> {
         ensure!(
-            demand.subscriptions <= MAX_DEMAND && demand.controllers <= MAX_DEMAND,
+            demand.subscriptions <= MAX_SESSION_VIEWERS as u32 && demand.controllers <= MAX_DEMAND,
             "terminal demand bound"
         );
-        self.demand.send_replace(demand);
+        let prior = self.demand.send_replace(demand);
+        if demand.subscriptions > prior.subscriptions
+            && let Some(output) = self.output.get()
+        {
+            output.request_snapshot();
+        }
         Ok(())
+    }
+    pub fn open_output(
+        &self,
+        baseline: &aq_session_host::observed::VerifiedBlankBaseline,
+        policy: &aq_session_protocol::TerminalPolicy,
+    ) -> Result<Arc<SandboxOutput>> {
+        self.output_from(TerminalOutput::from_verified(baseline, policy)?)
+    }
+    pub(crate) fn output_from(&self, output: TerminalOutput) -> Result<Arc<SandboxOutput>> {
+        let output = Arc::new(SandboxOutput::new(
+            &self.http,
+            output,
+            self.demand.subscribe(),
+        )?);
+        self.output
+            .set(output.clone())
+            .map_err(|_| anyhow::anyhow!("sandbox output already attached; no epoch reuse"))?;
+        Ok(output)
     }
     /// Whether this sandbox currently holds its terminal poll.
     pub fn terminal_held(&self) -> bool {
@@ -105,6 +155,16 @@ impl SandboxChannels {
             envelope.peer == self.peer && envelope.cursor >= *cursor,
             "terminal envelope peer or cursor"
         );
+        if let Some(output) = self.output.get() {
+            let terminal = output.terminal()?;
+            for effect in &envelope.effects {
+                ensure!(effect.terminal() == &terminal, "foreign output watch");
+                ensure!(
+                    matches!(effect, wire::Effect::Watch(_)),
+                    "unsupported output effect"
+                );
+            }
+        }
         *cursor = envelope.cursor;
         Ok(Some(envelope))
     }

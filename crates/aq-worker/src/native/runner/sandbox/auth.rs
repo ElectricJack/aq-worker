@@ -199,6 +199,10 @@ fn context(
     })
 }
 impl RunnerHttp {
+    pub(crate) fn shares_authority(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.shared, &other.shared) && self.origin == other.origin
+    }
+
     pub fn from_file(origin: &str, path: &Path, handoff: RunnerHandoff) -> Result<Self> {
         let bytes = RunnerFiles::read_secret(path)?;
         let permit: DelegatedPermit = serde_json::from_slice(&bytes)

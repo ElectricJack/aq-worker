@@ -260,8 +260,9 @@ impl RelayHttp {
         );
         Ok(reply)
     }
-    /// Volatile output only, on its own lane. No snapshot is accepted before a
-    /// renderer/baseline profile is qualified, and receipts stay on control.
+    /// Volatile output only, on its own lane. Snapshot producers must qualify
+    /// their renderer/baseline; this transport validates only the opaque wire.
+    /// Receipts stay on control.
     pub async fn output_upload(&self, request: &PeerUpload) -> Result<UploadAck> {
         request.validate()?;
         ensure!(
@@ -271,8 +272,9 @@ impl RelayHttp {
                 && request.epoch_receipts.is_empty()
                 && request.resize_receipts.is_empty()
                 && request.fence_acks.is_empty()
-                && request.snapshots.is_empty()
-                && (!request.frames.is_empty() || !request.gaps.is_empty()),
+                && (!request.frames.is_empty()
+                    || !request.gaps.is_empty()
+                    || !request.snapshots.is_empty()),
             "tail upload contains unsupported content"
         );
         let _slot = self

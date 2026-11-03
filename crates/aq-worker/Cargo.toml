@@ -10,6 +10,7 @@ aq-agent-result-local = { path = "../aq-agent-result-local", version = "=0.1.0" 
 aq-responses-transport.workspace = true
 aq-codex-mapper = { path = "../aq-codex-mapper", version = "=0.1.1" }
 aq-terminal-relay = { path = "../../vendor/aq-terminal-relay-0.1.0", version = "=0.1.0" }
+aq-terminal-renderer = { path = "../aq-terminal-renderer", version = "=0.1.0" }
 aq-terminal-bridge = { path = "../aq-terminal-bridge", version = "=0.1.3" }
 aq-terminal-relay-protocol = { path = "../../vendor/aq-terminal-relay-protocol-0.1.0", version = "=0.1.0" }
 aq-phase-terminal-protocol = { path = "../../vendor/aq-phase-terminal-protocol-0.1.2", version = "=0.1.2" }
