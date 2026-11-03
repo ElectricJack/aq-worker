@@ -20,11 +20,15 @@ fn main() -> Result<()> {
         return helper_main();
     }
     if args.get(1).is_some_and(|s| s == "agent-probe") {
+        // Like a tmux pane, the standalone probe must have its own session:
+        // Linux permits cross-UID SIGCONT within a shared session.
+        ensure!(unsafe { libc::setsid() } >= 0, "fixture agent session");
         AGENT.drop_privileges()?;
-        return agent_probe(Path::new(&args[2]));
+        return agent_probe(Path::new(&args[2]), args[3].parse()?);
     }
     if args.get(1).is_some_and(|s| s == "harness") {
-        agent_probe(Path::new(&args[2]))?;
+        let runner_pid = args[3].parse()?;
+        agent_probe(Path::new(&args[2]), runner_pid)?;
         let input = std::env::var_os("AQ_SESSION_DIRECTORY")
             .ok_or_else(|| anyhow::anyhow!("missing startup context directory"))?;
         ensure!(
@@ -76,7 +80,11 @@ fn main() -> Result<()> {
     }
     durable_new(&files.root().join("state/journal.json"), b"journal-secret")?;
     let output = std::process::Command::new(std::env::current_exe()?)
-        .args(["agent-probe", files.root().to_str().unwrap()])
+        .args([
+            "agent-probe",
+            files.root().to_str().unwrap(),
+            &std::process::id().to_string(),
+        ])
         .env_clear()
         .output()?;
     ensure!(
@@ -127,7 +135,7 @@ fn main() -> Result<()> {
         &manifest,
         permit,
         &local,
-        &Adapter(files.root().to_owned()),
+        &Adapter(files.root().to_owned(), std::process::id()),
         &mut Authority,
         AGENT,
     )?;
@@ -149,7 +157,7 @@ fn main() -> Result<()> {
         "agent descendant still writing"
     );
     println!(
-        "runner UID 21001, agent UID 21002; credential denial, empty groups/caps, tmux execution and descendant stop proven"
+        "runner UID 21001, agent UID 21002; credential denial, empty groups and Inh/Prm/Eff/Amb, residual CapBnd=0xe0, no_new_privs=1, outside-pane signal 0/SIGCONT denied with EPERM, tmux execution and descendant stop proven"
     );
     Ok(())
 }
@@ -164,7 +172,7 @@ fn boot_ms() -> u64 {
     );
     ts.tv_sec as u64 * 1000 + ts.tv_nsec as u64 / 1_000_000
 }
-fn agent_probe(root: &Path) -> Result<()> {
+fn agent_probe(root: &Path, runner_pid: libc::pid_t) -> Result<()> {
     ensure!(
         unsafe { libc::getuid() } == 21002
             && unsafe { libc::geteuid() } == 21002
@@ -176,6 +184,28 @@ fn agent_probe(root: &Path) -> Result<()> {
         unsafe { libc::getgroups(0, std::ptr::null_mut()) } == 0,
         "agent supplementary groups"
     );
+    let runner_status = fs::read_to_string(format!("/proc/{runner_pid}/status"))?;
+    ensure!(
+        runner_pid > 0
+            && runner_pid != unsafe { libc::getpid() }
+            && runner_status
+                .lines()
+                .any(|line| { line == format!("Uid:\t{0}\t{0}\t{0}\t{0}", RUNNER.uid) }),
+        "signal target must be the live runner process"
+    );
+    let agent_session = unsafe { libc::getsid(0) };
+    let runner_session = unsafe { libc::getsid(runner_pid) };
+    ensure!(
+        agent_session > 0 && runner_session > 0 && agent_session != runner_session,
+        "signal target must be outside the agent pane session"
+    );
+    for signal in [0, libc::SIGCONT] {
+        ensure!(
+            unsafe { libc::kill(runner_pid, signal) } == -1
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM),
+            "agent could signal runner outside its pane"
+        );
+    }
     let status = fs::read_to_string("/proc/self/status")?;
     ensure!(
         status.lines().any(|line| line == "NoNewPrivs:\t1"),
@@ -189,6 +219,14 @@ fn agent_probe(root: &Path) -> Result<()> {
             "agent retained capabilities"
         );
     }
+    // The fixture grants exactly KILL/SETGID/SETUID. Clearing their bounding
+    // bits would require SETPCAP, which the approved bootstrap does not grant.
+    ensure!(
+        status
+            .lines()
+            .any(|line| line == "CapBnd:\t00000000000000e0"),
+        "unexpected fixture bounding capabilities"
+    );
     for name in [
         "permit.json",
         "provider.key",
@@ -221,7 +259,7 @@ fn agent_probe(root: &Path) -> Result<()> {
     ensure!(unsafe { libc::setuid(0) } != 0, "agent regained root");
     Ok(())
 }
-struct Adapter(std::path::PathBuf);
+struct Adapter(std::path::PathBuf, u32);
 impl HarnessAdapter for Adapter {
     fn prepare(&self, m: &aq_session_protocol::LaunchManifest, _: &Path) -> Result<AdapterLaunch> {
         Ok(AdapterLaunch {
@@ -233,7 +271,11 @@ impl HarnessAdapter for Adapter {
             capabilities: m.harness.required_capabilities.clone(),
             command: LocalCommand {
                 executable: std::env::current_exe()?,
-                arguments: vec!["harness".into(), self.0.to_str().unwrap().into()],
+                arguments: vec![
+                    "harness".into(),
+                    self.0.to_str().unwrap().into(),
+                    self.1.to_string(),
+                ],
                 environment: Default::default(),
             },
         })
