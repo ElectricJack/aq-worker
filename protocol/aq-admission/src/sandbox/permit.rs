@@ -177,6 +177,9 @@ impl DelegatedPermit {
     /// report retained by the server. The original must have been authenticated,
     /// validated against Started and atomically recorded with the native stop.
     /// Neither input is trusted merely because it decodes as a stopped request.
+    /// Authenticate the request's credential against the current incarnation
+    /// independently of its historical report. After re-adoption that report
+    /// retains its original boot; the permit must match the trusted current boot.
     /// Replay does not extend expiry or permit renewal, access, or launch.
     pub fn validate_stopped_replay(
         &self,
@@ -193,17 +196,15 @@ impl DelegatedPermit {
             ContractError::ReplayConflict,
         )?;
         let binding = &request.evidence.binding;
-        let crate::SessionIdentity::Remote {
-            node_id, boot_id, ..
-        } = &binding.session
-        else {
+        let crate::SessionIdentity::Remote { node_id, .. } = &binding.session else {
             return Err(ContractError::BindingMismatch);
         };
+        // Digest equality above binds the report's boot to retained history.
+        // validate_for independently binds the permit to the current incarnation.
         check(
             binding.attempt_id == self.binding.attempt_id
                 && binding.assignment_generation == self.binding.grant_generation
-                && *node_id == self.binding.node.node_id
-                && *boot_id == self.binding.node.boot_id,
+                && *node_id == self.binding.node.node_id,
             ContractError::BindingMismatch,
         )
     }
