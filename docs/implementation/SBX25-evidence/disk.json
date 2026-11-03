@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--offline",
+    "-p",
+    "aq-worker",
+    "--lib",
+    "backend::disk::tests"
+  ],
+  "exit_code": 0,
+  "log": "/tmp/calm-lantern-25-evidence/disk.log"
+}

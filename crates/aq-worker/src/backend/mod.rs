@@ -5,6 +5,8 @@ mod types;
 pub use types::*;
 mod lifecycle;
 pub use lifecycle::*;
+mod disk;
+pub use disk::*;
 mod fake;
 pub use fake::{FakeBackend, Fault};
 pub mod boat_size;
@@ -96,6 +98,15 @@ pub trait PlacementBackend: Send {
         _node_id: Uuid,
     ) -> impl Future<Output = Result<Vec<DiskUsage>, BackendError>> + Send {
         async { Ok(Vec::new()) }
+    }
+    /// Measured disk for inventory reporting only, never admission authority.
+    /// `preserved` are the stopped, undestroyed sandboxes whose retained size
+    /// is wanted. Unmeasurable values stay `None`.
+    fn measured_disk_usage(
+        &mut self,
+        _preserved: &[SandboxIdentity],
+    ) -> impl Future<Output = BackendDiskUsage> + Send {
+        async { BackendDiskUsage::default() }
     }
     /// Verify authorization scope, stop writers, then delete. Only confirmed
     /// deletion yields Destroyed proof; failure leaves resources protected.

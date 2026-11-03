@@ -1,0 +1,15 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--offline",
+    "-p",
+    "aq-worker",
+    "--test",
+    "docker_local_backend",
+    "disk_"
+  ],
+  "exit_code": 0,
+  "log": "/tmp/calm-lantern-25-evidence/docker.log"
+}
