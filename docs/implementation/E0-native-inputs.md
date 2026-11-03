@@ -140,5 +140,11 @@ hashes and byte sizes. `git diff --check` passed.
 
 Remaining owner decisions were sent once to `session:supervisor-aq-worker` as
 `msg-b1a772345fd8480295b6ad4c47624cd6`. The task remains held awaiting that reply.
-`origin/dev` is absent; an `origin/main` substitution was requested, and no
-upstream merge or final task close is claimed.
+Supervisor message `msg-af5cec572dc74892bfc88fcdf9d68ae9` confirms the
+`origin/main` substitution because `origin/dev` is absent. Applied with
+`aq git pull --branch main`: fetched `origin/main` is
+`26edf5cf04550e1252dc69debcd5d20fdea68f9a`, already an ancestor of the
+published checkpoint, so no merge commit or source change was needed. No push
+to `main` occurred. The supervisor is escalating the remaining values to the
+owner. This task cannot close successfully without them; the active claim is
+retained pending the relayed decisions.
