@@ -774,7 +774,9 @@ impl SessionHost {
         }
         authority.record_launch_intent(&intent)?;
         authority.checkpoint("launch-intent-durable")?;
-        let private_source = publication.map(|p| p.publish()).transpose()?;
+        let private_source = publication
+            .map(|p| p.publish(&config.workspace))
+            .transpose()?;
         private_inputs::verify_at_exec(&config, &directory)?;
         let mut command = Command::new(&config.helper);
         command

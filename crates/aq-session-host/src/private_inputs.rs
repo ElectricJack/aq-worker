@@ -493,7 +493,7 @@ impl Publication {
     pub(crate) fn record(&self) -> PrivateInputRecord {
         self.record.clone()
     }
-    pub(crate) fn publish(mut self) -> Result<File> {
+    pub(crate) fn publish(mut self, workspace: &Path) -> Result<File> {
         let original = read_source(&self.input.pin)?;
         if let Some(pin) = &self.input.scoped {
             verify_scoped_auth(&self.input.auth, pin)?;
@@ -508,6 +508,30 @@ impl Publication {
                 derive_auth(&original)?.as_slice() == self.input.auth.as_slice(),
                 "private input changed before publication"
             );
+        }
+        if self.input.chatgpt.is_some() {
+            // The TUI checks persisted project trust during startup. Seed only
+            // this launch's workspace in its fresh home before starting Codex.
+            let config = format!(
+                "[projects.{}]\ntrust_level = \"trusted\"\n",
+                toml::Value::String(workspace.to_str().context("Codex workspace UTF8")?.into())
+            );
+            let fd = unsafe {
+                libc::openat(
+                    self.home.as_raw_fd(),
+                    c"config.toml".as_ptr(),
+                    libc::O_WRONLY
+                        | libc::O_CREAT
+                        | libc::O_EXCL
+                        | libc::O_NOFOLLOW
+                        | libc::O_CLOEXEC,
+                    0o600,
+                )
+            };
+            ensure!(fd >= 0, "private Codex config creation refused");
+            let mut file = unsafe { File::from_raw_fd(fd) };
+            file.write_all(config.as_bytes())?;
+            file.sync_all()?;
         }
         self.auth.write_all(&self.input.auth)?;
         self.auth.sync_all()?;
@@ -614,6 +638,17 @@ pub struct PrivateCleanup {
     pub auth_removed: bool,
     pub home_removed: bool,
 }
+fn cleanup_codex_config(home: &File) -> Result<()> {
+    if unsafe { libc::unlinkat(home.as_raw_fd(), c"config.toml".as_ptr(), 0) } != 0 {
+        let error = std::io::Error::last_os_error();
+        ensure!(
+            error.kind() == std::io::ErrorKind::NotFound,
+            "private Codex config cleanup failed"
+        );
+    }
+    home.sync_all()?;
+    Ok(())
+}
 impl SessionHandle {
     pub fn cleanup_private_inputs(&mut self, proof: &StoppedProof) -> Result<PrivateCleanup> {
         ensure!(
@@ -670,6 +705,9 @@ impl SessionHandle {
             );
             home.sync_all()?;
         }
+        if r.chatgpt.is_some() {
+            cleanup_codex_config(&home)?;
+        }
         let removed =
             unsafe { libc::unlinkat(root.as_raw_fd(), c"codex-home".as_ptr(), libc::AT_REMOVEDIR) }
                 == 0;
@@ -703,7 +741,7 @@ mod tests {
         }
     }
     #[test]
-    fn subscription_publication_reuses_original_material_pins_and_private_home() {
+    fn interactive_executor_private_config_trusts_exactly_launch_workspace() {
         let dir = tempfile::tempdir().unwrap();
         let (source, _, _, record) = source(dir.path());
         let bytes = login("offline-refresh");
@@ -729,7 +767,21 @@ mod tests {
                 .unwrap()
                 .contains("offline-access")
         );
-        let _held = publication.publish().unwrap();
+        let workspace = dir.path().join("launch workspace.\"quoted\"\\name");
+        let _held = publication.publish(&workspace).unwrap();
+        let config_path = root.join("codex-home/config.toml");
+        let config: toml::Value =
+            toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        let projects = config["projects"].as_table().unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(
+            projects[workspace.to_str().unwrap()]["trust_level"].as_str(),
+            Some("trusted")
+        );
+        assert_eq!(
+            std::fs::metadata(config_path).unwrap().mode() & 0o777,
+            0o600
+        );
         assert_eq!(
             std::fs::read(root.join("codex-home/auth.json")).unwrap(),
             bytes
@@ -782,7 +834,7 @@ mod tests {
         let root = root(dir.path());
         let publication = Publication::reserve(&root, input).unwrap();
         std::fs::write(dir.path().join("source/material.bin"), login("changed")).unwrap();
-        assert!(publication.publish().is_err());
+        assert!(publication.publish(Path::new("/launch/workspace")).is_err());
         assert_eq!(
             std::fs::metadata(root.join("codex-home/auth.json"))
                 .unwrap()
@@ -856,7 +908,8 @@ mod tests {
         let record = publication.record();
         let metadata = serde_json::to_string(&record).unwrap();
         assert!(!metadata.contains("sk-private"));
-        let _held = publication.publish().unwrap();
+        let _held = publication.publish(Path::new("/launch/workspace")).unwrap();
+        assert!(!root.join("codex-home/config.toml").exists());
         let root_fd = File::open(&root).unwrap();
         verify_record(&root_fd, &record, true).unwrap();
         std::fs::write(dir.path().join("source/record.json"), b"changed record").unwrap();
@@ -875,7 +928,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.path().join("source/material.bin"), b"changed key").unwrap();
-        assert!(publication.publish().is_err());
+        assert!(publication.publish(Path::new("/launch/workspace")).is_err());
         assert_eq!(
             std::fs::metadata(root.join("codex-home/auth.json"))
                 .unwrap()
@@ -894,7 +947,7 @@ mod tests {
         )
         .unwrap();
         let record = publication.record();
-        let _held = publication.publish().unwrap();
+        let _held = publication.publish(Path::new("/launch/workspace")).unwrap();
         std::fs::set_permissions(
             root.join("codex-home/auth.json"),
             std::fs::Permissions::from_mode(0o644),
@@ -942,7 +995,7 @@ mod tests {
         let metadata = serde_json::to_string(&record).unwrap();
         assert!(!metadata.contains("sk-private"));
         assert!(!metadata.contains(std::str::from_utf8(&cap).unwrap()));
-        let _source = publication.publish().unwrap();
+        let _source = publication.publish(Path::new("/launch/workspace")).unwrap();
         let auth = std::fs::read(root.join("codex-home/auth.json")).unwrap();
         assert_eq!(auth, *derive_auth(&cap).unwrap());
         assert!(!String::from_utf8_lossy(&auth).contains("sk-private"));

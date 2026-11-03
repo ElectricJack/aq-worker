@@ -447,6 +447,7 @@ fn reconcile(
         } else {
             home.sync_all()?;
         }
+        cleanup_codex_config(&home)?;
         // Never recursively remove unknown generated files. A cleanup failure
         // leaves Acknowledged durable and retries cleanup without another write.
         unlink(root, c"codex-home", libc::AT_REMOVEDIR)?;
