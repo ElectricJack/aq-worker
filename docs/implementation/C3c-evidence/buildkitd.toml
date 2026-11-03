@@ -1,0 +1,6 @@
+[worker.oci]
+  max-parallelism = 2
+[registry."ghcr.io"]
+  mirrors = ["127.0.0.1:5138"]
+[registry."127.0.0.1:5138"]
+  http = true

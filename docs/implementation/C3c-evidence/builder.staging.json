@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "role": "template-build",
+  "docker_context": "default",
+  "buildkit_builder": "aq-c3c-qualification",
+  "builder_identity": "c3c-local-calm-delta-18.5",
+  "os_image": "ghcr.io/electricjack/aq-sandbox-os@sha256:f6344f0456cbc11ef543b0060a808b4532c3a928b5b110d875065efbf9e066bd",
+  "runtime_image": "ghcr.io/electricjack/aq-sandbox-runtime@sha256:13a64d6dfbedd8cb2e31b26a18670c71f6b43efd800eff94d62fc3b1d2bc2176",
+  "target_repository": "ghcr.io/electricjack/aq-template",
+  "registry_visibility": "public",
+  "allowlist": "allowlist.candidate.json"
+}

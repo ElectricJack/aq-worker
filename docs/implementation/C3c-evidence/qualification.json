@@ -1,0 +1,33 @@
+{
+  "images": {
+    "rust": "127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5",
+    "node": "127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710"
+  },
+  "proof_directory": "/tmp/aq-c3c-calm-delta-18.5/proof",
+  "repositories": {
+    "aq-server": {
+      "path": "/home/jkern/dev/aq-platform/aq-server",
+      "revision": "841e19ff6260ce7a97c600227e94c3c42c1abec5"
+    },
+    "aq-worker": {
+      "path": "/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2",
+      "revision": "eaebd788085a7f74cfec49e6eb3b8763800c2ec3"
+    },
+    "aq-git": {
+      "path": "/home/jkern/dev/aq-platform-agents/projects/aq-git",
+      "revision": "e05d4e67c9bc53ed0b69ec3c8cff9fa9ad24c287"
+    },
+    "aq-graph": {
+      "path": "/home/jkern/dev/aq-platform-agents/projects/aq-graph",
+      "revision": "9e957b25a6e027aa30895535c4bc19859fa52883"
+    },
+    "aq-playbooks": {
+      "path": "/home/jkern/dev/aq-platform-agents/projects/aq-playbooks",
+      "revision": "6798552f46360b7d1891b1ff9514b4ce71bfb6fc"
+    },
+    "aq-dashboard": {
+      "path": "/home/jkern/dev/aq-platform-agents/projects/aq-dashboard",
+      "revision": "eee9d8396f1bb157d79ff31e1cdb583645e4f62d"
+    }
+  }
+}

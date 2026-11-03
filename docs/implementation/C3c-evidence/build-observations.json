@@ -1,0 +1,39 @@
+{
+  "status": "unadmitted-build-observations-not-provenance",
+  "builds": [
+    {
+      "name": "rust",
+      "version": "1",
+      "image_digest": "sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5",
+      "archive": "/tmp/aq-c3c-calm-delta-18.5/rust/image.oci.tar",
+      "archive_bytes": 652846592,
+      "archive_sha256": "8f4b4b31079f9428ed2983bde2c8cebdf5b0b8737d4891b7ab1109f782854ecf",
+      "recipe_digest": "sha256:4de387c0b88e61e2bf080acb609c51622ca8792475444cffd0b234d3ceddfec4",
+      "base_digest": "sha256:f6344f0456cbc11ef543b0060a808b4532c3a928b5b110d875065efbf9e066bd",
+      "runtime_bundle_digest": "sha256:13a64d6dfbedd8cb2e31b26a18670c71f6b43efd800eff94d62fc3b1d2bc2176",
+      "builder_identity": "c3c-local-calm-delta-18.5",
+      "buildkit_finalize": "passed",
+      "credential_scan": "refused",
+      "provenance_emitted": false,
+      "admission": "refused",
+      "production_published": false
+    },
+    {
+      "name": "node",
+      "version": "1",
+      "image_digest": "sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710",
+      "archive": "/tmp/aq-c3c-calm-delta-18.5/node/image.oci.tar",
+      "archive_bytes": 501209600,
+      "archive_sha256": "7ed46cfe482a7d887c25d40deb593a1b2250648680e00133c7983f3a2890448d",
+      "recipe_digest": "sha256:d6067a630ef0b3a4ab6d10c22942cf20aa6cf040e7feefe940da657ac5723ca8",
+      "base_digest": "sha256:f6344f0456cbc11ef543b0060a808b4532c3a928b5b110d875065efbf9e066bd",
+      "runtime_bundle_digest": "sha256:13a64d6dfbedd8cb2e31b26a18670c71f6b43efd800eff94d62fc3b1d2bc2176",
+      "builder_identity": "c3c-local-calm-delta-18.5",
+      "buildkit_finalize": "passed",
+      "credential_scan": "refused",
+      "provenance_emitted": false,
+      "admission": "refused",
+      "production_published": false
+    }
+  ]
+}

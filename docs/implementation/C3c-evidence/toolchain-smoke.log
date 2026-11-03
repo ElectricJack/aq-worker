@@ -1,0 +1,148 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 0 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C3c-evidence/test_qualification.py -k toolchain -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 8 items / 6 deselected / 2 selected
+
+docs/implementation/C3c-evidence/test_qualification.py COMMAND: ["docker", "--context", "default", "run", "--rm", "--cpus=2", "--memory=8g", "--user", "10002:10002", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--network", "none", "--entrypoint", "/bin/sh", "127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5", "-ec", "getent passwd runner && getent passwd agent && command -v tmux && command -v bwrap && command -v git && test -s /opt/aq/manifest.json && test \"$(rustc --version | cut -d' ' -f2)\" = 1.96.1 && rustc --version && cargo --version && rustfmt --version && cargo clippy --version && test \"$(/opt/aq/node/bin/node --version)\" = v22.16.0"]
+Unable to find image '127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5' locally
+127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5: Pulling from electricjack/aq-template-unadmitted
+d9970ea1f370: Already exists
+9ea0d5b9f005: Already exists
+495434a9a07f: Already exists
+465a0e01d26d: Already exists
+1ae460cccd47: Already exists
+66cd8461a1ce: Already exists
+33bad511f8fa: Pulling fs layer
+ca5465d6370d: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+1b463e7fabe0: Pulling fs layer
+1b463e7fabe0: Waiting
+4f4fb700ef54: Verifying Checksum
+4f4fb700ef54: Download complete
+33bad511f8fa: Verifying Checksum
+33bad511f8fa: Download complete
+1b463e7fabe0: Verifying Checksum
+1b463e7fabe0: Download complete
+ca5465d6370d: Verifying Checksum
+ca5465d6370d: Download complete
+33bad511f8fa: Pull complete
+ca5465d6370d: Pull complete
+4f4fb700ef54: Pull complete
+1b463e7fabe0: Pull complete
+Digest: sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5
+Status: Downloaded newer image for 127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5
+runner:x:10001:10001::/home/runner:/bin/bash
+agent:x:10002:10002::/home/agent:/bin/bash
+/usr/bin/tmux
+/usr/bin/bwrap
+/opt/git/bin/git
+rustc 1.96.1 (31fca3adb 2026-06-26)
+cargo 1.96.1 (356927216 2026-06-26)
+rustfmt 1.9.0-stable (31fca3adb2 2026-06-26)
+clippy 0.1.96 (31fca3adb2 2026-06-26)
+.COMMAND: ["docker", "--context", "default", "run", "--rm", "--cpus=2", "--memory=8g", "--user", "10002:10002", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--network", "none", "--entrypoint", "/bin/sh", "127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710", "-ec", "getent passwd runner && getent passwd agent && command -v tmux && command -v bwrap && command -v git && test -s /opt/aq/manifest.json && test \"$(node --version)\" = v24.11.0 && test \"$(pnpm --version)\" = 10.34.5 && node --version && pnpm --version && test \"$(/opt/aq/node/bin/node --version)\" = v22.16.0"]
+Unable to find image '127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710' locally
+<3>WSL (2068894 - ) ERROR: UtilAcceptVsock:273: accept4 failed 110
+docker: error getting credentials - err: exit status 1, out: ``
+
+Run 'docker run --help' for more information
+F
+
+=================================== FAILURES ===================================
+__________________ test_node_toolchain_and_finalize_as_agent ___________________
+
+    def test_node_toolchain_and_finalize_as_agent():
+>       run_container(configuration()["images"]["node"], FINALIZE + " && "
+                      "test \"$(node --version)\" = v24.11.0 && test \"$(pnpm --version)\" = 10.34.5 && "
+                      "node --version && pnpm --version && "
+                      "test \"$(/opt/aq/node/bin/node --version)\" = v22.16.0")
+
+docs/implementation/C3c-evidence/test_qualification.py:46:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+docs/implementation/C3c-evidence/test_qualification.py:31: in run_container
+    subprocess.run(argv, check=True, timeout=3600)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+input = None, capture_output = False, timeout = 3600, check = True
+popenargs = (['docker', '--context', 'default', 'run', '--rm', '--cpus=2', ...],)
+kwargs = {}
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['docker', '--context', 'default', 'run', '--rm', '--cpus=2', '--memory=8g', '--user', '10002:10002', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--network', 'none', '--entrypoint', '/bin/sh', '127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710', '-ec', 'getent passwd runner && getent passwd agent && command -v tmux && command -v bwrap && command -v git && test -s /opt/aq/manifest.json && test "$(node --version)" = v24.11.0 && test "$(pnpm --version)" = 10.34.5 && node --version && pnpm --version && test "$(/opt/aq/node/bin/node --version)" = v22.16.0']' returned non-zero exit status 125.
+
+/usr/lib/python3.12/subprocess.py:571: CalledProcessError
+=========================== short test summary info ============================
+FAILED docs/implementation/C3c-evidence/test_qualification.py::test_node_toolchain_and_finalize_as_agent
+================== 1 failed, 1 passed, 6 deselected in 33.90s ==================

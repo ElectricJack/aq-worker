@@ -19,7 +19,7 @@ def configuration():
 
 
 def run_container(image, command, *, network="none", mounts=(), environment=()):
-    argv = ["docker", "--context", "default", "run", "--rm", "--cpus=2", "--memory=8g",
+    argv = ["docker", "--context", "default", "run", "--rm", "--pull=never", "--cpus=2", "--memory=8g",
             "--user", "10002:10002", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--network", network, "--entrypoint", "/bin/sh"]
     for source, target, readonly in mounts:

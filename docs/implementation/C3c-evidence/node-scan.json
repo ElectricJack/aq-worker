@@ -1,0 +1,11 @@
+{
+  "command": [
+    "target/debug/aq-worker",
+    "template",
+    "scan",
+    "/tmp/aq-c3c-calm-delta-18.5/node/image.oci.tar"
+  ],
+  "exit_code": 2,
+  "stdout": "",
+  "stderr": "template refused: invalid input, build/finalize failure or credential scan failure\nerror: template operation refused; Python 3 and valid inputs required\n"
+}

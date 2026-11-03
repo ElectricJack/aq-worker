@@ -1,0 +1,33 @@
+127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710: Pulling from electricjack/aq-template-unadmitted
+d9970ea1f370: Already exists
+9ea0d5b9f005: Already exists
+495434a9a07f: Already exists
+465a0e01d26d: Already exists
+1ae460cccd47: Already exists
+66cd8461a1ce: Already exists
+33bad511f8fa: Already exists
+374b80e5e31e: Pulling fs layer
+c7f06213abbd: Pulling fs layer
+f94b38b0aa2c: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+c4dcdf81a90e: Pulling fs layer
+4f4fb700ef54: Waiting
+c4dcdf81a90e: Waiting
+f94b38b0aa2c: Verifying Checksum
+f94b38b0aa2c: Download complete
+4f4fb700ef54: Verifying Checksum
+4f4fb700ef54: Download complete
+c7f06213abbd: Verifying Checksum
+c7f06213abbd: Download complete
+374b80e5e31e: Verifying Checksum
+374b80e5e31e: Download complete
+c4dcdf81a90e: Verifying Checksum
+c4dcdf81a90e: Download complete
+374b80e5e31e: Pull complete
+c7f06213abbd: Pull complete
+f94b38b0aa2c: Pull complete
+4f4fb700ef54: Pull complete
+c4dcdf81a90e: Pull complete
+Digest: sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710
+Status: Downloaded newer image for 127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710
+127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:5e0e668ad48da42b5d46f03e971123bc9552c5721d14a147096a7250d2305710

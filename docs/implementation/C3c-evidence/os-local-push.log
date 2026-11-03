@@ -1,0 +1,15 @@
+The push refers to repository [127.0.0.1:5138/electricjack/aq-sandbox-os]
+3c2bd692ee70: Preparing
+c5ce4c2e8929: Preparing
+e2f3d7237870: Preparing
+4ba57a723283: Preparing
+2654df4109a3: Preparing
+44a87794b739: Preparing
+44a87794b739: Waiting
+c5ce4c2e8929: Pushed
+3c2bd692ee70: Pushed
+2654df4109a3: Pushed
+4ba57a723283: Pushed
+44a87794b739: Pushed
+e2f3d7237870: Pushed
+0.1.0: digest: sha256:f6344f0456cbc11ef543b0060a808b4532c3a928b5b110d875065efbf9e066bd size: 1573

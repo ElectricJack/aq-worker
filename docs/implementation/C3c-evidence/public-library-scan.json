@@ -1,0 +1,10 @@
+{
+  "image": "aq-sandbox-c3a:after",
+  "public_library": "/usr/lib/x86_64-linux-gnu/libgnutls.so.30.34.3",
+  "bytes": 2209528,
+  "sha256": "779b25d20249988bea2c1aa6bbeb218f5ae7ea8a9d30ce4f54ea37372965cc4b",
+  "secret_shaped": true,
+  "token_pattern_matches": 9,
+  "all_token_matches_are_pem_format_delimiters": true,
+  "credential_label_assignments": 0
+}

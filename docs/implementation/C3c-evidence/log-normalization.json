@@ -1,0 +1,125 @@
+{
+  "normalization": "line endings and trailing whitespace only; active repository proof log excluded until completion",
+  "files": [
+    {
+      "file": "build-node.log",
+      "original_sha256": "55d2cc9ed6d045e17380013c27c200348e1ea76f4186d571e7a809afc3a9a025",
+      "normalized_sha256": "55d2cc9ed6d045e17380013c27c200348e1ea76f4186d571e7a809afc3a9a025"
+    },
+    {
+      "file": "cli-build.log",
+      "original_sha256": "248450f3333c3658a26656f2e65512bbfd30afb3ab5fd23cbfc3b28f18dc4da6",
+      "normalized_sha256": "248450f3333c3658a26656f2e65512bbfd30afb3ab5fd23cbfc3b28f18dc4da6"
+    },
+    {
+      "file": "clippy.log",
+      "original_sha256": "4a3ee67f77e0b1c9eff93ca072939f99500d864ba4de26ba895f3cde0dd5a02d",
+      "normalized_sha256": "4a3ee67f77e0b1c9eff93ca072939f99500d864ba4de26ba895f3cde0dd5a02d"
+    },
+    {
+      "file": "dashboard-proof.log",
+      "original_sha256": "9b2a76ecb799a1da30b61a169f5788724d998687c77749714bcece4e99bf13df",
+      "normalized_sha256": "9b2a76ecb799a1da30b61a169f5788724d998687c77749714bcece4e99bf13df"
+    },
+    {
+      "file": "dev-merge.log",
+      "original_sha256": "9162286b906e591849c292017642670ee8b0a04e953bc8ee2868c5cdeb36dcaa",
+      "normalized_sha256": "9162286b906e591849c292017642670ee8b0a04e953bc8ee2868c5cdeb36dcaa"
+    },
+    {
+      "file": "fmt.log",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normalized_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "file": "node-build.log",
+      "original_sha256": "9ef419f0c9d03f628976882e0155420507bd667b63d674f3c978c7f61f06d4b4",
+      "normalized_sha256": "9ef419f0c9d03f628976882e0155420507bd667b63d674f3c978c7f61f06d4b4"
+    },
+    {
+      "file": "node-buildkit.log",
+      "original_sha256": "97ebf151ba33e2c20acb7383b38c61612f23363a12610d1c9c4cf5662e36e0d7",
+      "normalized_sha256": "97ebf151ba33e2c20acb7383b38c61612f23363a12610d1c9c4cf5662e36e0d7"
+    },
+    {
+      "file": "node-local-import.log",
+      "original_sha256": "19359ef8fc731496db2c47db631495ace6c75f827c3f8b9a088a1a6fbd8ea0d9",
+      "normalized_sha256": "19359ef8fc731496db2c47db631495ace6c75f827c3f8b9a088a1a6fbd8ea0d9"
+    },
+    {
+      "file": "node-local-pull.log",
+      "original_sha256": "c5e8f585c10205ddabf13064c3916096a5c2351d2b1e60d4e70a9f6608b39c3a",
+      "normalized_sha256": "c5e8f585c10205ddabf13064c3916096a5c2351d2b1e60d4e70a9f6608b39c3a"
+    },
+    {
+      "file": "os-local-push.log",
+      "original_sha256": "347bef7d9b8db217e4a133b92a0ae325aca9dfbbe715defdb7dafdeac5224816",
+      "normalized_sha256": "347bef7d9b8db217e4a133b92a0ae325aca9dfbbe715defdb7dafdeac5224816"
+    },
+    {
+      "file": "os-transport.log",
+      "original_sha256": "6caa605a2e08ceb94320dc2df514e28e56f344d4b584f289c5c5867bb92f987a",
+      "normalized_sha256": "6caa605a2e08ceb94320dc2df514e28e56f344d4b584f289c5c5867bb92f987a"
+    },
+    {
+      "file": "physical-red.log",
+      "original_sha256": "9772b001396d8b5b0dcb506c78f7ee849d0181b56c53db85640c809805d7f4f2",
+      "normalized_sha256": "3abb6d240f781e74e6194acd31a2ac337f63d911576e7677b253005c172cd0b4"
+    },
+    {
+      "file": "python-final.log",
+      "original_sha256": "b240dab95543ce2553162122caa4c99d277c0f54b949a0e32753c07fbb66f1e6",
+      "normalized_sha256": "b240dab95543ce2553162122caa4c99d277c0f54b949a0e32753c07fbb66f1e6"
+    },
+    {
+      "file": "python-green.log",
+      "original_sha256": "feb8b19e17ca0631bcc1f74e4f65ea80fdc83daa38970cb54a632c6aa53bf5c2",
+      "normalized_sha256": "c940fed2f9925079f6a63f77976c7619ac1a969f4a2b4f77c8fd1d0a43e00c6c"
+    },
+    {
+      "file": "recipes-red.log",
+      "original_sha256": "33b0955c49560524c60c944ab405af35b76a7576cf33c72c71f0ab60996b31ca",
+      "normalized_sha256": "1b8ac1194584d061b645817125292a33f3ec8546f520b0dfb5192a04bc204cd9"
+    },
+    {
+      "file": "runtime-local-push.log",
+      "original_sha256": "530640362e7238c5321954733bead577fc0c8ed20522d4f37ca7d847b5ff590f",
+      "normalized_sha256": "530640362e7238c5321954733bead577fc0c8ed20522d4f37ca7d847b5ff590f"
+    },
+    {
+      "file": "runtime-transport.log",
+      "original_sha256": "f885030a6a66c1eecd891343c73b2a9be51a042606b133e45c679e99f4e3bf44",
+      "normalized_sha256": "f885030a6a66c1eecd891343c73b2a9be51a042606b133e45c679e99f4e3bf44"
+    },
+    {
+      "file": "rust-area.log",
+      "original_sha256": "3db4a44894cb14ebcb2482a1ef1b08aec1d44f173e40001b87bab4062db2a705",
+      "normalized_sha256": "3db4a44894cb14ebcb2482a1ef1b08aec1d44f173e40001b87bab4062db2a705"
+    },
+    {
+      "file": "rust-build.log",
+      "original_sha256": "25d95828b9ff6238f21ccd32dea769f38c6a089bfd515b7274e2d5c33788b52f",
+      "normalized_sha256": "25d95828b9ff6238f21ccd32dea769f38c6a089bfd515b7274e2d5c33788b52f"
+    },
+    {
+      "file": "rust-buildkit.log",
+      "original_sha256": "19038a3b5663e6d0774e6c8321a3ba12465252975e45749fc8b30e07d56e4217",
+      "normalized_sha256": "ca43a2b85eb0c7bdc760b3204bc6bba29069c14ee4dc9b60e4bd198b5c80d71e"
+    },
+    {
+      "file": "rust-local-import.log",
+      "original_sha256": "dba135049d5a9c17fb0ec41318ab9aa7622132ec685fe006e68910b93a63ed9e",
+      "normalized_sha256": "dba135049d5a9c17fb0ec41318ab9aa7622132ec685fe006e68910b93a63ed9e"
+    },
+    {
+      "file": "toolchain-final.log",
+      "original_sha256": "b6a67c518998b51cc830a127e5de147ab74d6c763e7261eca81222fb32fc4d13",
+      "normalized_sha256": "b6a67c518998b51cc830a127e5de147ab74d6c763e7261eca81222fb32fc4d13"
+    },
+    {
+      "file": "toolchain-smoke.log",
+      "original_sha256": "a2c2c780140d617715b6bd12bbb7b75ef67f2e966956c9d9007095a5872598f6",
+      "normalized_sha256": "4403fccaf0b2bd4cb20aeb54f20b83c7da3ab58d33f9d80885d0f961c99f4e93"
+    }
+  ]
+}
