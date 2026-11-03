@@ -1,0 +1,17 @@
+Branch check run 41593850883 at 317b82b2de4bf3da449255c4ad9f42eb46941a28
+https://github.com/ElectricJack/aq-worker/actions/runs/41593850883
+
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1175436Z ---- native::adapter::responses_transport::policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact stdout ----
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1176002Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1176486Z thread 'native::adapter::responses_transport::policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact' (10915) panicked at crates/aq-worker/src/native/adapter/responses_transport/policy.rs:155:10:
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1177485Z called `Result::unwrap()` on an `Err` value: scoped Responses authority expired
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1177900Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1178137Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1178140Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1178208Z failures:
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1178547Z     native::adapter::responses_transport::policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1178870Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1179092Z test result: FAILED. 283 passed; 1 failed; 30 ignored; 0 measured; 0 filtered out; finished in 58.33s
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1179374Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1327879Z [1m[91merror[0m: test failed, to rerun pass `-p aq-worker --lib`
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T07:08:29.1477885Z ##[error]Process completed with exit code 101.

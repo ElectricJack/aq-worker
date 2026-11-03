@@ -194,7 +194,8 @@ impl HostAdapter for Adapter {
             manifest_digest: if self.mismatch { Digest::of(b"wrong") } else { p.digest()? },
             adapter: p.harness.adapter.clone(), cli_version: p.harness.cli_version.as_str().into(),
             environment: p.harness.environment.clone(), capabilities: p.harness.required_capabilities.clone(),
-            command: LocalCommand { executable: "/bin/sh".into(), arguments: vec!["-c".into(), "cat \"$AQ_SESSION_DIRECTORY/context-0.bin\" > \"$AQ_SESSION_DIRECTORY/delivered\"; exec /bin/sleep 30".into()], environment: Default::default() },
+            // Publish readiness only after cat has closed the complete payload.
+            command: LocalCommand { executable: "/bin/sh".into(), arguments: vec!["-c".into(), "cat \"$AQ_SESSION_DIRECTORY/context-0.bin\" > \"$AQ_SESSION_DIRECTORY/delivered.tmp\" && mv \"$AQ_SESSION_DIRECTORY/delivered.tmp\" \"$AQ_SESSION_DIRECTORY/delivered\"; exec /bin/sleep 30".into()], environment: Default::default() },
         })
     }
     fn readiness(&self, _: &HostObservation) -> Result<HarnessReadiness> {
@@ -308,7 +309,13 @@ fn supervisor_session_starts_under_central_permit() {
     for iteration in 0..50 {
         let mut c = Case::new();
         let h = c.launch(4000).unwrap_or_else(|error| {
-            panic!("central start iteration {iteration} failed: {error:#}")
+            let directory = c.dir.path().join(c.id.to_string());
+            let files = std::fs::read_dir(&directory)
+                .map(|entries| entries.flatten().map(|e| e.file_name()).collect::<Vec<_>>());
+            let state = std::fs::read_to_string(directory.join("state.json"));
+            panic!(
+                "central start iteration {iteration} failed: {error:#}; files={files:?}; state={state:?}"
+            )
         });
         assert_eq!(h.observe().unwrap().phase, HostPhase::Running);
         assert_eq!(

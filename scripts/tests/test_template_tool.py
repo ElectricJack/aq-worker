@@ -263,6 +263,7 @@ class TemplateTests(unittest.TestCase):
         # layout, not content: both observed builds and other neighbors pass.
         label = 'persistent-disk-during-attempt'
         observed = ['backend_idstruct SandboxIdentity', 'struct SandboxIdentitybackend_id',
+                    'struct SandboxIdentitybackend_idstruct SandboxIdentity with 3 elements',
                     'variant identifiervm-isolation', 'suspend-snapshotnested-docker', '']
         for neighbor in observed:
             with self.subTest(neighbor=neighbor):
