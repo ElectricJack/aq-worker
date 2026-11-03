@@ -405,28 +405,31 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
             None => error(404, "no such container"),
             Some(c) => {
                 let running = c.status == "running";
-                ok_json(
-                    200,
-                    json!({
-                        "Id": c.id,
-                        "Name": format!("/{name}"),
-                        "Config": {
-                            "Image": c.body["Image"],
-                            "Labels": c.body["Labels"],
-                            "Cmd": c.body["Cmd"],
-                            "Env": c.body["Env"],
-                            "WorkingDir": c.body["WorkingDir"],
-                        },
-                        "HostConfig": c.body["HostConfig"],
-                        "State": {
-                            "Status": c.status,
-                            "Running": running,
-                            "Paused": false,
-                            "Pid": if running { 4242 } else { 0 },
-                            "ExitCode": 0,
-                        },
-                    }),
-                )
+                let size_rw = (query.get("size").map(String::as_str) == Some("true"))
+                    .then(|| state.container_sizes.get(*name).copied());
+                let mut body = json!({
+                    "Id": c.id,
+                    "Name": format!("/{name}"),
+                    "Config": {
+                        "Image": c.body["Image"],
+                        "Labels": c.body["Labels"],
+                        "Cmd": c.body["Cmd"],
+                        "Env": c.body["Env"],
+                        "WorkingDir": c.body["WorkingDir"],
+                    },
+                    "HostConfig": c.body["HostConfig"],
+                    "State": {
+                        "Status": c.status,
+                        "Running": running,
+                        "Paused": false,
+                        "Pid": if running { 4242 } else { 0 },
+                        "ExitCode": 0,
+                    },
+                });
+                if let Some(Some(size)) = size_rw {
+                    body["SizeRw"] = json!(size);
+                }
+                ok_json(200, body)
             }
         },
         (Put, ["containers", name, "archive"]) => {

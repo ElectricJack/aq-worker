@@ -31,12 +31,22 @@ pub struct FakeBackend {
     sandboxes: BTreeMap<String, Sandbox>,
     faults: VecDeque<Fault>,
     disk_used: BTreeMap<String, u64>,
+    measured_disk: BackendDiskUsage,
+    disk_queries: Vec<Vec<SandboxIdentity>>,
 }
 impl FakeBackend {
     /// Reported SBX20 watchdog usage for one sandbox; no bytes are written.
     pub fn set_disk_usage(&mut self, identity: &SandboxIdentity, used_bytes: u64) {
         self.disk_used
             .insert(identity.backend_id.clone(), used_bytes);
+    }
+    /// Fake node measurements returned by every later `measured_disk_usage`.
+    pub fn set_measured_disk_usage(&mut self, usage: BackendDiskUsage) {
+        self.measured_disk = usage;
+    }
+    /// The preserved sets the controller asked to size, in call order.
+    pub fn disk_queries(&self) -> &[Vec<SandboxIdentity>] {
+        &self.disk_queries
     }
     /// A one-shot fault is consumed only by its corresponding operation.
     pub fn inject(&mut self, fault: Fault) {
@@ -301,5 +311,9 @@ impl PlacementBackend for FakeBackend {
         sandbox.material = None;
         sandbox.fixture_output = None;
         sandbox.inventory.writer_proof()
+    }
+    async fn measured_disk_usage(&mut self, preserved: &[SandboxIdentity]) -> BackendDiskUsage {
+        self.disk_queries.push(preserved.to_vec());
+        self.measured_disk.clone()
     }
 }
