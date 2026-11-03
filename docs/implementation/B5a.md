@@ -12,11 +12,14 @@ pull brought in PR #12, and merge commit
 `ff97d558d27e18f8bdf8eb57e2376a7205d94806` was pushed to this task branch.
 That initial contract archive had SHA-256
 `3c5054ebee1ecd87fc3380292830e650efcdd4d0beb43a779fd0cf9cd2eb64d7`.
-Final sync used `aq git pull --branch main`, bringing in `origin/main`
+The pre-review sync used `aq git pull --branch main`, bringing in `origin/main`
 `303c5f3811fbc7df6cd582cf9e8fb131a8e94de8` (PRs #13 and #14) as merge
 `1259ffe`. The B1 review revision replaces the archive with SHA-256
 `352ed85f192a1ccbe116352a77a443504e8c5cd9023e7923961bcb5570ec7978`.
-No B5a changes were made to the owned protocol or release archive.
+The review revision synced `origin/main` again at
+`9a00f05142957accfdb66cc7a7f40fe9e563356e` (C3b template tooling), producing merge
+`eabca498fc71b0fa5c51ab1194197e46573232f8`. This includes the review fix commit
+`b78350a`. No B5a changes were made to the owned protocol or release archive.
 The frozen 0.1.11 contract remains for installed legacy native consumers.
 
 Supervisor message `msg-e374e43f61d741aa8022af17da124d39` confirmed that B2's
@@ -155,7 +158,7 @@ journal. Fresh roots retain the existing native behavior.
   operation ID was not yet durable; the implementation now journals it before
   the provider call and journals destruction authority before destroy.
 
-## Verification results
+## Pre-review verification results
 
 | Command | Observed result | Log |
 | --- | --- | --- |
@@ -177,8 +180,50 @@ No full workspace test suite, real sandbox execution, provider CLI execution,
 or GitHub Actions run is claimed. Exact named workspace filters each matched
 one real test; the zero-match outputs from unrelated binaries are not counted.
 
-The source was verified at merge `1259ffe`; subsequent publication edits are
-this evidence and the execution ledger only. `environment.log` records the
+The pre-review source was verified at merge `1259ffe`; publication at `42f828ce`
+changed only evidence and the execution ledger. The review revision below verifies
+new source at merge `eabca498`. `environment.log` records the
 source and toolchain checkpoints. The final pushed OID, PR, review ID, content
 hash and reviewer disposition belong to the AQ review/task receipt. Passing
 checks are not a substitute for the requested adversarial review.
+
+## Review revision verification
+
+`revision-red-service.log` reproduces premature service completion before a
+heartbeat; `revision-red-cli.log` reproduces exit 2 for credential revocation
+instead of 3. Both are behavioral failures, not compile errors. After the fix
+and latest-main merge, the affected controller and CLI suites pass:
+
+| Command | Observed result | Log |
+| --- | --- | --- |
+| `cargo test --locked -p aq-worker --lib controller::` | 19 passed | `B5a-evidence/revision-controller-synced.log` |
+| `cargo test --locked -p aq-worker --bin aq-worker` | 4 passed | `B5a-evidence/revision-cli.log` |
+| `cargo test --locked --workspace capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason` | 1 matched test passed | `B5a-evidence/revision-acceptance-capacity.log` |
+| `cargo test --locked --workspace journal_records_intent_before_backend_create` | 1 matched test passed | `B5a-evidence/revision-acceptance-journal.log` |
+
+The final `cargo clippy --locked --workspace --all-targets -- -D warnings`,
+`cargo fmt -p aq-worker --check`, `cargo fmt --check`, and `git diff --check`
+all passed. `B5a-evidence/revision-checks.json` records explicit exit codes for
+formatting and diff checks (including silent successful commands) and AQ gate
+exit codes for tests/Clippy, with paths to full command logs. The earlier
+`fmt --all` nested-vendor limitation remains documented above.
+
+The heartbeat regression uses a concurrent fake heartbeat future, verifies three
+progress ticks while registration remains disabled, and checks durable refusal
+and exclusive root ownership. It makes no HTTP/provider compatibility claim.
+The actual-registration-error regression verifies a credential failure is still
+fatal. The native runner is unchanged from its pre-review 21-test verification.
+
+## Round 1 review dispositions
+
+Review `rev-grand-meadow` revision 1 produced two blocking findings and six nits.
+Author fixes do not constitute review approval. All eight dispositions follow:
+
+- `cmt-a712055bcdaf` — **fixed**: controller/service.rs handles only typed ProviderUnavailable as nonfatal, persists GrantDenied, retains the root and waits for shutdown. tests.rs:unavailable_provider_keeps_service_and_heartbeat_alive_without_admission verifies concurrent heartbeat progress, durable refusal and exclusive root ownership. README and B5a.md document the required config and disabled admission.
+- `cmt-4a8b3c9b15a1` — **fixed**: main.rs:run_failure retains the actual error chain and maps wrapped CallError through exit_for. run_errors_preserve_diagnostics_and_foundation_exit_codes covers rejection codes 3/4/5, other failures 2, contextual diagnostics and an unrelated root-lock failure. Actual registration failures still propagate; tests.rs covers invalid credentials.
+- `cmt-685fb608874a` — **rebutted**: C1 backend/types.rs:InventoryEntry::writer_proof explicitly attests Destroyed only with zero writers and no disk. Observing authoritative external destruction does not request deletion. Controller::destroy still requires and journals caller authority before calling the backend. lifecycle_tests.rs:authoritative_external_destruction_releases_disk_without_requesting_deletion demonstrates external authorized deletion followed by inspection, with no controller destroy authorization/call. B5a.md clarifies the trust boundary.
+- `cmt-e9006556e4ca` — **fixed**: B5a.md now states recovery fencing lasts the whole invocation even after inherited reservations receive stop proof. Restart or future B5b reconciliation is required; this patch does not invent an in-process recovery transition.
+- `cmt-d861d50dcfd7` — **fixed**: B5a.md documents stopped-process rmdir recovery only for a known-new empty initialization with no prior history. Nonempty roots and roots of unknown provenance must be preserved for reconciliation.
+- `cmt-d60d8ab37a2a` — **fixed**: B5a.md states that untrusted create identity or failed persistence can leave CreateIntent without a backend ID, with capacity held and B5a stop/destroy unable to target it. B5b must reconcile exact persisted ownership; an unvalidated returned identity is not adopted.
+- `cmt-2b791affcbc2` — **fixed**: B5a.md defines preparation backlog as all unstopped reservations outside Running, explicitly including Reserved, ambiguous intents and StopIntent; it is conservative admission accounting, not a process count.
+- `cmt-ac98fd066ef2` — **fixed**: B5a-evidence/revision-checks.json records explicit subprocess exit codes for worker formatting, workspace-member formatting and git diff --check alongside their logs; AQ gate exit codes and exact command logs cover the test and Clippy runs.

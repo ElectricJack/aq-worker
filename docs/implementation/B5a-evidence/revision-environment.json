@@ -1,0 +1,10 @@
+{
+  "source_oid": "eabca498fc71b0fa5c51ab1194197e46573232f8",
+  "main_oid": "981682178b4ed8254497637af163e70da30aac5f",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "review": "rev-grand-meadow",
+  "review_revision": 1,
+  "review_state": "changes_requested",
+  "review_approval": false
+}

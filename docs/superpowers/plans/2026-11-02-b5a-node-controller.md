@@ -81,3 +81,13 @@
   accounting and safe recovery of a known-new empty root.
 - Record explicit formatting/diff exit codes, rerun affected checks, publish and
   return all eight dispositions to the existing cross-family review.
+
+- Review fixes committed as b78350a; latest main 9a00f05 merged as eabca498.
+  Post-merge validation passed: 19 controller tests, 4 CLI tests, both exact
+  workspace acceptance tests (one actual match each), workspace Clippy with
+  warnings denied, worker/workspace-member formatting and git diff --check.
+  Both blocking defects have behavioral RED evidence. All eight dispositions
+  are in B5a.md (seven fixed, one rebutted with C1 contract and regression proof).
+- Review rev-grand-meadow is changes_requested. Its assigned revision-task
+  holder owns resubmission. Publication and the complete draft/dispositions are
+  handed to the supervisor; original task claim and review requirement remain.

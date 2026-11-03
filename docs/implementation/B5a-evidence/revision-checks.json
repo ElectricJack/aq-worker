@@ -1,0 +1,42 @@
+[
+  {
+    "command": "cargo test --locked -p aq-worker --lib controller::",
+    "aq_gate_exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-controller-synced.log"
+  },
+  {
+    "command": "cargo test --locked -p aq-worker --bin aq-worker",
+    "aq_gate_exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-cli.log"
+  },
+  {
+    "command": "cargo test --locked --workspace capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason",
+    "aq_gate_exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-acceptance-capacity.log"
+  },
+  {
+    "command": "cargo test --locked --workspace journal_records_intent_before_backend_create",
+    "aq_gate_exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-acceptance-journal.log"
+  },
+  {
+    "command": "cargo clippy --locked --workspace --all-targets -- -D warnings",
+    "aq_gate_exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-clippy.log"
+  },
+  {
+    "command": "cargo fmt -p aq-worker --check",
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-fmt-worker.log"
+  },
+  {
+    "command": "cargo fmt --check",
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-fmt-workspace.log"
+  },
+  {
+    "command": "git diff --check",
+    "exit_code": 0,
+    "log": "docs/implementation/B5a-evidence/revision-diff.log"
+  }
+]
