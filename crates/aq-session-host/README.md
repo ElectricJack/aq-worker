@@ -1,4 +1,4 @@
-# AQ session host 0.1.4 candidate
+# AQ session host 0.1.7
 
 This independent Linux library and helper executable host one immutable agent
 session in a private tmux server. They depend on `aq-session-protocol =0.1.0`,
@@ -254,3 +254,17 @@ sequencer, snapshot barrier, reconnect resynchronization or unknown-input
 resolution. Preexec observer loss is one-shot and refuses release; after exec,
 reader loss retains the existing bounded detach/discontinuity behavior, requiring
 a future qualified resynchronization protocol rather than implicit reattach.
+
+
+## 0.1.7 atomic request publication
+
+New durable files, including `start.request` and `stop.request`, are fully
+written to a unique mode-0600 temporary file in the destination directory and
+fsynced before a Linux `renameat2(RENAME_NOREPLACE)` publishes the final name.
+The containing directory is then fsynced. Existing requests, including symlinks,
+are never replaced. An unavailable no-replace rename fails closed. A guardian
+still stops on genuinely malformed published JSON; it does not retry parsing or
+ignore invalid input. There is no wire or admission-policy change.
+
+Use the matching 0.1.7 library and helper from the reproducible source release.
+See [F1a consumer pin and admission guidance](../../docs/implementation/F1a-host.md).

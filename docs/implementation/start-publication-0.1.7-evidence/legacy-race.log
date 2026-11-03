@@ -1,0 +1,43 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--manifest-path",
+    "/tmp/aq-host-0.1.7-1j9j7sns/aq-session-host-0.1.7-source/Cargo.toml",
+    "-p",
+    "aq-session-host",
+    "--lib",
+    "io_tests::new_request_is_invisible_to_polling_reader_during_slow_write",
+    "--",
+    "--exact",
+    "--nocapture"
+  ],
+  "exit_code": 101,
+  "original_sha256": "d062bd76f43b9cdea5cd9acae9c7b56a26d0e5e58aec8a71d84885e688f42770",
+  "mutated_sha256": "2ce333c88dd02e61b88db239cbe278d59a418e24ba242ead4bf33ab77869a28d"
+}
+   Compiling aq-session-host v0.1.7 (/tmp/aq-host-0.1.7-1j9j7sns/aq-session-host-0.1.7-source/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.74s
+     Running unittests src/lib.rs (target/debug/deps/aq_session_host-89744469f9720821)
+
+running 1 test
+
+thread '<unnamed>' (2600044) panicked at crates/aq-session-host/src/lib.rs:1414:21:
+partial request was published
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'io_tests::new_request_is_invisible_to_polling_reader_during_slow_write' (2600043) panicked at crates/aq-session-host/src/lib.rs:1438:64:
+called `Result::unwrap()` on an `Err` value: Disconnected
+test io_tests::new_request_is_invisible_to_polling_reader_during_slow_write ... FAILED
+
+failures:
+
+failures:
+    io_tests::new_request_is_invisible_to_polling_reader_during_slow_write
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p aq-session-host --lib`
+
+Legacy publication rejected; exact source bytes restored.

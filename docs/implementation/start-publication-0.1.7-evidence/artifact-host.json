@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--manifest-path",
+    "/tmp/aq-host-0.1.7-1j9j7sns/aq-session-host-0.1.7-source/Cargo.toml",
+    "-p",
+    "aq-session-host",
+    "--all-features"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/start-publication-0.1.7-evidence/artifact-host.log"
+}

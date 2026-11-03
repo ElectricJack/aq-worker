@@ -205,6 +205,7 @@ struct Authority {
     root: std::path::PathBuf,
     events: Vec<&'static str>,
     fail: Option<&'static str>,
+    malformed_start: bool,
 }
 impl Authority {
     fn write(&mut self, stage: &'static str, data: Vec<u8>) -> Result<()> {
@@ -221,7 +222,17 @@ impl LaunchAuthority for Authority {
     fn record_guardian(&mut self, i: &GuardianIdentity) -> Result<()> {
         self.write("guardian", serde_json::to_vec(i)?)
     }
-    fn record_start_intent(&mut self, _: &LaunchIntent, _: &GuardianIdentity) -> Result<()> {
+    fn record_start_intent(&mut self, i: &LaunchIntent, _: &GuardianIdentity) -> Result<()> {
+        if self.malformed_start {
+            // This is genuinely malformed published input, not a slow writer.
+            durable_new(
+                &self
+                    .root
+                    .join(i.launch_id.to_string())
+                    .join("start.request"),
+                b"{",
+            )?;
+        }
         self.write("start", vec![])
     }
     fn record_started(&mut self, o: &HostObservation) -> Result<()> {
@@ -262,6 +273,7 @@ impl Case {
             root: dir.path().into(),
             events: vec![],
             fail: None,
+            malformed_start: false,
         };
         Self {
             dir,
@@ -290,6 +302,48 @@ fn wait(mut predicate: impl FnMut() -> bool) {
         assert!(Instant::now() < end, "timed out");
         std::thread::sleep(Duration::from_millis(5));
     }
+}
+#[test]
+fn supervisor_session_starts_under_central_permit() {
+    for iteration in 0..50 {
+        let mut c = Case::new();
+        let h = c.launch(4000).unwrap_or_else(|error| {
+            panic!("central start iteration {iteration} failed: {error:#}")
+        });
+        assert_eq!(h.observe().unwrap().phase, HostPhase::Running);
+        assert_eq!(
+            c.authority.events,
+            ["intent", "guardian", "start", "running"]
+        );
+        wait(|| h.directory().join("delivered").exists());
+        assert_eq!(
+            std::fs::read(h.directory().join("delivered")).unwrap(),
+            b"supervisor startup\n"
+        );
+        h.stop().unwrap();
+        wait(|| h.stopped_proof().is_ok());
+    }
+}
+#[test]
+fn supervisor_session_malformed_start_still_stops_without_launching() {
+    let mut c = Case::new();
+    c.authority.malformed_start = true;
+    assert!(c.launch(4000).is_err());
+    let intent: LaunchIntent =
+        serde_json::from_slice(&std::fs::read(c.dir.path().join("intent")).unwrap()).unwrap();
+    let state_path = c.dir.path().join(c.id.to_string()).join("state.json");
+    wait(|| {
+        let state: HostObservation =
+            serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+        state.phase == HostPhase::Stopped
+    });
+    let h = SessionHost::recover(c.dir.path(), &intent).unwrap();
+    wait(|| h.stopped_proof().is_ok());
+    let stopped = h.observe().unwrap();
+    assert!(stopped.stop_reason.unwrap().contains("startup failed:"));
+    assert!(stopped.pane.is_none());
+    assert!(!h.directory().join("delivered").exists());
+    assert!(!h.directory().join("tmux.sock").exists());
 }
 #[test]
 fn supervisor_session_physical_restart_observation_renew_and_stopped_proof() {
