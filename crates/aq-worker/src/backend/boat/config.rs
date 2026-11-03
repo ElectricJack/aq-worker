@@ -51,15 +51,29 @@ impl fmt::Debug for BoatKey {
 
 /// Derived from the C3b allowlist's materializations.boat record. The saved
 /// handle is mutable at the provider, so verify its immutable artifact each time.
+/// Omitting both snapshot fields selects the stock boat image: each VM then
+/// pulls the C3b-scanned public image by digest and verifies its RepoDigest.
+/// That is the path until the owner materializes a template (on demand).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BoatTemplate {
     pub image: String,
     pub digest: TemplateDigest,
-    pub saved_snapshot: String,
-    pub snapshot_id: String,
+    #[serde(default)]
+    pub saved_snapshot: Option<String>,
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
     pub scan_policy: String,
 }
+impl BoatTemplate {
+    /// Stock-image template: no saved snapshot to verify or create from.
+    pub fn is_stock(&self) -> bool {
+        self.saved_snapshot.is_none()
+    }
+}
+/// Billing scope of a personal boat account (no organization). Ownership is
+/// then the node name prefix plus `access == "owner"` on an unbilled-to-org VM.
+pub const PERSONAL_SCOPE: &str = "personal";
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BoatConfig {
@@ -94,6 +108,10 @@ fn poll_interval() -> u64 {
     500
 }
 impl BoatConfig {
+    /// Personal account: sweeps scope by name prefix plus delete-own.
+    pub fn personal(&self) -> bool {
+        self.attempt_org == PERSONAL_SCOPE
+    }
     pub fn validate(&self) -> Result<(), BackendError> {
         let url = reqwest::Url::parse(&self.api_url)
             .map_err(|_| BackendError::InvalidRequest("invalid boat endpoint"))?;
@@ -114,7 +132,10 @@ impl BoatConfig {
         if self.node_id.is_nil()
             || !safe_id(&self.attempt_org)
             || !safe_id(&self.template_org)
-            || self.attempt_org == self.template_org
+            // Separate org scopes, or one personal account whose template
+            // builds are an on-demand owner step (no standing build key).
+            || (self.attempt_org == self.template_org && !self.personal())
+            || (self.personal() != (self.template_org == PERSONAL_SCOPE))
             || !self.journal_path.is_absolute()
             || !self.key_file.is_absolute()
             || !(1..=120_000).contains(&self.api_timeout_ms)
@@ -145,8 +166,9 @@ impl BoatConfig {
                     .image
                     .bytes()
                     .all(|c| c.is_ascii_alphanumeric() || b"./:@_-".contains(&c))
-                || !safe_id(&t.saved_snapshot)
-                || !safe_id(&t.snapshot_id)
+                || t.saved_snapshot.is_some() != t.snapshot_id.is_some()
+                || t.saved_snapshot.as_deref().is_some_and(|s| !safe_id(s))
+                || t.snapshot_id.as_deref().is_some_and(|s| !safe_id(s))
                 || t.scan_policy != "aq-credential-scan-v1"
                 || !seen.insert(t.digest.as_str())
             {

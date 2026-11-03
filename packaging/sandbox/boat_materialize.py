@@ -82,6 +82,18 @@ def wait(read, ready):
         time.sleep(1)
 
 
+PERSONAL = 'personal'
+
+
+def separate_scopes(cfg):
+    """Org accounts build in a separate org. A personal account (no org) has a
+    single billing scope; separation is then the owner's short-lived, on-demand
+    build key or boat CLI, never a standing build key on the attempt node."""
+    if cfg['build_org'] == PERSONAL or cfg['attempt_org'] == PERSONAL:
+        return cfg['build_org'] == cfg['attempt_org'] == PERSONAL
+    return cfg['build_org'] != cfg['attempt_org']
+
+
 def materialize(config_path, identity, image_path, output_path):
     cfg = tool.read_json(config_path)
     required = {'schema_version','role','build_org','attempt_org','key_file','builder_identity','allowlist'}
@@ -90,7 +102,7 @@ def materialize(config_path, identity, image_path, output_path):
         raise ValueError('explicit boat build node required')
     for key in ['build_org','attempt_org','builder_identity']:
         tool.text(cfg[key],128,r'[A-Za-z0-9][A-Za-z0-9_.-]*')
-    if cfg['build_org'] == cfg['attempt_org'] or not Path(cfg['key_file']).is_absolute():
+    if not separate_scopes(cfg) or not Path(cfg['key_file']).is_absolute():
         raise ValueError('template and attempt scopes must be separate')
     relative = tool.text(cfg['allowlist'],512)
     if Path(relative).is_absolute() or tool.scan.safe_path(relative) != relative:
@@ -110,8 +122,10 @@ def materialize(config_path, identity, image_path, output_path):
     sandbox = None
     published = False
     try:
-        value = client.json('POST','/sandboxes',{'name':name,'type':'small','ttlSeconds':1800,
-                          'noEnv':True,'env':{},'visibility':'private','monitoring':False})
+        body = {'name':name,'type':'small','ttlSeconds':1800,'noEnv':True,'env':{},'monitoring':False}
+        if cfg['build_org'] != PERSONAL:
+            body['visibility'] = 'private'  # personal sandboxes are always private
+        value = client.json('POST','/sandboxes',body)
         sandbox = tool.text(value['sandbox']['id'],128,r'[A-Za-z0-9_-]+')
         base = '/sandboxes/' + sandbox
         wait(lambda: client.json('GET',base), lambda v: v['sandbox']['state'] in {'ready','running','idle'})

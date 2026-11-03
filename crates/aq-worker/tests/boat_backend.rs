@@ -120,6 +120,67 @@ impl BackendFixture for Fixture {
 async fn boat_http_conformance() {
     conformance::run_all(&mut Fixture::new().await).await;
 }
+/// Personal account (no organization) with the stock boat image: ownership is
+/// the node name prefix plus delete-own, and the image is pulled by digest.
+#[tokio::test]
+async fn boat_personal_stock_conformance() {
+    let api = BoatDouble::start_personal().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&api, dir.path());
+    cfg.attempt_org = "personal".into();
+    cfg.template_org = "personal".into();
+    cfg.templates[0].saved_snapshot = None;
+    cfg.templates[0].snapshot_id = None;
+    cfg.validate().unwrap();
+    let backend =
+        BoatBackend::connect(cfg, BoatKey::new("fixture-node-key".into()).unwrap()).unwrap();
+    let own = |case| request(case).name;
+    // Prefixed but not delete-own: org-billed, or merely shared with this user.
+    api.insert("bx_org", &own(80), "team_other");
+    api.insert_raw(
+        "bx_shared",
+        json!({"id":"bx_shared","name":own(81),"state":"running","team":null,"access":"use","snapshotAvailable":false}),
+    );
+    let mut f = Fixture {
+        backend,
+        api,
+        _dir: dir,
+        retained: vec![],
+    };
+    assert!(
+        f.backend
+            .list_owned(Uuid::from_u128(1))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    {
+        // The fault injector targets the first key; drop the decoys meanwhile.
+        let mut d = f.api.data.lock().unwrap();
+        d.sandboxes.remove("bx_org");
+        d.sandboxes.remove("bx_shared");
+    }
+    conformance::run_all(&mut f).await;
+    let reqs = f.api.data.lock().unwrap().requests.clone();
+    let image = format!("registry.example/template@{}", digest().as_str());
+    assert!(reqs.iter().any(|(_, p, b)| {
+        p.ends_with("/commands")
+            && b["command"]
+                .as_str()
+                .is_some_and(|c| c.contains(&format!("docker pull -q {image}")))
+    }));
+    for bad in [("team_attempts", "personal"), ("personal", "team_builds")] {
+        let mut cfg = config(&f.api, f._dir.path());
+        (cfg.attempt_org, cfg.template_org) = (bad.0.into(), bad.1.into());
+        assert!(cfg.validate().is_err(), "{bad:?}");
+    }
+    let mut cfg = config(&f.api, f._dir.path());
+    cfg.templates[0].snapshot_id = None;
+    assert!(
+        cfg.validate().is_err(),
+        "snapshot fields are both or neither"
+    );
+}
 #[tokio::test]
 async fn boat_policy_deadlines_and_secret_delivery() {
     let mut f = Fixture::new().await;
@@ -560,13 +621,10 @@ async fn boat_orphan_retention_authority_can_delete_after_restart_without_invent
     assert!(b.list_owned(Uuid::from_u128(1)).await.unwrap().is_empty());
 }
 #[tokio::test]
-#[ignore = "requires approved dedicated BOAT_LIVE_CONFIG and BOAT_API_KEY; runs paid VMs"]
+#[ignore = "requires approved BOAT_LIVE_CONFIG naming a private key_file; runs paid VMs"]
 async fn boat_live_conformance() {
-    if std::env::var_os("BOAT_LIVE_CONFIG").is_none() || std::env::var_os("BOAT_API_KEY").is_none()
-    {
-        eprintln!(
-            "NOT RUN: live Boat qualification requires both BOAT_LIVE_CONFIG and BOAT_API_KEY"
-        );
+    if std::env::var_os("BOAT_LIVE_CONFIG").is_none() {
+        eprintln!("NOT RUN: live Boat qualification requires BOAT_LIVE_CONFIG");
         return;
     }
     // The live fixture runs the same lifecycle scenarios with one-shot faults at

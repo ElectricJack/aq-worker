@@ -57,6 +57,15 @@ impl BoatBackend {
             .await?["sandbox"]
             .clone())
     }
+    /// Org scope: billed to the attempt org. Personal scope (no organization):
+    /// unbilled to any org and owned by this key's user, so delete-own applies.
+    fn in_scope(&self, vm: &Value) -> bool {
+        if self.config.personal() {
+            vm["team"].is_null() && vm["access"] == "owner"
+        } else {
+            vm["team"]["id"] == self.config.attempt_org.as_str()
+        }
+    }
     fn entry(&self, vm: &Value) -> Result<InventoryEntry, BackendError> {
         self.journal.check()?;
         let id = vm["id"]
@@ -65,7 +74,7 @@ impl BoatBackend {
             .ok_or_else(unknown)?;
         let name = vm["name"].as_str().ok_or_else(unknown)?;
         let attempt = policy::attempt(name, self.config.node_id).ok_or(BackendError::Conflict)?;
-        if vm["team"]["id"] != self.config.attempt_org {
+        if !self.in_scope(vm) {
             return Err(BackendError::Conflict);
         }
         let r = self.journal.get(name);
@@ -464,23 +473,35 @@ impl PlacementBackend for BoatBackend {
             rec = self.journal.get(&r.name).ok_or_else(unknown)?.clone();
         }
         if rec.backend_id.is_none() {
-            let saved = self
-                .api
-                .json(
-                    Method::GET,
-                    &format!("/saved-snapshots/{}", t.saved_snapshot),
-                    None,
-                    None,
-                )
-                .await?;
-            if saved["snapshot"]["status"] != "ready"
-                || saved["snapshot"]["snapshotId"] != t.snapshot_id
-            {
-                return Err(BackendError::InvalidRequest(
-                    "boat template artifact changed or not ready",
-                ));
+            let mut body = json!({"name":r.name,"type":size,"ttlSeconds":policy::ttl(r.hard_deadline_ms,now()?.saturating_add(self.config.api_timeout_ms))?,"noEnv":true,"env":{},"monitoring":false,"snapshots":true});
+            if let (Some(saved_name), Some(artifact)) = (&t.saved_snapshot, &t.snapshot_id) {
+                let saved = self
+                    .api
+                    .json(
+                        Method::GET,
+                        &format!("/saved-snapshots/{saved_name}"),
+                        None,
+                        None,
+                    )
+                    .await?;
+                if saved["snapshot"]["status"] != "ready"
+                    || saved["snapshot"]["snapshotId"] != artifact.as_str()
+                {
+                    return Err(BackendError::InvalidRequest(
+                        "boat template artifact changed or not ready",
+                    ));
+                }
+                body["from"] = json!(saved_name);
             }
-            let v=self.api.json(Method::POST,"/sandboxes",Some(json!({"name":r.name,"from":t.saved_snapshot,"type":size,"ttlSeconds":policy::ttl(r.hard_deadline_ms,now()?.saturating_add(self.config.api_timeout_ms))?,"noEnv":true,"env":{},"visibility":"private","monitoring":false,"snapshots":true})),Some(&r.name)).await?;
+            // Personal sandboxes are always private; boat refuses `visibility`
+            // semantics there (`not_org_sandbox`), so only orgs set it.
+            if !self.config.personal() {
+                body["visibility"] = json!("private");
+            }
+            let v = self
+                .api
+                .json(Method::POST, "/sandboxes", Some(body), Some(&r.name))
+                .await?;
             let id = v["sandbox"]["id"]
                 .as_str()
                 .filter(|s| config::safe_id(s))
@@ -515,6 +536,11 @@ impl PlacementBackend for BoatBackend {
         // Firewall changes are not persisted by boat snapshots. Apply per fork;
         // keep established control traffic and agent port 8911 available.
         self.command(&s.backend_id, "set -eu; for t in iptables ip6tables; do sudo $t -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || sudo $t -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT; sudo $t -C INPUT -i lo -j ACCEPT 2>/dev/null || sudo $t -A INPUT -i lo -j ACCEPT; sudo $t -C INPUT -p tcp --dport 8911 -j ACCEPT 2>/dev/null || sudo $t -A INPUT -p tcp --dport 8911 -j ACCEPT; sudo $t -P INPUT DROP; done".into()).await?;
+        if t.is_stock() {
+            // Stock image: anonymous public pull by the C3b-scanned digest; no
+            // registry credential or Docker config is forwarded.
+            self.command(&s.backend_id, format!("set -eu; for i in $(seq 1 30); do sudo docker info >/dev/null 2>&1 && break; sleep 1; done; sudo docker pull -q {} >/dev/null", t.image)).await?;
+        }
         self.command(&s.backend_id, format!("set -eu; for i in $(seq 1 60); do sudo docker info >/dev/null 2>&1 && break; sleep 1; done; sudo docker image inspect --format '{{{{range .RepoDigests}}}}{{{{println .}}}}{{{{end}}}}' {} | grep -Fx '{}' >/dev/null", t.image, t.image)).await?;
         self.command(
             &s.backend_id,
@@ -626,7 +652,7 @@ impl PlacementBackend for BoatBackend {
             }
             let page = self.api.json(Method::GET, &path, None, None).await?;
             for vm in page["sandboxes"].as_array().ok_or_else(unknown)? {
-                if vm["team"]["id"] != self.config.attempt_org
+                if !self.in_scope(vm)
                     || vm["name"]
                         .as_str()
                         .is_none_or(|s| policy::attempt(s, node).is_none())

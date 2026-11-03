@@ -34,6 +34,9 @@ pub struct Data {
     pub snapshot_left: bool,
     pub page: bool,
     pub snapshot_id: String,
+    /// Personal account (no organization) with the stock image: no `team`,
+    /// `access == "owner"`, no `from`, and no org-only `visibility`.
+    pub personal: bool,
 }
 pub struct BoatDouble {
     pub url: String,
@@ -65,6 +68,15 @@ impl BoatDouble {
             after,
         });
     }
+    pub async fn start_personal() -> Self {
+        let d = Self::start().await;
+        d.data.lock().unwrap().personal = true;
+        d
+    }
+    /// Raw provider object, for scope fields beyond an org id.
+    pub fn insert_raw(&self, id: &str, value: Value) {
+        self.data.lock().unwrap().sandboxes.insert(id.into(), value);
+    }
     pub fn insert(&self, id: &str, name: &str, org: &str) {
         self.data.lock().unwrap().sandboxes.insert(id.into(),json!({"id":id,"name":name,"state":"running","team":{"id":org},"snapshotAvailable":false}));
     }
@@ -92,10 +104,18 @@ async fn handle(
         headers.get("authorization").unwrap(),
         "Bearer fixture-node-key"
     );
-    assert_eq!(headers.get("x-boat-org").unwrap(), "team_attempts");
     let path = uri.path().strip_prefix("/api/v1").unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     let mut d = data.lock().unwrap();
+    let personal = d.personal;
+    assert_eq!(
+        headers.get("x-boat-org").unwrap(),
+        if personal {
+            "personal"
+        } else {
+            "team_attempts"
+        }
+    );
     d.requests
         .push((method.clone(), uri.to_string(), body.clone()));
     let rule = d
@@ -112,6 +132,7 @@ async fn handle(
         );
     }
     let response = if path.starts_with("/saved-snapshots/") {
+        assert!(!personal, "stock template must not read a saved snapshot");
         reply(
             200,
             json!({"ok":true,"snapshot":{"name":"fixture-template","status":"ready","snapshotId":d.snapshot_id}}),
@@ -120,13 +141,22 @@ async fn handle(
         assert!(headers.get("idempotency-key").is_some());
         assert_eq!(body["noEnv"], true);
         assert_eq!(body["env"], json!({}));
-        assert_eq!(body["from"], "fixture-template");
-        assert_eq!(body["visibility"], "private");
+        if personal {
+            assert!(body.get("from").is_none());
+            assert!(body.get("visibility").is_none());
+        } else {
+            assert_eq!(body["from"], "fixture-template");
+            assert_eq!(body["visibility"], "private");
+        }
         assert!(body.get("hostedPorts").is_none());
         assert!(body["ttlSeconds"].as_u64().unwrap() > 0);
         d.sequence += 1;
         let id = format!("bx_{:08}", d.sequence);
-        let s = json!({"id":id,"name":body["name"],"state":"ready","team":{"id":"team_attempts"},"snapshotAvailable":false});
+        let s = if personal {
+            json!({"id":id,"name":body["name"],"state":"ready","team":null,"visibility":null,"access":"owner","snapshotAvailable":false})
+        } else {
+            json!({"id":id,"name":body["name"],"state":"ready","team":{"id":"team_attempts"},"snapshotAvailable":false})
+        };
         d.sandboxes.insert(id, s.clone());
         reply(202, json!({"ok":true,"sandbox":s}))
     } else if path == "/sandboxes" {

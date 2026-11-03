@@ -112,3 +112,6 @@ class BoatMaterializationTests(unittest.TestCase):
             self.assertFalse((root/'must-not-publish').exists())
             self.assertTrue(any('docker pull '+entry['image_reference'] in c for c in Client.commands if isinstance(c,str)))
             self.assertTrue(any('docker create --name aq-template-keeper' in c for c in Client.commands if isinstance(c,str)))
+            for build, attempt, ok in [('personal','personal',True),('team_a','team_a',False),
+                                       ('personal','team_a',False),('team_a','personal',False)]:
+                self.assertEqual(boat.separate_scopes({'build_org':build,'attempt_org':attempt}), ok)

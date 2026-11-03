@@ -140,9 +140,9 @@ pub async fn run() {
         cfg.api_url, "https://boat.dev/api/v1",
         "live qualification uses the official service"
     );
-    let key =
-        BoatKey::new(std::env::var("BOAT_API_KEY").expect("approved scoped BOAT_API_KEY required"))
-            .unwrap();
+    // The key is read only from the node-local private file named by the
+    // config; it never passes through the environment, argv or logs.
+    let key = BoatKey::load(&cfg.key_file).expect("private boat key file required");
     let dir = tempfile::tempdir().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let fault = Arc::new(Mutex::new(None));
@@ -170,7 +170,10 @@ pub async fn run() {
         digest,
         retention: dir.path().to_owned(),
     };
-    let result = catch_panic(conformance::run_all(&mut fixture)).await;
+    // Each scenario creates and removes one sandbox in sequence, so at most one
+    // VM runs at a time. BOAT_LIVE_SCENARIOS selects a subset to fit a budget.
+    let selected = std::env::var("BOAT_LIVE_SCENARIOS").unwrap_or_else(|_| "all".into());
+    let result = catch_panic(run_selected(&mut fixture, &selected)).await;
     fixture.fault.lock().unwrap().take();
     // Explicit fixture-only operator release; preserve any failed stop/delete
     // as an assertion and rely on the original bounded TTL for compute safety.
@@ -200,5 +203,45 @@ pub async fn run() {
     );
     if let Err(panic) = result {
         std::panic::resume_unwind(panic);
+    }
+}
+
+const SCENARIOS: [&str; 6] = [
+    "create_crash_before_record",
+    "unknown_sandbox_in_inventory",
+    "destroy_failure_keeps_resources_protected",
+    "preserve_before_destroy_with_unretained_work",
+    "deadline_sweep_stops_rather_than_deletes",
+    "create_provision_run_observe_handoff_destroy",
+];
+async fn run_selected(fixture: &mut LiveFixture, selected: &str) {
+    let names: Vec<&str> = if selected == "all" {
+        SCENARIOS.to_vec()
+    } else {
+        selected.split(',').map(str::trim).collect()
+    };
+    for name in names {
+        assert!(SCENARIOS.contains(&name), "unknown live scenario {name}");
+        let started = Instant::now();
+        match name {
+            "create_crash_before_record" => conformance::create_crash_before_record(fixture).await,
+            "unknown_sandbox_in_inventory" => {
+                conformance::unknown_sandbox_in_inventory(fixture).await
+            }
+            "destroy_failure_keeps_resources_protected" => {
+                conformance::destroy_failure_keeps_resources_protected(fixture).await
+            }
+            "preserve_before_destroy_with_unretained_work" => {
+                conformance::preserve_before_destroy_with_unretained_work(fixture).await
+            }
+            "deadline_sweep_stops_rather_than_deletes" => {
+                conformance::deadline_sweep_stops_rather_than_deletes(fixture).await
+            }
+            _ => conformance::create_provision_run_observe_handoff_destroy(fixture).await,
+        }
+        eprintln!(
+            "LIVE PASS {name} in {:.1}s",
+            started.elapsed().as_secs_f64()
+        );
     }
 }
