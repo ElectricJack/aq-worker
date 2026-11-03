@@ -54,4 +54,4 @@
 - [x] Implement one bounded pending upload plus bounded replay; independent connection pool; session rate budget and node aggregate enforcement; 50 ms flush target. Reuse B6c's demand/poll cursor and enforce viewer limits.
 - [x] Wire only verified startup sources into output. Generic post-start capture cannot qualify a blank baseline; resolve the missing sandbox observed-startup join with the supervisor before claiming that path complete.
 - [x] Run the named tests and related channel/output area tests. Run formatting and targeted strict Clippy. Write `docs/implementation/H7.md` with exact commands, environment, revision and limitations.
-- [ ] Review the final change, settle task checklist, squash own implementation history, merge origin/main, rerun impacted targeted checks, push via `aq git push`, and close with evidence.
+- [x] Review the final change, settle task checklist, squash own implementation history, merge origin/main, rerun impacted targeted checks, push via `aq git push`, and close with evidence.

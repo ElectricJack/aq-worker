@@ -9,6 +9,47 @@ pub(super) struct OutputRuntime {
     output: Arc<SandboxOutput>,
 }
 
+impl OutputRuntime {
+    pub fn start(
+        channels: Arc<SandboxChannels>,
+        output: Arc<SandboxOutput>,
+        shutdown: watch::Receiver<bool>,
+    ) -> Self {
+        let mut tasks = JoinSet::new();
+        let upload = output.clone();
+        let cancel = shutdown.clone();
+        tasks.spawn(async move {
+            let _ = upload.run(cancel).await;
+        });
+        let watch_output = output.clone();
+        tasks.spawn(async move {
+            tokio::select! {
+                _ = async {
+                    loop {
+                        let _ = channels.run_output(watch_output.clone()).await;
+                        if channels.authority_lost() { break; }
+                        // The outer select cancels both held polls and retries.
+                        // Rejected exchanges never advance the shared cursor.
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                } => {},
+                _ = async { let mut cancel = shutdown; let _ = cancel.wait_for(|v| *v).await; } => {},
+            }
+        });
+        Self { tasks, output }
+    }
+    pub fn drain(&mut self, observer: OutputObserver, shutdown: watch::Receiver<bool>) {
+        let output = self.output.clone();
+        self.tasks.spawn(async move {
+            let _ = output.drain(observer, shutdown).await;
+        });
+    }
+    pub async fn stop(mut self) {
+        self.tasks.abort_all();
+        while self.tasks.join_next().await.is_some() {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,45 +131,5 @@ mod tests {
         runtime.stop().await;
         assert!(!channels.terminal_held());
         server.abort();
-    }
-}
-impl OutputRuntime {
-    pub fn start(
-        channels: Arc<SandboxChannels>,
-        output: Arc<SandboxOutput>,
-        shutdown: watch::Receiver<bool>,
-    ) -> Self {
-        let mut tasks = JoinSet::new();
-        let upload = output.clone();
-        let cancel = shutdown.clone();
-        tasks.spawn(async move {
-            let _ = upload.run(cancel).await;
-        });
-        let watch_output = output.clone();
-        tasks.spawn(async move {
-            tokio::select! {
-                _ = async {
-                    loop {
-                        let _ = channels.run_output(watch_output.clone()).await;
-                        if channels.authority_lost() { break; }
-                        // The outer select cancels both held polls and retries.
-                        // Rejected exchanges never advance the shared cursor.
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                    }
-                } => {},
-                _ = async { let mut cancel = shutdown; let _ = cancel.wait_for(|v| *v).await; } => {},
-            }
-        });
-        Self { tasks, output }
-    }
-    pub fn drain(&mut self, observer: OutputObserver, shutdown: watch::Receiver<bool>) {
-        let output = self.output.clone();
-        self.tasks.spawn(async move {
-            let _ = output.drain(observer, shutdown).await;
-        });
-    }
-    pub async fn stop(mut self) {
-        self.tasks.abort_all();
-        while self.tasks.join_next().await.is_some() {}
     }
 }
