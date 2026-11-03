@@ -122,8 +122,9 @@ fn new_initialization_has_new_logical_boot_and_cannot_overwrite_existing_root() 
     let another = Journal::create(&dir.path().join("other"), node, limits()).unwrap();
     assert_ne!(old, another.state().identity.boot_id);
 }
-#[test]
-fn interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses() {
+#[tokio::test]
+async fn interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for (fault, published) in [
         (WriteFault::BeforeWrite, false),
         (WriteFault::AfterFileSync, false),

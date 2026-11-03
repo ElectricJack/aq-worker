@@ -2,6 +2,7 @@
 //! network admission. Retained journal/resources are never released on exit.
 mod codex;
 mod config;
+pub mod sandbox;
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) use codex::drive_running;
 pub use codex::{CodexExecutor, CodexSettings, ExecutorConfig};

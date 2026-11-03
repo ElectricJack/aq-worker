@@ -2,6 +2,7 @@
 //! ```compile_fail
 //! let _: aq_worker::native::launch::LocalPhaseHost = serde_json::from_str("{}").unwrap();
 //! ```
+pub mod sandbox;
 use super::*;
 use aq_session_host::{ExecutionPermit, HostObservation, SessionHandle, SessionHost, StoppedProof};
 use aq_session_protocol::Digest;

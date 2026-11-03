@@ -103,6 +103,13 @@ enum Cmd {
         #[arg(long, requires_all = ["development_loopback", "fixture_preflight_gate"])]
         fixture_replay_lost_b1_ack: bool,
     },
+    /// Consume a frozen local handoff. HTTP transport awaits B2/B6a2 wiring.
+    SandboxRun {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        state_dir: PathBuf,
+    },
     /// Validate native configuration and installed executor without admission.
     CheckNative {
         #[arg(long)]
@@ -295,6 +302,21 @@ async fn main() -> ExitCode {
             match result {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => usage_err(format!("{e:#}")),
+            }
+        }
+        Cmd::SandboxRun {
+            manifest,
+            state_dir,
+        } => {
+            let result = (|| -> anyhow::Result<()> {
+                let _worker = WorkerConfig::load(&path)?;
+                let frozen = aq_worker::native::runner::sandbox::FrozenLaunch::load(&manifest)?;
+                frozen.validate_local(&state_dir)?;
+                anyhow::bail!("sandbox runner HTTP transport is unavailable until B2/B6a2 wiring");
+            })();
+            match result {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => usage_err(e),
             }
         }
         Cmd::CheckNative { native_config } => {

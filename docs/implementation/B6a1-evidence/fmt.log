@@ -1,0 +1,5 @@
+Command: cargo fmt --all -- --check
+Source: main 9a00f05 merged with final B6a1 implementation and journal test-clock fixes
+Snapshot: /tmp/aq-b6a1-format-a14mam2n
+Exit status: 0
+Note: nested AQ worktree Cargo metadata resolves excluded vendor packages against the outer repository; standalone archive plus current diff avoids that environment issue.

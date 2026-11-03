@@ -1,6 +1,6 @@
 # B6a1 Sandbox Runner Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Execute one frozen local launch under the existing guardian/tmux host, renew bounded authority, preserve on loss, and report completion only after central retention receipts.
 
@@ -52,11 +52,11 @@
 - Renewal runs every 15 seconds by default (120-second maximum individual local grant), also while waiting for transport responses. Refusal stops immediately, transient failure/re-adoption never extends, and expiry/shutdown races cancel only the transport wait. Physical stop always runs. Validated renewal is journaled before guardian installation. Response validation stays in the transport seam for the pending B1 correction.
 - Completion requires physical proof, retained source receipt and retained result-evidence receipt, all bound to the attempt. Persist receipts before invoking `finished`; persist its acknowledgement before returning Finished. All other outcomes preserve state and cannot relaunch.
 
-- [ ] **Step 1: Write failing CLI and lifecycle tests.** `sandbox_run_cli_requires_frozen_manifest_and_state` checks the CLI registration; `renewal_loss_stops_and_preserves_without_relaunch` launches the real fixture with an escaped descendant and checks stopped proof, stable workspace bytes and refused second invocation. `runner_cannot_report_before_handoff_receipts` withholds each receipt in turn and requires no completion; a full handoff records completion after both receipts.
-- [ ] **Step 2: Run tests and observe missing runner behavior.** `cargo test --locked -p aq-worker --test sandbox_runner`; expected failure before implementation.
-- [ ] **Step 3: Implement the interfaces above.** Use private fsync-backed one-shot journal files, no release/delete path, bounded validation and the existing guardian host. Add fixture helper dispatch to aq-fixture-agent for the same host library, without invoking real providers. CLI `sandbox-run --manifest PATH --state-dir PATH` parses trusted frozen input and explicitly refuses the unavailable production transport before mutation.
-- [ ] **Step 4: Cover the Review Focus conditions.** Add concurrent/replay, stalled renewal, renewal success and hard cap, invalid receipt, unknown stop, cancellation, and mismatched/expired handoff cases. Use real host processes and deterministic transport only; assertions inspect persisted state, physical process proof and retained artifacts.
-- [ ] **Step 5: Run focused checks and commit.** `cargo test --locked -p aq-worker --test sandbox_runner` must report every new test passing. Commit implementation and its tests together.
+- [x] **Step 1: Write failing CLI and lifecycle tests.** `sandbox_run_cli_requires_frozen_manifest_and_state` checks the CLI registration; `renewal_loss_stops_and_preserves_without_relaunch` launches the real fixture with an escaped descendant and checks stopped proof, stable workspace bytes and refused second invocation. `runner_cannot_report_before_handoff_receipts` withholds each receipt in turn and requires no completion; a full handoff records completion after both receipts.
+- [x] **Step 2: Run tests and observe missing runner behavior.** `cargo test --locked -p aq-worker --test sandbox_runner`; expected failure before implementation.
+- [x] **Step 3: Implement the interfaces above.** Use private fsync-backed one-shot journal files, no release/delete path, bounded validation and the existing guardian host. Add fixture helper dispatch to aq-fixture-agent for the same host library, without invoking real providers. CLI `sandbox-run --manifest PATH --state-dir PATH` parses trusted frozen input and explicitly refuses the unavailable production transport before mutation.
+- [x] **Step 4: Cover the Review Focus conditions.** Add concurrent/replay, stalled renewal, renewal success and hard cap, invalid receipt, unknown stop, cancellation, and mismatched/expired handoff cases. Use real host processes and deterministic transport only; assertions inspect persisted state, physical process proof and retained artifacts.
+- [x] **Step 5: Run focused checks and commit.** `cargo test --locked -p aq-worker --test sandbox_runner` must report every new test passing. Commit implementation and its tests together.
 
 ### Task 2: Verification, evidence and publication
 
@@ -64,8 +64,22 @@
 
 **Interfaces:** consumes Task 1's runner, tests and journal evidence; produces reproducible qualification evidence and a pushed leaf commit.
 
-- [ ] **Step 1: Run both exact named acceptance filters.** `cargo test --locked --workspace runner_cannot_report_before_handoff_receipts` and `cargo test --locked --workspace renewal_loss_stops_and_preserves_without_relaunch`; require one actual passing named test each.
-- [ ] **Step 2: Run definition-of-done checks.** Run formatter, Clippy and Cargo tests as specified above; record failures by name, never waive them silently.
-- [ ] **Step 3: Write evidence.** Record environment, source/implementation revisions, exact checks, one-shot/stop/retention behavior and the explicit lack of server compatibility proof or production HTTP transport. Record the B1 API revision status.
-- [ ] **Step 4: Obtain one fresh whole-branch code review and resolve material findings with regression tests.** No cross-family adversarial AQ gate is required by this task's marker.
-- [ ] **Step 5: Publish.** Reconcile the recorded source base, squash unpublished implementation history while preserving merge ancestry, update from the configured integration branch, run targeted checks for any merge changes, guarded aq git push, and close with changes/verification/test evidence. If origin/dev is absent, request the supervisor's repository-specific equivalent instead of guessing.
+- [x] **Step 1: Run both exact named acceptance filters.** `cargo test --locked --workspace runner_cannot_report_before_handoff_receipts` and `cargo test --locked --workspace renewal_loss_stops_and_preserves_without_relaunch`; require one actual passing named test each.
+- [x] **Step 2: Run definition-of-done checks.** Run formatter, Clippy and Cargo tests as specified above; record failures by name, never waive them silently.
+- [x] **Step 3: Write evidence.** Record environment, source/implementation revisions, exact checks, one-shot/stop/retention behavior and the explicit lack of server compatibility proof or production HTTP transport. Record the B1 API revision status.
+- [x] **Step 4: Obtain one fresh whole-branch code review and resolve material findings with regression tests.** No cross-family adversarial AQ gate is required by this task's marker.
+- [x] **Step 5: Publish.** Reconcile the recorded source base, squash unpublished implementation history while preserving merge ancestry, update from the configured integration branch, run targeted checks for any merge changes, guarded aq git push, and close with changes/verification/test evidence. If origin/dev is absent, request the supervisor's repository-specific equivalent instead of guessing.
+
+## Execution notes
+
+- Supervisor message `msg-feb813103fce46bfbee393ad66d1235b` confirms `origin/main`
+  as final synchronization source in place of absent `origin/dev`. Final sync is
+  `9a00f05`; B1 `f72175e` is incorporated, using its prior trusted context API.
+- Real full-suite failures justified stabilizing existing preparation/refresh
+  journal tests with the existing scoped test clock. Explicit expiry assertions
+  remain; no production clock or deadline was changed.
+- Full Cargo tests, both nonzero named acceptance filters, Clippy and formatter
+  pass. Formatter uses a standalone source snapshot because of nested-worktree
+  vendor metadata resolution. See `docs/implementation/B6a1.md` for logs.
+- Fresh review has no Critical/Important findings. Two Minor coverage extensions
+  are deferred with explicit scope rulings in the review evidence.
