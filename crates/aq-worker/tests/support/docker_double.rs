@@ -64,6 +64,8 @@ struct State {
     requests: Vec<(DockerMethod, String)>,
     rules: Vec<Rule>,
     rootless: bool,
+    cgroup_driver: Option<&'static str>,
+    cgroup_version: Option<&'static str>,
     runner: Runner,
     material_path: String,
     images: std::collections::BTreeSet<String>,
@@ -91,6 +93,8 @@ impl ScriptedDocker {
                 requests: Vec::new(),
                 rules: Vec::new(),
                 rootless: true,
+                cgroup_driver: Some("systemd"),
+                cgroup_version: Some("2"),
                 runner: Runner::Exits,
                 material_path: "/aq/private/material".into(),
                 images: Default::default(),
@@ -101,6 +105,14 @@ impl ScriptedDocker {
     }
     pub fn rootless(self, rootless: bool) -> Self {
         self.state.lock().unwrap().rootless = rootless;
+        self
+    }
+    /// `/info` CgroupDriver / CgroupVersion; `None` omits the field.
+    pub fn cgroup(self, driver: Option<&'static str>, version: Option<&'static str>) -> Self {
+        let mut state = self.state.lock().unwrap();
+        state.cgroup_driver = driver;
+        state.cgroup_version = version;
+        drop(state);
         self
     }
     pub fn runner(self, runner: Runner) -> Self {
@@ -266,7 +278,14 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
             if state.rootless {
                 options.push(json!("name=rootless"));
             }
-            ok_json(200, json!({ "SecurityOptions": options }))
+            let mut info = json!({ "SecurityOptions": options });
+            if let Some(driver) = state.cgroup_driver {
+                info["CgroupDriver"] = json!(driver);
+            }
+            if let Some(version) = state.cgroup_version {
+                info["CgroupVersion"] = json!(version);
+            }
+            ok_json(200, info)
         }
         (Post, ["images", "create"]) => {
             if let Some(image) = query.get("fromImage") {

@@ -1,0 +1,126 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+error[E0422]: cannot find struct, variant or union type `TranscriptSource` in crate `aq_session_host`
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:241:39
+    |
+241 |     let transcript = aq_session_host::TranscriptSource { launch: intent.clone(), root: native.clone(),
+    |                                       ^^^^^^^^^^^^^^^^ not found in `aq_session_host`
+
+error[E0599]: no associated function or constant named `inspect_owned` found for struct `SourceFile` in the current scope
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:201:54
+    |
+201 |     let permit = aq_observation::source::SourceFile::inspect_owned(Uuid::from_u128(8),
+    |                                                      ^^^^^^^^^^^^^ associated function or constant not found in `SourceFile`
+    |
+note: if you're trying to build a new `SourceFile`, consider using `SourceFile::open` which returns `std::result::Result<SourceFile, anyhow::Error>`
+   --> crates/aq-observation/src/source.rs:171:5
+    |
+171 |     pub fn open(permit: SourcePermit) -> Result<Self> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `inspect` with a similar name
+   --> crates/aq-observation/src/source.rs:204:5
+    |
+204 | /     pub fn inspect(
+205 | |         source_id: Uuid,
+206 | |         root: &Path,
+207 | |         name: &str,
+208 | |         native_session_key: Text,
+209 | |     ) -> Result<SourcePermit> {
+    | |_____________________________^
+
+error[E0433]: cannot find type `ObservationTask` in this scope
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:246:13
+    |
+246 |     assert!(ObservationTask::start(root.clone(), src.clone(), wrong, &intent, vec![native.clone()], SandboxChannels::new(&http).unw...
+    |             ^^^^^^^^^^^^^^^ use of undeclared type `ObservationTask`
+    |
+help: a struct with a similar name exists
+    |
+246 -     assert!(ObservationTask::start(root.clone(), src.clone(), wrong, &intent, vec![native.clone()], SandboxChannels::new(&http).unwrap(), unsafe{libc::geteuid()}).is_err());
+246 +     assert!(Observation::start(root.clone(), src.clone(), wrong, &intent, vec![native.clone()], SandboxChannels::new(&http).unwrap(), unsafe{libc::geteuid()}).is_err());
+    |
+
+error[E0433]: cannot find type `ObservationTask` in this scope
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:247:16
+    |
+247 |     let task = ObservationTask::start(root.clone(), src.clone(), transcript.clone(), &intent,
+    |                ^^^^^^^^^^^^^^^ use of undeclared type `ObservationTask`
+    |
+help: a struct with a similar name exists
+    |
+247 -     let task = ObservationTask::start(root.clone(), src.clone(), transcript.clone(), &intent,
+247 +     let task = Observation::start(root.clone(), src.clone(), transcript.clone(), &intent,
+    |
+
+error[E0599]: no associated function or constant named `open_for_owner` found for struct `observations::Collector` in the current scope
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:259:32
+    |
+259 |     let collector = Collector::open_for_owner(&root, src.clone(), &native, "rollout.jsonl", &[native.clone()], unsafe{libc::geteuid...
+    |                                ^^^^^^^^^^^^^^ associated function or constant not found in `observations::Collector`
+    |
+   ::: crates/aq-worker/src/native/runner/sandbox/observations.rs:15:1
+    |
+ 15 | pub struct Collector {
+    | -------------------- associated function or constant `open_for_owner` not found for this struct
+    |
+note: if you're trying to build a new `observations::Collector`, consider using `observations::Collector::open` which returns `std::result::Result<observations::Collector, anyhow::Error>`
+   --> crates/aq-worker/src/native/runner/sandbox/observations.rs:21:5
+    |
+ 21 | /     pub fn open(
+ 22 | |         root: &Path,
+ 23 | |         source: Source,
+ 24 | |         native_root: &Path,
+ 25 | |         member: &str,
+ 26 | |         authorized_roots: &[PathBuf],
+ 27 | |     ) -> Result<Self> {
+    | |_____________________^
+
+error[E0433]: cannot find type `ObservationTask` in this scope
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:264:20
+    |
+264 |     let mut task = ObservationTask::start(root.clone(), src.clone(), transcript, &intent,
+    |                    ^^^^^^^^^^^^^^^ use of undeclared type `ObservationTask`
+    |
+help: a struct with a similar name exists
+    |
+264 -     let mut task = ObservationTask::start(root.clone(), src.clone(), transcript, &intent,
+264 +     let mut task = Observation::start(root.clone(), src.clone(), transcript, &intent,
+    |
+
+error[E0433]: cannot find type `ObservationStatus` in this scope
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:267:37
+    |
+267 |         if *task.status.borrow() == ObservationStatus::Idle {break;}
+    |                                     ^^^^^^^^^^^^^^^^^ use of undeclared type `ObservationStatus`
+    |
+help: a struct with a similar name exists
+    |
+267 -         if *task.status.borrow() == ObservationStatus::Idle {break;}
+267 +         if *task.status.borrow() == ObservationBatch::Idle {break;}
+    |
+
+error[E0599]: no associated function or constant named `open_for_owner` found for struct `observations::Collector` in the current scope
+   --> crates/aq-worker/src/native/runner/sandbox/observations_tests.rs:271:32
+    |
+271 |     let collector = Collector::open_for_owner(&root, src, &native, "rollout.jsonl", &[native], unsafe{libc::geteuid()}).unwrap();
+    |                                ^^^^^^^^^^^^^^ associated function or constant not found in `observations::Collector`
+    |
+   ::: crates/aq-worker/src/native/runner/sandbox/observations.rs:15:1
+    |
+ 15 | pub struct Collector {
+    | -------------------- associated function or constant `open_for_owner` not found for this struct
+    |
+note: if you're trying to build a new `observations::Collector`, consider using `observations::Collector::open` which returns `std::result::Result<observations::Collector, anyhow::Error>`
+   --> crates/aq-worker/src/native/runner/sandbox/observations.rs:21:5
+    |
+ 21 | /     pub fn open(
+ 22 | |         root: &Path,
+ 23 | |         source: Source,
+ 24 | |         native_root: &Path,
+ 25 | |         member: &str,
+ 26 | |         authorized_roots: &[PathBuf],
+ 27 | |     ) -> Result<Self> {
+    | |_____________________^
+
+Some errors have detailed explanations: E0422, E0433, E0599.
+For more information about an error, try `rustc --explain E0422`.
+error: could not compile `aq-worker` (lib test) due to 8 previous errors

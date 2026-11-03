@@ -69,6 +69,9 @@ pub struct SourcePermit {
     pub member: String,
     pub native_session_key: Text,
     pub expected: FileIdentity,
+    /// Trusted launch owner; absent preserves the original same-user policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_uid: Option<u32>,
 }
 pub struct SourceFile {
     permit: SourcePermit,
@@ -125,18 +128,15 @@ fn member(value: &str) -> Result<std::ffi::CString> {
     );
     Ok(std::ffi::CString::new(value)?)
 }
-fn check_file(file: &File) -> Result<std::fs::Metadata> {
+fn check_file(file: &File, owner_uid: u32) -> Result<std::fs::Metadata> {
     let m = file.metadata()?;
     ensure!(
-        m.is_file()
-            && m.uid() == unsafe { libc::geteuid() }
-            && m.mode() & 0o022 == 0
-            && m.nlink() == 1,
+        m.is_file() && m.uid() == owner_uid && m.mode() & 0o022 == 0 && m.nlink() == 1,
         "source file type/ownership refused"
     );
     Ok(m)
 }
-fn open_member(directory: &File, name: &str) -> Result<File> {
+fn open_member(directory: &File, name: &str, owner_uid: u32) -> Result<File> {
     let name = member(name)?;
     let fd = unsafe {
         libc::openat(
@@ -149,7 +149,7 @@ fn open_member(directory: &File, name: &str) -> Result<File> {
         return Err(std::io::Error::last_os_error().into());
     }
     let file = unsafe { File::from_raw_fd(fd) };
-    check_file(&file)?;
+    check_file(&file, owner_uid)?;
     Ok(file)
 }
 fn read_exact_at(file: &File, start: u64, length: usize) -> Result<Vec<u8>> {
@@ -183,12 +183,15 @@ impl SourceFile {
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(&permit.root)?;
+        let owner_uid = permit
+            .owner_uid
+            .unwrap_or_else(|| unsafe { libc::geteuid() });
         let m = directory.metadata()?;
         ensure!(
-            m.is_dir() && m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o022 == 0,
+            m.is_dir() && m.uid() == owner_uid && m.mode() & 0o022 == 0,
             "source root ownership refused"
         );
-        let file = open_member(&directory, &permit.member)?;
+        let file = open_member(&directory, &permit.member, owner_uid)?;
         ensure!(
             FileIdentity::of(&file.metadata()?) == permit.expected,
             "source identity changed before open"
@@ -216,7 +219,21 @@ impl SourceFile {
             member: name.into(),
             native_session_key,
             expected: FileIdentity::of(&m),
+            owner_uid: None,
         })
+    }
+    /// Owner comes from the launched agent identity, never file metadata.
+    pub fn inspect_owned(
+        source_id: Uuid,
+        root: &Path,
+        name: &str,
+        native_session_key: Text,
+        owner_uid: u32,
+    ) -> Result<SourcePermit> {
+        let mut permit = Self::inspect(source_id, root, name, native_session_key)?;
+        permit.owner_uid = Some(owner_uid);
+        Self::open(permit.clone())?;
+        Ok(permit)
     }
     pub fn permit(&self) -> &SourcePermit {
         &self.permit
@@ -224,7 +241,11 @@ impl SourceFile {
     pub fn read(&self, cursor: &Cursor, limit: usize) -> Result<ReadOutcome> {
         cursor.validate()?;
         ensure!((1..=MAX_READ_BYTES).contains(&limit), "source read budget");
-        let current = match open_member(&self.directory, &self.permit.member) {
+        let owner_uid = self
+            .permit
+            .owner_uid
+            .unwrap_or_else(|| unsafe { libc::geteuid() });
+        let current = match open_member(&self.directory, &self.permit.member, owner_uid) {
             Ok(f) => f,
             Err(e)
                 if e.downcast_ref::<std::io::Error>()
@@ -238,7 +259,7 @@ impl SourceFile {
         if FileIdentity::of(&m) != self.permit.expected {
             return Ok(ReadOutcome::Changed(SourceChange::Rotated));
         }
-        let m = check_file(&self.file)?;
+        let m = check_file(&self.file, owner_uid)?;
         if m.len() < cursor.offset {
             return Ok(ReadOutcome::Changed(SourceChange::Truncated));
         }

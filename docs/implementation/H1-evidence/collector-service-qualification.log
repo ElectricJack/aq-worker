@@ -1,0 +1,15 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 40.73s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-481fad276cc0151b)
+
+running 6 tests
+test native::runner::sandbox::observations_tests::codex_real_rollout_0166_qualifies_reference_and_durable_engine ... FAILED
+test native::runner::sandbox::observations_tests::observation_cursor_survives_runner_restart_without_duplicates ... ok
+test native::runner::sandbox::observations_tests::observation_paths_identity_partial_and_loss_are_explicit ... ok
+test native::runner::sandbox::observations_tests::observation_overload_commits_loss_gap_with_cursor_and_holds ... ok
+test native::runner::sandbox::observations_tests::observation_reader_requires_explicit_launched_file_owner ... ok
+test native::runner::sandbox::observations_tests::observation_permit_delivery_and_held_upload_never_block_control has been running for over 60 seconds
+error: test failed, to rerun pass `-p aq-worker --lib`
+
+Caused by:
+  process didn't exit successfully: `/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/target/debug/deps/aq_worker-481fad276cc0151b observations_tests` (signal: 15, SIGTERM: termination signal)
