@@ -23,7 +23,35 @@ This repository contains the extracted foundation connector and an execution-pro
 Sibling links assume side-by-side checkouts. They are documentation references, not build dependencies. The worker's core tests will use a local fake coordinator and deterministic harness; real container and harness compatibility tests will be separate suites.
 
 Run `cargo test --workspace --locked --all-features` and
-`cargo fmt --all -- --check` without sibling repositories or external services.
+`cargo fmt -- --check` from the repository root
+without sibling repositories or external services.
+The formatting command checks every member of this virtual workspace, including
+its tests and examples. Omit `-- --check` to apply formatting.
+
+Use this workspace-only formatting command in AQ's nested `.aq/worktrees/`
+checkouts too. `cargo fmt --all` also traverses excluded local path dependencies
+under `vendor/`. In a nested checkout, Cargo
+can associate those packages with the outer checkout's workspace and fail
+metadata discovery before formatting. An explicit `--manifest-path` alone does
+not prevent that extra traversal when combined with `--all`.
+
+To check formatting of vendored dependencies as well, extract a committed tree
+outside any other Cargo workspace and run the broader check there:
+
+```sh
+standalone_dir=$(mktemp -d /tmp/aq-worker-standalone.XXXXXX)
+git archive HEAD | tar -x -C "$standalone_dir"
+(
+  cd "$standalone_dir"
+  cargo fmt --all -- --check
+  cargo build --workspace --locked --all-features --jobs 2
+)
+```
+
+This checks the committed revision; commit local edits before using it to verify
+them. All local build dependencies are inside that extracted tree. Keep the
+temporary directory for inspection, then remove it when finished.
+
 The foundation connector retains `aq-worker enroll`, `run`, and `status`.
 `aq-fixture-agent` is a synthetic deterministic test process, not a real agent harness.
 See [implementation evidence](docs/implementation/README.md).
