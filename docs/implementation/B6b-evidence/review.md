@@ -19,3 +19,7 @@ The review deliberately declined the following areas; the executor makes each di
 6. Final qualification was still running during review. The author owns all final checks and records their actual results below; pending or interrupted checks do not count as success. Cost: those results are author verification, not independent reruns by the reviewer.
 
 Bootstrap retains exactly SETUID/SETGID/KILL for runner/guardian and clears all agent capabilities. Existing backend capability policies are unchanged; unsupported backends refuse. Cost if this mechanism is not acceptable to the owner: another cross-UID launch/stop mechanism is required before backend qualification.
+
+## Feedback consumed at close
+
+Supervisor message `msg-fd87d262f1154c31a422683179e7bd72` made the minimal runner capability arrangement provisional on clearing every agent capability set, including bounding, and testing agent-to-runner signal denial outside its pane. These conditions were not independently checked in the review. Current code clears effective/permitted/inheritable/ambient only; bounding clearing and the explicit signal-denial probe remain unmet. The executor reported the gaps and stopped privilege work without widening privileges. This is an additional reason for the failed close, not a passing design approval.
