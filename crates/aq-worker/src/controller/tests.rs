@@ -37,6 +37,7 @@ pub(super) fn config() -> NodeConfig {
     let m = manifest();
     NodeConfig {
         recovery: RecoveryConfig::default(),
+        preserve: PreserveConfig::default(),
         runtime: ArtifactRef {
             id: Text::new("runtime").unwrap(),
             version: Text::new("1").unwrap(),
@@ -510,6 +511,47 @@ async fn heartbeat_does_not_hide_controller_journal_failure() {
     assert_eq!(c.inventory().refusal, Some(RefusalReason::GrantDenied));
 }
 
+#[test]
+fn inventory_serialization_shows_measured_disk_fields_and_accepts_legacy_reports() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = open(&dir, config());
+    let mut inventory = c.inventory();
+    inventory.disk_total_bytes = Some(4_096_000);
+    inventory.disk_used_bytes = Some(2_867_200);
+    inventory.disk_free_bytes = Some(1_024_000);
+    inventory.preserved_bytes = Some(777);
+    inventory.retained_snapshot_bytes = Some(1157);
+    inventory.saved_snapshots_over_allowance = Some(1);
+    let value = serde_json::to_value(&inventory).unwrap();
+    for (field, expected) in [
+        ("disk_total_bytes", 4_096_000u64),
+        ("disk_used_bytes", 2_867_200),
+        ("disk_free_bytes", 1_024_000),
+        ("disk_reserved_bytes", 0),
+        ("preserved_count", 0),
+        ("preserved_bytes", 777),
+        ("retained_snapshot_bytes", 1157),
+        ("saved_snapshots_over_allowance", 1),
+    ] {
+        assert_eq!(value[field], expected, "{field}");
+    }
+    assert_eq!(
+        serde_json::from_value::<Inventory>(value).unwrap(),
+        inventory
+    );
+
+    // A report without measurements omits the fields; a legacy report decodes.
+    let mut legacy = serde_json::to_value(c.inventory()).unwrap();
+    let object = legacy.as_object_mut().unwrap();
+    object.remove("disk_reserved_bytes");
+    object.remove("preserved_count");
+    assert!(!object.contains_key("disk_free_bytes") && !object.contains_key("preserved_bytes"));
+    let decoded: Inventory = serde_json::from_value(legacy).unwrap();
+    assert_eq!(decoded.disk_free_bytes, None);
+    assert_eq!(decoded.preserved_count, None);
+    assert_eq!(decoded.available_disk_bytes, config().capacity.disk_bytes);
+}
+
 #[tokio::test]
 async fn shared_sccache_node_config_controls_backend_registration() {
     use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig, SandboxConfig};
@@ -535,7 +577,8 @@ async fn shared_sccache_node_config_controls_backend_registration() {
     node.templates.clear();
     let base = serde_json::json!({
         "state_dir": dir.path().join("state"), "node": node,
-        "docker_local": {"socket": socket}
+        // The fake daemon shares the test host's root filesystem (SBX20).
+        "docker_local": {"socket": socket, "shared_root_fs": true}
     });
     assert!(!DockerLocalConfig::new(socket).shared_sccache);
     assert!(!SandboxConfig::default().shared_sccache);

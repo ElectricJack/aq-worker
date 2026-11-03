@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--offline",
+    "-p",
+    "aq-worker",
+    "--lib",
+    "--",
+    "controller::lifecycle_tests",
+    "inventory_serialization",
+    "disk_watchdog_stops_and_preserves_only_the_attempt_over_its_limit"
+  ],
+  "exit_code": 0,
+  "log": "/tmp/calm-lantern-25-evidence/controller.log"
+}

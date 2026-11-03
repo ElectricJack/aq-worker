@@ -21,6 +21,42 @@ pub const LABEL_ATTEMPT: &str = "aq.attempt";
 pub const LABEL_DIGEST: &str = "aq.template-digest";
 pub const LABEL_DEADLINE: &str = "aq.hard-deadline-ms";
 pub const LABEL_REQUEST: &str = "aq.request-sha256";
+/// SBX20 limit; written only when the reservation carries disk bytes, so
+/// labels of pre-SBX20 requests are unchanged.
+pub const LABEL_DISK_LIMIT: &str = "aq.disk-limit-bytes";
+
+/// SBX20 per-attempt limit: reservation disk bytes, else the node default.
+pub fn disk_limit_bytes(config: &DockerLocalConfig, request: &CreateRequest) -> u64 {
+    request
+        .resources
+        .and_then(|resources| resources.disk_bytes)
+        .unwrap_or(config.disk_limit_bytes)
+}
+
+/// Limit recorded at create; absent label means the node default.
+pub fn disk_limit_from_labels(config: &DockerLocalConfig, labels: &Value) -> Option<u64> {
+    match labels.get(LABEL_DISK_LIMIT) {
+        None => Some(config.disk_limit_bytes),
+        Some(value) => value.as_str()?.parse().ok().filter(|limit| *limit > 0),
+    }
+}
+
+/// Work-volume create body; hard mode adds a size quota (XFS prjquota).
+pub fn volume_body(
+    config: &DockerLocalConfig,
+    request: &CreateRequest,
+    labels: &BTreeMap<String, String>,
+) -> Value {
+    let mut body = json!({
+        "Name": volume_name(&request.name),
+        "Driver": "local",
+        "Labels": labels,
+    });
+    if config.hard_disk_limit {
+        body["DriverOpts"] = json!({ "o": format!("size={}", disk_limit_bytes(config, request)) });
+    }
+    body
+}
 
 /// Node-owned cache; unlike work volumes, never labelled with attempt ownership.
 pub fn sccache_volume_name(node: Uuid) -> String {
@@ -42,7 +78,7 @@ pub fn request_hash(request: &CreateRequest) -> String {
 
 pub fn labels(request: &CreateRequest) -> BTreeMap<String, String> {
     let owner = &request.owner;
-    BTreeMap::from([
+    let mut labels = BTreeMap::from([
         (LABEL_MANAGED_BY.into(), MANAGED_BY.into()),
         (LABEL_BACKEND.into(), BACKEND.into()),
         (LABEL_NODE.into(), owner.node_id.hyphenated().to_string()),
@@ -54,7 +90,11 @@ pub fn labels(request: &CreateRequest) -> BTreeMap<String, String> {
         (LABEL_DIGEST.into(), request.template_digest.as_str().into()),
         (LABEL_DEADLINE.into(), request.hard_deadline_ms.to_string()),
         (LABEL_REQUEST.into(), request_hash(request)),
-    ])
+    ]);
+    if let Some(disk) = request.resources.and_then(|resources| resources.disk_bytes) {
+        labels.insert(LABEL_DISK_LIMIT.into(), disk.to_string());
+    }
+    labels
 }
 
 /// Label filter selecting every sandbox this worker owns on `node`, any boot.
@@ -133,6 +173,10 @@ pub fn create_body(
             "AutoRemove": false,
         },
     });
+    if config.hard_disk_limit {
+        body["HostConfig"]["StorageOpt"] =
+            json!({ "size": disk_limit_bytes(config, request).to_string() });
+    }
     if let Some(command) = &config.runner_command {
         body["Cmd"] = json!(command);
     }

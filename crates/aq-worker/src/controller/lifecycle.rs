@@ -152,6 +152,14 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         let sandbox = a.sandbox.clone().ok_or_else(|| {
             anyhow::anyhow!("sandbox identity not recorded; reconciliation required")
         })?;
+        // SBX23: any stop may end in preservation (handoff failure). While the
+        // runner is still reachable, drop only template-declared paths.
+        if a.phase == Phase::Running {
+            let paths = self.config.preserve.paths_for(&a.create.template_digest);
+            if let Err(error) = self.backend.drop_reconstructible(&sandbox, &paths).await {
+                tracing::info!(attempt=%id, ?error, "runner unreachable; reconstructible paths kept");
+            }
+        }
         a.phase = Phase::StopIntent;
         self.save(id, a.clone())?;
         let confirmation = self.backend.stop(&sandbox).await;

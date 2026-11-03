@@ -1,6 +1,6 @@
 //! Deterministic in-memory model, not a container or isolation implementation.
 use super::*;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +13,8 @@ pub enum Fault {
     ForeignSandbox,
     DestroyedOnInspect,
     DestroyedOnStop,
+    /// The runner cannot be reached to drop reconstructible paths.
+    RunnerUnreachable,
 }
 
 struct Sandbox {
@@ -20,14 +22,32 @@ struct Sandbox {
     inventory: InventoryEntry,
     material: Option<PrivateMaterial>,
     fixture_output: Option<Vec<u8>>,
+    /// Modelled workspace paths (no real files); SBX23 deletes declared ones.
+    paths: BTreeSet<String>,
 }
 
 #[derive(Default)]
 pub struct FakeBackend {
     sandboxes: BTreeMap<String, Sandbox>,
     faults: VecDeque<Fault>,
+    disk_used: BTreeMap<String, u64>,
+    measured_disk: BackendDiskUsage,
+    disk_queries: Vec<Vec<SandboxIdentity>>,
 }
 impl FakeBackend {
+    /// Reported SBX20 watchdog usage for one sandbox; no bytes are written.
+    pub fn set_disk_usage(&mut self, identity: &SandboxIdentity, used_bytes: u64) {
+        self.disk_used
+            .insert(identity.backend_id.clone(), used_bytes);
+    }
+    /// Fake node measurements returned by every later `measured_disk_usage`.
+    pub fn set_measured_disk_usage(&mut self, usage: BackendDiskUsage) {
+        self.measured_disk = usage;
+    }
+    /// The preserved sets the controller asked to size, in call order.
+    pub fn disk_queries(&self) -> &[Vec<SandboxIdentity>] {
+        &self.disk_queries
+    }
     /// A one-shot fault is consumed only by its corresponding operation.
     pub fn inject(&mut self, fault: Fault) {
         self.faults.push_back(fault);
@@ -59,6 +79,20 @@ impl FakeBackend {
             .as_deref()
             .ok_or(BackendError::InvalidState)
     }
+    /// Test hook: model paths present inside the sandbox.
+    pub fn seed_paths<'a>(
+        &mut self,
+        identity: &SandboxIdentity,
+        paths: impl IntoIterator<Item = &'a str>,
+    ) -> Result<(), BackendError> {
+        self.get_mut(identity)?
+            .paths
+            .extend(paths.into_iter().map(str::to_owned));
+        Ok(())
+    }
+    pub fn paths(&self, identity: &SandboxIdentity) -> Result<&BTreeSet<String>, BackendError> {
+        Ok(&self.get(identity)?.paths)
+    }
     fn insert(&mut self, request: &CreateRequest) -> SandboxIdentity {
         let identity = SandboxIdentity {
             kind: self.kind(),
@@ -80,6 +114,7 @@ impl FakeBackend {
                 },
                 material: None,
                 fixture_output: None,
+                paths: BTreeSet::new(),
             },
         );
         identity
@@ -111,6 +146,30 @@ impl PlacementBackend for FakeBackend {
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::PersistentDiskDuringAttempt]
+    }
+    fn disk_limit(&self) -> DiskLimitStatus {
+        DiskLimitStatus {
+            mode: Some(DiskLimitMode::Watchdog),
+            shared_root_fs: false,
+            watch_interval_ms: 10_000,
+        }
+    }
+    async fn disk_usage(&mut self, node_id: Uuid) -> Result<Vec<DiskUsage>, BackendError> {
+        Ok(self
+            .sandboxes
+            .values()
+            .filter(|s| {
+                s.inventory.sandbox.owner.node_id == node_id
+                    && s.inventory.state == SandboxState::Running
+            })
+            .filter_map(|s| {
+                Some(DiskUsage {
+                    sandbox: s.inventory.sandbox.clone(),
+                    used_bytes: self.disk_used.get(&s.request.name).copied().unwrap_or(0),
+                    limit_bytes: s.request.resources?.disk_bytes?,
+                })
+            })
+            .collect())
     }
     async fn create(&mut self, request: &CreateRequest) -> Result<SandboxIdentity, BackendError> {
         request.validate()?;
@@ -212,6 +271,23 @@ impl PlacementBackend for FakeBackend {
         }
         sandbox.inventory.writer_proof()
     }
+    async fn drop_reconstructible(
+        &mut self,
+        identity: &SandboxIdentity,
+        paths: &[String],
+    ) -> Result<(), BackendError> {
+        if self.take_fault(Fault::RunnerUnreachable) {
+            return Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure));
+        }
+        let sandbox = self.get_mut(identity)?;
+        if sandbox.inventory.state != SandboxState::Running {
+            return Err(BackendError::InvalidState);
+        }
+        for path in paths {
+            sandbox.paths.remove(path);
+        }
+        Ok(())
+    }
     async fn destroy(
         &mut self,
         identity: &SandboxIdentity,
@@ -235,5 +311,9 @@ impl PlacementBackend for FakeBackend {
         sandbox.material = None;
         sandbox.fixture_output = None;
         sandbox.inventory.writer_proof()
+    }
+    async fn measured_disk_usage(&mut self, preserved: &[SandboxIdentity]) -> BackendDiskUsage {
+        self.disk_queries.push(preserved.to_vec());
+        self.measured_disk.clone()
     }
 }

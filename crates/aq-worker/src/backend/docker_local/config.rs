@@ -69,6 +69,20 @@ pub struct DockerLocalConfig {
     pub stop_grace_secs: u32,
     #[serde(default = "default_max_read_bytes")]
     pub max_read_bytes: u64,
+    /// SBX20 per-attempt disk limit when a reservation carries none.
+    #[serde(default = "default_disk_limit_bytes")]
+    pub disk_limit_bytes: u64,
+    /// SBX20 watchdog sampling interval.
+    #[serde(default = "default_disk_watch_interval_ms")]
+    pub disk_watch_interval_ms: u64,
+    /// SBX20 override: admit a daemon whose storage shares `/`. Reported in
+    /// node inventory; one runaway attempt can then fill the host.
+    #[serde(default)]
+    pub shared_root_fs: bool,
+    /// SBX20 optional hard limit: XFS prjquota `StorageOpt.size` and sized
+    /// work volumes. The watchdog stays on regardless.
+    #[serde(default)]
+    pub hard_disk_limit: bool,
 }
 
 fn default_material_path() -> String {
@@ -82,6 +96,14 @@ fn default_stop_grace_secs() -> u32 {
 }
 fn default_max_read_bytes() -> u64 {
     1024 * 1024
+}
+/// VPS default: 32 GiB per attempt.
+pub const DEFAULT_DISK_LIMIT_BYTES: u64 = 32 * 1024 * 1024 * 1024;
+fn default_disk_limit_bytes() -> u64 {
+    DEFAULT_DISK_LIMIT_BYTES
+}
+fn default_disk_watch_interval_ms() -> u64 {
+    10_000
 }
 
 const REFUSE_MAIN: BackendError =
@@ -101,6 +123,10 @@ impl DockerLocalConfig {
             api_timeout_ms: default_api_timeout_ms(),
             stop_grace_secs: default_stop_grace_secs(),
             max_read_bytes: default_max_read_bytes(),
+            disk_limit_bytes: default_disk_limit_bytes(),
+            disk_watch_interval_ms: default_disk_watch_interval_ms(),
+            shared_root_fs: false,
+            hard_disk_limit: false,
         }
     }
 
@@ -163,7 +189,12 @@ impl DockerLocalConfig {
         {
             return Err(BackendError::InvalidRequest("runner command is empty"));
         }
-        if self.api_timeout_ms == 0 || self.max_read_bytes == 0 || self.stop_grace_secs > 3600 {
+        if self.api_timeout_ms == 0
+            || self.max_read_bytes == 0
+            || self.stop_grace_secs > 3600
+            || self.disk_limit_bytes == 0
+            || !(1..=600_000).contains(&self.disk_watch_interval_ms)
+        {
             return Err(BackendError::InvalidRequest(
                 "invalid docker-local timeouts or limits",
             ));
