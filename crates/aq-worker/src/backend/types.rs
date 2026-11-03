@@ -331,8 +331,18 @@ impl DestroyAuthorization {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendUnavailable {
+    Api,
+    RateLimited,
+    Capacity,
+    Transport,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendError {
+    /// Temporary remote outage/capacity refusal; intent may already exist.
+    Unavailable(BackendUnavailable),
     InvalidRequest(&'static str),
     UnsupportedCapability(Capability),
     UnsupportedOperation,

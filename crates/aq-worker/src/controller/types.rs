@@ -51,6 +51,7 @@ pub enum RefusalReason {
     CapacityChanged,
     DiskReserve,
     EnvironmentUnavailable,
+    BackendUnavailable,
     GrantDenied,
     PreparationBacklog,
     Draining,

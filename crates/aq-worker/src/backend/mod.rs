@@ -81,3 +81,7 @@ pub trait PlacementBackend: Send {
         authorization: &DestroyAuthorization,
     ) -> impl Future<Output = Confirmation<StoppedWriterProof>> + Send;
 }
+
+pub mod boat;
+mod selected;
+pub use selected::SelectedBackend;
