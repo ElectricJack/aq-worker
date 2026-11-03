@@ -1,9 +1,97 @@
 # I0: first real ChatGPT native run qualification
 
-Task `azure-horizon-22.1`, observed 2026-11-02. **Acceptance is unmet: 0 of 3 real runs.**
-No provider request, frozen attempt, execution grant, repository edit, result retention,
-human review decision or completion reconcile is claimed. The owner's login has not
-been copied, delivered or changed. No refresh occurred because no launch occurred.
+Task `azure-horizon-22.1`. **Acceptance is unmet.** On 2026-11-03, run 11 reached
+real Codex 0.166.0 on the owner's ChatGPT login through `aq-worker run-native`
+against `aq-e0-qual`, but no source was retained and settlement was not reached.
+The owner's `~/.codex/auth.json` was not refreshed and still equals its baseline.
+
+## aq-e0-qual runs — 2026-11-03
+
+The reopen asked for one real run against `aq-e0-qual` with profile
+`owner-chatgpt-codex`, target `ElectricJack/aq-scratch` `main`, on node
+`f761410b-43f5-4106-ab80-f044dd446da0` (measured `gpt-6.1-sol` high). Each run
+used a fresh single-slot state root in the `aq-e0-qual-worker-state` volume. The
+container entry is [`scripts/e0-qual/i0-run-native.py`](../../scripts/e0-qual/i0-run-native.py):
+it starts worker-side `aq-git`, registers the worker-mode binding for repository
+`e0a10000-0000-4000-8000-000000000003`, then runs `aq-worker run-native` once.
+[`scripts/e0-qual/status-tap.py`](../../scripts/e0-qual/status-tap.py) logged
+request lines, statuses and public error codes only (no headers or bodies).
+
+| Run | Attempt / grant | Codex / model | Wall time | Retained source | Settlement | Refresh |
+| --- | --- | --- | --- | --- | --- | --- |
+| 9 | `2d41bbec…` / granted | 0.166.0 / not reached | stopped after `started` | None | None | No |
+| 10 | Not admitted | — | 0.3 s (exit 2) | None | None | No launch |
+| 11 | `87d16454-c2cc-593c-9bfd-60ac4ea56911` / `d56e197c-3955-4dd0-bc52-2016724b7e58` | 0.166.0 / `gpt-6.1-sol` high | 944.4 s (exit 2) | None | Not reached | No |
+
+**Run 9.** Graph task `e0a10000-0000-4000-8000-000000000004`. The qualification
+server had no `[terminals]` configuration, so terminal-relay registration answered
+503 `identity_unavailable` and the attempt stopped right after `started`. The
+attempt still holds its graph task (`holds_task`), so the task cannot be offered
+again. State is preserved at `/state/preserved/run9`.
+
+**Run 10.** The executor `host_root` (`/state/host`) did not exist; run-native
+exited 2 in 0.3 s with only its generic message. No admission occurred. A second
+seeded graph task `e0a10000-0000-4000-8000-000000000005` was created with the
+existing E0 seeding path, because run 9's task is held.
+
+**Run 11.** Graph task `…0005`, terminal `dad76365-422a-4fa5-8074-2a6ff110692e`,
+container `aq-i0-run11` from 09:31:21Z to 09:47:07Z. Every worker route answered
+200 once: probe, register, inventory, poll, proposal, accept, prepare, `started`,
+`stopped`, source/manifest/bundle and the private material lease
+(`/v1/worker/profiled/material`). There were 62 heartbeats and 32 artifact calls.
+Codex authenticated with the ChatGPT login (`auth_mode` ChatGPT, no API key; every
+provider request was 200). The TUI stopped at **"Trust this folder?"**; the owner
+stand-in selected "Trust and continue" by one terminal input through the public
+relay (`POST /api/v1/terminals/{id}/mutations`). Codex then ran on `gpt-6.1-sol`
+high, with one auxiliary turn on `gpt-5.6-luna`. Both tool calls failed before
+execution because `/opt/aq-runtime/codex-code-mode-host` is missing from the image.
+Codex reported "No files changed … No AQ result was submitted". The 15-minute
+execution permit then expired. The host recorded phase `stopped`, reason
+"execution permit expired", root status 0, 3 processes reaped. The server shows the
+attempt finished/stopped with retention `pending`. It has no profiled result head,
+report or settlement evaluation. The evaluation, combined-review resolve and
+completion reconcile routes were therefore not called. State is preserved at
+`/state/preserved/run11`.
+
+**Login refresh.** None. After run 11 the owner's `~/.codex/auth.json` is
+byte-identical to the pre-run baseline, mode 0600. No `auth.json` remained in the
+launch's codex home, and no request carried an auth-recovery mode. The only
+"refresh" log lines were `list_models refresh_strategy=online`. The login reached
+the container only through the material lease from the server's 0600 vault copy.
+
+**Qualification-stack fixes on this branch**
+([`scripts/e0-qual/definitions.py`](../../scripts/e0-qual/definitions.py)):
+`[terminals.protection]` with a generated 0600 relay key (run 9);
+`SOURCE_DISK_BYTES` set to aq-git's real native reservation; `PROFILED_REVISION`
+bumped to 2 because the server refuses changed profiled content at an unchanged
+revision. The run entry creates the worker binding and needs `/state/host` to exist.
+
+**Deviations.** `seccomp=unconfined` on the local qualification container
+(owner-approved for I0/E0 only). The image is the prepared `dc62cfc` image
+`sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d`, not a
+rebuild from current main. A second seeded graph task was created. Owner stand-in
+terminal input answered the trust prompt.
+
+**Findings filed (direct):**
+
+| Task | Finding |
+| --- | --- |
+| `azure-horizon-22.1.1` | The native image copies only `bin/codex`. Codex 0.166.0 also needs `codex-code-mode-host` (sha256 `657f4e90…d630`), `codex-path/rg` and `codex-resources/`. Every tool call fails. **I0 blocker.** |
+| `azure-horizon-22.1.2` | The interactive executor does not pre-trust the workspace; the TUI waits on "Trust this folder?". |
+| `azure-horizon-22.1.3` | run-native has no recovery path for a stopped, unsettled attempt; each failed run consumes a graph task. |
+| `azure-horizon-22.1.4` | run-native/check-native hide the failure cause behind a generic message. |
+
+A task comment starting `CROSS-REPO FOLLOW-UP (aq-server):` records the relay
+"one terminal poll per node" 409 storm (219 in run 11) and one output-poll 500,
+the generic 422 for over-2 s input deadlines, the missing server release for held
+graph tasks, and `[terminals]` validation.
+
+**Remaining acceptance.** Rebuild the native image with the full Codex package
+layout (22.1.1) and workspace pre-trust (22.1.2). Release or replace the held graph
+tasks (22.1.3 plus the aq-server follow-up). Then run once more and settle through
+`POST /api/settlement/evaluations`, `POST /api/reviews/combined/{decision_id}/resolve`
+and `POST /api/settlement/completions/{operation_id}/reconcile`.
+The owner's node measurement expires 2026-11-04 07:22:45 UTC.
 
 ## Resume preflight — 2026-11-02 17:10 PST
 
