@@ -36,7 +36,7 @@ class BoatMaterializationTests(unittest.TestCase):
         scan=load('credential_scan')
         label=b'vm-isolationnested-dockerpersistent-disk-during-attemptstruct SandboxIdentitybackend_idstruct SandboxIdentity with 3 elements'
         self.assertFalse(scan.secret_shaped(label))
-        for changed in [label+b' sk-'+b'x'*32,label.replace(b'SandboxIdentitybackend_id',b'OtherTypebackend_id')]:
+        for changed in [label+b' sk-'+b'x'*32,label.replace(b'persistent-disk-during-attempt',b'persistent-disk-during_attempt')]:
             self.assertTrue(scan.secret_shaped(changed))
 
     def test_materialization_validates_digest_and_publishes_only_after_scan(self):

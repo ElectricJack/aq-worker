@@ -1,0 +1,11 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace",
+    "runner_authenticates_with_delegated_permit_and_refuses_foreign_scope"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B6a2-evidence/synced-acceptance.log"
+}

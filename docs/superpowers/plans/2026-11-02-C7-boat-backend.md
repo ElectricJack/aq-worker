@@ -57,8 +57,8 @@
 - [x] Document official API facts with URLs, including asynchronous operations, scoped lifecycle/exec/file/snapshot permissions, org scope, plan limits, snapshot and resume timing, firewall rules needing reapplication, 250ms RTT assumptions and absence of a boat terminal-latency claim. Distinguish documentation from measured qualification.
 - [x] Record CROSS-REPO FOLLOW-UP (aq-server) for aq-worker-boat Compose/enrollment; do not edit other repos.
 - [ ] Run targeted Rust/Python checks, formatter and clippy; record known unrelated baseline limitations. Run ignored live conformance only when approved env key/config exists; lack of it is an unmet live acceptance, never a pass.
-- [ ] Settle checklist, preserve one final feature commit on the recorded source base, merge origin/main, rerun targeted checks for conflicts, and publish with guarded aq git push. Close truthfully with evidence or report a blocking operator decision and preserve the held claim.
+- [x] Settle checklist, preserve one final feature commit on the recorded source base, merge origin/main, rerun targeted checks for conflicts, and publish with guarded aq git push. Close truthfully with evidence or report a blocking operator decision and preserve the held claim.
 
 ## Execution status
 
-Local implementation and named/area checks pass (see `docs/implementation/C7.md`). Final publication/integration is in progress. Required real Boat conformance remains unrun pending approved node-local credentials/config and scanned saved snapshot; C7 is not complete and the held claim is preserved. Supervisor prerequisite request was sent once.
+Local implementation and named/area checks pass (see `docs/implementation/C7.md`). One feature commit (`55fb0ed`) is followed by the required main integration merge; publication uses guarded AQ push. Required local checks pass again on the merged tree. Required real Boat conformance remains unrun pending approved node-local credentials/config and scanned saved snapshot; C7 is not complete and the held claim is preserved. Supervisor prerequisite request was sent once.

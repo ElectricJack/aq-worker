@@ -22,8 +22,8 @@ self = <test_boat_materialize.BoatMaterializationTests testMethod=test_materiali
 >       boat = load('boat_materialize')
                ^^^^^^^^^^^^^^^^^^^^^^^^
 
-scripts/tests/test_boat_materialize.py:36: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+scripts/tests/test_boat_materialize.py:36:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'boat_materialize'
 

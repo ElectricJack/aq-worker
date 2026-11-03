@@ -58,4 +58,3 @@ test controller::tests::unregistered_and_wrong_boot_offers_are_refused ... ok
 test controller::tests::unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shutdown ... ok
 
 test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 238 filtered out; finished in 15.78s
-

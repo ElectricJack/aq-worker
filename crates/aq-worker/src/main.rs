@@ -108,12 +108,18 @@ enum Cmd {
         #[arg(long, requires_all = ["development_loopback", "fixture_preflight_gate"])]
         fixture_replay_lost_b1_ack: bool,
     },
-    /// Consume a frozen local handoff. HTTP transport awaits B2/B6a2 wiring.
+    /// Consume a frozen local handoff with a runner-private delegated permit.
     SandboxRun {
         #[arg(long)]
         manifest: PathBuf,
         #[arg(long)]
         state_dir: PathBuf,
+        /// Runner-private permit JSON delivered by the node controller.
+        #[arg(long)]
+        permit_file: PathBuf,
+        /// Coordinator or runner-owned AQ proxy origin; no node enrollment file.
+        #[arg(long)]
+        server_url: String,
     },
     /// Validate native configuration and installed executor without admission.
     CheckNative {
@@ -333,14 +339,22 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
         Cmd::SandboxRun {
             manifest,
             state_dir,
+            permit_file,
+            server_url,
         } => {
             let result = (|| -> anyhow::Result<()> {
                 let _agent = sandbox_agent
                     .ok_or_else(|| anyhow::anyhow!("sandbox user bootstrap required"))?;
-                let _worker = WorkerConfig::load(&path)?;
                 let frozen = aq_worker::native::runner::sandbox::FrozenLaunch::load(&manifest)?;
                 frozen.validate_local(&state_dir)?;
-                anyhow::bail!("sandbox runner HTTP transport is unavailable until B2/B6a2 wiring");
+                let _http = aq_worker::native::runner::sandbox::auth::RunnerHttp::for_execution(
+                    &server_url,
+                    &permit_file,
+                    &frozen,
+                )?;
+                anyhow::bail!(
+                    "sandbox runner B2 receipt codec is unavailable; permit transport validated, no launch attempted"
+                );
             })();
             match result {
                 Ok(()) => ExitCode::SUCCESS,
