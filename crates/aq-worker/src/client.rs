@@ -48,6 +48,7 @@ impl fmt::Display for CallError {
 
 impl std::error::Error for CallError {}
 
+#[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
     base: String,
@@ -114,6 +115,24 @@ impl Client {
 
     pub async fn probe(&self, req: &ProbeRequest) -> Result<ProbeResponse, CallError> {
         self.post("/v1/worker/probe", req, true).await
+    }
+
+    /// H2 controller facts use the enrolled node credential, never a runner permit.
+    pub async fn report_vm_time(
+        &self,
+        fact: &crate::backend::boat::VmTimeFact,
+    ) -> Result<(), CallError> {
+        #[derive(serde::Deserialize)]
+        struct Receipt {
+            recorded: bool,
+        }
+        let receipt: Receipt = self
+            .post("/v1/worker/observations/vm-time", fact, true)
+            .await?;
+        if !receipt.recorded {
+            return Err(CallError::Other("VM-time report was not recorded".into()));
+        }
+        Ok(())
     }
 
     async fn post<B: Serialize, T: DeserializeOwned>(

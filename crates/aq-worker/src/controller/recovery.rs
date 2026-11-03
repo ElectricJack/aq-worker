@@ -176,6 +176,11 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         self.journal.check()?;
         self.recovery_required = true;
         let entries = self.backend.list_owned(self.identity().node_id).await?;
+        let observed_attempts: BTreeSet<_> = entries
+            .iter()
+            .filter(|e| e.sandbox.owner.node_id == self.identity().node_id)
+            .map(|e| e.sandbox.owner.attempt_id)
+            .collect();
         let mut seen = BTreeSet::new();
         let mut unresolved = false;
         for entry in entries {
@@ -272,6 +277,21 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             } else {
                 unresolved = true;
             }
+        }
+        // Abandoned is reachable only before CreateIntent. Revisit after a
+        // crash between saving abandonment and journaling the backend fact.
+        let never_created: Vec<_> = self
+            .state()
+            .attempts
+            .values()
+            .filter(|a| {
+                a.phase == Phase::Abandoned
+                    && !observed_attempts.contains(&a.create.owner.attempt_id)
+            })
+            .map(|a| a.create.clone())
+            .collect();
+        for create in never_created {
+            self.backend.record_not_created(&create, now).await?;
         }
         if self.registered {
             self.readopt_at(now, &seen).await?;

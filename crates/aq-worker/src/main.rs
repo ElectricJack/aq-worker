@@ -52,6 +52,15 @@ enum Cmd {
         #[arg(long)]
         controller_config: PathBuf,
     },
+    /// Import evidence-backed historical Boat VM lifecycle facts, then replay.
+    /// Stop the controller first: this uses its exclusive Boat journal lock.
+    BoatVmTimeBackfill {
+        #[arg(long)]
+        controller_config: PathBuf,
+        /// JSON array of H2 VM-time facts; no credentials or no-create guesses.
+        #[arg(long)]
+        facts: PathBuf,
+    },
     /// Run the protocol-2 synthetic execution candidate (no real provider harness).
     #[cfg(feature = "synthetic-runtime")]
     RunExecution {
@@ -553,23 +562,67 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             }
             Err(e) => usage_err(format!("{e:#}")),
         },
+        Cmd::BoatVmTimeBackfill {
+            controller_config,
+            facts,
+        } => {
+            let result: anyhow::Result<()> = async {
+                use aq_worker::backend::boat::{BoatBackend, BoatKey, VmTimeFact};
+                use std::io::Read;
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::controller::RunConfig::load(&controller_config)?;
+                let boat = config
+                    .boat
+                    .ok_or_else(|| anyhow::anyhow!("backfill requires Boat backend"))?;
+                anyhow::ensure!(
+                    boat.node_id == worker.node_id,
+                    "boat node identity differs from enrollment"
+                );
+                let key = BoatKey::load(&boat.key_file)?;
+                let mut backend = BoatBackend::connect(boat, key)?
+                    .with_vm_time_client(Client::from_config(&worker)?);
+                let mut bytes = Vec::new();
+                std::fs::File::open(facts)?
+                    .take(1_048_577)
+                    .read_to_end(&mut bytes)?;
+                anyhow::ensure!(bytes.len() <= 1_048_576, "backfill file too large");
+                let facts: Vec<VmTimeFact> = serde_json::from_slice(&bytes)?;
+                for fact in facts {
+                    backend.backfill_vm_time(fact)?;
+                }
+                backend.replay_vm_time().await?;
+                anyhow::ensure!(
+                    backend.pending_vm_time_reports() == 0,
+                    "VM-time facts journaled but delivery pending; rerun to retry"
+                );
+                Ok(())
+            }
+            .await;
+            match result {
+                Ok(()) => {
+                    println!("Boat VM-time backfill recorded");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => usage_err(format!("{e:#}")),
+            }
+        }
         Cmd::Run { controller_config } => {
             let result: anyhow::Result<()> = async {
                 use aq_worker::controller::{Controller, RunConfig, UnavailableProvider};
                 use aq_worker::backend::{SelectedBackend, boat::{BoatBackend, BoatKey}, docker_local::DockerLocalBackend};
                 let worker = WorkerConfig::load(&path)?;
                 let config = RunConfig::load(&controller_config)?;
+                let client = Client::from_config(&worker)?;
                 let backend = match (config.docker_local, config.boat) {
                     (Some(docker), None) => SelectedBackend::Docker(Box::new(DockerLocalBackend::connect_unix(docker).await?)),
                     (None, Some(boat)) => {
                         anyhow::ensure!(boat.node_id == worker.node_id, "boat node identity differs from enrollment");
                         let key = BoatKey::load(&boat.key_file)?;
-                        SelectedBackend::Boat(Box::new(BoatBackend::connect(boat, key)?))
+                        SelectedBackend::Boat(Box::new(BoatBackend::connect(boat, key)?.with_vm_time_client(client.clone())))
                     }
                     _ => anyhow::bail!("configure exactly one placement backend"),
                 };
                 let mut controller = Controller::open(&config.state_dir, worker.node_id, config.node, backend, UnavailableProvider)?;
-                let client = Client::from_config(&worker)?;
                 let (tx, rx) = tokio::sync::watch::channel(false);
                 let watcher = tokio::spawn(async move {
                     shutdown_signal().await;

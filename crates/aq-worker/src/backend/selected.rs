@@ -57,6 +57,12 @@ impl PlacementBackend for SelectedBackend {
             Self::Boat(b) => b.stop(s).await,
         }
     }
+    async fn record_not_created(&mut self, r: &CreateRequest, at: u64) -> Result<(), BackendError> {
+        match self {
+            Self::Docker(b) => b.record_not_created(r, at).await,
+            Self::Boat(b) => b.record_not_created(r, at).await,
+        }
+    }
     async fn archive(&mut self, s: &SandboxIdentity) -> Confirmation<StoppedWriterProof> {
         match self {
             Self::Docker(b) => b.archive(s).await,
