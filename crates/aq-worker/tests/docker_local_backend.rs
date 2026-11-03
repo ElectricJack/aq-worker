@@ -1343,3 +1343,62 @@ async fn live_wsl_suspend_resume_reconciles_sandboxes() {
         Ok(0)
     );
 }
+
+/// Fake statvfs: records the measured path and reports fixed blocks.
+struct FakeStatvfs(std::sync::Arc<std::sync::Mutex<Vec<PathBuf>>>);
+impl Statvfs for FakeStatvfs {
+    fn statvfs(&self, path: &std::path::Path) -> std::io::Result<FsStats> {
+        self.0.lock().unwrap().push(path.to_path_buf());
+        Ok(FsStats::from_blocks(4096, 1_000, 300, 250))
+    }
+}
+
+#[tokio::test]
+async fn disk_usage_measures_graph_root_and_preserved_sizes() {
+    let Harness {
+        socket: _socket,
+        docker,
+        backend,
+        cache: _cache,
+        scratch: _scratch,
+    } = harness().await;
+    let seen = std::sync::Arc::default();
+    let mut backend = backend.with_statvfs(FakeStatvfs(std::sync::Arc::clone(&seen)));
+    let request = request(1, 2, 3);
+    let sandbox = bounded(backend.create(&request)).await.unwrap();
+    // Started then exited: the stopped container keeps its writable layer.
+    bounded(backend.start_runner(&sandbox)).await.unwrap();
+    docker.put_file(&request.name, "/aq/work/output", vec![1; 300]);
+    docker.put_file(&request.name, "/var/tmp/layer", vec![2; 40]);
+    assert!(bounded(backend.stop(&sandbox)).await.is_confirmed());
+
+    let none_preserved = bounded(backend.disk_usage(&[])).await;
+    assert_eq!(
+        none_preserved.filesystem,
+        Some(FsStats::from_blocks(4096, 1_000, 300, 250))
+    );
+    assert_eq!(none_preserved.preserved_bytes, Some(0));
+    let usage = bounded(backend.disk_usage(std::slice::from_ref(&sandbox))).await;
+    assert_eq!(usage.preserved_bytes, Some(340), "SizeRw 40 + volume 300");
+    assert_eq!(usage.retained_snapshot_bytes, None);
+    assert_eq!(usage.saved_snapshots_over_allowance, None);
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|p| p == std::path::Path::new("/fake/docker-root"))
+    );
+
+    // An unmeasurable daemon leaves fields absent, never 0.
+    for prefix in ["/v1.44/info", "/v1.44/system/df"] {
+        docker.script(Rule {
+            method: DockerMethod::Get,
+            path_prefix: prefix.into(),
+            effect: Effect::FailBefore(500),
+        });
+    }
+    assert_eq!(
+        bounded(backend.disk_usage(&[sandbox])).await,
+        BackendDiskUsage::default()
+    );
+}

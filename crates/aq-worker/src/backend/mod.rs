@@ -5,6 +5,8 @@ mod types;
 pub use types::*;
 mod lifecycle;
 pub use lifecycle::*;
+mod disk;
+pub use disk::*;
 mod fake;
 pub use fake::{FakeBackend, Fault};
 #[cfg(feature = "backend-conformance")]
@@ -72,6 +74,15 @@ pub trait PlacementBackend: Send {
         _request: &CreateRequest,
     ) -> impl Future<Output = Result<SandboxIdentity, BackendError>> + Send {
         async { Err(BackendError::UnsupportedOperation) }
+    }
+    /// Measured disk for inventory reporting only, never admission authority.
+    /// `preserved` are the stopped, undestroyed sandboxes whose retained size
+    /// is wanted. Unmeasurable values stay `None`.
+    fn disk_usage(
+        &mut self,
+        _preserved: &[SandboxIdentity],
+    ) -> impl Future<Output = BackendDiskUsage> + Send {
+        async { BackendDiskUsage::default() }
     }
     /// Verify authorization scope, stop writers, then delete. Only confirmed
     /// deletion yields Destroyed proof; failure leaves resources protected.

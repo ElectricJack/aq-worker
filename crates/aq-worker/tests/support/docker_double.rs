@@ -278,7 +278,10 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
             if state.rootless {
                 options.push(json!("name=rootless"));
             }
-            let mut info = json!({ "SecurityOptions": options });
+            let mut info = json!({
+                "SecurityOptions": options,
+                "DockerRootDir": "/fake/docker-root",
+            });
             if let Some(driver) = state.cgroup_driver {
                 info["CgroupDriver"] = json!(driver);
             }
@@ -347,30 +350,45 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
             None => error(404, "no such container"),
             Some(c) => {
                 let running = c.status == "running";
-                ok_json(
-                    200,
-                    json!({
-                        "Id": c.id,
-                        "Name": format!("/{name}"),
-                        "Config": {
-                            "Image": c.body["Image"],
-                            "Labels": c.body["Labels"],
-                            "Cmd": c.body["Cmd"],
-                            "Env": c.body["Env"],
-                            "WorkingDir": c.body["WorkingDir"],
-                        },
-                        "HostConfig": c.body["HostConfig"],
-                        "State": {
-                            "Status": c.status,
-                            "Running": running,
-                            "Paused": false,
-                            "Pid": if running { 4242 } else { 0 },
-                            "ExitCode": 0,
-                        },
-                    }),
-                )
+                let size_rw = (query.get("size").map(String::as_str) == Some("true"))
+                    .then(|| c.layer.values().map(|f| f.data.len()).sum::<usize>());
+                let mut body = json!({
+                    "Id": c.id,
+                    "Name": format!("/{name}"),
+                    "Config": {
+                        "Image": c.body["Image"],
+                        "Labels": c.body["Labels"],
+                        "Cmd": c.body["Cmd"],
+                        "Env": c.body["Env"],
+                        "WorkingDir": c.body["WorkingDir"],
+                    },
+                    "HostConfig": c.body["HostConfig"],
+                    "State": {
+                        "Status": c.status,
+                        "Running": running,
+                        "Paused": false,
+                        "Pid": if running { 4242 } else { 0 },
+                        "ExitCode": 0,
+                    },
+                });
+                if let Some(size) = size_rw {
+                    body["SizeRw"] = json!(size);
+                }
+                ok_json(200, body)
             }
         },
+        (Get, ["system", "df"]) => ok_json(
+            200,
+            json!({
+                "Volumes": state.volumes.iter().map(|(name, v)| json!({
+                    "Name": name,
+                    "UsageData": {
+                        "Size": v.files.values().map(|f| f.data.len()).sum::<usize>(),
+                        "RefCount": 1,
+                    },
+                })).collect::<Vec<_>>(),
+            }),
+        ),
         (Put, ["containers", name, "archive"]) => {
             if !state.containers.contains_key(*name) {
                 return error(404, "no such container");
