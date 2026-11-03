@@ -202,7 +202,10 @@ impl BoatBackend {
                     Method::GET,
                     &format!(
                         "/snapshots/{id}/files?path={}",
-                        api::encode(&format!("__dockervol__/{}-work/{path}", r.request.name))
+                        api::encode(&format!(
+                            "__dockervol__/{}-work/_data/{path}",
+                            r.request.name
+                        ))
                     ),
                     None,
                     None,

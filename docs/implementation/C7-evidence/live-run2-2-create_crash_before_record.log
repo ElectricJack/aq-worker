@@ -1,0 +1,12 @@
+# boat_live_conformance live run 2.2, personal account, stock busybox@sha256:a7dbc319..., BOAT_LIVE_SCENARIOS=create_crash_before_record
+# adapter at 9e04f06 (includes b60e424 command-timeout fix); start 2026-11-03T17:24:09Z
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-7729c51d9bddcb94)
+
+running 1 test
+LIVE PASS create_crash_before_record in 26.1s
+test boat_live_conformance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 26.47s
+
+# exit 0 end 2026-11-03T17:24:37Z

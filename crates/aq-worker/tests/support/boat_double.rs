@@ -185,7 +185,18 @@ async fn handle(
             json!({"ok":true,"operation":{"id":format!("delete-{id}"),"kind":"sandbox","targetId":id,"status":if d.lie_purge {"processing"}else{"completed"}}}),
         )
     } else if path.starts_with("/snapshots/") && path.ends_with("/files") {
-        (StatusCode::OK, b"fixture-complete\n".to_vec()).into_response()
+        // Real Boat serves Docker volume contents from the snapshot root at
+        // `__dockervol__/<volume>/_data/<path>`; any other path is a 404.
+        let id = path
+            .trim_start_matches("/snapshots/snapshot-")
+            .trim_end_matches("/files");
+        let name = d.sandboxes.get(id).and_then(|s| s["name"].as_str());
+        let wanted = name.map(|n| format!("path=__dockervol__%2F{n}-work%2F_data%2Fresult"));
+        if wanted.is_some_and(|w| uri.query() == Some(w.as_str())) {
+            (StatusCode::OK, b"fixture-complete\n".to_vec()).into_response()
+        } else {
+            reply(404, json!({"ok":false,"error":{"code":"path_not_found"}}))
+        }
     } else {
         let parts: Vec<_> = path.trim_matches('/').split('/').collect();
         let id = parts.get(1).copied().unwrap_or("");
