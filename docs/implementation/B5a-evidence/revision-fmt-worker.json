@@ -1,0 +1,11 @@
+{
+  "command": [
+    "cargo",
+    "fmt",
+    "-p",
+    "aq-worker",
+    "--check"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5a-evidence/revision-fmt-worker.log"
+}

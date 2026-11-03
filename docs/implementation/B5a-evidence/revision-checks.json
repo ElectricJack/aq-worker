@@ -1,0 +1,128 @@
+{
+  "checks": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "aq-worker",
+        "--test",
+        "controller_cli",
+        "--test",
+        "client",
+        "--test",
+        "foundation_lifecycle",
+        "--test",
+        "backend_conformance"
+      ],
+      "exit_code": 0,
+      "log": "docs/implementation/B5a-evidence/revision-area.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "aq-worker",
+        "--bin",
+        "aq-worker",
+        "run_"
+      ],
+      "exit_code": 0,
+      "log": "docs/implementation/B5a-evidence/revision-cli.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "aq-worker",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "docs/implementation/B5a-evidence/revision-clippy.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "aq-worker",
+        "--lib",
+        "controller::"
+      ],
+      "exit_code": 101,
+      "log": "docs/implementation/B5a-evidence/revision-controller-initial.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "aq-worker",
+        "--lib",
+        "controller::"
+      ],
+      "exit_code": 0,
+      "log": "docs/implementation/B5a-evidence/revision-controller.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "-p",
+        "aq-worker",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "docs/implementation/B5a-evidence/revision-fmt-worker.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "docs/implementation/B5a-evidence/revision-fmt-workspace.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "aq-worker",
+        "--lib",
+        "native::runner::"
+      ],
+      "exit_code": 0,
+      "log": "docs/implementation/B5a-evidence/revision-native.log"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "HEAD^"
+      ],
+      "exit_code": 0,
+      "log": "docs/implementation/B5a-evidence/revision-whitespace.log"
+    }
+  ],
+  "initial_failure": "revision-controller-initial.json; corrected assertion for replaced-root fence, no production change",
+  "final_sync": {
+    "remote": "origin/main",
+    "oid": "9a00f05142957accfdb66cc7a7f40fe9e563356e",
+    "result": "already up to date",
+    "waiver_message": "msg-7bde0584f9dd4e859e014e74330896d3"
+  }
+}

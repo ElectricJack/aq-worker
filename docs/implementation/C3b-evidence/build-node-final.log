@@ -1,0 +1,9 @@
+#1 [internal] booting buildkit
+#1 pulling image moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+<3>WSL (1827099 - ) ERROR: UtilAcceptVsock:273: accept4 failed 110
+#1 pulling image moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea 10.1s done
+#1 pulling failed, using local image moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea done
+#1 creating container buildx_buildkit_aq-c3b-qualification0
+#1 creating container buildx_buildkit_aq-c3b-qualification0 4.0s done
+#1 DONE 14.2s
+aq-c3b-qualification

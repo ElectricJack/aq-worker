@@ -1,0 +1,24 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 00s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-85b5f771be1e69d4)
+
+running 1 test
+test controller::lifecycle_tests::journal_records_intent_before_backend_create ... FAILED
+
+failures:
+
+---- controller::lifecycle_tests::journal_records_intent_before_backend_create stdout ----
+
+thread 'controller::lifecycle_tests::journal_records_intent_before_backend_create' (1844965) panicked at crates/aq-worker/src/controller/lifecycle_tests.rs:18:9:
+assertion `left == right` failed
+  left: Null
+ right: "59d82168-15f5-4142-add0-47bec6f931eb"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    controller::lifecycle_tests::journal_records_intent_before_backend_create
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 252 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

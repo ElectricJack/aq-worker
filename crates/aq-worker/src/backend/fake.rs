@@ -11,6 +11,8 @@ pub enum Fault {
     UnknownState,
     UnknownSandbox,
     ForeignSandbox,
+    DestroyedOnInspect,
+    DestroyedOnStop,
 }
 
 struct Sandbox {
@@ -166,6 +168,11 @@ impl PlacementBackend for FakeBackend {
         identity: &SandboxIdentity,
     ) -> Result<InventoryEntry, BackendError> {
         let mut inventory = self.get(identity)?.inventory.clone();
+        if self.take_fault(Fault::DestroyedOnInspect) {
+            inventory.state = SandboxState::Destroyed;
+            inventory.running_processes = Some(0);
+            inventory.disk_present = false;
+        }
         if self.take_fault(Fault::UnknownState) {
             inventory.state = SandboxState::Unknown;
             inventory.running_processes = None;
@@ -190,6 +197,9 @@ impl PlacementBackend for FakeBackend {
             .collect())
     }
     async fn stop(&mut self, identity: &SandboxIdentity) -> Confirmation<StoppedWriterProof> {
+        if self.take_fault(Fault::DestroyedOnStop) {
+            return Confirmation::Confirmed(StoppedWriterProof::destroyed(identity.clone()));
+        }
         if self.take_fault(Fault::StopFailure) {
             return Confirmation::Unconfirmed(UnconfirmedReason::BackendFailure);
         }

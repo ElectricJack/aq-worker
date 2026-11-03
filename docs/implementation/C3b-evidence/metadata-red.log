@@ -1,0 +1,28 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 1 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' scripts/tests/test_template_tool.py -k metadata_labels -n 0
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 14 items / 13 deselected / 1 selected
+
+scripts/tests/test_template_tool.py F                                    [100%]
+
+=================================== FAILURES ===================================
+___ TemplateTests.test_credential_metadata_labels_are_not_secret_assignments ___
+
+self = <test_template_tool.TemplateTests testMethod=test_credential_metadata_labels_are_not_secret_assignments>
+
+    def test_credential_metadata_labels_are_not_secret_assignments(self):
+        scanner = load('credential_scan')
+        for label in ['api_key_model_discovery=enabled', 'cli_auth_credentials_store=file']:
+>           self.assertFalse(scanner.secret_shaped(label))
+E           AssertionError: True is not false
+
+scripts/tests/test_template_tool.py:249: AssertionError
+=========================== short test summary info ============================
+FAILED scripts/tests/test_template_tool.py::TemplateTests::test_credential_metadata_labels_are_not_secret_assignments
+======================= 1 failed, 13 deselected in 0.23s =======================

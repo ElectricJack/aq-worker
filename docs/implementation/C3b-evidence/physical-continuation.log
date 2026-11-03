@@ -1,0 +1,42 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 5 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C3b-evidence/test_physical_oci.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 2 items
+
+docs/implementation/C3b-evidence/test_physical_oci.py #0 building with "aq-c3b-qualification" instance using docker-container driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile:
+#1 transferring dockerfile: 91B 0.0s done
+#1 DONE 0.5s
+
+#2 [internal] load .dockerignore
+#2 transferring context: 0.0s
+#2 transferring context: 2B 0.0s done
+#2 DONE 0.2s
+
+#3 [internal] load build context
+#3 transferring context: 1.23kB 0.0s done
+#3 DONE 0.1s
+
+#4 [1/1] COPY manifest.json /opt/aq/manifest.json
+#4 DONE 0.1s
+
+#5 exporting to oci image format
+#5 exporting layers
+#5 exporting layers 0.4s done
+#5 exporting manifest sha256:e0e102e1cf634ffaed861894d25f1abcdc7dd2cd022be0138880aa1a0bf9f37f
+#5 exporting manifest sha256:e0e102e1cf634ffaed861894d25f1abcdc7dd2cd022be0138880aa1a0bf9f37f 0.1s done
+#5 exporting config sha256:4cfa58efe38b86e3153c440e5d0e9516fd69d834f5a31ff7e10c31f40e0e9d67 0.1s done
+#5 sending tarball done
+#5 DONE 0.6s
+Observed real OCI manifest digest: sha256:e0e102e1cf634ffaed861894d25f1abcdc7dd2cd022be0138880aa1a0bf9f37f
+..
+
+============================== 2 passed in 4.36s ===============================

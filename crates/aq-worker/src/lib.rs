@@ -5,6 +5,7 @@ pub mod backoff;
 pub mod client;
 pub mod clock;
 pub mod config;
+pub mod controller;
 pub mod execution_client;
 pub mod fixture;
 pub mod journal;
@@ -25,3 +26,4 @@ pub mod native;
 /// Finite local-provider fixture data; never runtime/model qualification.
 #[cfg(any(test, feature = "test-support"))]
 pub mod finite_responses_fixture;
+pub mod template;
