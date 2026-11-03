@@ -25,6 +25,13 @@ fn main() -> Result<()> {
     }
     if args.get(1).is_some_and(|s| s == "harness") {
         agent_probe(Path::new(&args[2]))?;
+        let input = std::env::var_os("AQ_SESSION_DIRECTORY")
+            .ok_or_else(|| anyhow::anyhow!("missing startup context directory"))?;
+        ensure!(
+            fs::read(Path::new(&input).join("context-0.bin"))? == b"fixture",
+            "required startup context unavailable"
+        );
+
         // Escaped writer exercises guardian stop across UID transition.
         let child = unsafe { libc::fork() };
         ensure!(child >= 0, "fixture fork");
@@ -203,6 +210,14 @@ fn agent_probe(root: &Path) -> Result<()> {
             "agent secret exposure"
         );
     }
+    ensure!(
+        RUNNER.drop_privileges().is_err(),
+        "valid transition without capabilities must refuse"
+    );
+    ensure!(
+        unsafe { libc::getuid() } == AGENT.uid,
+        "failed transition changed agent UID"
+    );
     ensure!(unsafe { libc::setuid(0) } != 0, "agent regained root");
     Ok(())
 }

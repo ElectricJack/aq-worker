@@ -60,6 +60,7 @@ async fn aq_proxy_injects_access_header_without_exposing_token() {
             let head = String::from_utf8(head).unwrap().to_lowercase();
             assert!(head.starts_with("get /v1/agent/context?q=1 http/1.1"));
             assert!(head.contains("authorization: bearer agent-credential\r\n"));
+            assert!(head.contains("accept-encoding: identity\r\n"));
             assert!(head.contains("cf-access-client-id: runner-only-id\r\n"));
             assert!(head.contains("cf-access-client-secret: runner-only-secret\r\n"));
             assert!(!head.contains("spoof") && !head.contains("hop-secret"));
@@ -300,4 +301,55 @@ fn runner_private_files_refuse_oversized_and_malformed_secrets() {
         .unwrap();
     file.set_len(4 * 1024 * 1024 + 1).unwrap();
     assert!(RunnerFiles::read_secret(&files.root().join("provider.key")).is_err());
+}
+
+#[tokio::test]
+async fn aq_proxy_refuses_compressed_access_echo() {
+    let root = tempfile::tempdir().unwrap();
+    let files = RunnerFiles::create(&root.path().join("runner")).unwrap();
+    files
+        .write_secret(
+            "access.json",
+            br#"{"client_id":"runner-only-id","client_secret":"runner-only-secret"}"#,
+        )
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream = format!("http://{}", listener.local_addr().unwrap());
+    let peer = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            head.push(socket.read_u8().await.unwrap());
+        }
+        // gzip({"echo":"runner-only-secret"}), containing no literal token bytes.
+        let compressed: &[u8] = &[
+            31, 139, 8, 0, 0, 0, 0, 0, 2, 3, 171, 86, 74, 77, 206, 200, 87, 178, 82, 42, 42, 205,
+            203, 75, 45, 210, 205, 207, 203, 169, 212, 45, 78, 77, 46, 74, 45, 81, 170, 5, 0, 124,
+            32, 219, 126, 29, 0, 0, 0,
+        ];
+        socket
+            .write_all(
+                format!(
+                    "HTTP/1.1 500 Error\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n",
+                    compressed.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        socket.write_all(compressed).await.unwrap();
+    });
+    let proxy = AqApiProxy::development_loopback(&upstream, &files.root().join("access.json"))
+        .await
+        .unwrap();
+    let response = reqwest::Client::new()
+        .get(format!("{}/echo", proxy.origin()))
+        .header("Accept-Encoding", "gzip")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 502);
+    assert!(response.bytes().await.unwrap().is_empty());
+    peer.await.unwrap();
+    proxy.stop().await.unwrap();
 }

@@ -469,6 +469,10 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
         "authority expired/cancelled immediately before native exec"
     );
     if let Some(agent) = config.agent_identity {
+        command.env(
+            "AQ_SESSION_DIRECTORY",
+            crate::users::context_directory(config.launch_id),
+        );
         // All runner-private inputs were read before this irreversible change.
         // Chdir first so no private directory remains as the agent's cwd.
         std::env::set_current_dir(&config.workspace)?;

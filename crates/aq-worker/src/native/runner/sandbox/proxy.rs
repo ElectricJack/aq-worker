@@ -258,6 +258,10 @@ async fn forward(state: &State, socket: &mut TcpStream) -> Result<Vec<u8>> {
         value.set_sensitive(true);
         headers.insert(HeaderName::from_static(name), value);
     }
+    headers.insert(
+        reqwest::header::ACCEPT_ENCODING,
+        HeaderValue::from_static("identity"),
+    );
     let mut body = vec![0; length];
     socket.read_exact(&mut body).await?;
     // Concatenation preserves the fixed authority even for unusual paths.
@@ -280,6 +284,16 @@ async fn forward(state: &State, socket: &mut TcpStream) -> Result<Vec<u8>> {
     ensure!(
         !response.status().is_redirection(),
         "AQ upstream redirect refused"
+    );
+    ensure!(
+        response
+            .headers()
+            .get_all("content-encoding")
+            .iter()
+            .all(|value| value
+                .to_str()
+                .is_ok_and(|value| value.trim().eq_ignore_ascii_case("identity"))),
+        "encoded AQ upstream response refused"
     );
     let status = response.status().as_u16();
     let mut result = format!("HTTP/1.1 {status} Upstream\r\nConnection: close\r\n").into_bytes();

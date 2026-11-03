@@ -720,6 +720,9 @@ impl SessionHost {
             &directory.join("launch.json"),
             &serde_json::to_vec(&config)?,
         )?;
+        if config.agent_identity.is_some() {
+            users::publish_context(launch_id, &context)?;
+        }
         for (index, bytes) in context.into_iter().enumerate() {
             durable_new(&directory.join(format!("context-{index}.bin")), &bytes)?;
         }

@@ -206,6 +206,45 @@ pub fn bootstrap_sandbox_users() -> Result<AgentIdentity> {
     Ok(agent)
 }
 
+/// Public startup bytes only, separate from the private host state. The root-
+/// owned sticky parent prevents the agent from replacing the directory during
+/// publication. Exclusive creation makes a precreated name a refusal.
+pub(crate) fn context_directory(launch_id: uuid::Uuid) -> std::path::PathBuf {
+    Path::new("/tmp").join(format!("aq-context-{}-{launch_id}", unsafe {
+        libc::geteuid()
+    }))
+}
+pub(crate) fn publish_context(launch_id: uuid::Uuid, context: &[Vec<u8>]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    let parent = std::fs::symlink_metadata("/tmp")?;
+    ensure!(
+        parent.is_dir()
+            && parent.uid() == 0
+            && parent.mode() & 0o005 == 0o005
+            && (parent.mode() & 0o022 == 0 || parent.mode() & 0o1000 != 0),
+        "startup delivery requires root-owned protected /tmp"
+    );
+    let directory = context_directory(launch_id);
+    std::fs::DirBuilder::new().mode(0o700).create(&directory)?;
+    for (index, bytes) in context.iter().enumerate() {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(directory.join(format!("context-{index}.bin")))?;
+        file.write_all(bytes)?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o444))?;
+        file.sync_all()?;
+    }
+    let dir = std::fs::File::open(&directory)?;
+    dir.set_permissions(std::fs::Permissions::from_mode(0o555))?;
+    dir.sync_all()?;
+    std::fs::File::open("/tmp")?.sync_all()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
