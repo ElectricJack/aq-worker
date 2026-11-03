@@ -31,6 +31,13 @@ pub enum Resolution {
 }
 impl Discovery {
     pub fn resolve(&self) -> Result<Resolution> {
+        self.resolve_owned(None)
+    }
+    /// A trusted runner may admit its separately owned agent transcript.
+    pub fn resolve_for_owner(&self, owner_uid: u32) -> Result<Resolution> {
+        self.resolve_owned(Some(owner_uid))
+    }
+    fn resolve_owned(&self, owner_uid: Option<u32>) -> Result<Resolution> {
         ensure!(
             !self.source_id.is_nil()
                 && (1..=4096).contains(&self.maximum_entries)
@@ -54,15 +61,15 @@ impl Discovery {
             return Ok(Resolution::Unsupported);
         }
         if let Some(member) = &self.exact_member {
-            return self.probe(member);
+            return self.probe(member, owner_uid);
         }
         if self.format == Format::ClaudeV1Jsonl9a9b8e8 {
-            return self.probe(&format!("{key}.jsonl"));
+            return self.probe(&format!("{key}.jsonl"), owner_uid);
         }
         if self.format == Format::GeminiRecording6814e00 {
             let direct = format!("{key}.jsonl");
             if self.root.join(&direct).exists() {
-                return self.probe(&direct);
+                return self.probe(&direct, owner_uid);
             }
         }
         let mut entries = 0;
@@ -95,7 +102,7 @@ impl Discovery {
         let mut found = vec![];
         let mut not_ready = false;
         for candidate in candidates {
-            match self.probe(&candidate)? {
+            match self.probe(&candidate, owner_uid)? {
                 Resolution::Found(permit) => found.push(permit),
                 Resolution::NotReady => not_ready = true,
                 Resolution::IdentityMismatch => {}
@@ -110,8 +117,8 @@ impl Discovery {
             _ => Resolution::Ambiguous,
         })
     }
-    fn probe(&self, member: &str) -> Result<Resolution> {
-        let permit = match SourceFile::inspect(
+    fn probe(&self, member: &str, owner_uid: Option<u32>) -> Result<Resolution> {
+        let mut permit = match SourceFile::inspect(
             self.source_id,
             &self.root,
             member,
@@ -126,6 +133,7 @@ impl Discovery {
             }
             Err(e) => return Err(e),
         };
+        permit.owner_uid = owner_uid;
         let source = SourceFile::open(permit.clone())?;
         let ReadOutcome::Ready(read) = source.read(&Cursor::default(), MAX_READ_BYTES)? else {
             return Ok(Resolution::NotReady);

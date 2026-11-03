@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--test",
+    "sandbox_runner",
+    "runner_channel_refusal_stops_and_preserves"
+  ],
+  "exit_code": 101,
+  "log": "docs/implementation/B6a2-evidence/client-scope-red.log"
+}

@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--test",
+    "sandbox_runner"
+  ],
+  "exit_code": 101,
+  "log": "docs/implementation/B6a2-evidence/runner-final.log"
+}

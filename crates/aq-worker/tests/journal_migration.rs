@@ -7,6 +7,10 @@ use aq_worker::{
 use aq_worker_protocol::{testing::*, *};
 use tempfile::TempDir;
 use uuid::Uuid;
+// Frozen readers predate explicit flock release. A concurrent fixture fork
+// inherits their locked file descriptions until exec, even with CLOEXEC.
+// Keep historical-reader lifetimes and the forking fixture mutually exclusive.
+static LEGACY_READER_AND_FORK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[allow(dead_code)]
 #[path = "fixtures/journal-v1.rs"]
 mod legacy;
@@ -95,6 +99,7 @@ fn make_v1(root: &std::path::Path, phase: Phase) -> ResultReport {
 }
 #[test]
 fn v1_retired_and_stopped_reports_upgrade_without_reinterpreting_evidence() {
+    let _guard = LEGACY_READER_AND_FORK.lock().unwrap();
     for phase in [Phase::Retired, Phase::Reporting] {
         let temp = TempDir::new().unwrap();
         let report = make_v1(temp.path(), phase);
@@ -152,6 +157,7 @@ fn legacy_active_launch_without_guardian_stays_uncertain_even_with_missing_pid()
 }
 #[test]
 fn frozen_v1_reader_refuses_current_format_without_modifying_new_state() {
+    let _guard = LEGACY_READER_AND_FORK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let journal = Journal::open(temp.path(), sample_offer().identity, limits()).unwrap();
     drop(journal);
@@ -204,6 +210,7 @@ fn drain_survives_restart_and_does_not_restore_launch_authority() {
 }
 #[test]
 fn v2_guardian_report_upgrades_exactly_and_old_reader_refuses_v3_unchanged() {
+    let _guard = LEGACY_READER_AND_FORK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let offer = sample_offer();
     let id = offer.attempt.attempt_id;

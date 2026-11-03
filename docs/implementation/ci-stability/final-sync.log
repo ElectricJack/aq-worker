@@ -1,0 +1,62 @@
+Final targeted verification after main sync 210e51861fa8008cc8f2ac034c8e1cf477e7d3f0
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2
+Foreground runner: aq test .aq/tmp/ci-stability/test_final_sync.py -q -s
+
+$ cargo test --locked --all-features -p aq-worker -p aq-responses-transport --lib expired_scope_and_identical_cap_refuse_or_remain_exact
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 10s
+     Running unittests src/lib.rs (target/debug/deps/aq_responses_transport-e4586e5d917858fd)
+
+running 1 test
+test policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-faad8c8ed6cb05c1)
+
+running 1 test
+test native::adapter::responses_transport::policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 319 filtered out; finished in 0.00s
+
+
+Exit status: 0
+
+$ cargo test --locked --all-features -p aq-worker --test sandbox_runner
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.02s
+     Running tests/sandbox_runner.rs (target/debug/deps/sandbox_runner-a26580c95f5867ff)
+
+running 14 tests
+test cancellation_preserves_and_default_local_permit_is_at_most_120_seconds ... ok
+test delegated_permit_expiry_caps_initial_grant ... ok
+test frozen_handoff_rejects_reboot_changed_manifest_and_directory_copy ... ok
+test production_cli_refuses_missing_prerequisites_or_unwired_transport_before_launch ... ok
+test concurrent_handoff_has_only_one_writer_launch ... ok
+test renewal_keeps_same_guardian_alive_past_original_deadline ... ok
+test renewal_loss_stops_and_preserves_without_relaunch ... ok
+test runner_cannot_report_before_handoff_receipts ... ok
+test runner_channel_refusal_stops_and_preserves ... ok
+test runner_needs_no_node_credential ... ok
+test sandbox_run_cli_requires_frozen_manifest_and_state ... ok
+test renewal_replay_wrong_nonce_and_readoption_never_extend_authority ... ok
+test tmux_exit_requires_descendant_stop_proof ... ok
+test unknown_stop_retains_without_reporting_or_claiming_proof ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.12s
+
+
+Exit status: 0
+
+$ cargo fmt -p aq-worker -p aq-session-host -p aq-responses-transport -- --check
+
+Exit status: 0
+
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 3 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest -n 6 --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' .aq/tmp/ci-stability/test_final_sync.py -q -s
+bringing up nodes...
+bringing up nodes...
+
+.
+1 passed in 109.84s (0:01:49)

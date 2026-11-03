@@ -1,0 +1,9 @@
+Consume a frozen local handoff. HTTP transport awaits B2/B6a2 wiring
+
+Usage: aq-worker sandbox-run [OPTIONS] --manifest <MANIFEST> --state-dir <STATE_DIR>
+
+Options:
+      --config <CONFIG>        Path to worker.toml (default: $XDG_CONFIG_HOME/agent-q/worker.toml)
+      --manifest <MANIFEST>    
+      --state-dir <STATE_DIR>  
+  -h, --help                   Print help

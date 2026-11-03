@@ -29,6 +29,13 @@ pub enum FixtureCase {
         operation: RunnerOperation,
         now_ms: u64,
     },
+    StoppedReplay {
+        permit: DelegatedPermit,
+        context: PermitContext,
+        original_request: Box<crate::stopped::Request>,
+        request: Box<crate::stopped::Request>,
+        now_ms: u64,
+    },
     Readoption {
         request: ReadoptionRequest,
         response: ReadoptionResponse,
@@ -115,6 +122,13 @@ pub fn validate_fixture(fixture: &Fixture) -> String {
             operation,
             now_ms,
         } => permit.validate_for(context, *operation, *now_ms),
+        FixtureCase::StoppedReplay {
+            permit,
+            context,
+            original_request,
+            request,
+            now_ms,
+        } => permit.validate_stopped_replay(context, original_request, request, *now_ms),
         FixtureCase::Readoption {
             request,
             response,
