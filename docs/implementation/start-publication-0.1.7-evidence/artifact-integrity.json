@@ -1,0 +1,11 @@
+{
+  "archive": "aq-session-host-0.1.7-source.tar.gz",
+  "bytes": 2638863,
+  "host_plan_version": 1,
+  "owner": "aq-worker",
+  "package": "aq-session-host",
+  "sha256": "ab37cb192870f07290b4aff887b57b73783931ba5dfc248184da483c99036bdb",
+  "version": "0.1.7",
+  "extracted_root": "/tmp/aq-host-0.1.7-1j9j7sns/aq-session-host-0.1.7-source",
+  "verified_files": 1201
+}

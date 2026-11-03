@@ -7,22 +7,22 @@ consumer requirement is aq-server's
 `docs/implementation/AQ-17-central-authority-core.md`, especially its neutral
 adapter seam. This replaces the earlier blocked checkpoint at `658b233`.
 
-## Consumer pin
+## Consumer pin (0.1.7 race fix)
 
 The reproducible publication is
-`protocol/releases/aq-session-host-0.1.6-source.tar.gz`:
+`protocol/releases/aq-session-host-0.1.7-source.tar.gz`:
 
-- SHA-256: `e68ad4071935cec0bf7d67b5ab52e5e30364c12869e8e6b99b964b8fd69f3f1a`
-- Size: 2,637,368 bytes.
-- Receipt: `protocol/releases/aq-session-host-0.1.6-source.json`, including a
+- SHA-256: `ab37cb192870f07290b4aff887b57b73783931ba5dfc248184da483c99036bdb`
+- Size: 2,638,863 bytes.
+- Receipt: `protocol/releases/aq-session-host-0.1.7-source.json`, including a
   SHA-256 and byte length for every source file.
-- Package: `aq-session-host = 0.1.6`; HostPlan version: `1`.
+- Package: `aq-session-host = 0.1.7`; HostPlan version: `1`.
 - Unchanged wire dependency: `aq-session-protocol = 0.1.0`.
 
 Extract the archive as a unit. It includes the locked workspace, all local
 path dependencies, session-host's helper source, and `aq-codex-mapper`, avoiding
 the missing packages in the older worker archive. Its source root is
-`aq-session-host-0.1.6-source/`. Build the helper from that root with
+`aq-session-host-0.1.7-source/`. Build the helper from that root with
 `cargo build --locked -p aq-session-host --bin aq-session-host --jobs 2`.
 The library is at `crates/aq-session-host`; a consumer vendoring this closure
 must retain relative path dependencies and patch `aq-session-protocol` to the
@@ -113,7 +113,7 @@ receipt. Guardian loss is StopUncertain even when known processes disappear;
 it cannot authorize a successor. F1a owns durable retention, successor admission
 and dispatch uncertainty reconciliation using those receipts.
 
-## Compatibility and verification
+## Compatibility and 0.1.6 verification
 
 The v1 LaunchManifest validator and protocol source are unchanged. Existing
 `launch`, `launch_rendered`, observed/private factories and their public adapter
@@ -145,3 +145,54 @@ only inside the unpacked archive. New tests have no ignores or provider access.
 CI explicitly installs tmux for the local physical qualification. This evidence
 does not qualify the aq-server host container, conversation dispatch, central
 credentials or a native Codex image; those remain F1a/F1b integration work.
+
+
+## 0.1.7 adoption for aq-platform F1a
+
+For `steady-harbor-87.1`, replace the 0.1.6 source closure with the exact 0.1.7
+archive above, verify its receipt/hash, and pin `aq-session-host = "=0.1.7"`.
+Rebuild and install the helper from that same closure before admitting new
+central sessions. Preserve the existing session-protocol 0.1.0 dependency and
+HostPlan version 1. Do not mix library/helper source pins or infer that an old
+already-running helper was upgraded by changing a dependency.
+
+0.1.7 fixes a publication race: the guardian previously observed a final
+`start.request` path before `write_all` completed, then correctly stopped on
+partial JSON. `durable_new` now writes a unique mode-0600 file in the same
+directory, fsyncs its complete contents, publishes with Linux
+`renameat2(RENAME_NOREPLACE)`, then fsyncs the directory. An existing file or
+symlink wins without replacement. Failed writes/publications remove their owned
+temporary file; a crash can leave an unpublished temporary file, which the
+guardian never consumes. Unsupported kernel/filesystem rename semantics refuse;
+there is no non-atomic fallback. Published malformed JSON remains a fatal startup
+error and cannot launch tmux.
+
+Admission remains caller-owned: authenticate/fence the dispatch, retain durable
+launch/guardian/start callbacks, bind the exact plan/session and capacity
+reservation, and issue the initial permit within the original boot/admission/
+deadline bounds. A failed/ambiguous launch still requires recovery and exact
+stopped-writer proof before successor admission; atomic publication adds no
+replay or restart authority. Qualify the upgraded aq-platform composition in its
+own physical tests; host component checks do not establish native provider or
+central-container qualification.
+
+0.1.7 verification and exact command receipts are retained in
+`docs/implementation/start-publication-0.1.7-evidence/`. The 0.1.6 evidence and
+publication remain historical artifacts, not evidence for the new bytes.
+
+
+| 0.1.7 check | Result / evidence |
+| --- | --- |
+| Atomic slow writer, no clobber/cleanup, competing publishers | 3 passed; `atomic.json`. |
+| Legacy publication injected in disposable extraction | Expected regression failure detected; exact source restored; `legacy-race.json` / `legacy-race.log`. |
+| `cargo test --locked -p aq-session-host --all-features` | 73 passed, 59 existing opt-in/fixture ignores; `host.json`. Includes 50 fresh central starts. |
+| Same suite from final extracted release | 73 passed, 59 existing ignores; `artifact-host.json`. Includes another 50 starts and malformed-start refusal. Initial existing credential-lock test failure is retained in `artifact-host-initial-lock-failure.*`; exact focused rerun and unchanged area retry passed. |
+| Host all-target/all-feature Clippy with `-D warnings` | Passed; `clippy.json`. |
+| Extracted file/archive integrity | 1,201 file hashes/lengths plus archive hash/size verified; `artifact-integrity.json`. |
+| Workspace formatting, whitespace, publication reproduction | `cargo fmt -- --check`, `git diff --check`, `python3 scripts/package-session-host.py --check` passed. |
+
+These receipts are relative to `start-publication-0.1.7-evidence/`. Its README
+records exact reproduction details and limitations. The original aq-platform
+physical test is not available in this checkout; the host's equivalent central
+launch loop is qualified here, while F1a consumer qualification remains with
+aq-platform.
