@@ -10,6 +10,7 @@ pub(crate) fn boot_ns() -> anyhow::Result<u64> {
     super::super::http::boot_ns()
 }
 pub mod channels;
+pub mod disk_watch;
 pub mod hydrate;
 pub mod observations;
 pub mod output;
