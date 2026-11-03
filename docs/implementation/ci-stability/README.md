@@ -62,6 +62,25 @@ All three template tests then passed in 20 more rounds with two Rust test
 threads, validating the merged scanner policy; commands, results and log hashes
 are in [merged-templates.log](merged-templates.log).
 
+The next branch run,
+[41593850883](https://github.com/ElectricJack/aq-worker/actions/runs/41593850883),
+passed image setup but exposed a separate policy-test race. The worker's
+`expired_scope_and_identical_cap_refuse_or_remain_exact` constructed a policy
+with a one-millisecond lifetime; on the runner, construction itself sometimes
+rejected the already-expired deadline before the test could check `prepare`.
+The neutral transport already tested expiration by setting its private deadline
+to zero. Its existing `test-support` feature now exposes this same deterministic
+expiration to dependent tests, and both policy tests use it. The worker retains
+its exact cap-equality and expired-`prepare` rejection assertions. The two-millisecond
+sleep is removed; production clock checks and deadlines are unchanged. Failure
+evidence is in [branch-ci-policy-deadline.log](branch-ci-policy-deadline.log).
+Both policy regressions passed 20 times (40 test invocations), then their eight
+related policy tests and formatting passed. Exact commands and results are in
+[policy-deadline.log](policy-deadline.log).
+Final sync with main `210e518` brought in runner authentication changes. Both
+deadline regressions and all 14 sandbox runner tests passed after this merge,
+as did formatting; see [final-sync.log](final-sync.log).
+
 Three consecutive `check` passes on the delivered main commit remain the
 integration owner's acceptance gate. The worker publishes its task branch and
 does not independently merge or push main.
