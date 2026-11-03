@@ -1,0 +1,1 @@
+runner UID 21001, agent UID 21002; credential denial, empty groups and Inh/Prm/Eff/Amb, residual CapBnd=0xe0, no_new_privs=1, outside-pane signal 0/SIGCONT denied with EPERM, tmux execution and descendant stop proven

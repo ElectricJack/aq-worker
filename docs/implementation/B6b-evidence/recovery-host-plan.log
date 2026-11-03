@@ -1,0 +1,16 @@
+    Blocking waiting for file lock on build directory
+   Compiling aq-session-host v0.1.6 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 14s
+     Running tests/supervisor_session.rs (target/debug/deps/supervisor_session-97cef6f869bd5668)
+
+running 7 tests
+test supervisor_session_adapter_mismatch_refuses_before_durable_intent ... ok
+test supervisor_session_contract_and_v1_validation ... ok
+test supervisor_session_callback_failures_never_replay_start ... ok
+test supervisor_session_guardian_loss_is_unknown_even_after_processes_exit ... ok
+test supervisor_session_permit_binds_every_plan_input_and_original_deadline ... ok
+test supervisor_session_physical_restart_observation_renew_and_stopped_proof ... ok
+test supervisor_session_expiry_and_recovery_do_not_resurrect ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.70s
+

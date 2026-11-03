@@ -2,7 +2,7 @@
 
 Task: `noble-summit-37.8`. Implementation plan: [runner users and proxies](../superpowers/plans/2026-11-02-B6b-runner-users-proxies.md).
 
-Status: recovery qualification is in progress under supervisor ruling `msg-7ea45832655a419ea5723f75e6c1212f`. Bounding-set clearing is removed from scope; no SETPCAP or bootstrap/backend/image capability changes are authorized. The live-runner signal-denial regression and main-merge compile repair are implemented. See the recovery qualification below; claim-epoch-1 failures remain historical evidence.
+Status: **PASS** for both named acceptance tests and all current scoped checks under supervisor ruling `msg-7ea45832655a419ea5723f75e6c1212f`. The approved residual bounding set is documented below. Historical claim-epoch-1 full-suite failures remain part of this record; no full-suite pass is claimed.
 
 ## Behavior and integration
 
@@ -70,4 +70,19 @@ The agent probe carries the live runner PID as a nonsecret argument, verifies it
 
 Recovery uses `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 TOKIO_WORKER_THREADS=2`, the committed lockfile, and the same pinned root fixture image. Current prime instructions require focused/area checks and preservation of known unrelated failing baselines; the historical full-suite failures above are retained, and no new full-suite pass is claimed.
 
-Final-source required filters both report one passing named test, with no zero-test substitution: `cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key` and `cargo test --locked --workspace aq_proxy_injects_access_header_without_exposing_token`. `cargo clippy --locked --all-targets -- -D warnings` and `cargo fmt --check` pass. The remaining related-area results and publication revision are recorded below once complete.
+Final-source required filters both report one passing named test, with no zero-test substitution: `cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key` and `cargo test --locked --workspace aq_proxy_injects_access_header_without_exposing_token`. `cargo clippy --locked --all-targets -- -D warnings` and `cargo fmt --check` pass. Related-area results and the verified source revision follow.
+
+Recovery qualification source: `ebc4b27f0bf4883d972865184086c35a82663b58`, already including `origin/main` at `5e05a02816d95122877f6e9fe29ba3055f1f371f`. `aq git pull --branch main --brief` succeeded and changed no files; ancestor validation passed. The final publication adds documentation and logs only. Already-reviewed/published feature history and integration ancestry are preserved. The close record supplies the final publication SHA.
+
+| Exact command | Result | Evidence |
+| --- | --- | --- |
+| `cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key` | 1 named test passed | [user filter](B6b-evidence/recovery-required-user-final.log) |
+| `cargo test --locked --workspace aq_proxy_injects_access_header_without_exposing_token` | 1 named test passed | [AQ filter](B6b-evidence/recovery-required-access.log) |
+| `cargo test --locked -p aq-worker --test sandbox_security --test sandbox_runner` | security 8/8; runner 12/12 | [area results](B6b-evidence/recovery-security-area.log) |
+| `cargo test --locked -p aq-session-host --test supervisor_session` | 7/7 | [host-plan results](B6b-evidence/recovery-host-plan.log) |
+| `cargo test --locked -p aq-session-host users::tests` | 2/2 | [users results](B6b-evidence/recovery-users.log) |
+| `cargo fmt --check` | exit 0 | [formatter output](B6b-evidence/recovery-fmt-final.log) |
+| `cargo clippy --locked --all-targets -- -D warnings` | exit 0 | [Clippy output](B6b-evidence/recovery-clippy.log) |
+| `scripts/test-b6b-root.sh target/debug/aq-b6b-user-probe` | all kernel assertions passed | [kernel evidence](B6b-evidence/recovery-kernel-probe.log) |
+
+[Exit-status ledger](B6b-evidence/recovery-status.log). No historical whole-suite failures were weakened or silently treated as passes. Production transport/Codex configuration remain with B6a2/C6a, as required by the task boundary. Recovery introduces no production privilege or backend policy changes.
