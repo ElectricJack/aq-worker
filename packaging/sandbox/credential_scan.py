@@ -15,7 +15,11 @@ MAX_ENTRIES = 1_000_000
 MAX_JSON = 1024 * 1024
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
 TOKEN_PATTERN = re.compile(
-    rb'(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}'
+    # Exact public Serde capability/field/type labels concatenate in .rodata.
+    # Exclude only the sk- inside this complete context, without consuming
+    # bytes: later tokens and the independent URL/assignment checks still run.
+    rb'(?:sk-(?!(?<=persistent-disk-)during-attemptbackend_idstruct )(?:proj-|ant-)?[A-Za-z0-9_-]{20,}'
+    rb'|gh[pousr]_[A-Za-z0-9]{20,}'
     rb'|github_pat_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{30,}|AKIA[A-Z0-9]{16}'
     rb'|https?://[^\s/:\x22\x27]+:[^\s/@\x22\x27]+@'
     rb'|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{16,}'
@@ -24,6 +28,162 @@ TOKEN_PATTERN = re.compile(
 ASSIGNMENT = re.compile(rb'(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{0,127})[\x22\x27]?\s*=\s*[\x22\x27]?([A-Za-z0-9_+/.-]{4,})')
 JSON_ASSIGNMENT = re.compile(rb'"([A-Za-z][A-Za-z0-9_]{0,127})"\s*:\s*"([A-Za-z0-9_+/=.:,-]{4,4096})"')
 CREDENTIAL_LABEL = re.compile(r'(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|ACCESS_KEY_ID|SECRET_ACCESS_KEY|OPENAI_KEY)\Z')
+
+# Reviewed public distribution bytes containing format constants, self-test
+# vectors or source examples. This catalog is part of the installed scanner,
+# never image/config input. See docs/implementation/C3b-public-constants.md and
+# its independently downloaded upstream archive/member verification evidence.
+# Identity is the *entire* original file, not its name, prefix or ELF format.
+PUBLIC_FILE_CONSTANTS = {
+    # etc/ssl/openssl.cnf
+    '7ae8cae2e64856b34c80276deb1dcf60f76da27bc1e00382201ba7bb7dc33311': 12332,
+    # opt/aq/harnesses/codex/codex
+    'b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8': 319346888,
+    # opt/aq/node/bin/node
+    '8142d37c6f2f372ef040419e7a111a6baf17df89f8078d02447d6c639ae20c1d': 121509208,
+    # opt/aq/node/lib/node_modules/corepack/dist/lib/corepack.cjs
+    '3dafc27aaa5c71358f0515241cce7492b24b03a9d93be6ab940f306e3febfa0f': 962955,
+    # opt/aq/node/lib/node_modules/npm/docs/content/using-npm/config.md
+    '4793d88688041eb7660ffc8fa249a0e41f2dad7bbdcd2441073424b154b8bb02': 46442,
+    # opt/aq/node/lib/node_modules/npm/docs/output/using-npm/config.html
+    'bd9b76debdd6e652e985b399d5d8941b05cd4706d7bddb69ffb691836f0fa63d': 75798,
+    # opt/aq/node/lib/node_modules/npm/lib/commands/profile.js
+    'adbdcde3b2ef2fc35495a03060ffa4c0d151e039f704126d51b1c20c5a8c8b17': 10819,
+    # opt/aq/node/lib/node_modules/npm/lib/commands/token.js
+    'ae27e6d635831267466cc821f5e0a18a9fdd754ceb6b90eb28fe4c999b173fea': 6160,
+    # opt/aq/node/lib/node_modules/npm/lib/utils/auth.js
+    'c13178cde84b223f94cf06e7a7a1c7e4fbcba9dc44e15a1acc731d8c6969cd7a': 3291,
+    # opt/aq/node/lib/node_modules/npm/man/man7/config.7
+    'f318905e29e58fc3fef4ea159309e29f6cef92d7c57ed1ec957ad0b7910d0098': 54612,
+    # opt/aq/node/lib/node_modules/npm/node_modules/@npmcli/config/lib/definitions/definitions.js
+    '83b2068320f1a131c96658940e80522ec1f29150b338ce40eccf486e0ee05900': 73793,
+    # opt/aq/node/lib/node_modules/npm/node_modules/@npmcli/config/lib/index.js
+    'aa283456b6e3c72396b0bc8230d31072665f753d5b80e04efa556713339adbad': 28888,
+    # opt/aq/node/lib/node_modules/npm/node_modules/@pkgjs/parseargs/examples/limit-long-syntax.js
+    '92d07fcfe098ec3e8545ddc388871c54f167933ce34b3f25f1f3525c027c5c29': 1071,
+    # opt/aq/node/lib/node_modules/npm/node_modules/diff/dist/diff.js
+    '43decd0ad71f8e4b312d1c95ee5b1ea446cebb006c6fcb718dd81d0a7bfc8278': 53658,
+    # opt/aq/node/lib/node_modules/npm/node_modules/diff/lib/diff/json.js
+    'e9ef76b36e5a19263d199ac35871a15aa2b33c00479192b71f6c8f46b91a1661': 12937,
+    # opt/aq/node/lib/node_modules/npm/node_modules/diff/lib/index.mjs
+    '5b16b23087ed45b8f5718ad6834bee324dbb860755c7c40d8b9dc594075d58a7': 50001,
+    # opt/aq/node/lib/node_modules/npm/node_modules/jsonparse/jsonparse.js
+    '8fee0da896c802ccc73d8f0db740625ad0dd6b403a7bc5c86f4afdd17ba8941e': 15570,
+    # opt/aq/node/lib/node_modules/npm/node_modules/node-gyp/gyp/pylib/packaging/_parser.py
+    'e4384aff3609138538cb34a4804053e05eed4f6c59e8f931e204912b2bd79de4': 10382,
+    # opt/aq/node/lib/node_modules/npm/node_modules/node-gyp/gyp/pylib/packaging/_tokenizer.py
+    '6a50ad6f05e138502614667a050fb0093485a11009db3fb2b087fbfff31327f9': 5292,
+    # opt/aq/node/lib/node_modules/npm/node_modules/npm-profile/lib/index.js
+    'd91acad36065d6a64bc95c0ed6a0f103c3224b59d7985938f22a12f481503721': 6869,
+    # opt/aq/node/lib/node_modules/npm/node_modules/npm-registry-fetch/lib/auth.js
+    'fc50e1fa09f89b75eebfb632d7c4063a26881ec10791246ae4b30cfc47a8bd84': 5374,
+    # opt/aq/node/lib/node_modules/npm/node_modules/postcss-selector-parser/dist/parser.js
+    '594e5cabc1baa4b1b49d3aa614138a44183a8ae7f8d87291281bbc344c9b38fb': 39081,
+    # opt/aq/node/lib/node_modules/npm/node_modules/sigstore/dist/config.js
+    '8e2067981d52721988a681543e9e04973ce30e40ea8c8ce65632f7d059089634': 4320,
+    # opt/aq/node/lib/node_modules/npm/node_modules/sigstore/node_modules/@sigstore/sign/dist/signer/fulcio/index.js
+    'cc4124686b7b6d10f3fe1128f22714920852b639f939f58ff290701821ece3ec': 3485,
+    # opt/aq/node/lib/node_modules/npm/node_modules/socks/build/client/socksclient.js
+    '4b473feca4862b5c66ec0efa39ea2d40d07c845886b6081813b07d489fabd897': 35626,
+    # opt/aq/node/lib/node_modules/npm/node_modules/spdx-expression-parse/scan.js
+    'a3b23fce07fb28a267ef35cd0b8230bff6eb68700578a315982fc7924636538b': 2774,
+    # opt/aq/node/lib/node_modules/npm/node_modules/validate-npm-package-license/node_modules/spdx-expression-parse/scan.js
+    'b3c4dcd0af9b6e72cd1c56335db37447657114e8201271653bf35c5bfe7afba6': 2754,
+    # opt/git/libexec/git-core/git-p4
+    'b6c106bbf7e36b5c67c98b6f8e9aaa3863a953908f3f509bdfd9eae2bb93dd79': 172865,
+    # opt/git/share/perl5/Git.pm
+    'f797504db05192c01300f6eecdc70d46e7f066c44fc43487a2908ee8cc54a3ab': 48387,
+    # opt/node/bin/node
+    'd918479037f14dc30c8d21df3767a010fe710685373baec7edf680ca8c3edbee': 129491488,
+    # opt/node/lib/node_modules/corepack/dist/lib/corepack.cjs
+    'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829': 963574,
+    # opt/node/lib/node_modules/npm/docs/content/using-npm/config.md
+    '89fc5f1fb236c8be718aa45e91022dd43ce73b6028e87e96d285ee9f8d11d182': 47321,
+    # opt/node/lib/node_modules/npm/docs/output/using-npm/config.html
+    '21551173569fc409b3f5842d3e68298808d0c9f1cc50b7cda46e5b213c361e70': 77205,
+    # opt/node/lib/node_modules/npm/lib/commands/profile.js
+    '3cfe31f01747fcf285f47e7173c6b3686a21e4fc9ccad69687dce69711773c09': 10696,
+    # opt/node/lib/node_modules/npm/lib/commands/token.js
+    'c7e0512e654c8fc9fc234c235c6d10d46aad511976abb847a81507f7ce019538': 6066,
+    # opt/node/lib/node_modules/npm/lib/utils/oidc.js
+    'c24d567d07e771ce3cb38b1cfbcd6f564da646904e8fb7b653f85c391a7b9f57': 7098,
+    # opt/node/lib/node_modules/npm/man/man7/config.7
+    'a3f0c35cc25a58946ba505e8a1ff791b35491beca7270eda5eb8fb633480c570': 55662,
+    # opt/node/lib/node_modules/npm/node_modules/@npmcli/config/lib/definitions/definitions.js
+    '139887f10ade68539e130584636d00fc63c5a29cbe35708dee9ffdb39c872998': 74850,
+    # opt/node/lib/node_modules/npm/node_modules/@npmcli/config/lib/index.js
+    '45ff414dec518bb1c5745cbcb840c8fcfdd1285b4becc7207456c07323a88ce7': 30544,
+    # opt/pnpm/dist/pnpm.cjs
+    'ca969fbb32c08be8395c744c64e131c2ba2c93067e1b483171dbc6ed439e1143': 8632942,
+    # opt/pnpm/dist/worker.js
+    '7b8aba01c22e65e9d1998fd1e30dc9722e4c315f80c87bcc54826d9ddb944e59': 424672,
+    # opt/rust/bin/cargo
+    'a73b2c25573d251489101c0d8f19ad3702eb9761166de5ed8437b472b6c038ce': 42878680,
+    # opt/rust/bin/clippy-driver
+    '4b6976de2e62e12adaa5e6ef190b1d3f3fbf062e0f8ea5f4014fca45fb918a66': 20959320,
+    # opt/rust/lib/rustlib/x86_64-unknown-linux-gnu/bin/wasm-component-ld
+    '053399b53d6802732e584d20b02eb4a09b798d54d2828c8839c4f320a604aaa1': 5165592,
+    # usr/include/c++/12/barrier
+    '67cec2a2dcd392951ec014ae7d07148255103861c92d3f233beaeeec21b5fd93': 7750,
+    # usr/include/x86_64-linux-gnu/bits/socket.h
+    'dc5e124f23281bca31e1c9118b5e1fa39b9b94520e07043ecc29838b804aa8b1': 13575,
+    # usr/lib/python3.11/cgitb.py
+    '401f791a56480b5b53e207d71a904e6352c5e7fc3f7cc9124c75bd1c59a5c011': 12421,
+    # usr/lib/python3.11/email/_header_value_parser.py
+    '2bc1acfa3c7f8d2c419173ec2d986261d04d85fc1adba2bf39bf00b88aba1491': 108140,
+    # usr/lib/python3.11/email/generator.py
+    'de706af1044f8b6021263b02cc7325248eeec19614134b21fd2f916f3c56f19c': 21404,
+    # usr/lib/python3.11/functools.py
+    '6d80018a3fa9fed44c5b78f881987ee3ab3fb1238b077b4e6dcb4b76da7db73b': 38413,
+    # usr/lib/python3.11/hashlib.py
+    'e2bffb462e4d43e6637b9450e259e8ba2a56626ba3037d68aa1cee68b3f61d4a': 11765,
+    # usr/lib/python3.11/imaplib.py
+    'dc3be105fb6b3e28074c4dbe0d4177c8445a803b5a935f3c4bbfe77701259c39': 54865,
+    # usr/lib/python3.11/inspect.py
+    '75147eb66270082c23edf22ddcfa953c00cea398867b91cd8a4b167b1cf30ede': 124193,
+    # usr/lib/python3.11/lib-dynload/_ssl.cpython-311-x86_64-linux-gnu.so
+    '78e47b6cc76acace7d0f5d1942d503334847602a14dab8304a0cf7895055f3ec': 212272,
+    # usr/lib/python3.11/logging/handlers.py
+    'a9041e01c48e06b0c3c73a1b5ab9348aea94001abafe3427ffdc0e89e9e81ed8': 62332,
+    # usr/lib/python3.11/multiprocessing/managers.py
+    '314c299639bf01f9c30dc4c8ee9327c022665f279194cd8435626eb3c9d6a031': 47683,
+    # usr/lib/python3.11/netrc.py
+    '6394e8e650d04c26ed20b6058d5e93119f544ef1bd00aefb942297d2e2f6c7e1': 6929,
+    # usr/lib/python3.11/nntplib.py
+    '6a76a94b951b273aa87335d7c9c4d7273e4c59485c784b057f681443b32d9004': 41087,
+    # usr/lib/python3.11/plistlib.py
+    'e4fcade34b0783ffaf01dad1d4f89ad59942db94e6a6bb992ff50d879203f855': 28489,
+    # usr/lib/python3.11/poplib.py
+    '7b341e6adb4e4341b211a221a7224849ea415fc1e39c014b05ae7d9a566819f4': 15198,
+    # usr/lib/python3.11/shlex.py
+    '42ab6060f316e121e374e6621d8c1c98b8db323903c3df289a810c45a8ae46a7': 13501,
+    # usr/lib/python3.11/smtplib.py
+    'b154e27998d0ef0b32fcc665299cdb30883ffe039ede3c4faac3a9db6618d35d': 45418,
+    # usr/lib/python3.11/test/support/__init__.py
+    '022f0b59a434e93b3906fa929819b695b3be59a52c0bb75d40a96e34a4f1a3f5': 76431,
+    # usr/lib/python3.11/tokenize.py
+    '79aa94ebe1761811ea9b2da2ada409a8cb9abd7c6eac241d0c181a36684bb609': 26336,
+    # usr/lib/python3.11/urllib/parse.py
+    'd2bf673217a06bf4e450f355b9843482265664a3d6cfcfa00bc31944c9a8deb1': 44707,
+    # usr/lib/python3.11/urllib/request.py
+    'f3348315e7c74cba5596e5dd9e4092fee2742218730d882ec216f57c6c173536': 102724,
+    # usr/lib/python3.11/xml/etree/ElementPath.py
+    'ae8a80a8b51567b4f0965481682705e70c73dd6bfa145283f630d6833f1b4975': 13997,
+    # usr/lib/x86_64-linux-gnu/libgnutls.so.30.34.3
+    '779b25d20249988bea2c1aa6bbeb218f5ae7ea8a9d30ce4f54ea37372965cc4b': 2209528,
+    # usr/lib/x86_64-linux-gnu/libssh2.so.1.0.1
+    'e481655791a9b75f4d5957e40101d7d0b5d9c13a18d1ca233731d03365ad0aec': 260552,
+    # usr/lib/x86_64-linux-gnu/libunistring.so.2.2.0
+    'bc5951aa3d6eaba20ff9688efa3420dc95785aae3709ec48ff6df46d6f409ee5': 1792040,
+    # usr/share/perl/5.36.0/CPAN/HTTP/Credentials.pm
+    'e45a6b41d7caebdb5f23d3b4f219adf64a214e946b082304b845d7b449a8aba5': 2633,
+    # usr/share/perl/5.36.0/HTTP/Tiny.pm
+    'a28408da12eb2e156377d63dcb891a27c0d16d79d07dd9794810ee3c8cc33cf8': 82093,
+    # usr/share/perl/5.36.0/Pod/Simple/PullParser.pm
+    'b14d10e0bb584f4b2211528be99d9a9e440dd9bd486249e74a1de8d6b9aee862': 25729,
+    # usr/share/perl/5.36.0/TAP/Parser.pm
+    'aa1b59263b4806f791b58530bc4936c893c2646e0984ea28a810c2cc171e3e5a': 52200,
+}
 
 
 def secret_shaped(value):
@@ -97,14 +257,24 @@ def credential_link_path(name):
 def scan_content(stream, capture=False):
     tail = b''
     collected = bytearray() if capture else None
+    digest = hashlib.sha256()
+    size = 0
+    credential_found = False
     while data := stream.read(1024 * 1024):
-        if secret_shaped(tail + data):
-            raise ValueError('credential content detected')
+        digest.update(data)
+        size += len(data)
+        credential_found = credential_found or secret_shaped(tail + data)
         tail = (tail + data)[-4096:]
         if capture:
             if len(collected) + len(data) > MAX_JSON:
                 raise ValueError('bundle manifest size limit')
             collected.extend(data)
+    # A public constant is established only after hashing every original byte.
+    # Any edit, appended credential, truncation or unknown package version
+    # refuses. Sensitive paths/links/config/history are checked separately;
+    # captured bundle metadata always uses the strict content policy.
+    if credential_found and (capture or PUBLIC_FILE_CONSTANTS.get(digest.hexdigest()) != size):
+        raise ValueError('credential content detected')
     return bytes(collected) if capture else None
 
 

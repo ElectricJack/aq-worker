@@ -1,0 +1,91 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: waiting 0s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: waiting 2s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: waiting 4s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: waiting 6s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: waiting 8s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: waiting 10s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: waiting 12s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: waiting 14s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: waiting 16s for 1 of 6 test slot(s); held by calm-delta-18.5, 
+keen-current-13, noble-summit-37.5, keen-current-13, wise-vault-78, 
+wise-vault-78
+aq test: slot 4 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' scripts/tests/test_template_tool.py -k public_constants -n 0
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 17 items / 14 deselected / 3 selected
+
+scripts/tests/test_template_tool.py FFF                                  [100%]
+
+=================================== FAILURES ===================================
+_ TemplateTests.test_public_constants_and_credentials_across_stream_boundaries _
+
+self = <test_template_tool.TemplateTests testMethod=test_public_constants_and_credentials_across_stream_boundaries>
+
+    def test_public_constants_and_credentials_across_stream_boundaries(self):
+        scanner = load('credential_scan')
+        public = b'public-prefix\0-----BEGIN PRIVATE KEY-----\0public-suffix'
+        fingerprint = hashlib.sha256(public).hexdigest()
+        class Chunks(io.BytesIO):
+            def read(self, size):
+                return super().read(min(size, 7))
+>       with patch.dict(scanner.PUBLIC_FILE_CONSTANTS, {fingerprint: len(public)}, clear=True):
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'credential_scan' has no attribute 'PUBLIC_FILE_CONSTANTS'
+
+scripts/tests/test_template_tool.py:300: AttributeError
+_ TemplateTests.test_public_constants_do_not_bypass_paths_or_deleted_layer_checks _
+
+self = <test_template_tool.TemplateTests testMethod=test_public_constants_do_not_bypass_paths_or_deleted_layer_checks>
+
+    def test_public_constants_do_not_bypass_paths_or_deleted_layer_checks(self):
+        scanner = load('credential_scan')
+        public = b'password = "public-example"\n'
+        fingerprint = hashlib.sha256(public).hexdigest()
+>       with patch.dict(scanner.PUBLIC_FILE_CONSTANTS, {fingerprint: len(public)}, clear=True):
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'credential_scan' has no attribute 'PUBLIC_FILE_CONSTANTS'
+
+scripts/tests/test_template_tool.py:281: AttributeError
+______ TemplateTests.test_public_constants_require_exact_reviewed_content ______
+
+self = <test_template_tool.TemplateTests testMethod=test_public_constants_require_exact_reviewed_content>
+
+    def test_public_constants_require_exact_reviewed_content(self):
+        scanner = load('credential_scan')
+        # A miniature public source example stands in for a reviewed upstream
+        # file. Production fingerprints are verified against public archives.
+        public = b'password = "public-example"\n'
+        fingerprint = hashlib.sha256(public).hexdigest()
+        self.assertTrue(scanner.secret_shaped(public))
+>       with patch.dict(scanner.PUBLIC_FILE_CONSTANTS, {fingerprint: len(public)}, clear=True):
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'credential_scan' has no attribute 'PUBLIC_FILE_CONSTANTS'
+
+scripts/tests/test_template_tool.py:266: AttributeError
+=========================== short test summary info ============================
+FAILED scripts/tests/test_template_tool.py::TemplateTests::test_public_constants_and_credentials_across_stream_boundaries
+FAILED scripts/tests/test_template_tool.py::TemplateTests::test_public_constants_do_not_bypass_paths_or_deleted_layer_checks
+FAILED scripts/tests/test_template_tool.py::TemplateTests::test_public_constants_require_exact_reviewed_content
+======================= 3 failed, 14 deselected in 0.39s =======================
