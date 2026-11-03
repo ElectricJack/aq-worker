@@ -7,6 +7,7 @@ mod lifecycle;
 pub use lifecycle::*;
 mod fake;
 pub use fake::{FakeBackend, Fault};
+pub mod boat_size;
 #[cfg(feature = "backend-conformance")]
 pub mod conformance;
 pub mod docker_local;
