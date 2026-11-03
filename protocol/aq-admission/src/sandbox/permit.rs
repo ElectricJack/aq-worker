@@ -49,6 +49,9 @@ pub enum RunnerOperation {
     Renew,
     Terminal,
     FetchExecutionMaterial,
+    /// Result submission, including the native stopped report. In Ended this
+    /// allows result submission and only an exact replay of a retained stop;
+    /// use `DelegatedPermit::validate_stopped_replay` for the latter.
     ReportResult,
     AcceptOffer,
     RegisterIncarnation,
@@ -117,6 +120,10 @@ impl DelegatedPermit {
             ContractError::DeadlineMismatch,
         )
     }
+    /// Check scope against trusted current state. Ended retains only execution
+    /// ReportResult authority within the existing permit/grant/hard deadlines.
+    /// This never authorizes a new stop report after the native stop committed;
+    /// the server must compare that retry with its retained original report.
     pub fn validate_for(
         &self,
         context: &PermitContext,
@@ -160,9 +167,45 @@ impl DelegatedPermit {
                     | MailboxPoll
                     | MailboxAck
             ),
+            (PermitScope::Execution, GrantPhase::Ended) => operation == ReportResult,
             _ => false,
         };
         check(allowed, ContractError::ScopeDenied)
+    }
+
+    /// Authorize an exact canonical stopped-report replay against the original
+    /// report retained by the server. The original must have been authenticated,
+    /// validated against Started and atomically recorded with the native stop.
+    /// Neither input is trusted merely because it decodes as a stopped request.
+    /// Replay does not extend expiry or permit renewal, access, or launch.
+    pub fn validate_stopped_replay(
+        &self,
+        context: &PermitContext,
+        original: &crate::stopped::Request,
+        request: &crate::stopped::Request,
+        now_ms: u64,
+    ) -> Result<()> {
+        self.validate_for(context, RunnerOperation::ReportResult, now_ms)?;
+        let original_digest = original.digest().map_err(|_| ContractError::InvalidShape)?;
+        let request_digest = request.digest().map_err(|_| ContractError::InvalidShape)?;
+        check(
+            original_digest == request_digest,
+            ContractError::ReplayConflict,
+        )?;
+        let binding = &request.evidence.binding;
+        let crate::SessionIdentity::Remote {
+            node_id, boot_id, ..
+        } = &binding.session
+        else {
+            return Err(ContractError::BindingMismatch);
+        };
+        check(
+            binding.attempt_id == self.binding.attempt_id
+                && binding.assignment_generation == self.binding.grant_generation
+                && *node_id == self.binding.node.node_id
+                && *boot_id == self.binding.node.boot_id,
+            ContractError::BindingMismatch,
+        )
     }
 }
 

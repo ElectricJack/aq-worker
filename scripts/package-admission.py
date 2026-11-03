@@ -11,7 +11,7 @@ import tarfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "protocol/aq-admission"
 RELEASE = ROOT / "protocol/releases"
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 NAME = f"aq-admission-{VERSION}"
 
 
