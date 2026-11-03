@@ -1,0 +1,39 @@
+   Compiling aq-session-host v0.1.5 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.34s
+     Running unittests src/lib.rs (target/debug/deps/aq_session_host-94b8c16fe1927a75)
+
+running 2 tests
+test users::tests::agent_workspace_refuses_runner_private_ancestors ... ok
+test users::tests::sandbox_identities_refuse_root_and_missing_accounts ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 56 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/aq_session_host-04fb7e198caa1e1c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capsule_candidate.rs (target/debug/deps/capsule_candidate-7822ab9f386b3d79)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-da24209d05553f0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+     Running tests/named_readonly.rs (target/debug/deps/named_readonly-3323b0c276423573)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/prepared_responses.rs (target/debug/deps/prepared_responses-8a9dcb8174b1fd61)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

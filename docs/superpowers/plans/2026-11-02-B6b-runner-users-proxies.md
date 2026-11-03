@@ -39,10 +39,10 @@
 
 **Interfaces:** `RunnerFiles::create(root: &Path) -> Result<Self>`, `write_secret(name, bytes)`, `read_secret(path) -> Result<Zeroizing<Vec<u8>>>`; fixed names permit.json, provider.key, access.json, state. `AqApiProxy::start(server: &str, access_file: &Path) -> Result<Self>`, `origin() -> &str`, `stop(self)`; production upstream HTTPS machine origin, test-only numeric loopback. `RunnerResponsesProxy::start(policy, provider_file)`, backed by the existing bounded scoped Responses transport.
 
-- [ ] Write `aq_proxy_injects_access_header_without_exposing_token`: real loopback upstream receives exact runner Access values and original agent Authorization despite spoofing; response never contains token, including echo/error/redirect cases.
-- [ ] Write private-file tests for exclusive 0700/0600 layout, symlink/wrong-mode/oversized rejection and secret-free Debug/errors. Run focused tests; expect missing behavior.
-- [ ] Implement bounded files and fixed-origin forwarding, no environment proxies or redirects, generic errors and response secret checks; reuse existing provider policy and retained credential validation.
-- [ ] Run tests including concurrent requests, cancellation, both loopback-only constructors and provider stream authorization. Commit.
+- [x] Write `aq_proxy_injects_access_header_without_exposing_token`: real loopback upstream receives exact runner Access values and original agent Authorization despite spoofing; response never contains token, including echo/error/redirect cases.
+- [x] Write private-file tests for exclusive 0700/0600 layout, symlink/wrong-mode/oversized rejection and secret-free Debug/errors. Run focused tests; expect missing behavior.
+- [x] Implement bounded files and fixed-origin forwarding, no environment proxies or redirects, generic errors and response secret checks; reuse existing provider policy and retained credential validation.
+- [x] Run tests including concurrent requests, cancellation, both loopback-only constructors and provider stream authorization. Commit.
 
 ### Task 2: Agent UID transition under tmux
 
@@ -50,10 +50,10 @@
 
 **Interfaces:** `AgentIdentity { uid: u32, gid: u32 }`; `SessionHost::launch_as_agent(..., agent: AgentIdentity)` seals identity with command; pane clears groups, setgid, setuid and capabilities immediately before exec. `bootstrap_runner(runner, agent)` runs only in a fresh single-thread process before async runtime, retaining CAP_SETUID/CAP_SETGID/CAP_KILL for runner/guardian. `sandbox::run_as_agent` accepts an independently accessible workspace outside private state and uses launch_as_agent. Existing fixture runner retains its compatibility entrypoint.
 
-- [ ] Write `agent_user_cannot_read_permit_or_proxy_key`: real kernel UID transition in a child, independent numeric runner/agent identities, denied reads for permit/provider/Access/state/journal, empty supplementary groups/capabilities and no secret in environment/argv. Root-capable execution runs the same test binary, independent of aq-sandbox-os; unprivileged execution must invoke an explicit fixture wrapper rather than claim a skipped probe passed.
-- [ ] Add real guardian/tmux test exercising the separated pane and descendant stop; add invalid UID, failed drop and inaccessible workspace cases. Run RED.
-- [ ] Implement sealed identity and drop, bootstrap preconditions, private workspace separation and user lookup. Keep production CLI's unavailable-transport refusal; expose the bootstrap and separated library APIs for B6a2 without adding its server transport.
-- [ ] Run GREEN, existing sandbox runner tests and session-host tests. Commit.
+- [x] Write `agent_user_cannot_read_permit_or_proxy_key`: real kernel UID transition in a child, independent numeric runner/agent identities, denied reads for permit/provider/Access/state/journal, empty supplementary groups/capabilities and no secret in environment/argv. Root-capable execution runs the same test binary, independent of aq-sandbox-os; unprivileged execution must invoke an explicit fixture wrapper rather than claim a skipped probe passed.
+- [x] Add real guardian/tmux test exercising the separated pane and descendant stop; add invalid UID, failed drop and inaccessible workspace cases. Run RED.
+- [x] Implement sealed identity and drop, bootstrap preconditions, private workspace separation and user lookup. Keep production CLI's unavailable-transport refusal; expose the bootstrap and separated library APIs for B6a2 without adding its server transport.
+- [x] Run GREEN, existing sandbox runner tests and session-host tests. Commit.
 
 ### Task 3: Qualification and publication
 
@@ -61,7 +61,9 @@
 
 **Interfaces:** consumes both implementations; produces named-test evidence and pushed branch.
 
-- [ ] Run exact workspace filters `agent_user_cannot_read_permit_or_proxy_key` and `aq_proxy_injects_access_header_without_exposing_token`, require nonzero passing tests. Run formatter, Clippy and related suites with bounded resources.
-- [ ] Record environment, precise commands/results, privilege prerequisites, production wiring limits, and commits in evidence.
-- [ ] Obtain fresh whole-branch review, resolve material findings with regression tests.
-- [ ] Squash unpublished leaf implementation history, merge configured integration source, run targeted checks if changed, guarded push and close with evidence. `origin/dev` is absent; supervisor clarification pending; never invent a branch.
+- [x] Run exact workspace filters `agent_user_cannot_read_permit_or_proxy_key` and `aq_proxy_injects_access_header_without_exposing_token`, require nonzero passing tests. Run formatter, Clippy and related suites with bounded resources.
+- [x] Record environment, precise commands/results, privilege prerequisites, production wiring limits, and commits in evidence.
+- [x] Obtain fresh whole-branch review, resolve material findings with regression tests.
+- [ ] Squash unpublished leaf implementation history, merge configured integration source, run targeted checks if changed, guarded push and close with evidence. `origin/dev` is absent; the updated project `.aq/PRIME.md` explicitly requires `origin/main`.
+
+**Qualification outcome:** Passing publication is blocked. Three complete-suite attempts failed in unmodified driver/journal fixtures, including a serial attempt ending with 239 passed, 2 failed and 18 ignored in worker unit tests. Both exact security acceptance filters pass, and the sandbox-runner compatibility suite passes 12/12 after updating its explicit prerequisite-refusal assertion. Preserve the implementation/review-fix history and synced integration ancestry, push the task branch for recovery, and close fail with the complete evidence rather than marking the passing publication step complete. Independent deterministic-fixture follow-up: `noble-impact-55`.

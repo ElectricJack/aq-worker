@@ -1,0 +1,59 @@
+# B6b runner users and loopback proxies
+
+Task: `noble-summit-37.8`. Implementation plan: [runner users and proxies](../superpowers/plans/2026-11-02-B6b-runner-users-proxies.md).
+
+Status: implementation and security acceptance tests pass; complete-suite qualification failed. The task branch is retained for recovery. See the qualification outcome below.
+
+## Behavior and integration
+
+`sandbox-run` resolves the image's `runner` and `agent` accounts and bootstraps to the runner UID/GID **before Tokio starts**. It clears supplementary groups and retains only `CAP_SETUID`, `CAP_SETGID`, and `CAP_KILL` across helper/tmux exec. The backend must already permit those privileges; missing accounts, capabilities, or a multithreaded caller refuse explicitly. This change does not relax any backend launch policy.
+
+`SessionHost::launch_as_agent` seals the numeric identity into the configuration digest. Its pane helper verifies private launch inputs and authority, publishes required startup context into an exclusive runner-owned directory under protected `/tmp`, changes cwd to the workspace, sets `no_new_privs`, clears groups, calls setgid/setuid, and clears every capability before exec. A failed transition never executes the harness. For separated launches `AQ_SESSION_DIRECTORY` identifies only this read-only context directory (0555, context files 0444); private launch/permit/state paths are not exposed through it. The parent must be root-owned and either non-writable by other users or sticky, so the agent cannot replace the directory during publication. The original private context copy remains in host evidence. The runner-owned guardian retains the privilege to stop descendants of the other UID, including descendants escaping their process group. Existing stopped-writer proof remains required.
+
+`RunnerFiles` creates exclusive runner-owned 0700 root/state directories and exclusive 0600 permit/provider/Access files. Reads verify the exact descriptor's owner, regular-file type, mode, link count, and bounded length, refusing symlink leaves. Existing host/journal persistence retains its private 0700/0600 layout. The agent workspace must be separately accessible, outside runner-private state; permissions on private state are never widened. `sandbox::run_as_agent` selects the separated host path; the existing `run` entrypoint remains for compatibility fixtures.
+
+`RunnerResponsesProxy` binds exactly `127.0.0.1` and uses the existing `aq-responses-transport` policy, bounded request/stream validation and derived local capability. Its upstream provider key comes from the private file on each request. Only the local capability and local origin are exposed to the harness integrator.
+
+`AqApiProxy` binds exactly `127.0.0.1` and forwards to one configured HTTPS machine hostname, excluding IP literals, userinfo and URL path/query/fragment. It disables environment proxies and redirects. Each request preserves the caller's AQ Authorization while stripping all caller `cf-access-*` and hop-by-hop headers, then adds sensitive Access headers from the private JSON file (`client_id`, `client_secret`). Duplicate headers, ambiguous framing and authority changes refuse. It requests identity encoding and refuses encoded upstream responses. Responses are buffered and checked for literal Access values before forwarding; redirects and errors return a generic empty 502. Nothing logs or reflects transport errors or Access material. Limits: 16 connections, 16 KiB request headers, 4 MiB request/response bodies, finite request/connect/write deadlines. Shutdown cancels pending requests. This bounded JSON API transport does not support HTTP upgrades or indefinite response streams.
+
+B6a2 still owns production HTTP transport installation, and the CLI retains its prelaunch unavailable-transport refusal. That owner must create/load the runner files, start both proxies under the runner runtime, supply their local origins/capability through the trusted adapter, and invoke `run_as_agent`. C6a owns Codex configuration and accessible harness inputs; B7 owns the agent's own AQ credential. C3a provides OS accounts; E5 provisions Access credentials. No production transport, real-provider qualification, new namespace/seccomp policy, or hostile-code isolation is claimed here.
+
+## Environment and verification
+
+Qualification source: merged revision `908756f`, including `origin/main` at `3be3038f6670f0e001590927a203bf841439d20c`, as required by the updated project prime override. The final compatibility check additionally updates the CLI refusal assertion for B6b's explicit OS-account/capability prerequisites. Full qualification failed; the branch preserves implementation, review fixes and integration ancestry for recovery. The task close result records the final publication commit. No passing integration is claimed.
+
+Linux x86_64 Ubuntu 24.04 / WSL2 kernel `6.18.33.2-microsoft-standard-WSL2`, Rust/Cargo 1.96.1 and tmux 3.4; Cargo lockfile enforced, `CARGO_BUILD_JOBS=2`, `RUST_TEST_THREADS=2`. The kernel permission test does not skip: it invokes [the root fixture wrapper](../../scripts/test-b6b-root.sh), which requires Docker, `/usr/bin/tmux`, host x86_64 libraries, and the locally available pinned Ubuntu digest specified in the script. The container has no network, only SETUID/SETGID/KILL capabilities, and read-only mounts of the probe, tmux, and libraries. It creates its own numeric runner/agent accounts, independently of `aq-sandbox-os`.
+
+The kernel probe verifies real/effective UID/GID, empty supplementary groups, zero agent effective/permitted/inheritable/ambient capabilities, no-new-privileges, denied reads of all runner material, absence of provider/Access secrets from agent argv/environment, inability to regain UID 0, execution in a real tmux pane, and stopped escaped-descendant writes.
+
+Observed RED tests: missing private/proxy/identity interfaces; missing account lookup; an agent without no-new-privileges; and IPv6 literals incorrectly passing hostname validation. Each subsequently passed after implementation/fix. The security suite passes 8/8 and account/workspace unit tests pass 2/2.
+
+Final verification results and review disposition are recorded below before publication. The initial broad qualification was interrupted during compilation to apply the review fixes; that run is not counted as a pass.
+
+- `cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key`: PASS, one actual named test. [Full output](B6b-evidence/required-user.log).
+- `cargo test --locked --workspace aq_proxy_injects_access_header_without_exposing_token`: PASS, one actual named test. [Full output](B6b-evidence/required-access.log).
+- `cargo test --locked -p aq-worker --test sandbox_security`: PASS, 8/8 after the review fixes. [Output](B6b-evidence/security.log).
+- `cargo test --locked -p aq-session-host users::tests`: PASS, 2/2. [Output](B6b-evidence/users.log).
+- `cargo fmt --all -- --check`: PASS on merged source in a standalone tracked-source snapshot; the nested worktree/vendor issue prevents running `--all` directly here. [Record](B6b-evidence/fmt.log).
+- `cargo clippy --locked --all-targets -- -D warnings`: PASS on final source. [Output](B6b-evidence/clippy.log).
+- `cargo check --locked -p aq-worker --features backend-conformance`: PASS independently of workspace test-feature unification. [Output](B6b-evidence/feature-check.log).
+
+The fresh review, its two RED/GREEN fixes, scope rulings, and two deferred coverage probes are in [the review record](B6b-evidence/review.md). This review does not independently rerun the author's final qualification.
+
+The first complete-suite attempt reached the existing `driver` tests, where `stopped_report_recovers_before_new_boot_registration_without_relaunch` received EAGAIN from guardian communication and `blocked_fixture_is_killed_and_reaped_on_grant_expiry` exceeded its 5-second fixture deadline. This was not a passing run ([failure](B6b-evidence/workspace-first-failure.log)). With `TOKIO_WORKER_THREADS=2`, the unchanged driver group passed 5/5 both [as a package](B6b-evidence/driver-bounded.log) and [using the identical workspace test binary](B6b-evidence/driver-workspace-bounded.log). The final complete-suite recheck uses this additional child-runtime bound. Load sensitivity is a hypothesis; the focused passes do not establish the cause. No production deadlines or fixture assertions were relaxed.
+
+The next complete-suite attempt passed the earlier packages but failed three existing worker journal tests: reservation expired before HTTP acceptance, a one-second synthetic receipt expired before commit, and a phase-local observation expired during collection ([failure](B6b-evidence/workspace-second-failure.log)). The shared host reported load averages around 28 on 24 CPUs. All three unchanged tests passed individually with one test thread ([output](B6b-evidence/journal-serial.log)). Final requalification additionally uses `RUST_TEST_THREADS=1`; production deadlines and test assertions remain unchanged. Earlier unsuccessful runs remain part of this record.
+
+Independent test-infrastructure follow-up `noble-impact-55` records the three real-time expiry sensitivities and asks for deterministic correctness tests while preserving real HTTP/fsync and explicit expiry assertions. The serial complete-suite attempt also reproduced the reservation failure and exposed another existing journal-fixture failure. An exploratory three-line test-clock change was reverted; B6b does not alter journal tests or production timing.
+
+The existing sandbox-runner CLI assertion initially required reaching the unavailable-transport error on a host without sandbox users. B6b intentionally validates those prerequisites before runtime startup. The updated test accepts only the explicit missing-account, missing-capability, root-entrypoint or transport refusal diagnostics, and still verifies no sandbox state or harness claim is created. It does not claim that this host reached the later transport check. The same compatibility attempt also reported an uncertain stop in the renewal case; its outcome is retained with the final rerun below.
+
+## Qualification outcome
+
+**FAIL: complete-suite qualification is not green.** The third attempt used `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 TOKIO_WORKER_THREADS=2 cargo test --locked`. Worker unit tests ended at 239 passed, 2 failed, 18 ignored: `actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap` reported `native reservation expired`, and `phase_execution_history_reopen_refuses_changed_runtime_request_and_sender_cap` reported `phase local observation expired`. [Complete serial-run output](B6b-evidence/workspace-third-failure.log). There is no claim of a successful full suite or of independently establishing the scheduling/storage root cause.
+
+The final `cargo test --locked --workspace --test sandbox_runner` passes 12/12 with the serial/Tokio bounds above, including both the corrected prerequisite refusal and the unchanged renewal case. [Final output](B6b-evidence/sandbox-runner.log), [prior failed compatibility attempt](B6b-evidence/red-sandbox-runner.log). All security acceptance and kernel-probe results above remain passing. The task branch is preserved for recovery and the task closes fail; no default-branch merge or passing publication is claimed.
+
+Final formatting, compatibility, Clippy and standalone-feature command exit statuses are all zero ([status record](B6b-evidence/final-status.log)). The [execution ledger](B6b-evidence/progress.md) retains scope rulings, deferred coverage probes and unsuccessful complete-suite attempts. Full-suite success, final passing publication/squash, and production integration remain unmet.
+
+Published command logs normalize trailing whitespace only; raw local outputs remain under `.aq/tmp/B6b`.

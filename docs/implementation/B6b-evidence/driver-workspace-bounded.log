@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.85s
+     Running tests/driver.rs (target/debug/deps/driver-795198f196108f96)
+
+running 5 tests
+test binary_executes_real_child_against_fake_http_peer_with_lost_responses ... ok
+test blocked_fixture_is_killed_and_reaped_on_cancellation ... ok
+test post_stop_observation_outage_preserves_and_replays_before_report ... ok
+test stopped_report_recovers_before_new_boot_registration_without_relaunch ... ok
+test blocked_fixture_is_killed_and_reaped_on_grant_expiry ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.73s
