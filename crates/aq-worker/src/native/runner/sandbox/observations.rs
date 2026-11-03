@@ -251,10 +251,16 @@ impl ObservationTask {
         channels: SandboxChannels,
         owner_uid: u32,
     ) -> Result<Self> {
+        // Profiled attempts carry the server-derived identity (whose catalog
+        // entry the runner cannot re-check here); otherwise the launch ID.
+        let identity = match &source.registered_session_key {
+            Some(key) => *key == profiled_session_key(&source.binding)?,
+            None => source.source_id == intent.launch_id,
+        };
         ensure!(
             &transcript.launch == intent
                 && source.binding.session == intent.session
-                && source.source_id == intent.launch_id
+                && identity
                 && source.native_session_key == transcript.native_session_key
                 && source.provider == transcript.provider
                 && source.account_reference == transcript.account_reference,
@@ -325,9 +331,49 @@ pub fn format_id(format: &aq_observation_engine::Format) -> &'static str {
         OpenCodeSessionDto6c24ec9 => "opencode-public-session-dto-6c24ec9",
     }
 }
+/// Domain separator of aq-server `observations::catalog::source_id`.
+pub const PROFILED_SOURCE_DOMAIN: &str = "aq.observation-source/v1";
+
+/// Server-derived source ID for a profiled attempt: SHA-256 over the
+/// sorted-key compact JSON array `[domain, attempt_id, attempt_generation,
+/// catalog_entry]`, truncated to 16 bytes with RFC 9562 version 8 and variant
+/// bits set. The server registers exactly this ID; any other is unregistered.
+pub fn profiled_source_id(
+    attempt_id: uuid::Uuid,
+    attempt_generation: u64,
+    catalog_entry: &ArtifactRef,
+) -> Result<uuid::Uuid> {
+    use sha2::Digest as _;
+    let mut value = serde_json::json!([
+        PROFILED_SOURCE_DOMAIN,
+        attempt_id,
+        attempt_generation,
+        catalog_entry
+    ]);
+    value.sort_all_objects();
+    let hash = sha2::Sha256::digest(serde_json::to_vec(&value)?);
+    let mut id = [0; 16];
+    id.copy_from_slice(&hash[..16]);
+    id[6] = (id[6] & 0x0f) | 0x80;
+    id[8] = (id[8] & 0x3f) | 0x80;
+    Ok(uuid::Uuid::from_bytes(id))
+}
+
+/// Server-registered session key `aq.attempt/<attempt_id>/<generation>`.
+pub fn profiled_session_key(binding: &Binding) -> Result<Text> {
+    Ok(Text::new(format!(
+        "aq.attempt/{}/{}",
+        binding.attempt_id, binding.attempt_generation
+    ))?)
+}
+
+/// `catalog_entry` is the server's observation catalog entry for the attempt's
+/// selection. With it, events carry the server-derived source identity; without
+/// it, the legacy launch-ID identity is kept (which the server does not register).
 pub fn source_for_launch(
     frozen: &super::FrozenLaunch,
     descriptor: &TranscriptSource,
+    catalog_entry: Option<&ArtifactRef>,
 ) -> Result<Source> {
     use aq_observation_engine::Format;
     let format = [
@@ -339,22 +385,35 @@ pub fn source_for_launch(
     .find(|f| format_id(f) == descriptor.format_id)
     .context("unsupported file transcript format")?;
     let b = &frozen.manifest.bindings;
-    Ok(Source {
-        binding: Binding {
-            project_id: b.project_id,
-            task_id: b.task_id,
-            lineage_id: b.graph_id,
-            attempt_id: b.attempt_id,
-            attempt_generation: b.assignment_generation,
-            session: b.session.clone(),
-        },
-        source_id: frozen.launch_id,
+    let binding = Binding {
+        project_id: b.project_id,
+        task_id: b.task_id,
+        lineage_id: b.graph_id,
+        attempt_id: b.attempt_id,
+        attempt_generation: b.assignment_generation,
+        session: b.session.clone(),
+    };
+    let (source_id, registered_session_key) = match catalog_entry {
+        Some(entry) => (
+            profiled_source_id(binding.attempt_id, binding.attempt_generation, entry)?,
+            Some(profiled_session_key(&binding)?),
+        ),
+        None => (frozen.launch_id, None),
+    };
+    let source = Source {
+        binding,
+        source_id,
         generation: 1,
+        // Native transcript identity; provenance uses the registered key.
         native_session_key: descriptor.native_session_key.clone(),
         format,
         provider: descriptor.provider.clone(),
+        // The session host reports the selection's account reference.
         account_reference: descriptor.account_reference.clone(),
-    })
+        registered_session_key,
+    };
+    source.validate()?;
+    Ok(source)
 }
 
 fn set_status(

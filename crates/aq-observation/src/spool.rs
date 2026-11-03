@@ -1284,7 +1284,7 @@ fn loss_gap(
             source_id: source.source_id,
             source_generation: source.generation,
             source_kind: SourceKind::NativeTranscript,
-            native_session_key: source.native_session_key.clone(),
+            native_session_key: source.provenance_session_key().clone(),
             cursor: cursor.clone(),
             parser: source.parser(),
             raw_record: RawRecordEvidence::Available {
@@ -1339,7 +1339,7 @@ fn change_gap(
             source_id: id,
             source_generation: normal.source.generation,
             source_kind: SourceKind::NativeTranscript,
-            native_session_key: normal.source.native_session_key.clone(),
+            native_session_key: normal.source.provenance_session_key().clone(),
             cursor,
             parser,
             raw_record: RawRecordEvidence::Unavailable {
@@ -1375,7 +1375,7 @@ fn boot_fence_gap(
             } else {
                 SourceKind::NativeTranscript
             },
-            native_session_key: source.native_session_key.clone(),
+            native_session_key: source.provenance_session_key().clone(),
             cursor: SourceCursor::Record {
                 id: Text::new(format!("boot-fence:{operation_id}:{id}"))?,
             },

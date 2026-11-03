@@ -134,7 +134,7 @@ impl Store {
                     } else {
                         SourceKind::NativeTranscript
                     },
-                    native_session_key: row.source.native_session_key.clone(),
+                    native_session_key: row.source.provenance_session_key().clone(),
                     cursor: SourceCursor::Record {
                         id: Text::new(format!(
                             "boot-fence:{}:{}",

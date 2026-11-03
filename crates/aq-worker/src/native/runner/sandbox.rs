@@ -289,7 +289,13 @@ async fn run_inner(
         let http = authority
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("observation permit channel unavailable"))?;
-        let source = observations::source_for_launch(frozen, &descriptor)?;
+        let source = observations::source_for_launch(
+            frozen,
+            &descriptor,
+            // The launch does not deliver the server's observation catalog
+            // entry yet, so the legacy launch-ID identity remains in use.
+            None,
+        )?;
         let channels = channels::SandboxChannels::new(http)?;
         Ok(Some(observations::ObservationTask::start(
             journal.directory.join("observations"),

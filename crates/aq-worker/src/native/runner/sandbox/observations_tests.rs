@@ -27,6 +27,7 @@ fn source() -> Source {
         format: Format::CodexRollout67f0994,
         provider: Text::new("openai").unwrap(),
         account_reference: Text::new("logical-account").unwrap(),
+        registered_session_key: None,
     }
 }
 fn open(root: &Path, native: &Path) -> anyhow::Result<Collector> {
@@ -531,4 +532,83 @@ fn codex_real_rollout_0166_qualifies_reference_and_durable_engine() {
             reference.body.provenance.cursor
         );
     }
+}
+
+fn catalog_entry(id: &str) -> ArtifactRef {
+    ArtifactRef {
+        id: Text::new(id).unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: serde_json::from_value(serde_json::json!("ab".repeat(32))).unwrap(),
+    }
+}
+
+#[test]
+fn profiled_source_id_matches_server_derivation_vector() {
+    let entry = catalog_entry("aq.observation-catalog/codex");
+    let id = profiled_source_id(Uuid::from_u128(4), 1, &entry).unwrap();
+    // Independently computed: SHA-256 of the sorted-key compact JSON
+    // ["aq.observation-source/v1","00000000-0000-0000-0000-000000000004",1,
+    //  {"digest":"abab..","id":"aq.observation-catalog/codex","version":"1"}],
+    // first 16 bytes with version 8 / RFC 9562 variant bits.
+    assert_eq!(id.to_string(), "2070c132-6c63-8df1-925e-6ebd36112419");
+    assert_eq!(id.get_version_num(), 8);
+    assert_eq!(id.get_variant(), uuid::Variant::RFC4122);
+    assert_eq!(
+        profiled_source_id(Uuid::from_u128(4), 1, &entry).unwrap(),
+        id
+    );
+    for other in [
+        profiled_source_id(Uuid::from_u128(5), 1, &entry).unwrap(),
+        profiled_source_id(Uuid::from_u128(4), 2, &entry).unwrap(),
+        profiled_source_id(Uuid::from_u128(4), 1, &catalog_entry("other")).unwrap(),
+    ] {
+        assert_ne!(other, id);
+    }
+    assert_eq!(
+        profiled_session_key(&source().binding).unwrap().as_str(),
+        "aq.attempt/00000000-0000-0000-0000-000000000004/1"
+    );
+}
+
+#[test]
+fn profiled_source_emits_server_identity_while_parsing_native_transcript() {
+    let temp = tempfile::tempdir().unwrap();
+    let native = temp.path().join("native");
+    fs::create_dir(&native).unwrap();
+    fs::write(native.join("rollout.jsonl"), REAL).unwrap();
+    let mut profiled = source();
+    let entry = catalog_entry("aq.observation-catalog/codex");
+    profiled.source_id = profiled_source_id(profiled.binding.attempt_id, 1, &entry).unwrap();
+    profiled.registered_session_key = Some(profiled_session_key(&profiled.binding).unwrap());
+    profiled.validate().unwrap();
+    let collector = Collector::open(
+        &temp.path().join("observations"),
+        profiled.clone(),
+        &native,
+        "rollout.jsonl",
+        &[native.clone()],
+    )
+    .unwrap();
+    while collector.collect(100).unwrap().consumed_bytes > 0 {}
+    let packet = collector.prepare().unwrap().unwrap();
+    let Message::Batch(batch) = &packet.body.message else {
+        panic!()
+    };
+    assert!(!batch.events.is_empty());
+    let mut usage = 0;
+    for event in &batch.events {
+        let provenance = &event.body.provenance;
+        assert_eq!(provenance.source_id, profiled.source_id);
+        assert_eq!(provenance.source_generation, 1);
+        assert_eq!(
+            provenance.native_session_key.as_str(),
+            "aq.attempt/00000000-0000-0000-0000-000000000004/1"
+        );
+        if let ObservationKind::Usage { usage: u } = &event.body.kind {
+            assert_eq!(u.call.account_reference.as_str(), "logical-account");
+            usage += 1;
+        }
+    }
+    assert!(usage > 0);
+    collector.audit().unwrap();
 }

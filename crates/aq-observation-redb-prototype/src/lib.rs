@@ -523,8 +523,8 @@ impl Store {
                         && event.body.binding == source.source.binding
                         && event.body.provenance.source_id == id
                         && event.body.provenance.source_generation == source.source.generation
-                        && event.body.provenance.native_session_key
-                            == source.source.native_session_key
+                        && &event.body.provenance.native_session_key
+                            == source.source.provenance_session_key()
                         && event.body.provenance.parser == source.source.parser(),
                     "fact scope/sequence/parser"
                 );
@@ -891,7 +891,7 @@ impl Store {
                     && row
                         .generations
                         .contains(&e.body.provenance.source_generation)
-                    && e.body.provenance.native_session_key == row.source.native_session_key
+                    && &e.body.provenance.native_session_key == row.source.provenance_session_key()
                     && row.parsers.contains(&e.body.provenance.parser),
                 "fact source scope"
             );

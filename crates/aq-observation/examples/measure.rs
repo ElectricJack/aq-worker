@@ -24,6 +24,7 @@ fn normalizer(format: Format) -> Normalizer {
             format,
             provider: Text::new("fixture-provider").unwrap(),
             account_reference: Text::new("logical-account").unwrap(),
+            registered_session_key: None,
         },
         128,
     )
