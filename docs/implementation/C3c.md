@@ -311,6 +311,12 @@ changed. To resume local work before host cleanup, start the registry with
 `docker buildx inspect aq-c3c-qualification --bootstrap`.
 
 The branch was preserved on `aq/calm-delta-18.5` through guarded `aq git push`.
-The final task close records its exact evidence commit. The task is closed
-with `--outcome fail --work-outcome blocked`, because **needs GHCR token** and
+AQ task comments record the exact pushed evidence commits. The requested close
+is `--outcome fail --work-outcome blocked`, because **needs GHCR token** and
 the separate scanner refusal leave publication/admission acceptance unmet.
+The first close attempt was refused because `calm-delta-18.5.1` is an open
+child. Worker inspection of that child also refused `out_of_scope: task_id
+mismatch`. The supervisor was asked to preserve that finding by moving it to
+an appropriate container/root, allowing this task to close without abandoning
+the unresolved scanner work. The task history records whether that close has
+subsequently been accepted.
