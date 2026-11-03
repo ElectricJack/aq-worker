@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--lib",
+    "native::runner::sandbox::auth_tests"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B6a2-evidence/auth-scope-green.log"
+}

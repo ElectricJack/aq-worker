@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/supervisor_session.rs (target/debug/deps/supervisor_session-dd7bd9c07a79991e)
+
+running 1 test
+test supervisor_session_starts_under_central_permit ... FAILED
+
+failures:
+
+---- supervisor_session_starts_under_central_permit stdout ----
+
+thread 'supervisor_session_starts_under_central_permit' (2785301) panicked at crates/aq-session-host/tests/supervisor_session.rs:312:13:
+central start iteration 25 failed: guardian identity timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    supervisor_session_starts_under_central_permit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 14.23s
+
+error: test failed, to rerun pass `-p aq-session-host --test supervisor_session`

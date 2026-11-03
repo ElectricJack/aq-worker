@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--lib",
+    "runner_refuses_foreign_session_on_mail_and_terminal_routes"
+  ],
+  "exit_code": 101,
+  "log": "docs/implementation/B6a2-evidence/session-red.log"
+}

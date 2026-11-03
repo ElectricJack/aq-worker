@@ -1,0 +1,111 @@
+Policy deadline regression verification
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2
+Foreground runner: aq test .aq/tmp/ci-stability/test_policy_deadline.py -q -s
+
+20 rounds of:
+$ cargo test --locked --all-features -p aq-worker -p aq-responses-transport --lib expired_scope_and_identical_cap_refuse_or_remain_exact
+
+Round 1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=e1ca96a889a708a419adb5322fc2d7f8078c5f7f7977644941d4f36355e4f196
+Round 2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=4abcf853a32faea28842b4754b7edd4c50dee6402f49e1eed0fdfc03fc9b3456
+Round 3: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=fef645f48f9f37482ceef2d2d73284ccd81250de0b8228cfd6bc2e1fb84b6915
+Round 4: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=1582e211eac98b6fbeee157d7c8a373f72dcea8e358235e76a4abc65a7f6c31a
+Round 5: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=1582e211eac98b6fbeee157d7c8a373f72dcea8e358235e76a4abc65a7f6c31a
+Round 6: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=ff3766586ecc4868448435b24f210e4b7b40931b81cd88684efc76cd2aca8e80
+Round 7: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=ff3766586ecc4868448435b24f210e4b7b40931b81cd88684efc76cd2aca8e80
+Round 8: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=ff3766586ecc4868448435b24f210e4b7b40931b81cd88684efc76cd2aca8e80
+Round 9: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=fef645f48f9f37482ceef2d2d73284ccd81250de0b8228cfd6bc2e1fb84b6915
+Round 10: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=bae17a37a456f7788db841facd1ab98b3e7d374cdd5e372ee2064dc79073f364
+Round 11: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=159a6449ce8a7c005eb7b22a4c9a97b6a301890307c60391958fb46cf766ed4b
+Round 12: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.01s
+sha256=5c837cb1d8ace9c6778134a3f35452e01dc18bd978836bc7207ce76a805660e1
+Round 13: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=ff3766586ecc4868448435b24f210e4b7b40931b81cd88684efc76cd2aca8e80
+Round 14: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=592f05e4ca420d6946ab99d70a973c3e4228d019ed86f2fff57fbd4b377720ff
+Round 15: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=a402f46d9155a37e04cac80a4361f28a86bfb3828116e95c9a8c50f676084f37
+Round 16: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=8beb429b6beb391b0e60e778254d69f020cd757baa5099a858ddae5e73bd99d3
+Round 17: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.01s
+sha256=64bbf4f0c2c0d24067d82a39848e398aaa10a11632332c37af2449bc261e50e9
+Round 18: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=bae17a37a456f7788db841facd1ab98b3e7d374cdd5e372ee2064dc79073f364
+Round 19: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=bae17a37a456f7788db841facd1ab98b3e7d374cdd5e372ee2064dc79073f364
+Round 20: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 0.00s
+sha256=a402f46d9155a37e04cac80a4361f28a86bfb3828116e95c9a8c50f676084f37
+
+$ cargo test --locked --all-features -p aq-worker --lib native::adapter::responses_transport::policy::tests::
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-faad8c8ed6cb05c1)
+
+running 4 tests
+test native::adapter::responses_transport::policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+test native::adapter::responses_transport::policy::tests::injects_exact_response_cap_preserving_every_other_setting ... ok
+test native::adapter::responses_transport::policy::tests::server_side_references_and_hosted_tools_refuse_before_cap_insertion ... ok
+test native::adapter::responses_transport::policy::tests::changed_selection_ambiguous_json_stateful_and_unbounded_requests_refuse ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 310 filtered out; finished in 0.03s
+
+
+Exit status: 0
+
+$ cargo test --locked --all-features -p aq-responses-transport --lib policy::tests::
+   Compiling tracing v0.1.44
+   Compiling getrandom v0.2.17
+   Compiling ring v0.17.14
+   Compiling hyper-util v0.1.21
+   Compiling rustls-webpki v0.103.16
+   Compiling tower v0.5.3
+   Compiling rustls v0.23.46
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling uuid v1.29.0
+   Compiling bitflags v2.13.2
+   Compiling sha2 v0.10.9
+   Compiling tower-http v0.6.11
+   Compiling axum-core v0.5.6
+   Compiling schemars v1.2.3
+   Compiling tokio-rustls v0.26.6
+   Compiling hyper-rustls v0.27.10
+   Compiling axum v0.8.9
+   Compiling reqwest v0.12.28
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-session-protocol)
+   Compiling aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-responses-transport)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.16s
+     Running unittests src/lib.rs (target/debug/deps/aq_responses_transport-6b108867173b90b7)
+
+running 4 tests
+test policy::tests::expired_scope_and_identical_cap_refuse_or_remain_exact ... ok
+test policy::tests::injects_exact_response_cap_preserving_every_other_setting ... ok
+test policy::tests::server_side_references_and_hosted_tools_refuse_before_cap_insertion ... ok
+test policy::tests::changed_selection_ambiguous_json_stateful_and_unbounded_requests_refuse ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.03s
+
+
+Exit status: 0
+
+$ cargo fmt -p aq-worker -p aq-session-host -p aq-responses-transport -- --check
+
+Exit status: 0
+
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 3 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest -n 6 --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' .aq/tmp/ci-stability/test_policy_deadline.py -q -s
+bringing up nodes...
+bringing up nodes...
+
+.
+1 passed in 141.02s (0:02:21)

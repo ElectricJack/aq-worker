@@ -1,0 +1,45 @@
+   Compiling slab v0.4.12
+   Compiling futures-task v0.3.34
+   Compiling futures-util v0.3.34
+   Compiling futures-channel v0.3.34
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.21
+   Compiling tower-http v0.6.11
+   Compiling hyper-rustls v0.27.10
+   Compiling reqwest v0.12.28
+   Compiling axum v0.8.9
+   Compiling aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-responses-transport)
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-terminal-bridge)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+warning: field `revision` is never read
+  --> crates/aq-worker/src/native/runner/sandbox/auth.rs:87:5
+   |
+81 | struct Authority {
+   |        --------- field in this struct
+...
+87 |     revision: Option<u64>,
+   |     ^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `accept_renewal` is never used
+   --> crates/aq-worker/src/native/runner/sandbox/auth.rs:247:19
+    |
+133 | impl RunnerHttp {
+    | --------------- method in this implementation
+...
+247 |     pub(crate) fn accept_renewal(&self, request: &RunnerRenewalRequest, response: &super::RenewalDelivery, nonce: Uuid, sent: u64, ...
+    |                   ^^^^^^^^^^^^^^
+
+warning: `aq-worker` (lib) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 54s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-137b6e47490acd4b)
+
+running 4 tests
+test native::runner::sandbox::auth_tests::runner_channel_refusal_is_shared_authority_loss ... ok
+test native::runner::sandbox::auth_tests::runner_authenticates_with_delegated_permit_and_refuses_foreign_scope ... ok
+test native::runner::sandbox::auth_tests::runner_grant_upgrade_and_renewal_keep_original_scope ... ok
+test native::runner::sandbox::auth_tests::runner_readoption_replies_extend_nothing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 260 filtered out; finished in 0.15s
+

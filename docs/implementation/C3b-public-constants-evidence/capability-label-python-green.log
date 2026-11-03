@@ -1,0 +1,6 @@
+# AQ_TEMPLATE_BINARY=target/debug/aq-worker python3 scripts/tests/test_template_tool.py
+...................
+----------------------------------------------------------------------
+Ran 19 tests in 23.475s
+
+OK

@@ -258,15 +258,30 @@ class TemplateTests(unittest.TestCase):
 
     def test_compiled_capability_metadata_is_not_a_provider_token(self):
         scanner = load('credential_scan')
-        # Serde concatenates these public labels in the worker's .rodata.
-        metadata = 'persistent-disk-during-attemptbackend_idstruct SandboxIdentity'
-        self.assertFalse(scanner.secret_shaped(metadata))
+        # Serde places the public capability label next to whichever literal
+        # codegen orders after it in the worker's .rodata. The neighbor is
+        # layout, not content: both observed builds and other neighbors pass.
+        label = 'persistent-disk-during-attempt'
+        observed = ['backend_idstruct SandboxIdentity', 'struct SandboxIdentitybackend_id',
+                    'struct SandboxIdentitybackend_idstruct SandboxIdentity with 3 elements',
+                    'variant identifiervm-isolation', 'suspend-snapshotnested-docker', '']
+        for neighbor in observed:
+            with self.subTest(neighbor=neighbor):
+                self.assertFalse(scanner.secret_shaped('nested-docker' + label + neighbor))
+        metadata = label + 'struct SandboxIdentity'
         for value in [metadata + ' sk-proj-' + 'x' * 40,
+                      label + 'sk-proj-' + 'x' * 40,
+                      label + 'ghp_' + 'x' * 36,
+                      label + 'AKIA' + 'X' * 16,
+                      label + 'sk-' + label + 'sk-ant-' + 'x' * 40,
                       'TOKEN=' + metadata,
                       'https://' + metadata.replace(' ', '-') + ':password@example.com',
                       'sk-during-attemptbackend_idstruct' + 'x' * 40,
-                      metadata.replace('backend_idstruct ', 'backend_idstruct-secret')]:
-            self.assertTrue(scanner.secret_shaped(value))
+                      'persistent-xsk-during-attempt' + 'x' * 40,
+                      'persistent-disk-during_attempt' + 'x' * 40,
+                      'persistent-disk-during-attemp' + 'x' * 40]:
+            with self.subTest(value=value[:48]):
+                self.assertTrue(scanner.secret_shaped(value))
 
     def test_public_constants_require_exact_reviewed_content(self):
         scanner = load('credential_scan')

@@ -1,0 +1,24 @@
+Branch check run 41591468086 at 2d42242487c297776f01a1e6a53c6695644831af
+https://github.com/ElectricJack/aq-worker/actions/runs/41591468086
+
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0786323Z test agent_user_cannot_read_permit_or_proxy_key ... FAILED
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0786653Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0786733Z failures:
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0786835Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0786974Z ---- agent_user_cannot_read_permit_or_proxy_key stdout ----
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0787184Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0787492Z thread 'agent_user_cannot_read_permit_or_proxy_key' (12095) panicked at crates/aq-worker/tests/sandbox_security.rs:193:5:
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0788237Z stdout= stderr=docker: Error response from daemon: No such image: ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0788666Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0788810Z Run 'docker run --help' for more information
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0788981Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0789222Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0789491Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0789494Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0789561Z failures:
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0789756Z     agent_user_cannot_read_permit_or_proxy_key
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0789932Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0790148Z test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0790444Z
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0791736Z [1m[91merror[0m: test failed, to rerun pass `-p aq-worker --test sandbox_security`
+rust	Run cargo test --workspace --locked --all-features	2026-11-03T06:45:07.0940659Z ##[error]Process completed with exit code 101.
