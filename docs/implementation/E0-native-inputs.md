@@ -1,8 +1,10 @@
 # E0 native inputs: bounded MS0 owner attestation
 
-Status: **blocked on the remaining owner qualification decisions**. This change
-records the available inputs and a reproducible observer. It does not supply an
-admissible native configuration or complete sharp-harbor-18/I0/MS0.
+Status (claim epoch 7): **real native inputs generated, applied to a separate
+fresh qualification stack, and accepted by the pinned I0 `check-native`.** The live
+registration/poll run has not been executed, because it could trigger a further
+provider call. See [the qualification stack section](#separate-qualification-stack-claim-epoch-7).
+The sections before it are the earlier history of this task.
 
 The owner decision on sharp-harbor-18, dated 2026-11-02 (comment timestamp
 1793671179.038809), authorizes an agent to record observed local facts for the
@@ -281,3 +283,169 @@ the retained evidence offline:
 - it is canonical, its authority is measured and its verdicts recompute;
 - every hardening flag is kept;
 - each check refuses its own regression.
+
+## Separate qualification stack (claim epoch 7)
+
+Operator decision `1793688654.74` (recorded as owner-approved) chose these:
+
+- (a) A separate generator. It uses the published E0 images and its own vault,
+  with fresh volumes and Compose project `aq-e0-qual`.
+- (b) A freshly enrolled node.
+- (c) At most three bounded measurement calls in the I0 image, with a clean
+  `CODEX_HOME`. `seccomp=unconfined` applies only to that container.
+
+This change implements that decision as
+[`scripts/e0-qual-stack.py`](../../scripts/e0-qual-stack.py) and
+[`scripts/e0-qual/`](../../scripts/e0-qual/). It makes no E0 source edits and
+no writes to any `aq-e0-*` volume. Node `806c44f7-…` is not reused. Every
+registration, catalog and binding change goes through the public API.
+
+### Pins
+
+[`pins.json`](../../scripts/e0-qual/pins.json) pins:
+
+- the E0 source checkout `c802fed50bd5`, mounted read-only as the Compose
+  project directory;
+- the server, server-support and graph images, by digest;
+- I0 worker image `sha256:0b7defe6…ddc7d` (source `dc62cfc0`, runtime 0.5.1);
+- all seven program pins, including the measured OS bwrap 0.8.0 pin from the
+  section above;
+- ports 32847–32849, so the stack never collides with the retained E0 stack;
+- the scratch repository `ElectricJack/aq-scratch@main` with credential `none`;
+- model `gpt-6.1-sol` with reasoning `high`;
+- credential profile `owner-chatgpt-codex` revision 1.
+
+### Reproduce
+
+Run as the owner, from this checkout, with Docker and the pinned images
+present. `AQ_QUAL_ROOT` defaults to `~/.local/state/aq-platform-e0-qual`.
+
+```sh
+python3 scripts/e0-qual-stack.py prepare    # fresh secrets + vault overlay under AQ_QUAL_ROOT
+python3 scripts/e0-qual-stack.py up         # project aq-e0-qual, own volumes, pinned images
+python3 scripts/e0-qual-stack.py enroll     # public enrollment of node e0-qual-desktop
+python3 scripts/e0-qual-stack.py seed       # project/task/source through public APIs
+python3 scripts/e0-qual-stack.py measure    # <= 3 real provider calls; refuses once spent
+python3 scripts/e0-qual-stack.py configure  # generate [intelligence]/[profiled_execution], catalog rev 2, worker bundle
+python3 scripts/e0-qual-stack.py apply      # restart server on generated vault, activate catalog, bind, check-native
+python3 scripts/e0-qual-stack.py status
+```
+
+`measure` spends the provider budget. It refuses to run again in a state root
+whose ledger or raw record already exists. It installs only the owner's ChatGPT
+login file (UID 10001, mode 0600) into a fresh, otherwise empty `CODEX_HOME`
+volume, and never uses the host `~/.codex/config.toml`. Afterwards it confirms
+the login file is byte-identical and removes the volume.
+
+The generated server credential `secret_file` is
+`/qual-vault/owner-chatgpt-codex.auth.json`, owned by UID 10001 with mode 0600
+inside this stack's own vault. It is the private material lease input. It is
+not copied into the repository or the evidence.
+
+### Evidence
+
+[`qualification-stack.json`](evidence/e0-native-inputs/qualification-stack.json)
+is canonical JSON, 10973 bytes, sha256
+`a7d3308c1c339087d684fe5bcad05ef95748ce195a020df05e35b8fcaafb59d3`.
+
+It contains the pins, the measurement ledger and sanitized raw usage, the
+configure receipt (every definition id/digest/size, the context fact and the
+worker-file hashes), the apply receipt and the check-native result. It excludes:
+
+- auth bytes, tokens, account IDs and fingerprints;
+- the worker credential;
+- the private generated `config.toml`.
+
+**Measured: three calls** at 2026-11-03 07:22:30–07:22:45 UTC. Codex 0.166.0
+`exec` ran in the I0 image as UID 10001 with a read-only root,
+`cap-drop ALL`, `no-new-privileges` and `seccomp=unconfined`. All three
+exited 0 with reply "OK", model `gpt-6.1-sol` and effort `high`.
+
+| Call | Prompt UTF-8 bytes | Provider `input_tokens` | Cached | Rollout context window |
+|---|---|---|---|---|
+| minimal | 144 | 14171 | 12288 | 475000 |
+| mixed (16 KiB payload) | 16530 | 19747 | 12288 | 475000 |
+| adversarial (16 KiB payload) | 16530 | 27517 | 12288 | 475000 |
+
+The recorded values are derived from these calls:
+
+- **Capacity:** 475000 tokens, `qualified_model_window`. This is the window
+  the rollout reported for all three calls.
+- **Counting:** `maximum_tokens_per_utf8_byte = 1` and
+  `fixed_overhead_tokens = 16384`, with rendering `utf8_double_newline_v1`.
+  Every call satisfies `input_tokens <= prompt_bytes * 1 + 16384`. The
+  provider's `input_tokens` include Codex's own prompt and tools.
+- **Expiry:** the context fact was observed at 1793690565377 and expires at
+  1793776965377, **2026-11-04 07:22:45 UTC** (the maximum 24 h TTL). After
+  that, admission must refuse it. Renewing it means a fresh state root and
+  a new owner-approved measurement budget; the spent budget is not rerun.
+
+**Assumptions** (not measured, stated in the generated bodies):
+
+- `max_output_tokens = 128000` is an AQ planning reservation only. Codex
+  keeps its default output limit, as the owner decided. It is not a Codex or
+  provider setting.
+- The permission plan assumes requested = effective = required =
+  `task.read`/`knowledge.read` on the project and `source.write` on the
+  repository, with `omissions: []`. Its digest is `a2e19e8f…`.
+
+**Owner-attested (recorded by agent for the owner):** the `owner-chatgpt-codex`
+credential body names the owner's ChatGPT account (`owner-chatgpt-account`)
+and the Codex default endpoint, for the desktop dev worker only. These are
+references, not observed account data.
+
+**Applied** through public routes: the server restarted on the generated
+`/qual-vault`, catalog revision 2 is active (digest
+`9cd60990…a66e8`), and the project binding is revision 2.
+`allowed_node_ids` is generated from the freshly enrolled node
+`f761410b-43f5-4106-ab80-f044dd446da0` (`e0-qual-desktop`). The worker bundle
+is installed in `aq-e0-qual-worker-state`. Its file hashes are:
+
+| File | sha256 (prefix) |
+|---|---|
+| `native.json` | `09810922…` |
+| adapter | `8b71dfa0…` |
+| client | `7350d302…` |
+| composite | `713265e9…` |
+| inventory | `bcf5e1b2…` |
+
+The renderer is `aq.qualified-context/97f16032…`.
+
+**check-native:** exit 0, "Native configuration and installed executor are
+valid". This ran the pinned I0 `aq-worker check-native` under the hardened
+flags (default seccomp). Its strace shows the full preflight: it verified
+aq-agent, codex, aq-session-host and tmux, opened the namespace files, and
+made no network syscalls.
+
+### Root cause of the earlier check-native refusal
+
+I0 `check-native` reduces every error to "native configuration check
+refused". A strace showed decoding stopped after `native.json` was read. In
+the pinned source, `runner/config.rs` `ConfiguredPreparation` runs
+`Negotiation::validate` inside serde. For the refresh-v1 long contract, that
+requires the shared base features plus the refresh-specific
+`RegistryObservationContinuityV1`:
+
+- `vendor/aq-admission-0.1.11/src/preparation_shared.rs` `required_features()`;
+- `preparation_refresh_v1.rs` `extra_features`.
+
+The generator now emits all four as `NEGOTIATION_FEATURES`.
+`scripts/tests/test_e0_qual_definitions.py` checks that list against the
+pinned I0 source.
+
+### Not run, and what is missing
+
+- **Registration/poll.** `run-native` was not started. An online worker
+  could be offered the seeded task, and that would make a provider call
+  beyond the three authorized. The worker therefore remains `offline`. The
+  public registration/poll path is preserved, not exercised. Running it needs
+  an explicit owner go-ahead for the resulting execution's provider usage,
+  and it must happen before the fact expires.
+- **Bounds.** No end-to-end execution has run. The 15-minute execution
+  budget, the 64 KiB context bytes and the disk/memory bounds are
+  configured limits. They are not measured.
+- **Re-measurement.** It is not automated beyond the budget guard. Each new
+  owner approval needs a fresh `AQ_QUAL_ROOT`.
+
+`python3 -m unittest -v scripts/tests/test_e0_qual_definitions.py` ran 4 tests
+in 0.045 s; all passed.
