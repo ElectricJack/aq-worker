@@ -1,0 +1,1302 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile:
+#1 transferring dockerfile: 1.93kB done
+#1 DONE 0.2s
+
+#2 [internal] load metadata for docker.io/library/debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/rust:1.96.1-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 0.0s
+#4 transferring context: 2B 0.0s done
+#4 DONE 0.1s
+
+#5 [git-build 1/8] FROM docker.io/library/rust:1.96.1-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663
+#5 CACHED
+
+#6 [aq-sandbox-os 1/6] FROM docker.io/library/debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
+#6 CACHED
+
+#7 [internal] load build context
+#7 transferring context: 8.49MB 0.2s done
+#7 DONE 0.5s
+
+#8 [aq-sandbox-os 2/6] COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
+#8 DONE 0.2s
+
+#9 [git-build 2/8] COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
+#9 DONE 0.4s
+
+#10 [git-build 3/8] RUN apt-get update && apt-get install -y --no-install-recommends     libssl-dev libcurl4-openssl-dev libexpat1-dev gettext zlib1g-dev     && rm -rf /var/lib/apt/lists/*
+#10 1.939 Get:1 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm InRelease [151 kB]
+#10 2.039 Get:2 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm-updates InRelease [55.4 kB]
+#10 2.049 Get:3 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security InRelease [34.8 kB]
+#10 2.309 Get:4 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 Packages [8790 kB]
+#10 3.663 Get:5 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm-updates/main amd64 Packages [6924 B]
+#10 3.673 Get:6 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 Packages [358 kB]
+#10 4.155 Fetched 9397 kB in 3s (2884 kB/s)
+#10 4.155 Reading package lists...
+#10 5.398 Reading package lists...
+#10 6.946 Building dependency tree...
+#10 7.490 Reading state information...
+#10 8.658 zlib1g-dev is already the newest version (1:1.2.13.dfsg-1).
+#10 8.658 The following additional packages will be installed:
+#10 8.674   curl gettext-base libcurl3-gnutls libcurl4 libexpat1 libssl3 openssl
+#10 8.690 Suggested packages:
+#10 8.697   autopoint gettext-doc libasprintf-dev libgettextpo-dev libcurl4-doc
+#10 8.697   libidn-dev libldap2-dev librtmp-dev libssh2-1-dev libssl-doc
+#10 8.833 The following NEW packages will be installed:
+#10 8.847   gettext gettext-base
+#10 8.852 The following packages will be upgraded:
+#10 8.859   curl libcurl3-gnutls libcurl4 libcurl4-openssl-dev libexpat1 libexpat1-dev
+#10 8.862   libssl-dev libssl3 openssl
+#10 10.92 9 upgraded, 2 newly installed, 0 to remove and 57 not upgraded.
+#10 10.92 Need to get 9246 kB of archives.
+#10 10.92 After this operation, 6714 kB of additional disk space will be used.
+#10 10.92 Get:1 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 gettext-base amd64 0.21-12 [160 kB]
+#10 11.53 Get:2 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libcurl4-openssl-dev amd64 7.88.1-10+deb12u15 [493 kB]
+#10 11.62 Get:3 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libssl-dev amd64 3.0.22-1~deb12u2 [2450 kB]
+#10 11.89 Get:4 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libssl3 amd64 3.0.22-1~deb12u2 [2040 kB]
+#10 12.07 Get:5 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 curl amd64 7.88.1-10+deb12u15 [316 kB]
+#10 12.09 Get:6 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u15 [392 kB]
+#10 12.12 Get:7 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 gettext amd64 0.21-12 [1300 kB]
+#10 12.24 Get:8 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libcurl3-gnutls amd64 7.88.1-10+deb12u15 [386 kB]
+#10 12.27 Get:9 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libexpat1-dev amd64 2.5.0-1+deb12u5 [159 kB]
+#10 12.29 Get:10 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libexpat1 amd64 2.5.0-1+deb12u5 [108 kB]
+#10 12.30 Get:11 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 openssl amd64 3.0.22-1~deb12u2 [1442 kB]
+#10 13.21 debconf: delaying package configuration, since apt-utils is not installed
+#10 13.38 Fetched 9246 kB in 3s (2665 kB/s)
+#10 13.49 Selecting previously unselected package gettext-base.
+#10 13.49 (Reading database ...
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 23256 files and directories currently installed.)
+#10 13.74 Preparing to unpack .../00-gettext-base_0.21-12_amd64.deb ...
+#10 13.75 Unpacking gettext-base (0.21-12) ...
+#10 14.18 Preparing to unpack .../01-libcurl4-openssl-dev_7.88.1-10+deb12u15_amd64.deb ...
+#10 14.23 Unpacking libcurl4-openssl-dev:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u14) ...
+#10 14.68 Preparing to unpack .../02-libssl-dev_3.0.22-1~deb12u2_amd64.deb ...
+#10 14.75 Unpacking libssl-dev:amd64 (3.0.22-1~deb12u2) over (3.0.20-1~deb12u2) ...
+#10 19.11 Preparing to unpack .../03-libssl3_3.0.22-1~deb12u2_amd64.deb ...
+#10 19.26 Unpacking libssl3:amd64 (3.0.22-1~deb12u2) over (3.0.20-1~deb12u2) ...
+#10 19.84 Preparing to unpack .../04-curl_7.88.1-10+deb12u15_amd64.deb ...
+#10 20.10 Unpacking curl (7.88.1-10+deb12u15) over (7.88.1-10+deb12u14) ...
+#10 20.80 Preparing to unpack .../05-libcurl4_7.88.1-10+deb12u15_amd64.deb ...
+#10 20.87 Unpacking libcurl4:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u14) ...
+#10 21.21 Selecting previously unselected package gettext.
+#10 21.22 Preparing to unpack .../06-gettext_0.21-12_amd64.deb ...
+#10 21.26 Unpacking gettext (0.21-12) ...
+#10 21.71 Preparing to unpack .../07-libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb ...
+#10 21.84 Unpacking libcurl3-gnutls:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u14) ...
+#10 22.19 Preparing to unpack .../08-libexpat1-dev_2.5.0-1+deb12u5_amd64.deb ...
+#10 22.27 Unpacking libexpat1-dev:amd64 (2.5.0-1+deb12u5) over (2.5.0-1+deb12u2) ...
+#10 22.86 Preparing to unpack .../09-libexpat1_2.5.0-1+deb12u5_amd64.deb ...
+#10 22.93 Unpacking libexpat1:amd64 (2.5.0-1+deb12u5) over (2.5.0-1+deb12u2) ...
+#10 23.25 Preparing to unpack .../10-openssl_3.0.22-1~deb12u2_amd64.deb ...
+#10 23.32 Unpacking openssl (3.0.22-1~deb12u2) over (3.0.20-1~deb12u2) ...
+#10 27.76 Setting up libexpat1:amd64 (2.5.0-1+deb12u5) ...
+#10 27.87 Setting up libssl3:amd64 (3.0.22-1~deb12u2) ...
+#10 27.96 Setting up gettext-base (0.21-12) ...
+#10 28.06 Setting up libcurl3-gnutls:amd64 (7.88.1-10+deb12u15) ...
+#10 28.17 Setting up libexpat1-dev:amd64 (2.5.0-1+deb12u5) ...
+#10 28.26 Setting up libssl-dev:amd64 (3.0.22-1~deb12u2) ...
+#10 28.34 Setting up libcurl4:amd64 (7.88.1-10+deb12u15) ...
+#10 28.43 Setting up curl (7.88.1-10+deb12u15) ...
+#10 28.55 Setting up openssl (3.0.22-1~deb12u2) ...
+#10 28.68 Setting up gettext (0.21-12) ...
+#10 28.74 Setting up libcurl4-openssl-dev:amd64 (7.88.1-10+deb12u15) ...
+#10 28.81 Processing triggers for libc-bin (2.36-9+deb12u14) ...
+#10 DONE 31.1s
+
+#11 [git-build 4/8] WORKDIR /inputs
+#11 DONE 0.3s
+
+#12 [git-build 5/8] COPY git.tar.xz SHA256SUMS ./
+#12 DONE 0.4s
+
+#13 [git-build 6/8] RUN sha256sum --check SHA256SUMS && mkdir /git     && tar -xf git.tar.xz -C /git --strip-components=1
+#13 0.667 git.tar.xz: OK
+#13 DONE 2.7s
+
+#14 [git-build 7/8] WORKDIR /git
+#14 DONE 0.3s
+
+#15 [git-build 8/8] RUN make -j2 prefix=/opt/git RUNTIME_PREFIX=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease all     && make prefix=/opt/git RUNTIME_PREFIX=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease install
+#15 1.909 GIT_VERSION=2.56.0
+#15 2.722     * new build flags
+#15 2.791     * new link flags
+#15 2.794     * new prefix flags
+#15 2.796     CC base85.o
+#15 2.797     CC bisect.o
+#15 5.385     CC blame.o
+#15 6.462     CC blob.o
+#15 6.822     CC bloom.o
+#15 7.339     CC branch.o
+#15 7.619     CC bundle-uri.o
+#15 7.881     CC bundle.o
+#15 8.228     CC cache-tree.o
+#15 8.469     CC cbtree.o
+#15 8.830     CC chdir-notify.o
+#15 9.092     CC checkout.o
+#15 9.122     CC chunk-format.o
+#15 9.428     CC color.o
+#15 9.543     CC column.o
+#15 10.00     CC combine-diff.o
+#15 10.08     CC commit-graph.o
+#15 11.31     CC commit-reach.o
+#15 12.10     CC commit.o
+#15 12.29     CC common-exit.o
+#15 12.59     CC common-init.o
+#15 12.92     CC compat/nonblock.o
+#15 13.18     CC compat/obstack.o
+#15 13.50     CC compat/open.o
+#15 13.67     CC compat/terminal.o
+#15 13.81     CC compiler-tricks/not-constant.o
+#15 14.15     CC config.o
+#15 14.19     CC connect.o
+#15 15.15     CC connected.o
+#15 15.59     CC convert.o
+#15 16.38     CC copy.o
+#15 16.71     CC credential.o
+#15 16.74     CC csum-file.o
+#15 17.21     CC ctype.o
+#15 17.52     CC date.o
+#15 17.67     CC decorate.o
+#15 18.01     CC delta-islands.o
+#15 18.87     CC diagnose.o
+#15 19.53     CC diff-delta.o
+#15 19.56     CC diff-merges.o
+#15 20.10     CC diff-lib.o
+#15 20.16     CC diff-no-index.o
+#15 20.95     CC diff.o
+#15 21.15     CC diffcore-break.o
+#15 21.58     CC diffcore-delta.o
+#15 21.92     CC diffcore-order.o
+#15 22.28     CC diffcore-pickaxe.o
+#15 22.93     CC diffcore-rename.o
+#15 24.12     CC diffcore-rotate.o
+#15 24.41     CC dir-iterator.o
+#15 25.00     CC dir.o
+#15 27.87     CC editor.o
+#15 28.39     CC entry.o
+#15 28.97     CC environment.o
+#15 29.13     CC ewah/bitmap.o
+#15 29.62     CC ewah/ewah_bitmap.o
+#15 29.70     CC ewah/ewah_io.o
+#15 30.22     CC ewah/ewah_rlw.o
+#15 30.55     CC exec-cmd.o
+#15 30.60     CC fetch-negotiator.o
+#15 31.19     CC fetch-object-info.o
+#15 31.27     CC fetch-pack.o
+#15 31.65     CC fmt-merge-msg.o
+#15 32.44     CC fsck.o
+#15 33.44     CC fsmonitor.o
+#15 33.70     CC fsmonitor-ipc.o
+#15 34.14     CC fsmonitor-settings.o
+#15 34.22     CC gettext.o
+#15 34.49     CC git-zlib.o
+#15 34.49     CC gpg-interface.o
+#15 35.10     CC graph.o
+#15 35.46     CC grep.o
+#15 36.26     CC hash-lookup.o
+#15 36.52     CC hash.o
+#15 36.61     CC hashmap.o
+#15 36.94     GEN command-list.h
+#15 37.13     CC hex.o
+#15 37.25     CC hex-ll.o
+#15 37.54     GEN hook-list.h
+#15 37.56     CC ident.o
+#15 37.57     CC json-writer.o
+#15 38.05     CC kwset.o
+#15 38.06     CC levenshtein.o
+#15 38.36     CC line-log.o
+#15 39.02     CC line-range.o
+#15 39.27     CC linear-assignment.o
+#15 39.41     CC list-objects-filter-options.o
+#15 39.65     CC list-objects-filter.o
+#15 39.85     CC list-objects.o
+#15 40.17     CC lockfile.o
+#15 40.37     CC log-tree.o
+#15 40.60     CC loose.o
+#15 41.38     CC ls-refs.o
+#15 41.41     CC mailinfo.o
+#15 41.69     CC mailmap.o
+#15 42.03     CC match-trees.o
+#15 42.24     CC mem-pool.o
+#15 42.60     CC merge-blobs.o
+#15 42.69     CC merge-ll.o
+#15 42.92     CC merge-ort.o
+#15 43.23     CC merge-ort-wrappers.o
+#15 43.93     CC merge.o
+#15 44.45     CC midx.o
+#15 45.61     CC midx-write.o
+#15 46.86     CC name-hash.o
+#15 47.55     CC negotiator/default.o
+#15 47.78     CC negotiator/noop.o
+#15 48.04     CC negotiator/skipping.o
+#15 48.10     CC notes-cache.o
+#15 48.48     CC notes-merge.o
+#15 48.69     CC notes-utils.o
+#15 49.43     CC notes.o
+#15 49.78     CC object-file-convert.o
+#15 50.62     CC object-file.o
+#15 51.10     CC object-name.o
+#15 52.45     CC object.o
+#15 52.83     CC odb.o
+#15 53.25     CC odb/source.o
+#15 54.15     CC odb/source-files.o
+#15 54.43     CC odb/source-inmemory.o
+#15 55.57     CC odb/source-loose.o
+#15 55.66     CC odb/source-packed.o
+#15 58.29     CC odb/streaming.o
+#15 58.79     CC odb/transaction.o
+#15 59.07     CC oid-array.o
+#15 59.24     CC oidmap.o
+#15 59.81     CC oidset.o
+#15 59.96     CC oidtree.o
+#15 60.34     CC pack-bitmap-write.o
+#15 60.35     CC pack-bitmap.o
+#15 62.31     CC pack-check.o
+#15 63.08     CC pack-mtimes.o
+#15 63.73     CC pack-objects.o
+#15 64.04     CC pack-refs.o
+#15 64.65     CC pack-revindex.o
+#15 64.79     CC pack-write.o
+#15 66.20     CC packfile.o
+#15 66.26     CC packfile-list.o
+#15 66.98     CC pager.o
+#15 67.93     CC parallel-checkout.o
+#15 68.57     CC parse.o
+#15 69.08     CC parse-options-cb.o
+#15 69.12     CC parse-options.o
+#15 69.60     CC patch-delta.o
+#15 69.92     CC patch-ids.o
+#15 70.21     CC path.o
+#15 70.55     CC path-walk.o
+#15 71.45     CC pathspec.o
+#15 71.57     CC pkt-line.o
+#15 72.23     CC preload-index.o
+#15 72.32     CC pretty.o
+#15 72.58     CC prio-queue.o
+#15 72.90     CC progress.o
+#15 73.32     CC promisor-remote.o
+#15 73.99     CC prompt.o
+#15 74.22     CC protocol.o
+#15 74.26     CC protocol-caps.o
+#15 74.44     CC prune-packed.o
+#15 74.50     CC pseudo-merge.o
+#15 74.72     CC quote.o
+#15 75.12     CC range-diff.o
+#15 75.30     CC reachable.o
+#15 75.70     CC read-cache.o
+#15 75.73     CC rebase-interactive.o
+#15 76.06     CC rebase.o
+#15 76.27     CC ref-filter.o
+#15 77.71     CC reflog-walk.o
+#15 78.15     CC reflog.o
+#15 78.30     CC refs.o
+#15 78.86     CC refs/debug.o
+#15 79.31     CC refs/files-backend.o
+#15 80.11     CC refs/reftable-backend.o
+#15 80.85     CC refs/iterator.o
+#15 81.21     CC refs/packed-backend.o
+#15 81.53     CC refs/ref-cache.o
+#15 82.02     CC refspec.o
+#15 82.09     CC reftable/basics.o
+#15 82.32     CC reftable/block.o
+#15 82.58     CC reftable/blocksource.o
+#15 82.63     CC reftable/error.o
+#15 82.76     CC reftable/fsck.o
+#15 82.82     CC reftable/iter.o
+#15 82.93     CC reftable/merged.o
+#15 83.11     CC reftable/pq.o
+#15 83.28     CC reftable/record.o
+#15 83.49     CC reftable/stack.o
+#15 84.03     CC reftable/system.o
+#15 84.38     CC reftable/table.o
+#15 84.55     CC reftable/tree.o
+#15 84.72     CC reftable/writer.o
+#15 84.77     CC remote.o
+#15 85.05     CC repack.o
+#15 85.52     CC repack-cruft.o
+#15 85.96     CC repack-filtered.o
+#15 86.47     CC repack-geometry.o
+#15 86.59     CC repack-midx.o
+#15 87.26     CC repack-promisor.o
+#15 87.55     CC replace-object.o
+#15 87.61     CC replay.o
+#15 87.99     CC repo-settings.o
+#15 89.81     CC repository.o
+#15 89.88     CC rerere.o
+#15 90.33     CC reset.o
+#15 90.72     CC resolve-undo.o
+#15 90.86     CC revision.o
+#15 91.07     CC run-command.o
+#15 92.16     CC send-pack.o
+#15 92.82     CC sequencer.o
+#15 93.96     CC serve.o
+#15 94.34     CC server-info.o
+#15 94.82     CC setup.o
+#15 96.29     CC shallow.o
+#15 97.05     CC sideband.o
+#15 97.61     CC sigchain.o
+#15 97.68     CC sparse-index.o
+#15 97.87     CC split-index.o
+#15 98.30     CC stable-qsort.o
+#15 98.53     CC statinfo.o
+#15 98.59     CC strbuf.o
+#15 98.88     CC string-list.o
+#15 99.28     CC strmap.o
+#15 99.52     CC strvec.o
+#15 99.55     CC sub-process.o
+#15 99.80     CC submodule-config.o
+#15 99.84     CC submodule.o
+#15 100.4     CC symlinks.o
+#15 100.7     CC tag.o
+#15 101.0     CC tempfile.o
+#15 101.0     CC thread-utils.o
+#15 101.2     CC tmp-objdir.o
+#15 101.4     CC trace.o
+#15 101.6     CC trace2.o
+#15 101.8     CC trace2/tr2_cfg.o
+#15 102.0     CC trace2/tr2_cmd_name.o
+#15 102.3     CC trace2/tr2_ctr.o
+#15 102.4     CC trace2/tr2_dst.o
+#15 102.6     CC trace2/tr2_sid.o
+#15 102.8     CC trace2/tr2_sysenv.o
+#15 102.8     CC trace2/tr2_tbuf.o
+#15 103.0     CC trace2/tr2_tgt_event.o
+#15 103.1     CC trace2/tr2_tgt_normal.o
+#15 103.5     CC trace2/tr2_tgt_perf.o
+#15 103.5     CC trace2/tr2_tls.o
+#15 103.8     CC trace2/tr2_tmr.o
+#15 104.0     CC trailer.o
+#15 104.1     CC transport-helper.o
+#15 104.9     CC transport.o
+#15 105.0     CC tree-diff.o
+#15 105.5     CC tree-walk.o
+#15 106.0     CC tree.o
+#15 106.2     CC unpack-trees.o
+#15 106.6     CC upload-pack.o
+#15 107.6     CC url.o
+#15 108.1     CC urlmatch.o
+#15 108.2     CC usage.o
+#15 108.6     CC userdiff.o
+#15 108.9     CC utf8.o
+#15 109.1     CC versioncmp.o
+#15 109.4     CC walker.o
+#15 109.6     CC wildmatch.o
+#15 109.9     CC worktree.o
+#15 110.0     CC wrapper.o
+#15 110.5     CC write-or-die.o
+#15 110.6     CC ws.o
+#15 110.9     CC wt-status.o
+#15 111.1     CC xdiff-interface.o
+#15 111.5     CC xdiff/xdiffi.o
+#15 112.4     CC xdiff/xemit.o
+#15 112.5     CC xdiff/xhistogram.o
+#15 113.3     CC xdiff/xmerge.o
+#15 113.4     CC xdiff/xpatience.o
+#15 113.8     CC xdiff/xprepare.o
+#15 114.1     CC xdiff/xutils.o
+#15 114.3     CC unix-socket.o
+#15 114.6     CC unix-stream-server.o
+#15 114.7     CC compat/simple-ipc/ipc-shared.o
+#15 114.8     CC compat/simple-ipc/ipc-unix-socket.o
+#15 114.9     CC sha1dc_git.o
+#15 115.2     CC sha1dc/sha1.o
+#15 115.3     CC sha1dc/ubc_check.o
+#15 115.7     CC sha256/block/sha256.o
+#15 116.0     CC compat/linux/procinfo.o
+#15 116.3     CC compat/fopen.o
+#15 116.5     CC compat/strlcpy.o
+#15 116.7     CC compat/qsort_s.o
+#15 116.7     CC compat/fsmonitor/fsm-listen-linux.o
+#15 116.9     CC compat/fsmonitor/fsm-health-linux.o
+#15 117.1     CC compat/fsmonitor/fsm-ipc-unix.o
+#15 117.2     CC compat/fsmonitor/fsm-settings-unix.o
+#15 117.4     CC compat/fsmonitor/fsm-path-utils-linux.o
+#15 117.5     CC http-backend.o
+#15 117.8     CC imap-send.o
+#15 118.3     CC http.o
+#15 119.5     CC sh-i18n--envsubst.o
+#15 121.2     CC shell.o
+#15 121.5     CC http-walker.o
+#15 121.9     CC http-fetch.o
+#15 122.1     CC http-push.o
+#15 122.2     CC remote-curl.o
+#15 123.3     * new script parameters
+#15 123.3     * new perl-specific parameters
+#15 123.3     GEN git-p4
+#15 123.3     GEN git-instaweb
+#15 123.3     CC git.o
+#15 123.5     CC builtin/add.o
+#15 124.1     CC builtin/am.o
+#15 124.1     CC builtin/annotate.o
+#15 124.4     CC builtin/apply.o
+#15 124.8     CC builtin/archive.o
+#15 125.2     CC builtin/backfill.o
+#15 125.4     CC builtin/bisect.o
+#15 125.6     CC builtin/blame.o
+#15 126.3     CC builtin/branch.o
+#15 126.4     CC builtin/bugreport.o
+#15 126.7     CC builtin/bundle.o
+#15 127.0     CC builtin/cat-file.o
+#15 127.4     CC builtin/check-attr.o
+#15 127.8     CC builtin/check-ignore.o
+#15 127.9     CC builtin/check-mailmap.o
+#15 128.1     CC builtin/check-ref-format.o
+#15 128.2     CC builtin/checkout--worker.o
+#15 128.4     CC builtin/checkout-index.o
+#15 128.5     CC builtin/checkout.o
+#15 128.9     CC builtin/clean.o
+#15 130.0     CC builtin/clone.o
+#15 130.0     CC builtin/column.o
+#15 130.4     CC builtin/commit-graph.o
+#15 130.8     CC builtin/commit-tree.o
+#15 131.2     CC builtin/commit.o
+#15 131.5     CC builtin/config.o
+#15 132.4     CC builtin/count-objects.o
+#15 132.7     CC builtin/credential-cache--daemon.o
+#15 133.0     CC builtin/credential-cache.o
+#15 133.0     CC builtin/credential-store.o
+#15 133.3     CC builtin/credential.o
+#15 133.3     CC builtin/describe.o
+#15 133.6     CC builtin/diagnose.o
+#15 133.9     CC builtin/diff-files.o
+#15 134.1     CC builtin/diff-index.o
+#15 134.2     CC builtin/diff-pairs.o
+#15 134.4     CC builtin/diff-tree.o
+#15 134.6     CC builtin/diff.o
+#15 134.7     CC builtin/difftool.o
+#15 135.1     CC builtin/fast-export.o
+#15 135.4     CC builtin/fast-import.o
+#15 136.4     CC builtin/fetch-pack.o
+#15 137.1     CC builtin/fetch.o
+#15 138.8     CC builtin/fmt-merge-msg.o
+#15 139.0     CC builtin/for-each-ref.o
+#15 139.2     CC builtin/for-each-repo.o
+#15 139.5     CC builtin/fsck.o
+#15 139.8     CC builtin/fsmonitor--daemon.o
+#15 140.5     CC builtin/gc.o
+#15 140.9     CC builtin/get-tar-commit-id.o
+#15 141.2     CC builtin/grep.o
+#15 142.4     CC builtin/hash-object.o
+#15 142.5     GEN config-list.h
+#15 142.6     CC builtin/history.o
+#15 142.9     CC builtin/hook.o
+#15 143.2     CC builtin/index-pack.o
+#15 143.4     CC builtin/init-db.o
+#15 143.8     CC builtin/interpret-trailers.o
+#15 144.2     CC builtin/last-modified.o
+#15 144.7     CC builtin/log.o
+#15 144.8     CC builtin/ls-files.o
+#15 145.5     CC builtin/ls-remote.o
+#15 145.8     CC builtin/ls-tree.o
+#15 146.4     CC builtin/mailinfo.o
+#15 146.5     CC builtin/mailsplit.o
+#15 146.9     CC builtin/merge-base.o
+#15 147.1     CC builtin/merge-file.o
+#15 147.2     CC builtin/merge-index.o
+#15 147.5     CC builtin/merge-ours.o
+#15 147.6     CC builtin/merge-recursive.o
+#15 147.8     CC builtin/merge-tree.o
+#15 148.0     CC builtin/merge.o
+#15 148.4     CC builtin/mktag.o
+#15 148.7     CC builtin/mktree.o
+#15 149.1     CC builtin/multi-pack-index.o
+#15 149.1     CC builtin/mv.o
+#15 149.5     CC builtin/name-rev.o
+#15 149.7     CC builtin/notes.o
+#15 150.1     CC builtin/pack-objects.o
+#15 150.4     CC builtin/pack-redundant.o
+#15 152.6     CC builtin/pack-refs.o
+#15 152.8     CC builtin/patch-id.o
+#15 153.0     CC builtin/prune-packed.o
+#15 153.2     CC builtin/prune.o
+#15 153.5     CC builtin/pull.o
+#15 154.0     CC builtin/push.o
+#15 154.0     CC builtin/range-diff.o
+#15 154.3     CC builtin/read-tree.o
+#15 154.5     CC builtin/rebase.o
+#15 154.6     CC builtin/receive-pack.o
+#15 155.7     CC builtin/reflog.o
+#15 155.8     CC builtin/refs.o
+#15 156.1     CC builtin/remote-ext.o
+#15 156.2     CC builtin/remote-fd.o
+#15 156.4     CC builtin/remote.o
+#15 156.4     CC builtin/repack.o
+#15 156.9     CC builtin/replace.o
+#15 157.3     CC builtin/replay.o
+#15 157.4     CC builtin/repo.o
+#15 157.5     CC builtin/rerere.o
+#15 157.8     CC builtin/reset.o
+#15 157.9     CC builtin/rev-list.o
+#15 158.2     CC builtin/rev-parse.o
+#15 158.4     CC builtin/revert.o
+#15 158.8     CC builtin/rm.o
+#15 159.1     CC builtin/send-pack.o
+#15 159.2     CC builtin/shortlog.o
+#15 159.5     CC builtin/show-branch.o
+#15 159.6     CC builtin/show-index.o
+#15 159.9     CC builtin/show-ref.o
+#15 160.1     CC builtin/sparse-checkout.o
+#15 160.3     CC builtin/stash.o
+#15 160.7     CC builtin/stripspace.o
+#15 160.9     CC builtin/submodule--helper.o
+#15 161.2     CC builtin/symbolic-ref.o
+#15 161.4     CC builtin/tag.o
+#15 162.1     CC builtin/unpack-file.o
+#15 162.3     CC builtin/unpack-objects.o
+#15 162.6     CC builtin/update-index.o
+#15 162.9     CC builtin/update-ref.o
+#15 163.4     CC builtin/update-server-info.o
+#15 163.5     CC builtin/upload-archive.o
+#15 163.6     CC builtin/upload-pack.o
+#15 163.8     CC builtin/url-parse.o
+#15 163.9     CC builtin/var.o
+#15 164.0     CC builtin/verify-commit.o
+#15 164.3     CC builtin/verify-pack.o
+#15 164.3     CC builtin/verify-tag.o
+#15 164.6     CC builtin/worktree.o
+#15 164.6     CC builtin/write-tree.o
+#15 164.9     GEN git-mergetool--lib
+#15 164.9     GEN git-sh-i18n
+#15 164.9     GEN git-sh-setup
+#15 164.9     CC scalar.o
+#15 165.6     CC daemon.o
+#15 165.7     CC common-main.o
+#15 166.0     CC abspath.o
+#15 166.3     CC add-interactive.o
+#15 166.5     CC add-patch.o
+#15 167.1     CC advice.o
+#15 167.4     CC alias.o
+#15 167.6     CC alloc.o
+#15 167.7     CC apply.o
+#15 167.8     CC archive-tar.o
+#15 168.3     CC archive-zip.o
+#15 169.1     CC archive.o
+#15 169.9     CC attr.o
+#15 170.7     CC help.o
+#15 170.8     CC hook.o
+#15 171.3     GEN version-def.h
+#15 171.3     GEN git-difftool--helper
+#15 171.3     GEN git-filter-branch
+#15 171.3     GEN git-merge-octopus
+#15 171.3     GEN git-merge-one-file
+#15 171.4     GEN git-merge-resolve
+#15 171.4     GEN git-mergetool
+#15 171.4     GEN git-quiltimport
+#15 171.4     GEN git-request-pull
+#15 171.4     GEN git-submodule
+#15 171.4     GEN git-web--browse
+#15 171.4     GEN GIT-PERL-HEADER
+#15 171.4     CC builtin/help.o
+#15 171.4     CC version.o
+#15 171.6     GEN git-archimport
+#15 171.7     GEN git-cvsexportcommit
+#15 171.7     GEN git-cvsimport
+#15 171.7     GEN git-cvsserver
+#15 171.7     GEN git-send-email
+#15 171.7     GEN git-svn
+#15 171.7     AR libgit.a
+#15 172.4     CARGO target/release/libgitcore.a
+#15 172.5 warning: failed to connect to jobserver from environment variable `MAKEFLAGS=" -j2 --jobserver-auth=3,4 -- NO_GETTEXT=YesPlease NO_TCLTK=YesPlease RUNTIME_PREFIX=YesPlease prefix=/opt/git"`: cannot open file descriptor 3 from the jobserver environment variable value: Bad file descriptor (os error 9)
+#15 173.4     LINK git-daemon
+#15 173.4     LINK git-http-backend
+#15 173.7     LINK git-imap-send
+#15 173.7     LINK git-sh-i18n--envsubst
+#15 174.1     LINK git-shell
+#15 174.3     LINK git-http-fetch
+#15 174.4     LINK git-http-push
+#15 175.0     LINK git-remote-http
+#15 175.2     LINK git
+#15 175.7     LINK scalar
+#15 176.2     LN/CP git-remote-https
+#15 176.3     LN/CP git-remote-ftp
+#15 176.3     LN/CP git-remote-ftps
+#15 176.9     BUILTIN git-add
+#15 176.9     BUILTIN git-am
+#15 176.9     BUILTIN git-annotate
+#15 176.9     BUILTIN git-apply
+#15 176.9     BUILTIN git-archive
+#15 176.9     BUILTIN git-backfill
+#15 176.9     BUILTIN git-bisect
+#15 176.9     BUILTIN git-blame
+#15 176.9     BUILTIN git-branch
+#15 176.9     BUILTIN git-bugreport
+#15 176.9     BUILTIN git-bundle
+#15 176.9     BUILTIN git-cat-file
+#15 176.9     BUILTIN git-check-attr
+#15 176.9     BUILTIN git-check-ignore
+#15 176.9     BUILTIN git-check-mailmap
+#15 176.9     BUILTIN git-check-ref-format
+#15 176.9     BUILTIN git-checkout--worker
+#15 176.9     BUILTIN git-checkout-index
+#15 176.9     BUILTIN git-checkout
+#15 176.9     BUILTIN git-clean
+#15 176.9     BUILTIN git-clone
+#15 176.9     BUILTIN git-column
+#15 176.9     BUILTIN git-commit-graph
+#15 176.9     BUILTIN git-commit-tree
+#15 176.9     BUILTIN git-commit
+#15 176.9     BUILTIN git-config
+#15 176.9     BUILTIN git-count-objects
+#15 176.9     BUILTIN git-credential-cache--daemon
+#15 177.0     BUILTIN git-credential-cache
+#15 177.0     BUILTIN git-credential-store
+#15 177.0     BUILTIN git-credential
+#15 177.0     BUILTIN git-describe
+#15 177.0     BUILTIN git-diagnose
+#15 177.0     BUILTIN git-diff-files
+#15 177.0     BUILTIN git-diff-index
+#15 177.0     BUILTIN git-diff-pairs
+#15 177.0     BUILTIN git-diff-tree
+#15 177.0     BUILTIN git-diff
+#15 177.0     BUILTIN git-difftool
+#15 177.0     BUILTIN git-fast-export
+#15 177.0     BUILTIN git-fast-import
+#15 177.0     BUILTIN git-fetch-pack
+#15 177.0     BUILTIN git-fetch
+#15 177.0     BUILTIN git-fmt-merge-msg
+#15 177.0     BUILTIN git-for-each-ref
+#15 177.1     BUILTIN git-for-each-repo
+#15 177.1     BUILTIN git-fsck
+#15 177.1     BUILTIN git-fsmonitor--daemon
+#15 177.1     BUILTIN git-gc
+#15 177.1     BUILTIN git-get-tar-commit-id
+#15 177.1     BUILTIN git-grep
+#15 177.1     BUILTIN git-help
+#15 177.1     BUILTIN git-hash-object
+#15 177.1     BUILTIN git-history
+#15 177.2     BUILTIN git-hook
+#15 177.2     BUILTIN git-index-pack
+#15 177.2     BUILTIN git-init-db
+#15 177.2     BUILTIN git-interpret-trailers
+#15 177.2     BUILTIN git-last-modified
+#15 177.2     BUILTIN git-log
+#15 177.2     BUILTIN git-ls-files
+#15 177.2     BUILTIN git-ls-remote
+#15 177.2     BUILTIN git-mailinfo
+#15 177.2     BUILTIN git-ls-tree
+#15 177.3     BUILTIN git-mailsplit
+#15 177.3     BUILTIN git-merge-base
+#15 177.3     BUILTIN git-merge-file
+#15 177.3     BUILTIN git-merge-index
+#15 177.3     BUILTIN git-merge-ours
+#15 177.3     BUILTIN git-merge-recursive
+#15 177.3     BUILTIN git-merge-tree
+#15 177.3     BUILTIN git-merge
+#15 177.3     BUILTIN git-mktag
+#15 177.3     BUILTIN git-mktree
+#15 177.3     BUILTIN git-multi-pack-index
+#15 177.3     BUILTIN git-name-rev
+#15 177.3     BUILTIN git-mv
+#15 177.3     BUILTIN git-notes
+#15 177.3     BUILTIN git-pack-objects
+#15 177.3     BUILTIN git-pack-redundant
+#15 177.3     BUILTIN git-pack-refs
+#15 177.3     BUILTIN git-patch-id
+#15 177.3     BUILTIN git-prune-packed
+#15 177.3     BUILTIN git-prune
+#15 177.3     BUILTIN git-pull
+#15 177.3     BUILTIN git-push
+#15 177.3     BUILTIN git-range-diff
+#15 177.3     BUILTIN git-read-tree
+#15 177.3     BUILTIN git-rebase
+#15 177.4     BUILTIN git-receive-pack
+#15 177.4     BUILTIN git-reflog
+#15 177.4     BUILTIN git-refs
+#15 177.4     BUILTIN git-remote-ext
+#15 177.4     BUILTIN git-remote-fd
+#15 177.4     BUILTIN git-remote
+#15 177.4     BUILTIN git-repack
+#15 177.4     BUILTIN git-replace
+#15 177.4     BUILTIN git-replay
+#15 177.4     BUILTIN git-repo
+#15 177.4     BUILTIN git-rerere
+#15 177.4     BUILTIN git-reset
+#15 177.4     BUILTIN git-rev-list
+#15 177.4     BUILTIN git-rev-parse
+#15 177.4     BUILTIN git-revert
+#15 177.4     BUILTIN git-rm
+#15 177.4     BUILTIN git-send-pack
+#15 177.4     BUILTIN git-shortlog
+#15 177.4     BUILTIN git-show-branch
+#15 177.4     BUILTIN git-show-index
+#15 177.4     BUILTIN git-show-ref
+#15 177.4     BUILTIN git-sparse-checkout
+#15 177.4     BUILTIN git-stash
+#15 177.4     BUILTIN git-stripspace
+#15 177.4     BUILTIN git-submodule--helper
+#15 177.4     BUILTIN git-symbolic-ref
+#15 177.4     BUILTIN git-tag
+#15 177.4     BUILTIN git-unpack-file
+#15 177.4     BUILTIN git-unpack-objects
+#15 177.4     BUILTIN git-update-index
+#15 177.4     BUILTIN git-update-ref
+#15 177.4     BUILTIN git-update-server-info
+#15 177.4     BUILTIN git-upload-archive
+#15 177.4     BUILTIN git-upload-pack
+#15 177.4     BUILTIN git-url-parse
+#15 177.4     BUILTIN git-var
+#15 177.4     BUILTIN git-verify-commit
+#15 177.4     BUILTIN git-verify-tag
+#15 177.4     BUILTIN git-verify-pack
+#15 177.4     BUILTIN git-worktree
+#15 177.4     BUILTIN git-write-tree
+#15 177.5     BUILTIN git-cherry
+#15 177.5     BUILTIN git-cherry-pick
+#15 177.5     BUILTIN git-format-patch
+#15 177.5     BUILTIN git-fsck-objects
+#15 177.5     BUILTIN git-format-rev
+#15 177.5     BUILTIN git-init
+#15 177.5     BUILTIN git-maintenance
+#15 177.5     BUILTIN git-merge-subtree
+#15 177.5     BUILTIN git-restore
+#15 177.5     BUILTIN git-show
+#15 177.5     BUILTIN git-stage
+#15 177.5     BUILTIN git-status
+#15 177.5     BUILTIN git-switch
+#15 177.5     BUILTIN git-version
+#15 177.5     BUILTIN git-whatchanged
+#15 177.5     SUBDIR templates
+#15 177.7     CC oss-fuzz/dummy-cmd-main.o
+#15 177.7     CC oss-fuzz/fuzz-commit-graph.o
+#15 178.0     CC oss-fuzz/fuzz-config.o
+#15 178.0     CC oss-fuzz/fuzz-credential-from-url-gently.o
+#15 178.3     CC oss-fuzz/fuzz-date.o
+#15 178.6     CC oss-fuzz/fuzz-pack-headers.o
+#15 178.9     CC oss-fuzz/fuzz-pack-idx.o
+#15 179.0     CC oss-fuzz/fuzz-parse-attr-line.o
+#15 179.1     CC oss-fuzz/fuzz-reftable.o
+#15 179.2     CC oss-fuzz/fuzz-url-decode-mem.o
+#15 179.5     LINK oss-fuzz/fuzz-commit-graph
+#15 179.5     LINK oss-fuzz/fuzz-config
+#15 179.7     LINK oss-fuzz/fuzz-credential-from-url-gently
+#15 179.8     LINK oss-fuzz/fuzz-date
+#15 180.1     LINK oss-fuzz/fuzz-pack-headers
+#15 180.1     LINK oss-fuzz/fuzz-pack-idx
+#15 180.4     LINK oss-fuzz/fuzz-parse-attr-line
+#15 180.5     LINK oss-fuzz/fuzz-reftable
+#15 180.8     LINK oss-fuzz/fuzz-url-decode-mem
+#15 181.2     MKDIR -p perl/build/lib
+#15 181.2     GEN perl/build/lib/Git.pm
+#15 181.2     MKDIR -p perl/build/lib/Git
+#15 181.2     GEN perl/build/lib/Git/I18N.pm
+#15 181.2     GEN perl/build/lib/Git/IndexInfo.pm
+#15 181.2     GEN perl/build/lib/Git/LoadCPAN.pm
+#15 181.2     GEN perl/build/lib/Git/Packet.pm
+#15 181.2     GEN perl/build/lib/Git/SVN.pm
+#15 181.2     MKDIR -p perl/build/lib/Git/LoadCPAN
+#15 181.2     GEN perl/build/lib/Git/LoadCPAN/Error.pm
+#15 181.2     MKDIR -p perl/build/lib/Git/SVN
+#15 181.2     GEN perl/build/lib/Git/SVN/Editor.pm
+#15 181.2     GEN perl/build/lib/Git/SVN/Fetcher.pm
+#15 181.2     GEN perl/build/lib/Git/SVN/GlobSpec.pm
+#15 181.2     GEN perl/build/lib/Git/SVN/Log.pm
+#15 181.2     GEN perl/build/lib/Git/SVN/Migration.pm
+#15 181.2     GEN perl/build/lib/Git/SVN/Prompt.pm
+#15 181.2     GEN perl/build/lib/Git/SVN/Ra.pm
+#15 181.2     GEN perl/build/lib/Git/SVN/Utils.pm
+#15 181.2     MKDIR -p perl/build/lib/Git/LoadCPAN/Mail
+#15 181.2     GEN perl/build/lib/Git/LoadCPAN/Mail/Address.pm
+#15 181.2     MKDIR -p perl/build/lib/Git/SVN/Memoize
+#15 181.2     GEN perl/build/lib/Git/SVN/Memoize/YAML.pm
+#15 181.2     MKDIR -p perl/build/lib/FromCPAN
+#15 181.2     GEN perl/build/lib/FromCPAN/Error.pm
+#15 181.2     MKDIR -p perl/build/lib/FromCPAN/Mail
+#15 181.2     GEN perl/build/lib/FromCPAN/Mail/Address.pm
+#15 181.3     CC t/helper/test-fake-ssh.o
+#15 181.3     CC t/helper/test-tool.o
+#15 181.5     CC t/helper/test-advise.o
+#15 181.5     CC t/helper/test-bitmap.o
+#15 181.7     CC t/helper/test-bloom.o
+#15 181.9     CC t/helper/test-bundle-uri.o
+#15 182.0     CC t/helper/test-cache-tree.o
+#15 182.1     CC t/helper/test-chmtime.o
+#15 182.2     CC t/helper/test-config.o
+#15 182.3     CC t/helper/test-crontab.o
+#15 183.1     CC t/helper/test-csprng.o
+#15 183.9     CC t/helper/test-date.o
+#15 184.1     CC t/helper/test-delete-gpgsig.o
+#15 184.2     CC t/helper/test-delta.o
+#15 184.3     CC t/helper/test-dir-iterator.o
+#15 184.4     CC t/helper/test-drop-caches.o
+#15 184.6     CC t/helper/test-dump-cache-tree.o
+#15 184.6     CC t/helper/test-dump-fsmonitor.o
+#15 184.8     CC t/helper/test-dump-split-index.o
+#15 184.8     CC t/helper/test-dump-untracked-cache.o
+#15 185.1     CC t/helper/test-env-helper.o
+#15 185.2     CC t/helper/test-example-tap.o
+#15 185.4     CC t/helper/test-find-pack.o
+#15 185.5     CC t/helper/test-fsmonitor-client.o
+#15 185.7     CC t/helper/test-genrandom.o
+#15 185.9     CC t/helper/test-genzeros.o
+#15 186.0     CC t/helper/test-getcwd.o
+#15 186.1     CC t/helper/test-hash-speed.o
+#15 186.2     CC t/helper/test-hash.o
+#15 186.4     CC t/helper/test-hashmap.o
+#15 186.4     CC t/helper/test-hexdump.o
+#15 186.6     CC t/helper/test-json-writer.o
+#15 186.7     CC t/helper/test-lazy-init-name-hash.o
+#15 187.1     CC t/helper/test-match-trees.o
+#15 187.1     CC t/helper/test-mergesort.o
+#15 187.4     CC t/helper/test-mktemp.o
+#15 187.6     CC t/helper/test-name-hash.o
+#15 187.6     CC t/helper/test-online-cpus.o
+#15 187.9     CC t/helper/test-pack-deltas.o
+#15 187.9     CC t/helper/test-pack-mtimes.o
+#15 188.1     CC t/helper/test-parse-options.o
+#15 188.1     CC t/helper/test-parse-pathspec-file.o
+#15 188.4     CC t/helper/test-partial-clone.o
+#15 188.6     CC t/helper/test-path-utils.o
+#15 188.6     CC t/helper/test-path-walk.o
+#15 188.9     CC t/helper/test-pcre2-config.o
+#15 189.1     CC t/helper/test-pkt-line.o
+#15 189.2     CC t/helper/test-proc-receive.o
+#15 189.4     CC t/helper/test-progress.o
+#15 189.5     CC t/helper/test-reach.o
+#15 189.7     CC t/helper/test-read-cache.o
+#15 189.8     CC t/helper/test-read-graph.o
+#15 190.0     CC t/helper/test-read-midx.o
+#15 190.2     CC t/helper/test-ref-store.o
+#15 190.4     CC t/helper/test-reftable.o
+#15 190.5     CC t/helper/test-regex.o
+#15 190.7     CC t/helper/test-rot13-filter.o
+#15 190.7     CC t/helper/test-repository.o
+#15 190.9     CC t/helper/test-revision-walking.o
+#15 191.0     CC t/helper/test-run-command.o
+#15 191.3     CC t/helper/test-scrap-cache-tree.o
+#15 191.6     CC t/helper/test-serve-v2.o
+#15 191.6     CC t/helper/test-sha1.o
+#15 191.8     CC t/helper/test-sha256.o
+#15 191.8     CC t/helper/test-sigchain.o
+#15 192.1     CC t/helper/test-simple-ipc.o
+#15 192.1     CC t/helper/test-string-list.o
+#15 192.3     CC t/helper/test-submodule-config.o
+#15 192.5     CC t/helper/test-submodule-nested-repo-config.o
+#15 192.8     CC t/helper/test-submodule.o
+#15 192.9     CC t/helper/test-subprocess.o
+#15 193.1     CC t/helper/test-synthesize.o
+#15 193.1     CC t/helper/test-trace2.o
+#15 193.5     CC t/helper/test-truncate.o
+#15 193.6     CC t/helper/test-userdiff.o
+#15 193.8     CC t/helper/test-wildmatch.o
+#15 193.9     CC t/helper/test-windows-named-pipe.o
+#15 194.0     CC t/helper/test-write-cache.o
+#15 194.1     CC t/helper/test-xml-encode.o
+#15 194.3     CC t/helper/test-zlib.o
+#15 194.3     CC t/unit-tests/test-lib.o
+#15 194.5     GEN bin-wrappers/git
+#15 194.5     GEN bin-wrappers/scalar
+#15 194.5     GEN bin-wrappers/git-receive-pack
+#15 194.5     GEN bin-wrappers/git-shell
+#15 194.5     GEN bin-wrappers/git-upload-archive
+#15 194.5     GEN bin-wrappers/git-upload-pack
+#15 194.5     GEN bin-wrappers/git-cvsserver
+#15 194.5     GEN bin-wrappers/test-fake-ssh
+#15 194.6     GEN bin-wrappers/test-tool
+#15 194.6     * new test suites
+#15 194.6     LINK t/helper/test-fake-ssh
+#15 194.7     GEN t/unit-tests/clar-decls.h
+#15 194.9     LINK t/helper/test-tool
+#15 194.9     GEN t/unit-tests/clar.suite
+#15 194.9     CC t/unit-tests/u-ctype.o
+#15 195.3     CC t/unit-tests/u-dir.o
+#15 195.4     CC t/unit-tests/u-example-decorate.o
+#15 195.7     CC t/unit-tests/u-hash.o
+#15 195.8     CC t/unit-tests/u-hashmap.o
+#15 196.0     CC t/unit-tests/u-list-objects-filter-options.o
+#15 196.2     CC t/unit-tests/u-mem-pool.o
+#15 196.3     CC t/unit-tests/u-odb-inmemory.o
+#15 196.5     CC t/unit-tests/u-oid-array.o
+#15 196.7     CC t/unit-tests/u-oidmap.o
+#15 196.9     CC t/unit-tests/u-oidtree.o
+#15 197.2     CC t/unit-tests/u-prio-queue.o
+#15 197.4     CC t/unit-tests/u-reftable-basics.o
+#15 197.8     CC t/unit-tests/u-reftable-block.o
+#15 198.0     CC t/unit-tests/u-reftable-merged.o
+#15 198.5     CC t/unit-tests/u-reftable-pq.o
+#15 198.5     CC t/unit-tests/u-reftable-readwrite.o
+#15 198.9     CC t/unit-tests/u-reftable-stack.o
+#15 199.3     CC t/unit-tests/u-reftable-table.o
+#15 199.7     CC t/unit-tests/u-reftable-tree.o
+#15 200.1     CC t/unit-tests/u-strbuf.o
+#15 200.2     CC t/unit-tests/u-strcmp-offset.o
+#15 200.6     CC t/unit-tests/u-string-list.o
+#15 200.6     CC t/unit-tests/u-strvec.o
+#15 201.2     CC t/unit-tests/u-trailer.o
+#15 201.4     CC t/unit-tests/u-urlmatch-normalization.o
+#15 201.6     CC t/unit-tests/u-utf8-width.o
+#15 201.9     CC t/unit-tests/clar/clar.o
+#15 202.0     CC t/unit-tests/lib-oid.o
+#15 202.3     CC t/unit-tests/lib-reftable.o
+#15 202.6     CC t/unit-tests/unit-test.o
+#15 203.0     MKDIR -p t/unit-tests/bin
+#15 203.0     LINK t/unit-tests/bin/unit-tests
+#15 203.4     GEN gitweb/static/gitweb.js
+#15 203.4     GEN gitweb/gitweb.cgi
+#15 204.5     SUBDIR templates
+#15 204.5 install -d -m 755 '/opt/git/share/gitweb'
+#15 204.5 install -m 755 gitweb/gitweb.cgi '/opt/git/share/gitweb'
+#15 204.5 install -d -m 755 '/opt/git/share/gitweb/static'
+#15 204.5 install -m 644 gitweb/static/gitweb.js gitweb/static/gitweb.css gitweb/static/git-logo.png gitweb/static/git-favicon.png \
+#15 204.5 	'/opt/git/share/gitweb/static'
+#15 204.5 install -d -m 755 '/opt/git/bin'
+#15 204.5 install -d -m 755 '/opt/git/libexec/git-core'
+#15 204.5 install   git-daemon git-http-backend git-imap-send git-sh-i18n--envsubst git-shell git-http-fetch git-http-push git-remote-http git-remote-https git-remote-ftp git-remote-ftps '/opt/git/libexec/git-core'
+#15 205.0 install git-difftool--helper git-filter-branch git-merge-octopus git-merge-one-file git-merge-resolve git-mergetool git-quiltimport git-request-pull git-submodule git-web--browse git-archimport git-cvsexportcommit git-cvsimport git-cvsserver git-send-email git-svn git-p4 git-instaweb '/opt/git/libexec/git-core'
+#15 205.0 install -m 644 git-mergetool--lib git-sh-i18n git-sh-setup '/opt/git/libexec/git-core'
+#15 205.0 install  git scalar git-receive-pack git-shell git-upload-archive git-upload-pack '/opt/git/bin'
+#15 205.3 install git-cvsserver '/opt/git/bin'
+#15 205.4 make -C templates DESTDIR='' install
+#15 205.4 make[1]: Entering directory '/git/templates'
+#15 205.4 install -d -m 755 '/opt/git/share/git-core/templates'
+#15 205.4 (cd blt && tar cf - .) | \
+#15 205.4 (cd '/opt/git/share/git-core/templates' && umask 022 && tar xof -)
+#15 205.4 make[1]: Leaving directory '/git/templates'
+#15 205.4 install -d -m 755 '/opt/git/libexec/git-core/mergetools'
+#15 205.4 install -m 644 mergetools/* '/opt/git/libexec/git-core/mergetools'
+#15 205.4 install -d -m 755 '/opt/git/share/perl5'
+#15 205.4 (cd perl/build/lib && tar cf - .) | \
+#15 205.4 (cd '/opt/git/share/perl5' && umask 022 && tar xof -)
+#15 205.4 install -d -m 755 '/opt/git/share/bash-completion/completions' && \
+#15 205.4 install -m 644 contrib/completion/git-completion.bash '/opt/git/share/bash-completion/completions/git'
+#15 205.4 bindir=$(cd '/opt/git/bin' && pwd) && \
+#15 205.4 execdir=$(cd '/opt/git/libexec/git-core' && pwd) && \
+#15 205.4 destdir_from_execdir_SQ=$(echo 'libexec/git-core' | sed -e 's|[^/][^/]*|..|g') && \
+#15 205.4 { test "$bindir/" = "$execdir/" || \
+#15 205.4   for p in git scalar git-shell git-cvsserver; do \
+#15 205.4 	rm -f "$execdir/$p" && \
+#15 205.4 	test -n "" && \
+#15 205.4 	ln -s "$destdir_from_execdir_SQ/bin/$p" "$execdir/$p" || \
+#15 205.4 	{ test -z "" && \
+#15 205.4 	  ln "$bindir/$p" "$execdir/$p" 2>/dev/null || \
+#15 205.4 	  cp "$bindir/$p" "$execdir/$p" || exit; } \
+#15 205.4   done; \
+#15 205.4 } && \
+#15 205.4 for p in git-receive-pack git-upload-archive git-upload-pack; do \
+#15 205.4 	rm -f "$bindir/$p" && \
+#15 205.4 	test -n "" && \
+#15 205.4 	ln -s "git" "$bindir/$p" || \
+#15 205.4 	{ test -z "" && \
+#15 205.4 	  ln "$bindir/git" "$bindir/$p" 2>/dev/null || \
+#15 205.4 	  ln -s "git" "$bindir/$p" 2>/dev/null || \
+#15 205.4 	  cp "$bindir/git" "$bindir/$p" || exit; }; \
+#15 205.4 done && \
+#15 205.4 for p in git-add git-am git-annotate git-apply git-archive git-backfill git-bisect git-blame git-branch git-bugreport git-bundle git-cat-file git-check-attr git-check-ignore git-check-mailmap git-check-ref-format git-checkout--worker git-checkout-index git-checkout git-clean git-clone git-column git-commit-graph git-commit-tree git-commit git-config git-count-objects git-credential-cache--daemon git-credential-cache git-credential-store git-credential git-describe git-diagnose git-diff-files git-diff-index git-diff-pairs git-diff-tree git-diff git-difftool git-fast-export git-fast-import git-fetch-pack git-fetch git-fmt-merge-msg git-for-each-ref git-for-each-repo git-fsck git-fsmonitor--daemon git-gc git-get-tar-commit-id git-grep git-hash-object git-help git-history git-hook git-index-pack git-init-db git-interpret-trailers git-last-modified git-log git-ls-files git-ls-remote git-ls-tree git-mailinfo git-mailsplit git-merge-base git-merge-file git-merge-index git-merge-ours git-merge-recursive git-merge-tree git-merge git-mktag git-mktree git-multi-pack-index git-mv git-name-rev git-notes git-pack-objects git-pack-redundant git-pack-refs git-patch-id git-prune-packed git-prune git-pull git-push git-range-diff git-read-tree git-rebase git-receive-pack git-reflog git-refs git-remote-ext git-remote-fd git-remote git-repack git-replace git-replay git-repo git-rerere git-reset git-rev-list git-rev-parse git-revert git-rm git-send-pack git-shortlog git-show-branch git-show-index git-show-ref git-sparse-checkout git-stash git-stripspace git-submodule--helper git-symbolic-ref git-tag git-unpack-file git-unpack-objects git-update-index git-update-ref git-update-server-info git-upload-archive git-upload-pack git-url-parse git-var git-verify-commit git-verify-pack git-verify-tag git-worktree git-write-tree git-cherry git-cherry-pick git-format-patch git-format-rev git-fsck-objects git-init git-maintenance git-merge-subtree git-restore git-show git-stage git-status git-switch git-version git-whatchanged; do \
+#15 205.4 	rm -f "$execdir/$p" && \
+#15 205.4 	if test -z ""; \
+#15 205.4 	then \
+#15 205.4 		test -n "" && \
+#15 205.4 		ln -s "$destdir_from_execdir_SQ/bin/git" "$execdir/$p" || \
+#15 205.4 		{ test -z "" && \
+#15 205.4 		  ln "$execdir/git" "$execdir/$p" 2>/dev/null || \
+#15 205.4 		  ln -s "git" "$execdir/$p" 2>/dev/null || \
+#15 205.4 		  cp "$execdir/git" "$execdir/$p" || exit; }; \
+#15 205.4 	fi \
+#15 205.4 done && \
+#15 205.4 remote_curl_aliases="git-remote-https git-remote-ftp git-remote-ftps" && \
+#15 205.4 for p in $remote_curl_aliases; do \
+#15 205.4 	rm -f "$execdir/$p" && \
+#15 205.4 	test -n "" && \
+#15 205.4 	ln -s "git-remote-http" "$execdir/$p" || \
+#15 205.4 	{ test -z "" && \
+#15 205.4 	  ln "$execdir/git-remote-http" "$execdir/$p" 2>/dev/null || \
+#15 205.4 	  ln -s "git-remote-http" "$execdir/$p" 2>/dev/null || \
+#15 205.4 	  cp "$execdir/git-remote-http" "$execdir/$p" || exit; } \
+#15 205.4 done
+#15 DONE 207.3s
+
+#16 [aq-sandbox-os 2/6] COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
+#16 CACHED
+
+#17 [aq-sandbox-os 3/6] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates tmux bubblewrap bash perl libcurl4 libexpat1 libssl3 zlib1g     libstdc++6 libgcc-s1 libatomic1 ncurses-term     && rm -rf /var/lib/apt/lists/*     && groupadd --gid 10001 runner     && useradd --uid 10001 --gid runner --create-home --shell /bin/bash runner     && groupadd --gid 10002 agent     && useradd --uid 10002 --gid agent --create-home --shell /bin/bash agent     && mkdir -p /usr/share/aq-sandbox     && dpkg-query -W -f='${Package}=${Version}\n' > /usr/share/aq-sandbox/debian-packages.txt
+#17 0.878 Get:1 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm InRelease [151 kB]
+#17 0.907 Get:2 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm-updates InRelease [55.4 kB]
+#17 0.917 Get:3 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security InRelease [34.8 kB]
+#17 1.101 Get:4 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 Packages [8790 kB]
+#17 1.615 Get:5 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm-updates/main amd64 Packages [6924 B]
+#17 1.623 Get:6 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 Packages [358 kB]
+#17 2.465 Fetched 9397 kB in 2s (5395 kB/s)
+#17 2.465 Reading package lists...
+#17 4.674 Reading package lists...
+#17 5.548 Building dependency tree...
+#17 5.861 Reading state information...
+#17 6.447 bash is already the newest version (5.2.15-2+b13).
+#17 6.447 bash set to manually installed.
+#17 6.447 zlib1g is already the newest version (1:1.2.13.dfsg-1).
+#17 6.447 zlib1g set to manually installed.
+#17 6.447 libstdc++6 is already the newest version (12.2.0-14+deb12u1).
+#17 6.447 libstdc++6 set to manually installed.
+#17 6.447 libgcc-s1 is already the newest version (12.2.0-14+deb12u1).
+#17 6.447 libgcc-s1 set to manually installed.
+#17 6.447 The following additional packages will be installed:
+#17 6.448   libbrotli1 libevent-core-2.1-7 libgdbm-compat4 libgdbm6 libgssapi-krb5-2
+#17 6.448   libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0 libldap-2.5-0
+#17 6.449   libnghttp2-14 libperl5.36 libpsl5 librtmp1 libsasl2-2 libsasl2-modules-db
+#17 6.452   libssh2-1 libutempter0 openssl perl-modules-5.36
+#17 6.458 Suggested packages:
+#17 6.458   gdbm-l10n krb5-doc krb5-user sensible-utils perl-doc
+#17 6.458   libterm-readline-gnu-perl | libterm-readline-perl-perl make
+#17 6.458   libtap-harness-archive-perl
+#17 6.458 Recommended packages:
+#17 6.458   procps krb5-locales libldap-common publicsuffix libsasl2-modules netbase
+#17 6.638 The following NEW packages will be installed:
+#17 6.639   bubblewrap ca-certificates libatomic1 libbrotli1 libcurl4
+#17 6.640   libevent-core-2.1-7 libexpat1 libgdbm-compat4 libgdbm6 libgssapi-krb5-2
+#17 6.640   libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0 libldap-2.5-0
+#17 6.642   libnghttp2-14 libperl5.36 libpsl5 librtmp1 libsasl2-2 libsasl2-modules-db
+#17 6.644   libssh2-1 libssl3 libutempter0 ncurses-term openssl perl perl-modules-5.36
+#17 6.644   tmux
+#17 6.858 0 upgraded, 29 newly installed, 0 to remove and 1 not upgraded.
+#17 6.858 Need to get 14.2 MB of archives.
+#17 6.858 After this operation, 69.4 MB of additional disk space will be used.
+#17 6.858 Get:1 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 perl-modules-5.36 all 5.36.0-7+deb12u4 [2817 kB]
+#17 6.978 Get:2 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libgdbm6 amd64 1.23-3 [72.2 kB]
+#17 6.980 Get:3 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libgdbm-compat4 amd64 1.23-3 [48.2 kB]
+#17 6.980 Get:4 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libperl5.36 amd64 5.36.0-7+deb12u4 [4208 kB]
+#17 7.198 Get:5 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 perl amd64 5.36.0-7+deb12u4 [239 kB]
+#17 7.203 Get:6 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libssl3 amd64 3.0.22-1~deb12u2 [2040 kB]
+#17 7.280 Get:7 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 openssl amd64 3.0.22-1~deb12u2 [1442 kB]
+#17 7.345 Get:8 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 ca-certificates all 20250419~deb12u2 [161 kB]
+#17 7.351 Get:9 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 ncurses-term all 6.4-4 [501 kB]
+#17 7.374 Get:10 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 bubblewrap amd64 0.8.0-2+deb12u1 [47.3 kB]
+#17 7.375 Get:11 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libatomic1 amd64 12.2.0-14+deb12u1 [9376 B]
+#17 7.376 Get:12 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libbrotli1 amd64 1.0.9-2+deb12u1 [275 kB]
+#17 7.384 Get:13 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libkrb5support0 amd64 1.20.1-2+deb12u5 [33.2 kB]
+#17 7.384 Get:14 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libk5crypto3 amd64 1.20.1-2+deb12u5 [79.7 kB]
+#17 7.387 Get:15 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libkeyutils1 amd64 1.6.3-2 [8808 B]
+#17 7.387 Get:16 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libkrb5-3 amd64 1.20.1-2+deb12u5 [332 kB]
+#17 7.399 Get:17 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libgssapi-krb5-2 amd64 1.20.1-2+deb12u5 [135 kB]
+#17 7.404 Get:18 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg-10 [20.3 kB]
+#17 7.404 Get:19 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libsasl2-2 amd64 2.1.28+dfsg-10 [59.7 kB]
+#17 7.405 Get:20 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libldap-2.5-0 amd64 2.5.13+dfsg-5 [183 kB]
+#17 7.412 Get:21 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libnghttp2-14 amd64 1.52.0-1+deb12u3 [72.4 kB]
+#17 7.414 Get:22 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libpsl5 amd64 0.21.2-1 [58.7 kB]
+#17 7.417 Get:23 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b2 [60.8 kB]
+#17 7.418 Get:24 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libssh2-1 amd64 1.10.0-3+deb12u1 [176 kB]
+#17 7.430 Get:25 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u15 [392 kB]
+#17 7.444 Get:26 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libevent-core-2.1-7 amd64 2.1.12-stable-8+deb12u1 [131 kB]
+#17 7.448 Get:27 http://snapshot.debian.org/archive/debian-security/20261030T000000Z bookworm-security/main amd64 libexpat1 amd64 2.5.0-1+deb12u5 [108 kB]
+#17 7.453 Get:28 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 libutempter0 amd64 1.2.1-3 [8960 B]
+#17 7.455 Get:29 http://snapshot.debian.org/archive/debian/20261030T000000Z bookworm/main amd64 tmux amd64 3.3a-3 [455 kB]
+#17 7.703 debconf: delaying package configuration, since apt-utils is not installed
+#17 7.758 Fetched 14.2 MB in 1s (17.8 MB/s)
+#17 7.833 Selecting previously unselected package perl-modules-5.36.
+#17 7.833 (Reading database ...
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 6096 files and directories currently installed.)
+#17 7.881 Preparing to unpack .../00-perl-modules-5.36_5.36.0-7+deb12u4_all.deb ...
+#17 7.904 Unpacking perl-modules-5.36 (5.36.0-7+deb12u4) ...
+#17 8.585 Selecting previously unselected package libgdbm6:amd64.
+#17 8.589 Preparing to unpack .../01-libgdbm6_1.23-3_amd64.deb ...
+#17 8.620 Unpacking libgdbm6:amd64 (1.23-3) ...
+#17 8.741 Selecting previously unselected package libgdbm-compat4:amd64.
+#17 8.744 Preparing to unpack .../02-libgdbm-compat4_1.23-3_amd64.deb ...
+#17 8.759 Unpacking libgdbm-compat4:amd64 (1.23-3) ...
+#17 8.887 Selecting previously unselected package libperl5.36:amd64.
+#17 8.891 Preparing to unpack .../03-libperl5.36_5.36.0-7+deb12u4_amd64.deb ...
+#17 8.906 Unpacking libperl5.36:amd64 (5.36.0-7+deb12u4) ...
+#17 9.506 Selecting previously unselected package perl.
+#17 9.509 Preparing to unpack .../04-perl_5.36.0-7+deb12u4_amd64.deb ...
+#17 9.533 Unpacking perl (5.36.0-7+deb12u4) ...
+#17 9.661 Selecting previously unselected package libssl3:amd64.
+#17 9.663 Preparing to unpack .../05-libssl3_3.0.22-1~deb12u2_amd64.deb ...
+#17 9.678 Unpacking libssl3:amd64 (3.0.22-1~deb12u2) ...
+#17 9.864 Selecting previously unselected package openssl.
+#17 9.866 Preparing to unpack .../06-openssl_3.0.22-1~deb12u2_amd64.deb ...
+#17 9.884 Unpacking openssl (3.0.22-1~deb12u2) ...
+#17 10.05 Selecting previously unselected package ca-certificates.
+#17 10.06 Preparing to unpack .../07-ca-certificates_20250419~deb12u2_all.deb ...
+#17 10.07 Unpacking ca-certificates (20250419~deb12u2) ...
+#17 10.21 Selecting previously unselected package ncurses-term.
+#17 10.21 Preparing to unpack .../08-ncurses-term_6.4-4_all.deb ...
+#17 10.22 Unpacking ncurses-term (6.4-4) ...
+#17 10.76 Selecting previously unselected package bubblewrap.
+#17 10.77 Preparing to unpack .../09-bubblewrap_0.8.0-2+deb12u1_amd64.deb ...
+#17 10.78 Unpacking bubblewrap (0.8.0-2+deb12u1) ...
+#17 10.91 Selecting previously unselected package libatomic1:amd64.
+#17 10.91 Preparing to unpack .../10-libatomic1_12.2.0-14+deb12u1_amd64.deb ...
+#17 10.93 Unpacking libatomic1:amd64 (12.2.0-14+deb12u1) ...
+#17 11.04 Selecting previously unselected package libbrotli1:amd64.
+#17 11.05 Preparing to unpack .../11-libbrotli1_1.0.9-2+deb12u1_amd64.deb ...
+#17 11.06 Unpacking libbrotli1:amd64 (1.0.9-2+deb12u1) ...
+#17 11.20 Selecting previously unselected package libkrb5support0:amd64.
+#17 11.20 Preparing to unpack .../12-libkrb5support0_1.20.1-2+deb12u5_amd64.deb ...
+#17 11.22 Unpacking libkrb5support0:amd64 (1.20.1-2+deb12u5) ...
+#17 11.34 Selecting previously unselected package libk5crypto3:amd64.
+#17 11.34 Preparing to unpack .../13-libk5crypto3_1.20.1-2+deb12u5_amd64.deb ...
+#17 11.36 Unpacking libk5crypto3:amd64 (1.20.1-2+deb12u5) ...
+#17 11.71 Selecting previously unselected package libkeyutils1:amd64.
+#17 11.71 Preparing to unpack .../14-libkeyutils1_1.6.3-2_amd64.deb ...
+#17 11.79 Unpacking libkeyutils1:amd64 (1.6.3-2) ...
+#17 12.27 Selecting previously unselected package libkrb5-3:amd64.
+#17 12.27 Preparing to unpack .../15-libkrb5-3_1.20.1-2+deb12u5_amd64.deb ...
+#17 12.30 Unpacking libkrb5-3:amd64 (1.20.1-2+deb12u5) ...
+#17 12.51 Selecting previously unselected package libgssapi-krb5-2:amd64.
+#17 12.52 Preparing to unpack .../16-libgssapi-krb5-2_1.20.1-2+deb12u5_amd64.deb ...
+#17 12.54 Unpacking libgssapi-krb5-2:amd64 (1.20.1-2+deb12u5) ...
+#17 12.68 Selecting previously unselected package libsasl2-modules-db:amd64.
+#17 12.68 Preparing to unpack .../17-libsasl2-modules-db_2.1.28+dfsg-10_amd64.deb ...
+#17 12.69 Unpacking libsasl2-modules-db:amd64 (2.1.28+dfsg-10) ...
+#17 12.79 Selecting previously unselected package libsasl2-2:amd64.
+#17 12.79 Preparing to unpack .../18-libsasl2-2_2.1.28+dfsg-10_amd64.deb ...
+#17 12.81 Unpacking libsasl2-2:amd64 (2.1.28+dfsg-10) ...
+#17 12.92 Selecting previously unselected package libldap-2.5-0:amd64.
+#17 12.93 Preparing to unpack .../19-libldap-2.5-0_2.5.13+dfsg-5_amd64.deb ...
+#17 12.94 Unpacking libldap-2.5-0:amd64 (2.5.13+dfsg-5) ...
+#17 13.09 Selecting previously unselected package libnghttp2-14:amd64.
+#17 13.10 Preparing to unpack .../20-libnghttp2-14_1.52.0-1+deb12u3_amd64.deb ...
+#17 13.13 Unpacking libnghttp2-14:amd64 (1.52.0-1+deb12u3) ...
+#17 14.06 Selecting previously unselected package libpsl5:amd64.
+#17 14.07 Preparing to unpack .../21-libpsl5_0.21.2-1_amd64.deb ...
+#17 14.52 Unpacking libpsl5:amd64 (0.21.2-1) ...
+#17 14.72 Selecting previously unselected package librtmp1:amd64.
+#17 14.72 Preparing to unpack .../22-librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb ...
+#17 14.74 Unpacking librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b2) ...
+#17 14.86 Selecting previously unselected package libssh2-1:amd64.
+#17 14.87 Preparing to unpack .../23-libssh2-1_1.10.0-3+deb12u1_amd64.deb ...
+#17 14.88 Unpacking libssh2-1:amd64 (1.10.0-3+deb12u1) ...
+#17 15.02 Selecting previously unselected package libcurl4:amd64.
+#17 15.03 Preparing to unpack .../24-libcurl4_7.88.1-10+deb12u15_amd64.deb ...
+#17 15.05 Unpacking libcurl4:amd64 (7.88.1-10+deb12u15) ...
+#17 15.21 Selecting previously unselected package libevent-core-2.1-7:amd64.
+#17 15.22 Preparing to unpack .../25-libevent-core-2.1-7_2.1.12-stable-8+deb12u1_amd64.deb ...
+#17 15.23 Unpacking libevent-core-2.1-7:amd64 (2.1.12-stable-8+deb12u1) ...
+#17 15.39 Selecting previously unselected package libexpat1:amd64.
+#17 15.39 Preparing to unpack .../26-libexpat1_2.5.0-1+deb12u5_amd64.deb ...
+#17 15.41 Unpacking libexpat1:amd64 (2.5.0-1+deb12u5) ...
+#17 15.72 Selecting previously unselected package libutempter0:amd64.
+#17 15.73 Preparing to unpack .../27-libutempter0_1.2.1-3_amd64.deb ...
+#17 15.76 Unpacking libutempter0:amd64 (1.2.1-3) ...
+#17 15.99 Selecting previously unselected package tmux.
+#17 15.99 Preparing to unpack .../28-tmux_3.3a-3_amd64.deb ...
+#17 16.00 Unpacking tmux (3.3a-3) ...
+#17 16.28 Setting up libexpat1:amd64 (2.5.0-1+deb12u5) ...
+#17 16.34 Setting up bubblewrap (0.8.0-2+deb12u1) ...
+#17 16.39 Setting up libkeyutils1:amd64 (1.6.3-2) ...
+#17 16.44 Setting up libpsl5:amd64 (0.21.2-1) ...
+#17 16.50 Setting up libbrotli1:amd64 (1.0.9-2+deb12u1) ...
+#17 16.55 Setting up libssl3:amd64 (3.0.22-1~deb12u2) ...
+#17 16.81 Setting up libnghttp2-14:amd64 (1.52.0-1+deb12u3) ...
+#17 17.19 Setting up libkrb5support0:amd64 (1.20.1-2+deb12u5) ...
+#17 17.54 Setting up libsasl2-modules-db:amd64 (2.1.28+dfsg-10) ...
+#17 18.01 Setting up perl-modules-5.36 (5.36.0-7+deb12u4) ...
+#17 18.45 Setting up librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b2) ...
+#17 18.50 Setting up libevent-core-2.1-7:amd64 (2.1.12-stable-8+deb12u1) ...
+#17 18.54 Setting up libatomic1:amd64 (12.2.0-14+deb12u1) ...
+#17 18.58 Setting up libk5crypto3:amd64 (1.20.1-2+deb12u5) ...
+#17 18.63 Setting up libsasl2-2:amd64 (2.1.28+dfsg-10) ...
+#17 18.67 Setting up libutempter0:amd64 (1.2.1-3) ...
+#17 18.71 Setting up libssh2-1:amd64 (1.10.0-3+deb12u1) ...
+#17 18.75 Setting up libkrb5-3:amd64 (1.20.1-2+deb12u5) ...
+#17 18.79 Setting up openssl (3.0.22-1~deb12u2) ...
+#17 18.86 Setting up tmux (3.3a-3) ...
+#17 18.92 Setting up libgdbm6:amd64 (1.23-3) ...
+#17 18.98 Setting up ncurses-term (6.4-4) ...
+#17 19.03 Setting up libldap-2.5-0:amd64 (2.5.13+dfsg-5) ...
+#17 19.08 Setting up ca-certificates (20250419~deb12u2) ...
+#17 19.19 debconf: unable to initialize frontend: Dialog
+#17 19.19 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#17 19.19 debconf: falling back to frontend: Readline
+#17 19.21 debconf: unable to initialize frontend: Readline
+#17 19.21 debconf: (This frontend requires a controlling tty.)
+#17 19.21 debconf: falling back to frontend: Teletype
+#17 20.06 Updating certificates in /etc/ssl/certs...
+#17 21.34 148 added, 0 removed; done.
+#17 21.43 Setting up libgssapi-krb5-2:amd64 (1.20.1-2+deb12u5) ...
+#17 21.48 Setting up libgdbm-compat4:amd64 (1.23-3) ...
+#17 21.55 Setting up libcurl4:amd64 (7.88.1-10+deb12u15) ...
+#17 21.62 Setting up libperl5.36:amd64 (5.36.0-7+deb12u4) ...
+#17 21.69 Setting up perl (5.36.0-7+deb12u4) ...
+#17 21.84 Processing triggers for libc-bin (2.36-9+deb12u14) ...
+#17 22.02 Processing triggers for ca-certificates (20250419~deb12u2) ...
+#17 22.07 Updating certificates in /etc/ssl/certs...
+#17 23.17 0 added, 0 removed; done.
+#17 23.17 Running hooks in /etc/ca-certificates/update.d...
+#17 23.17 done.
+#17 DONE 23.7s
+
+#18 [git-build 7/8] WORKDIR /git
+#18 CACHED
+
+#19 [git-build 3/8] RUN apt-get update && apt-get install -y --no-install-recommends     libssl-dev libcurl4-openssl-dev libexpat1-dev gettext zlib1g-dev     && rm -rf /var/lib/apt/lists/*
+#19 CACHED
+
+#20 [git-build 5/8] COPY git.tar.xz SHA256SUMS ./
+#20 CACHED
+
+#21 [git-build 6/8] RUN sha256sum --check SHA256SUMS && mkdir /git     && tar -xf git.tar.xz -C /git --strip-components=1
+#21 CACHED
+
+#22 [git-build 8/8] RUN make -j2 prefix=/opt/git RUNTIME_PREFIX=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease all     && make prefix=/opt/git RUNTIME_PREFIX=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease install
+#22 CACHED
+
+#23 [git-build 2/8] COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
+#23 CACHED
+
+#24 [git-build 4/8] WORKDIR /inputs
+#24 CACHED
+
+#25 [aq-sandbox-os 4/6] COPY --from=git-build /opt/git /opt/git
+#25 DONE 0.6s
+
+#26 [aq-sandbox-os 5/6] RUN ln -s /opt/git/bin/git /usr/local/bin/git     && git --version && tmux -V && bwrap --version
+#26 0.478 git version 2.56.0
+#26 0.483 tmux 3.3a
+#26 0.485 bubblewrap 0.8.0
+#26 DONE 0.5s
+
+#27 [aq-sandbox-os 6/6] WORKDIR /workspace
+#27 DONE 0.2s
+
+#28 exporting to image
+#28 exporting layers
+#28 exporting layers 1.4s done
+#28 writing image sha256:876630cf2870b3af7f44620c0a9a40543c80a0c3511afa7edf9e76861ea7d063 done
+#28 naming to docker.io/library/aq-sandbox-os:c3a 0.0s done
+#28 DONE 1.5s

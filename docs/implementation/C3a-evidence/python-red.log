@@ -1,0 +1,172 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 4 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' scripts/tests/test_package_sandbox.py -n 0
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 6 items
+
+scripts/tests/test_package_sandbox.py EEEEEE                             [100%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of SandboxPackaging.test_context_excludes_private_inputs_and_untracked_worktree _
+
+cls = <class 'test_package_sandbox.SandboxPackaging'>
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('sandbox_package', ROOT / 'scripts/package-sandbox.py')
+        cls.module = importlib.util.module_from_spec(spec)
+>       spec.loader.exec_module(cls.module)
+
+scripts/tests/test_package_sandbox.py:18:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+<frozen importlib._bootstrap_external>:991: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:1128: in get_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_frozen_importlib_external.SourceFileLoader object at 0x7415c5a93d10>
+path = '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+<frozen importlib._bootstrap_external>:1186: FileNotFoundError
+________ ERROR at setup of SandboxPackaging.test_corrupt_input_refuses _________
+
+cls = <class 'test_package_sandbox.SandboxPackaging'>
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('sandbox_package', ROOT / 'scripts/package-sandbox.py')
+        cls.module = importlib.util.module_from_spec(spec)
+>       spec.loader.exec_module(cls.module)
+
+scripts/tests/test_package_sandbox.py:18:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+<frozen importlib._bootstrap_external>:991: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:1128: in get_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_frozen_importlib_external.SourceFileLoader object at 0x7415c5a93d10>
+path = '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+<frozen importlib._bootstrap_external>:1186: FileNotFoundError
+_____ ERROR at setup of SandboxPackaging.test_existing_destination_refuses _____
+
+cls = <class 'test_package_sandbox.SandboxPackaging'>
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('sandbox_package', ROOT / 'scripts/package-sandbox.py')
+        cls.module = importlib.util.module_from_spec(spec)
+>       spec.loader.exec_module(cls.module)
+
+scripts/tests/test_package_sandbox.py:18:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+<frozen importlib._bootstrap_external>:991: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:1128: in get_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_frozen_importlib_external.SourceFileLoader object at 0x7415c5a93d10>
+path = '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+<frozen importlib._bootstrap_external>:1186: FileNotFoundError
+________ ERROR at setup of SandboxPackaging.test_floating_image_refuses ________
+
+cls = <class 'test_package_sandbox.SandboxPackaging'>
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('sandbox_package', ROOT / 'scripts/package-sandbox.py')
+        cls.module = importlib.util.module_from_spec(spec)
+>       spec.loader.exec_module(cls.module)
+
+scripts/tests/test_package_sandbox.py:18:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+<frozen importlib._bootstrap_external>:991: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:1128: in get_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_frozen_importlib_external.SourceFileLoader object at 0x7415c5a93d10>
+path = '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+<frozen importlib._bootstrap_external>:1186: FileNotFoundError
+_ ERROR at setup of SandboxPackaging.test_harness_bump_leaves_os_context_identical _
+
+cls = <class 'test_package_sandbox.SandboxPackaging'>
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('sandbox_package', ROOT / 'scripts/package-sandbox.py')
+        cls.module = importlib.util.module_from_spec(spec)
+>       spec.loader.exec_module(cls.module)
+
+scripts/tests/test_package_sandbox.py:18:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+<frozen importlib._bootstrap_external>:991: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:1128: in get_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_frozen_importlib_external.SourceFileLoader object at 0x7415c5a93d10>
+path = '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+<frozen importlib._bootstrap_external>:1186: FileNotFoundError
+________ ERROR at setup of SandboxPackaging.test_symlink_input_refuses _________
+
+cls = <class 'test_package_sandbox.SandboxPackaging'>
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('sandbox_package', ROOT / 'scripts/package-sandbox.py')
+        cls.module = importlib.util.module_from_spec(spec)
+>       spec.loader.exec_module(cls.module)
+
+scripts/tests/test_package_sandbox.py:18:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+<frozen importlib._bootstrap_external>:991: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:1128: in get_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_frozen_importlib_external.SourceFileLoader object at 0x7415c5a93d10>
+path = '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/scripts/package-sandbox.py'
+
+<frozen importlib._bootstrap_external>:1186: FileNotFoundError
+=========================== short test summary info ============================
+ERROR scripts/tests/test_package_sandbox.py::SandboxPackaging::test_context_excludes_private_inputs_and_untracked_worktree
+ERROR scripts/tests/test_package_sandbox.py::SandboxPackaging::test_corrupt_input_refuses
+ERROR scripts/tests/test_package_sandbox.py::SandboxPackaging::test_existing_destination_refuses
+ERROR scripts/tests/test_package_sandbox.py::SandboxPackaging::test_floating_image_refuses
+ERROR scripts/tests/test_package_sandbox.py::SandboxPackaging::test_harness_bump_leaves_os_context_identical
+ERROR scripts/tests/test_package_sandbox.py::SandboxPackaging::test_symlink_input_refuses
+============================== 6 errors in 0.27s ===============================

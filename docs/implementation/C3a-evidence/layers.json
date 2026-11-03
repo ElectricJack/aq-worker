@@ -1,0 +1,121 @@
+{
+  "images": {
+    "aq-sandbox-os:c3a-before": {
+      "Id": "sha256:876630cf2870b3af7f44620c0a9a40543c80a0c3511afa7edf9e76861ea7d063",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "RootFS": {
+        "Type": "layers",
+        "Layers": [
+          "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+          "sha256:2654df4109a39cd9725e094e14f82ca18fabc6720b40bbc08a2e83fb032e7ba1",
+          "sha256:4ba57a7232839dc51cb574beb4a992ea1400411028cc88e32db20ca7f3f5d132",
+          "sha256:e2f3d72378704d1e53c7fc611c207e7b0eb498b5f3144d86c58628f1059a1ce0",
+          "sha256:c5ce4c2e89294fce823b2137eba91fcd79a6f99c4734daba6bb65130f2fd0156",
+          "sha256:3c2bd692ee70b450bfe782c774861ca4e4f6fb45eb053b24b3a17688c1133663"
+        ]
+      }
+    },
+    "aq-sandbox-os:c3a": {
+      "Id": "sha256:876630cf2870b3af7f44620c0a9a40543c80a0c3511afa7edf9e76861ea7d063",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "RootFS": {
+        "Type": "layers",
+        "Layers": [
+          "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+          "sha256:2654df4109a39cd9725e094e14f82ca18fabc6720b40bbc08a2e83fb032e7ba1",
+          "sha256:4ba57a7232839dc51cb574beb4a992ea1400411028cc88e32db20ca7f3f5d132",
+          "sha256:e2f3d72378704d1e53c7fc611c207e7b0eb498b5f3144d86c58628f1059a1ce0",
+          "sha256:c5ce4c2e89294fce823b2137eba91fcd79a6f99c4734daba6bb65130f2fd0156",
+          "sha256:3c2bd692ee70b450bfe782c774861ca4e4f6fb45eb053b24b3a17688c1133663"
+        ]
+      }
+    },
+    "aq-sandbox-runtime:c3a-before": {
+      "Id": "sha256:b4ed980df0e7632c57d67b928fcb5554ab795884ba721d0ff4fbb472918d495e",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "RootFS": {
+        "Type": "layers",
+        "Layers": [
+          "sha256:3c7e11daf4c8ed720dda475921c26e1ffabdf61fb6db298b19841f0f094ddbd6"
+        ]
+      }
+    },
+    "aq-sandbox-runtime:c3a": {
+      "Id": "sha256:e07bed781e32d30c17589d081b1f11b6aa896b60271731aa63d5a25daa32cca5",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "RootFS": {
+        "Type": "layers",
+        "Layers": [
+          "sha256:20377ebfc77d340f5134b5cb620c7b55fc817dfcc04ec3be09e888f8fcd58bb8"
+        ]
+      }
+    },
+    "aq-sandbox-c3a:before": {
+      "Id": "sha256:6c5acfdd2a6247e6f10d3244c0d045a3fd3230ae2f93844faa860b70eb26c49b",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "RootFS": {
+        "Type": "layers",
+        "Layers": [
+          "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+          "sha256:2654df4109a39cd9725e094e14f82ca18fabc6720b40bbc08a2e83fb032e7ba1",
+          "sha256:4ba57a7232839dc51cb574beb4a992ea1400411028cc88e32db20ca7f3f5d132",
+          "sha256:e2f3d72378704d1e53c7fc611c207e7b0eb498b5f3144d86c58628f1059a1ce0",
+          "sha256:c5ce4c2e89294fce823b2137eba91fcd79a6f99c4734daba6bb65130f2fd0156",
+          "sha256:3c2bd692ee70b450bfe782c774861ca4e4f6fb45eb053b24b3a17688c1133663",
+          "sha256:ddadd591daa287e1d92f64836eeb388143e61dcb1fb86ae9dcc2e03b85314cac"
+        ]
+      }
+    },
+    "aq-sandbox-c3a:after": {
+      "Id": "sha256:57a5bf8e0e1bfe3651646b12187bbcc5c0d3550581d989dda824864de4490b1a",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "RootFS": {
+        "Type": "layers",
+        "Layers": [
+          "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+          "sha256:2654df4109a39cd9725e094e14f82ca18fabc6720b40bbc08a2e83fb032e7ba1",
+          "sha256:4ba57a7232839dc51cb574beb4a992ea1400411028cc88e32db20ca7f3f5d132",
+          "sha256:e2f3d72378704d1e53c7fc611c207e7b0eb498b5f3144d86c58628f1059a1ce0",
+          "sha256:c5ce4c2e89294fce823b2137eba91fcd79a6f99c4734daba6bb65130f2fd0156",
+          "sha256:3c2bd692ee70b450bfe782c774861ca4e4f6fb45eb053b24b3a17688c1133663",
+          "sha256:d03110b34cff13c9396b98b2e9f35fdd8f4ea2fcc4a54807da33b02a59bc04f1"
+        ]
+      }
+    }
+  },
+  "os_image_identical": true,
+  "only_final_bundle_layer_changed": true,
+  "unchanged_layer_count": 6,
+  "changed_before_layer": "sha256:ddadd591daa287e1d92f64836eeb388143e61dcb1fb86ae9dcc2e03b85314cac",
+  "changed_after_layer": "sha256:d03110b34cff13c9396b98b2e9f35fdd8f4ea2fcc4a54807da33b02a59bc04f1",
+  "unchanged_artifacts": [
+    "runner",
+    "session_host",
+    "aq_git",
+    "node"
+  ],
+  "before_harnesses": [
+    {
+      "bytes": 309732776,
+      "name": "codex",
+      "path": "/opt/aq/harnesses/codex/codex",
+      "sha256": "c06a67fd8ac76508dc78bd99ce20c9f317b8d568beda59485f3f4134df9962d5",
+      "version": "0.165.0"
+    }
+  ],
+  "after_harnesses": [
+    {
+      "bytes": 319346888,
+      "name": "codex",
+      "path": "/opt/aq/harnesses/codex/codex",
+      "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+      "version": "0.166.0"
+    }
+  ]
+}

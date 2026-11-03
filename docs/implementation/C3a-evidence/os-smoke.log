@@ -1,0 +1,5 @@
+runner:x:10001:10001::/home/runner:/bin/bash
+agent:x:10002:10002::/home/agent:/bin/bash
+git version 2.56.0
+tmux 3.3a
+bubblewrap 0.8.0
