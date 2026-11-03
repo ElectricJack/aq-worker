@@ -1,0 +1,48 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.26s
+     Running tests/sandbox_runner.rs (target/debug/deps/sandbox_runner-1c4262e001ee1126)
+
+running 14 tests
+test cancellation_preserves_and_default_local_permit_is_at_most_120_seconds ... ok
+test delegated_permit_expiry_caps_initial_grant ... ok
+test frozen_handoff_rejects_reboot_changed_manifest_and_directory_copy ... ok
+test production_cli_refuses_missing_prerequisites_or_unwired_transport_before_launch ... FAILED
+test concurrent_handoff_has_only_one_writer_launch ... ok
+test renewal_keeps_same_guardian_alive_past_original_deadline ... ok
+test renewal_loss_stops_and_preserves_without_relaunch ... ok
+test runner_cannot_report_before_handoff_receipts ... ok
+test runner_channel_refusal_stops_and_preserves ... FAILED
+test runner_needs_no_node_credential ... ok
+test sandbox_run_cli_requires_frozen_manifest_and_state ... ok
+test renewal_replay_wrong_nonce_and_readoption_never_extend_authority ... ok
+test tmux_exit_requires_descendant_stop_proof ... ok
+test unknown_stop_retains_without_reporting_or_claiming_proof ... ok
+
+failures:
+
+---- production_cli_refuses_missing_prerequisites_or_unwired_transport_before_launch stdout ----
+
+thread 'production_cli_refuses_missing_prerequisites_or_unwired_transport_before_launch' (2876294) panicked at crates/aq-worker/tests/sandbox_runner.rs:325:5:
+unexpected sandbox preflight error: error: the following required arguments were not provided:
+  --permit-file <PERMIT_FILE>
+  --server-url <SERVER_URL>
+
+Usage: aq-worker sandbox-run --manifest <MANIFEST> --state-dir <STATE_DIR> --permit-file <PERMIT_FILE> --server-url <SERVER_URL>
+
+For more information, try '--help'.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- runner_channel_refusal_stops_and_preserves stdout ----
+
+thread 'runner_channel_refusal_stops_and_preserves' (2877452) panicked at crates/aq-worker/tests/sandbox_runner.rs:503:5:
+assertion failed: f.local.workspace.join("output.txt").exists()
+
+
+failures:
+    production_cli_refuses_missing_prerequisites_or_unwired_transport_before_launch
+    runner_channel_refusal_stops_and_preserves
+
+test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.64s
+
+error: test failed, to rerun pass `-p aq-worker --test sandbox_runner`

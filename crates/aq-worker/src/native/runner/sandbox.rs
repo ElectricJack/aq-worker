@@ -1,4 +1,5 @@
 //! Fresh local sandbox execution. This path never registers, polls or accepts.
+pub mod auth;
 mod journal;
 mod manifest;
 pub mod private;
@@ -8,6 +9,7 @@ pub use manifest::FrozenLaunch;
 pub(crate) fn boot_ns() -> anyhow::Result<u64> {
     super::super::http::boot_ns()
 }
+pub mod permit_transport;
 mod transport;
 use crate::config::WorkerConfig;
 use anyhow::{Result, ensure};
@@ -166,8 +168,8 @@ async fn run_inner(
         .authority
         .validate_handoff(&permit, frozen.delivery.clock.server_time_ms)?;
     ensure!(
-        worker.node_id == permit.binding.node.node_id && !worker.credential.is_empty(),
-        "worker identity/authentication required"
+        worker.node_id == permit.binding.node.node_id,
+        "worker identity required"
     );
     ensure!(
         !options.renewal_interval.is_zero() && options.renewal_interval <= Duration::from_secs(15),
@@ -180,7 +182,13 @@ async fn run_inner(
                     && local.workspace != frozen.state_dir)),
         "workspace must be prepared inside bound state directory"
     );
+    let authority = transport.authority_client();
+    if let Some(http) = &authority {
+        http.bind_execution(frozen, &permit)?;
+    }
     transport.preflight(worker)?;
+    let authority_lost = || authority.as_ref().is_some_and(|http| http.authority_lost());
+    ensure!(!authority_lost(), "runner authority lost before launch");
     ensure!(!*shutdown.borrow(), "cancelled before launch");
     let now = boot_ns()?;
     let hard = hard.min(
@@ -254,6 +262,9 @@ async fn run_inner(
         if *shutdown.borrow() {
             break "cancelled";
         }
+        if authority_lost() {
+            break "runner authority lost";
+        }
         let now = match boot_ns() {
             Ok(now) => now,
             Err(_) => break "clock unavailable",
@@ -278,6 +289,7 @@ async fn run_inner(
                     biased;
                     changed = shutdown.changed() => { if changed.is_err() || *shutdown.borrow() { break 'running "cancelled"; } },
                     _ = tokio::time::sleep(Duration::from_millis(25)) => {
+                        if authority_lost() { break 'running "runner authority lost"; }
                         let now=match boot_ns() {Ok(now)=>now,Err(_)=>break 'running "clock unavailable"};
                         if let Some(reason)=stop_reason(&handle,now,deadline) {break 'running reason;}
                     },
@@ -290,6 +302,9 @@ async fn run_inner(
             Err(_) => break "clock unavailable",
         };
         // CLOCK_BOOTTIME is checked even if the network future wins after suspend.
+        if authority_lost() {
+            break "runner authority lost";
+        }
         if received >= deadline {
             break "renewal deadline expired";
         }
@@ -505,3 +520,6 @@ mod tests {
         assert!(validate_receipts(&stopped, &wrong).is_err());
     }
 }
+
+#[cfg(test)]
+mod auth_tests;

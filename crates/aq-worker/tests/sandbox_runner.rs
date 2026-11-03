@@ -11,6 +11,7 @@ fn sandbox_run_cli_requires_frozen_manifest_and_state() {
     );
     let text = String::from_utf8(help.stdout).unwrap();
     assert!(text.contains("--manifest") && text.contains("--state-dir"));
+    assert!(text.contains("--permit-file") && text.contains("--server-url"));
     assert!(
         !std::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
             .arg("sandbox-run")
@@ -315,6 +316,13 @@ fn production_cli_refuses_missing_prerequisites_or_unwired_transport_before_laun
     f.worker.save(&config).unwrap();
     let manifest = f.dir.path().join("manifest.json");
     aq_session_host::durable_new(&manifest, &serde_json::to_vec(&f.frozen).unwrap()).unwrap();
+    let files = aq_worker::native::runner::sandbox::private::RunnerFiles::create(
+        &f.dir.path().join("runner-private"),
+    )
+    .unwrap();
+    files
+        .write_secret("permit.json", &serde_json::to_vec(&f.permit).unwrap())
+        .unwrap();
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
         .arg("--config")
         .arg(config)
@@ -323,6 +331,9 @@ fn production_cli_refuses_missing_prerequisites_or_unwired_transport_before_laun
         .arg(manifest)
         .arg("--state-dir")
         .arg(f.dir.path())
+        .arg("--permit-file")
+        .arg(files.root().join("permit.json"))
+        .args(["--server-url", "http://127.0.0.1:1"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -334,7 +345,7 @@ fn production_cli_refuses_missing_prerequisites_or_unwired_transport_before_laun
             "required sandbox OS account unavailable",
             "sandbox requires SETUID/SETGID/KILL capabilities",
             "runner bootstrap requires root entrypoint",
-            "transport is unavailable",
+            "B2 receipt codec is unavailable",
         ]
         .iter()
         .any(|reason| stderr.contains(reason)),
@@ -388,4 +399,147 @@ async fn cancellation_preserves_and_default_local_permit_is_at_most_120_seconds(
     assert!(initial.expires_boot_ms - initial.issued_boot_ms <= 120_000);
     assert_eq!(central.finishes, 0);
     assert_eq!(central.renewals, 0);
+}
+
+#[tokio::test]
+async fn runner_needs_no_node_credential() {
+    let mut f = Fixture::new(false, 5000);
+    f.worker.credential.clear();
+    struct PermitOnly(Central);
+    impl aq_worker::native::runner::sandbox::RunnerTransport for PermitOnly {
+        fn preflight(&mut self, worker: &aq_worker::config::WorkerConfig) -> anyhow::Result<()> {
+            assert!(worker.credential.is_empty());
+            Ok(())
+        }
+        fn renew<'a>(
+            &'a mut self,
+            worker: &'a aq_worker::config::WorkerConfig,
+            request: &'a aq_admission_sandbox::sandbox::RunnerRenewalRequest,
+            nonce: uuid::Uuid,
+        ) -> aq_worker::native::runner::sandbox::TransportFuture<
+            'a,
+            aq_worker::native::runner::sandbox::RenewalOutcome,
+        > {
+            self.0.renew(worker, request, nonce)
+        }
+        fn retain<'a>(
+            &'a mut self,
+            worker: &'a aq_worker::config::WorkerConfig,
+            stopped: &'a aq_worker::native::runner::sandbox::StoppedAttempt,
+        ) -> aq_worker::native::runner::sandbox::TransportFuture<
+            'a,
+            aq_worker::native::runner::sandbox::RetentionReceipts,
+        > {
+            self.0.retain(worker, stopped)
+        }
+        fn finished<'a>(
+            &'a mut self,
+            worker: &'a aq_worker::config::WorkerConfig,
+            retained: &'a aq_worker::native::runner::sandbox::RetainedAttempt,
+        ) -> aq_worker::native::runner::sandbox::TransportFuture<
+            'a,
+            aq_worker::native::runner::sandbox::FinishedReceipt,
+        > {
+            self.0.finished(worker, retained)
+        }
+    }
+    let mut transport = PermitOnly(Central::new(Mode::Complete));
+    assert_eq!(f.run(&mut transport).await.unwrap(), RunOutcome::Finished);
+    assert_eq!(transport.0.finishes, 1);
+}
+
+#[tokio::test]
+async fn runner_channel_refusal_stops_and_preserves() {
+    use aq_worker::native::runner::sandbox::{
+        auth::{RunnerHttp, RunnerRoute},
+        permit_transport::{PermitTransport, RunnerExchange},
+        *,
+    };
+    struct RefusingChannel;
+    impl RunnerExchange for RefusingChannel {
+        fn preflight(&mut self, _: &RunnerHttp) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn renew<'a>(
+            &'a mut self,
+            http: &'a RunnerHttp,
+            request: &'a aq_admission_sandbox::sandbox::RunnerRenewalRequest,
+            _: uuid::Uuid,
+        ) -> TransportFuture<'a, RenewalOutcome> {
+            Box::pin(async move {
+                let _ = http
+                    .post(
+                        RunnerRoute::Observations,
+                        &request.permit.binding,
+                        &serde_json::json!({"binding":request.permit.binding}),
+                    )
+                    .await;
+                // Another channel revoked authority; renewal itself never completes.
+                std::future::pending().await
+            })
+        }
+        fn retain<'a>(
+            &'a mut self,
+            _: &'a RunnerHttp,
+            _: &'a StoppedAttempt,
+        ) -> TransportFuture<'a, RetentionReceipts> {
+            Box::pin(async { panic!("authority loss must preserve before retention") })
+        }
+        fn finished<'a>(
+            &'a mut self,
+            _: &'a RunnerHttp,
+            _: &'a RetainedAttempt,
+        ) -> TransportFuture<'a, FinishedReceipt> {
+            Box::pin(async { panic!("authority loss must never finish") })
+        }
+    }
+    let mut f = Fixture::new(true, 5000);
+    f.worker.credential.clear();
+    let files = private::RunnerFiles::create(&f.dir.path().join("runner-private")).unwrap();
+    files
+        .write_secret("permit.json", &serde_json::to_vec(&f.permit).unwrap())
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let router = axum::Router::new().fallback(|| async { axum::http::StatusCode::FORBIDDEN });
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let http =
+        RunnerHttp::for_execution(&origin, &files.root().join("permit.json"), &f.frozen).unwrap();
+    // A valid client for a different sandbox cannot launch this frozen attempt.
+    let mut foreign_permit = f.permit.clone();
+    foreign_permit.binding.sandbox_id = uuid::Uuid::new_v4();
+    let foreign_files =
+        private::RunnerFiles::create(&f.dir.path().join("foreign-private")).unwrap();
+    foreign_files
+        .write_secret("permit.json", &serde_json::to_vec(&foreign_permit).unwrap())
+        .unwrap();
+    let foreign_http = RunnerHttp::for_execution(
+        &origin,
+        &foreign_files.root().join("permit.json"),
+        &f.frozen,
+    )
+    .unwrap();
+    let mut foreign_transport = PermitTransport::new(foreign_http, RefusingChannel);
+    assert!(f.run(&mut foreign_transport).await.is_err());
+    assert!(!f.dir.path().join("sandbox-run").exists());
+    let retained = f.local.workspace.join("retained-before-launch");
+    std::fs::write(&retained, b"unretained work").unwrap();
+    let mut transport = PermitTransport::new(http.clone(), RefusingChannel);
+    let result = f.run(&mut transport).await.unwrap();
+    server.abort();
+    assert_eq!(
+        result,
+        RunOutcome::Preserved {
+            reason: "runner authority lost",
+            stop_proven: true
+        }
+    );
+    assert!(http.authority_lost());
+    assert_eq!(std::fs::read(retained).unwrap(), b"unretained work");
+    assert!(
+        f.run(&mut transport).await.is_err(),
+        "preserved attempt must never relaunch"
+    );
 }

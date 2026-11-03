@@ -1,0 +1,22 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.65s
+     Running tests/sandbox_runner.rs (target/debug/deps/sandbox_runner-1c4262e001ee1126)
+
+running 1 test
+test runner_channel_refusal_stops_and_preserves ... FAILED
+
+failures:
+
+---- runner_channel_refusal_stops_and_preserves stdout ----
+
+thread 'runner_channel_refusal_stops_and_preserves' (2895736) panicked at crates/aq-worker/tests/sandbox_runner.rs:508:5:
+assertion failed: f.run(&mut foreign_transport).await.is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    runner_channel_refusal_stops_and_preserves
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 3.46s
+
+error: test failed, to rerun pass `-p aq-worker --test sandbox_runner`

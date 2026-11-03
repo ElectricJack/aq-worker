@@ -1,0 +1,18 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 11s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-53dae0d62afb911f)
+
+running 6 tests
+test native::runner::sandbox::auth_tests::runner_channel_refusal_is_shared_authority_loss ... ok
+test native::runner::sandbox::auth_tests::runner_authenticates_with_delegated_permit_and_refuses_foreign_scope ... ok
+test native::runner::sandbox::auth_tests::runner_exchange_refusal_and_unavailability_have_distinct_authority ... ok
+test native::runner::sandbox::auth_tests::runner_readoption_replies_extend_nothing ... ok
+test native::runner::sandbox::auth_tests::runner_refuses_foreign_session_on_mail_and_terminal_routes ... ok
+test native::runner::sandbox::auth_tests::runner_grant_upgrade_and_renewal_keep_original_scope ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 289 filtered out; finished in 1.22s
+
