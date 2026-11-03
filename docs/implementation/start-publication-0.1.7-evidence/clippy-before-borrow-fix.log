@@ -1,0 +1,138 @@
+    Checking libc v0.2.191
+    Checking cfg-if v1.0.5
+    Checking typenum v1.20.1
+    Checking generic-array v0.14.7
+    Checking getrandom v0.2.17
+    Checking rand_core v0.6.4
+    Checking itoa v1.0.18
+    Checking zerofrom v0.1.8
+    Checking stable_deref_trait v1.2.1
+    Checking smallvec v1.16.4
+    Checking yoke v0.8.4
+    Checking crypto-common v0.1.7
+    Checking zeroize v1.9.1
+    Checking zerovec v0.11.9
+    Checking serde_core v1.0.229
+    Checking bytes v1.12.1
+    Checking pin-project-lite v0.2.17
+    Checking subtle v2.6.1
+    Checking futures-core v0.3.34
+    Checking scopeguard v1.2.0
+    Checking lock_api v0.4.14
+    Checking parking_lot_core v0.9.12
+    Checking tinystr v0.8.5
+    Checking errno v0.3.14
+    Checking cpufeatures v0.2.17
+    Checking utf_types v1.0.0
+    Checking writeable v0.6.4
+    Checking litemap v0.8.3
+    Checking utf8_iter v1.1.0
+    Checking serde v1.0.229
+    Checking icu_locale_core v2.4.0
+    Checking signal-hook-registry v1.4.8
+    Checking parking_lot v0.12.5
+    Checking getrandom v0.4.3
+    Checking zmij v1.0.23
+    Checking potential_utf v0.1.6
+    Checking zerotrie v0.2.5
+    Checking mio v1.2.4
+    Checking socket2 v0.6.5
+    Checking memchr v2.8.3
+    Checking once_cell v1.21.4
+    Checking tokio v1.54.1
+    Checking serde_json v1.0.154
+    Checking icu_provider v2.4.0
+    Checking icu_collections v2.4.0
+    Checking http v1.5.0
+    Checking block-buffer v0.10.4
+    Checking percent-encoding v2.3.2
+    Checking ref-cast v1.0.27
+    Checking digest v0.10.7
+    Checking http-body v1.1.0
+    Checking icu_properties_data v2.4.0
+    Checking icu_normalizer_data v2.4.0
+    Checking uuid v1.29.0
+    Checking rustls-pki-types v1.15.1
+    Checking futures-task v0.3.34
+    Checking slab v0.4.12
+    Checking untrusted v0.9.0
+    Checking dyn-clone v1.0.20
+    Checking schemars v1.2.3
+    Checking ring v0.17.14
+    Checking futures-util v0.3.34
+    Checking thiserror v2.0.21
+    Checking icu_normalizer v2.4.0
+    Checking icu_properties v2.4.0
+    Checking sha2 v0.10.9
+    Checking zerocopy v0.8.63
+    Checking inout v0.1.4
+    Checking try-lock v0.2.5
+    Checking tower-service v0.3.3
+    Checking want v0.3.2
+    Checking cipher v0.4.4
+    Checking idna_adapter v1.2.2
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-session-protocol)
+    Checking rustls-webpki v0.103.16
+    Checking httparse v1.10.1
+    Checking form_urlencoded v1.2.2
+    Checking ppv-lite86 v0.2.21
+    Checking tracing-core v0.1.36
+    Checking universal-hash v0.5.1
+    Checking bitflags v2.13.2
+    Checking opaque-debug v0.3.1
+    Checking atomic-waker v1.1.2
+    Checking poly1305 v0.8.0
+    Checking hyper v1.12.0
+    Checking tracing v0.1.44
+    Checking rand_chacha v0.3.1
+    Checking rustls v0.23.46
+    Checking idna v1.1.0
+    Checking chacha20 v0.9.1
+    Checking anyhow v1.0.104
+    Checking sync_wrapper v1.0.2
+    Checking futures-channel v0.3.34
+    Checking aead v0.5.2
+    Checking tower-layer v0.3.3
+    Checking ipnet v2.12.2
+    Checking base64 v0.23.1
+    Checking hyper-util v0.1.21
+    Checking tokio-rustls v0.26.6
+    Checking tower v0.5.3
+    Checking chacha20poly1305 v0.10.1
+    Checking url v2.5.8
+    Checking rand v0.8.8
+    Checking aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking webpki-roots v1.0.11
+    Checking ryu v1.0.23
+    Checking serde_urlencoded v0.7.1
+    Checking hyper-rustls v0.27.10
+    Checking tower-http v0.6.11
+    Checking http-body-util v0.1.5
+    Checking linux-raw-sys v0.12.1
+    Checking log v0.4.35
+    Checking base64 v0.22.1
+    Checking rustix v1.1.6
+    Checking reqwest v0.12.28
+    Checking aq-session-host v0.1.7 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-session-host)
+    Checking fastrand v2.5.0
+    Checking tempfile v3.27.0
+    Checking aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-responses-transport)
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> crates/aq-session-host/src/lib.rs:1412:38
+     |
+1412 |                     match read_bytes(&path, MAX_LOCAL_FILE) {
+     |                                      ^^^^^ help: change this to: `path`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#needless_borrow
+     = note: `-D clippy::needless-borrow` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_borrow)]`
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> crates/aq-session-host/src/lib.rs:1427:32
+     |
+1427 |             durable_write_with(&path, false, |file| {
+     |                                ^^^^^ help: change this to: `path`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#needless_borrow
+
+error: could not compile `aq-session-host` (lib test) due to 2 previous errors

@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-session-host",
+    "--lib",
+    "new_request"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/start-publication-0.1.7-evidence/atomic.log"
+}
