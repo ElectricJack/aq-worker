@@ -31,7 +31,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             .await?;
         let permit = &material.permit;
         permit.validate()?;
-        let now = now_ms()?;
+        let now = (self.clock)()?;
         ensure!(
             permit.scope == PermitScope::Preparation
                 && permit.binding.node == *self.identity()
@@ -68,6 +68,15 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         a.permit_id = Some(permit.permit_id);
         a.logical_sandbox_id = Some(permit.binding.sandbox_id);
         a.channel_id = Some(permit.binding.channel_id);
+        a.grant = Some(GrantMonitor {
+            boot_id: permit.binding.node.boot_id,
+            permit_id: permit.permit_id,
+            sandbox_id: permit.binding.sandbox_id,
+            channel_id: permit.binding.channel_id,
+            generation: permit.binding.grant_generation,
+            renewal_deadline_ms: permit.expires_at_ms,
+            execution: false,
+        });
         a.phase = Phase::MaterialIntent;
         self.save(id, a.clone())?;
         self.backend
@@ -77,7 +86,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         self.save(id, a.clone())?;
         self.admit_effect(&a)?;
         ensure!(
-            now_ms()? < permit.expires_at_ms,
+            (self.clock)()? < permit.expires_at_ms,
             "delegated permit expired before start"
         );
         a.phase = Phase::StartIntent;
@@ -86,7 +95,12 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         a.phase = Phase::Running;
         self.save(id, a)
     }
-    fn record_proof(&mut self, id: Uuid, mut a: Attempt, proof: &StoppedWriterProof) -> Result<()> {
+    pub(super) fn record_proof(
+        &mut self,
+        id: Uuid,
+        mut a: Attempt,
+        proof: &StoppedWriterProof,
+    ) -> Result<()> {
         ensure!(
             a.sandbox.as_ref() == Some(proof.sandbox()),
             "backend proof names another sandbox"
@@ -149,6 +163,28 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
     /// The caller supplies authenticated retention/operator authority; this
     /// method never manufactures permission to delete sandbox evidence.
     pub async fn destroy(
+        &mut self,
+        id: Uuid,
+        authorization: &DestroyAuthorization,
+    ) -> Result<Confirmation<StoppedWriterProof>> {
+        let a = self.attempt(id)?;
+        let sandbox = a
+            .sandbox
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("sandbox identity not recorded"))?;
+        ensure!(
+            a.stopped.is_some() && authorization.authorizes(&sandbox),
+            "destroy requires stopped writer and retention authority"
+        );
+        ensure!(
+            a.cleanup.as_ref().is_none_or(
+                |cleanup| (self.clock)().is_ok_and(|now| now >= cleanup.destroy_after_ms)
+            ),
+            "cleanup grace has not elapsed"
+        );
+        self.destroy_at(id, authorization).await
+    }
+    pub(super) async fn destroy_at(
         &mut self,
         id: Uuid,
         authorization: &DestroyAuthorization,

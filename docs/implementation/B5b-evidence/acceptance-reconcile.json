@@ -1,0 +1,11 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace",
+    "controller_restart_reconciles_journal_against_backend_inventory"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5b-evidence/acceptance-reconcile.log"
+}

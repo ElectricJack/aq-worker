@@ -3,6 +3,7 @@ mod journal;
 mod service;
 pub use service::{ProviderUnavailable, RunConfig, UnavailableProvider};
 mod lifecycle;
+mod recovery;
 mod storage;
 mod types;
 use crate::backend::*;
@@ -25,6 +26,7 @@ pub struct Controller<B: PlacementBackend, P: PermitProvider> {
     registered: bool,
     draining: bool,
     recovery_required: bool,
+    clock: Box<dyn Fn() -> Result<u64> + Send + Sync>,
 }
 impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
     pub fn open(
@@ -41,6 +43,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 && config.capacity.max_preparing > 0,
             "invalid node capacity"
         );
+        config.recovery.validate()?;
         let journal = journal::Journal::open(root, node)?;
         let recovery_required = journal.state.attempts.values().any(|a| a.stopped.is_none());
         let controller = Self {
@@ -52,6 +55,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             registered: false,
             draining: false,
             recovery_required,
+            clock: Box::new(now_ms),
         };
         controller.registration()?.validate()?;
         Ok(controller)
@@ -69,7 +73,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         let mut count = 0;
         let mut preparing = 0;
         for a in self.state().attempts.values() {
-            if a.stopped.is_none() {
+            if a.stopped.is_none() && a.phase != Phase::Abandoned {
                 count += 1;
                 memory = memory.saturating_add(a.request.manifest.resources.memory_bytes);
                 cpu = cpu.saturating_add(a.request.manifest.resources.cpu_millis);
@@ -77,8 +81,18 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                     preparing += 1;
                 }
             }
-            if a.phase != Phase::Destroyed {
+            if !matches!(a.phase, Phase::Destroyed | Phase::Abandoned) {
                 disk = disk.saturating_add(a.request.disk_bytes);
+            }
+        }
+        for orphan in self.state().orphans.values().filter(|o| !o.destroyed) {
+            // Unknown resource requirements cannot be subtracted optimistically.
+            disk = self.config.capacity.disk_bytes;
+            if orphan.stopped.is_none() {
+                count += 1;
+                preparing += 1;
+                memory = self.config.capacity.memory_bytes;
+                cpu = self.config.capacity.cpu_millis;
             }
         }
         Inventory {
@@ -91,7 +105,11 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             available_disk_bytes: self.config.capacity.disk_bytes.saturating_sub(disk),
             refusal: if self.draining {
                 Some(RefusalReason::Draining)
-            } else if self.journal.check().is_err() || self.recovery_required || !self.registered {
+            } else if self.journal.check().is_err()
+                || self.recovery_required
+                || self.has_orphans()
+                || !self.registered
+            {
                 Some(RefusalReason::GrantDenied)
             } else {
                 self.state().last_refusal
@@ -162,12 +180,35 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             return self.refuse(RefusalReason::Draining);
         }
         let id = request.manifest.bindings.attempt_id;
+        if self.registered
+            && !self.recovery_required
+            && !self.has_orphans()
+            && let Some(previous) = self.state().attempts.get(&id)
+            && previous.request == request
+            && previous.phase == Phase::Reserved
+            && request.hard_deadline_ms > (self.clock)()?
+        {
+            return Ok(id);
+        }
+        if self.has_orphans() {
+            return self.refuse(RefusalReason::GrantDenied);
+        }
+        if self
+            .state()
+            .attempts
+            .values()
+            .filter(|a| a.stopped.is_some() && a.phase != Phase::Destroyed)
+            .count()
+            >= self.config.recovery.max_pending_results
+        {
+            return self.refuse(RefusalReason::PendingRetention);
+        }
         if !self.registered
             || self.recovery_required
             || self.state().attempts.contains_key(&id)
             || self.state().attempts.len() >= journal::MAX_ATTEMPTS
             || request.manifest.validate().is_err()
-            || request.hard_deadline_ms <= now_ms()?
+            || request.hard_deadline_ms <= (self.clock)()?
             || !matches!(request.manifest.bindings.session, SessionIdentity::Remote {node_id,boot_id,..} if node_id==self.identity().node_id && boot_id==self.identity().boot_id)
         {
             return self.refuse(RefusalReason::GrantDenied);
@@ -242,7 +283,10 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 attempt_id: id,
             },
             TemplateDigest::parse(format!("sha256:{}", m.harness.environment.digest.as_str()))?,
-            request.hard_deadline_ms,
+            request
+                .hard_deadline_ms
+                .checked_add(self.config.recovery.deadline_margin_ms)
+                .ok_or_else(|| anyhow::anyhow!("sandbox deadline overflow"))?,
             request.required_capabilities.clone(),
         )
         .with_resources(ResourceLimits {
@@ -269,6 +313,9 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 logical_sandbox_id: None,
                 channel_id: None,
                 destroy_authorization: None,
+                grant: None,
+                cleanup: None,
+                cancellation: None,
             },
         );
         self.journal.persist(state)?;
@@ -292,8 +339,11 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             self.registered
                 && !self.draining
                 && !self.recovery_required
+                && !self.has_orphans()
+                && a.cancellation.is_none()
+                && a.cleanup.is_none()
                 && a.create.owner.boot_id == self.identity().boot_id
-                && a.request.hard_deadline_ms > now_ms()?,
+                && a.request.hard_deadline_ms > (self.clock)()?,
             "controller admission fenced"
         );
         Ok(())
@@ -309,6 +359,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         a.phase = Phase::AcceptIntent;
         self.save(id, a.clone())?;
         let result = accept(a.accept_operation_id).await?;
+        self.admit_effect(&a)?;
         a.phase = Phase::Accepted;
         self.save(id, a)?;
         Ok(result)
@@ -330,5 +381,9 @@ fn now_ms() -> Result<u64> {
 }
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod recovery_ports;
+#[cfg(test)]
+mod recovery_tests;
 #[cfg(test)]
 mod tests;

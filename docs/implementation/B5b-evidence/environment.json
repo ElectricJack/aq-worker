@@ -1,0 +1,43 @@
+[
+  {
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "cwd": "/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0",
+    "base": "9358faf1958fc1950c7266f5be2ad7820cdef82c",
+    "cargo_build_jobs": 2,
+    "date": "2026-11-02"
+  },
+  {
+    "command": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "exit_code": 0,
+    "output": "1d5083c4da671a20e50a603427b4cb20b8576915"
+  },
+  {
+    "command": [
+      "git",
+      "branch",
+      "--show-current"
+    ],
+    "exit_code": 0,
+    "output": "aq/noble-summit-37.6"
+  },
+  {
+    "command": [
+      "rustc",
+      "--version"
+    ],
+    "exit_code": 0,
+    "output": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  {
+    "command": [
+      "cargo",
+      "--version"
+    ],
+    "exit_code": 0,
+    "output": "cargo 1.96.1 (356927216 2026-06-26)"
+  }
+]

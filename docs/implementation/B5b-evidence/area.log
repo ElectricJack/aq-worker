@@ -1,0 +1,31 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.40s
+     Running tests/backend_conformance.rs (target/debug/deps/backend_conformance-34a32bde5b72bc3a)
+
+running 17 tests
+test backend_advertisement_strings_match_contract ... ok
+test contradictory_destroyed_journal_never_adopts_a_live_sandbox ... ok
+test create_replay_rejects_changed_digest_or_boot ... ok
+test create_crash_before_record ... ok
+test destroy_failure_keeps_resources_protected ... ok
+test invalid_digest_and_empty_retention_evidence_are_rejected ... ok
+test foreign_inventory_and_wrong_retention_cannot_delete ... ok
+test deadline_sweep_stops_rather_than_deletes ... ok
+test inventory_faults_discover_unknown_work_and_exclude_foreign_scope ... ok
+test preserve_before_destroy_with_unretained_work ... ok
+test lifecycle_records_require_matching_confirmation_and_retention ... ok
+test provision_run_handoff_and_confirmed_destroy ... ok
+test retained_running_sandbox_still_requires_stop_before_deletion ... ok
+test stop_failure_and_unknown_state_do_not_prove_stopped_writers ... ok
+test stopped_status_without_process_count_is_not_proof ... ok
+test unknown_sandbox_in_inventory ... ok
+test unsupported_operations_and_capabilities_refuse_explicitly ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/controller_cli.rs (target/debug/deps/controller_cli-adf1692bd4358698)
+
+running 1 test
+test run_reports_missing_worker_config_and_malformed_controller_config ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s

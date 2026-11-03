@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--lib",
+    "controller::recovery_tests"
+  ],
+  "exit_code": 101,
+  "log": "docs/implementation/B5b-evidence/red.log"
+}

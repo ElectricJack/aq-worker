@@ -16,6 +16,8 @@ pub(super) struct Storage {
     root: File,
     path: PathBuf,
     pid: u32,
+    #[cfg(test)]
+    pub fault: std::sync::Mutex<Option<WriteFault>>,
 }
 fn directory(parent: &File, name: &CStr) -> Result<File> {
     let fd = unsafe {
@@ -63,6 +65,8 @@ impl Storage {
             root,
             path: path.to_owned(),
             pid: std::process::id(),
+            #[cfg(test)]
+            fault: std::sync::Mutex::new(None),
         };
         s.check()?;
         Ok((s, created))
@@ -132,7 +136,19 @@ impl Storage {
         self.check()
     }
     pub fn write_state(&self, bytes: &[u8]) -> Result<()> {
+        #[cfg(test)]
+        let fault = self.fault.lock().unwrap().take();
+        #[cfg(test)]
+        ensure!(
+            fault != Some(WriteFault::BeforeWrite),
+            "injected write failure"
+        );
         self.write_private("journal.pending", bytes)?;
+        #[cfg(test)]
+        ensure!(
+            fault != Some(WriteFault::AfterFileSync),
+            "injected file sync failure"
+        );
         self.check()?;
         ensure!(
             unsafe {
@@ -144,6 +160,11 @@ impl Storage {
                 )
             } == 0,
             "controller journal rename failed"
+        );
+        #[cfg(test)]
+        ensure!(
+            fault != Some(WriteFault::AfterRename),
+            "injected directory sync failure"
         );
         self.root.sync_all()?;
         self.check()
@@ -178,4 +199,21 @@ impl Storage {
             .checked_mul(stat.f_frsize)
             .ok_or_else(|| anyhow::anyhow!("disk space overflow"))
     }
+}
+
+impl Drop for Storage {
+    fn drop(&mut self) {
+        // An unrelated fork child may retain the descriptor before exec. Release
+        // explicitly in the owner; never unlock the parent's lock in a child.
+        if self.pid == std::process::id() {
+            let _ = FileExt::unlock(&self.root);
+        }
+    }
+}
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum WriteFault {
+    BeforeWrite,
+    AfterFileSync,
+    AfterRename,
 }
