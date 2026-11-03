@@ -15,7 +15,7 @@ Optional Rust wire types derive from the same declared schema source or generate
 
 Foundation enrollment, heartbeat and probe retain their version-1 semantics during extraction. The execution protocol has explicit version/capability negotiation; publishing these documents does not add execution fields to the existing routes or declare an API version shipped.
 
-The current candidate package is `aq-worker-protocol` 0.1.1 (execution version 2).
+The current candidate package is `aq-worker-protocol` 0.2.0 (execution version 2).
 Version 0.1.1 retains the 0.1.0 wire shape and strengthens optional-identity
 validation plus fake-peer result authorization/retention tests. Connectivity
 foundation types are independently preserved in `aq-protocol` 0.1.0.
