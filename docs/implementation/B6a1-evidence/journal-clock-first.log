@@ -1,0 +1,60 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 17s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-70769a83131d85ba)
+
+running 39 tests
+test native::journal::tests::capacity_and_clock_limits_refuse_before_any_new_durable_record ... ok
+test native::journal::tests::changed_private_root_permissions_refuse_further_capacity_or_writes ... ok
+test native::journal::tests::actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap ... ok
+test native::journal::tests::different_kernel_boot_is_historical_without_comparing_local_clocks ... ok
+test native::journal::tests::exclusive_owner_and_unsafe_paths_refuse ... ok
+test native::journal::tests::checksum_and_structural_association_are_both_checked_on_reopen ... ok
+test native::journal::tests::expired_reservation_is_still_held_and_cannot_reaccept ... ok
+test native::journal::tests::inputs_scenarios::artifact_requests_are_durable_batched_exact_and_retry_keeps_ids ... ok
+test native::journal::tests::inputs_scenarios::installed_material_pin_is_independent_durable_and_has_no_plaintext ... ok
+test native::journal::tests::inputs_scenarios::old_format_refusal_does_not_rewrite_or_discard_pending ... ok
+test native::journal::tests::inputs_scenarios::expired_download_stays_pending_and_bulk_does_not_occupy_control ... ok
+test native::journal::tests::inputs_scenarios::original_request_associations_and_metadata_bounds_are_rechecked ... ok
+test native::journal::tests::inputs_scenarios::unknown_journal_write_prevents_http_and_reopen_never_reauthorizes ... ok
+test native::journal::tests::inputs_scenarios::postrename_pin_survives_but_is_historical_and_never_recreates_material ... ok
+test native::journal::tests::missing_corrupt_newer_and_wrong_node_journals_are_not_empty_nodes ... ok
+test native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses ... FAILED
+test native::journal::tests::new_initialization_has_new_logical_boot_and_cannot_overwrite_existing_root ... ok
+test native::journal::tests::oversized_member_and_unknown_root_member_fail_closed ... ok
+test native::journal::tests::preparation_v2_scenarios::actual_poll_redelivery_and_original_proposal_are_retained_as_distinct_history ... ok
+test native::journal::tests::preparation_v2_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::preparation_v2_scenarios::expiry_before_recording_keeps_received_history_and_every_resource_hold ... ok
+test native::journal::tests::preparation_v2_scenarios::legacy_protocol_choice_cannot_be_switched_to_phase_after_publication ... ok
+test native::journal::tests::preparation_v2_scenarios::phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths ... ok
+test native::journal::tests::preparation_v2_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+test native::journal::tests::preparation_v2_scenarios::intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history ... ok
+test native::journal::tests::refresh_scenarios::actual_poll_redelivery_and_original_proposal_are_retained_as_distinct_history ... ok
+test native::journal::tests::preparation_v2_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption ... ok
+test native::journal::tests::refresh_scenarios::changed_phase_intent_or_receipt_cannot_replace_first_history ... ok
+test native::journal::tests::refresh_scenarios::frozen_profile_client_refuses_refresh_reply_on_same_uri_without_fallback ... ok
+test native::journal::tests::refresh_scenarios::expiry_before_recording_keeps_received_history_and_every_resource_hold ... ok
+test native::journal::tests::refresh_scenarios::legacy_protocol_choice_cannot_be_switched_to_phase_after_publication ... ok
+test native::journal::tests::refresh_scenarios::phase_intent_and_receipt_are_atomic_exact_and_cannot_enter_legacy_paths ... ok
+test native::journal::tests::refresh_scenarios::replay_before_first_persistence_retains_original_transmission_after_proposal_expiry ... ok
+test native::journal::tests::refresh_scenarios::intent_and_receipt_fsync_cuts_keep_old_or_whole_new_protocol_history ... ok
+test native::journal::tests::reservation_acceptance_survive_restart_without_restoring_live_authority ... ok
+test native::journal::tests::root_replacement_cannot_redirect_an_open_writers_effects ... ok
+test native::journal::tests::symlink_hardlink_and_nonprivate_members_refuse ... ok
+test native::journal::tests::unknown_attempts_and_changed_acceptance_retries_do_not_consume_revision ... ok
+test native::journal::tests::refresh_scenarios::valid_checksum_cannot_hide_phase_association_or_clock_corruption ... ok
+
+failures:
+
+---- native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses stdout ----
+
+thread 'native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses' (2091614) panicked at crates/aq-worker/src/native/journal/tests.rs:139:9:
+assertion failed: journal.recovery_required()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    native::journal::tests::interrupted_replacement_recovers_only_published_state_and_poisoned_writer_refuses
+
+test result: FAILED. 38 passed; 1 failed; 0 ignored; 0 measured; 197 filtered out; finished in 16.84s
+
+error: test failed, to rerun pass `-p aq-worker --lib`

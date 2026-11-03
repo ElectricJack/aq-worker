@@ -1,0 +1,47 @@
+warning: unused import: `ensure`
+ --> crates/aq-worker/src/native/runner/sandbox.rs:7:22
+  |
+7 | use anyhow::{Result, ensure};
+  |                      ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `validate_renewal` is never used
+  --> crates/aq-worker/src/native/runner/sandbox/transport.rs:35:15
+   |
+35 | pub(super) fn validate_renewal(delivery: &RenewalDelivery, request: &RunnerRenewalRequest, nonce: Uuid, sent: u64, received: u64, pr...
+   |               ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aq-worker` (lib) generated 2 warnings (run `cargo fix --lib -p aq-worker` to apply 1 suggestion)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.94s
+     Running tests/sandbox_runner.rs (target/debug/deps/sandbox_runner-30dc220793ee70cc)
+
+running 3 tests
+test runner_cannot_report_before_handoff_receipts ... FAILED
+test renewal_loss_stops_and_preserves_without_relaunch ... FAILED
+test sandbox_run_cli_requires_frozen_manifest_and_state ... ok
+
+failures:
+
+---- runner_cannot_report_before_handoff_receipts stdout ----
+
+thread 'runner_cannot_report_before_handoff_receipts' (1880006) panicked at crates/aq-worker/tests/sandbox_runner.rs:22:47:
+called `Result::unwrap()` on an `Err` value: sandbox execution not implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- renewal_loss_stops_and_preserves_without_relaunch stdout ----
+
+thread 'renewal_loss_stops_and_preserves_without_relaunch' (1880005) panicked at crates/aq-worker/tests/sandbox_runner.rs:35:47:
+called `Result::unwrap()` on an `Err` value: sandbox execution not implemented
+
+
+failures:
+    renewal_loss_stops_and_preserves_without_relaunch
+    runner_cannot_report_before_handoff_receipts
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p aq-worker --test sandbox_runner`

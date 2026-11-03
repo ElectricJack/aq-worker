@@ -1,0 +1,19 @@
+Extract from final CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test --locked (exit 0)
+     Running tests/sandbox_runner.rs (target/debug/deps/sandbox_runner-18796e7acfcb98e4)
+
+running 12 tests
+test cancellation_preserves_and_default_local_permit_is_at_most_120_seconds ... ok
+test delegated_permit_expiry_caps_initial_grant ... ok
+test frozen_handoff_rejects_reboot_changed_manifest_and_directory_copy ... ok
+test production_cli_refuses_unwired_transport_before_launch ... ok
+test concurrent_handoff_has_only_one_writer_launch ... ok
+test renewal_keeps_same_guardian_alive_past_original_deadline ... ok
+test renewal_loss_stops_and_preserves_without_relaunch ... ok
+test runner_cannot_report_before_handoff_receipts ... ok
+test sandbox_run_cli_requires_frozen_manifest_and_state ... ok
+test tmux_exit_requires_descendant_stop_proof ... ok
+test unknown_stop_retains_without_reporting_or_claiming_proof ... ok
+test renewal_replay_wrong_nonce_and_readoption_never_extend_authority ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.96s
+
