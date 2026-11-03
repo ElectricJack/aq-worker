@@ -2124,7 +2124,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -2234,7 +2234,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -2344,7 +2344,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -2454,7 +2454,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -2564,7 +2564,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -2674,7 +2674,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -2784,7 +2784,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -2878,7 +2878,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -2979,7 +2979,7 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
@@ -3089,12 +3089,892 @@
           "channel_id": "00000000-0000-0000-0000-000000000006"
         },
         "phase": "granted",
-        "grant_expires_at_ms": 4000,
+        "grant_expires_at_ms": 3000,
         "hard_deadline_ms": 5000
       },
       "nonce": "00000000-0000-0000-0000-000000000041",
       "now_ms": 2000
     },
     "expected": "accepted"
+  },
+  {
+    "name": "renewal_exceeds_original_hard_deadline",
+    "case": {
+      "kind": "runner_renewal",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000040",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "grant": {
+            "binding": {
+              "schema_version": 1,
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 2,
+                "session_id": "00000000-0000-0000-0000-000000000030"
+              },
+              "offer_id": "00000000-0000-0000-0000-000000000031",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 2,
+              "execution_spec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "launch_manifest_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "graph_access_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000032",
+            "expires_at_ms": 3000
+          },
+          "issued_at_ms": 1000,
+          "hard_deadline_ms": 5000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000000007",
+          "credential": "fixture_only_not_a_real_secret_00000000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 2,
+            "sandbox_id": "00000000-0000-0000-0000-000000000003",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000004",
+              "boot_id": "00000000-0000-0000-0000-000000000005"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000000006"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1000,
+          "expires_at_ms": 3000,
+          "hard_deadline_ms": 5000
+        },
+        "revision": 1
+      },
+      "response": {
+        "schema_version": 1,
+        "revision": 2,
+        "reply": {
+          "kind": "renewed",
+          "operation_id": "00000000-0000-0000-0000-000000000040",
+          "permit": {
+            "schema_version": 1,
+            "permit_id": "00000000-0000-0000-0000-000000000007",
+            "credential": "fixture_only_not_a_real_secret_00000000",
+            "binding": {
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "grant_generation": 2,
+              "sandbox_id": "00000000-0000-0000-0000-000000000003",
+              "node": {
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "channel_id": "00000000-0000-0000-0000-000000000006"
+            },
+            "scope": "execution",
+            "issued_at_ms": 2000,
+            "expires_at_ms": 5001,
+            "hard_deadline_ms": 5000
+          }
+        },
+        "delivery": {
+          "nonce": "00000000-0000-0000-0000-000000000041",
+          "clock": {
+            "server_time_ms": 2000,
+            "expires_at_ms": 4000,
+            "valid_for_ms": 2000
+          }
+        }
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "nonce": "00000000-0000-0000-0000-000000000041",
+      "now_ms": 2000
+    },
+    "expected": "deadline_mismatch"
+  },
+  {
+    "name": "renewal_shortens_expiry",
+    "case": {
+      "kind": "runner_renewal",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000040",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "grant": {
+            "binding": {
+              "schema_version": 1,
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 2,
+                "session_id": "00000000-0000-0000-0000-000000000030"
+              },
+              "offer_id": "00000000-0000-0000-0000-000000000031",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 2,
+              "execution_spec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "launch_manifest_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "graph_access_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000032",
+            "expires_at_ms": 3000
+          },
+          "issued_at_ms": 1000,
+          "hard_deadline_ms": 5000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000000007",
+          "credential": "fixture_only_not_a_real_secret_00000000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 2,
+            "sandbox_id": "00000000-0000-0000-0000-000000000003",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000004",
+              "boot_id": "00000000-0000-0000-0000-000000000005"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000000006"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1000,
+          "expires_at_ms": 3000,
+          "hard_deadline_ms": 5000
+        },
+        "revision": 1
+      },
+      "response": {
+        "schema_version": 1,
+        "revision": 2,
+        "reply": {
+          "kind": "renewed",
+          "operation_id": "00000000-0000-0000-0000-000000000040",
+          "permit": {
+            "schema_version": 1,
+            "permit_id": "00000000-0000-0000-0000-000000000007",
+            "credential": "fixture_only_not_a_real_secret_00000000",
+            "binding": {
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "grant_generation": 2,
+              "sandbox_id": "00000000-0000-0000-0000-000000000003",
+              "node": {
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "channel_id": "00000000-0000-0000-0000-000000000006"
+            },
+            "scope": "execution",
+            "issued_at_ms": 2000,
+            "expires_at_ms": 2999,
+            "hard_deadline_ms": 5000
+          }
+        },
+        "delivery": {
+          "nonce": "00000000-0000-0000-0000-000000000041",
+          "clock": {
+            "server_time_ms": 2000,
+            "expires_at_ms": 2999,
+            "valid_for_ms": 999
+          }
+        }
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "nonce": "00000000-0000-0000-0000-000000000041",
+      "now_ms": 2000
+    },
+    "expected": "deadline_mismatch"
+  },
+  {
+    "name": "renewal_wrong_nonce",
+    "case": {
+      "kind": "runner_renewal",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000040",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "grant": {
+            "binding": {
+              "schema_version": 1,
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 2,
+                "session_id": "00000000-0000-0000-0000-000000000030"
+              },
+              "offer_id": "00000000-0000-0000-0000-000000000031",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 2,
+              "execution_spec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "launch_manifest_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "graph_access_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000032",
+            "expires_at_ms": 3000
+          },
+          "issued_at_ms": 1000,
+          "hard_deadline_ms": 5000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000000007",
+          "credential": "fixture_only_not_a_real_secret_00000000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 2,
+            "sandbox_id": "00000000-0000-0000-0000-000000000003",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000004",
+              "boot_id": "00000000-0000-0000-0000-000000000005"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000000006"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1000,
+          "expires_at_ms": 3000,
+          "hard_deadline_ms": 5000
+        },
+        "revision": 1
+      },
+      "response": {
+        "schema_version": 1,
+        "revision": 2,
+        "reply": {
+          "kind": "renewed",
+          "operation_id": "00000000-0000-0000-0000-000000000040",
+          "permit": {
+            "schema_version": 1,
+            "permit_id": "00000000-0000-0000-0000-000000000007",
+            "credential": "fixture_only_not_a_real_secret_00000000",
+            "binding": {
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "grant_generation": 2,
+              "sandbox_id": "00000000-0000-0000-0000-000000000003",
+              "node": {
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "channel_id": "00000000-0000-0000-0000-000000000006"
+            },
+            "scope": "execution",
+            "issued_at_ms": 2000,
+            "expires_at_ms": 4000,
+            "hard_deadline_ms": 5000
+          }
+        },
+        "delivery": {
+          "nonce": "00000000-0000-0000-0000-000000000041",
+          "clock": {
+            "server_time_ms": 2000,
+            "expires_at_ms": 4000,
+            "valid_for_ms": 2000
+          }
+        }
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "nonce": "00000000-0000-0000-0000-000000000099",
+      "now_ms": 2000
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "renewal_wrong_current_boot",
+    "case": {
+      "kind": "runner_renewal",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000040",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "grant": {
+            "binding": {
+              "schema_version": 1,
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 2,
+                "session_id": "00000000-0000-0000-0000-000000000030"
+              },
+              "offer_id": "00000000-0000-0000-0000-000000000031",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 2,
+              "execution_spec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "launch_manifest_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "graph_access_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000032",
+            "expires_at_ms": 3000
+          },
+          "issued_at_ms": 1000,
+          "hard_deadline_ms": 5000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000000007",
+          "credential": "fixture_only_not_a_real_secret_00000000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 2,
+            "sandbox_id": "00000000-0000-0000-0000-000000000003",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000004",
+              "boot_id": "00000000-0000-0000-0000-000000000005"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000000006"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1000,
+          "expires_at_ms": 3000,
+          "hard_deadline_ms": 5000
+        },
+        "revision": 1
+      },
+      "response": {
+        "schema_version": 1,
+        "revision": 2,
+        "reply": {
+          "kind": "renewed",
+          "operation_id": "00000000-0000-0000-0000-000000000040",
+          "permit": {
+            "schema_version": 1,
+            "permit_id": "00000000-0000-0000-0000-000000000007",
+            "credential": "fixture_only_not_a_real_secret_00000000",
+            "binding": {
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "grant_generation": 2,
+              "sandbox_id": "00000000-0000-0000-0000-000000000003",
+              "node": {
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "channel_id": "00000000-0000-0000-0000-000000000006"
+            },
+            "scope": "execution",
+            "issued_at_ms": 2000,
+            "expires_at_ms": 4000,
+            "hard_deadline_ms": 5000
+          }
+        },
+        "delivery": {
+          "nonce": "00000000-0000-0000-0000-000000000041",
+          "clock": {
+            "server_time_ms": 2000,
+            "expires_at_ms": 4000,
+            "valid_for_ms": 2000
+          }
+        }
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000099"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "nonce": "00000000-0000-0000-0000-000000000041",
+      "now_ms": 2000
+    },
+    "expected": "binding_mismatch"
+  },
+  {
+    "name": "renewal_future_issue",
+    "case": {
+      "kind": "runner_renewal",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000040",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "grant": {
+            "binding": {
+              "schema_version": 1,
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 2,
+                "session_id": "00000000-0000-0000-0000-000000000030"
+              },
+              "offer_id": "00000000-0000-0000-0000-000000000031",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 2,
+              "execution_spec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "launch_manifest_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "graph_access_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000032",
+            "expires_at_ms": 3000
+          },
+          "issued_at_ms": 1000,
+          "hard_deadline_ms": 5000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000000007",
+          "credential": "fixture_only_not_a_real_secret_00000000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 2,
+            "sandbox_id": "00000000-0000-0000-0000-000000000003",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000004",
+              "boot_id": "00000000-0000-0000-0000-000000000005"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000000006"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1000,
+          "expires_at_ms": 3000,
+          "hard_deadline_ms": 5000
+        },
+        "revision": 1
+      },
+      "response": {
+        "schema_version": 1,
+        "revision": 2,
+        "reply": {
+          "kind": "renewed",
+          "operation_id": "00000000-0000-0000-0000-000000000040",
+          "permit": {
+            "schema_version": 1,
+            "permit_id": "00000000-0000-0000-0000-000000000007",
+            "credential": "fixture_only_not_a_real_secret_00000000",
+            "binding": {
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "grant_generation": 2,
+              "sandbox_id": "00000000-0000-0000-0000-000000000003",
+              "node": {
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "channel_id": "00000000-0000-0000-0000-000000000006"
+            },
+            "scope": "execution",
+            "issued_at_ms": 2001,
+            "expires_at_ms": 4000,
+            "hard_deadline_ms": 5000
+          }
+        },
+        "delivery": {
+          "nonce": "00000000-0000-0000-0000-000000000041",
+          "clock": {
+            "server_time_ms": 2000,
+            "expires_at_ms": 4000,
+            "valid_for_ms": 2000
+          }
+        }
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "nonce": "00000000-0000-0000-0000-000000000041",
+      "now_ms": 2000
+    },
+    "expected": "expired"
+  },
+  {
+    "name": "renewal_delivery_expiry_mismatch",
+    "case": {
+      "kind": "runner_renewal",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000040",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "grant": {
+            "binding": {
+              "schema_version": 1,
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 2,
+                "session_id": "00000000-0000-0000-0000-000000000030"
+              },
+              "offer_id": "00000000-0000-0000-0000-000000000031",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 2,
+              "execution_spec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "launch_manifest_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "graph_access_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000032",
+            "expires_at_ms": 3000
+          },
+          "issued_at_ms": 1000,
+          "hard_deadline_ms": 5000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000000007",
+          "credential": "fixture_only_not_a_real_secret_00000000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 2,
+            "sandbox_id": "00000000-0000-0000-0000-000000000003",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000004",
+              "boot_id": "00000000-0000-0000-0000-000000000005"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000000006"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1000,
+          "expires_at_ms": 3000,
+          "hard_deadline_ms": 5000
+        },
+        "revision": 1
+      },
+      "response": {
+        "schema_version": 1,
+        "revision": 2,
+        "reply": {
+          "kind": "renewed",
+          "operation_id": "00000000-0000-0000-0000-000000000040",
+          "permit": {
+            "schema_version": 1,
+            "permit_id": "00000000-0000-0000-0000-000000000007",
+            "credential": "fixture_only_not_a_real_secret_00000000",
+            "binding": {
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "grant_generation": 2,
+              "sandbox_id": "00000000-0000-0000-0000-000000000003",
+              "node": {
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "channel_id": "00000000-0000-0000-0000-000000000006"
+            },
+            "scope": "execution",
+            "issued_at_ms": 2000,
+            "expires_at_ms": 4000,
+            "hard_deadline_ms": 5000
+          }
+        },
+        "delivery": {
+          "nonce": "00000000-0000-0000-0000-000000000041",
+          "clock": {
+            "server_time_ms": 2000,
+            "expires_at_ms": 4001,
+            "valid_for_ms": 2000
+          }
+        }
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "nonce": "00000000-0000-0000-0000-000000000041",
+      "now_ms": 2000
+    },
+    "expected": "deadline_mismatch"
+  },
+  {
+    "name": "renewal_ended_grant",
+    "case": {
+      "kind": "runner_renewal",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000040",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "grant": {
+            "binding": {
+              "schema_version": 1,
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 2,
+                "session_id": "00000000-0000-0000-0000-000000000030"
+              },
+              "offer_id": "00000000-0000-0000-0000-000000000031",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 2,
+              "execution_spec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "launch_manifest_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "graph_access_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000032",
+            "expires_at_ms": 3000
+          },
+          "issued_at_ms": 1000,
+          "hard_deadline_ms": 5000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000000007",
+          "credential": "fixture_only_not_a_real_secret_00000000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 2,
+            "sandbox_id": "00000000-0000-0000-0000-000000000003",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000004",
+              "boot_id": "00000000-0000-0000-0000-000000000005"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000000006"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1000,
+          "expires_at_ms": 3000,
+          "hard_deadline_ms": 5000
+        },
+        "revision": 1
+      },
+      "response": {
+        "schema_version": 1,
+        "revision": 2,
+        "reply": {
+          "kind": "renewed",
+          "operation_id": "00000000-0000-0000-0000-000000000040",
+          "permit": {
+            "schema_version": 1,
+            "permit_id": "00000000-0000-0000-0000-000000000007",
+            "credential": "fixture_only_not_a_real_secret_00000000",
+            "binding": {
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "grant_generation": 2,
+              "sandbox_id": "00000000-0000-0000-0000-000000000003",
+              "node": {
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "channel_id": "00000000-0000-0000-0000-000000000006"
+            },
+            "scope": "execution",
+            "issued_at_ms": 2000,
+            "expires_at_ms": 4000,
+            "hard_deadline_ms": 5000
+          }
+        },
+        "delivery": {
+          "nonce": "00000000-0000-0000-0000-000000000041",
+          "clock": {
+            "server_time_ms": 2000,
+            "expires_at_ms": 4000,
+            "valid_for_ms": 2000
+          }
+        }
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "ended",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "nonce": "00000000-0000-0000-0000-000000000041",
+      "now_ms": 2000
+    },
+    "expected": "scope_denied"
+  },
+  {
+    "name": "renewal_wrong_sandbox",
+    "case": {
+      "kind": "runner_renewal",
+      "request": {
+        "schema_version": 1,
+        "operation_id": "00000000-0000-0000-0000-000000000040",
+        "authority": {
+          "profile": "phase_v2",
+          "receipt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "grant": {
+            "binding": {
+              "schema_version": 1,
+              "session": {
+                "kind": "remote",
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005",
+                "attempt_id": "00000000-0000-0000-0000-000000000001",
+                "assignment_generation": 2,
+                "session_id": "00000000-0000-0000-0000-000000000030"
+              },
+              "offer_id": "00000000-0000-0000-0000-000000000031",
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "assignment_generation": 2,
+              "execution_spec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "launch_manifest_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "graph_access_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "grant_id": "00000000-0000-0000-0000-000000000032",
+            "expires_at_ms": 3000
+          },
+          "issued_at_ms": 1000,
+          "hard_deadline_ms": 5000
+        },
+        "permit": {
+          "schema_version": 1,
+          "permit_id": "00000000-0000-0000-0000-000000000007",
+          "credential": "fixture_only_not_a_real_secret_00000000",
+          "binding": {
+            "attempt_id": "00000000-0000-0000-0000-000000000001",
+            "grant_generation": 2,
+            "sandbox_id": "00000000-0000-0000-0000-000000000003",
+            "node": {
+              "node_id": "00000000-0000-0000-0000-000000000004",
+              "boot_id": "00000000-0000-0000-0000-000000000005"
+            },
+            "channel_id": "00000000-0000-0000-0000-000000000006"
+          },
+          "scope": "execution",
+          "issued_at_ms": 1000,
+          "expires_at_ms": 3000,
+          "hard_deadline_ms": 5000
+        },
+        "revision": 1
+      },
+      "response": {
+        "schema_version": 1,
+        "revision": 2,
+        "reply": {
+          "kind": "renewed",
+          "operation_id": "00000000-0000-0000-0000-000000000040",
+          "permit": {
+            "schema_version": 1,
+            "permit_id": "00000000-0000-0000-0000-000000000007",
+            "credential": "fixture_only_not_a_real_secret_00000000",
+            "binding": {
+              "attempt_id": "00000000-0000-0000-0000-000000000001",
+              "grant_generation": 2,
+              "sandbox_id": "00000000-0000-0000-0000-000000000099",
+              "node": {
+                "node_id": "00000000-0000-0000-0000-000000000004",
+                "boot_id": "00000000-0000-0000-0000-000000000005"
+              },
+              "channel_id": "00000000-0000-0000-0000-000000000006"
+            },
+            "scope": "execution",
+            "issued_at_ms": 2000,
+            "expires_at_ms": 4000,
+            "hard_deadline_ms": 5000
+          }
+        },
+        "delivery": {
+          "nonce": "00000000-0000-0000-0000-000000000041",
+          "clock": {
+            "server_time_ms": 2000,
+            "expires_at_ms": 4000,
+            "valid_for_ms": 2000
+          }
+        }
+      },
+      "context": {
+        "binding": {
+          "attempt_id": "00000000-0000-0000-0000-000000000001",
+          "grant_generation": 2,
+          "sandbox_id": "00000000-0000-0000-0000-000000000003",
+          "node": {
+            "node_id": "00000000-0000-0000-0000-000000000004",
+            "boot_id": "00000000-0000-0000-0000-000000000005"
+          },
+          "channel_id": "00000000-0000-0000-0000-000000000006"
+        },
+        "phase": "granted",
+        "grant_expires_at_ms": 3000,
+        "hard_deadline_ms": 5000
+      },
+      "nonce": "00000000-0000-0000-0000-000000000041",
+      "now_ms": 2000
+    },
+    "expected": "binding_mismatch"
   }
 ]

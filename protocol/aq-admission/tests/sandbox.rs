@@ -6,6 +6,29 @@ fn sandbox_schema_drift() {
     assert_eq!(sandbox::schema(), published);
 }
 
+#[test]
+fn sandbox_schema_constrains_versions_and_missing_capability_bounds() {
+    let schema = sandbox::schema();
+    let mut versions = std::collections::BTreeMap::new();
+    for (name, definition) in schema["$defs"].as_object().unwrap() {
+        if let Some(version) = definition["properties"].get("schema_version") {
+            let expected = if name == "Registration" { 2 } else { 1 };
+            assert_eq!(version["const"], expected, "{name}");
+            versions.insert(name.as_str(), expected);
+        }
+    }
+    assert_eq!(versions.len(), 8);
+    let missing = &schema["$defs"]["CompatibilityReply"]["oneOf"][1]["properties"]["missing"];
+    assert_eq!(missing["minItems"], 1);
+    assert_eq!(missing["maxItems"], 64);
+    for count in [0, 65] {
+        let reply = sandbox::CompatibilityReply::UnsupportedRequiredCapability {
+            missing: (0..count).map(|n| format!("capability-{n}")).collect(),
+        };
+        assert_eq!(reply.validate(), Err(sandbox::ContractError::InvalidShape));
+    }
+}
+
 use aq_admission::{
     ArtifactRef, Digest, Text,
     transport::{Register, WorkerIdentity},
@@ -295,4 +318,40 @@ fn sandbox_renewal_delivery_cannot_retime_replay_or_revive_local_expiry() {
             .unwrap(),
         prior
     );
+}
+
+#[test]
+fn sandbox_renewal_accepts_only_live_correlated_extensions_from_prior_state() {
+    let fixtures: Vec<Fixture> =
+        serde_json::from_str(include_str!("../artifacts/sandbox-v1.fixtures.json")).unwrap();
+    for name in [
+        "phase_v2_renewal",
+        "phase_refresh_renewal",
+        "phase_renewal_after_readoption",
+    ] {
+        let FixtureCase::RunnerRenewal {
+            request,
+            response,
+            context,
+            nonce,
+            now_ms,
+        } = &fixtures.iter().find(|f| f.name == name).unwrap().case
+        else {
+            panic!()
+        };
+        assert_eq!(context.grant_expires_at_ms, request.permit.expires_at_ms);
+        response
+            .validate_for(request, context, *nonce, *now_ms)
+            .unwrap();
+        // Ordinary operation validation continues to enforce the installed
+        // grant expiry; only the correlated renewal can extend it.
+        let RenewalReply::Renewed { permit, .. } = &response.reply else {
+            panic!()
+        };
+        assert!(permit.expires_at_ms > context.grant_expires_at_ms);
+        assert_eq!(
+            permit.validate_for(context, RunnerOperation::Renew, *now_ms),
+            Err(ContractError::DeadlineMismatch)
+        );
+    }
 }

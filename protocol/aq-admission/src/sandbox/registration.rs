@@ -166,6 +166,9 @@ impl CompatibilityReply {
 }
 /// Unknown requirements always decline, including names a caller falsely puts
 /// in `supported`. A legacy peer supplies its own actual supported set.
+/// Callers must validate the backend advertisement before deriving its support
+/// names. `delegated-runner-v1` is separate protocol support and must be established
+/// by the installed adapter. This string-set check cannot validate a backend kind.
 pub fn negotiate(required: &[String], supported: &[String]) -> Result<CompatibilityReply> {
     capability_names(required)?;
     capability_names(supported)?;
