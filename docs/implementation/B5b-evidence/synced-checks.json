@@ -1,0 +1,104 @@
+[
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "aq-worker",
+      "--lib",
+      "controller::"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5b-evidence/synced-controller.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--workspace",
+      "controller_restart_reconciles_journal_against_backend_inventory"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5b-evidence/synced-acceptance-reconcile.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--workspace",
+      "unretained_sandbox_is_preserved_not_destroyed"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5b-evidence/synced-acceptance-preserve.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "aq-worker",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5b-evidence/synced-clippy.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "aq-worker",
+      "--lib",
+      "--bin",
+      "aq-worker",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5b-evidence/synced-production-clippy.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5b-evidence/synced-fmt.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "aq-worker",
+      "--test",
+      "backend_conformance",
+      "--test",
+      "controller_cli"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5b-evidence/synced-area.log"
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--cached",
+      "--check",
+      "origin/main"
+    ],
+    "exit_code": 0,
+    "log": "docs/implementation/B5b-evidence/synced-whitespace.log"
+  }
+]

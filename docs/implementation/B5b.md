@@ -168,9 +168,11 @@ style lints. Those were corrected rather than suppressed.
 
 The B5a authorized injected-provider boundary remains: B2's authenticated HTTP
 registration, issuance, polling and re-adoption composition is not invented.
-`PermitProvider::retain` is the runner extraction/central retention adapter
-boundary; implementations must return authorization only after both workspace
-and evidence are retained (or authenticated operator release). The unavailable
+`PermitProvider::retain` is the extraction/central retention adapter boundary.
+After confirmed stop, an implementation can fetch runner-produced workspace
+and evidence through the backend file API or finish an already durable runner
+handoff. It must return authorization only after both workspace and evidence
+are retained (or authenticated operator release). The unavailable
 production provider preserves disks indefinitely. This task validates the
 controller decisions and retry behavior through a fake provider, not actual
 remote artifact transfer. B6 owns execution observations and renewal-loss stop;
@@ -178,3 +180,32 @@ C2/C7 own real backend qualification; H5 and installers are untouched.
 No wire schema, canonical spec or default branch is edited. Existing rootless
 Docker isolation claims are unchanged. No credentials are persisted in the new
 grant-monitoring records or test evidence.
+
+## Final main integration
+
+Guarded `aq git pull --branch main` merged `origin/main` at
+`2d2fcf4577d4c21d8d666b9abfd7ccb44c031bf9` as
+`c637bbd558b487eb90b178bbabb49d7c965f9ab3`. An explicit `git merge origin/main`
+then reported already up to date. The leaf implementation was squashed to
+`0e20ef5212b1d21e91f6c97dedd5fb4b2c17a8ca` before this merge, preserving its tree.
+Main supplied pinned aq-admission 0.3.0, aq-session-host 0.1.7 and a smaller
+debug profile. There were no controller source conflicts or changes.
+`B5b-evidence/integration.json` records the identities. The final publication
+adds evidence only after verification against these updated dependencies.
+
+Post-sync checks (same AQ adapter and exact commands as above):
+
+| Check | Result | Receipt/log basename |
+| --- | --- | --- |
+| Controller area | 51 passed | `synced-controller` |
+| Exact workspace reconciliation acceptance command | 1 matched controller test passed | `synced-acceptance-reconcile` |
+| Exact workspace preservation acceptance command | 1 matched controller test passed | `synced-acceptance-preserve` |
+| All-target worker Clippy | exit 0 | `synced-clippy` |
+| Default production library/binary Clippy | exit 0 | `synced-production-clippy` |
+| Workspace formatting | exit 0 | `synced-fmt` |
+| Backend conformance and controller CLI | 18 passed | `synced-area` |
+| `git diff --cached --check origin/main` | exit 0 | `synced-whitespace` |
+
+These supersede the corresponding pre-sync checks. `synced-checks.json` collects
+the final command receipts. The production CLI feature selection did not change
+in the merge; the pre-sync command listing remains archived separately.

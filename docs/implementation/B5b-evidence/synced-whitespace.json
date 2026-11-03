@@ -1,0 +1,11 @@
+{
+  "command": [
+    "git",
+    "diff",
+    "--cached",
+    "--check",
+    "origin/main"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5b-evidence/synced-whitespace.log"
+}
