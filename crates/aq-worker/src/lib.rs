@@ -25,3 +25,4 @@ pub mod native;
 /// Finite local-provider fixture data; never runtime/model qualification.
 #[cfg(any(test, feature = "test-support"))]
 pub mod finite_responses_fixture;
+pub mod template;

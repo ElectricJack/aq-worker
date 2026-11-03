@@ -1,0 +1,186 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 1 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' scripts/tests/test_template_tool.py -k 'BuildTests and not cli' -n 0
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 9 items / 6 deselected / 3 selected
+
+scripts/tests/test_template_tool.py .FF                          [100%]
+
+=================================== FAILURES ===================================
+_ BuildTests.test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields (change={'role': 'attempt'}) _
+
+self = <test_template_tool.BuildTests testMethod=test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields>
+
+    def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
+        tool = load('template_tool')
+        for change in [{'role': 'attempt'}, {'os_image': 'aq-sandbox-os:latest'},
+                       {'runtime_image': 'aq-sandbox-runtime:latest'}, {'arbitrary': 'value'},
+                       {'builder_identity': ''}, {'docker_context': '-bad'},
+                       {'allowlist': '../outside.json'}, {'registry_visibility': 'maybe'}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+>               tool.validate_config({**config(), **change})
+                ^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'template_tool' has no attribute 'validate_config'
+
+scripts/tests/test_template_tool.py:284: AttributeError
+_ BuildTests.test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields (change={'os_image': 'aq-sandbox-os:latest'}) _
+
+self = <test_template_tool.BuildTests testMethod=test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields>
+
+    def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
+        tool = load('template_tool')
+        for change in [{'role': 'attempt'}, {'os_image': 'aq-sandbox-os:latest'},
+                       {'runtime_image': 'aq-sandbox-runtime:latest'}, {'arbitrary': 'value'},
+                       {'builder_identity': ''}, {'docker_context': '-bad'},
+                       {'allowlist': '../outside.json'}, {'registry_visibility': 'maybe'}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+>               tool.validate_config({**config(), **change})
+                ^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'template_tool' has no attribute 'validate_config'
+
+scripts/tests/test_template_tool.py:284: AttributeError
+_ BuildTests.test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields (change={'runtime_image': 'aq-sandbox-runtime:latest'}) _
+
+self = <test_template_tool.BuildTests testMethod=test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields>
+
+    def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
+        tool = load('template_tool')
+        for change in [{'role': 'attempt'}, {'os_image': 'aq-sandbox-os:latest'},
+                       {'runtime_image': 'aq-sandbox-runtime:latest'}, {'arbitrary': 'value'},
+                       {'builder_identity': ''}, {'docker_context': '-bad'},
+                       {'allowlist': '../outside.json'}, {'registry_visibility': 'maybe'}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+>               tool.validate_config({**config(), **change})
+                ^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'template_tool' has no attribute 'validate_config'
+
+scripts/tests/test_template_tool.py:284: AttributeError
+_ BuildTests.test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields (change={'arbitrary': 'value'}) _
+
+self = <test_template_tool.BuildTests testMethod=test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields>
+
+    def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
+        tool = load('template_tool')
+        for change in [{'role': 'attempt'}, {'os_image': 'aq-sandbox-os:latest'},
+                       {'runtime_image': 'aq-sandbox-runtime:latest'}, {'arbitrary': 'value'},
+                       {'builder_identity': ''}, {'docker_context': '-bad'},
+                       {'allowlist': '../outside.json'}, {'registry_visibility': 'maybe'}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+>               tool.validate_config({**config(), **change})
+                ^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'template_tool' has no attribute 'validate_config'
+
+scripts/tests/test_template_tool.py:284: AttributeError
+_ BuildTests.test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields (change={'builder_identity': ''}) _
+
+self = <test_template_tool.BuildTests testMethod=test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields>
+
+    def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
+        tool = load('template_tool')
+        for change in [{'role': 'attempt'}, {'os_image': 'aq-sandbox-os:latest'},
+                       {'runtime_image': 'aq-sandbox-runtime:latest'}, {'arbitrary': 'value'},
+                       {'builder_identity': ''}, {'docker_context': '-bad'},
+                       {'allowlist': '../outside.json'}, {'registry_visibility': 'maybe'}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+>               tool.validate_config({**config(), **change})
+                ^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'template_tool' has no attribute 'validate_config'
+
+scripts/tests/test_template_tool.py:284: AttributeError
+_ BuildTests.test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields (change={'docker_context': '-bad'}) _
+
+self = <test_template_tool.BuildTests testMethod=test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields>
+
+    def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
+        tool = load('template_tool')
+        for change in [{'role': 'attempt'}, {'os_image': 'aq-sandbox-os:latest'},
+                       {'runtime_image': 'aq-sandbox-runtime:latest'}, {'arbitrary': 'value'},
+                       {'builder_identity': ''}, {'docker_context': '-bad'},
+                       {'allowlist': '../outside.json'}, {'registry_visibility': 'maybe'}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+>               tool.validate_config({**config(), **change})
+                ^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'template_tool' has no attribute 'validate_config'
+
+scripts/tests/test_template_tool.py:284: AttributeError
+_ BuildTests.test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields (change={'allowlist': '../outside.json'}) _
+
+self = <test_template_tool.BuildTests testMethod=test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields>
+
+    def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
+        tool = load('template_tool')
+        for change in [{'role': 'attempt'}, {'os_image': 'aq-sandbox-os:latest'},
+                       {'runtime_image': 'aq-sandbox-runtime:latest'}, {'arbitrary': 'value'},
+                       {'builder_identity': ''}, {'docker_context': '-bad'},
+                       {'allowlist': '../outside.json'}, {'registry_visibility': 'maybe'}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+>               tool.validate_config({**config(), **change})
+                ^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'template_tool' has no attribute 'validate_config'
+
+scripts/tests/test_template_tool.py:284: AttributeError
+_ BuildTests.test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields (change={'registry_visibility': 'maybe'}) _
+
+self = <test_template_tool.BuildTests testMethod=test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields>
+
+    def test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields(self):
+        tool = load('template_tool')
+        for change in [{'role': 'attempt'}, {'os_image': 'aq-sandbox-os:latest'},
+                       {'runtime_image': 'aq-sandbox-runtime:latest'}, {'arbitrary': 'value'},
+                       {'builder_identity': ''}, {'docker_context': '-bad'},
+                       {'allowlist': '../outside.json'}, {'registry_visibility': 'maybe'}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+>               tool.validate_config({**config(), **change})
+                ^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'template_tool' has no attribute 'validate_config'
+
+scripts/tests/test_template_tool.py:284: AttributeError
+_______ BuildTests.test_build_gates_allowlist_and_emits_bound_provenance _______
+
+self = <test_template_tool.BuildTests testMethod=test_build_gates_allowlist_and_emits_bound_provenance>
+
+    def test_build_gates_allowlist_and_emits_bound_provenance(self):
+        tool = load('template_tool')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            digest = self.setup_build(root)
+>           result = tool.build(root / 'recipe.json', root / 'builder.json', root / 'output')
+                     ^^^^^^^^^^
+E           AttributeError: module 'template_tool' has no attribute 'build'
+
+scripts/tests/test_template_tool.py:241: AttributeError
+________ BuildTests.test_failed_scan_and_build_never_publish_allowlist _________
+
+self = <test_template_tool.BuildTests testMethod=test_failed_scan_and_build_never_publish_allowlist>
+
+    def test_failed_scan_and_build_never_publish_allowlist(self):
+        tool = load('template_tool')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.setup_build(root, credential=True)
+            for failure in ['scan', 'builder']:
+                if failure == 'builder':
+                    (root / 'docker').write_text('#!/bin/sh\nexit 1\n')
+                with self.assertRaises(ValueError):
+>                   tool.build(root / 'recipe.json', root / 'builder.json', root / failure)
+                    ^^^^^^^^^^
+E                   AttributeError: module 'template_tool' has no attribute 'build'
+
+scripts/tests/test_template_tool.py:274: AttributeError
+=========================== short test summary info ============================
+SUBFAILED(change={'role': 'attempt'}) scripts/tests/test_template_tool.py::BuildTests::test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields
+SUBFAILED(change={'os_image': 'aq-sandbox-os:latest'}) scripts/tests/test_template_tool.py::BuildTests::test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields
+SUBFAILED(change={'runtime_image': 'aq-sandbox-runtime:latest'}) scripts/tests/test_template_tool.py::BuildTests::test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields
+SUBFAILED(change={'arbitrary': 'value'}) scripts/tests/test_template_tool.py::BuildTests::test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields
+SUBFAILED(change={'builder_identity': ''}) scripts/tests/test_template_tool.py::BuildTests::test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields
+SUBFAILED(change={'docker_context': '-bad'}) scripts/tests/test_template_tool.py::BuildTests::test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields
+SUBFAILED(change={'allowlist': '../outside.json'}) scripts/tests/test_template_tool.py::BuildTests::test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields
+SUBFAILED(change={'registry_visibility': 'maybe'}) scripts/tests/test_template_tool.py::BuildTests::test_build_config_refuses_attempt_role_floating_pins_and_unknown_fields
+FAILED scripts/tests/test_template_tool.py::BuildTests::test_build_gates_allowlist_and_emits_bound_provenance
+FAILED scripts/tests/test_template_tool.py::BuildTests::test_failed_scan_and_build_never_publish_allowlist
+================== 10 failed, 1 passed, 6 deselected in 0.39s ==================

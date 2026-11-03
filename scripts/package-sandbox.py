@@ -95,7 +95,8 @@ def package(revision, inputs, destination, *, pins=None):
         (runtime / 'bundle_manifest.py').write_bytes(read(PACKAGE + 'bundle_manifest.py'))
         # Git archive exports committed paths only; no worktree traversal or homes.
         with (runtime / 'worker-source.tar').open('xb') as output:
-            subprocess.run(['git', 'archive', '--format=tar', revision, 'Cargo.toml', 'Cargo.lock', 'crates', 'vendor'],
+            subprocess.run(['git', 'archive', '--format=tar', revision, 'Cargo.toml', 'Cargo.lock', 'crates', 'vendor',
+                            PACKAGE + 'template_tool.py', PACKAGE + 'credential_scan.py'],
                            cwd=ROOT, stdout=output, check=True)
         archive_digest = digest(runtime / 'worker-source.tar')
         source = {

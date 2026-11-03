@@ -69,7 +69,10 @@ class SandboxPackaging(unittest.TestCase):
         with tarfile.open(output / 'runtime/worker-source.tar') as archive:
             names = archive.getnames()
         self.assertIn('Cargo.lock', names)
-        self.assertTrue(all(n.startswith(('crates/', 'vendor/')) or n in ('crates', 'vendor', 'Cargo.lock', 'Cargo.toml') for n in names))
+        embedded = {'packaging/sandbox/template_tool.py', 'packaging/sandbox/credential_scan.py'}
+        self.assertTrue(embedded <= set(names), 'runtime source must include embedded template tools')
+        self.assertTrue(all(n.startswith(('crates/', 'vendor/')) or n in
+                            {'crates', 'vendor', 'Cargo.lock', 'Cargo.toml', 'packaging', 'packaging/sandbox'} | embedded for n in names))
         self.assertNotIn('crates/private-untracked.txt', names)
         self.assertFalse(any(n.startswith(('.aq/', '.git/', 'secrets/')) for n in names))
 
