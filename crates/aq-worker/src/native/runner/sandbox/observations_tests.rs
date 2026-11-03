@@ -586,7 +586,7 @@ fn profiled_source_emits_server_identity_while_parsing_native_transcript() {
         profiled.clone(),
         &native,
         "rollout.jsonl",
-        &[native.clone()],
+        std::slice::from_ref(&native),
     )
     .unwrap();
     while collector.collect(100).unwrap().consumed_bytes > 0 {}
