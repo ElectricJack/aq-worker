@@ -87,6 +87,7 @@ pub(crate) fn artifact_file(
 
 /// Only named input members of one journal-owned UUID are removed. Unknown
 /// children or unsafe directories stop cleanup; no recursive traversal occurs.
+#[cfg(feature = "synthetic-runtime")]
 pub(crate) fn discard_incoming(root: &Path, artifact: Uuid) -> Result<()> {
     let parent = match artifact_directory(root, None, true, false) {
         Ok(parent) => parent,

@@ -35,6 +35,7 @@ impl DownloadState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(feature = "synthetic-runtime")]
 pub struct DownloadRange {
     pub attempt_id: Uuid,
     pub transfer_id: Uuid,
@@ -43,6 +44,7 @@ pub struct DownloadRange {
     pub offset: u64,
     pub length: usize,
 }
+#[cfg(feature = "synthetic-runtime")]
 impl DownloadRange {
     pub async fn execute(&self, client: &TransferClient) -> Result<Vec<u8>> {
         client
@@ -50,20 +52,24 @@ impl DownloadRange {
             .await
     }
 }
+#[cfg(feature = "synthetic-runtime")]
 pub enum DownloadAction {
     Range(DownloadRange),
     Verify(Box<DownloadVerification>),
 }
 /// This read/hash job can move to a bounded blocking pool while the journal
 /// owner continues servicing renewal/cancellation. It never mutates the journal.
+#[cfg(feature = "synthetic-runtime")]
 pub struct DownloadVerification {
     root: PathBuf,
     manifest: TransferManifest,
 }
+#[cfg(feature = "synthetic-runtime")]
 pub struct VerifiedDownload {
     root: PathBuf,
     manifest: TransferManifest,
 }
+#[cfg(feature = "synthetic-runtime")]
 impl DownloadVerification {
     pub fn verify(self) -> Result<VerifiedDownload> {
         let m = &self.manifest;
@@ -121,6 +127,7 @@ impl DownloadVerification {
     }
 }
 
+#[cfg(feature = "synthetic-runtime")]
 impl<C: Clock> Runtime<C> {
     pub fn prepare_base_download(
         &mut self,

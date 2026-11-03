@@ -1,8 +1,8 @@
 //! Linux ownership profile: trusted per-launch single-threaded subreaper.
 //! /proc child lists discover targets; only waitpid(__WALL)==ECHILD certifies
 //! termination. Lost guardian without its durable proof remains uncertain.
-use crate::journal::ProcessEvidence;
 use anyhow::{Context, Result, bail, ensure};
+use aq_session_host::ownership::ProcessEvidence;
 use aq_worker_protocol::{AttemptRef, MAX_GRANT_MS, NodeIdentity, ProcessOutcome};
 use serde::{Deserialize, Serialize};
 use std::{

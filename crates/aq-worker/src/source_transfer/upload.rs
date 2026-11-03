@@ -79,6 +79,7 @@ impl UploadAction {
     }
 }
 
+#[cfg(feature = "synthetic-runtime")]
 impl<C: Clock> Runtime<C> {
     /// Establish exactly one transport identity for a stopped exported source.
     /// Existing manually managed transfers remain under their original owner.
