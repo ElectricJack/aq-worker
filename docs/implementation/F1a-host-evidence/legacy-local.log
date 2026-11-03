@@ -1,0 +1,7 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.71s
+     Running tests/local_tmux.rs (/tmp/aq-f1a-host-artifact-target/debug/deps/local_tmux-e44fc1ca8048e9c9)
+
+running 1 test
+test central_and_remote_interaction_stop_and_no_relaunch ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 4.51s

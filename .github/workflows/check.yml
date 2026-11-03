@@ -12,5 +12,6 @@ jobs:
       - run: cmp protocol/conformance-v2.json crates/aq-worker-protocol/fixtures/conformance-v2.json
       - run: python3 scripts/package-admission.py --check
       - run: cargo fmt --all -- --check
+      - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: cargo test --workspace --locked --all-features
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings

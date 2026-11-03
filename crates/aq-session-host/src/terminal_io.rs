@@ -435,7 +435,7 @@ impl TerminalHandle {
         Ok((
             self.directory.clone(),
             config.tmux,
-            config.manifest.terminal,
+            config.manifest.terminal().clone(),
         ))
     }
     pub(crate) fn claim_output(&self) -> Result<Uuid> {
@@ -462,7 +462,7 @@ impl TerminalHandle {
         let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
         ensure!(
             config.observed.as_ref().is_some_and(|s| s.interactive())
-                && config.manifest.terminal.input_enabled,
+                && config.manifest.terminal().input_enabled,
             "PTY viewer requires explicit interactive profile"
         );
         load(&self.directory, &self.binding)?
@@ -526,10 +526,10 @@ impl TerminalHandle {
         let config: SealedLaunch = read_json(&self.directory.join("launch.json"))?;
         if let Effect::Input(input) = effect {
             ensure!(
-                config.manifest.terminal.input_enabled
-                    && input.bytes.len() <= config.manifest.terminal.max_input_bytes as usize
+                config.manifest.terminal().input_enabled
+                    && input.bytes.len() <= config.manifest.terminal().max_input_bytes as usize
                     && input.bytes.len()
-                        <= config.manifest.terminal.max_pending_input_bytes as usize,
+                        <= config.manifest.terminal().max_pending_input_bytes as usize,
                 "sealed terminal input policy"
             );
             ensure!(
@@ -966,7 +966,7 @@ fn apply(
             live(dir, host, wall_deadline, request.deadline_boot_ms)?;
             if let Some(lease) = &fence.controller {
                 ensure!(
-                    config.manifest.terminal.input_enabled
+                    config.manifest.terminal().input_enabled
                         && wall_ms()? >= lease.issued_at_ms
                         && wall_ms()? < lease.expires_at_ms,
                     "terminal controller expired or input disabled"
@@ -992,10 +992,10 @@ fn apply(
                     "terminal input paused after uncertain effect"
                 );
                 ensure!(
-                    config.manifest.terminal.input_enabled
-                        && input.bytes.len() <= config.manifest.terminal.max_input_bytes as usize
+                    config.manifest.terminal().input_enabled
+                        && input.bytes.len() <= config.manifest.terminal().max_input_bytes as usize
                         && input.bytes.len()
-                            <= config.manifest.terminal.max_pending_input_bytes as usize,
+                            <= config.manifest.terminal().max_pending_input_bytes as usize,
                     "sealed terminal input policy"
                 );
                 controller(state, &input.lease, wall_ms()?)?;

@@ -87,7 +87,7 @@ impl Fixture {
                 expires_boot_ms: 10000,
             },
             resource_policy: ResourcePolicy::CallerAdmission(manifest.harness.environment.clone()),
-            manifest,
+            manifest: manifest.into(),
             workspace: self.temp.path().into(),
             helper: "/synthetic-helper".into(),
             tmux: "/synthetic-tmux".into(),

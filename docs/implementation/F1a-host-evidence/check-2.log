@@ -1,0 +1,29 @@
+   Compiling serde_core v1.0.229
+   Compiling serde_json v1.0.154
+    Checking memchr v2.8.3
+    Checking tracing-core v0.1.36
+    Checking hyper v1.12.0
+    Checking tracing v0.1.44
+    Checking hyper-util v0.1.21
+    Checking serde v1.0.229
+    Checking uuid v1.29.0
+    Checking tower v0.5.3
+    Checking schemars v1.2.3
+    Checking serde_urlencoded v0.7.1
+    Checking hyper-rustls v0.27.10
+    Checking tower-http v0.6.11
+    Checking aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-session-protocol)
+    Checking log v0.4.35
+    Checking reqwest v0.12.28
+    Checking aq-terminal-relay-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/vendor/aq-terminal-relay-protocol-0.1.0)
+    Checking aq-responses-transport v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-responses-transport)
+    Checking aq-session-host v0.1.6 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-session-host)
+error: expected identifier, found `:`
+   --> crates/aq-session-host/src/private_inputs.rs:813:21
+    |
+813 |             manifest: manifest.into(),
+    |                     ^ expected identifier
+
+error: could not compile `aq-session-host` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aq-session-host` (lib test) due to 1 previous error

@@ -1,6 +1,6 @@
 [package]
 name = "aq-session-host"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 publish = false
 description = "Linux guarded tmux session host with independent expiring authority"
