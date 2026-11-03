@@ -1,0 +1,11 @@
+$ cargo test --locked -p aq-worker --lib config::
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.88s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-53dae0d62afb911f)
+
+running 2 tests
+test config::tests::runner_access_path_sits_next_to_worker_toml ... ok
+test config::tests::runner_access_save_is_private_json ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 289 filtered out; finished in 0.09s
+
+exit=0

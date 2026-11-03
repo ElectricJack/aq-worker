@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use aq_protocol::{EnrollRequest, PROTOCOL_VERSION};
 use aq_worker::client::{CallError, Client, run_loop};
-use aq_worker::config::{WorkerConfig, default_path};
+use aq_worker::config::{RunnerAccess, WorkerConfig, default_path, runner_access_path};
 use clap::{Parser, Subcommand};
 
 /// Agent Q worker connector.
@@ -30,7 +30,8 @@ enum Cmd {
         command: TemplateCmd,
     },
     /// Enroll this machine. Secrets are read from a prompt or from stdin lines
-    /// (code, then CF client id and secret with --cf-service-token).
+    /// (code, then CF client id and secret with --cf-service-token, then the
+    /// runner Access client id and secret with --runner-access-token).
     Enroll {
         #[arg(long)]
         server: String,
@@ -39,6 +40,10 @@ enum Cmd {
         name: Option<String>,
         #[arg(long)]
         cf_service_token: bool,
+        /// Also store this node's runner Access service token in
+        /// runner-access.json next to worker.toml. Never pass it as an argument.
+        #[arg(long)]
+        runner_access_token: bool,
     },
     /// Own node identity, capacity and sandbox lifecycle until stopped.
     Run {
@@ -160,10 +165,11 @@ type Reader = Box<dyn FnMut(&str) -> anyhow::Result<String>>;
 struct Secrets {
     code: String,
     cf: Option<(String, String)>,
+    runner: Option<RunnerAccess>,
 }
 
-fn read_secrets(cf: bool) -> anyhow::Result<Secrets> {
-    let mut next: Reader = if std::io::stdin().is_terminal() {
+fn read_secrets(cf: bool, runner: bool) -> anyhow::Result<Secrets> {
+    let next: Reader = if std::io::stdin().is_terminal() {
         Box::new(|prompt| Ok(rpassword::prompt_password(prompt)?))
     } else {
         let mut lines = std::io::stdin().lock().lines();
@@ -172,6 +178,10 @@ fn read_secrets(cf: bool) -> anyhow::Result<Secrets> {
             None => anyhow::bail!("stdin ended before the {what}"),
         })
     };
+    read_secrets_from(next, cf, runner)
+}
+
+fn read_secrets_from(mut next: Reader, cf: bool, runner: bool) -> anyhow::Result<Secrets> {
     let code = next("Enrollment code: ")?.trim().to_string();
     let cf = if cf {
         let id = next("Cloudflare Access client id: ")?.trim().to_string();
@@ -182,10 +192,23 @@ fn read_secrets(cf: bool) -> anyhow::Result<Secrets> {
     } else {
         None
     };
+    let runner = if runner {
+        let client_id = next("Runner Access client id: ")?.trim().to_string();
+        let client_secret = next("Runner Access client secret: ")?.trim().to_string();
+        if client_id.is_empty() || client_secret.is_empty() {
+            anyhow::bail!("runner Access client id and secret must not be empty");
+        }
+        Some(RunnerAccess {
+            client_id,
+            client_secret,
+        })
+    } else {
+        None
+    };
     if code.is_empty() {
         anyhow::bail!("enrollment code is empty");
     }
-    Ok(Secrets { code, cf })
+    Ok(Secrets { code, cf, runner })
 }
 
 fn exit_for(e: &CallError) -> ExitCode {
@@ -517,11 +540,12 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             server,
             name,
             cf_service_token,
+            runner_access_token,
         } => {
             let Some(name) = name.or_else(hostname) else {
                 return usage_err("cannot determine hostname; pass --name");
             };
-            let secrets = match read_secrets(cf_service_token) {
+            let secrets = match read_secrets(cf_service_token, runner_access_token) {
                 Ok(s) => s,
                 Err(e) => return usage_err(format!("{e:#}")),
             };
@@ -550,14 +574,19 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                         cf_client_id: cf_id,
                         cf_client_secret: cf_secret,
                     };
-                    match cfg.save(&path) {
-                        Ok(()) => {
-                            println!("enrolled as node {}", cfg.node_id);
-                            println!("config saved to {}", path.display());
-                            ExitCode::SUCCESS
-                        }
-                        Err(e) => usage_err(format!("{e:#}")),
+                    if let Err(e) = cfg.save(&path) {
+                        return usage_err(format!("{e:#}"));
                     }
+                    println!("enrolled as node {}", cfg.node_id);
+                    println!("config saved to {}", path.display());
+                    if let Some(runner) = secrets.runner {
+                        let runner_path = runner_access_path(&path);
+                        if let Err(e) = runner.save(&runner_path) {
+                            return usage_err(format!("{e:#}"));
+                        }
+                        println!("runner Access token saved to {}", runner_path.display());
+                    }
+                    ExitCode::SUCCESS
                 }
                 Err(e) => {
                     eprintln!("error: {e}");
@@ -643,4 +672,59 @@ fn run_errors_preserve_cause_and_connector_exit_codes() {
         assert_eq!(code, ExitCode::from(2));
         assert_eq!(message, format!("controller startup: {cause}"));
     }
+}
+
+#[cfg(test)]
+fn scripted(lines: &[&str]) -> Reader {
+    let mut it: std::collections::VecDeque<String> = lines.iter().map(|s| s.to_string()).collect();
+    Box::new(move |what| {
+        it.pop_front()
+            .ok_or_else(|| anyhow::anyhow!("ran out before {what}"))
+    })
+}
+
+#[cfg(test)]
+#[test]
+fn read_secrets_orders_code_cf_runner() {
+    let s = read_secrets_from(
+        scripted(&["code1 ", "cfid", "cfsecret", " rid", "rsecret"]),
+        true,
+        true,
+    )
+    .unwrap();
+    assert_eq!(s.code, "code1");
+    assert_eq!(s.cf, Some(("cfid".into(), "cfsecret".into())));
+    let runner = s.runner.unwrap();
+    assert_eq!(
+        (runner.client_id.as_str(), runner.client_secret.as_str()),
+        ("rid", "rsecret")
+    );
+
+    let s = read_secrets_from(scripted(&["code1", "rid", "rsecret"]), false, true).unwrap();
+    assert!(s.cf.is_none());
+    assert_eq!(s.runner.unwrap().client_id, "rid");
+
+    let s = read_secrets_from(scripted(&["code1"]), false, false).unwrap();
+    assert!(s.runner.is_none());
+
+    for bad in [&["code1", "", "rsecret"][..], &["code1", "rid", ""][..]] {
+        let e = read_secrets_from(scripted(bad), false, true).err().unwrap();
+        assert!(format!("{e:#}").contains("runner Access"), "{e:#}");
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn enroll_never_accepts_runner_token_in_argv() {
+    let base = ["aq-worker", "enroll", "--server", "http://127.0.0.1:8081"];
+    let ok = Cli::try_parse_from(base.iter().chain(&["--runner-access-token"])).unwrap();
+    assert!(matches!(
+        ok.command,
+        Cmd::Enroll {
+            runner_access_token: true,
+            ..
+        }
+    ));
+    assert!(Cli::try_parse_from(base.iter().chain(&["--runner-access-token=abc"])).is_err());
+    assert!(Cli::try_parse_from(base.iter().chain(&["--runner-access-token", "abc"])).is_err());
 }

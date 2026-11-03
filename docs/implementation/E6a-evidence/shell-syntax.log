@@ -1,0 +1,4 @@
+$ bash -n packaging/worker/aq-worker-ctl
+exit=0
+$ bash -n packaging/worker/drill-restart.sh
+exit=0

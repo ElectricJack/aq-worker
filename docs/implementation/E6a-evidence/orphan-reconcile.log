@@ -1,0 +1,19 @@
+# Orphan reconcile on the real rootless daemon, 2026-11-02 (PST)
+# Planted, via aq-sandbox-podman.sh podman (the dedicated socket), a container owned by this node from a
+# fictitious previous boot, with exactly the docker-local inventory labels list_owned requires:
+#   name  aq-6f00545bff6f4024a3773a0d74a8b63f-40a0b821273c450c9b150858868b76f4 (+ volume <name>-work)
+#   image busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec  cmd: sleep 3600
+#   labels aq.managed-by=aq-worker aq.backend=docker-local aq.node=6f00545b-... aq.boot=4005d854-... (not a real boot)
+#          aq.attempt=40a0b821-... aq.template-digest=sha256:a7dbc3... aq.hard-deadline-ms=now+24h
+#          aq.request-sha256=<64 hex> aq.e6a.drill=1
+22:59:46 WARN aq_worker::controller::recovery: unknown owned sandbox; stopping and preserving sandbox=aq-6f00545b...-40a0b821...
+podman ps -a --filter label=aq.e6a.drill=1  -> Exited (137)        (stopped, not removed)
+podman volume ls --filter label=aq.e6a.drill=1 -> <name>-work     (disk preserved)
+journal.json (rev 11, boot 88c3aff5...): orphans[<name>] = {entry.state: stopped, running_processes: 0, disk_present: true,
+                                          cleanup.reason: UnknownSandbox, destroy_after_ms set (operator release / retention required)}
+$ systemctl --user restart aq-worker@local
+23:01:48 node controller starting node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f boot_id=6dc9dddd-8538-42df-b2ce-92b4591650d8
+23:01:48 probe succeeded
+journal.json (rev 15, new boot): orphans[<name>] = (stopped, UnknownSandbox)   -> reconciled across restart, still preserved
+container: Exited (137) 2 minutes ago; volume <name>-work present
+# cleanup (drill only): podman rm -f <name>; podman volume rm <name>-work

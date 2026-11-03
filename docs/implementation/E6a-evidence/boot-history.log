@@ -1,0 +1,36 @@
+$ journalctl --user -u aq-worker@local -u aq-sandbox-podman (controller start/probe/orphan/unit lines, 2026-11-02)
+2026-11-02T22:57:39-08:00 systemd: Started aq-sandbox-podman.service - AQ dedicated rootless sandbox daemon (Podman API).
+2026-11-02T22:58:18-08:00 systemd: Started aq-worker@local.service - AQ worker container (local).
+2026-11-02T22:58:22-08:00 aq-worker-ctl: 2026-11-03T06:58:22.468220Z  INFO aq_worker: node controller starting node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f boot_id=34fb70e7-a35b-4cc5-9747-90e6615201c6
+2026-11-02T22:58:22-08:00 aq-worker-ctl: 2026-11-03T06:58:22.499659Z  INFO aq_worker::client: probe succeeded
+2026-11-02T22:58:39-08:00 env: Flag --time has been deprecated, use --timeout instead
+2026-11-02T22:58:39-08:00 systemd: Stopped aq-worker@local.service - AQ worker container (local).
+2026-11-02T22:58:39-08:00 systemd: Started aq-worker@local.service - AQ worker container (local).
+2026-11-02T22:58:41-08:00 aq-worker-ctl: 2026-11-03T06:58:41.285771Z  INFO aq_worker: node controller starting node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f boot_id=e82c86f1-8125-4df6-bfa3-bb02fda4e88f
+2026-11-02T22:58:41-08:00 aq-worker-ctl: 2026-11-03T06:58:41.325996Z  INFO aq_worker::client: probe succeeded
+2026-11-02T22:58:48-08:00 systemd: aq-worker@local.service: Main process exited, code=exited, status=137/n/a
+2026-11-02T22:58:59-08:00 systemd: aq-worker@local.service: Scheduled restart job, restart counter is at 1.
+2026-11-02T22:58:59-08:00 systemd: Started aq-worker@local.service - AQ worker container (local).
+2026-11-02T22:59:00-08:00 aq-worker-ctl: 2026-11-03T06:59:00.450058Z  INFO aq_worker: node controller starting node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f boot_id=88c3aff5-4458-4c77-a5e9-1a23dbb414a1
+2026-11-02T22:59:00-08:00 aq-worker-ctl: 2026-11-03T06:59:00.480696Z  INFO aq_worker::client: probe succeeded
+2026-11-02T22:59:46-08:00 aq-worker-ctl: 2026-11-03T06:59:46.084651Z  WARN aq_worker::controller::recovery: unknown owned sandbox; stopping and preserving sandbox=aq-6f00545bff6f4024a3773a0d74a8b63f-40a0b821273c450c9b150858868b76f
+2026-11-02T23:01:45-08:00 env: Flag --time has been deprecated, use --timeout instead
+2026-11-02T23:01:46-08:00 systemd: Stopped aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:01:46-08:00 systemd: Started aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:01:48-08:00 aq-worker-ctl: 2026-11-03T07:01:48.410333Z  INFO aq_worker: node controller starting node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f boot_id=6dc9dddd-8538-42df-b2ce-92b4591650d8
+2026-11-02T23:01:48-08:00 aq-worker-ctl: 2026-11-03T07:01:48.429705Z  INFO aq_worker::client: probe succeeded
+2026-11-02T23:02:28-08:00 systemd: Stopped aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:02:28-08:00 systemd: Started aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:02:28-08:00 systemd: Stopped aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:02:29-08:00 systemd: Stopped aq-sandbox-podman.service - AQ dedicated rootless sandbox daemon (Podman API).
+2026-11-02T23:02:29-08:00 systemd: Started aq-sandbox-podman.service - AQ dedicated rootless sandbox daemon (Podman API).
+2026-11-02T23:02:29-08:00 systemd: Started aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:02:29-08:00 systemd: aq-worker@local.service: Main process exited, code=exited, status=1/FAILURE
+2026-11-02T23:02:39-08:00 systemd: aq-worker@local.service: Scheduled restart job, restart counter is at 1.
+2026-11-02T23:02:39-08:00 systemd: Started aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:02:41-08:00 aq-worker-ctl: 2026-11-03T07:02:41.095553Z  INFO aq_worker: node controller starting node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f boot_id=35a4f266-b02c-4a23-8366-709dba073c4c
+2026-11-02T23:02:41-08:00 aq-worker-ctl: 2026-11-03T07:02:41.110531Z  INFO aq_worker::client: probe succeeded
+2026-11-02T23:03:31-08:00 systemd: Stopped aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:03:31-08:00 systemd: Started aq-worker@local.service - AQ worker container (local).
+2026-11-02T23:03:34-08:00 aq-worker-ctl: 2026-11-03T07:03:34.007187Z  INFO aq_worker: node controller starting node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f boot_id=6a90cad5-51ad-4160-a4e5-b99db89a145d
+2026-11-02T23:03:34-08:00 aq-worker-ctl: 2026-11-03T07:03:34.047585Z  INFO aq_worker::client: probe succeeded

@@ -1,0 +1,23 @@
+# Re-point drill, 2026-11-02 23:05-23:07 PST (secret-free transcript summary; enrollment code piped, never printed)
+local before: node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f journal revision=22
+$ printf '<code>\n<runner id>\n<runner secret>\n' | aq-worker-ctl enroll repoint --server http://host.docker.internal:32839 --name e6a-repoint-demo --runner-access-token
+enrolled as node 14fb58d6-cc87-4a24-85fd-60ab66232822
+config saved to /config/agent-q/worker.toml
+runner Access token saved to /config/agent-q/runner-access.json
+wrote ~/.config/agent-q/servers/repoint/agent-q/node.json
+$ aq-worker-ctl use repoint
+Removed ".../default.target.wants/aq-worker@local.service".
+Created symlink .../default.target.wants/aq-worker@repoint.service -> .../aq-worker@.service.
+aq-worker@repoint.service loaded active running
+profile local: node=6f00545b-ff6f-4024-a377-3a0d74a8b63f enabled=disabled
+profile repoint: node=14fb58d6-cc87-4a24-85fd-60ab66232822 enabled=enabled
+server: e6a-repoint-demo online
+$ docker ps --filter label=aq.e6a.profile   ->  aq-worker-repoint Up 16 seconds  (only one worker container)
+$ aq-worker-ctl use local
+Removed ".../default.target.wants/aq-worker@repoint.service".
+Created symlink .../default.target.wants/aq-worker@local.service -> .../aq-worker@.service.
+node controller starting node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f boot_id=3eb59890-d190-4fd6-965b-ed87810e326a
+local after: node_id=6f00545b-ff6f-4024-a377-3a0d74a8b63f journal revision=26, orphan aq-6f00545b...-40a0b821... still recorded (stopped, preserved)
+$ docker ps --filter label=aq.e6a.profile   ->  aq-worker-local Up 2 seconds
+server: e6a-wsl-desktop online last_seen 2026-11-03T07:07:16Z
+state dirs: ~/.local/state/agent-q/workers/{local,repoint}/controller/journal.json both retained

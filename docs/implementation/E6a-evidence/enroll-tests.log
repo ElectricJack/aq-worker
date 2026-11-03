@@ -1,0 +1,13 @@
+$ cargo test --locked -p aq-worker --bin aq-worker -- read_secrets enroll_never run_requires
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-0/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.06s
+     Running unittests src/main.rs (target/debug/deps/aq_worker-8abfc2888622966d)
+
+running 3 tests
+test read_secrets_orders_code_cf_runner ... ok
+test run_requires_explicit_controller_configuration ... ok
+test enroll_never_accepts_runner_token_in_argv ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+exit=0
