@@ -1,0 +1,51 @@
+{
+  "aq_git": {
+    "bytes": 3373392,
+    "name": "aq-git",
+    "path": "/opt/aq/bin/aq-git",
+    "sha256": "3feca63cffa5065566f2c604fd00d4ad92e1bc367c62ec69bedd42c2b37f35d2",
+    "version": "0.2.0"
+  },
+  "harnesses": [
+    {
+      "bytes": 319346888,
+      "name": "codex",
+      "path": "/opt/aq/harnesses/codex/codex",
+      "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+      "version": "0.166.0"
+    }
+  ],
+  "node": {
+    "bytes": 121509208,
+    "name": "node",
+    "path": "/opt/aq/node/bin/node",
+    "sha256": "8142d37c6f2f372ef040419e7a111a6baf17df89f8078d02447d6c639ae20c1d",
+    "version": "22.16.0"
+  },
+  "platform": "linux/amd64",
+  "proxies": {
+    "aq_loopback": "in-process:aq-worker",
+    "responses": "in-process:aq-worker"
+  },
+  "runner": {
+    "bytes": 20280624,
+    "name": "aq-worker",
+    "path": "/opt/aq/bin/aq-worker",
+    "sha256": "8eedf4798137454c0f19554fa39117e76431211ee45edcde084d1dd50e42220c",
+    "version": "0.5.1"
+  },
+  "schema_version": 1,
+  "session_host": {
+    "bytes": 1791336,
+    "name": "aq-session-host",
+    "path": "/opt/aq/bin/aq-session-host",
+    "sha256": "82385c419a248e4d783051cfdb092ca6daec19aa875279b4ef2b267a6b497aab",
+    "version": "0.1.5"
+  },
+  "source": {
+    "archive_sha256": "59e310cf9f73b34fe39fcb08a242d46a5252b6055d16c4c7d9f5d05efc5e1074",
+    "revision": "c2b17674e7f463f5cde5bcf120a331859b65ef58",
+    "runner_version": "0.5.1",
+    "session_host_version": "0.1.5"
+  }
+}

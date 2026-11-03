@@ -1,0 +1,27 @@
+{
+  "Id": "sha256:876630cf2870b3af7f44620c0a9a40543c80a0c3511afa7edf9e76861ea7d063",
+  "Architecture": "amd64",
+  "Os": "linux",
+  "RootFS": {
+    "Type": "layers",
+    "Layers": [
+      "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+      "sha256:2654df4109a39cd9725e094e14f82ca18fabc6720b40bbc08a2e83fb032e7ba1",
+      "sha256:4ba57a7232839dc51cb574beb4a992ea1400411028cc88e32db20ca7f3f5d132",
+      "sha256:e2f3d72378704d1e53c7fc611c207e7b0eb498b5f3144d86c58628f1059a1ce0",
+      "sha256:c5ce4c2e89294fce823b2137eba91fcd79a6f99c4734daba6bb65130f2fd0156",
+      "sha256:3c2bd692ee70b450bfe782c774861ca4e4f6fb45eb053b24b3a17688c1133663"
+    ]
+  },
+  "Config": {
+    "Env": [
+      "PATH=/opt/aq/bin:/opt/git/bin:/usr/local/bin:/usr/bin:/bin",
+      "LANG=C.UTF-8",
+      "TERM=xterm-256color"
+    ],
+    "Cmd": [
+      "bash"
+    ],
+    "WorkingDir": "/workspace"
+  }
+}

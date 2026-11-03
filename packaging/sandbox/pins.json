@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "platform": "linux/amd64",
+  "base": "debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3",
+  "builder": "rust:1.96.1-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663",
+  "debian_snapshot": "20261030T000000Z",
+  "inputs": {
+    "git.tar.xz": {
+      "version": "2.56.0",
+      "url": "https://www.kernel.org/pub/software/scm/git/git-2.56.0.tar.xz",
+      "sha256": "26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3"
+    },
+    "aq-git": {
+      "version": "0.2.0",
+      "source_revision": "e75f7b4bc36a83ae5001fefa0d5f87618e87ad4a",
+      "url": "https://github.com/ElectricJack/aq-git/releases/download/v0.2.0/aq-git-v0.2.0-linux-x86_64",
+      "sha256": "3feca63cffa5065566f2c604fd00d4ad92e1bc367c62ec69bedd42c2b37f35d2"
+    },
+    "codex": {
+      "version": "0.166.0",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.166.0/codex-x86_64-unknown-linux-musl.tar.gz",
+      "archive_sha256": "a0bf572d2f93f056c6712a6da348e96078dc84f3885fd7be67807ef389cb3978",
+      "archive_member": "codex-x86_64-unknown-linux-musl",
+      "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8"
+    },
+    "node.tar.xz": {
+      "version": "22.16.0",
+      "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+      "sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+    }
+  }
+}
