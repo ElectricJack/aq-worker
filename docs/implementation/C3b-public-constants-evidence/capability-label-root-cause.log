@@ -1,0 +1,6 @@
+# bright-quest-86 root cause: replay of scan_content 1 MiB/4 KiB chunking over the failing built CLI
+# binary sha256 efc14c235bfb604e0157212b17eb00c8779b4525e095126627ae344aa1d1a3fa bytes 242597048
+## scanner before fix (HEAD~1)
+TOKEN 0x544a20 bufpos 285216 1052672 b'entsvariant identifiervm-isolationnested-dockerpersistent-disk-during-attemptstruct SandboxIdentityback'
+## scanner after fix (21507fa)
+(no matches)

@@ -15,11 +15,12 @@ MAX_ENTRIES = 1_000_000
 MAX_JSON = 1024 * 1024
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
 TOKEN_PATTERN = re.compile(
-    # Exact public Serde capability/field/type labels concatenate in .rodata.
-    # Exclude only the sk- inside this complete context, without consuming
-    # bytes: later tokens and the independent URL/assignment checks still run.
-    # Rust may lay out these labels in either order across builds/toolchains.
-    rb'(?:sk-(?!(?<=persistent-disk-)during-attempt(?:backend_idstruct |struct SandboxIdentitybackend_idstruct SandboxIdentity with 3 elements))(?:proj-|ant-)?[A-Za-z0-9_-]{20,}'
+    # The public Serde capability label persistent-disk-during-attempt sits in
+    # .rodata against whichever literal codegen places next; that neighbor is
+    # build layout, not content. Exclude only the sk- inside this exact label,
+    # without consuming bytes: every adjacent byte, later tokens and the
+    # independent URL/assignment checks still run.
+    rb'(?:sk-(?!(?<=persistent-disk-)during-attempt)(?:proj-|ant-)?[A-Za-z0-9_-]{20,}'
     rb'|gh[pousr]_[A-Za-z0-9]{20,}'
     rb'|github_pat_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{30,}|AKIA[A-Z0-9]{16}'
     rb'|https?://[^\s/:\x22\x27]+:[^\s/@\x22\x27]+@'
