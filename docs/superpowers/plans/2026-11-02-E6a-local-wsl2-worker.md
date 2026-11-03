@@ -97,3 +97,20 @@ left to the owner.
   WSL shuts down.
 - `docs/implementation/E6a.md` holds the evidence table, the autostart
   candidates that work, and the remaining drill.
+
+## Resume verification (2026-11-03, claim epoch 3)
+
+- [x] Merge current `origin/main`, preserving the existing implementation and
+  dependency merge history.
+- [ ] Add fast script tests in `packaging/worker/tests/test_worker_ctl.py` for
+  stdin enrollment, container mounts/flags, private config and journal
+  preservation when switching profiles. First reproduce the enabled but
+  unloaded profile case; then enumerate both loaded units and unit files in
+  `aq-worker-ctl` for switching and uninstall.
+- [ ] Exercise `drill-restart.sh` with local fixture snapshots and fake unit
+  statuses, including a failing unchanged boot. Do not restart Windows or WSL.
+- [ ] Run named enrollment/config tests and the packaging tests through
+  `aq test`; build the current worker image and record targeted checks.
+- [ ] Correct the guide's WSL path example and identity location, update
+  evidence and explicitly hand off the real reboot drill to the owner.
+- [ ] Commit, guarded push, open the required PR, and close the task.
