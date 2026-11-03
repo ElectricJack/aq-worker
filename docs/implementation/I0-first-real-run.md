@@ -5,6 +5,43 @@ No provider request, frozen attempt, execution grant, repository edit, result re
 human review decision or completion reconcile is claimed. The owner's login has not
 been copied, delivered or changed. No refresh occurred because no launch occurred.
 
+## Resume preflight — 2026-11-02 17:10 PST
+
+The owner's reopen decision authorizes the existing ChatGPT login, atomic 0600
+refresh writeback, and acting as the owner's MS0 settlement reviewer. It also
+explicitly substitutes `origin/main` for the nonexistent `origin/dev`. Those
+decisions are settled; no further login or review permission is requested.
+
+Claim epoch 3 resumed on branch head
+`8301a653146d41aad2d9f49c39fb3d76b451c730`, which already includes current
+`origin/main` `aa6c80728413da18eaf49fc7ca3472afe8ccee78`. The historical image
+below still contains worker `dc62cfc`; it must be rebuilt from the current main
+before any real attempt. Earlier physical checks do not qualify changed code.
+
+[Fresh preflight evidence](evidence/i0-first-real-run/resume-preflight.json)
+records the current retained E0 setup. All four `aq-e0-final` services are
+healthy. Its vault still omits `intelligence`, `profiled_execution`, `playbooks`
+and `terminals`. The active catalog remains revision 1 with the same digest.
+An evaluation POST, completion-reconcile POST and combined-review GET all return
+HTTP 404 with `no such route`. These bounded requests created no attempt or
+settlement decision. No real credential was read, copied or delivered.
+
+Execution still needs the qualified runtime/harness/environment/context inputs
+and the enabled human-settlement runtime. The server context owner explicitly
+requires qualified counting/capacity evidence for the exact selected model,
+credential revision and adapter; hashing fixture declarations does not produce
+that evidence. The settlement owner requires protected configuration and a
+trusted Unix PostgreSQL endpoint, absent from the E0 handoff. These remain the
+previously filed findings `sharp-harbor-18` and `quick-glacier-78`; no duplicate
+task was filed. The supervisor is being asked for the qualified input location
+and settlement-runtime handoff. Preserve the active claim while awaiting that
+reply, as required by the project's disabled-waits instructions. Acceptance
+remains **0/3**; there has been no login refresh.
+
+The following sections retain the previous session's preparation and checks;
+their missing-owner-authorization and absent-main-substitution statements are
+historical and are superseded by the decision above.
+
 ## Prepared and verified
 
 The source baseline and image worker source are current-main revision

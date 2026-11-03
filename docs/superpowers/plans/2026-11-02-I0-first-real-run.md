@@ -60,3 +60,11 @@
 **Observed status:** 0/3 real runs; native qualification and human settlement owner inputs absent. Detailed findings and blockers are in `docs/implementation/I0-first-real-run.md`. No real credential was used. Physical metadata checks do not complete production `check-native`.
 
 **Final review:** Fresh whole-branch review completed; native-schema findings fixed with 10 RED cases and 18 GREEN tests. Synthetic actual setup/conflict failure preserved files and container. Publication/close proceeds with acceptance unmet; requested upstream merge remains unavailable (`origin/dev` absent, no substitution reply).
+
+**Resume, 2026-11-02:** Owner reopen feedback authorizes the login and MS0 review
+stand-in and substitutes `origin/main`. Assigned head `8301a65` includes current
+main `aa6c807`. Task 1 still needs actual runtime/context qualification inputs;
+Task 2 still needs the settlement runtime. Fresh E0 route/configuration evidence
+is `docs/implementation/evidence/i0-first-real-run/resume-preflight.json`.
+Await the supervisor handoff with the claim preserved. Rebuild the image from
+current main before resuming real attempts; no old-image checks qualify it.
