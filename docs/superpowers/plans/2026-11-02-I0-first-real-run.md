@@ -66,5 +66,6 @@ stand-in and substitutes `origin/main`. Assigned head `8301a65` includes current
 main `aa6c807`. Task 1 still needs actual runtime/context qualification inputs;
 Task 2 still needs the settlement runtime. Fresh E0 route/configuration evidence
 is `docs/implementation/evidence/i0-first-real-run/resume-preflight.json`.
-Await the supervisor handoff with the claim preserved. Rebuild the image from
-current main before resuming real attempts; no old-image checks qualify it.
+No supervisor handoff was received before the subsequent user close-or-work
+instruction. Close failed/blocked with 0/3 runs. Rebuild the image from current
+main before future real attempts; no old-image checks qualify it.

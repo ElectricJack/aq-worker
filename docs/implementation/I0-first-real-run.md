@@ -33,10 +33,11 @@ credential revision and adapter; hashing fixture declarations does not produce
 that evidence. The settlement owner requires protected configuration and a
 trusted Unix PostgreSQL endpoint, absent from the E0 handoff. These remain the
 previously filed findings `sharp-harbor-18` and `quick-glacier-78`; no duplicate
-task was filed. The supervisor is being asked for the qualified input location
-and settlement-runtime handoff. Preserve the active claim while awaiting that
-reply, as required by the project's disabled-waits instructions. Acceptance
-remains **0/3**; there has been no login refresh.
+task was filed. The supervisor was asked for the qualified input location and settlement-runtime
+handoff in message `msg-61e8d6158d584c2eae02c0ca9768c300`. No reply was pending
+when the user subsequently requested closing or continuing work after ten minutes.
+Close as failed/blocked with the published evidence; acceptance remains **0/3**
+and there has been no login refresh.
 
 The following sections retain the previous session's preparation and checks;
 their missing-owner-authorization and absent-main-substitution statements are
