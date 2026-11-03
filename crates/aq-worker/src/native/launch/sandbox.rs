@@ -9,6 +9,7 @@ use aq_session_protocol::LaunchManifest;
 use std::{path::Path, time::Duration};
 use uuid::Uuid;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn launch(
     root: &Path,
     id: Uuid,
@@ -17,8 +18,14 @@ pub(crate) fn launch(
     local: &LocalEnvironment,
     adapter: &impl HarnessAdapter,
     authority: &mut impl LaunchAuthority,
+    agent: Option<aq_session_host::users::AgentIdentity>,
 ) -> Result<SessionHandle> {
-    SessionHost::launch(root, id, manifest, permit, local, adapter, authority)
+    match agent {
+        Some(agent) => SessionHost::launch_as_agent(
+            root, id, manifest, permit, local, adapter, authority, agent,
+        ),
+        None => SessionHost::launch(root, id, manifest, permit, local, adapter, authority),
+    }
 }
 pub(crate) fn stop(handle: &mut SessionHandle) -> Result<StoppedProof> {
     handle.stop()?;

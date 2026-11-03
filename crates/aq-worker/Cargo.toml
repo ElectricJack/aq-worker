@@ -50,7 +50,7 @@ axum.workspace = true
 chrono.workspace = true
 
 [features]
-backend-conformance = []
+backend-conformance = ["aq-responses-transport/test-support"]
 test-support = ["backend-conformance", "aq-responses-transport/test-support","aq-terminal-bridge/test-support","aq-worker-protocol/test-support", "aq-session-host/test-support"]
 
 [[bin]]
@@ -62,3 +62,8 @@ required-features = ["test-support"]
 name = "native-prepare-smoke"
 path = "src/bin/native-prepare-smoke.rs"
 required-features = ["test-support"]
+
+[[bin]]
+name = "aq-b6b-user-probe"
+path = "tests/support/b6b_user_probe.rs"
+required-features = ["backend-conformance"]

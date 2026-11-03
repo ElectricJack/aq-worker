@@ -468,6 +468,12 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
         raw_boot_ms() < config.wall_deadline()? && !dir.join("stop.request").exists(),
         "authority expired/cancelled immediately before native exec"
     );
+    if let Some(agent) = config.agent_identity {
+        // All runner-private inputs were read before this irreversible change.
+        // Chdir first so no private directory remains as the agent's cwd.
+        std::env::set_current_dir(&config.workspace)?;
+        agent.drop_privileges()?;
+    }
     let error = command.exec();
     Err(error).context("native harness exec failed; no fallback")
 }

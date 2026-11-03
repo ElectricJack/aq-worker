@@ -334,6 +334,7 @@ impl SessionHost {
             local,
             adapter,
             authority,
+            None,
         )?;
         Ok(PendingObservedSession {
             handle,

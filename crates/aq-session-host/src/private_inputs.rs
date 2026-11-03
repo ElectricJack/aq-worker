@@ -977,6 +977,7 @@ mod tests {
             rendered_startup: None,
             private_input: None,
             observed: None,
+            agent_identity: None,
             command: LocalCommand {
                 executable: "/opt/codex".into(),
                 arguments: vec![
