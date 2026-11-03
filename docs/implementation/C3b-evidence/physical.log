@@ -1,0 +1,115 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 5 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C3b-evidence/test_physical_oci.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 2 items
+
+docs/implementation/C3b-evidence/test_physical_oci.py ERROR: failed to build: OCI exporter is not supported for the docker driver.
+Switch to a different driver, or turn on the containerd image store, and try again.
+Learn more at https://docs.docker.com/go/build-exporters/
+F.
+
+=================================== FAILURES ===================================
+____________________ test_real_buildkit_oci_export_and_scan ____________________
+
+    def test_real_buildkit_oci_export_and_scan():
+        testspec = importlib.util.spec_from_file_location('fixtures', ROOT / 'scripts/tests/test_template_tool.py')
+        fixtures = importlib.util.module_from_spec(testspec)
+        testspec.loader.exec_module(fixtures)
+        with tempfile.TemporaryDirectory(prefix='c3b-physical-') as directory:
+            root = Path(directory)
+            context = root / 'context'
+            context.mkdir()
+            (context / 'manifest.json').write_text(json.dumps(fixtures.bundle()))
+            (context / 'Dockerfile').write_text('FROM scratch\nCOPY manifest.json /opt/aq/manifest.json\n')
+            output = root / 'image.tar'
+>           subprocess.run(['docker', '--context', 'default', 'buildx', 'build', '--builder', 'default',
+                            '--platform', 'linux/amd64', '--provenance=false', '--sbom=false',
+                            '--output', f'type=oci,dest={output},compression=gzip,force-compression=true',
+                            str(context)], check=True)
+
+docs/implementation/C3b-evidence/test_physical_oci.py:28:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['docker', '--context', 'default', 'buildx', 'build', '--builder', ...],)
+kwargs = {}
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['docker', '--context', 'default', 'buildx', 'build', '--builder', 'default', '--platform', 'linux/amd64', '--provenance=false', '--sbom=false', '--output', 'type=oci,dest=/tmp/c3b-physical-rh31bc2r/image.tar,compression=gzip,force-compression=true', '/tmp/c3b-physical-rh31bc2r/context']' returned non-zero exit status 1.
+
+/usr/lib/python3.12/subprocess.py:571: CalledProcessError
+=========================== short test summary info ============================
+FAILED docs/implementation/C3b-evidence/test_physical_oci.py::test_real_buildkit_oci_export_and_scan
+========================= 1 failed, 1 passed in 6.27s ==========================

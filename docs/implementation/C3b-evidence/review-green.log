@@ -1,0 +1,75 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 2 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' scripts/tests/test_template_tool.py scripts/tests/test_package_sandbox.py -k 'not cli' -n 0
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 19 items / 1 deselected / 18 selected
+
+scripts/tests/test_template_tool.py ..........F.                         [ 66%]
+scripts/tests/test_package_sandbox.py ......                             [100%]
+
+=================================== FAILURES ===================================
+_______ BuildTests.test_build_gates_allowlist_and_emits_bound_provenance _______
+
+self = <test_template_tool.BuildTests testMethod=test_build_gates_allowlist_and_emits_bound_provenance>
+
+    def test_build_gates_allowlist_and_emits_bound_provenance(self):
+        tool = load('template_tool')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            digest = self.setup_build(root)
+>           result = tool.build(root / 'recipe.json', root / 'builder.json', root / 'output')
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+scripts/tests/test_template_tool.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+packaging/sandbox/template_tool.py:257: in build
+    validate_entry(entry)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+entry = {'name': 'test-tools', 'version': '1', 'image_digest': 'sha256:f7a384d33d20f4b7b50d79226b71a16b4d0036162b88cc8866e3858...eference': 'registry.example/aq/template@sha256:f7a384d33d20f4b7b50d79226b71a16b4d0036162b88cc8866e38588e2531e79', ...}
+
+    def validate_entry(entry):
+        fields = {'name', 'version', 'image_digest', 'image_reference', 'provenance',
+                  'harness_versions', 'materializations'}
+        if not isinstance(entry, dict) or set(entry) != fields:
+            raise ValueError('invalid allowlist entry fields')
+        text(entry['name'], 64, r'[a-z][a-z0-9-]*')
+        text(entry['version'], 64, r'[A-Za-z0-9_.+-]+')
+        pinned(entry['image_reference'])
+        if not scan.DIGEST.fullmatch(entry['image_digest']) or not entry['image_reference'].endswith('@' + entry['image_digest']):
+            raise ValueError('allowlist digest mismatch')
+        provenance = entry['provenance']
+        expected = {'image_digest', 'recipe_digest', 'base_digest', 'runtime_bundle_digest', 'harness_versions',
+                    'built_at', 'builder_identity', 'finalize_policy', 'credential_scan_policy'}
+        if not isinstance(provenance, dict) or set(provenance) != expected:
+            raise ValueError('invalid allowlist provenance')
+        if provenance['image_digest'] != entry['image_digest']:
+            raise ValueError('provenance image digest mismatch')
+        for key in ['recipe_digest', 'base_digest', 'runtime_bundle_digest']:
+            if not scan.DIGEST.fullmatch(provenance[key]):
+                raise ValueError('invalid provenance digest')
+        text(provenance['builder_identity'], 128, r'[A-Za-z0-9][A-Za-z0-9_.-]*')
+        text(provenance['built_at'], 40, r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?\+00:00')
+        if provenance['finalize_policy'] != 'aq-finalize-v1' or provenance['credential_scan_policy'] != 'aq-credential-scan-v1':
+            raise ValueError('allowlist entry has no supported admission evidence')
+        versions = entry['harness_versions']
+        if not isinstance(versions, dict) or not 1 <= len(versions) <= 32 or versions != provenance['harness_versions']:
+            raise ValueError('inconsistent advertised harness versions')
+        for name, version in versions.items():
+            text(name, 128, r'[A-Za-z0-9_.+-]+')
+            text(version, 128, r'[A-Za-z0-9_.+-]+')
+        if not isinstance(entry['materializations'], dict) or len(canonical(entry['materializations'])) > 65536:
+            raise ValueError('invalid materialization metadata')
+        if scan.secret_shaped(canonical(entry)):
+>           raise ValueError('credential in allowlist metadata')
+E           ValueError: credential in allowlist metadata
+
+packaging/sandbox/template_tool.py:174: ValueError
+=========================== short test summary info ============================
+FAILED scripts/tests/test_template_tool.py::BuildTests::test_build_gates_allowlist_and_emits_bound_provenance
+================== 1 failed, 17 passed, 1 deselected in 1.02s ==================

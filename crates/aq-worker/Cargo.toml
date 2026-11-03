@@ -34,6 +34,7 @@ rpassword.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tempfile.workspace = true
 toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -47,7 +48,6 @@ aq-responses-transport = { workspace = true, features = ["test-support"] }
 aq-worker-protocol = { workspace = true, features = ["test-support"] }
 axum.workspace = true
 chrono.workspace = true
-tempfile.workspace = true
 
 [features]
 backend-conformance = []

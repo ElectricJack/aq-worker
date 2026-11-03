@@ -1,0 +1,76 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 0 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' scripts/tests/test_template_tool.py -k directory_aliases -n 0
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 12 items / 11 deselected / 1 selected
+
+scripts/tests/test_template_tool.py .                                 [100%]
+
+=================================== FAILURES ===================================
+_ TemplateTests.test_credential_directory_aliases_cannot_hide_auth_files (directory='.docker') _
+
+self = <test_template_tool.TemplateTests testMethod=test_credential_directory_aliases_cannot_hide_auth_files>
+
+    def test_credential_directory_aliases_cannot_hide_auth_files(self):
+        scanner = load('credential_scan')
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'image.tar'
+            for directory_name, credential_name in [('.docker', 'config.json'),
+                                                     ('.ssh', 'id_rsa'),
+                                                     ('.config', 'gcloud/access_tokens.db')]:
+                with self.subTest(directory=directory_name):
+                    oci(archive, [{'root/' + directory_name: ('/creds',)},
+                                  {'creds/' + credential_name: b'{"auths":{"example":{"auth":"dXNlcjpwYXNz"}}}',
+                                   'opt/aq/manifest.json': json.dumps(bundle()).encode()}])
+>                   with self.assertRaisesRegex(ValueError, 'credential'):
+E                   AssertionError: ValueError not raised
+
+scripts/tests/test_template_tool.py:210: AssertionError
+_ TemplateTests.test_credential_directory_aliases_cannot_hide_auth_files (directory='.ssh') _
+
+self = <test_template_tool.TemplateTests testMethod=test_credential_directory_aliases_cannot_hide_auth_files>
+
+    def test_credential_directory_aliases_cannot_hide_auth_files(self):
+        scanner = load('credential_scan')
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'image.tar'
+            for directory_name, credential_name in [('.docker', 'config.json'),
+                                                     ('.ssh', 'id_rsa'),
+                                                     ('.config', 'gcloud/access_tokens.db')]:
+                with self.subTest(directory=directory_name):
+                    oci(archive, [{'root/' + directory_name: ('/creds',)},
+                                  {'creds/' + credential_name: b'{"auths":{"example":{"auth":"dXNlcjpwYXNz"}}}',
+                                   'opt/aq/manifest.json': json.dumps(bundle()).encode()}])
+>                   with self.assertRaisesRegex(ValueError, 'credential'):
+E                   AssertionError: ValueError not raised
+
+scripts/tests/test_template_tool.py:210: AssertionError
+_ TemplateTests.test_credential_directory_aliases_cannot_hide_auth_files (directory='.config') _
+
+self = <test_template_tool.TemplateTests testMethod=test_credential_directory_aliases_cannot_hide_auth_files>
+
+    def test_credential_directory_aliases_cannot_hide_auth_files(self):
+        scanner = load('credential_scan')
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'image.tar'
+            for directory_name, credential_name in [('.docker', 'config.json'),
+                                                     ('.ssh', 'id_rsa'),
+                                                     ('.config', 'gcloud/access_tokens.db')]:
+                with self.subTest(directory=directory_name):
+                    oci(archive, [{'root/' + directory_name: ('/creds',)},
+                                  {'creds/' + credential_name: b'{"auths":{"example":{"auth":"dXNlcjpwYXNz"}}}',
+                                   'opt/aq/manifest.json': json.dumps(bundle()).encode()}])
+>                   with self.assertRaisesRegex(ValueError, 'credential'):
+E                   AssertionError: ValueError not raised
+
+scripts/tests/test_template_tool.py:210: AssertionError
+=========================== short test summary info ============================
+SUBFAILED(directory='.docker') scripts/tests/test_template_tool.py::TemplateTests::test_credential_directory_aliases_cannot_hide_auth_files
+SUBFAILED(directory='.ssh') scripts/tests/test_template_tool.py::TemplateTests::test_credential_directory_aliases_cannot_hide_auth_files
+SUBFAILED(directory='.config') scripts/tests/test_template_tool.py::TemplateTests::test_credential_directory_aliases_cannot_hide_auth_files
+================== 3 failed, 1 passed, 11 deselected in 0.38s ==================

@@ -40,6 +40,9 @@ class SandboxPackaging(unittest.TestCase):
         shutil.copytree(ROOT / 'packaging/sandbox', repo / 'packaging/sandbox')
         (repo / 'vendor').mkdir()
         (repo / 'vendor/public.txt').write_text('public dependency')
+        (repo / 'protocol/aq-admission/src').mkdir(parents=True)
+        (repo / 'protocol/aq-admission/src/lib.rs').write_text('// committed workspace member\n')
+        (repo / 'protocol/unrelated-private.txt').write_text('private sentinel')
         subprocess.run(['git', 'init', '-q', str(repo)], check=True)
         subprocess.run(['git', 'add', '.'], cwd=repo, check=True)
         subprocess.run(['git', 'commit', '-qm', 'fixture'], cwd=repo, check=True)
@@ -69,7 +72,13 @@ class SandboxPackaging(unittest.TestCase):
         with tarfile.open(output / 'runtime/worker-source.tar') as archive:
             names = archive.getnames()
         self.assertIn('Cargo.lock', names)
-        self.assertTrue(all(n.startswith(('crates/', 'vendor/')) or n in ('crates', 'vendor', 'Cargo.lock', 'Cargo.toml') for n in names))
+        embedded = {'packaging/sandbox/template_tool.py', 'packaging/sandbox/credential_scan.py'}
+        self.assertTrue(embedded <= set(names), 'runtime source must include embedded template tools')
+        self.assertIn('protocol/aq-admission/src/lib.rs', names)
+        self.assertNotIn('protocol/unrelated-private.txt', names)
+        self.assertTrue(all(n.startswith(('crates/', 'vendor/', 'protocol/aq-admission/')) or n in
+                            {'crates', 'vendor', 'Cargo.lock', 'Cargo.toml', 'packaging', 'packaging/sandbox',
+                             'protocol', 'protocol/aq-admission'} | embedded for n in names))
         self.assertNotIn('crates/private-untracked.txt', names)
         self.assertFalse(any(n.startswith(('.aq/', '.git/', 'secrets/')) for n in names))
 
