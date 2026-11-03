@@ -67,3 +67,16 @@
 - [ ] Squash unpublished leaf implementation history, merge configured integration source, run targeted checks if changed, guarded push and close with evidence. `origin/dev` is absent; the updated project `.aq/PRIME.md` explicitly requires `origin/main`.
 
 **Qualification outcome:** Passing publication is blocked by the unmet supervisor conditions (empty agent bounding set and explicit outside-pane signal-denial proof), as well as complete-suite failures. Three complete-suite attempts failed in unmodified driver/journal fixtures, including a serial attempt ending with 239 passed, 2 failed and 18 ignored in worker unit tests. Both exact security acceptance filters pass, and the sandbox-runner compatibility suite passes 12/12 after updating its explicit prerequisite-refusal assertion. Preserve the implementation/review-fix history and synced integration ancestry, push the task branch for recovery, and close fail with the complete evidence rather than marking the passing publication step complete. Independent deterministic-fixture follow-up: `noble-impact-55`.
+
+### Recovery Task 4: Supervisor security conditions (claim epoch 2)
+
+**Files:** `crates/aq-worker/tests/support/b6b_user_probe.rs`, `crates/aq-session-host/src/users.rs`, `scripts/test-b6b-root.sh`, and this evidence/plan.
+
+**Interfaces:** carry the live numeric runner PID as a nonsecret fixture argument to both `agent-probe` and the tmux harness. `agent_probe(root: &Path, runner_pid: libc::pid_t)` verifies the target's runner UID, then requires `kill(runner_pid, 0)` and `kill(runner_pid, SIGCONT)` to return `EPERM`. The harness additionally verifies that its session differs from the runner's session. This checks an outside-pane target without destructive signals.
+
+- [ ] Add and run the direct and tmux signal-denial assertions using the existing root fixture; expect PASS because cross-UID permissions already deny these signals. This is coverage for existing behavior, with no production code change.
+- [ ] Once the owner resolves the bootstrap privilege prerequisite, add `CapBnd` to the existing zero-capability assertions. Run `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 TOKIO_WORKER_THREADS=2 cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key`; expect RED on the nonempty bounding set before implementing the approved mechanism.
+- [ ] Implement only the approved privilege arrangement, without editing image/backend policy. Re-run both exact named acceptance filters and the affected host/security suites; preserve all failed outputs.
+- [ ] Update evidence to distinguish current recovery results from historical full-suite failures. Run formatting and Clippy for changed code, merge `origin/main` into the task branch, guarded push, and close with exact results. Historical unrelated baseline failures do not require another full-suite run under the current prime instructions.
+
+**Pending owner decision:** `msg-d908840aa4d14e3e9ad1c4fd49bfdd79` asks whether an already-granted root bootstrap `CAP_SETPCAP` may clear the bounding set before retaining only SETUID/SETGID/KILL. Current minimal fixture lacks SETPCAP. Do not change that privilege prerequisite while approval is pending.
