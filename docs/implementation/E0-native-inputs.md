@@ -209,3 +209,53 @@ These are decisions for the supervisor and owner:
    application, inside the I0 image with a clean private `CODEX_HOME`.
    Measured with the host `~/.codex/config.toml` (243 KB of MCP and other
    configuration), the overhead would not match the container.
+
+## Measured native environment profile (claim epoch 5)
+
+Authority: **measured** (a local Docker probe of the pinned image). This is
+not owner attestation. `tools/qualification/probe-e0-native-environment.py`
+ran I0 image `sha256:0b7defe6…ddc7d` once. It used the owner-approved run
+flags: `--read-only --cap-drop ALL --security-opt no-new-privileges=true
+--security-opt seccomp=unconfined --network host --tmpfs /tmp:mode=1777`.
+`/config` and `/state` were fresh tmpfs owned by 10001. No host path was
+mounted, no credential was forwarded and no provider was called. Inside the
+container the probe mirrors the checks in `named_environment.rs` `inspect`.
+
+The retained canonical evidence is
+[`environment-probe.json`](evidence/e0-native-inputs/environment-probe.json),
+1985 bytes, sha256
+`88a42cda69d810000cbbcc514c4c5814acd0b6f7aafe4ba78ebc88f5498a7e1d`.
+All ten checks passed:
+
+- UID/GID 10001;
+- all five capability sets empty, and `NoNewPrivs=1`;
+- the single image-device mount row is `ro`, and a write gives `EROFS`;
+- all six program pins (sha256 and bytes) match the I0 receipt;
+- `codex-cli 0.166.0` and `tmux 3.4`;
+- `codex sandbox -- /bin/true` exits 0 with a private `CODEX_HOME`.
+
+The measured seccomp result corrects an assumption. On this Docker Desktop
+29.3.1 host, `seccomp=unconfined` does **not** produce `Seccomp: 0`:
+
+| Profile | Filters (`Seccomp: 2` in all cases) |
+|---|---|
+| Docker default profile | 2 |
+| `seccomp=unconfined` | 1 |
+| `--privileged` (probe only, never used for a run) | 1 |
+
+The one remaining filter is the host baseline. The probe therefore checks
+that unconfined removes exactly Docker's profile filter, measured against a
+default-profile baseline container of the same image. It does not check for
+`Seccomp == 0`.
+
+This document is the measured basis for the environment qualification
+ArtifactRef. It is not yet admission: the server definition body, context
+qualification, credential placement and catalog revision 2 remain blocked on
+the decisions listed above.
+
+`aq test tools/qualification/tests/test_e0_native_environment.py -q` checks
+the retained evidence offline:
+
+- it is canonical, its authority is measured and its verdicts recompute;
+- every hardening flag is kept;
+- each check refuses its own regression.
