@@ -50,6 +50,50 @@ pub enum FixtureCase {
     Registration {
         registration: Registration,
     },
+    PreparationPermit {
+        authority: PreparationAuthority,
+        permit: DelegatedPermit,
+        operation: RunnerOperation,
+        now_ms: u64,
+    },
+    PermitIssuance {
+        request: PermitIssuanceRequest,
+        response: Box<PermitIssuanceResponse>,
+        now_ms: u64,
+    },
+    PermitIssuanceReplay {
+        original_request: PermitIssuanceRequest,
+        original_response: Box<PermitIssuanceResponse>,
+        request: PermitIssuanceRequest,
+        response: Box<PermitIssuanceResponse>,
+        now_ms: u64,
+    },
+    PermitUpgrade {
+        request: PermitUpgradeRequest,
+        response: Box<PermitUpgradeResponse>,
+        preparation: PreparationAuthority,
+        preparation_permit: DelegatedPermit,
+        now_ms: u64,
+    },
+    PermitUpgradeReplay {
+        original_request: PermitUpgradeRequest,
+        original_response: Box<PermitUpgradeResponse>,
+        request: PermitUpgradeRequest,
+        response: Box<PermitUpgradeResponse>,
+        preparation: PreparationAuthority,
+        preparation_permit: DelegatedPermit,
+        now_ms: u64,
+    },
+    RegistrationEnrollment {
+        registration: Box<Registration>,
+        response: RegistrationResponse,
+    },
+    RegistrationReplay {
+        original_registration: Box<Registration>,
+        original_response: RegistrationResponse,
+        registration: Box<Registration>,
+        response: RegistrationResponse,
+    },
 }
 pub fn validate_fixture(fixture: &Fixture) -> String {
     let result = match &fixture.case {
@@ -102,6 +146,73 @@ pub fn validate_fixture(fixture: &Fixture) -> String {
             }
         }),
         FixtureCase::Registration { registration } => registration.validate(),
+        FixtureCase::PreparationPermit {
+            authority,
+            permit,
+            operation,
+            now_ms,
+        } => authority.validate_permit(permit, *operation, *now_ms),
+        FixtureCase::PermitIssuance {
+            request,
+            response,
+            now_ms,
+        } => response.validate_for(request, *now_ms),
+        FixtureCase::PermitIssuanceReplay {
+            original_request,
+            original_response,
+            request,
+            response,
+            now_ms,
+        } => validate_issuance_replay(
+            original_request,
+            original_response,
+            request,
+            response,
+            *now_ms,
+        ),
+        FixtureCase::PermitUpgrade {
+            request,
+            response,
+            preparation,
+            preparation_permit,
+            now_ms,
+        } => request
+            .validate_for(preparation, preparation_permit, *now_ms)
+            .and_then(|()| {
+                response.validate_for(request, preparation, preparation_permit, *now_ms)
+            }),
+        FixtureCase::PermitUpgradeReplay {
+            original_request,
+            original_response,
+            request,
+            response,
+            preparation,
+            preparation_permit,
+            now_ms,
+        } => validate_upgrade_replay(
+            original_request,
+            original_response,
+            request,
+            response,
+            preparation,
+            preparation_permit,
+            *now_ms,
+        ),
+        FixtureCase::RegistrationEnrollment {
+            registration,
+            response,
+        } => response.validate_for(registration),
+        FixtureCase::RegistrationReplay {
+            original_registration,
+            original_response,
+            registration,
+            response,
+        } => validate_registration_replay(
+            original_registration,
+            original_response,
+            registration,
+            response,
+        ),
     };
     match result {
         Ok(()) => "accepted".into(),
