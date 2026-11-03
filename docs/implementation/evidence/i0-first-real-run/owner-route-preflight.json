@@ -1,0 +1,26 @@
+[
+  {
+    "path": "/dependency-readyz",
+    "status": 404,
+    "body": {
+      "error": "not_found",
+      "message": "no such route"
+    }
+  },
+  {
+    "path": "/api/profiles/catalogs",
+    "status": 200,
+    "body": {
+      "active_digest": "0c8a041de2e1af9e6937cd0c87cefed8a0c82d6e592d986c7d0ab3dfc817d6f2",
+      "revision": 1
+    }
+  },
+  {
+    "path": "/api/settlement/completions/e0000000-0000-4000-8000-000000000099/reconcile",
+    "status": 404,
+    "body": {
+      "error": "not_found",
+      "message": "no such route"
+    }
+  }
+]

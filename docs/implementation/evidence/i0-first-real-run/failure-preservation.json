@@ -1,0 +1,46 @@
+{
+  "image": "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d",
+  "container": "aq-i0-failure-preservation",
+  "command": [
+    "docker",
+    "run",
+    "--name",
+    "aq-i0-failure-preservation",
+    "--read-only",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges=true",
+    "--network",
+    "none",
+    "--mount",
+    "type=bind,source=/home/jkern/.local/state/aq-platform-i0/failure-probe-state,target=/state",
+    "--mount",
+    "type=bind,source=/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/scripts/interactive-worker-bootstrap.py,target=/bootstrap.py,readonly",
+    "--mount",
+    "type=bind,source=/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/scripts/i0-auth-writeback.py,target=/writeback.py,readonly",
+    "--entrypoint",
+    "python3",
+    "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d",
+    "-c",
+    "import json,os,pathlib,subprocess,sys\nos.umask(0o077)\nroot=pathlib.Path('/state');marker=root/'preserve-probe';marker.write_text('synthetic I0 retained state')\ndef login(name,version):\n p=root/name\n p.write_text(json.dumps({'auth_mode':'chatgpt','OPENAI_API_KEY':None,'tokens':{'id_token':'synthetic-id','access_token':'synthetic-access','refresh_token':'synthetic-'+version,'account_id':'synthetic-account'}}))\n p.chmod(0o600)\n return p\nowner=login('owner.json','other-writer');baseline=login('baseline.json','original');candidate=login('candidate.json','container')\nbefore=(owner.read_bytes(),baseline.read_bytes(),candidate.read_bytes(),marker.read_bytes())\nbootstrap=subprocess.run(['python3','/bootstrap.py','run'],capture_output=True,text=True)\nreconcile=subprocess.run(['python3','/writeback.py','--owner',str(owner),'--baseline',str(baseline),'--refreshed',str(candidate)],capture_output=True,text=True)\nafter=(owner.read_bytes(),baseline.read_bytes(),candidate.read_bytes(),marker.read_bytes())\npreserved=before==after\nresult={'bootstrap_exit':bootstrap.returncode,'bootstrap_stderr':bootstrap.stderr,'reconciliation_exit':reconcile.returncode,'reconciliation_stderr':reconcile.stderr,'state_preserved':preserved,'private_modes':all(p.stat().st_mode&0o777==0o600 for p in [owner,baseline,candidate,marker]),'real_credentials':False}\n(root/'probe-result.json').write_text(json.dumps(result))\nprint(json.dumps(result))\nsys.exit(2 if bootstrap.returncode==2 and reconcile.returncode==2 and preserved else 99)\n"
+  ],
+  "run_exit": 2,
+  "stdout": {
+    "bootstrap_exit": 2,
+    "bootstrap_stderr": "interactive worker setup or lifecycle refused; state preserved\n",
+    "reconciliation_exit": 2,
+    "reconciliation_stderr": "login reconciliation refused; preserve container and private state\n",
+    "state_preserved": true,
+    "private_modes": true,
+    "real_credentials": false
+  },
+  "stderr": "",
+  "retained_container": {
+    "status": "exited",
+    "exit_code": 2,
+    "auto_remove": false
+  },
+  "retained_state": "/home/jkern/.local/state/aq-platform-i0/failure-probe-state",
+  "scope": "synthetic setup failure and owner-change reconciliation refusal; no admission or provider launch"
+}

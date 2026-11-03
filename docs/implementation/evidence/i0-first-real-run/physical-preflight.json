@@ -1,0 +1,28 @@
+{
+  "image": "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d",
+  "command": [
+    "docker",
+    "run",
+    "--name",
+    "aq-i0-final-physical-preflight",
+    "--read-only",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges=true",
+    "--network",
+    "host",
+    "--mount",
+    "type=bind,source=/home/jkern/.local/state/aq-platform-i0/preflight-state,target=/state",
+    "--mount",
+    "type=bind,source=/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/scripts/interactive-worker-bootstrap.py,target=/bootstrap.py,readonly",
+    "--entrypoint",
+    "python3",
+    "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d",
+    "/bootstrap.py",
+    "inspect"
+  ],
+  "exit": 0,
+  "stdout": "{\"schema_version\": 1, \"kind\": \"local_worker_environment_observation\", \"no_new_privs\": true, \"all_capabilities_zero\": true, \"image_readonly\": true, \"persistent_state_separate_filesystem\": true, \"programs\": [\"aq-worker\", \"aq-session-host\", \"aq-agent\", \"aq-git\", \"codex\", \"tmux\"], \"network\": \"inherited_real_control_and_provider\", \"authority\": \"metadata only; native preflight still required\"}\n",
+  "stderr": ""
+}

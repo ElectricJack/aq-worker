@@ -37,11 +37,11 @@
 
 **Interfaces:** Consumes owner auth file, private initial snapshot and retained launch auth file. Produces `writeback(owner: Path, baseline: Path, refreshed: Path) -> str` returning unchanged, refreshed, or absent; exceptions reveal no credential bytes. The CLI takes file paths only.
 
-- [ ] Write synthetic-file tests for refresh/mode, conflict, symlink/invalid-login refusal, unchanged and absent output.
-- [ ] Run `aq test tools/qualification/tests/test_i0_auth_writeback.py -q`; expect RED before helper exists.
-- [ ] Implement validated bounded private reads and fsync + atomic rename, preserving inputs on refusal.
-- [ ] Run the same command; expect all named cases PASS. Commit.
-- [ ] Build the plain worker image from copied Dockerfile.worker inputs with current main, pinned Codex, helper/client/tmux/Git. Record immutable image identity.
+- [x] Write synthetic-file tests for refresh/mode, conflict, symlink/invalid-login refusal, unchanged and absent output.
+- [x] Run `aq test tools/qualification/tests/test_i0_auth_writeback.py -q`; expect RED before helper exists.
+- [x] Implement validated bounded private reads and fsync + atomic rename, preserving inputs on refusal.
+- [x] Run the same command; expect all named cases PASS. Commit.
+- [x] Build the plain worker image from copied Dockerfile.worker inputs with current main, pinned Codex, helper/client/tmux/Git. Record immutable image identity.
 - [ ] Verify production check-native in Docker with actual installed pins and no test-support flags. Refusals are findings, never bypassed.
 
 ### Task 2: Three real runs and settlement evidence
@@ -53,6 +53,10 @@
 - [ ] Configure E0's existing registry and private material copy without embedding login bytes in public configuration. Use public owner/worker routes to assemble frozen attempts and source bases.
 - [ ] Execute one fresh empty-state single-slot run at a time. Verify real repository edits, stopped writer, result retention and login refresh status before any cleanup.
 - [ ] Use evaluation, combined review resolution and completion reconcile routes. Record actual decisions and central revision handles. Repeat until three consecutive completions; do not fabricate success.
-- [ ] File each confirmed rough edge as a scoped follow-up with originating evidence; keep changes minimal.
-- [ ] Run focused helper checks, image/native preflight, diff/format checks and any relevant Rust tests if Rust changes become necessary. Record exact results and limits.
+- [x] File each confirmed rough edge as a scoped follow-up with originating evidence; keep changes minimal.
+- [x] Run focused helper checks, image/native preflight, diff/format checks and any relevant Rust tests if Rust changes become necessary. Record exact results and limits.
 - [ ] Review all changes and evidence, reconcile checklist, squash leaf implementation history while preserving the plan record, merge authorized upstream, push, close explicitly and drain-ack.
+
+**Observed status:** 0/3 real runs; native qualification and human settlement owner inputs absent. Detailed findings and blockers are in `docs/implementation/I0-first-real-run.md`. No real credential was used. Physical metadata checks do not complete production `check-native`.
+
+**Final review:** Fresh whole-branch review completed; native-schema findings fixed with 10 RED cases and 18 GREEN tests. Synthetic actual setup/conflict failure preserved files and container. Publication/close proceeds with acceptance unmet; requested upstream merge remains unavailable (`origin/dev` absent, no substitution reply).
