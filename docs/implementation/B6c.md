@@ -95,3 +95,19 @@ No full test suite is claimed, in line with the owner's velocity rule.
   - `native/hydration.rs:317–340` (`validate_retained`)
 
 Paths are relative to `crates/aq-worker/src/native/runner/sandbox/` unless they are shown in full.
+
+## Results after main sync
+
+The branch was squashed to `2a85edb` and then merged with `origin/main` at `66cefd8`, giving `f68f8d1`. The following checks were rerun on the merged tree:
+
+| Exact command | Result | Evidence in B6c-evidence |
+| --- | --- | --- |
+| `cargo test --locked --workspace hydrated_workspace_matches_retained_revision` | 1 passed | `synced-hydrated_workspace_matches_retained_revision.log` |
+| `cargo test --locked --workspace idle_sandbox_holds_no_terminal_poll` | 1 passed | `synced-idle_sandbox_holds_no_terminal_poll.log` |
+| `cargo test --locked --workspace hydration_refuses_retained_bundle_digest_mismatch` | 1 passed | `synced-hydration_refuses_retained_bundle_digest_mismatch.log` |
+| `cargo test --locked -p aq-worker --test sandbox_runner` | 14 passed | `synced-runner.log` |
+| `cargo test --locked -p aq-worker --lib native::runner::sandbox` | 10 passed | `synced-sandbox-lib.log` |
+| `cargo fmt --check -p aq-worker` | passed | `synced-fmt.log` |
+| `cargo clippy --locked -p aq-worker --all-targets -- -D warnings` | passed | `synced-clippy.log` |
+
+The `sandbox_runner` suite was rerun because main changed it, and it exercises the modified `RunnerHttp`. The final documentation commit changes no source.
