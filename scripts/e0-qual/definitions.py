@@ -36,7 +36,14 @@ MAX_OUTPUT_TOKENS = 128000
 EXECUTION_MS = 900000
 MEMORY_BYTES = 2147483648
 CLIENT_RESERVATION = 64 * 1024 * 1024
-SOURCE_DISK_BYTES = 21 * 1024 * 1024 * 1024
+# Must equal aq-git's native reservation (aq-worker source.rs native_reservation_bytes):
+# 2 * max_expanded (pool + workspace) + max_bundle + 1 MiB artifact headroom.
+SOURCE_DISK_BYTES = 2 * 10737418240 + 1073741824 + 1024 * 1024
+# Server refuses changed profiled content at an unchanged revision; bump on every content change.
+# 2: SOURCE_DISK_BYTES corrected to the real aq-git reservation (I0).
+PROFILED_REVISION = 2
+TERMINAL_KEY_ID = "e0-qual-relay-1"
+TERMINAL_KEY_FILE = "terminal-relay-key"
 DISK_BYTES = 24 * 1024 * 1024 * 1024
 FIXED_OVERHEAD_TOKENS = 16384
 TOKENS_PER_BYTE = 1
@@ -338,7 +345,7 @@ def build(stack):
                           "wall_time_ms": EXECUTION_MS, "memory_bytes": MEMORY_BYTES, "cpu_millis": 1000,
                           "process_limit": 64}}
     source = seed["source"]
-    profiled = {"revision": 1,
+    profiled = {"revision": PROFILED_REVISION,
                 "qualified_runtimes": [{"runtime": runtime, "qualification": qualification,
                                         "capabilities": CAPABILITIES, "features": FEATURES,
                                         "material_delivery": {"adapter": material, "version": 1}}],
@@ -470,7 +477,14 @@ def configure(stack):
     built = build(stack)
     head = (f"intelligence = {toml_value(built['intelligence'])}\n"
             f"profiled_execution = {toml_value(built['profiled'])}\n")
-    config = head + stack.base_config()
+    # The Codex host registers a terminal relay; without [terminals] the server answers 503
+    # identity_unavailable and the attempt stops right after `started` (I0 run 9).
+    relay_key = p["qual"] / "secrets" / TERMINAL_KEY_FILE
+    if not relay_key.exists():
+        stack.private_bytes(relay_key, os.urandom(32))
+    config = head + stack.base_config() + (
+        f'[terminals.protection]\nactive_key_id = "{TERMINAL_KEY_ID}"\n'
+        f'keys = [{{ id = "{TERMINAL_KEY_ID}", file = "/qual-vault/{TERMINAL_KEY_FILE}" }}]\n')
     parsed = tomllib.loads(config)
     stack.require(parsed["intelligence"] == without_none(built["intelligence"])
                   and parsed["profiled_execution"] == without_none(built["profiled"]), "TOML round trip differs")

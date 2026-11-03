@@ -1,0 +1,56 @@
+{
+  "observed_at": "2026-11-03T01:10:49.023417+00:00",
+  "task_id": "azure-horizon-22.1",
+  "claim_epoch": 3,
+  "branch_head": "8301a653146d41aad2d9f49c39fb3d76b451c730",
+  "origin_main": "aa6c80728413da18eaf49fc7ca3472afe8ccee78",
+  "e0_vault_sections": [
+    "agent_access",
+    "auth",
+    "bootstrap",
+    "enrollment",
+    "environment",
+    "format_version",
+    "server",
+    "source_retention",
+    "workers"
+  ],
+  "missing_runtime_sections": [
+    "intelligence",
+    "profiled_execution",
+    "playbooks",
+    "terminals"
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/profiles/catalogs",
+      "http_status": 200,
+      "public_policy": {
+        "active_digest": "0c8a041de2e1af9e6937cd0c87cefed8a0c82d6e592d986c7d0ab3dfc817d6f2",
+        "revision": 1
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/settlement/evaluations",
+      "http_status": 404,
+      "response": "{\"error\":\"not_found\",\"message\":\"no such route\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/settlement/completions/b1f3172e-8991-41f9-8531-0c6515597aea/reconcile",
+      "http_status": 404,
+      "response": "{\"error\":\"not_found\",\"message\":\"no such route\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/reviews/combined/27dac0b5-541f-45a4-bf3e-7e67390b3c77",
+      "http_status": 404,
+      "response": "{\"error\":\"not_found\",\"message\":\"no such route\"}"
+    }
+  ],
+  "real_auth_accessed": false,
+  "real_runs": 0,
+  "owner_decision": "Reopen feedback authorizes ChatGPT login and settlement review stand-in; main replaces dev."
+}
