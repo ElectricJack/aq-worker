@@ -104,9 +104,19 @@ vault paths and Docker executable are trusted operator inputs.
 Install steps and optional prefetch run before the runtime copy:
 
 ```dockerfile
+ENV CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_PROFILE_TEST_DEBUG=line-tables-only
+WORKDIR /workspace
 COPY --from=aq-sandbox-runtime@sha256:<digest> /opt/aq /opt/aq
 RUN <fixed finalize check>
 ```
+
+Every template's image environment disables Cargo's incremental cache and
+keeps only line-table debuginfo for the `dev` and `test` profiles. Sandboxes
+are single-use, so the incremental cache only costs disk. These three
+variables override the matching repository profile keys; no other Cargo or
+profile setting is changed. The `ENV` follows the install steps so their
+build cache is unaffected. A harness that clears its tool environment must
+forward these values itself for them to reach agent commands.
 
 Finalize requires runner and agent passwd entries, executable `tmux`, `bwrap`
 and `git` on PATH, and a nonempty `/opt/aq/manifest.json`. Missing requirements

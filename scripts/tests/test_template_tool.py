@@ -357,6 +357,19 @@ class TemplateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             tool.validate_recipe(r, cfg)
 
+    def test_dockerfile_sets_single_use_cargo_environment_after_installs(self):
+        tool = load('template_tool')
+        cfg = config()
+        rendered = tool.dockerfile(recipe(), cfg['os_image'], cfg)
+        env = ('ENV CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only '
+               'CARGO_PROFILE_TEST_DEBUG=line-tables-only\n')
+        self.assertEqual(rendered.count(env), 1)
+        self.assertEqual(rendered.count('CARGO_'), 3)
+        self.assertLess(rendered.index('mkdir -p /tools'), rendered.index(env))
+        self.assertLess(rendered.index(env), rendered.index('COPY --from='))
+        universal = {**cfg, 'universal_image': 'codex-universal@sha256:' + 'c' * 64}
+        self.assertEqual(tool.dockerfile(recipe(), universal['universal_image'], universal).count(env), 1)
+
 class BuildTests(unittest.TestCase):
     def setup_build(self, root, credential=False):
         archive = root / 'fixture.tar'
