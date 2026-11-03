@@ -4,6 +4,7 @@ mod api;
 mod config;
 mod journal;
 mod policy;
+mod vm_time;
 use super::*;
 use api::{Api, unknown};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -13,11 +14,13 @@ pub use policy::AUTO_STOP_MARGIN_MS;
 use reqwest::Method;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+pub use vm_time::{VmSize, VmTimeFact};
 
 pub struct BoatBackend {
     config: BoatConfig,
     api: Api,
     journal: Journal,
+    vm_time_client: Option<crate::client::Client>,
 }
 impl BoatBackend {
     pub fn connect(config: BoatConfig, key: BoatKey) -> Result<Self, BackendError> {
@@ -28,6 +31,7 @@ impl BoatBackend {
             config,
             api,
             journal,
+            vm_time_client: None,
         })
     }
     fn record(&self, s: &SandboxIdentity) -> Result<Record, BackendError> {
@@ -114,17 +118,19 @@ impl BoatBackend {
             disk_present: true,
         })
     }
-    async fn scoped_entry(&self, s: &SandboxIdentity) -> Result<InventoryEntry, BackendError> {
+    async fn scoped_entry(&mut self, s: &SandboxIdentity) -> Result<InventoryEntry, BackendError> {
         if s.kind != BackendKind::Boat
             || s.owner.node_id != self.config.node_id
             || !config::safe_id(&s.backend_id)
         {
             return Err(BackendError::Conflict);
         }
-        let e = self.entry(&self.get(&s.backend_id).await?)?;
+        let vm = self.get(&s.backend_id).await?;
+        let e = self.entry(&vm)?;
         if &e.sandbox != s {
             return Err(BackendError::Conflict);
         }
+        self.observe_vm_time(&vm, &e)?;
         Ok(e)
     }
     async fn command(&self, id: &str, command: String) -> Result<String, BackendError> {
@@ -165,7 +171,7 @@ impl BoatBackend {
     }
     /// Artifact collection works after archive without resuming any writer.
     pub async fn read_work_file(
-        &self,
+        &mut self,
         s: &SandboxIdentity,
         path: &str,
     ) -> Result<Vec<u8>, BackendError> {
@@ -225,7 +231,10 @@ impl BoatBackend {
             STANDARD.decode(out.trim()).map_err(|_| unknown())
         }
     }
-    async fn stop_inner(&self, s: &SandboxIdentity) -> Result<StoppedWriterProof, BackendError> {
+    async fn stop_inner(
+        &mut self,
+        s: &SandboxIdentity,
+    ) -> Result<StoppedWriterProof, BackendError> {
         let e = self.scoped_entry(s).await?;
         if e.state != SandboxState::Archived {
             self.api
@@ -241,6 +250,7 @@ impl BoatBackend {
         loop {
             let e = self.scoped_entry(s).await?;
             if let Confirmation::Confirmed(p) = e.writer_proof() {
+                self.replay_vm_time().await?;
                 return Ok(p);
             }
             if Instant::now() >= end {
@@ -423,6 +433,13 @@ impl PlacementBackend for BoatBackend {
     async fn create(&mut self, r: &CreateRequest) -> Result<SandboxIdentity, BackendError> {
         self.journal.check()?;
         r.validate()?;
+        if self
+            .journal
+            .fact(r.owner.attempt_id)
+            .is_some_and(|f| f.fact.is_not_created())
+        {
+            return Err(BackendError::Conflict);
+        }
         policy::ttl(
             r.hard_deadline_ms,
             now()?.saturating_add(self.config.api_timeout_ms),
@@ -509,6 +526,9 @@ impl PlacementBackend for BoatBackend {
                 .to_owned();
             rec.backend_id = Some(id);
             self.save(rec.clone())?;
+            let entry = self.entry(&v["sandbox"])?;
+            self.observe_vm_time(&v["sandbox"], &entry)?;
+            self.replay_vm_time().await?;
         }
         let s = SandboxIdentity {
             kind: BackendKind::Boat,
@@ -517,6 +537,7 @@ impl PlacementBackend for BoatBackend {
         };
         if rec.container {
             self.scoped_entry(&s).await?;
+            self.replay_vm_time().await?;
             return Ok(s);
         }
         let end = Instant::now() + Duration::from_millis(self.config.poll_timeout_ms);
@@ -619,7 +640,9 @@ impl PlacementBackend for BoatBackend {
                         return Ok(e);
                     }
                 }
-                return self.scoped_entry(s).await;
+                let entry = self.scoped_entry(s).await?;
+                self.replay_vm_time().await?;
+                return Ok(entry);
             }
             Err(e) => return Err(e),
         };
@@ -634,13 +657,18 @@ impl PlacementBackend for BoatBackend {
                 disk_present: false,
             });
         }
-        self.scoped_entry(s).await
+        let entry = self.scoped_entry(s).await?;
+        self.replay_vm_time().await?;
+        Ok(entry)
     }
     async fn list_owned(&mut self, node: Uuid) -> Result<Vec<InventoryEntry>, BackendError> {
         self.journal.check()?;
         if node != self.config.node_id {
             return Err(BackendError::Conflict);
         }
+        // Deliver even if the provider inventory is currently unavailable, or
+        // all reported VMs have already been destroyed.
+        self.replay_vm_time().await?;
         let mut cursor: Option<String> = None;
         let mut seen = std::collections::BTreeSet::new();
         let mut result = Vec::new();
@@ -669,6 +697,7 @@ impl PlacementBackend for BoatBackend {
                     r.backend_id = Some(entry.sandbox.backend_id.clone());
                     self.save(r)?;
                 }
+                self.observe_vm_time(vm, &entry)?;
                 result.push(entry);
             }
             match page["pageInfo"]["hasMore"].as_bool() {
@@ -687,7 +716,15 @@ impl PlacementBackend for BoatBackend {
                 None => return Err(unknown()),
             }
         }
+        self.replay_vm_time().await?;
         Ok(result)
+    }
+    async fn record_not_created(
+        &mut self,
+        request: &CreateRequest,
+        at_ms: u64,
+    ) -> Result<(), BackendError> {
+        self.not_created(request, at_ms).await
     }
     async fn stop(&mut self, s: &SandboxIdentity) -> Confirmation<StoppedWriterProof> {
         confirmation(self.stop_inner(s).await)

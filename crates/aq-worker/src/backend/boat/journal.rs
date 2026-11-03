@@ -35,6 +35,8 @@ struct Disk {
     records: BTreeMap<String, Record>,
     #[serde(default)]
     orphans: BTreeMap<String, OrphanDeletion>,
+    #[serde(default)]
+    vm_time: BTreeMap<Uuid, super::vm_time::Report>,
 }
 pub(super) struct Journal {
     path: PathBuf,
@@ -77,6 +79,7 @@ impl Journal {
                 org: c.attempt_org.clone(),
                 records: BTreeMap::new(),
                 orphans: BTreeMap::new(),
+                vm_time: BTreeMap::new(),
             },
             Err(_) => return Err(unknown()),
         };
@@ -85,6 +88,16 @@ impl Journal {
         }
         if disk.records.len() + disk.orphans.len() > 4096 {
             return Err(unknown());
+        }
+        if disk.vm_time.len() > 4096 {
+            return Err(unknown());
+        }
+        let mut sandboxes = std::collections::BTreeSet::new();
+        for (id, report) in &disk.vm_time {
+            report.fact.validate()?;
+            if *id != report.fact.attempt_id || !sandboxes.insert(&report.fact.sandbox_id) {
+                return Err(unknown());
+            }
         }
         let mut ids = std::collections::BTreeSet::new();
         for (name, r) in &disk.records {
@@ -136,6 +149,54 @@ impl Journal {
         } else {
             Ok(())
         }
+    }
+    pub fn fact(&self, id: Uuid) -> Option<&super::vm_time::Report> {
+        self.disk.vm_time.get(&id)
+    }
+    pub fn pending_facts(&self) -> Vec<VmTimeFact> {
+        self.disk
+            .vm_time
+            .values()
+            .filter(|r| r.pending)
+            .map(|r| r.fact.clone())
+            .collect()
+    }
+    pub fn set_fact(&mut self, fact: VmTimeFact) -> Result<(), BackendError> {
+        self.check()?;
+        fact.validate()?;
+        if let Some(old) = self.fact(fact.attempt_id) {
+            if !fact.succeeds(&old.fact) {
+                return Err(BackendError::Conflict);
+            }
+            if fact == old.fact {
+                return Ok(());
+            }
+        } else if self.disk.vm_time.len() >= 4096 {
+            return Err(BackendError::InvalidRequest("VM-time journal full"));
+        }
+        if self
+            .disk
+            .vm_time
+            .values()
+            .any(|r| r.fact.sandbox_id == fact.sandbox_id && r.fact.attempt_id != fact.attempt_id)
+        {
+            return Err(BackendError::Conflict);
+        }
+        self.poisoned = true;
+        self.disk.vm_time.insert(
+            fact.attempt_id,
+            super::vm_time::Report {
+                fact,
+                pending: true,
+            },
+        );
+        self.persist()
+    }
+    pub fn ack_fact(&mut self, id: Uuid) -> Result<(), BackendError> {
+        self.check()?;
+        self.poisoned = true;
+        self.disk.vm_time.get_mut(&id).ok_or_else(unknown)?.pending = false;
+        self.persist()
     }
     pub fn get(&self, name: &str) -> Option<&Record> {
         self.disk.records.get(name)

@@ -157,6 +157,8 @@ async fn handle(
         } else {
             json!({"id":id,"name":body["name"],"state":"ready","team":{"id":"team_attempts"},"snapshotAvailable":false})
         };
+        let mut s = s;
+        s["createdAt"] = json!("2026-01-01T00:00:00Z");
         d.sandboxes.insert(id, s.clone());
         reply(202, json!({"ok":true,"sandbox":s}))
     } else if path == "/sandboxes" {
