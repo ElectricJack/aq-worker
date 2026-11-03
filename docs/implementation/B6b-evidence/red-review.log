@@ -1,0 +1,39 @@
+    Blocking waiting for file lock on build directory
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 28.61s
+     Running tests/sandbox_security.rs (target/debug/deps/sandbox_security-360572a370d1b3ef)
+
+running 8 tests
+test aq_proxy_injects_access_header_without_exposing_token ... ok
+test aq_proxy_refuses_compressed_access_echo ... FAILED
+test aq_proxy_refuses_non_machine_origins_and_unsafe_access_files ... ok
+test aq_proxy_shutdown_cancels_concurrent_incomplete_requests ... ok
+test runner_private_files_refuse_oversized_and_malformed_secrets ... ok
+test runner_private_layout_refuses_unsafe_secret_files ... ok
+test runner_responses_proxy_keeps_provider_key_at_upstream ... ok
+test agent_user_cannot_read_permit_or_proxy_key ... FAILED
+
+failures:
+
+---- aq_proxy_refuses_compressed_access_echo stdout ----
+
+thread 'aq_proxy_refuses_compressed_access_echo' (2300254) panicked at crates/aq-worker/tests/sandbox_security.rs:323:5:
+assertion `left == right` failed
+  left: 500
+ right: 502
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_user_cannot_read_permit_or_proxy_key stdout ----
+
+thread 'agent_user_cannot_read_permit_or_proxy_key' (2300249) panicked at crates/aq-worker/tests/sandbox_security.rs:192:5:
+stdout= stderr=Error: separated harness did not start
+
+
+
+failures:
+    agent_user_cannot_read_permit_or_proxy_key
+    aq_proxy_refuses_compressed_access_echo
+
+test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.48s
+
+error: test failed, to rerun pass `-p aq-worker --test sandbox_security`

@@ -1,6 +1,9 @@
 //! Fresh local sandbox execution. This path never registers, polls or accepts.
 mod journal;
 mod manifest;
+pub mod private;
+pub mod proxy;
+pub mod responses;
 pub use manifest::FrozenLaunch;
 pub(crate) fn boot_ns() -> anyhow::Result<u64> {
     super::super::http::boot_ns()
@@ -100,8 +103,60 @@ pub async fn run(
     local: &LocalEnvironment,
     adapter: &impl HarnessAdapter,
     transport: &mut impl RunnerTransport,
+    shutdown: watch::Receiver<bool>,
+    options: RunOptions,
+) -> Result<RunOutcome> {
+    run_inner(
+        worker, frozen, permit, state_dir, local, adapter, transport, shutdown, options, None,
+    )
+    .await
+}
+/// Separated-user entrypoint. Bootstrap the runner before starting Tokio, keep
+/// state private, and hydrate an agent-accessible workspace outside that state.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_as_agent(
+    worker: &WorkerConfig,
+    frozen: &FrozenLaunch,
+    permit: DelegatedPermit,
+    state_dir: &Path,
+    local: &LocalEnvironment,
+    adapter: &impl HarnessAdapter,
+    transport: &mut impl RunnerTransport,
+    shutdown: watch::Receiver<bool>,
+    options: RunOptions,
+    agent: aq_session_host::users::AgentIdentity,
+) -> Result<RunOutcome> {
+    private::check_directory(state_dir)?;
+    ensure!(
+        !local.workspace.starts_with(state_dir),
+        "agent workspace must be outside runner state"
+    );
+    run_inner(
+        worker,
+        frozen,
+        permit,
+        state_dir,
+        local,
+        adapter,
+        transport,
+        shutdown,
+        options,
+        Some(agent),
+    )
+    .await
+}
+#[allow(clippy::too_many_arguments)]
+async fn run_inner(
+    worker: &WorkerConfig,
+    frozen: &FrozenLaunch,
+    permit: DelegatedPermit,
+    state_dir: &Path,
+    local: &LocalEnvironment,
+    adapter: &impl HarnessAdapter,
+    transport: &mut impl RunnerTransport,
     mut shutdown: watch::Receiver<bool>,
     options: RunOptions,
+    agent: Option<aq_session_host::users::AgentIdentity>,
 ) -> Result<RunOutcome> {
     use crate::native::launch::sandbox as host;
     use aq_admission_sandbox::sandbox::{RenewalReply, RunnerRenewalRequest};
@@ -120,8 +175,9 @@ pub async fn run(
     );
     ensure!(
         local.workspace.canonicalize()? == local.workspace
-            && local.workspace.starts_with(&frozen.state_dir)
-            && local.workspace != frozen.state_dir,
+            && (agent.is_some()
+                || (local.workspace.starts_with(&frozen.state_dir)
+                    && local.workspace != frozen.state_dir)),
         "workspace must be prepared inside bound state directory"
     );
     transport.preflight(worker)?;
@@ -175,6 +231,7 @@ pub async fn run(
         local,
         adapter,
         &mut journal,
+        agent,
     ) {
         Ok(handle) => handle,
         Err(_) => {

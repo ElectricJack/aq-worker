@@ -301,7 +301,7 @@ async fn tmux_exit_requires_descendant_stop_proof() {
     assert_eq!(stopped, std::fs::read(counter).unwrap());
 }
 #[test]
-fn production_cli_refuses_unwired_transport_before_launch() {
+fn production_cli_refuses_missing_prerequisites_or_unwired_transport_before_launch() {
     let f = Fixture::new(false, 5000);
     let config = f.dir.path().join("worker.toml");
     f.worker.save(&config).unwrap();
@@ -318,10 +318,19 @@ fn production_cli_refuses_unwired_transport_before_launch() {
         .output()
         .unwrap();
     assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    // User/capability bootstrap precedes the async transport check. This
+    // fixture must also verify explicit refusal outside the sandbox image.
     assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("transport is unavailable")
+        [
+            "required sandbox OS account unavailable",
+            "sandbox requires SETUID/SETGID/KILL capabilities",
+            "runner bootstrap requires root entrypoint",
+            "transport is unavailable",
+        ]
+        .iter()
+        .any(|reason| stderr.contains(reason)),
+        "unexpected sandbox preflight error: {stderr}"
     );
     assert!(!f.dir.path().join("sandbox-run").exists());
     assert!(!f.local.workspace.join("started.claim").exists());

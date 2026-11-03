@@ -232,9 +232,20 @@ fn configured_native_executor(
     )?))
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let cli = Cli::parse();
+    let sandbox_agent = if matches!(&cli.command, Cmd::SandboxRun { .. }) {
+        match aq_session_host::users::bootstrap_sandbox_users() {
+            Ok(agent) => Some(agent),
+            Err(error) => return usage_err(error),
+        }
+    } else {
+        None
+    };
+    run(cli, sandbox_agent)
+}
+#[tokio::main]
+async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdentity>) -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -322,6 +333,8 @@ async fn main() -> ExitCode {
             state_dir,
         } => {
             let result = (|| -> anyhow::Result<()> {
+                let _agent = sandbox_agent
+                    .ok_or_else(|| anyhow::anyhow!("sandbox user bootstrap required"))?;
                 let _worker = WorkerConfig::load(&path)?;
                 let frozen = aq_worker::native::runner::sandbox::FrozenLaunch::load(&manifest)?;
                 frozen.validate_local(&state_dir)?;

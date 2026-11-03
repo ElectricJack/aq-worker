@@ -100,6 +100,7 @@ impl Fixture {
             resource_qualification: None,
             rendered_startup: None,
             observed: None,
+            agent_identity: None,
             private_input: Some(self.pin.clone()),
         };
         durable_new(

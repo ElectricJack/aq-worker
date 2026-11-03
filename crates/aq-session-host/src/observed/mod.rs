@@ -334,6 +334,7 @@ impl SessionHost {
             local,
             Adapter::Task(adapter),
             authority,
+            None,
         )?;
         Ok(PendingObservedSession {
             handle,

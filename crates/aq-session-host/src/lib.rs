@@ -39,6 +39,7 @@ use std::{
     time::{Duration, Instant},
 };
 use uuid::Uuid;
+pub mod users;
 pub const HOST_PROFILE: &str = "linux-subreaper-tmux-foreground-v1";
 pub const MAX_PERMIT_MS: u64 = 120000;
 /// Only the sealed named interactive PTY factory selects this limit.
@@ -342,6 +343,8 @@ pub trait LaunchAuthority {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SealedLaunch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    agent_identity: Option<users::AgentIdentity>,
     launch_id: Uuid,
     manifest: LaunchDocument,
     permit: ExecutionPermit,
@@ -486,6 +489,7 @@ impl SessionHost {
             local,
             Adapter::Task(adapter),
             authority,
+            None,
         )
         .map(|(handle, _)| handle)
     }
@@ -508,9 +512,36 @@ impl SessionHost {
             local,
             Adapter::Task(adapter),
             authority,
+            None,
         )
         .map(|(handle, _)| handle)
     }
+    /// Sandbox-only launch: seal the agent identity with the exact command.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_as_agent(
+        root: &Path,
+        launch_id: Uuid,
+        manifest: &LaunchManifest,
+        permit: ExecutionPermit,
+        local: &LocalEnvironment,
+        adapter: &impl HarnessAdapter,
+        authority: &mut impl LaunchAuthority,
+        agent: users::AgentIdentity,
+    ) -> Result<SessionHandle> {
+        agent.validate_workspace(&local.workspace)?;
+        Self::launch_inner(
+            root,
+            launch_id,
+            StartupInput::Constituents(manifest),
+            permit,
+            local,
+            adapter,
+            authority,
+            Some(agent),
+        )
+        .map(|(handle, _)| handle)
+    }
+    #[allow(clippy::too_many_arguments)]
     fn launch_inner(
         root: &Path,
         launch_id: Uuid,
@@ -519,6 +550,7 @@ impl SessionHost {
         local: &LocalEnvironment,
         adapter: Adapter<'_>,
         authority: &mut impl LaunchAuthority,
+        agent_identity: Option<users::AgentIdentity>,
     ) -> Result<(SessionHandle, Option<observed::gate::Client>)> {
         let manifest = match &startup {
             StartupInput::Constituents(m) => (*m).clone().into(),
@@ -677,6 +709,7 @@ impl SessionHost {
             .map(|input| private_inputs::Publication::reserve(&directory, input))
             .transpose()?;
         let config = SealedLaunch {
+            agent_identity,
             launch_id,
             manifest: manifest.clone(),
             permit,
@@ -716,6 +749,9 @@ impl SessionHost {
             &directory.join("launch.json"),
             &serde_json::to_vec(&config)?,
         )?;
+        if config.agent_identity.is_some() {
+            users::publish_context(launch_id, &context)?;
+        }
         for (index, bytes) in context.into_iter().enumerate() {
             durable_new(&directory.join(format!("context-{index}.bin")), &bytes)?;
         }
@@ -1473,6 +1509,7 @@ mod rendered_tests {
             expires_boot_ms: 100,
         };
         let sealed = SealedLaunch {
+            agent_identity: None,
             launch_id: Uuid::from_u128(1),
             manifest: manifest.into(),
             permit,
