@@ -7,11 +7,11 @@
   },
   "server_source": {
     "repository": "ElectricJack/aq-server",
-    "revision": "61b8d0e5a2ae34bb37f02695648e1ef1394cd9a2",
-    "note": "aq-server main containing PR #37 (merge 9b59a11d); the qual server image is built from it"
+    "revision": "2d337f368ffcfc71c5de929a38fbacaa3b0c5d75",
+    "note": "aq-server main containing PR #50 (merge 2d337f36, keen-impact-58 settlement routes); the qual server image is built from it"
   },
   "images": {
-    "server": "sha256:098efcb5a9f78f8e2f1bafc97d1d87ff3f418d6bebb14bacbde7609f1f54c0e0",
+    "server": "sha256:f7f726c88654c7b16494f0a4bee71425c25ddffa04c18b4baa86a5cac800cb6b",
     "server_support": "sha256:94a3d9adea2cf2f693cde66e8c0b58dd9d9cd3a2b47eced78545092dbefdb638",
     "graph": "sha256:807beba98dcd20b0ae335f09cae8c06ecb182a352ee78de278cb47fccb2ee3be",
     "worker_i0": "sha256:20abe6352e6a1161a70ce56ee89239487a2d50f3235701088862c131a64db389"
@@ -20,7 +20,7 @@
     "source_revision": "f4703fec23b1d7d0b4cb7bd2a9edf46031a7b5cd",
     "archive_sha256": "1632043a812d89943a46a89b98bc43cadc12684b39f7b98ccd2856141a199c15",
     "runtime_version": "0.5.1",
-    "definition_version": "2",
+    "definition_version": "3",
     "programs": {
       "aq-worker": {"path": "/opt/aq-runtime/aq-worker", "sha256": "0d438750781df46e02da155db14cc3fc1d1d4e7573a924762d32c2fafaf9fa67", "bytes": 21694176},
       "aq-session-host": {"path": "/opt/aq-runtime/aq-session-host", "sha256": "be37b8a054c3b3e79d22c9c7d8165fa2c3cf8096bb3d2c9139e96068fb3cdfda", "bytes": 1858752},

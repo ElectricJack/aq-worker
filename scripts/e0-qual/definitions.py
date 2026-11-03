@@ -45,13 +45,17 @@ SOURCE_DISK_BYTES = 2 * 10737418240 + 1073741824 + 1024 * 1024
 #    and the seccomp premise corrected to the owner-approved I0 deviation.
 # 4: owner-chatgpt-codex@1 restored to its registered (immutable) definition.
 # 5: image-bound definitions moved to version worker_i0.definition_version (see below).
-PROFILED_REVISION = 5
+# 6: server rebuilt from aq-server 2d337f36; its server_source pin is in the definition bodies.
+PROFILED_REVISION = 6
 # Same rule for [intelligence]: its harness qualification digest follows the image program pins.
 # 2: I0 re-run image f4703fe.
 # 3: harness qualification and adapter refs moved to worker_i0.definition_version.
-INTELLIGENCE_REVISION = 3
+# 4: server_source 2d337f36 (definition_version "3").
+INTELLIGENCE_REVISION = 4
 TERMINAL_KEY_ID = "e0-qual-relay-1"
 TERMINAL_KEY_FILE = "terminal-relay-key"
+REVIEWS_KEY_ID = "e0-qual-reviews-1"
+REVIEWS_KEY_FILE = "reviews-protection-key"
 DISK_BYTES = 24 * 1024 * 1024 * 1024
 FIXED_OVERHEAD_TOKENS = 16384
 TOKENS_PER_BYTE = 1
@@ -498,9 +502,16 @@ def configure(stack):
     relay_key = p["qual"] / "secrets" / TERMINAL_KEY_FILE
     if not relay_key.exists():
         stack.private_bytes(relay_key, os.urandom(32))
+    # Combined review admission seals decisions; without [reviews.protection] the settlement
+    # routes are not mounted (I0 run 13, aq-server PR #50).
+    reviews_key = p["qual"] / "secrets" / REVIEWS_KEY_FILE
+    if not reviews_key.exists():
+        stack.private_bytes(reviews_key, os.urandom(32))
     config = head + stack.base_config() + (
         f'[terminals.protection]\nactive_key_id = "{TERMINAL_KEY_ID}"\n'
-        f'keys = [{{ id = "{TERMINAL_KEY_ID}", file = "/qual-vault/{TERMINAL_KEY_FILE}" }}]\n')
+        f'keys = [{{ id = "{TERMINAL_KEY_ID}", file = "/qual-vault/{TERMINAL_KEY_FILE}" }}]\n'
+        f'[reviews.protection]\nactive_key_id = "{REVIEWS_KEY_ID}"\n'
+        f'keys = [{{ id = "{REVIEWS_KEY_ID}", file = "/qual-vault/{REVIEWS_KEY_FILE}" }}]\n')
     parsed = tomllib.loads(config)
     stack.require(parsed["intelligence"] == without_none(built["intelligence"])
                   and parsed["profiled_execution"] == without_none(built["profiled"]), "TOML round trip differs")

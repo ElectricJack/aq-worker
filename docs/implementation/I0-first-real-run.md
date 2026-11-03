@@ -1,13 +1,131 @@
 # I0: first real ChatGPT native run qualification
 
-Tasks `azure-horizon-22.1` (runs 9–11) and `calm-stone-85` (run 12). **Acceptance
-is unmet.** On 2026-11-03, run 12 completed a real Codex 0.166.0 run on the owner's
-ChatGPT login through `aq-worker run-native` against `aq-e0-qual`, with exit 0. It
-submitted a report (outcome `expired`, no change) and retained source centrally.
-Settlement could not be reached: the qualification server does not serve the
-settlement or combined-review routes (all 404). In aq-server `61b8d0e5`, no public
-route creates the combined decision that evaluation needs. The owner's
-`~/.codex/auth.json` was not refreshed and still equals its baseline.
+Tasks `azure-horizon-22.1` (runs 9–11) and `calm-stone-85` (runs 12–13).
+
+On 2026-11-03, **run 13 completed one real run end to end**, on aq-server
+`2d337f36` (PR #50, keen-impact-58). A real Codex 0.166.0 session on the owner's
+ChatGPT login made the requested one-line README edit in `ElectricJack/aq-scratch`.
+The source was retained centrally. The owner's MS0 reviewer then settled it through
+the public routes: combined prepare/admit, evaluation (503 until answered), combined
+resolve (approve), evaluation (accepted) and completion reconcile (confirmed). The
+login was not refreshed, so no writeback was needed.
+
+Run 12, on aq-server `61b8d0e5`, could not be settled. That server had no settlement
+or combined-review routes.
+
+## Run 13 — 2026-11-03 (`calm-stone-85`)
+
+Machine-readable, secret-free evidence:
+[`evidence/i0-first-real-run/run13.json`](evidence/i0-first-real-run/run13.json).
+
+Inputs:
+
+- The qual server was rebuilt from aq-server main `2d337f36`, as image
+  `sha256:f7f726c8…`. That revision mounts the settlement router, adds the
+  production combined-decision path and accepts relay uploads without a watcher.
+- Config changes, in [`definitions.py`](../../scripts/e0-qual/definitions.py) and
+  [`pins.json`](../../scripts/e0-qual/pins.json):
+  - The config now has a `[reviews.protection]` key.
+  - `worker_i0.definition_version` is "3", `PROFILED_REVISION` 6 and
+    `INTELLIGENCE_REVISION` 4. The new server pin changes the definition bodies.
+- The worker image (`20abe635…`), node, profile and model are unchanged from run 12.
+- New graph task `e0a10000-0000-4000-8000-000000000007` asks for a concrete edit.
+  Append exactly `I0 run 13 (calm-stone-85): hello from aq-worker` to README.md,
+  change nothing else, then submit the result.
+
+| Invocation | Result | Cause |
+| --- | --- | --- |
+| run 13a | exit 2 in 2.8 s, "phase local observation expired"; Codex not launched, no lease | The accept lost the offer-window race by 22 ms. See below. |
+| run 13b | exit 2 in 2.7 s, same error; Codex not launched, no lease | The proposal was sent 1 ms inside the local deadline, and its reply arrived after the deadline. |
+| **run 13c** | **exit 0, 941.0 s**, "native run: AttemptStopped; retained state preserved" | See below. |
+
+**Offer-window race (13a, 13b).**
+
+- The server's offer deadline is the minimum of several bounds, including
+  `selected.expires_at_ms` (aq-server `producer/build.rs:614`).
+- `aq-selection` caps that selection TTL at `now + 2000 ms` (`select.rs:238`).
+- The selection is computed about 0.7–0.9 s into the poll, so the offered window is
+  about 1.4–1.8 s.
+- The worker's local deadline starts at poll send (`http_profile.rs:88` `live()`),
+  which counts the poll latency twice.
+- With host load at 11–18 (one visible CPU, shared with other agents' builds), the
+  accept misses that window. Run 12 won it by about 20 ms.
+- For 13c, the qual containers and the worker got `--cpu-shares 8192`. They were
+  reset to 1024 afterwards.
+- 13c launched at load 11.23, its poll took 1.0 s and the accept succeeded.
+- Neither 13a nor 13b leased the login or used Codex quota. Their state is
+  preserved in the worker volume under `/state/preserved/run13a` and `run13b`.
+
+**Run 13c.**
+
+- Run IDs:
+  - Container `aq-i0-run13`, 18:16:03Z to 18:31:46Z.
+  - Attempt `f246a730-1fcd-5c62-a4a2-d98f4851eaab`, offer `dce3972e…`, generation
+    3, grant `53437605…`.
+- Every worker route in the run window answered 200. That includes all 423
+  terminal-relay uploads; run 12 had 214 × 409 on the same uploads, so the
+  upload-without-watcher fix works. There were 62 heartbeats and 32 artifact calls.
+- Codex made the edit, checked it itself and **submitted its in-session result at
+  18:16:38Z**, 35 s after launch.
+- The session then stayed open until the 900 s wall limit, so report
+  `095807a2-9dc3-4a16-be5a-9abbb26c2730` has process outcome **`expired`**. The
+  in-session conclusion is recorded unchanged. The cause is in
+  `runner/codex.rs`: the run loop ends only on cancel, deadline or natural pane exit,
+  and a recorded result claim does not stop the session. That is a follow-up below.
+- **Retained source change.**
+  - Transfer `df5a8007…` is retained, with source receipt `74145d1f…`.
+  - Checkpoint `17fe8a72` has the single parent `2e32645`.
+  - The central object store was read directly. `README.md | 1 +` adds exactly the
+    requested line, with a single trailing newline. Every earlier byte is unchanged.
+
+**Settlement (owner MS0 reviewer, `:32848`, dev owner identity).**
+
+| Step | Route | Result |
+| --- | --- | --- |
+| prepare | `POST /api/reviews/combined/prepare` | 200, subject `5530ae7f…` |
+| admit | `POST /api/reviews/combined` | 200, decision `2c66a3c3…`, echoed subject equal |
+| inspect | `GET /api/reviews/combined/{id}` | 200, pending, revision 1, criteria and recorded result shown |
+| evaluate | `POST /api/settlement/evaluations` | 503 `updates_unavailable`, "combined review has no recorded answer" |
+| resolve | `POST /api/reviews/combined/{id}/resolve` | 200, **approve**, revision 2, `human_answer` |
+| evaluate (same intent) | `POST /api/settlement/evaluations` | 200, `d58ab4f8…` **accepted**, release `c821499f…` |
+| lookup | `GET /api/settlement/evaluations/{op}` | 200, same receipt |
+| reconcile | `POST /api/settlement/completions/b196d43a…/reconcile` | 200, **confirmed**, dispatch 1; graph task at version 2 / content revision 2; recovery none |
+
+After settlement, the DB shows:
+
+- `execution_attempts.holds_task` is false.
+- The evaluation is accepted.
+- `profiled_verified_releases` has `c821499f`, under the e0-qual terminal-refresh
+  qualification.
+- The completion is confirmed, with `outbox_acknowledged` still false.
+- The source transfer is still retained.
+- The attempt's state JSON (record revision 2) still says `offered` / retention
+  `pending`. It was not updated by settlement.
+
+**Login.** It was not refreshed, so no writeback was needed.
+
+- After the run, these three are each byte-identical to the pre-run baseline (sha256
+  prefix `98a9a084`, 4017 bytes):
+  - the owner's `~/.codex/auth.json` (still 0600, with an unchanged mtime);
+  - the leased material in the worker volume;
+  - the server vault copy.
+- There are no other login files in the worker volume, and `docker diff aq-i0-run13`
+  shows no auth paths.
+- The writeback path (`scripts/i0-auth-writeback.py`) therefore stays verified only
+  with synthetic logins.
+- `aq-i0-run13`, `aq-i0-run13a` and `aq-i0-run13b` are kept.
+
+**Follow-ups found by run 13. Not filed: this token cannot list or create tasks.**
+
+1. Worker: end the native session, or report a completed process outcome, once the
+   in-session result is recorded. Today a completed edit holds Codex for the full
+   wall limit and reports `expired`.
+2. Server/worker: the profiled offer window, about 1.4–1.8 s from the 2 s selection
+   TTL, is shorter than poll plus accept on a loaded host. The worker also counts
+   poll latency twice.
+3. Server: the attempt's state JSON and `outbox_acknowledged` are not updated after
+   confirmed completion. This is cosmetic for settlement, but it misleads anyone
+   inspecting the attempt.
 
 ## Run 12 — 2026-11-03 (`calm-stone-85`)
 
