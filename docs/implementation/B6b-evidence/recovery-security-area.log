@@ -1,0 +1,35 @@
+    Blocking waiting for file lock on build directory
+   Compiling aq-terminal-bridge v0.1.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-terminal-bridge)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 23s
+     Running tests/sandbox_runner.rs (target/debug/deps/sandbox_runner-a8f34a172f7511bf)
+
+running 12 tests
+test cancellation_preserves_and_default_local_permit_is_at_most_120_seconds ... ok
+test delegated_permit_expiry_caps_initial_grant ... ok
+test frozen_handoff_rejects_reboot_changed_manifest_and_directory_copy ... ok
+test production_cli_refuses_missing_prerequisites_or_unwired_transport_before_launch ... ok
+test concurrent_handoff_has_only_one_writer_launch ... ok
+test renewal_keeps_same_guardian_alive_past_original_deadline ... ok
+test renewal_loss_stops_and_preserves_without_relaunch ... ok
+test runner_cannot_report_before_handoff_receipts ... ok
+test sandbox_run_cli_requires_frozen_manifest_and_state ... ok
+test tmux_exit_requires_descendant_stop_proof ... ok
+test unknown_stop_retains_without_reporting_or_claiming_proof ... ok
+test renewal_replay_wrong_nonce_and_readoption_never_extend_authority ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.13s
+
+     Running tests/sandbox_security.rs (target/debug/deps/sandbox_security-f19f20fa64c4d5ad)
+
+running 8 tests
+test aq_proxy_injects_access_header_without_exposing_token ... ok
+test aq_proxy_refuses_compressed_access_echo ... ok
+test aq_proxy_refuses_non_machine_origins_and_unsafe_access_files ... ok
+test aq_proxy_shutdown_cancels_concurrent_incomplete_requests ... ok
+test runner_private_files_refuse_oversized_and_malformed_secrets ... ok
+test runner_private_layout_refuses_unsafe_secret_files ... ok
+test runner_responses_proxy_keeps_provider_key_at_upstream ... ok
+test agent_user_cannot_read_permit_or_proxy_key ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.48s

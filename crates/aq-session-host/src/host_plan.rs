@@ -308,6 +308,7 @@ impl SessionHost {
             local,
             Adapter::Plan(adapter),
             authority,
+            None,
         )
         .map(|(h, _)| h)
     }

@@ -1,0 +1,46 @@
+    Blocking waiting for file lock on build directory
+   Compiling aq-session-host v0.1.6 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-session-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 11s
+     Running unittests src/lib.rs (target/debug/deps/aq_session_host-dc6a7127fd5bb61e)
+
+running 2 tests
+test users::tests::agent_workspace_refuses_runner_private_ancestors ... ok
+test users::tests::sandbox_identities_refuse_root_and_missing_accounts ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 56 filtered out; finished in 0.04s
+
+     Running unittests src/main.rs (target/debug/deps/aq_session_host-9ae4adb34d4db58f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capsule_candidate.rs (target/debug/deps/capsule_candidate-09a16aac096e3c14)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_tmux.rs (target/debug/deps/local_tmux-c77e0432686962c0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+     Running tests/named_readonly.rs (target/debug/deps/named_readonly-89acfa792c576ff0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/prepared_responses.rs (target/debug/deps/prepared_responses-fdb9666547a4900c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/supervisor_session.rs (target/debug/deps/supervisor_session-97cef6f869bd5668)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s

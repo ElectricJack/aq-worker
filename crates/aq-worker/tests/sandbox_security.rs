@@ -196,6 +196,7 @@ fn agent_user_cannot_read_permit_or_proxy_key() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    print!("{}", String::from_utf8_lossy(&output.stdout));
 }
 
 #[tokio::test]

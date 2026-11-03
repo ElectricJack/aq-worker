@@ -2,7 +2,7 @@
 
 Task: `noble-summit-37.8`. Implementation plan: [runner users and proxies](../superpowers/plans/2026-11-02-B6b-runner-users-proxies.md).
 
-Status: the original named security acceptance tests pass, but supervisor approval conditions remain unmet and complete-suite qualification failed. The task branch is retained for recovery. See the qualification outcome below.
+Status: **PASS** for both named acceptance tests and all current scoped checks under supervisor ruling `msg-7ea45832655a419ea5723f75e6c1212f`. The approved residual bounding set is documented below. Historical claim-epoch-1 full-suite failures remain part of this record; no full-suite pass is claimed.
 
 ## Behavior and integration
 
@@ -48,9 +48,9 @@ Independent test-infrastructure follow-up `noble-impact-55` records the three re
 
 The existing sandbox-runner CLI assertion initially required reaching the unavailable-transport error on a host without sandbox users. B6b intentionally validates those prerequisites before runtime startup. The updated test accepts only the explicit missing-account, missing-capability, root-entrypoint or transport refusal diagnostics, and still verifies no sandbox state or harness claim is created. It does not claim that this host reached the later transport check. The same compatibility attempt also reported an uncertain stop in the renewal case; its outcome is retained with the final rerun below.
 
-## Qualification outcome
+## Historical claim-epoch-1 qualification outcome
 
-**FAIL: supervisor approval conditions are unmet and complete-suite qualification is not green.** The third attempt used `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 TOKIO_WORKER_THREADS=2 cargo test --locked`. Worker unit tests ended at 239 passed, 2 failed, 18 ignored: `actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap` reported `native reservation expired`, and `phase_execution_history_reopen_refuses_changed_runtime_request_and_sender_cap` reported `phase local observation expired`. [Complete serial-run output](B6b-evidence/workspace-third-failure.log). There is no claim of a successful full suite or of independently establishing the scheduling/storage root cause.
+**Historical FAIL: the then-current supervisor approval conditions were unmet and complete-suite qualification was not green.** The third attempt used `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 TOKIO_WORKER_THREADS=2 cargo test --locked`. Worker unit tests ended at 239 passed, 2 failed, 18 ignored: `actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap` reported `native reservation expired`, and `phase_execution_history_reopen_refuses_changed_runtime_request_and_sender_cap` reported `phase local observation expired`. [Complete serial-run output](B6b-evidence/workspace-third-failure.log). There is no claim of a successful full suite or of independently establishing the scheduling/storage root cause.
 
 The first close was refused for pending feedback. Consumed supervisor message `msg-fd87d262f1154c31a422683179e7bd72` provisionally approved retaining only SETUID/SETGID/KILL across runner/helper exec, conditional on clearing **all** agent capability sets, including bounding, and proving the harness cannot signal runner-owned processes outside its pane. It also forbids a setuid helper, root guardian, image edits or widening privileges. These conditions are **not met**: the current code has no bounding-set clearing operation; the kernel probe asserts only CapInh/CapPrm/CapEff/CapAmb, and has no explicit outside-pane signal-denial probe. The executor stopped privilege work and replied to the supervisor with these gaps. No privilege widening or additional security qualification is claimed. The arrangement needs an approved implementation satisfying those conditions before a passing close.
 
@@ -59,3 +59,40 @@ The final `cargo test --locked --workspace --test sandbox_runner` passes 12/12 w
 Final formatting, compatibility, Clippy and standalone-feature command exit statuses are all zero ([status record](B6b-evidence/final-status.log)). The [execution ledger](B6b-evidence/progress.md) retains scope rulings, deferred coverage probes and unsuccessful complete-suite attempts. Full-suite success, final passing publication/squash, and production integration remain unmet.
 
 Published command logs normalize trailing whitespace only; raw local outputs remain under `.aq/tmp/B6b`.
+
+## Recovery qualification (claim epoch 2)
+
+Supervisor ruling `msg-7ea45832655a419ea5723f75e6c1212f` supersedes the earlier bounding-clear condition: no SETPCAP, bootstrap capability changes, or backend/image policy changes. The approved residual bounding mask is `0xe0` (KILL/SETGID/SETUID), alongside `no_new_privs=1` and zero Inh/Prm/Eff/Amb. This is a documented file/user boundary limitation. The attributed [bright-nexus-60 prerequisite probe](B6b-evidence/bounding-prerequisite.log) shows `PR_CAPBSET_DROP(CAP_KILL)` returning `-1, EPERM` both at the minimal root entrypoint and after dropping to agent. That log was produced by bright-nexus-60, copied from its slot-1 evidence, and is not represented as a new execution by this worker. The recovered kernel fixture additionally asserts the actual `0xe0` residual in both direct and real tmux agent processes.
+
+Inherited merge `925eedc` did not compile: `launch_as_agent` passed a bare HarnessAdapter after main introduced `host_plan::Adapter`, and `launch_plan` omitted the optional agent identity argument. Commit `f25329e` repairs both call sites without changing the privilege mechanism. The [RED compiler log](B6b-evidence/recovery-integration-red.log) is retained. The affected `cargo test --locked -p aq-session-host --test supervisor_session` passes 7/7 after the repair.
+
+The agent probe carries the live runner PID as a nonsecret argument, verifies its runner UID through `/proc`, requires distinct runner/agent sessions, and requires signal 0 and SIGCONT to fail with `EPERM` in both the direct subprocess and the actual tmux harness. An initial [RED run](B6b-evidence/recovery-signal-session-red.log) exposed Linux's same-session SIGCONT exception in the standalone fixture. Its dedicated subprocess now calls `setsid` before dropping privileges, matching the independent session already supplied by tmux. This adds no namespaces or production privilege changes. The direct and real-pane probes both pass the signal checks. Escaped-descendant stop proof and private-file denial remain enforced.
+
+Recovery uses `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 TOKIO_WORKER_THREADS=2`, the committed lockfile, and the same pinned root fixture image. Current prime instructions require focused/area checks and preservation of known unrelated failing baselines; the historical full-suite failures above are retained, and no new full-suite pass is claimed.
+
+Final-source required filters both report one passing named test, with no zero-test substitution: `cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key` and `cargo test --locked --workspace aq_proxy_injects_access_header_without_exposing_token`. `cargo clippy --locked --all-targets -- -D warnings` and `cargo fmt --check` pass. Related-area results and the verified source revision follow.
+
+Recovery qualification source: `ebc4b27f0bf4883d972865184086c35a82663b58`, already including `origin/main` at `5e05a02816d95122877f6e9fe29ba3055f1f371f`. `aq git pull --branch main --brief` succeeded and changed no files; ancestor validation passed. The final publication adds documentation and logs only. Already-reviewed/published feature history and integration ancestry are preserved. The close record supplies the final publication SHA.
+
+| Exact command | Result | Evidence |
+| --- | --- | --- |
+| `cargo test --locked --workspace agent_user_cannot_read_permit_or_proxy_key` | 1 named test passed | [user filter](B6b-evidence/recovery-required-user-final.log) |
+| `cargo test --locked --workspace aq_proxy_injects_access_header_without_exposing_token` | 1 named test passed | [AQ filter](B6b-evidence/recovery-required-access.log) |
+| `cargo test --locked -p aq-worker --test sandbox_security --test sandbox_runner` | security 8/8; runner 12/12 | [area results](B6b-evidence/recovery-security-area.log) |
+| `cargo test --locked -p aq-session-host --test supervisor_session` | 7/7 | [host-plan results](B6b-evidence/recovery-host-plan.log) |
+| `cargo test --locked -p aq-session-host users::tests` | 2/2 | [users results](B6b-evidence/recovery-users.log) |
+| `cargo fmt --check` | exit 0 | [formatter output](B6b-evidence/recovery-fmt-final.log) |
+| `cargo clippy --locked --all-targets -- -D warnings` | exit 0 | [Clippy output](B6b-evidence/recovery-clippy.log) |
+| `scripts/test-b6b-root.sh target/debug/aq-b6b-user-probe` | all kernel assertions passed | [kernel evidence](B6b-evidence/recovery-kernel-probe.log) |
+
+[Exit-status ledger](B6b-evidence/recovery-status.log). No historical whole-suite failures were weakened or silently treated as passes. Production transport/Codex configuration remain with B6a2/C6a, as required by the task boundary. Recovery introduces no production privilege or backend policy changes.
+
+## NNP exec follow-up (`bright-nexus-60`)
+
+Owner decision `msg-41a79caaab604f9fb2151bae2ef550bf` replaces the empty-bounding-set condition: agent Inh/Prm/Eff/Amb must be empty, NNP must be set, CapBnd must be a subset of KILL/SETGID/SETUID, and one fast exec probe must show that those capabilities cannot be regained. No SETPCAP or bootstrap/backend/image prerequisite changes are authorized. The `0xe0` residual and EPERM rationale above remain applicable; the original [standalone source](B6b-followup-evidence/bounding-prerequisite.c) and [output](B6b-followup-evidence/bounding-prerequisite.log) preserve this worker's prerequisite evidence.
+
+This follow-up merges prerequisite recovery head `700532d6d7329eb18ab20ac399e7466f72e9ce0f`. Its single signal-0/SIGCONT outside-pane probe and launch-call repairs are retained from that worker, replacing the independently authored duplicate in preliminary follow-up commit `9a1bba2`. No additional signal regression or policy change is introduced here.
+
+Inside the disposable kernel fixture only, root creates a root-owned 04755 copy of the existing probe executable. A positive control exec from the agent UID without NNP must regain effective UID 0 and CapEff `0xe0`, proving the fixture filesystem honors setuid. The actual agent transition then executes the same file with NNP set: all real/effective agent IDs, empty supplementary groups, zero Inh/Prm/Eff/Amb, NNP=1 and a bounding mask contained in `0xe0` must survive that exec. These assertions also run in the existing direct and tmux probe paths. This is an exec regression trap in the test container, not an installed or production setuid helper. The wrapper and production privilege mechanism are unchanged.
+
+Final validation runs only `cargo test --locked -p aq-worker --test sandbox_security agent_user_cannot_read_permit_or_proxy_key -- --exact --nocapture`, with `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 TOKIO_WORKER_THREADS=2`, inside AQ's foreground test gate. The [saved adapter](B6b-followup-evidence/test_cargo_nnp.py) makes this repeatable with `aq test docs/implementation/B6b-followup-evidence/test_cargo_nnp.py`. Final result: PASS, 1 named test passed, 0 failed/ignored, 7 filtered out; runtime 4.12 seconds. [Cargo evidence](B6b-followup-evidence/nnp-exec.log), [AQ gate evidence](B6b-followup-evidence/aq-nnp-exec.log). Earlier follow-up 8/8 security and 7/7 host-plan logs are historical checks of preliminary commit `9a1bba2`; the inherited recovery qualification above has its own source revision and evidence. No new broad or full-suite run is required or claimed.

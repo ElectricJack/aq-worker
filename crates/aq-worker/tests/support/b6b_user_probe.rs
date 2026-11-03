@@ -5,7 +5,15 @@ use aq_session_host::{
     *,
 };
 use aq_worker::native::runner::sandbox::private::RunnerFiles;
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, time::Duration};
+use std::{
+    fs,
+    os::unix::{
+        fs::{MetadataExt, PermissionsExt},
+        process::CommandExt,
+    },
+    path::Path,
+    time::Duration,
+};
 const RUNNER: AgentIdentity = AgentIdentity {
     uid: 21001,
     gid: 21001,
@@ -19,12 +27,43 @@ fn main() -> Result<()> {
     if matches!(args.get(1).map(String::as_str), Some("guardian" | "pane")) {
         return helper_main();
     }
+    if args.get(1).is_some_and(|s| s == "setuid-positive-control") {
+        ensure!(
+            unsafe { libc::getuid() } == AGENT.uid && unsafe { libc::geteuid() } == 0,
+            "fixture setuid executable did not elevate without NNP"
+        );
+        ensure!(
+            fs::read_to_string("/proc/self/status")?
+                .lines()
+                .any(|line| line == "CapEff:\t00000000000000e0"),
+            "fixture setuid executable did not restore allowed capabilities"
+        );
+        println!("positive control: setuid exec without NNP restored root and CapEff=0xe0");
+        return Ok(());
+    }
+    if args.get(1).is_some_and(|s| s == "exec-privilege-probe") {
+        agent_privileges()?;
+        println!(
+            "setuid exec with NNP retained agent UID, empty Inh/Prm/Eff/Amb and bounded CapBnd"
+        );
+        return Ok(());
+    }
     if args.get(1).is_some_and(|s| s == "agent-probe") {
+        // Like a tmux pane, the standalone probe must have its own session:
+        // Linux permits cross-UID SIGCONT within a shared session.
+        ensure!(unsafe { libc::setsid() } >= 0, "fixture agent session");
         AGENT.drop_privileges()?;
-        return agent_probe(Path::new(&args[2]));
+        agent_probe(Path::new(&args[2]), args[3].parse()?)?;
+        checked_output(
+            std::process::Command::new(&args[4])
+                .arg("exec-privilege-probe")
+                .env_clear(),
+        )?;
+        return Ok(());
     }
     if args.get(1).is_some_and(|s| s == "harness") {
-        agent_probe(Path::new(&args[2]))?;
+        let runner_pid = args[3].parse()?;
+        agent_probe(Path::new(&args[2]), runner_pid)?;
         let input = std::env::var_os("AQ_SESSION_DIRECTORY")
             .ok_or_else(|| anyhow::anyhow!("missing startup context directory"))?;
         ensure!(
@@ -57,6 +96,32 @@ fn main() -> Result<()> {
         "runner:x:21001:21001:runner:/tmp:/bin/sh\nagent:x:21002:21002:agent:/tmp:/bin/sh\n",
     );
     fs::write("/etc/passwd", passwd)?;
+    // A disposable fixture trap, never a production helper. The positive
+    // control proves this filesystem honors setuid before testing the NNP fence.
+    let exec_dir = tempfile::tempdir()?;
+    fs::set_permissions(exec_dir.path(), fs::Permissions::from_mode(0o755))?;
+    let setuid_executable = exec_dir.path().join("setuid-probe");
+    fs::copy(std::env::current_exe()?, &setuid_executable)?;
+    fs::set_permissions(&setuid_executable, fs::Permissions::from_mode(0o4755))?;
+    let meta = fs::metadata(&setuid_executable)?;
+    ensure!(
+        meta.uid() == 0 && meta.mode() & 0o7777 == 0o4755,
+        "setuid fixture metadata"
+    );
+    let mut control = std::process::Command::new(&setuid_executable);
+    control.arg("setuid-positive-control").env_clear();
+    unsafe {
+        control.pre_exec(|| {
+            if libc::setgroups(0, std::ptr::null()) != 0
+                || libc::setgid(AGENT.gid) != 0
+                || libc::setuid(AGENT.uid) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    checked_output(&mut control)?;
     ensure!(bootstrap_sandbox_users()? == AGENT, "named agent identity");
     ensure!(
         unsafe { libc::getuid() } == RUNNER.uid
@@ -76,7 +141,12 @@ fn main() -> Result<()> {
     }
     durable_new(&files.root().join("state/journal.json"), b"journal-secret")?;
     let output = std::process::Command::new(std::env::current_exe()?)
-        .args(["agent-probe", files.root().to_str().unwrap()])
+        .args([
+            "agent-probe",
+            files.root().to_str().unwrap(),
+            &std::process::id().to_string(),
+            setuid_executable.to_str().unwrap(),
+        ])
         .env_clear()
         .output()?;
     ensure!(
@@ -84,6 +154,7 @@ fn main() -> Result<()> {
         "agent probe failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    print!("{}", String::from_utf8_lossy(&output.stdout));
     let workspace = dir.path().join("workspace");
     fs::create_dir(&workspace)?;
     // Fixture-only shared workspace; production hydration supplies agent ownership.
@@ -127,7 +198,7 @@ fn main() -> Result<()> {
         &manifest,
         permit,
         &local,
-        &Adapter(files.root().to_owned()),
+        &Adapter(files.root().to_owned(), std::process::id()),
         &mut Authority,
         AGENT,
     )?;
@@ -149,7 +220,7 @@ fn main() -> Result<()> {
         "agent descendant still writing"
     );
     println!(
-        "runner UID 21001, agent UID 21002; credential denial, empty groups/caps, tmux execution and descendant stop proven"
+        "runner UID 21001, agent UID 21002; credential denial, empty groups and Inh/Prm/Eff/Amb, residual CapBnd=0xe0, no_new_privs=1, outside-pane signal 0/SIGCONT denied with EPERM, tmux execution and descendant stop proven"
     );
     Ok(())
 }
@@ -164,31 +235,9 @@ fn boot_ms() -> u64 {
     );
     ts.tv_sec as u64 * 1000 + ts.tv_nsec as u64 / 1_000_000
 }
-fn agent_probe(root: &Path) -> Result<()> {
-    ensure!(
-        unsafe { libc::getuid() } == 21002
-            && unsafe { libc::geteuid() } == 21002
-            && unsafe { libc::getgid() } == 21002
-            && unsafe { libc::getegid() } == 21002,
-        "agent IDs"
-    );
-    ensure!(
-        unsafe { libc::getgroups(0, std::ptr::null_mut()) } == 0,
-        "agent supplementary groups"
-    );
-    let status = fs::read_to_string("/proc/self/status")?;
-    ensure!(
-        status.lines().any(|line| line == "NoNewPrivs:\t1"),
-        "agent may regain exec privileges"
-    );
-    for field in ["CapInh", "CapPrm", "CapEff", "CapAmb"] {
-        ensure!(
-            status
-                .lines()
-                .any(|line| line == format!("{field}:\t0000000000000000")),
-            "agent retained capabilities"
-        );
-    }
+fn agent_probe(root: &Path, runner_pid: libc::pid_t) -> Result<()> {
+    agent_privileges()?;
+    signal_denial(runner_pid)?;
     for name in [
         "permit.json",
         "provider.key",
@@ -221,7 +270,80 @@ fn agent_probe(root: &Path) -> Result<()> {
     ensure!(unsafe { libc::setuid(0) } != 0, "agent regained root");
     Ok(())
 }
-struct Adapter(std::path::PathBuf);
+fn checked_output(command: &mut std::process::Command) -> Result<()> {
+    let output = command.output()?;
+    ensure!(
+        output.status.success(),
+        "exec probe failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    Ok(())
+}
+fn signal_denial(runner_pid: libc::pid_t) -> Result<()> {
+    // Owned by the prerequisite worker; retain its single outside-pane probe.
+    let runner_status = fs::read_to_string(format!("/proc/{runner_pid}/status"))?;
+    ensure!(
+        runner_pid > 0
+            && runner_pid != unsafe { libc::getpid() }
+            && runner_status
+                .lines()
+                .any(|line| { line == format!("Uid:\t{0}\t{0}\t{0}\t{0}", RUNNER.uid) }),
+        "signal target must be the live runner process"
+    );
+    let agent_session = unsafe { libc::getsid(0) };
+    let runner_session = unsafe { libc::getsid(runner_pid) };
+    ensure!(
+        agent_session > 0 && runner_session > 0 && agent_session != runner_session,
+        "signal target must be outside the agent pane session"
+    );
+    for signal in [0, libc::SIGCONT] {
+        ensure!(
+            unsafe { libc::kill(runner_pid, signal) } == -1
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM),
+            "agent could signal runner outside its pane"
+        );
+    }
+    Ok(())
+}
+fn agent_privileges() -> Result<()> {
+    ensure!(
+        unsafe { libc::getuid() } == 21002
+            && unsafe { libc::geteuid() } == 21002
+            && unsafe { libc::getgid() } == 21002
+            && unsafe { libc::getegid() } == 21002,
+        "agent IDs"
+    );
+    ensure!(
+        unsafe { libc::getgroups(0, std::ptr::null_mut()) } == 0,
+        "agent supplementary groups"
+    );
+    let status = fs::read_to_string("/proc/self/status")?;
+    ensure!(
+        status.lines().any(|line| line == "NoNewPrivs:\t1"),
+        "agent may regain exec privileges"
+    );
+    for field in ["CapInh", "CapPrm", "CapEff", "CapAmb"] {
+        ensure!(
+            status
+                .lines()
+                .any(|line| line == format!("{field}:\t0000000000000000")),
+            "agent retained {field} capabilities"
+        );
+    }
+    // The fixture grants exactly KILL/SETGID/SETUID. Clearing their bounding
+    // bits would require SETPCAP, which the approved bootstrap does not grant.
+    let bound = status
+        .lines()
+        .find_map(|line| line.strip_prefix("CapBnd:\t"))
+        .ok_or_else(|| anyhow::anyhow!("missing CapBnd"))?;
+    ensure!(
+        u64::from_str_radix(bound, 16)? & !0xe0 == 0,
+        "agent bounding set exceeds KILL/SETGID/SETUID"
+    );
+    Ok(())
+}
+struct Adapter(std::path::PathBuf, u32);
 impl HarnessAdapter for Adapter {
     fn prepare(&self, m: &aq_session_protocol::LaunchManifest, _: &Path) -> Result<AdapterLaunch> {
         Ok(AdapterLaunch {
@@ -233,7 +355,11 @@ impl HarnessAdapter for Adapter {
             capabilities: m.harness.required_capabilities.clone(),
             command: LocalCommand {
                 executable: std::env::current_exe()?,
-                arguments: vec!["harness".into(), self.0.to_str().unwrap().into()],
+                arguments: vec![
+                    "harness".into(),
+                    self.0.to_str().unwrap().into(),
+                    self.1.to_string(),
+                ],
                 environment: Default::default(),
             },
         })

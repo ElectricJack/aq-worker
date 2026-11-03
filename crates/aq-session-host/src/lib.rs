@@ -535,7 +535,7 @@ impl SessionHost {
             StartupInput::Constituents(manifest),
             permit,
             local,
-            adapter,
+            Adapter::Task(adapter),
             authority,
             Some(agent),
         )
