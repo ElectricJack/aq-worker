@@ -118,6 +118,12 @@ profile setting is changed. The `ENV` follows the install steps so their
 build cache is unaffected. A harness that clears its tool environment must
 forward these values itself for them to reach agent commands.
 
+The Rust recipe adds an install step that writes `/.cargo/config.toml` with
+`[build] jobs = 1`, sized for 2 vCPU / 4 GB sandboxes. It is the
+lowest-priority Cargo config and survives a cleared environment.
+Repository configs, `CARGO_BUILD_JOBS` and `-j` still override it. Rust
+1.96.1 already links with its bundled `rust-lld`, so no linker flag is set.
+
 Finalize requires runner and agent passwd entries, executable `tmux`, `bwrap`
 and `git` on PATH, and a nonempty `/opt/aq/manifest.json`. Missing requirements
 fail BuildKit. Scan then validates the installed schema-1 bundle manifest

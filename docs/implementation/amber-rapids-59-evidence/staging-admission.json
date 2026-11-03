@@ -25,7 +25,8 @@
       "version": "1"
     },
     "archive_sha256": "d6ddd7bca65bbf8bb01269264e570e1db7f1c77a95b9a5594c84bc86e0e3bc31",
-    "staging_reference": "127.0.0.1:5138/electricjack/aq-template-staging@sha256:cfdf741b7ea51745fbf899c58378472e57ee10e75add1bdf1dbcde78a9cce643"
+    "staging_reference": "127.0.0.1:5138/electricjack/aq-template-staging@sha256:cfdf741b7ea51745fbf899c58378472e57ee10e75add1bdf1dbcde78a9cce643",
+    "superseded_by": "rust-jobs"
   },
   {
     "name": "node",
@@ -54,5 +55,35 @@
     },
     "archive_sha256": "4009fee095c963934ad99b0bbbee2d20b83952432e10e0a700c1377be134e31e",
     "staging_reference": "127.0.0.1:5138/electricjack/aq-template-staging@sha256:3351026cfe4b15613146174e2bb519fae3454d61613ae7702f33a8f3406a3e99"
+  },
+  {
+    "name": "rust",
+    "label": "rust-jobs",
+    "recipe": "amber-rapids-59-evidence/rust.recipe.json",
+    "entry": {
+      "harness_versions": {
+        "codex": "0.166.0"
+      },
+      "image_digest": "sha256:42ac1990e864112c47831ae8bed7f45b004a7291d6828f158083f6e8eff48a1c",
+      "image_reference": "ghcr.io/electricjack/aq-template@sha256:42ac1990e864112c47831ae8bed7f45b004a7291d6828f158083f6e8eff48a1c",
+      "materializations": {},
+      "name": "rust",
+      "provenance": {
+        "base_digest": "sha256:f6344f0456cbc11ef543b0060a808b4532c3a928b5b110d875065efbf9e066bd",
+        "builder_identity": "amber-rapids-59-staging",
+        "built_at": "2026-11-03T15:17:05.896054+00:00",
+        "credential_scan_policy": "aq-credential-scan-v1",
+        "finalize_policy": "aq-finalize-v1",
+        "harness_versions": {
+          "codex": "0.166.0"
+        },
+        "image_digest": "sha256:42ac1990e864112c47831ae8bed7f45b004a7291d6828f158083f6e8eff48a1c",
+        "recipe_digest": "sha256:4fe5c0745f7866f1ec486eb87e326462870aee5c48c9c2c3332b1074c9a90401",
+        "runtime_bundle_digest": "sha256:13a64d6dfbedd8cb2e31b26a18670c71f6b43efd800eff94d62fc3b1d2bc2176"
+      },
+      "version": "1"
+    },
+    "archive_sha256": "33295f762caf8f5e6f46a8f2bb0dca3f3871257765912c9b061a453f58febac0",
+    "staging_reference": "127.0.0.1:5138/electricjack/aq-template-staging@sha256:42ac1990e864112c47831ae8bed7f45b004a7291d6828f158083f6e8eff48a1c"
   }
 ]

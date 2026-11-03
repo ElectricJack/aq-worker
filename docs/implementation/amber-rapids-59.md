@@ -79,6 +79,63 @@ SHA-256 readback matched both digests.
   `-C debuginfo=line-tables-only` and no `-C incremental` for both the dev and
   test builds.
 
+## Rust template sizing for the owner's boat (2 vCPU / 4 GB)
+
+The owner later asked for two more Rust-only defaults: one build job, and a
+low-memory linker.
+
+- **One build job.** The recipe schema has no environment field, and the
+  shared `CARGO_ENV` line covers every template, so the default lives in the
+  Rust recipe instead. `amber-rapids-59-evidence/rust.recipe.json` is the C3c
+  seed recipe plus one install step that writes `/.cargo/config.toml` with
+  `[build] jobs = 1`. Cargo reads this file from every working directory under
+  `/`, at the lowest priority:
+  - repository `.cargo/config.toml` files, `CARGO_BUILD_JOBS` and `-j` all
+    still win;
+  - unlike image ENV, it still applies when the harness clears the tool
+    environment (see `swift-vault-73`).
+
+  **C3c must adopt this recipe** in
+  `aq/calm-delta-18.5:packaging/sandbox/recipes/rust.json`, replacing the
+  seed copy, before it publishes.
+- **Low-memory linker.** No change was needed. Rust 1.96.1 already links
+  `x86_64-unknown-linux-gnu` with its bundled `rust-lld`: `--print link-args`
+  in the template shows `-B…/rustlib/x86_64-unknown-linux-gnu/bin/gcc-ld`
+  and `-fuse-ld=lld`. mold is not in the image. Adding an explicit
+  `RUSTFLAGS`/`build.rustflags` linker flag would be redundant. It would also
+  replace (with `RUSTFLAGS`) or merge into (with config) the repository's own
+  rustflags, so it was left out.
+
+Rebuilt rust@1 image (staging admission, fresh disposable allowlist):
+`sha256:42ac1990e864112c47831ae8bed7f45b004a7291d6828f158083f6e8eff48a1c`.
+It was copied with `--preserve-digests` to the loopback mirror, and a
+raw-manifest readback matched the digest. It supersedes the rust digest in
+the table above. The node digest is unchanged.
+
+Its recipe digest is
+`sha256:4fe5c0745f7866f1ec486eb87e326462870aee5c48c9c2c3332b1074c9a90401`.
+
+### Peak memory: targeted aq-server test build
+
+The run used a `git archive` of aq-server `283e4cc7`. The rebuilt rust@1
+image was launched with `--memory 4g --memory-swap 4g --cpus 2 --cap-drop ALL
+--security-opt no-new-privileges --user agent`, which is the boat size. The
+script ran `cargo fetch --locked`, then
+`cargo test --locked -p aq-server --test config`, measured from a cold
+target dir. Script and log: `amber-rapids-59-evidence/{measure.sh,aq-server-peak-rss.log}`.
+
+| measure | value |
+| --- | --- |
+| cgroup `memory.peak` (includes page cache) | 2,925,645,824 B (2.72 GiB) |
+| largest single process max RSS (`getrusage` children) | 2,380,116 KiB (2.27 GiB) |
+| `memory.events` max / oom / oom_kill | 0 / 0 / 0 |
+| result | 13 passed; build finished in 7m 16s |
+
+The peak stays under the 4 GB limit with about 1.3 GiB to spare. Inside the
+container, `nproc` reports the host's 24 CPUs; the cgroup quota
+(`cpu.max 200000 100000`) is what limits it to 2 vCPU. The jobs default
+therefore comes from `/.cargo/config.toml`, not from CPU detection.
+
 ## Limits
 
 - **GHCR publication not performed: needs GHCR token.** `GHCR_TOKEN`,
