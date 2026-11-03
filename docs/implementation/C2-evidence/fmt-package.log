@@ -1,0 +1,39 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 3 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C1-evidence/test_cargo_check.py -n 0 -s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1
+plugins: hypothesis-6.169.0, anyio-4.14.2, split-0.11.0, cov-7.1.0, asyncio-1.4.0, impacted-0.30.0, timeout-2.4.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+pytest-impacted: impacted_module=None, impacted_git_mode=unstaged, impacted_base_branch=None, impacted_tests_dir=None, no_impacted_dep_files=False, impacted_invalidate_all=[], backend=python (astroid)
+collected 1 item
+
+docs/implementation/C1-evidence/test_cargo_check.py COMMAND: ['cargo', 'fmt', '-p', 'aq-worker', '--', '--check']
+Diff in /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-worker/src/native/result/source.rs:3:
+ use crate::{
+     source::{GitAction, GitManifest, PendingGitOperation},
+     source_transfer::{
+[31m-        steps::{self, UploadAcknowledgment},
+(B[m         UploadAction, UploadState,
+[32m+        steps::{self, UploadAcknowledgment},
+(B[m     },
+     transfer_client::TransferClient,
+ };
+F
+
+=================================== FAILURES ===================================
+______________________________ test_cargo_command ______________________________
+
+    def test_cargo_command():
+        command = json.loads(os.environ['C1_CARGO_COMMAND'])
+        print('COMMAND:', command, flush=True)
+        result = subprocess.run(command, cwd=os.environ['C1_CARGO_CWD'], env={**os.environ, 'CARGO_BUILD_JOBS': '2', 'RUST_TEST_THREADS': '2'})
+>       assert result.returncode == 0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['cargo', 'fmt', '-p', 'aq-worker', '--', '--check'], returncode=1).returncode
+
+docs/implementation/C1-evidence/test_cargo_check.py:9: AssertionError
+=========================== short test summary info ============================
+FAILED docs/implementation/C1-evidence/test_cargo_check.py::test_cargo_command
+============================== 1 failed in 1.51s ===============================

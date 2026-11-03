@@ -1,0 +1,11 @@
+# Confinement probe, 2026-11-02T16:39:30-08:00, 6.18.33.2-microsoft-standard-WSL2
+# host: max_user_namespaces=128331 cgroup_fs=cgroup2fs user_delegated=cpu memory pids
+# daemon: Podman Engine 5.8.8 api 1.44
+$ aq-sandbox-podman.sh podman run --rm --cap-drop=ALL --security-opt no-new-privileges --network bridge docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec sh -c 'grep -E "^(CapEff|NoNewPrivs|Seccomp):" /proc/self/status; unshare -U true; echo "unshare -U true rc=$?"; unshare -Ur id; echo "unshare -Ur id rc=$?"'
+time="2026-11-02T16:39:44-08:00" level=warning msg="Additional gid=10 is not present in the user namespace, skip setting it"
+CapEff:	0000000000000000
+NoNewPrivs:	1
+Seccomp:	2
+unshare -U true rc=0
+unshare: write error: Operation not permitted
+unshare -Ur id rc=1
