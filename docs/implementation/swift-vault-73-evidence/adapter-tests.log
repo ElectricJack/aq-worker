@@ -1,0 +1,26 @@
+aq test: no interpreter found for /home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2 (no .venv, no resources.test_interpreters entry); using /home/jkern/dev/agent-queue2/.venv/bin/python
+aq test: slot 0 of 6, -n 6
+$ /home/jkern/dev/agent-queue2/.venv/bin/python -m pytest --dist loadfile -m 'not perf and not migration and not slow and not tmux and not integration' docs/implementation/C1-evidence/test_cargo_check.py -n 0 -q -s
+COMMAND: ['cargo', 'test', '--locked', '--offline', '-p', 'aq-worker', '--lib', 'native::adapter::codex::tests']
+   Compiling aq-codex-mapper v0.1.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-codex-mapper)
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 09s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-1165a57a36dcd530)
+
+running 11 tests
+test native::adapter::codex::tests::authentication_is_private_bounded_and_cannot_inject_json ... ok
+test native::adapter::codex::tests::changed_payload_settings_private_mode_and_hard_budget_are_refused ... ok
+test native::adapter::codex::tests::exact_offer_maps_closed_argv_and_delivers_one_payload_without_secret_metadata ... ok
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_base_command_golden ... ok
+test native::adapter::codex::tests::extracted_mapper_preserves_complete_scoped_command_golden ... ok
+test native::adapter::codex::tests::fatal_or_empty_stream_cannot_report_completion_or_later_readiness ... ok
+test native::adapter::codex::tests::jsonl_readiness_requires_actual_order_and_handles_chunk_boundaries ... ok
+test native::adapter::codex::tests::native_mapping_reuses_preflight_image_after_mutable_program_path_changes ... ok
+test native::adapter::codex::tests::scoped_provider_retains_closed_origin_validation ... ok
+test native::adapter::codex::tests::tool_environment_config_starts_empty_and_adds_only_fixed_template_defaults ... ok
+test native::adapter::codex::tests::actual_offline_process_receives_only_exact_stdin_and_explicit_environment ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 318 filtered out; finished in 0.06s
+
+.
+1 passed in 69.76s (0:01:09)

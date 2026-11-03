@@ -54,8 +54,19 @@ fn result_recipe_exposes_only_declared_channel_and_submission_child() {
     );
     assert_eq!(
         config["shell_environment_policy"]["set"]["PATH"].as_str(),
-        Some("/usr/bin:/bin")
+        Some("/usr/local/bin:/usr/bin:/bin")
     );
+    let set = config["shell_environment_policy"]["set"]
+        .as_table()
+        .unwrap();
+    assert_eq!(set.len(), 6);
+    for (name, value) in [
+        ("CARGO_INCREMENTAL", "0"),
+        ("CARGO_PROFILE_DEV_DEBUG", "line-tables-only"),
+        ("CARGO_PROFILE_TEST_DEBUG", "line-tables-only"),
+    ] {
+        assert_eq!(set[name].as_str(), Some(value));
+    }
     assert_eq!(
         config["shell_environment_policy"]["inherit"].as_str(),
         Some("none")
