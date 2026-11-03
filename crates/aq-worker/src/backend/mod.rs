@@ -73,6 +73,18 @@ pub trait PlacementBackend: Send {
     ) -> impl Future<Output = Result<SandboxIdentity, BackendError>> + Send {
         async { Err(BackendError::UnsupportedOperation) }
     }
+    /// SBX20: how this backend bounds per-attempt disk. Default: not at all.
+    fn disk_limit(&self) -> DiskLimitStatus {
+        DiskLimitStatus::default()
+    }
+    /// SBX20 watchdog sample of running sandboxes owned by `node_id`. A
+    /// partial sample is Err, never a silently shorter list.
+    fn disk_usage(
+        &mut self,
+        _node_id: Uuid,
+    ) -> impl Future<Output = Result<Vec<DiskUsage>, BackendError>> + Send {
+        async { Ok(Vec::new()) }
+    }
     /// Verify authorization scope, stop writers, then delete. Only confirmed
     /// deletion yields Destroyed proof; failure leaves resources protected.
     fn destroy(

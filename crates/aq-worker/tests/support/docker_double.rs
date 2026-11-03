@@ -70,6 +70,16 @@ struct State {
     material_path: String,
     images: std::collections::BTreeSet<String>,
     next_id: u64,
+    /// `/info` DockerRootDir; `None` omits the field.
+    root_dir: Option<String>,
+    /// `/info` DriverStatus "Backing Filesystem".
+    backing_fs: &'static str,
+    /// Reported `SizeRw` per container name (SBX20 watchdog fakes).
+    container_sizes: BTreeMap<String, u64>,
+    /// Reported `/system/df` `UsageData.Size` per volume name.
+    volume_sizes: BTreeMap<String, i64>,
+    /// `DriverOpts` sent with each volume create.
+    volume_opts: BTreeMap<String, Value>,
 }
 
 #[derive(Clone)]
@@ -99,6 +109,12 @@ impl ScriptedDocker {
                 material_path: "/aq/private/material".into(),
                 images: Default::default(),
                 next_id: 1,
+                // procfs: always a filesystem distinct from `/`.
+                root_dir: Some("/proc".into()),
+                backing_fs: "extfs",
+                container_sizes: BTreeMap::new(),
+                volume_sizes: BTreeMap::new(),
+                volume_opts: BTreeMap::new(),
             })),
             paused: Arc::new(watch::channel(false).0),
         }
@@ -114,6 +130,28 @@ impl ScriptedDocker {
         state.cgroup_version = version;
         drop(state);
         self
+    }
+    /// `/info` DockerRootDir; `None` omits the field.
+    pub fn root_dir(self, root: Option<&str>) -> Self {
+        self.state.lock().unwrap().root_dir = root.map(Into::into);
+        self
+    }
+    /// `/info` DriverStatus "Backing Filesystem".
+    pub fn backing_fs(self, fs: &'static str) -> Self {
+        self.state.lock().unwrap().backing_fs = fs;
+        self
+    }
+    /// Reported usage only; nothing is written.
+    pub fn set_container_size(&self, name: &str, bytes: u64) {
+        let mut state = self.state.lock().unwrap();
+        state.container_sizes.insert(name.into(), bytes);
+    }
+    pub fn set_volume_size(&self, name: &str, bytes: i64) {
+        let mut state = self.state.lock().unwrap();
+        state.volume_sizes.insert(name.into(), bytes);
+    }
+    pub fn volume_driver_opts(&self, name: &str) -> Option<Value> {
+        self.state.lock().unwrap().volume_opts.get(name).cloned()
     }
     pub fn runner(self, runner: Runner) -> Self {
         self.state.lock().unwrap().runner = runner;
@@ -285,7 +323,22 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
             if let Some(version) = state.cgroup_version {
                 info["CgroupVersion"] = json!(version);
             }
+            if let Some(root) = &state.root_dir {
+                info["DockerRootDir"] = json!(root);
+            }
+            info["DriverStatus"] = json!([["Backing Filesystem", state.backing_fs]]);
             ok_json(200, info)
+        }
+        (Get, ["system", "df"]) => {
+            let volumes: Vec<Value> = state
+                .volumes
+                .keys()
+                .map(|name| {
+                    let size = state.volume_sizes.get(name).copied().unwrap_or(-1);
+                    json!({ "Name": name, "UsageData": { "Size": size, "RefCount": 1 } })
+                })
+                .collect();
+            ok_json(200, json!({ "Volumes": volumes }))
         }
         (Post, ["images", "create"]) => {
             if let Some(image) = query.get("fromImage") {
@@ -300,13 +353,18 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
                 .iter()
                 .filter(|(_, c)| labels_match(&c.body["Labels"], &labels))
                 .map(|(name, c)| {
-                    json!({
+                    let mut entry = json!({
                         "Id": c.id,
                         "Names": [format!("/{name}")],
                         "Image": c.body["Image"],
                         "Labels": c.body["Labels"],
                         "State": c.status,
-                    })
+                    });
+                    if query.get("size").is_some_and(|size| size == "true") {
+                        entry["SizeRw"] =
+                            json!(state.container_sizes.get(name).copied().unwrap_or(0));
+                    }
+                    entry
                 })
                 .collect();
             ok_json(200, Value::Array(list))
@@ -461,6 +519,9 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
                 return error(409, "volume already exists");
             }
             let labels = body.get("Labels").cloned().unwrap_or(json!({}));
+            if let Some(opts) = body.get("DriverOpts") {
+                state.volume_opts.insert(name.clone(), opts.clone());
+            }
             state.volumes.insert(
                 name.clone(),
                 Volume {

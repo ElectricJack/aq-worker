@@ -441,6 +441,44 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         }
         Ok(())
     }
+    /// SBX20 watchdog: stop (never destroy) each known attempt whose sampled
+    /// disk usage reached its limit; the work volume is preserved (SBX5).
+    /// Unknown sandboxes are left to the orphan sweep; others are untouched.
+    pub async fn watch_disk_at(&mut self, now: u64) -> Result<()> {
+        self.journal.check()?;
+        if self.backend.disk_limit().mode.is_none() {
+            return Ok(());
+        }
+        let usage = self.backend.disk_usage(self.identity().node_id).await?;
+        for sample in usage.into_iter().filter(DiskUsage::exceeded) {
+            let id = sample.sandbox.owner.attempt_id;
+            let Some(a) = self.state().attempts.get(&id).cloned() else {
+                continue;
+            };
+            if a.stopped.is_some()
+                || sample.sandbox.owner != a.create.owner
+                || sample.sandbox.kind != self.backend.kind()
+                || sample.sandbox.backend_id != a.create.name
+                || a.sandbox.as_ref().is_some_and(|s| *s != sample.sandbox)
+            {
+                continue;
+            }
+            tracing::warn!(
+                attempt = %id,
+                used_bytes = sample.used_bytes,
+                limit_bytes = sample.limit_bytes,
+                "sandbox_disk_limit_exceeded; stopping and preserving the attempt"
+            );
+            if a.sandbox.is_none() {
+                let mut a = a.clone();
+                a.sandbox = Some(sample.sandbox.clone());
+                self.save(id, a)?;
+            }
+            self.mark_cleanup(id, CleanupReason::SandboxDiskLimitExceeded, now)?;
+            self.stop(id).await?;
+        }
+        Ok(())
+    }
     /// Separate from sweep so a deadline can never itself authorize deletion.
     pub async fn retry_handoffs_at(&mut self, now: u64) -> Result<()> {
         self.journal.check()?;

@@ -125,6 +125,15 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             self.config.recovery.sweep_interval_ms,
         ));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // SBX20: the always-on disk watchdog runs on its own cadence.
+        let disk = self.backend.disk_limit();
+        let watch_ms = if disk.mode.is_some() {
+            disk.watch_interval_ms.max(1)
+        } else {
+            u64::MAX / 4
+        };
+        let mut disk_tick = tokio::time::interval(std::time::Duration::from_millis(watch_ms));
+        disk_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             if *shutdown.borrow() {
                 return self.set_draining(true);
@@ -133,6 +142,9 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 _ = shutdown.changed() => return self.set_draining(true),
                 _ = tick.tick() => {
                     self.recover_once().await?;
+                }
+                _ = disk_tick.tick(), if disk.mode.is_some() => {
+                    self.watch_disk_at((self.clock)()?).await?;
                 }
             }
         }
