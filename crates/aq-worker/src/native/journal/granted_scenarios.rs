@@ -1,4 +1,6 @@
 //! Actual HTTP sampling, private input owners and fsync; synthetic Git peer here.
+//! Runtime-scoped boot clocks keep storage/scheduling latency out of authority
+//! assertions; expiry cases advance explicitly across their original caps.
 //! The separately ignored real-Git test retains its explicit qualification.
 use super::*;
 use crate::native::{
@@ -43,16 +45,9 @@ async fn barrier(pause: &super::super::WritePause) {
     .await
     .expect("fsync barrier reached");
 }
-async fn wait_expired(deadline: u64) {
-    let remaining = deadline.saturating_sub(boot_ns().unwrap());
-    tokio::time::sleep(std::time::Duration::from_nanos(
-        remaining.saturating_add(1_000_000),
-    ))
-    .await;
-    assert!(boot_ns().unwrap() >= deadline);
-}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn received_grant_is_durable_before_usable_and_replay_preserves_first_clocks_and_bundle() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
@@ -89,10 +84,11 @@ async fn received_grant_is_durable_before_usable_and_replay_preserves_first_cloc
     assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
     let fresh = observed(&h, &request).await;
     let replay = h.pipeline().retry_initial_grant(h.id, fresh).await.unwrap();
-    if let GrantCommit::Usable(replayed) = replay {
-        assert!(replayed.deadline_ns() <= cap);
-        assert!(replayed.hard_deadline_ns() <= hard);
-    }
+    let GrantCommit::Usable(replayed) = replay else {
+        panic!("unexpired replay must remain usable")
+    };
+    assert!(replayed.deadline_ns() <= cap);
+    assert!(replayed.hard_deadline_ns() <= hard);
     let after = h.pipeline().snapshot().await.unwrap();
     assert_eq!(before.revision, after.revision);
     assert_eq!(
@@ -113,6 +109,7 @@ async fn received_grant_is_durable_before_usable_and_replay_preserves_first_cloc
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn changed_prepare_network_association_refuses_but_retains_inputs_for_narrow_retry() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
@@ -145,6 +142,7 @@ async fn changed_prepare_network_association_refuses_but_retains_inputs_for_narr
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn changed_same_operation_grant_cannot_replace_first_receipt_or_owner() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
@@ -175,6 +173,7 @@ async fn changed_same_operation_grant_cannot_replace_first_receipt_or_owner() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn abandoned_unpolled_commit_future_already_retains_inputs_without_grant_history() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
@@ -198,6 +197,7 @@ async fn abandoned_unpolled_commit_future_already_retains_inputs_without_grant_h
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn receipt_expiring_before_commit_is_history_only_without_releasing_inputs() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
@@ -206,7 +206,7 @@ async fn receipt_expiring_before_commit_is_history_only_without_releasing_inputs
     h.grant_window_ms.store(100, Ordering::SeqCst);
     let grant = observed(&h, inputs.request()).await;
     let deadline = grant.deadline_ns();
-    wait_expired(deadline).await;
+    crate::native::http::test_clock::expire(deadline).await;
     let result = h
         .pipeline()
         .record_initial_grant(inputs, grant)
@@ -225,6 +225,7 @@ async fn receipt_expiring_before_commit_is_history_only_without_releasing_inputs
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expiry_during_fsync_retains_history_and_never_yields_usable_wrapper() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
@@ -238,7 +239,7 @@ async fn expiry_during_fsync_retains_history_and_never_yields_usable_wrapper() {
     let pipeline = h.pipeline().clone();
     let job = tokio::spawn(async move { pipeline.record_initial_grant(inputs, grant).await });
     barrier(&pause).await;
-    wait_expired(deadline).await;
+    crate::native::http::test_clock::expire(deadline).await;
     pause.release();
     let result = job.await.unwrap().unwrap();
     let GrantCommit::HistoryOnly(history) = result else {
@@ -252,7 +253,56 @@ async fn expiry_during_fsync_retains_history_and_never_yields_usable_wrapper() {
     assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn delayed_fsync_uses_explicit_deadline_instead_of_elapsed_wall_time() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
+    let export = synthetic();
+    let manifest = export.manifest.clone();
+    let h = Inputs::new(export).await;
+    let git = GitPeer::new(h.root.clone(), manifest);
+    let inputs = joined(&h, &git).await;
+    h.grant_window_ms.store(100, Ordering::SeqCst);
+    let grant = observed(&h, inputs.request()).await;
+    let received = grant.initial_received_ns();
+    let deadline = grant.deadline_ns();
+    let window = deadline - grant.initial_sent_ns();
+    assert_eq!(window, 100_000_000);
+    let pause = super::super::WritePause::new();
+    h.pipeline().test_pause_grant_commit(&pause).await.unwrap();
+    let pipeline = h.pipeline().clone();
+    let job = tokio::spawn(async move { pipeline.record_initial_grant(inputs, grant).await });
+    barrier(&pause).await;
+
+    // This is intentionally real time, unlike the expiry tests. The old kernel
+    // clock dependency made the receipt HistoryOnly after this storage delay.
+    let delay = std::time::Duration::from_nanos(window + 1);
+    let started = std::time::Instant::now();
+    tokio::time::sleep(delay).await;
+    assert!(started.elapsed() >= delay);
+    pause.release();
+    let GrantCommit::Usable(live) = job.await.unwrap().unwrap() else {
+        panic!("wall-time storage delay expired a frozen test receipt")
+    };
+    assert_eq!(live.history().observed_after_sync_ns(), received);
+    h.pipeline().check_initial_grant(&live).await.unwrap();
+
+    // The same original deadline still rejects authority after an explicit
+    // transition, even though the durable history and input bundle remain.
+    crate::native::http::test_clock::expire(deadline).await;
+    assert!(h.pipeline().check_initial_grant(&live).await.is_err());
+    let state = h.pipeline().snapshot().await.unwrap();
+    assert_eq!(
+        state.attempts[&h.id]
+            .initial_grant
+            .as_ref()
+            .unwrap()
+            .deadline_ns,
+        deadline
+    );
+    assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_fsync_waiter_retains_bundle_and_completion_for_explicit_retry() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
@@ -298,6 +348,7 @@ fn capacity() -> Limits {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_grant_write_fault_preserves_holds_and_reopen_never_restores_authority() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for fault in [
         WriteFault::BeforeWrite,
         WriteFault::AfterFileSync,
@@ -351,6 +402,7 @@ async fn every_grant_write_fault_preserves_holds_and_reopen_never_restores_autho
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn valid_grant_history_survives_restart_but_changed_associations_are_refused() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let mut h = Inputs::new(export).await;
@@ -431,6 +483,7 @@ fn every_old_format_is_refused_before_rewriting_journal_or_pending_evidence() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn changed_current_source_keeps_received_history_but_refuses_usable_wrapper() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
@@ -454,6 +507,7 @@ async fn changed_current_source_keeps_received_history_but_refuses_usable_wrappe
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn changed_private_material_keeps_received_history_without_exposing_or_using_bytes() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;

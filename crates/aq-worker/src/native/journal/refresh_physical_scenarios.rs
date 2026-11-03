@@ -341,6 +341,7 @@ async fn refresh_shared_saved_owner_cannot_be_rehashed_around_capture_or_mixed_p
 
 #[tokio::test]
 async fn production_collect_dispatch_retains_actual_refresh_inputs_without_launch() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new_collect(export).await;

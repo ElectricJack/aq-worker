@@ -1,0 +1,74 @@
+[
+  {
+    "name": "journal",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "aq-worker",
+      "--lib",
+      "--all-features",
+      "--locked",
+      "--offline",
+      "native::journal"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 297.792,
+    "log": "journal.log"
+  },
+  {
+    "name": "workspace",
+    "command": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--all-features",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 101,
+    "elapsed_seconds": 884.629,
+    "log": "workspace.log"
+  },
+  {
+    "name": "templates-default-profile",
+    "command": [
+      "env",
+      "-u",
+      "CARGO_PROFILE_DEV_DEBUG",
+      "-u",
+      "CARGO_PROFILE_TEST_DEBUG",
+      "cargo",
+      "test",
+      "-p",
+      "aq-worker",
+      "--test",
+      "templates",
+      "--all-features",
+      "--locked",
+      "--offline"
+    ],
+    "exit_code": 101,
+    "log": "templates-default-profile.log"
+  },
+  {
+    "name": "final-targeted",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "aq-worker",
+      "--lib",
+      "--all-features",
+      "--locked",
+      "--offline",
+      "--",
+      "granted_scenarios",
+      "actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap",
+      "production_collect_dispatch_retains_actual_refresh_inputs_without_launch"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 21.361,
+    "log": "final-targeted.log"
+  }
+]

@@ -353,6 +353,7 @@ fn oversized_member_and_unknown_root_member_fail_closed() {
 }
 #[tokio::test]
 async fn actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     use crate::{config::WorkerConfig, native::http::NativeClient};
     use aq_admission::control::{ControlReply, PreparationDelivery};
     use axum::{Json, Router, http::HeaderMap, routing::post};
@@ -408,6 +409,8 @@ async fn actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_or
             .deadline_ns
             <= first
     );
+    crate::native::http::test_clock::expire(cap).await;
+    assert!(client.accept(&request, cap, Some(&observed)).await.is_err());
     drop(journal);
     let recovered = Journal::open(&root, identity().node_id, limits()).unwrap();
     assert!(recovered.recovery_required());

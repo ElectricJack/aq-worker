@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized] target(s) in 1.25s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-bdece74eabfdfb5a)
+
+running 15 tests
+test native::journal::tests::actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_original_cap ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::abandoned_unpolled_commit_future_already_retains_inputs_without_grant_history ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::cancelled_fsync_waiter_retains_bundle_and_completion_for_explicit_retry ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_current_source_keeps_received_history_but_refuses_usable_wrapper ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_prepare_network_association_refuses_but_retains_inputs_for_narrow_retry ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_private_material_keeps_received_history_without_exposing_or_using_bytes ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::changed_same_operation_grant_cannot_replace_first_receipt_or_owner ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::delayed_fsync_uses_explicit_deadline_instead_of_elapsed_wall_time ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::every_old_format_is_refused_before_rewriting_journal_or_pending_evidence ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::expiry_during_fsync_retains_history_and_never_yields_usable_wrapper ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::receipt_expiring_before_commit_is_history_only_without_releasing_inputs ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::every_grant_write_fault_preserves_holds_and_reopen_never_restores_authority ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::received_grant_is_durable_before_usable_and_replay_preserves_first_clocks_and_bundle ... ok
+test native::journal::tests::hydration_scenarios::granted_scenarios::valid_grant_history_survives_restart_but_changed_associations_are_refused ... ok
+test native::journal::tests::refresh_physical_scenarios::production_collect_dispatch_retains_actual_refresh_inputs_without_launch ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 270 filtered out; finished in 19.93s
