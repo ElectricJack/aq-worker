@@ -1,0 +1,22 @@
+# boat_live_conformance live run 2.4, personal account, stock busybox@sha256:a7dbc319..., BOAT_LIVE_SCENARIOS=preserve_before_destroy_with_unretained_work
+# adapter at 9e04f06 (includes b60e424 command-timeout fix); start 2026-11-03T17:25:20Z
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-7729c51d9bddcb94)
+
+running 1 test
+test boat_live_conformance has been running for over 60 seconds
+
+thread 'boat_live_conformance' (711364) panicked at crates/aq-worker/tests/support/boat_live.rs:108:13:
+fixture output timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test boat_live_conformance ... FAILED
+
+failures:
+
+failures:
+    boat_live_conformance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 129.94s
+
+error: test failed, to rerun pass `-p aq-worker --test boat_backend`
+# exit 101 end 2026-11-03T17:27:34Z

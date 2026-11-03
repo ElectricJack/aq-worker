@@ -1,0 +1,33 @@
+2026-11-03T17:29:43Z sandbox bx_bqjmrkmz state=idle
+2026-11-03T17:29:59Z sandbox bx_bqjmrkmz state=archiving
+2026-11-03T17:30:12Z archived: id=bx_bqjmrkmz name=aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f
+== probe +0s (2026-11-03T17:30:12Z)
+{"id": "92fb0ade-3d51-4b12-b71e-12db11c83e49", "status": "completed", "kind": "base", "generation": 0, "createdAt": "2026-11-03T17:30:00.222Z", "completedAt": "2026-11-03T17:30:11.586Z", "fileCount": 22484, "sizeBytes": 2879412}
+-- all snapshots for sandbox
+[{"id": "92fb0ade-3d51-4b12-b71e-12db11c83e49", "status": "completed", "generation": 0, "createdAt": "2026-11-03T17:30:00.222Z", "completedAt": "2026-11-03T17:30:11.586Z", "fileCount": 22484}]
+-- tree (dockervol / aq / result entries)
+{"treeAvailable": true, "truncated": false, "fileCount": 75, "entries": [{"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work", "kind": "dir"}, {"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/_data", "kind": "dir"}, {"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/_data/result", "kind": "file", "size": 17}, {"path": "__dockervol__/metadata.db", "kind": "file", "size": 32768}]}
+
+-- GET file __dockervol__/<name>-work/result
+HTTP/2 404 
+{"ok":false,"type":"sandbox.error","status":404,"code":"path_not_found","message":"No such path in this snapshot: __dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/result","error":{"code":"path_not_found","message":"No such path in this snapshot: __dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/result","status":404,"detai
+== probe +25s (2026-11-03T17:30:40Z)
+{"id": "92fb0ade-3d51-4b12-b71e-12db11c83e49", "status": "completed", "kind": "base", "generation": 0, "createdAt": "2026-11-03T17:30:00.222Z", "completedAt": "2026-11-03T17:30:11.586Z", "fileCount": 22484, "sizeBytes": 2879412}
+-- all snapshots for sandbox
+[{"id": "92fb0ade-3d51-4b12-b71e-12db11c83e49", "status": "completed", "generation": 0, "createdAt": "2026-11-03T17:30:00.222Z", "completedAt": "2026-11-03T17:30:11.586Z", "fileCount": 22484}]
+-- tree (dockervol / aq / result entries)
+{"treeAvailable": true, "truncated": false, "fileCount": 75, "entries": [{"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work", "kind": "dir"}, {"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/_data", "kind": "dir"}, {"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/_data/result", "kind": "file", "size": 17}, {"path": "__dockervol__/metadata.db", "kind": "file", "size": 32768}]}
+
+-- GET file __dockervol__/<name>-work/result
+HTTP/2 404 
+{"ok":false,"type":"sandbox.error","status":404,"code":"path_not_found","message":"No such path in this snapshot: __dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/result","error":{"code":"path_not_found","message":"No such path in this snapshot: __dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/result","status":404,"detai
+== probe +50s (2026-11-03T17:31:33Z)
+{"id": "92fb0ade-3d51-4b12-b71e-12db11c83e49", "status": "completed", "kind": "base", "generation": 0, "createdAt": "2026-11-03T17:30:00.222Z", "completedAt": "2026-11-03T17:30:11.586Z", "fileCount": 22484, "sizeBytes": 2879412}
+-- all snapshots for sandbox
+[{"id": "92fb0ade-3d51-4b12-b71e-12db11c83e49", "status": "completed", "generation": 0, "createdAt": "2026-11-03T17:30:00.222Z", "completedAt": "2026-11-03T17:30:11.586Z", "fileCount": 22484}]
+-- tree (dockervol / aq / result entries)
+{"treeAvailable": true, "truncated": false, "fileCount": 75, "entries": [{"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work", "kind": "dir"}, {"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/_data", "kind": "dir"}, {"path": "__dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/_data/result", "kind": "file", "size": 17}, {"path": "__dockervol__/metadata.db", "kind": "file", "size": 32768}]}
+
+-- GET file __dockervol__/<name>-work/result
+HTTP/2 404 
+{"ok":false,"type":"sandbox.error","status":404,"code":"path_not_found","message":"No such path in this snapshot: __dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/result","error":{"code":"path_not_found","message":"No such path in this snapshot: __dockervol__/aq-d82db1891f6148848ffb1549ced24694-d082e6e8197c4841b578fc996976964f-work/result","status":404,"detai

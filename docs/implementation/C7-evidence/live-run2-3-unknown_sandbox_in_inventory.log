@@ -1,0 +1,12 @@
+# boat_live_conformance live run 2.3, personal account, stock busybox@sha256:a7dbc319..., BOAT_LIVE_SCENARIOS=unknown_sandbox_in_inventory
+# adapter at 9e04f06 (includes b60e424 command-timeout fix); start 2026-11-03T17:24:43Z
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-7729c51d9bddcb94)
+
+running 1 test
+LIVE PASS unknown_sandbox_in_inventory in 28.0s
+test boat_live_conformance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 28.34s
+
+# exit 0 end 2026-11-03T17:25:13Z

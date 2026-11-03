@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.43s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-7729c51d9bddcb94)
+
+running 13 tests
+test boat_live_conformance ... ignored, requires approved BOAT_LIVE_CONFIG naming a private key_file; runs paid VMs
+test boat_run_configuration_is_exclusive_and_key_file_is_private ... ok
+test boat_rejects_unsafe_requests_and_mutated_snapshot ... ok
+test boat_mapping_survives_restart_and_rejects_changed_request ... ok
+test boat_orphan_retention_authority_can_delete_after_restart_without_inventing_boot ... ok
+test boat_policy_deadlines_and_secret_delivery ... ok
+test sweep_ignores_sandboxes_without_node_prefix ... ok
+test boat_restart_keeps_delete_operation_and_journal_failure_fences_effects ... ok
+test boat_uncertain_archive_and_delete_never_confirm ... ok
+test boat_vm_sizes_and_ttl_updates_are_bounded ... ok
+test boat_http_conformance ... ok
+test boat_personal_stock_conformance ... ok
+test boat_unavailable_refuses_offers_without_orphans ... ok
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.66s
+
