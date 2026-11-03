@@ -259,14 +259,18 @@ class TemplateTests(unittest.TestCase):
     def test_compiled_capability_metadata_is_not_a_provider_token(self):
         scanner = load('credential_scan')
         # Serde concatenates these public labels in the worker's .rodata.
-        metadata = 'persistent-disk-during-attemptbackend_idstruct SandboxIdentity'
-        self.assertFalse(scanner.secret_shaped(metadata))
-        for value in [metadata + ' sk-proj-' + 'x' * 40,
-                      'TOKEN=' + metadata,
-                      'https://' + metadata.replace(' ', '-') + ':password@example.com',
-                      'sk-during-attemptbackend_idstruct' + 'x' * 40,
-                      metadata.replace('backend_idstruct ', 'backend_idstruct-secret')]:
-            self.assertTrue(scanner.secret_shaped(value))
+        for metadata in [
+                'persistent-disk-during-attemptbackend_idstruct SandboxIdentity',
+                'persistent-disk-during-attemptstruct SandboxIdentitybackend_idstruct SandboxIdentity with 3 elements']:
+            with self.subTest(metadata=metadata):
+                self.assertFalse(scanner.secret_shaped(metadata))
+                for value in [metadata + ' sk-proj-' + 'x' * 40,
+                              'TOKEN=' + metadata,
+                              'https://' + metadata.replace(' ', '-') + ':password@example.com',
+                              'sk-during-attemptbackend_idstruct' + 'x' * 40,
+                              metadata.removeprefix('persistent-di') + 'x' * 40,
+                              metadata.replace('backend_idstruct ', 'backend_idstruct-secret')]:
+                    self.assertTrue(scanner.secret_shaped(value))
 
     def test_public_constants_require_exact_reviewed_content(self):
         scanner = load('credential_scan')

@@ -28,9 +28,17 @@ use support::*;
 #[tokio::test]
 async fn runner_cannot_report_before_handoff_receipts() {
     for mode in [Mode::MissingSource, Mode::MissingResult, Mode::Complete] {
-        let f = Fixture::new(false, 5000);
+        let mut f = Fixture::new(true, 5000);
+        f.adapter.descendant = false;
         let mut central = Central::new(mode);
-        let outcome = f.run(&mut central).await.unwrap();
+        let release = async {
+            // A short-lived pane can exit before the host acknowledges launch.
+            // Exercise receipt handling only after that durable acknowledgement.
+            wait_file(&f.dir.path().join("sandbox-run/started.json")).await;
+            std::fs::write(f.local.workspace.join("release"), b"").unwrap();
+        };
+        let (outcome, ()) = tokio::join!(f.run(&mut central), release);
+        let outcome = outcome.unwrap();
         if matches!(mode, Mode::Complete) {
             assert_eq!(outcome, RunOutcome::Finished);
             assert_eq!(central.finishes, 1);
