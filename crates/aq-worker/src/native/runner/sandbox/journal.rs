@@ -52,3 +52,12 @@ impl LaunchAuthority for Journal {
         self.record("started", observation)
     }
 }
+
+impl aq_session_host::observed::ObservedLaunchAuthority for Journal {
+    fn record_baseline(
+        &mut self,
+        baseline: &aq_session_host::observed::VerifiedBlankBaseline,
+    ) -> Result<()> {
+        self.record("baseline", baseline)
+    }
+}
