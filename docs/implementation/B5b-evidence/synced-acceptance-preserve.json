@@ -1,0 +1,11 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace",
+    "unretained_sandbox_is_preserved_not_destroyed"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5b-evidence/synced-acceptance-preserve.log"
+}

@@ -1,0 +1,15 @@
+{
+  "command": [
+    "cargo",
+    "run",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--bin",
+    "aq-worker",
+    "--",
+    "--help"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5b-evidence/production-help.log"
+}

@@ -47,6 +47,7 @@ enum Cmd {
         controller_config: PathBuf,
     },
     /// Run the protocol-2 synthetic execution candidate (no real provider harness).
+    #[cfg(feature = "synthetic-runtime")]
     RunExecution {
         #[arg(long)]
         state_dir: PathBuf,
@@ -282,6 +283,7 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                 }
             }
         }
+        #[cfg(feature = "synthetic-runtime")]
         Cmd::RunExecution {
             state_dir,
             fixture_agent,

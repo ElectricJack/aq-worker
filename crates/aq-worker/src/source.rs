@@ -385,6 +385,7 @@ impl GitClient {
     }
 }
 
+#[cfg(feature = "synthetic-runtime")]
 impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
     /// Admission uses exactly the ordinary capacity rules, after checking the local binding.
     /// No workspace allocation occurs until prepare_source, and eligibility creates none.
@@ -940,11 +941,13 @@ pub struct RetainedRef {
     pub oid: String,
 }
 #[derive(Debug, Clone, Deserialize)]
+#[cfg(feature = "synthetic-runtime")]
 struct RetainedHandle {
     id: Uuid,
     generation: u64,
     refs: Vec<RetainedRef>,
 }
+#[cfg(feature = "synthetic-runtime")]
 impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
     /// Only imports a controller-staged completed artifact in aq-git's incoming area.
     /// HTTP transfer/download is a separate consumer of this local operation.
@@ -1331,6 +1334,7 @@ fn stop_service(child: &mut std::process::Child) {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+#[cfg(feature = "synthetic-runtime")]
 impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
     pub fn bind_source_transfer(
         &mut self,
@@ -1399,6 +1403,7 @@ pub(crate) fn workspace_bytes(root: &Path) -> Result<u64> {
     Ok(bytes)
 }
 impl GitClient {
+    #[cfg(feature = "synthetic-runtime")]
     fn staged_bytes(&self, source: &SourceState, extra: Option<Uuid>) -> Result<u64> {
         let mut handles = std::collections::BTreeSet::new();
         if let Some(id) = extra {
@@ -1437,6 +1442,7 @@ impl GitClient {
         Ok(total)
     }
 }
+#[cfg(feature = "synthetic-runtime")]
 impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
     fn account_staging(&mut self, id: Uuid, extra: Option<Uuid>, git: &GitClient) -> Result<()> {
         let source = self

@@ -26,7 +26,9 @@ impl State {
                 && !self.identity.node_id.is_nil()
                 && !self.identity.boot_id.is_nil()
                 && self.revision > 0
-                && self.attempts.len() <= MAX_ATTEMPTS,
+                && self.attempts.len() <= MAX_ATTEMPTS
+                && self.orphans.len() <= MAX_ATTEMPTS
+                && self.readoptions.len() <= MAX_ATTEMPTS,
             "invalid controller state"
         );
         for (id, a) in &self.attempts {
@@ -49,7 +51,8 @@ impl State {
                         "sha256:{}",
                         a.request.manifest.harness.environment.digest.as_str()
                     )
-                    && a.create.hard_deadline_ms == a.request.hard_deadline_ms,
+                    && a.create.hard_deadline_ms >= a.request.hard_deadline_ms
+                    && a.create.hard_deadline_ms - a.request.hard_deadline_ms <= 30_000,
                 "controller template/deadline mismatch"
             );
             if let Some(s) = &a.sandbox {
@@ -58,12 +61,71 @@ impl State {
                     "controller sandbox mismatch"
                 );
             }
+            if let Some(g) = &a.grant {
+                ensure!(
+                    !g.boot_id.is_nil()
+                        && !g.permit_id.is_nil()
+                        && !g.sandbox_id.is_nil()
+                        && !g.channel_id.is_nil()
+                        && g.generation == a.request.manifest.bindings.assignment_generation
+                        && g.renewal_deadline_ms > 0
+                        && g.renewal_deadline_ms <= a.request.hard_deadline_ms
+                        && a.permit_id == Some(g.permit_id)
+                        && a.logical_sandbox_id == Some(g.sandbox_id)
+                        && a.channel_id == Some(g.channel_id)
+                        && a.sandbox.is_some(),
+                    "controller grant monitor mismatch"
+                );
+            }
+            if let Some(c) = &a.cancellation {
+                ensure!(
+                    !c.cancellation_id.is_nil() && c.authority_revision > 0 && c.stop_after_ms > 0,
+                    "invalid cancellation observation"
+                );
+            }
+            ensure!(
+                a.phase != Phase::Abandoned
+                    || (a.sandbox.is_none() && a.stopped.is_none() && a.grant.is_none()),
+                "abandoned attempt may have writers"
+            );
             if let Some(p) = &a.stopped {
                 ensure!(
                     a.sandbox.as_ref() == Some(p.sandbox()),
                     "controller proof mismatch"
                 );
             }
+        }
+        for (key, o) in &self.orphans {
+            let sandbox = &o.entry.sandbox;
+            ensure!(
+                *key == sandbox.backend_id
+                    && !key.is_empty()
+                    && sandbox.owner.node_id == self.identity.node_id
+                    && !sandbox.owner.boot_id.is_nil()
+                    && !sandbox.owner.attempt_id.is_nil(),
+                "orphan scope mismatch"
+            );
+            if let Some(proof) = &o.stopped {
+                ensure!(proof.sandbox() == sandbox, "orphan proof mismatch");
+            }
+            if let Some(auth) = &o.authorization {
+                ensure!(auth.authorizes(sandbox), "orphan retention mismatch");
+            }
+            ensure!(
+                !o.destroyed
+                    || (o.authorization.is_some()
+                        && o.stopped.as_ref().is_some_and(
+                            |p| p.kind() == crate::backend::WriterProofKind::Destroyed
+                        )),
+                "orphan destruction lacks proof or retention"
+            );
+        }
+        for request in &self.readoptions {
+            request.validate()?;
+            ensure!(
+                request.current == self.identity,
+                "re-adoption incarnation mismatch"
+            );
         }
         Ok(())
     }
@@ -84,6 +146,8 @@ impl Journal {
                 attempts: BTreeMap::new(),
                 estimated_spend: BTreeMap::new(),
                 last_refusal: None,
+                orphans: BTreeMap::new(),
+                readoptions: Vec::new(),
             }
         } else {
             let bytes = storage.read("journal.json", MAX_BYTES)?;
@@ -107,6 +171,7 @@ impl Journal {
         };
         state.identity.boot_id = Uuid::new_v4();
         state.registration_operation_id = None;
+        state.readoptions.clear();
         let mut j = Self {
             storage,
             state,

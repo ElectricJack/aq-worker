@@ -8,15 +8,19 @@ pub mod config;
 pub mod controller;
 pub mod execution_client;
 pub mod fixture;
+#[cfg(feature = "synthetic-runtime")]
 pub mod journal;
+#[cfg(feature = "synthetic-runtime")]
 pub mod runtime;
 
+#[cfg(feature = "synthetic-runtime")]
 pub mod driver;
 
 pub mod fault;
 pub mod guardian;
 
 pub mod source;
+#[cfg(feature = "synthetic-runtime")]
 mod source_driver;
 pub mod source_transfer;
 pub mod transfer_client;

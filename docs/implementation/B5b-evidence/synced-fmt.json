@@ -1,0 +1,9 @@
+{
+  "command": [
+    "cargo",
+    "fmt",
+    "--check"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5b-evidence/synced-fmt.log"
+}

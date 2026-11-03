@@ -79,10 +79,13 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
     ) -> Result<()> {
         tokio::pin!(heartbeat);
         let result = tokio::select! {
-            result = self.run(shutdown) => match result {
+            result = self.run(shutdown.clone()) => match result {
                 Err(e) if e.is::<ProviderUnavailable>() => {
                     tracing::warn!("{e:#}; admission fenced; foundation heartbeat remains active");
-                    heartbeat.await.map_err(anyhow::Error::from)
+                    tokio::select! {
+                        result = &mut heartbeat => result.map_err(anyhow::Error::from),
+                        result = self.maintain(shutdown) => result,
+                    }
                 }
                 result => result,
             },
@@ -100,17 +103,46 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         if *shutdown.borrow() {
             return self.set_draining(true);
         }
+        // Recover stopped handoff before registering a new incarnation.
+        self.reconcile_at((self.clock)()?).await?;
+        self.sweep_at((self.clock)()?).await?;
+        self.retry_handoffs_at((self.clock)()?).await?;
         tokio::select! {
             result = self.register() => result?,
             _ = shutdown.changed() => return self.set_draining(true),
         }
+        self.maintain(shutdown).await
+    }
+    async fn maintain(&mut self, mut shutdown: watch::Receiver<bool>) -> Result<()> {
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(
+            self.config.recovery.sweep_interval_ms,
+        ));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             if *shutdown.borrow() {
                 return self.set_draining(true);
             }
-            if shutdown.changed().await.is_err() {
-                return self.set_draining(true);
+            tokio::select! {
+                _ = shutdown.changed() => return self.set_draining(true),
+                _ = tick.tick() => {
+                    self.recover_once().await?;
+                }
             }
         }
+    }
+    /// One bounded maintenance pass; also usable by an embedding node event loop.
+    pub async fn recover_once(&mut self) -> Result<()> {
+        self.sweep_at((self.clock)()?).await?;
+        if self.registered {
+            let timeout = std::time::Duration::from_millis(self.config.recovery.sweep_interval_ms);
+            match tokio::time::timeout(timeout, self.provider.poll(&self.identity().clone())).await
+            {
+                Ok(Ok(Some(page))) => self.observe_poll(&page, (self.clock)()?)?,
+                Ok(Ok(None)) => {}
+                _ => tracing::warn!("node poll unavailable; local deadlines remain enforced"),
+            }
+        }
+        self.reconcile_at((self.clock)()?).await?;
+        self.retry_handoffs_at((self.clock)()?).await
     }
 }

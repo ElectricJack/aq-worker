@@ -1,0 +1,15 @@
+{
+  "command": [
+    "cargo",
+    "clippy",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "exit_code": 0,
+  "log": "docs/implementation/B5b-evidence/clippy.log"
+}
