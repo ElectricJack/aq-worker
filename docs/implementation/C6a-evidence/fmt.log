@@ -1,0 +1,15 @@
+$ rustfmt --edition 2024 --check <changed .rs files>
+crates/aq-codex-mapper/src/lib.rs
+crates/aq-codex-mapper/src/tests.rs
+crates/aq-session-protocol/examples/export.rs
+crates/aq-session-protocol/src/lib.rs
+crates/aq-session-protocol/tests/conformance.rs
+crates/aq-worker/src/native/adapter.rs
+crates/aq-worker/src/native/adapter/claude.rs
+crates/aq-worker/src/native/adapter/claude/tests.rs
+crates/aq-worker/src/native/runner/sandbox.rs
+crates/aq-worker/src/native/runner/sandbox/confinement.rs
+crates/aq-worker/src/native/runner/sandbox/confinement_tests.rs
+crates/aq-worker/src/native/runner/sandbox/harness_config.rs
+crates/aq-worker/tests/sandbox_security.rs
+exit status: 0

@@ -180,3 +180,69 @@ fn interactive_v1_composer_and_auth_dialog_rules_keep_no_escape_behavior() {
     assert_eq!(COMPOSER_CLEAR, &[0x15]);
     assert!(std::hint::black_box(SKIP_ESCAPE_BEFORE_ENTER));
 }
+fn with_confinement(harness: &HarnessSettings, id: &str) -> HarnessSettings {
+    let mut changed = harness.clone();
+    changed.required_capabilities.push(Capability {
+        id: Text::new(id).unwrap(),
+        version: 1,
+    });
+    changed
+}
+fn fixture_paths() -> Paths<'static> {
+    Paths {
+        executable: Path::new("/opt/aq/bin/codex"),
+        workspace: Path::new("/work"),
+        private_home: Path::new("/home/agent/.aq/codex"),
+    }
+}
+#[test]
+fn confinement_mode_selects_codex_sandbox_and_keeps_hardening() {
+    let (harness, model) = settings();
+    let native = with_confinement(&harness, aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY);
+    let container = with_confinement(
+        &harness,
+        aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY,
+    );
+    // The pre-existing entrypoint stays native-only: container is never a silent result.
+    assert!(map(selected(&container, &model), fixture_paths()).is_err());
+    assert!(map_container(selected(&native, &model), fixture_paths()).is_err());
+    assert!(map_container(selected(&harness, &model), fixture_paths()).is_err());
+    let native = map(selected(&native, &model), fixture_paths()).unwrap();
+    let contained = map_container(selected(&container, &model), fixture_paths()).unwrap();
+    let sandbox = |args: &[String]| {
+        let i = args.iter().position(|a| a == "--sandbox").unwrap();
+        assert_eq!(args.iter().filter(|a| *a == "--sandbox").count(), 1);
+        args[i + 1].clone()
+    };
+    assert_eq!(sandbox(&native.arguments), "workspace-write");
+    assert_eq!(sandbox(&contained.arguments), "danger-full-access");
+    let mut expected = native.arguments.clone();
+    let i = expected.iter().position(|a| a == "--sandbox").unwrap();
+    expected[i + 1] = "danger-full-access".into();
+    assert_eq!(contained.arguments, expected, "hardening flags unchanged");
+    assert_eq!(contained.environment, native.environment);
+}
+#[test]
+fn proxy_provider_routes_codex_through_runner_loopback_without_key() {
+    let endpoint = LoopbackResponsesEndpoint::new(41234).unwrap();
+    let overrides = proxy_provider_overrides(endpoint);
+    for expected in [
+        "model_provider=\"aq-runner-proxy\"",
+        "model_providers.aq-runner-proxy.base_url=\"http://127.0.0.1:41234/v1\"",
+        "model_providers.aq-runner-proxy.wire_api=\"responses\"",
+        "model_providers.aq-runner-proxy.requires_openai_auth=true",
+        "cli_auth_credentials_store=\"file\"",
+        "features.api_key_model_discovery=false",
+        "analytics.enabled=false",
+    ] {
+        assert!(
+            overrides.iter().any(|o| o == expected),
+            "missing {expected}"
+        );
+    }
+    assert!(!overrides.iter().any(|o| o.starts_with("openai_base_url=")
+        || o.contains("env_key")
+        || o.contains("OPENAI_API_KEY")
+        || o.contains("CODEX_API_KEY")
+        || o.contains("bearer")));
+}

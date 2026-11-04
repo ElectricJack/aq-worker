@@ -1,0 +1,40 @@
+# base 8f2f5bee9c5142f27c317e8010801ed326ceb6bd + uncommitted C6a tree
+     Running unittests src/lib.rs (target/debug/deps/aq_codex_mapper-23640342abef57ee)
+test result_local::tests::lexical_paths_cannot_smuggle_other_writable_or_private_roots ... ok
+test result_local::tests::removing_only_declared_delta_recovers_exact_original_recipe_bytes ... ok
+test result_local::tests::quoted_paths_are_literal_config_values_and_recipe_stays_bounded ... ok
+test tests::confinement_mode_selects_codex_sandbox_and_keeps_hardening ... ok
+test tests::interactive_tui_uses_v1_model_prompt_mode_and_preserves_exec_recipe ... ok
+test result_local::tests::result_recipe_exposes_only_declared_channel_and_submission_child ... ok
+test tests::interactive_v1_composer_and_auth_dialog_rules_keep_no_escape_behavior ... ok
+test tests::proxy_provider_routes_codex_through_runner_loopback_without_key ... ok
+test tests::pure_recipe_does_not_require_remote_identity_or_existing_filesystem ... ok
+test tests::unsupported_settings_cannot_map_a_recipe ... ok
+test tests::scoped_endpoint_accepts_only_nonzero_port_and_emits_metadata ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (target/debug/deps/aq_session_protocol-d8d9eaa0fc4cce62)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/conformance.rs (target/debug/deps/conformance-e54f55edc679d4b8)
+test authority_and_deadline_rechecked_before_effect ... ok
+test bounded_input_backlog ... ok
+test canonical_and_schema_drift ... ok
+test central_identity_is_not_a_worker ... ok
+test controller_lease_identity_is_immutable_within_generation ... ok
+test exact_capabilities_and_launch_binding ... ok
+test fixture_generation_drift ... ok
+test literal_input_conflicts_and_unknown_never_replays ... ok
+test manifest_declares_exactly_one_confinement_mode ... ok
+test nil_poll_refuses_and_terminal_capability_mandatory ... ok
+test nil_rebinding_and_aggregate_context_refuse ... ok
+test outbound_batches_deduplicate_and_conflict ... ok
+test published_artifact_mirrors_match_when_in_repository ... ok
+test resize_ids_do_not_rebind_after_intervening_command ... ok
+test resize_is_fenced_ordered_and_idempotent ... ok
+test snapshot_boundary_conflicts_gaps_and_backlog ... ok
+test stale_capture_and_controller_cannot_resolve_unknown ... ok
+test unknown_mutation_fields_and_oversized_text_refuse ... ok
+test unknown_required_capability_is_not_self_authorizing ... ok
+test maximum_snapshot_roundtrips_bounded_wire ... ok
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

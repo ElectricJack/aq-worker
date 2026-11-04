@@ -353,3 +353,251 @@ async fn aq_proxy_refuses_compressed_access_echo() {
     peer.await.unwrap();
     proxy.stop().await.unwrap();
 }
+
+// C6a: the provider key stays in the runner's private file. The agent's harness
+// homes, argv and environment carry at most the proxy's attempt-local capability.
+#[tokio::test]
+async fn api_key_never_visible_to_agent_user() {
+    use aq_responses_transport::ResponsesPolicy;
+    use aq_session_protocol::{ArtifactRef, Capability, Digest, HarnessSettings, Text};
+    use aq_worker::native::adapter::claude::{
+        CLAUDE_CLI_VERSION, ClaudePaths, FORBIDDEN_ENVIRONMENT,
+    };
+    use aq_worker::native::runner::sandbox::{
+        confinement::*,
+        harness_config::{ClaudeAgentHome, CodexAgentHome},
+        responses::RunnerResponsesProxy,
+    };
+    const KEY: &[u8] = b"sk-provider-only-secret-c6a";
+    let root = tempfile::tempdir().unwrap();
+    let files = RunnerFiles::create(&root.path().join("runner")).unwrap();
+    files.write_secret("provider.key", KEY).unwrap();
+    let text = |s: &str| Text::new(s).unwrap();
+    let harness = |name: &str, version: &str, confinement: &str| {
+        let artifact = ArtifactRef {
+            id: text("fixture"),
+            version: text("1"),
+            digest: Digest::of(b"fixture"),
+        };
+        HarnessSettings {
+            harness: text(name),
+            cli_version: text(version),
+            adapter: artifact.clone(),
+            environment: artifact,
+            required_capabilities: ["aq.harness.startup-context", confinement, "aq.harness.stop"]
+                .map(|id| Capability {
+                    id: text(id),
+                    version: 1,
+                })
+                .to_vec(),
+        }
+    };
+    let model = |provider: &str| aq_session_protocol::ModelSettings {
+        provider: text(provider),
+        model: text("fixture-model"),
+        reasoning: text("medium"),
+        max_output_tokens: 100,
+        spending_budget: None,
+    };
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    assert_eq!(
+        unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) },
+        0
+    );
+    let policy = ResponsesPolicy::new(
+        Digest::of(b"fixture-attempt"),
+        &model("openai"),
+        now.tv_sec as u64 * 1_000_000_000 + now.tv_nsec as u64 + 30_000_000_000,
+    )
+    .unwrap();
+    let proxy = RunnerResponsesProxy::development_loopback(
+        policy,
+        &files.root().join("provider.key"),
+        "http://127.0.0.1:9",
+    )
+    .await
+    .unwrap();
+    let port = reqwest::Url::parse(proxy.origin()).unwrap().port().unwrap();
+    let endpoint = aq_codex_mapper::LoopbackResponsesEndpoint::new(port).unwrap();
+    let capability = proxy.local_capability();
+    let separation = AttemptSeparation {
+        runner_uid: 1001,
+        agent: aq_session_host::users::AgentIdentity {
+            uid: 1002,
+            gid: 1002,
+        },
+        credentials_attempt_scoped: true,
+    };
+    let permit = ExecutionConfinement {
+        permit_container: true,
+        require_native: false,
+    };
+    let vm = QualificationRecord::from_native_probe(
+        "aq-rust",
+        "vm",
+        BackendBoundary::Container,
+        NativeProbe {
+            outside_write_refused: true,
+        },
+        "fixture",
+    );
+    let docker = QualificationRecord::docker_local("aq-rust");
+    let workspace = root.path().join("work");
+    let contains = |hay: &[u8]| hay.windows(KEY.len()).any(|w| w == KEY);
+    let assert_clean = |home: &std::path::Path,
+                        args: &[String],
+                        env: &std::collections::BTreeMap<String, String>| {
+        for name in FORBIDDEN_ENVIRONMENT {
+            assert!(!env.contains_key(*name), "{name} in agent env");
+        }
+        assert!(
+            !args
+                .iter()
+                .chain(env.values())
+                .any(|v| contains(v.as_bytes()))
+        );
+        assert!(
+            !args
+                .iter()
+                .chain(env.values())
+                .any(|v| v.contains("provider.key"))
+        );
+        assert_eq!(std::fs::metadata(home).unwrap().mode() & 0o777, 0o700);
+        for entry in std::fs::read_dir(home).unwrap() {
+            let path = entry.unwrap().path();
+            assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+            assert!(!contains(&std::fs::read(&path).unwrap()), "{path:?}");
+        }
+    };
+    for (mode, record) in [
+        (ConfinementMode::Native, &vm),
+        (ConfinementMode::Container, &docker),
+    ] {
+        let authorized = authorize(mode, &permit, record, &separation).unwrap();
+        let confinement = match mode {
+            ConfinementMode::Native => "aq.harness.confined-worktree",
+            ConfinementMode::Container => "aq.harness.container-confinement",
+        };
+        // Codex: private CODEX_HOME, proxy provider, capability-only auth.json.
+        let codex_home = root.path().join(format!("codex-{}", mode.as_str()));
+        let codex_harness = harness("codex", aq_codex_mapper::CODEX_CLI_VERSION, confinement);
+        let openai = model("openai");
+        let recipe = CodexAgentHome::install(
+            &authorized,
+            aq_codex_mapper::Settings {
+                harness: &codex_harness,
+                model: &openai,
+                terminal_input_enabled: false,
+            },
+            aq_codex_mapper::Paths {
+                executable: std::path::Path::new("/opt/aq/bin/codex"),
+                workspace: &workspace,
+                private_home: &codex_home,
+            },
+            endpoint,
+            &capability,
+        )
+        .unwrap();
+        assert_eq!(
+            recipe.environment.keys().collect::<Vec<_>>(),
+            ["CODEX_HOME"]
+        );
+        assert!(
+            recipe
+                .arguments
+                .iter()
+                .any(|a| a == "model_provider=\"aq-runner-proxy\"")
+        );
+        assert!(
+            recipe
+                .arguments
+                .iter()
+                .any(|a| a == "cli_auth_credentials_store=\"file\"")
+        );
+        assert!(
+            !recipe
+                .arguments
+                .iter()
+                .any(|a| a.starts_with("openai_base_url="))
+        );
+        assert_clean(&codex_home, &recipe.arguments, &recipe.environment);
+        let auth: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(codex_home.join("auth.json")).unwrap()).unwrap();
+        assert_eq!(
+            auth,
+            serde_json::json!({ "OPENAI_API_KEY": std::str::from_utf8(&capability).unwrap() })
+        );
+        // The provider key itself is refused as an auth.json value.
+        assert!(
+            CodexAgentHome::install(
+                &authorized,
+                aq_codex_mapper::Settings {
+                    harness: &codex_harness,
+                    model: &openai,
+                    terminal_input_enabled: false
+                },
+                aq_codex_mapper::Paths {
+                    executable: std::path::Path::new("/opt/aq/bin/codex"),
+                    workspace: &workspace,
+                    private_home: &root.path().join(format!("codex-key-{}", mode.as_str())),
+                },
+                endpoint,
+                KEY,
+            )
+            .is_err()
+        );
+        // A home inside the workspace would let workspace-write rewrite auth.json.
+        let nested = workspace.join(format!("codex-{}", mode.as_str()));
+        assert!(
+            CodexAgentHome::install(
+                &authorized,
+                aq_codex_mapper::Settings {
+                    harness: &codex_harness,
+                    model: &openai,
+                    terminal_input_enabled: false
+                },
+                aq_codex_mapper::Paths {
+                    executable: std::path::Path::new("/opt/aq/bin/codex"),
+                    workspace: &workspace,
+                    private_home: &nested,
+                },
+                endpoint,
+                &capability,
+            )
+            .is_err()
+                && !nested.exists()
+        );
+        // Claude: subscription only; settings.json and nothing else.
+        let claude_home = root.path().join(format!("claude-{}", mode.as_str()));
+        let recipe = ClaudeAgentHome::install(
+            &authorized,
+            &harness("claude", CLAUDE_CLI_VERSION, confinement),
+            &model("anthropic"),
+            ClaudePaths {
+                executable: std::path::Path::new("/opt/aq/bin/claude"),
+                workspace: &workspace,
+                private_home: &claude_home,
+            },
+        )
+        .unwrap();
+        assert_clean(&claude_home, &recipe.arguments, &recipe.environment);
+        let listed: Vec<_> = std::fs::read_dir(&claude_home)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(listed, ["settings.json"]);
+        let settings: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(claude_home.join("settings.json")).unwrap())
+                .unwrap();
+        assert!(settings.get("apiKeyHelper").is_none() && settings.get("env").is_none());
+    }
+    // The key never left the runner's private file.
+    assert_eq!(
+        &*RunnerFiles::read_secret(&files.root().join("provider.key")).unwrap(),
+        KEY
+    );
+    proxy.stop().await.unwrap();
+}
