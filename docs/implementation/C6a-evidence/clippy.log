@@ -1,0 +1,2 @@
+$ cargo clippy --locked -p aq-worker -p aq-codex-mapper -p aq-session-protocol --all-targets -- -D warnings
+exit status: 0

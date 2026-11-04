@@ -1,0 +1,9 @@
+# base 8f2f5bee9c5142f27c317e8010801ed326ceb6bd + uncommitted C6a tree
+test native::adapter::claude::tests::claude_recipe_refuses_unsupported_settings_and_paths ... ok
+test native::adapter::claude::tests::claude_recipe_carries_subscription_only_environment ... ok
+test native::adapter::claude::tests::container_claude_recipe_bypasses_permissions_with_harness_sandbox_off ... ok
+test native::adapter::claude::tests::native_claude_recipe_uses_harness_sandbox_and_accept_edits ... ok
+test native::runner::sandbox::confinement_tests::container_mode_requires_profile_permission ... ok
+test native::runner::sandbox::confinement_tests::native_required_profile_refused_on_container_only_backend ... ok
+test native::runner::sandbox::confinement_tests::declared_mode_is_read_from_the_frozen_manifest ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 377 filtered out; finished in 0.01s

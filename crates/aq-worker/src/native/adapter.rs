@@ -12,6 +12,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 
+pub mod claude;
 pub mod codex;
 pub mod named_exec;
 pub mod native_exec;

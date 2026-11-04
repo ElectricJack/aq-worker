@@ -1,0 +1,11 @@
+# base 8f2f5bee9c5142f27c317e8010801ed326ceb6bd + uncommitted C6a tree
+test api_key_never_visible_to_agent_user ... ok
+test aq_proxy_injects_access_header_without_exposing_token ... ok
+test aq_proxy_refuses_compressed_access_echo ... ok
+test aq_proxy_refuses_non_machine_origins_and_unsafe_access_files ... ok
+test aq_proxy_shutdown_cancels_concurrent_incomplete_requests ... ok
+test runner_private_files_refuse_oversized_and_malformed_secrets ... ok
+test runner_private_layout_refuses_unsafe_secret_files ... ok
+test runner_responses_proxy_keeps_provider_key_at_upstream ... ok
+test agent_user_cannot_read_permit_or_proxy_key ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.59s

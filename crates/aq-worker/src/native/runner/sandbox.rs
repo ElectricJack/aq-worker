@@ -1,6 +1,8 @@
 //! Fresh local sandbox execution. This path never registers, polls or accepts.
 pub mod agent_access;
 pub mod auth;
+pub mod confinement;
+pub mod harness_config;
 mod journal;
 mod manifest;
 pub mod private;
@@ -592,6 +594,8 @@ mod tests {
 mod auth_tests;
 #[cfg(test)]
 mod channels_tests;
+#[cfg(test)]
+mod confinement_tests;
 #[cfg(test)]
 mod hydrate_tests;
 
