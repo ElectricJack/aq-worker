@@ -398,8 +398,8 @@ impl AgentClient {
         }
     }
 }
-/// Agent mailbox routes. Delivery to a harness, replies and node polling are
-/// not part of this client.
+/// Agent mailbox routes. Harness delivery and node polling are not part of
+/// this client; replies are sends built from the original message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MessageRoute {
     Send,
@@ -456,15 +456,17 @@ impl AgentClient {
     pub async fn message(&self, route: MessageRoute, request: Value) -> Result<Outcome> {
         let (path, request_schema, response_schema) = route.contract();
         ensure!(
-            valid(request_schema, &request),
+            crate::mail::valid(request_schema, &request),
             "message request contract refused"
         );
         let recipient = &request["recipient"];
         let scoped = if route == MessageRoute::Send {
-            // Sends stay inside the credential's workspace/project scope; the
-            // daemon decides whether the named mailbox accepts this sender.
-            recipient["workspace_id"] == self.mailbox(false)["workspace_id"]
-                && recipient["project_id"] == self.mailbox(false)["project_id"]
+            // Sends stay inside the credential's workspace/project scope, or go
+            // to the supervisor conversation; the daemon decides whether the
+            // named mailbox accepts this sender.
+            crate::mail::supervisor_mailbox(recipient)
+                || recipient["workspace_id"] == self.mailbox(false)["workspace_id"]
+                    && recipient["project_id"] == self.mailbox(false)["project_id"]
         } else {
             *recipient == self.mailbox(false) || *recipient == self.mailbox(true)
         };
@@ -490,7 +492,7 @@ impl AgentClient {
         if status != 200 {
             return remote_refusal(status, value, operation_id);
         }
-        let associated = valid(response_schema, &value)
+        let associated = crate::mail::valid(response_schema, &value)
             && match route {
                 MessageRoute::Send | MessageRoute::Ack => {
                     value["operation_id"] == request["operation_id"]
@@ -512,6 +514,103 @@ impl AgentClient {
             value,
             exit_code: 0,
         })
+    }
+}
+/// Inbox pages scanned by one reply lookup (32 messages each).
+const MAX_REPLY_PAGES: usize = 64;
+/// Body chunks followed by one body retrieval.
+const MAX_BODY_CHUNKS: usize = 64;
+fn cursor(value: &Value) -> Option<u64> {
+    value.as_str()?.parse().ok()
+}
+impl AgentClient {
+    /// The original message in the bound mailbox, with its sender recovered
+    /// from a one-message page when the listing omitted its body.
+    async fn original(&self, session: bool, message_id: Uuid) -> Result<Value> {
+        let id = json!(message_id);
+        let mut after = 0u64;
+        for _ in 0..MAX_REPLY_PAGES {
+            let request = self.inbox_request(session, &after.to_string(), 32, None);
+            let page = self.message(MessageRoute::Inbox, request).await?.value;
+            let messages = page["messages"].as_array().cloned().unwrap_or_default();
+            if let Some(entry) = messages.iter().find(|m| m["message_id"] == id) {
+                if entry["body_omitted"] != true {
+                    return Ok(entry.clone());
+                }
+                let before = cursor(&entry["cursor"])
+                    .and_then(|c| c.checked_sub(1))
+                    .context("message cursor")?;
+                let request = self.inbox_request(session, &before.to_string(), 1, None);
+                let page = self.message(MessageRoute::Inbox, request).await?.value;
+                return page["messages"]
+                    .as_array()
+                    .and_then(|m| m.first())
+                    .filter(|m| m["message_id"] == id && m["body_omitted"] != true)
+                    .cloned()
+                    .context("original message sender unavailable");
+            }
+            let next = messages
+                .iter()
+                .filter_map(|m| cursor(&m["cursor"]))
+                .chain(cursor(&page["next_cursor"]))
+                .max()
+                .unwrap_or(after);
+            if page["has_more"] != true || next <= after {
+                break;
+            }
+            after = next;
+        }
+        anyhow::bail!("original message not found in the bound mailbox")
+    }
+    /// Reply on the original thread to the original sender's mailbox. The
+    /// caller-chosen operation and message IDs make a retry idempotent.
+    pub async fn reply(
+        &self,
+        session: bool,
+        message_id: Uuid,
+        body: String,
+        operation_id: Uuid,
+        reply_id: Uuid,
+    ) -> Result<Outcome> {
+        crate::mail::check_body(&body)?;
+        let original = self.original(session, message_id).await?;
+        let recipient = crate::mail::reply_recipient(&original["sender"])?;
+        let send = json!({"operation_id":operation_id,"message_id":reply_id,
+            "thread_id":original["thread_id"],"recipient":recipient,"body":body});
+        self.message(MessageRoute::Send, send).await
+    }
+    /// Every chunk of one message body from the bound mailbox, one digest.
+    pub async fn body(&self, session: bool, message_id: Uuid) -> Result<Outcome> {
+        let (mut offset, mut body, mut first) = ("0".to_owned(), String::new(), None::<Value>);
+        for _ in 0..MAX_BODY_CHUNKS {
+            let request = json!({"recipient":self.mailbox(session),"message_id":message_id,
+                "offset":offset,"max_bytes":crate::mail::MAX_BODY_BYTES});
+            let chunk = self.message(MessageRoute::Body, request).await?.value;
+            let head = first.get_or_insert_with(|| chunk.clone());
+            ensure!(
+                chunk["payload_digest"] == head["payload_digest"]
+                    && chunk["cursor"] == head["cursor"],
+                "message body changed between chunks"
+            );
+            body.push_str(chunk["body"].as_str().unwrap_or_default());
+            ensure!(
+                body.len() <= crate::mail::MAX_BODY_BYTES,
+                "message body bound"
+            );
+            if chunk["complete"] == true {
+                return Ok(Outcome {
+                    value: json!({"message_id":message_id,"cursor":head["cursor"],
+                        "payload_digest":head["payload_digest"],"body":body}),
+                    exit_code: 0,
+                });
+            }
+            ensure!(
+                cursor(&chunk["next_offset"]) > cursor(&chunk["offset"]),
+                "message body offset did not advance"
+            );
+            offset = chunk["next_offset"].as_str().unwrap_or_default().to_owned();
+        }
+        anyhow::bail!("message body chunk bound")
     }
 }
 fn operation_http_status(status: u16, value: &Value) -> bool {

@@ -1,0 +1,10 @@
+# commit 3059b80 (pre-squash; same source tree as the squashed commit)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/sandbox_mail.rs (target/debug/deps/sandbox_mail-406e709a65ecb821)
+
+running 2 tests
+test mail_inbox_mode_and_rejecting_attempt ... ok
+test message_delivered_once_across_runner_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+

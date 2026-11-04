@@ -4,6 +4,7 @@ pub mod auth;
 pub mod confinement;
 pub mod harness_config;
 mod journal;
+pub mod mail;
 mod manifest;
 pub mod private;
 pub mod proxy;
