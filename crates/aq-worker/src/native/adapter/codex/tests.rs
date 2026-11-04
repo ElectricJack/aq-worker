@@ -63,6 +63,32 @@ fn extracted_mapper_preserves_complete_scoped_command_golden() {
     );
 }
 #[test]
+fn scoped_provider_routes_through_runner_proxy_provider() {
+    let command: serde_json::Value =
+        serde_json::from_slice(&normalized_recipe_golden(true)).unwrap();
+    let arguments: Vec<&str> = command["arguments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap())
+        .collect();
+    assert!(!arguments.iter().any(|a| a.starts_with("openai_base_url=")));
+    for expected in [
+        "model_provider=\"aq-runner-proxy\"",
+        "model_providers.aq-runner-proxy.base_url=\"http://127.0.0.1:32123/v1\"",
+        "model_providers.aq-runner-proxy.wire_api=\"responses\"",
+        "cli_auth_credentials_store=\"file\"",
+    ] {
+        assert_eq!(
+            arguments.iter().filter(|a| **a == expected).count(),
+            1,
+            "{expected}"
+        );
+    }
+    // Stdin prompt marker stays last, after every override.
+    assert_eq!(arguments.last(), Some(&"-"));
+}
+#[test]
 fn scoped_provider_retains_closed_origin_validation() {
     assert_eq!(
         scoped_origin("http://127.0.0.1:32123/").unwrap(),

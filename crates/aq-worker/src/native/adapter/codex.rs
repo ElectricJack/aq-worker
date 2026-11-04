@@ -260,7 +260,7 @@ impl PreparedCodexExec {
             .port()
             .context("Codex scoped port")?;
         let endpoint = aq_codex_mapper::LoopbackResponsesEndpoint::new(port)?;
-        for setting in aq_codex_mapper::responses_overrides(endpoint) {
+        for setting in aq_codex_mapper::proxy_provider_overrides(endpoint) {
             overrides.push("--config".into());
             overrides.push(setting);
         }

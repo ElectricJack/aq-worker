@@ -1932,7 +1932,14 @@ impl HarnessAdapter for ObservedAdapter {
                     if let Some(scope) = &self.scoped_auth {
                         args.extend([
                             "--config".into(),
-                            format!("openai_base_url=\"{}/v1\"", scope.origin),
+                            "model_provider=\"aq-runner-proxy\"".into(),
+                            "--config".into(),
+                            format!(
+                                "model_providers.aq-runner-proxy.base_url=\"{}/v1\"",
+                                scope.origin
+                            ),
+                            "--config".into(),
+                            "model_providers.aq-runner-proxy.wire_api=\"responses\"".into(),
                         ]);
                     }
                     args
@@ -2569,14 +2576,15 @@ int main(int argc,char **argv) {
  if(!home || snprintf(path,sizeof(path),"%s/auth.json",home)<0)return 83;
  int fd=open(path,O_RDONLY|O_NOFOLLOW); if(fd<0)return 84;
  ssize_t got=read(fd,auth,sizeof(auth));close(fd);
- const char *expected=argc==3 ? "{\"OPENAI_API_KEY\":\"aq-responses-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}" : "{\"OPENAI_API_KEY\":\"sk-private-offline-only\"}";
+ const char *expected=argc==7 ? "{\"OPENAI_API_KEY\":\"aq-responses-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}" : "{\"OPENAI_API_KEY\":\"sk-private-offline-only\"}";
  if(got!=(ssize_t)strlen(expected) || memcmp(auth,expected,strlen(expected)))return 85;
- if(argc==3 && getenv("AQ_SESSION_DIRECTORY"))return 86;
+ if(argc==7 && getenv("AQ_SESSION_DIRECTORY"))return 86;
+ for(int i=1;i<argc;i++)if(!strncmp(argv[i],"openai_base_url=",16))return 87;
  puts("AUTH:exact-private-file");
  if((fcntl(0,F_GET_SEALS)&(F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL))!=(F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL))return 82;
  unsigned char b[8192]; uint64_t hash=14695981039346656037ULL, n=0; ssize_t count;
  while((count=read(0,b,sizeof(b)))>0){for(ssize_t i=0;i<count;i++){hash^=b[i];hash*=1099511628211ULL;}n+=count;}
- if(count<0 || (argc!=1 && argc!=3) || image_padding[argc]!=0)return 80;
+ if(count<0 || (argc!=1 && argc!=7) || image_padding[argc]!=0)return 80;
  printf("STDIN:%llu:%016llx\n",(unsigned long long)n,(unsigned long long)hash);fflush(stdout);
  for(;;)pause();
 }
