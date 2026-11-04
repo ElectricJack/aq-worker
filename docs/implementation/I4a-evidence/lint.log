@@ -1,0 +1,5 @@
+$ cargo clippy --locked -p aq-worker --test claude_live -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 50.72s
+exit=0
+$ rustfmt --edition 2024 --check crates/aq-worker/tests/claude_live.rs
+exit=0
