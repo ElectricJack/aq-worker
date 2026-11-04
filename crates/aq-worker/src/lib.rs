@@ -2,6 +2,7 @@
 
 pub mod backend;
 pub mod backoff;
+pub mod checks;
 pub mod client;
 pub mod clock;
 pub mod config;

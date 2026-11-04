@@ -52,6 +52,13 @@ enum Cmd {
         #[arg(long)]
         controller_config: PathBuf,
     },
+    /// Claim and run server check attempts (aq.check.sandbox/v1) on the
+    /// Docker-local sandbox, reporting exactly one stop each.
+    RunChecks {
+        /// Operator JSON: journal_dir, checkpoint_dir, docker_local, runner.
+        #[arg(long)]
+        checks_config: PathBuf,
+    },
     /// Import evidence-backed historical Boat VM lifecycle facts, then replay.
     /// Stop the controller first: this uses its exclusive Boat journal lock.
     BoatVmTimeBackfill {
@@ -604,6 +611,29 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     ExitCode::SUCCESS
                 }
                 Err(e) => usage_err(format!("{e:#}")),
+            }
+        }
+        Cmd::RunChecks { checks_config } => {
+            let result: anyhow::Result<()> = async {
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::checks::ChecksConfig::load(&checks_config)?;
+                let (tx, rx) = tokio::sync::watch::channel(false);
+                let watcher = tokio::spawn(async move {
+                    shutdown_signal().await;
+                    let _ = tx.send(true);
+                });
+                let result = aq_worker::checks::run(&worker, config, rx).await;
+                watcher.abort();
+                result
+            }
+            .await;
+            match result {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    let (message, code) = run_error(&e);
+                    eprintln!("error: {message}");
+                    code
+                }
             }
         }
         Cmd::Run { controller_config } => {

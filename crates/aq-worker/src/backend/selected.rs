@@ -85,6 +85,12 @@ impl PlacementBackend for SelectedBackend {
             Self::Boat(b) => b.fork(s, r).await,
         }
     }
+    async fn runner_exit(&mut self, s: &SandboxIdentity) -> Result<RunnerExit, BackendError> {
+        match self {
+            Self::Docker(b) => b.runner_exit(s).await,
+            Self::Boat(b) => b.runner_exit(s).await,
+        }
+    }
     async fn destroy(
         &mut self,
         s: &SandboxIdentity,
