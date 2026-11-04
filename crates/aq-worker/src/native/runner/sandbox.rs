@@ -6,6 +6,7 @@ pub mod harness_config;
 mod journal;
 pub mod mail;
 mod manifest;
+pub mod native_probe;
 pub mod private;
 pub mod proxy;
 pub mod responses;
@@ -599,6 +600,8 @@ mod channels_tests;
 mod confinement_tests;
 #[cfg(test)]
 mod hydrate_tests;
+#[cfg(test)]
+mod native_probe_tests;
 
 #[cfg(test)]
 mod observations_tests;
