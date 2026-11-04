@@ -19,6 +19,8 @@ pub mod driver;
 
 pub mod fault;
 pub mod guardian;
+/// H5 physical suspension and continuation bootstrap over CON-03 ports.
+pub mod hibernation;
 
 pub mod source;
 #[cfg(feature = "synthetic-runtime")]

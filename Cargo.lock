@@ -387,6 +387,7 @@ dependencies = [
  "aq-agent-client",
  "aq-agent-result-local",
  "aq-codex-mapper",
+ "aq-lifecycle-protocol",
  "aq-observation",
  "aq-observation-engine",
  "aq-observation-redb-prototype",
