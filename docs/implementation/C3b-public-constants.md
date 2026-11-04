@@ -15,7 +15,7 @@ Its [upstream self-tests](https://github.com/gnutls/gnutls/blob/3.8.3/lib/crypto
 explain the embedded vectors; qualification verifies the exact Debian package
 bytes rather than assuming a source version produces identical binaries.
 
-`credential_scan.PUBLIC_FILE_CONSTANTS` contains only 74 exact SHA-256/size
+`credential_scan.PUBLIC_FILE_CONSTANTS` contains only 75 exact SHA-256/size
 pairs. `scan_content` hashes every original byte through EOF. A strict content
 match can pass only when the complete file matches one of those reviewed
 public files. The catalog is compiled into the embedded Python scanner. An
@@ -178,6 +178,19 @@ the initial area checks. The first synced Rust run caught the public Serde
 label false positive described above (`rust-area-final.log`); it is retained
 as regression evidence. `cargo fmt --check` also passed after sync
 (`fmt-final.log`).
+
+## Claude Code 2.1.318 (calm-delta-18.9.3)
+
+The runtime bundle now ships the Claude Code native executable at
+`opt/aq/harnesses/claude/claude`, which the strict scanner refuses (178
+token/assignment matches, all compiled JavaScript: concatenated CSS and skill
+identifiers, PEM-header regexes and property assignments; no credential
+values). One exact entry was added, `708c77b2…f0bd` / 337814032 bytes, the
+`package/claude` member of the public npm tarball
+`@anthropic-ai/claude-code-linux-x64@2.1.318` (archive `2a4d5e3b…554f`, whose
+sha512 equals the registry `integrity`). The same bytes were independently
+matched against a native-installer copy of 2.1.318. `verify_public_files.py`
+covers the record; one appended byte still refuses.
 
 ## Limits
 

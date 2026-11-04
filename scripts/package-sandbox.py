@@ -64,7 +64,7 @@ def package(revision, inputs, destination, *, pins=None):
             raise ValueError(f'{field} must be digest-pinned')
     if not re.fullmatch(r'\d{8}T\d{6}Z', pins['debian_snapshot']):
         raise ValueError('invalid Debian snapshot timestamp')
-    required = {'git.tar.xz', 'aq-git', 'codex', 'node.tar.xz'}
+    required = {'git.tar.xz', 'aq-git', 'codex', 'claude', 'node.tar.xz'}
     if set(pins['inputs']) != required:
         raise ValueError('unsupported public input set')
     for name, pin in pins['inputs'].items():
@@ -88,7 +88,7 @@ def package(revision, inputs, destination, *, pins=None):
                 definition = definition.replace(token, value)
             (context / 'Dockerfile').write_text(definition)
             (context / 'snapshot.sources').write_text(snapshot_sources(pins['debian_snapshot']))
-            names = ['git.tar.xz'] if kind == 'os' else ['aq-git', 'codex', 'node.tar.xz']
+            names = ['git.tar.xz'] if kind == 'os' else ['aq-git', 'codex', 'claude', 'node.tar.xz']
             (context / 'SHA256SUMS').write_text(''.join(
                 pins['inputs'][name]['sha256'] + '  ' + name + '\n' for name in names))
         (runtime / 'pins.json').write_text(json.dumps(pins, sort_keys=True, indent=2) + '\n')

@@ -23,6 +23,13 @@
       "archive_member": "codex-x86_64-unknown-linux-musl",
       "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8"
     },
+    "claude": {
+      "version": "2.1.318",
+      "url": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.318.tgz",
+      "archive_sha256": "2a4d5e3bd0f5bd2959bb1955bd99ea97f57af162681991dcae00fee82f9d554f",
+      "archive_member": "package/claude",
+      "sha256": "708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd"
+    },
     "node.tar.xz": {
       "version": "22.16.0",
       "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
