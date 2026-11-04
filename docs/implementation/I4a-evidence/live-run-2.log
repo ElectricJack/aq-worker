@@ -1,0 +1,12 @@
+COMMAND: ['cargo', 'test', '--locked', '-p', 'aq-worker', '--test', 'claude_live', 'live', '--', '--ignored', '--nocapture']
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/claude_live.rs (target/debug/deps/claude_live-b4f9bfdda1b547c1)
+
+running 1 test
+runner exit Some(Exited(0)) after 15.050548707s: {"base":"86cc2a38b727fc0d29b2577b3beab862baaabc21","cap_eff":"0000000000000000","check_rc":0,"claude_rc":0,"cli_version":"2.1.318 (Claude Code)","credentials_file":false,"head":"afb11b531b71cdef76e4ce21d18ff29f4cb49210","material_wiped":true,"no_new_privs":1,"publish_rc":0,"published":"afb11b531b71cdef76e4ce21d18ff29f4cb49210","red":true,"token_files":0,"uid":0}
+test live_claude_subscription_edit_check_publish_cycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 22.52s
+
+.
+1 passed in 23.79s
