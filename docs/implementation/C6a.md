@@ -186,7 +186,7 @@ An independent reviewer read the uncommitted tree against this task's acceptance
   - installing the homes through `run_as_agent`;
   - spawning the recipe.
 - **Installation identity.** `create_private_home` requires that the effective uid owns the home. Production installation must therefore run as the agent user.
-- **Existing native consumers still refuse container manifests.** `aq-session-host/src/host_plan.rs` (lines 106-118) and `aq-worker/src/native/runner/codex.rs` (line 109) accept only `aq.harness.confined-worktree`. Supporting container there is a follow-up.
+- **Native consumers accept exactly one confinement mode (calm-delta-18.9.5).** `aq-session-host/src/host_plan.rs` and `aq-worker/src/native/runner/codex.rs` accept either `aq.harness.confined-worktree` or `aq.harness.container-confinement` and refuse a manifest declaring both. The Codex adapter routes container to `aq_codex_mapper::map_container` only with an attached `AuthorizedConfinement` of mode container (`CodexExecutor::with_confinement`). It refuses container for interactive and result-local mapping.
 - **Claude OAuth leasing is C6b.** The recipe and home carry no credential. Leasing the subscription token (no refresh write-back, wiped on teardown) is out of scope.
 - **Profile permission is mirrored worker-side.** The authoritative `Execution` confinement permission belongs to aq-server's `aq-profiles`, and so does emitting the confinement capability. Both are cross-repo follow-ups. Until then, `ExecutionConfinement::default()` denies container.
 - **Qualification is recorded, not probed live.** `docker_local` cites the C2 probe. A live outside-write probe per template × backend is a follow-up.

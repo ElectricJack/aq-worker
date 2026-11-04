@@ -1,6 +1,7 @@
 //! Closed Codex exec input mapping. Preparing inputs grants no execution or
 //! runtime qualification. The concrete host owner must verify them at exec.
 use super::*;
+use crate::native::runner::sandbox::confinement::{AuthorizedConfinement, ConfinementMode};
 use anyhow::Context;
 use aq_admission::startup::NativeOffer;
 use aq_session_host::LocalCommand;
@@ -18,6 +19,53 @@ pub struct CodexExecProfile {
     pub model: ModelSettings,
     pub permissions_digest: Digest,
     pub renderer: ArtifactRef,
+    /// The sandbox's proof for container confinement. `None` maps native only;
+    /// a container-declaring harness is refused without a `Container` proof.
+    pub confinement: Option<AuthorizedConfinement>,
+}
+
+/// The confinement mode the selected harness declares, joined with its
+/// authorization (0005 SBX13/SBX19). Exactly one mode may be declared; a
+/// harness declaring neither keeps the legacy native mapping, which the frozen
+/// manifest's own validation already refuses. Container requires an
+/// `AuthorizedConfinement` for `Container` and is unqualified for interactive.
+pub(crate) fn selected_confinement(
+    harness: &HarnessSettings,
+    confinement: Option<&AuthorizedConfinement>,
+    interactive: bool,
+) -> Result<ConfinementMode> {
+    let declares = |id: &str| {
+        harness
+            .required_capabilities
+            .iter()
+            .any(|c| c.id.as_str() == id && c.version == 1)
+    };
+    let container = declares(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY);
+    ensure!(
+        !(container && declares(aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY)),
+        "Codex harness declares both confinement modes"
+    );
+    let mode = if container {
+        ConfinementMode::Container
+    } else {
+        ConfinementMode::Native
+    };
+    match (mode, confinement.map(AuthorizedConfinement::mode)) {
+        (ConfinementMode::Native, None | Some(ConfinementMode::Native)) => {}
+        (ConfinementMode::Container, Some(ConfinementMode::Container)) => ensure!(
+            !interactive,
+            "container confinement is not qualified for interactive Codex"
+        ),
+        (ConfinementMode::Container, None) => {
+            anyhow::bail!("container confinement requires an AuthorizedConfinement")
+        }
+        (declared, Some(authorized)) => anyhow::bail!(
+            "declared {} confinement differs from authorized {}",
+            declared.as_str(),
+            authorized.as_str()
+        ),
+    }
+    Ok(mode)
 }
 
 /// Exact retained inputs for the native-specific mapper. This owns no lease.
@@ -209,7 +257,10 @@ impl CodexExecProfile {
             workspace,
             private_home,
         };
-        let recipe = if interactive {
+        let mode = selected_confinement(&self.harness, self.confinement.as_ref(), interactive)?;
+        let recipe = if mode == ConfinementMode::Container {
+            aq_codex_mapper::map_container(settings, paths)?
+        } else if interactive {
             ensure!(
                 !payload.is_empty()
                     && payload.len() <= 64 * 1024
