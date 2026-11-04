@@ -2,6 +2,10 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path, process::Command};
 
+/// The Claude Code CLI the C6a recipe (`adapter/claude.rs` `CLAUDE_CLI_VERSION`)
+/// admits; any other manifest `cli_version` is refused there.
+const CLAUDE_CLI_VERSION: &str = "2.1.318";
+
 #[test]
 fn runtime_bundle_lists_pinned_harness_versions() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -13,6 +17,25 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         pins["inputs"]["codex"]["version"],
         aq_codex_mapper::CODEX_CLI_VERSION
     );
+    let claude_pin = &pins["inputs"]["claude"];
+    assert_eq!(claude_pin["version"], CLAUDE_CLI_VERSION);
+    assert_eq!(
+        claude_pin["url"],
+        format!(
+            "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-{CLAUDE_CLI_VERSION}.tgz"
+        )
+    );
+    assert_eq!(claude_pin["archive_member"], "package/claude");
+    for digest in ["archive_sha256", "sha256"] {
+        let value = claude_pin[digest].as_str().expect("claude digest");
+        assert!(
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "claude {digest} must be lowercase hex SHA-256"
+        );
+    }
     let bundle = tempfile::tempdir().unwrap();
     let root = bundle.path();
     for (path, contents) in [
@@ -21,6 +44,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         ("bin/aq-agent", "agent"),
         ("bin/aq-git", "git"),
         ("harnesses/codex/codex", "codex"),
+        ("harnesses/claude/claude", "claude"),
         ("node/bin/node", "node"),
     ] {
         fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
@@ -49,10 +73,15 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();
     assert_eq!(manifest["schema_version"], 1);
     assert_eq!(manifest["source"], source);
-    assert_eq!(manifest["harnesses"].as_array().unwrap().len(), 1);
+    assert_eq!(manifest["harnesses"].as_array().unwrap().len(), 2);
     let codex = &manifest["harnesses"][0];
     assert_eq!(codex["name"], "codex");
     assert_eq!(codex["version"], pins["inputs"]["codex"]["version"]);
+    let claude = &manifest["harnesses"][1];
+    assert_eq!(claude["name"], "claude");
+    assert_eq!(claude["version"], CLAUDE_CLI_VERSION);
+    assert_eq!(claude["path"], "/opt/aq/harnesses/claude/claude");
+    assert_eq!(claude["bytes"], "claude".len());
     assert_eq!(
         manifest["aq_git"]["version"],
         pins["inputs"]["aq-git"]["version"]
@@ -72,6 +101,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
     );
     for artifact in [
         codex,
+        claude,
         &manifest["agent_client"],
         &manifest["runner"],
         &manifest["session_host"],

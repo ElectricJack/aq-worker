@@ -705,6 +705,21 @@
       ]
     },
     {
+      "sha256": "708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd",
+      "bytes": 337814032,
+      "example_image_path": "opt/aq/harnesses/claude/claude",
+      "upstream": {
+        "url": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.318.tgz",
+        "member": "package/claude",
+        "archive_sha256": "2a4d5e3bd0f5bd2959bb1955bd99ea97f57af162681991dcae00fee82f9d554f"
+      },
+      "finding_count": 178,
+      "finding_kinds": [
+        "assignment",
+        "token"
+      ]
+    },
+    {
       "sha256": "bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829",
       "bytes": 963574,
       "example_image_path": "opt/node/lib/node_modules/corepack/dist/lib/corepack.cjs",

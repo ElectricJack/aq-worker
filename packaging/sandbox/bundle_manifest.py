@@ -27,7 +27,8 @@ def manifest(root):
         'agent_client': artifact(root, 'aq-agent', source['agent_client_version'], 'bin/aq-agent'),
         'aq_git': artifact(root, 'aq-git', inputs['aq-git']['version'], 'bin/aq-git'),
         'node': artifact(root, 'node', inputs['node.tar.xz']['version'], 'node/bin/node'),
-        'harnesses': [artifact(root, 'codex', inputs['codex']['version'], 'harnesses/codex/codex')],
+        'harnesses': [artifact(root, 'codex', inputs['codex']['version'], 'harnesses/codex/codex'),
+                      artifact(root, 'claude', inputs['claude']['version'], 'harnesses/claude/claude')],
         'proxies': {'responses': 'in-process:aq-worker', 'aq_loopback': 'in-process:aq-worker'},
     }
 
