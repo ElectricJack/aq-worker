@@ -1,0 +1,9 @@
+# RED: runner stubbed to `exit 3` (first line of RUNNER), same test otherwise.
+$ cargo test --locked -p aq-worker --test claude_live live -- --ignored --nocapture
+runner exit Some(Exited(3)) after 46.1867ms: null
+thread 'live_claude_subscription_edit_check_publish_cycle' panicked at crates/aq-worker/tests/claude_live.rs:454:5:
+assertion `left == right` failed: result: null
+  left: Some(Exited(3))
+ right: Some(Exited(0))
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 2.59s
+# Teardown assertions (stop/destroy confirmed, list_owned empty) ran before and passed.
