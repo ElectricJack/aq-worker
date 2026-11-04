@@ -1,6 +1,7 @@
 //! Fresh local sandbox execution. This path never registers, polls or accepts.
 pub mod agent_access;
 pub mod auth;
+pub mod mail;
 mod journal;
 mod manifest;
 pub mod private;

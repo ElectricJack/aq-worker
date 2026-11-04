@@ -39,7 +39,7 @@ enum Command {
         #[command(subcommand)]
         command: Operation,
     },
-    /// Bound task/session mailbox reads and scoped sends; no harness delivery.
+    /// Bound task/session mailbox reads, scoped sends and replies; no harness delivery.
     Message {
         #[command(subcommand)]
         command: Message,
@@ -68,10 +68,29 @@ enum Message {
         #[arg(long)]
         request_file: Option<PathBuf>,
     },
-    /// Strict MessageBodyRequest JSON for an omitted body.
+    /// Strict MessageBodyRequest JSON for an omitted body, or every chunk of
+    /// one message with --message-id (session mailbox, or task with --task).
     Body {
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["message_id", "task"])]
         request_file: Option<PathBuf>,
+        #[arg(long)]
+        message_id: Option<Uuid>,
+        #[arg(long, requires = "message_id")]
+        task: bool,
+    },
+    /// Reply on the original thread to the original sender's mailbox. The body
+    /// is read from --body-file or stdin; pass the same IDs to retry.
+    Reply {
+        #[arg(long)]
+        message_id: Uuid,
+        #[arg(long)]
+        task: bool,
+        #[arg(long)]
+        body_file: Option<PathBuf>,
+        #[arg(long)]
+        operation_id: Option<Uuid>,
+        #[arg(long)]
+        reply_id: Option<Uuid>,
     },
 }
 #[derive(Subcommand)]
@@ -153,6 +172,16 @@ fn input(path: Option<PathBuf>) -> Result<Value> {
     reader.take(limit as u64 + 1).read_to_end(&mut bytes)?;
     Ok(aq_agent_client::contract::parse(&bytes)?)
 }
+fn body_input(path: Option<PathBuf>) -> Result<String> {
+    let limit = aq_agent_client::mail::MAX_BODY_BYTES;
+    let reader: Box<dyn Read> = match path {
+        Some(path) => Box::new(std::fs::File::open(path)?),
+        None => Box::new(std::io::stdin()),
+    };
+    let mut bytes = vec![];
+    reader.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    Ok(String::from_utf8(bytes)?)
+}
 async fn run(cli: Cli) -> Result<Outcome> {
     let Cli {
         state_dir,
@@ -203,6 +232,31 @@ async fn run(cli: Cli) -> Result<Outcome> {
         Command::Graph {
             command: Graph::Command { request_file },
         } => client.command(input(request_file)?).await,
+        Command::Message {
+            command:
+                Message::Reply {
+                    message_id,
+                    task,
+                    body_file,
+                    operation_id,
+                    reply_id,
+                },
+        } => {
+            let body = body_input(body_file)?;
+            let operation_id = operation_id.unwrap_or_else(Uuid::new_v4);
+            let reply_id = reply_id.unwrap_or_else(Uuid::new_v4);
+            client
+                .reply(!task, message_id, body, operation_id, reply_id)
+                .await
+        }
+        Command::Message {
+            command:
+                Message::Body {
+                    message_id: Some(message_id),
+                    task,
+                    ..
+                },
+        } => client.body(!task, message_id).await,
         Command::Message { command } => {
             let (route, request) = match command {
                 Message::Inbox {
@@ -216,7 +270,8 @@ async fn run(cli: Cli) -> Result<Outcome> {
                 ),
                 Message::Send { request_file } => (MessageRoute::Send, input(request_file)?),
                 Message::Ack { request_file } => (MessageRoute::Ack, input(request_file)?),
-                Message::Body { request_file } => (MessageRoute::Body, input(request_file)?),
+                Message::Body { request_file, .. } => (MessageRoute::Body, input(request_file)?),
+                Message::Reply { .. } => unreachable!("reply dispatched above"),
             };
             client.message(route, request).await
         }

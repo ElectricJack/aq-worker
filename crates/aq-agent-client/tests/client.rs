@@ -170,11 +170,37 @@ async fn endpoint(State(s): State<Arc<Peer>>, req: Request<Body>) -> Response {
     } else if path == "/v1/agent/messages/inbox" {
         let request: Value = serde_json::from_slice(&raw).unwrap();
         let mut value = messaging("mailbox-page");
+        match s.mode {
+            20 | 22 => value["messages"][0]["sender"] = supervisor_sender(),
+            21 => {
+                value["messages"][0]["sender"] =
+                    json!({"kind":"owner","user_id":Uuid::from_u128(7)})
+            }
+            _ => {}
+        }
+        if s.mode == 22 && request["limit"] != 1 {
+            value = messaging("omitted-body-explicit-chunk-request");
+        }
         value["recipient"] = request["recipient"].clone();
         value["after"] = request["after"].clone();
         value
+    } else if path == "/v1/agent/messages/body" {
+        let request: Value = serde_json::from_slice(&raw).unwrap();
+        let mut value = messaging("bounded-body-response");
+        value["message_id"] = request["message_id"].clone();
+        if request["offset"] != "0" {
+            value["offset"] = request["offset"].clone();
+            value["next_offset"] = json!("6");
+            value["body"] = json!("!");
+            value["complete"] = json!(true);
+            if s.mode == 23 {
+                value["payload_digest"] = json!("b".repeat(64));
+            }
+        }
+        value
     } else if path == "/v1/agent/messages/send" {
         let request: Value = serde_json::from_slice(&raw).unwrap();
+        s.posts.lock().unwrap().push(raw.to_vec());
         let mut value = messaging("accepted-is-queued");
         for key in ["operation_id", "message_id", "thread_id", "recipient"] {
             value[key] = request[key].clone();
@@ -302,6 +328,109 @@ async fn message_inbox_and_send_stay_in_bound_mailbox() {
     );
     assert_eq!(peer.calls.load(Ordering::SeqCst), 3);
     server.abort();
+}
+const CONVERSATION: Uuid = Uuid::from_u128(0xc0);
+fn supervisor_sender() -> Value {
+    json!({"kind":"central_supervisor","actor_id":Uuid::from_u128(0xa0),"generation":3,
+        "session_id":Uuid::from_u128(0xa1),"conversation_id":CONVERSATION})
+}
+async fn reply(mode: usize, body: &str) -> (anyhow::Result<Value>, Vec<Value>) {
+    let (url, peer, server) = peer(mode).await;
+    let root = TempDir::new().unwrap();
+    install(root.path(), &url, base()["context"].clone());
+    let client = AgentClient::open(root.path()).unwrap();
+    let original: Uuid = messaging("mailbox-page")["messages"][0]["message_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let out = client
+        .reply(
+            false,
+            original,
+            body.to_owned(),
+            Uuid::from_u128(0x0e),
+            Uuid::from_u128(0x0f),
+        )
+        .await
+        .map(|o| {
+            assert_eq!(o.exit_code, 0);
+            o.value
+        });
+    let sends = peer
+        .posts
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|b| serde_json::from_slice(b).unwrap())
+        .collect();
+    server.abort();
+    (out, sends)
+}
+#[tokio::test]
+async fn agent_reply_reaches_supervisor_mailbox() {
+    let thread = messaging("mailbox-page")["messages"][0]["thread_id"].clone();
+    for mode in [20, 22] {
+        let (out, sends) = reply(mode, "Done: café 世界.").await;
+        let receipt = out.unwrap();
+        assert_eq!(sends.len(), 1, "exactly one send");
+        let send = &sends[0];
+        assert_eq!(
+            send["recipient"],
+            json!({"kind":"global_supervisor","conversation_id":CONVERSATION})
+        );
+        assert_eq!(send["thread_id"], thread);
+        assert_eq!(send["body"], "Done: café 世界.");
+        assert_eq!(send["operation_id"], json!(Uuid::from_u128(0x0e)));
+        assert_eq!(send["message_id"], json!(Uuid::from_u128(0x0f)));
+        assert_eq!(receipt["recipient"], send["recipient"]);
+    }
+    // A session sender's reply goes back to that session's mailbox.
+    let (out, sends) = reply(0, "ack").await;
+    out.unwrap();
+    let sender = &messaging("mailbox-page")["messages"][0]["sender"]["binding"];
+    assert_eq!(sends[0]["recipient"]["kind"], "session");
+    for key in [
+        "workspace_id",
+        "project_id",
+        "task_id",
+        "session_id",
+        "attempt_id",
+        "generation",
+    ] {
+        assert_eq!(sends[0]["recipient"][key], sender[key]);
+    }
+    // No owner mailbox exists in agent-access v1, and body bounds hold before any send.
+    for (mode, body) in [
+        (21, "hi".to_owned()),
+        (20, String::new()),
+        (20, "x".repeat(16_385)),
+    ] {
+        let (out, sends) = reply(mode, &body).await;
+        assert!(out.is_err());
+        assert!(sends.is_empty());
+    }
+    let (out, _) = reply(20, &"é".repeat(8192)).await;
+    out.unwrap();
+}
+#[tokio::test]
+async fn agent_body_follows_chunks_under_one_digest() {
+    let id = Uuid::from_u128(0x1f6);
+    for (mode, ok) in [(0, true), (23, false)] {
+        let (url, _peer, server) = peer(mode).await;
+        let root = TempDir::new().unwrap();
+        install(root.path(), &url, base()["context"].clone());
+        let client = AgentClient::open(root.path()).unwrap();
+        let out = client.body(false, id).await;
+        if ok {
+            let value = out.unwrap().value;
+            assert_eq!(value["body"], "é界!");
+            assert_eq!(value["payload_digest"], "a".repeat(64));
+        } else {
+            assert!(out.is_err(), "digest change between chunks is refused");
+        }
+        server.abort();
+    }
 }
 #[tokio::test]
 async fn lost_response_survives_process_reopen_with_exact_id_bytes_and_receipt() {
