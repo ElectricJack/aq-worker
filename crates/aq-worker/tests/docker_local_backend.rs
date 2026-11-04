@@ -791,6 +791,26 @@ async fn start_runner_and_bounded_read() {
 }
 
 #[tokio::test]
+async fn runner_exit_reports_the_observed_exit_code() {
+    let mut h = harness_with(ScriptedDocker::new().runner(Runner::ExitsWith(3)), |_| {}).await;
+    let sandbox = bounded(h.backend.create(&request(1, 2, 3))).await.unwrap();
+    assert_eq!(
+        bounded(h.backend.runner_exit(&sandbox)).await,
+        Err(BackendError::InvalidState),
+        "a created, unstarted runner has no exit"
+    );
+    bounded(h.backend.start_runner(&sandbox)).await.unwrap();
+    assert_eq!(
+        bounded(h.backend.inspect(&sandbox)).await.unwrap().state,
+        SandboxState::Stopped
+    );
+    assert_eq!(
+        bounded(h.backend.runner_exit(&sandbox)).await,
+        Ok(RunnerExit::Exited(3))
+    );
+}
+
+#[tokio::test]
 async fn stop_is_proven_by_inspect() {
     let mut h = harness_with(ScriptedDocker::new().runner(Runner::StaysRunning), |_| {}).await;
     let running = request(1, 2, 3);

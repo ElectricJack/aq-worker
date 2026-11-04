@@ -245,6 +245,14 @@ pub struct SandboxIdentity {
     pub owner: Ownership,
 }
 
+/// How a stopped runner process ended, as the backend observed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunnerExit {
+    Exited(i32),
+    /// Killed by the runtime (e.g. the OOM killer); no trustworthy exit code.
+    Signalled,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SandboxState {

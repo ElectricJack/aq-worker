@@ -96,6 +96,14 @@ pub trait PlacementBackend: Send {
     ) -> impl Future<Output = Result<SandboxIdentity, BackendError>> + Send {
         async { Err(BackendError::UnsupportedOperation) }
     }
+    /// The stopped runner's exit as observed by the backend. Err while the
+    /// runner is running or its end is unknown; never a guessed code.
+    fn runner_exit(
+        &mut self,
+        _sandbox: &SandboxIdentity,
+    ) -> impl Future<Output = Result<RunnerExit, BackendError>> + Send {
+        async { Err(BackendError::UnsupportedOperation) }
+    }
     /// SBX20: how this backend bounds per-attempt disk. Default: not at all.
     fn disk_limit(&self) -> DiskLimitStatus {
         DiskLimitStatus::default()

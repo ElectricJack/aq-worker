@@ -16,8 +16,8 @@ pub use transport::*;
 use crate::backend::{
     BackendDiskUsage, BackendError, BackendKind, Capability, ConfinementMode, Confirmation,
     CreateRequest, DestroyAuthorization, DiskLimitMode, DiskLimitStatus, DiskUsage, HostStatvfs,
-    InventoryEntry, PlacementBackend, PrivateMaterial, SandboxIdentity, SandboxState, Statvfs,
-    StoppedWriterProof, TemplateDigest, UnconfirmedReason,
+    InventoryEntry, PlacementBackend, PrivateMaterial, RunnerExit, SandboxIdentity, SandboxState,
+    Statvfs, StoppedWriterProof, TemplateDigest, UnconfirmedReason,
 };
 use policy::{
     container_state, create_body, disk_limit_from_labels, encode, entry_from_labels, labels_match,
@@ -251,6 +251,7 @@ fn unconfirmed(error: BackendError) -> UnconfirmedReason {
 struct Observed {
     entry: InventoryEntry,
     container: bool,
+    exit: Option<RunnerExit>,
 }
 
 impl<T: DockerTransport> DockerLocalBackend<T> {
@@ -325,9 +326,20 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         {
             return Err(unknown);
         }
+        let mut exit = None;
         let entry = match &container {
             Some(container) => {
                 let state = &container["State"];
+                if state["Status"] == "exited" && state["Running"] == false {
+                    exit = if state["OOMKilled"] == true {
+                        Some(RunnerExit::Signalled)
+                    } else {
+                        state["ExitCode"]
+                            .as_i64()
+                            .and_then(|code| i32::try_from(code).ok())
+                            .map(RunnerExit::Exited)
+                    };
+                }
                 let status = state["Status"].as_str().unwrap_or_default();
                 let running = state["Running"].as_bool().unwrap_or(true);
                 let (state, processes) = container_state(status, running);
@@ -347,6 +359,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         Ok(Observed {
             entry,
             container: container.is_some(),
+            exit,
         })
     }
 
@@ -609,6 +622,17 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
 
     async fn inspect(&mut self, sandbox: &SandboxIdentity) -> Result<InventoryEntry, BackendError> {
         Ok(self.observe(sandbox).await?.entry)
+    }
+
+    async fn runner_exit(&mut self, sandbox: &SandboxIdentity) -> Result<RunnerExit, BackendError> {
+        let observed = self.observe(sandbox).await?;
+        match (observed.entry.state, observed.exit) {
+            (SandboxState::Stopped, Some(exit)) => Ok(exit),
+            (SandboxState::Stopped, None) => {
+                Err(BackendError::Uncertain(UnconfirmedReason::UnknownState))
+            }
+            _ => Err(BackendError::InvalidState),
+        }
     }
 
     async fn list_owned(&mut self, node_id: Uuid) -> Result<Vec<InventoryEntry>, BackendError> {
