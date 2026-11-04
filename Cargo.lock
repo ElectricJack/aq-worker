@@ -384,6 +384,7 @@ dependencies = [
  "anyhow",
  "aq-admission 0.1.11",
  "aq-admission 0.3.2",
+ "aq-agent-client",
  "aq-agent-result-local",
  "aq-codex-mapper",
  "aq-observation",

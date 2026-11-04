@@ -398,6 +398,122 @@ impl AgentClient {
         }
     }
 }
+/// Agent mailbox routes. Delivery to a harness, replies and node polling are
+/// not part of this client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageRoute {
+    Send,
+    Inbox,
+    Ack,
+    Body,
+}
+impl MessageRoute {
+    fn contract(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Send => (
+                "/v1/agent/messages/send",
+                "MessageSend",
+                "MessageSendReceipt",
+            ),
+            Self::Inbox => (
+                "/v1/agent/messages/inbox",
+                "MessageInbox",
+                "MessageInboxResponse",
+            ),
+            Self::Ack => ("/v1/agent/messages/ack", "MessageAck", "MessageAckReceipt"),
+            Self::Body => (
+                "/v1/agent/messages/body",
+                "MessageBodyRequest",
+                "MessageBodyResponse",
+            ),
+        }
+    }
+}
+impl AgentClient {
+    /// The bound task mailbox, or the bound session mailbox.
+    pub fn mailbox(&self, session: bool) -> Value {
+        let b = &self.config.binding;
+        let mut value = json!({"kind":"task","workspace_id":b.workspace_id,"project_id":b.project_id,"task_id":b.task_id});
+        if session {
+            value["kind"] = json!("session");
+            value["session_id"] = json!(b.session_id);
+            value["attempt_id"] = json!(b.attempt_id);
+            value["generation"] = json!(b.generation);
+        }
+        value
+    }
+    pub fn inbox_request(
+        &self,
+        session: bool,
+        after: &str,
+        limit: u8,
+        thread: Option<Uuid>,
+    ) -> Value {
+        json!({"recipient":self.mailbox(session),"after":after,"thread_id":thread,"limit":limit})
+    }
+    /// One send per call. Send/ack carry caller-chosen operation IDs; an
+    /// unknown reply reports that ID and never implies delivery.
+    pub async fn message(&self, route: MessageRoute, request: Value) -> Result<Outcome> {
+        let (path, request_schema, response_schema) = route.contract();
+        ensure!(
+            valid(request_schema, &request),
+            "message request contract refused"
+        );
+        let recipient = &request["recipient"];
+        let scoped = if route == MessageRoute::Send {
+            // Sends stay inside the credential's workspace/project scope; the
+            // daemon decides whether the named mailbox accepts this sender.
+            recipient["workspace_id"] == self.mailbox(false)["workspace_id"]
+                && recipient["project_id"] == self.mailbox(false)["project_id"]
+        } else {
+            *recipient == self.mailbox(false) || *recipient == self.mailbox(true)
+        };
+        ensure!(scoped, "message recipient outside the bound mailbox scope");
+        let operation_id = request["operation_id"]
+            .as_str()
+            .and_then(|id| id.parse::<Uuid>().ok());
+        let now = Stamp::now()?;
+        // Nothing is sent with an expired or malformed credential.
+        self.credential(&now).map_err(|_| Failure {
+            code: "authentication_or_authority_refused",
+            operation_id,
+            effect: "not_asserted",
+            retryable: false,
+        })?;
+        let (status, value) = match self
+            .request(Method::POST, path, Some(canonical(&request)?), &now)
+            .await
+        {
+            Ok(reply) => reply,
+            Err(_) => return Err(Failure::uncertain(operation_id).into()),
+        };
+        if status != 200 {
+            return remote_refusal(status, value, operation_id);
+        }
+        let associated = valid(response_schema, &value)
+            && match route {
+                MessageRoute::Send | MessageRoute::Ack => {
+                    value["operation_id"] == request["operation_id"]
+                        && value["message_id"] == request["message_id"]
+                        && value["recipient"] == request["recipient"]
+                }
+                MessageRoute::Inbox => {
+                    value["recipient"] == request["recipient"] && value["after"] == request["after"]
+                }
+                MessageRoute::Body => {
+                    value["message_id"] == request["message_id"]
+                        && value["offset"] == request["offset"]
+                }
+            };
+        if !associated {
+            return Err(Failure::uncertain(operation_id).into());
+        }
+        Ok(Outcome {
+            value,
+            exit_code: 0,
+        })
+    }
+}
 fn operation_http_status(status: u16, value: &Value) -> bool {
     matches!(
         (status, value["state"].as_str()),

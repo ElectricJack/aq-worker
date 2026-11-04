@@ -9,7 +9,8 @@ ENV CARGO_BUILD_JOBS=2
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/worker/target,sharing=locked \
     cargo build --locked --release -p aq-worker --bin aq-worker -p aq-session-host --bin aq-session-host \
-    && mkdir /out && cp target/release/aq-worker target/release/aq-session-host /out/
+    -p aq-agent-client --bin aq-agent \
+    && mkdir /out && cp target/release/aq-worker target/release/aq-session-host target/release/aq-agent /out/
 
 FROM @@BUILDER@@ AS bundle
 COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
@@ -26,7 +27,8 @@ RUN sha256sum --check SHA256SUMS && test "$(uname -m)" = x86_64 \
 COPY --from=runner-build /out/ /opt/aq/bin/
 COPY pins.json source.json /opt/aq/
 COPY bundle_manifest.py /inputs/bundle_manifest.py
-RUN /opt/aq/bin/aq-worker --version && /opt/aq/bin/aq-git --version \
+RUN /opt/aq/bin/aq-worker --version && /opt/aq/bin/aq-agent --version \
+    && test ! -e /opt/aq/bin/aq && /opt/aq/bin/aq-git --version \
     && /opt/aq/bin/codex --version && /opt/aq/node/bin/node --version \
     && python3 /inputs/bundle_manifest.py /opt/aq \
     && find /opt/aq -exec touch -h -d '@0' {} +

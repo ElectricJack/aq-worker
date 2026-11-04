@@ -1,6 +1,6 @@
 use aq_agent_api::{Binding, canonical, digest};
 use aq_agent_client::{
-    client::{AgentClient, ClientConfig, Failure},
+    client::{AgentClient, ClientConfig, Failure, MessageRoute},
     context::{ContextContent, StartupContext},
 };
 use aq_session_protocol::{
@@ -104,6 +104,13 @@ fn install(root: &Path, url: &str, context: Value) {
         &json!({"api_version":1,"token":format!("aqa_{}","q".repeat(40)),"context":context}),
     );
 }
+fn messaging(name: &str) -> Value {
+    let all: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../vendor/aq-agent-api-0.1.0/artifacts/fixtures/messaging.json"
+    ))
+    .unwrap();
+    all.into_iter().find(|f| f["name"] == name).unwrap()["value"].clone()
+}
 struct Peer {
     base: Value,
     calls: AtomicUsize,
@@ -159,6 +166,19 @@ async fn endpoint(State(s): State<Arc<Peer>>, req: Request<Body>) -> Response {
         let mut value = s.base["operation_statuses"]["confirmed"].clone();
         value["operation_id"] = request["operation_id"].clone();
         value["payload_digest"] = json!(digest(&request).unwrap());
+        value
+    } else if path == "/v1/agent/messages/inbox" {
+        let request: Value = serde_json::from_slice(&raw).unwrap();
+        let mut value = messaging("mailbox-page");
+        value["recipient"] = request["recipient"].clone();
+        value["after"] = request["after"].clone();
+        value
+    } else if path == "/v1/agent/messages/send" {
+        let request: Value = serde_json::from_slice(&raw).unwrap();
+        let mut value = messaging("accepted-is-queued");
+        for key in ["operation_id", "message_id", "thread_id", "recipient"] {
+            value[key] = request[key].clone();
+        }
         value
     } else {
         panic!("unexpected finite route");
@@ -231,6 +251,56 @@ async fn published_read_shapes_and_live_context_use_only_session_authority() {
         assert_eq!(client.read(request.clone()).await.unwrap().exit_code, 0);
     }
     assert_eq!(peer.calls.load(Ordering::SeqCst), 7);
+    server.abort();
+}
+#[tokio::test]
+async fn message_inbox_and_send_stay_in_bound_mailbox() {
+    let (url, peer, server) = peer(0).await;
+    let root = TempDir::new().unwrap();
+    install(root.path(), &url, base()["context"].clone());
+    let client = AgentClient::open(root.path()).unwrap();
+    let inbox = client.inbox_request(false, "0", 32, None);
+    assert_eq!(
+        inbox["recipient"],
+        messaging("scoped-task-send")["recipient"]
+    );
+    let page = client.message(MessageRoute::Inbox, inbox).await.unwrap();
+    assert_eq!(page.exit_code, 0);
+    assert_eq!(page.value["next_cursor"], "1");
+    let session = client.inbox_request(true, "0", 8, None);
+    assert_eq!(
+        session["recipient"],
+        messaging("immutable-session-send")["recipient"]
+    );
+    assert_eq!(
+        client
+            .message(MessageRoute::Inbox, session)
+            .await
+            .unwrap()
+            .exit_code,
+        0
+    );
+    let send = messaging("scoped-task-send");
+    let receipt = client
+        .message(MessageRoute::Send, send.clone())
+        .await
+        .unwrap();
+    assert_eq!(receipt.exit_code, 0);
+    assert_eq!(receipt.value["disposition"], "queued");
+    assert_eq!(peer.calls.load(Ordering::SeqCst), 3);
+    // A mailbox in another project or task is refused before any request.
+    let mut foreign = send.clone();
+    foreign["recipient"]["project_id"] = json!(Uuid::new_v4());
+    assert!(client.message(MessageRoute::Send, foreign).await.is_err());
+    let mut other_task = client.inbox_request(false, "0", 32, None);
+    other_task["recipient"]["task_id"] = json!(Uuid::new_v4());
+    assert!(
+        client
+            .message(MessageRoute::Inbox, other_task)
+            .await
+            .is_err()
+    );
+    assert_eq!(peer.calls.load(Ordering::SeqCst), 3);
     server.abort();
 }
 #[tokio::test]

@@ -33,7 +33,7 @@ class SandboxPackaging(unittest.TestCase):
         repo = self.root / 'repo'
         repo.mkdir()
         for path in ['Cargo.toml', 'Cargo.lock', 'crates/aq-worker/Cargo.toml',
-                     'crates/aq-session-host/Cargo.toml']:
+                     'crates/aq-session-host/Cargo.toml', 'crates/aq-agent-client/Cargo.toml']:
             target = repo / path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / path, target)

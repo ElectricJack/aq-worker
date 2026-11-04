@@ -101,6 +101,113 @@ pub struct AllocationStatus {
     pub state: IssuanceState,
     pub reserved_bytes: u64,
 }
+/// The ready session files the node hands to the runner for installation in
+/// the sandbox. The bytes include the agent token and are never printed.
+pub struct SessionDelivery {
+    pub client: Vec<u8>,
+    pub context: Vec<u8>,
+    pub credential: Vec<u8>,
+}
+impl std::fmt::Debug for SessionDelivery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SessionDelivery { <redacted> }")
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Installed {
+    pub path: PathBuf,
+    pub binding: Binding,
+    pub expires_at_ms: u64,
+}
+fn credential_expiry_ms(context: &serde_json::Value) -> Result<u64> {
+    let at = context["credential"]["expires_at"]
+        .as_str()
+        .context("credential expiry absent")?;
+    let ms = chrono::DateTime::parse_from_rfc3339(at)
+        .map_err(|_| anyhow::anyhow!("credential expiry invalid"))?
+        .timestamp_millis();
+    u64::try_from(ms).map_err(|_| anyhow::anyhow!("credential expiry invalid"))
+}
+/// Install node-delivered session files into the agent's private state
+/// directory. `endpoint` replaces the server origin (the runner's loopback AQ
+/// proxy), Access egress material is refused, and the credential must expire
+/// after `now_ms` and no later than `not_after_ms` (the attempt grant). The
+/// server remains authoritative for expiry and revocation.
+pub fn install_delivered(
+    state_dir: &Path,
+    delivery: &SessionDelivery,
+    endpoint: &str,
+    not_after_ms: u64,
+    now_ms: u64,
+) -> Result<Installed> {
+    let mut config: ClientConfig = serde_json::from_value(parse(&delivery.client)?)?;
+    ensure!(
+        config.format_version == 1,
+        "delivered client configuration version"
+    );
+    ensure!(
+        !config.edge_authentication,
+        "sandbox delivery must not carry Access egress credentials"
+    );
+    config.binding.validate()?;
+    let bundle: ContextBundle = serde_json::from_value(parse_context(&delivery.context)?)?;
+    bundle.validate()?;
+    ensure!(
+        bundle.binding == config.binding,
+        "delivered context binding mismatch"
+    );
+    ensure!(
+        delivery.credential.len() <= aq_agent_api::MAX_DOCUMENT_BYTES,
+        "credential file bound"
+    );
+    let issued: SessionCredential = serde_json::from_value(parse(&delivery.credential)?)
+        .map_err(|_| anyhow::anyhow!("delivered credential shape refused"))?;
+    ensure!(
+        issued.api_version == 1
+            && issued.token.starts_with("aqa_")
+            && (36..=4096).contains(&issued.token.len())
+            && !issued.token.chars().any(char::is_whitespace),
+        "delivered credential shape refused"
+    );
+    Context::new(issued.context.clone(), &config.binding)?;
+    ensure!(
+        bundle.graph_context == issued.context,
+        "delivered context and credential differ"
+    );
+    let expires_at_ms = credential_expiry_ms(&issued.context)?;
+    ensure!(
+        expires_at_ms > now_ms,
+        "delivered credential already expired"
+    );
+    ensure!(
+        expires_at_ms <= not_after_ms,
+        "delivered credential outlives the attempt grant"
+    );
+    Http::new(endpoint)?;
+    config.server_url = endpoint.to_owned();
+    let dir = PrivateDir::create(state_dir)?;
+    dir.write("context.json", &delivery.context)?;
+    dir.write("client.json", &serde_json::to_vec(&config)?)?;
+    dir.write("credential.json", &serde_json::to_vec(&issued)?)?;
+    Ok(Installed {
+        path: dir.path,
+        binding: config.binding,
+        expires_at_ms,
+    })
+}
+/// Remove the installed agent credential. Idempotent.
+pub fn revoke_delivered(state_dir: &Path) -> Result<()> {
+    match PrivateDir::open(state_dir) {
+        Ok(dir) => dir.remove("credential.json").map(|_| ()),
+        Err(e)
+            if e.downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
 fn parse_context(bytes: &[u8]) -> Result<serde_json::Value> {
     ensure!(bytes.len() <= MAX_BUNDLE_BYTES, "context byte bound");
     let aq_agent_api::StrictValue(value) = serde_json::from_slice(bytes)?;
@@ -593,6 +700,15 @@ impl Allocator {
             "ready credential missing or changed; preserve allocation"
         );
         Ok(None)
+    }
+    /// The ready session files for node-to-runner delivery.
+    pub fn delivery(&self, session: Uuid) -> Result<SessionDelivery> {
+        let dir = PrivateDir::open(&self.ready_path(session)?)?;
+        Ok(SessionDelivery {
+            client: dir.read("client.json", 16_384)?,
+            context: dir.read("context.json", MAX_BUNDLE_BYTES)?,
+            credential: dir.read("credential.json", CREDENTIAL_BYTES)?,
+        })
     }
     pub fn ready_path(&self, session: Uuid) -> Result<PathBuf> {
         ensure!(

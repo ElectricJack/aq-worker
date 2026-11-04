@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result, ensure};
-use aq_agent_client::client::{AgentClient, Failure, Outcome};
+use aq_agent_client::client::{AgentClient, Failure, MessageRoute, Outcome};
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
 use std::{io::Read, path::PathBuf};
@@ -38,6 +38,40 @@ enum Command {
     Operation {
         #[command(subcommand)]
         command: Operation,
+    },
+    /// Bound task/session mailbox reads and scoped sends; no harness delivery.
+    Message {
+        #[command(subcommand)]
+        command: Message,
+    },
+}
+#[derive(Subcommand)]
+enum Message {
+    /// Read the bound session mailbox (or the task mailbox with --task).
+    Inbox {
+        #[arg(long)]
+        task: bool,
+        #[arg(long, default_value = "0")]
+        after: String,
+        #[arg(long, default_value_t = 32)]
+        limit: u8,
+        #[arg(long)]
+        thread: Option<Uuid>,
+    },
+    /// Strict MessageSend JSON with a caller-chosen operation UUID.
+    Send {
+        #[arg(long)]
+        request_file: Option<PathBuf>,
+    },
+    /// Strict MessageAck JSON for a message in the bound mailbox.
+    Ack {
+        #[arg(long)]
+        request_file: Option<PathBuf>,
+    },
+    /// Strict MessageBodyRequest JSON for an omitted body.
+    Body {
+        #[arg(long)]
+        request_file: Option<PathBuf>,
     },
 }
 #[derive(Subcommand)]
@@ -169,6 +203,23 @@ async fn run(cli: Cli) -> Result<Outcome> {
         Command::Graph {
             command: Graph::Command { request_file },
         } => client.command(input(request_file)?).await,
+        Command::Message { command } => {
+            let (route, request) = match command {
+                Message::Inbox {
+                    task,
+                    after,
+                    limit,
+                    thread,
+                } => (
+                    MessageRoute::Inbox,
+                    client.inbox_request(!task, &after, limit, thread),
+                ),
+                Message::Send { request_file } => (MessageRoute::Send, input(request_file)?),
+                Message::Ack { request_file } => (MessageRoute::Ack, input(request_file)?),
+                Message::Body { request_file } => (MessageRoute::Body, input(request_file)?),
+            };
+            client.message(route, request).await
+        }
         Command::Graph { command } => {
             let query = match command {
                 Graph::Get { node_id } => json!({"kind":"get","node_id":node_id}),

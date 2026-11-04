@@ -18,6 +18,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
     for (path, contents) in [
         ("bin/aq-worker", "runner"),
         ("bin/aq-session-host", "host"),
+        ("bin/aq-agent", "agent"),
         ("bin/aq-git", "git"),
         ("harnesses/codex/codex", "codex"),
         ("node/bin/node", "node"),
@@ -30,6 +31,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         "revision": "a".repeat(40),
         "runner_version": env!("CARGO_PKG_VERSION"),
         "session_host_version": "0.1.5",
+        "agent_client_version": "0.1.0",
         "archive_sha256": "b".repeat(64)
     });
     fs::write(
@@ -60,8 +62,17 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         manifest["node"]["version"],
         pins["inputs"]["node.tar.xz"]["version"]
     );
+    assert_eq!(manifest["agent_client"]["name"], "aq-agent");
+    assert_eq!(manifest["agent_client"]["version"], "0.1.0");
+    assert_eq!(manifest["agent_client"]["path"], "/opt/aq/bin/aq-agent");
+    let rendered = serde_json::to_string(&manifest).unwrap();
+    assert!(
+        !rendered.contains("\"/opt/aq/bin/aq\""),
+        "the sandbox bundle ships aq-agent, never the full aq CLI"
+    );
     for artifact in [
         codex,
+        &manifest["agent_client"],
         &manifest["runner"],
         &manifest["session_host"],
         &manifest["aq_git"],

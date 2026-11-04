@@ -1,0 +1,3 @@
+$ rustfmt --edition 2024 --check crates/aq-agent-client/src/client.rs crates/aq-agent-client/src/files.rs crates/aq-agent-client/src/main.rs crates/aq-agent-client/src/provision.rs crates/aq-agent-client/tests/client.rs crates/aq-worker/src/native/runner/sandbox.rs crates/aq-worker/src/native/runner/sandbox/agent_access.rs crates/aq-worker/tests/agent_access.rs crates/aq-worker/tests/runtime_bundle.rs
+# commit 0fa4aea
+rc=0

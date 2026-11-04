@@ -104,6 +104,7 @@ def package(revision, inputs, destination, *, pins=None):
             'archive_sha256': archive_digest,
             'runner_version': tomllib.loads(read('crates/aq-worker/Cargo.toml').decode())['package']['version'],
             'session_host_version': tomllib.loads(read('crates/aq-session-host/Cargo.toml').decode())['package']['version'],
+            'agent_client_version': tomllib.loads(read('crates/aq-agent-client/Cargo.toml').decode())['package']['version'],
         }
         (runtime / 'source.json').write_text(json.dumps(source, sort_keys=True, indent=2) + '\n')
         (runtime / 'worker-source.sha256').write_text(archive_digest + '  worker-source.tar\n')

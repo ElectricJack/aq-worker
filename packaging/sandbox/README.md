@@ -9,8 +9,10 @@ security updates advance the snapshot/base pins and rebuild the OS explicitly.
 `aq-sandbox-runtime` is a scratch transport image containing only `/opt/aq`.
 It has no entrypoint and cannot execute by itself. It carries `aq-worker`, its
 `aq-session-host` dependency, published aq-git 0.2.0, the qualified Codex 0.166.0
-native executable and a private Node 22.16.0 distribution. Both proxies remain
-inside the runner. There are no separate proxy binaries or `aq-agent` here.
+native executable, a private Node 22.16.0 distribution and `/opt/aq/bin/aq-agent`,
+the scoped agent client the sandboxed agent uses to reach AQ through the runner's
+loopback AQ proxy. The full `aq` CLI is never shipped. Both proxies remain inside
+the runner. There are no separate proxy binaries here.
 
 The single [pins.json](pins.json) records all external input versions, SHA-256
 digests, immutable builder/base image references and the Debian snapshot.
