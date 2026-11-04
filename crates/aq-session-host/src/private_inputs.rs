@@ -4,6 +4,8 @@ use super::*;
 use std::os::fd::{AsRawFd, FromRawFd};
 use zeroize::Zeroizing;
 const MAX_MATERIAL: u64 = 65536;
+/// Codex model provider id the scoped launch selects (aq_codex_mapper::PROXY_PROVIDER_ID).
+const SCOPED_PROXY_PROVIDER: &str = "aq-runner-proxy";
 pub(crate) mod reconciliation;
 /// Independent original installed-material pins, never newly installed bytes.
 pub struct OriginalPrivateMaterial {
@@ -52,15 +54,32 @@ impl ScopedCodexAuthBinding {
                 && self.deadline_boot_ms == config.permit.expires_boot_ms,
             "scoped auth exact launch binding/deadline"
         );
-        let setting = format!("openai_base_url=\"{}/v1\"", self.origin);
-        let actual: Vec<_> = config
-            .command
-            .arguments
+        // One route: the runner proxy provider (model_providers), never the
+        // legacy top-level openai_base_url override.
+        let arguments = &config.command.arguments;
+        let settings: Vec<&str> = arguments
             .windows(2)
-            .filter(|v| v[0] == "--config" && v[1].starts_with("openai_base_url="))
+            .filter(|v| v[0] == "--config")
+            .map(|v| v[1].as_str())
             .collect();
+        let exactly_one = |key: &str, value: String| {
+            let mut matching = settings
+                .iter()
+                .filter(|s| s.split_once('=').is_some_and(|(k, _)| k == key));
+            matching.next() == Some(&value.as_str()) && matching.next().is_none()
+        };
+        let provider = format!("model_providers.{SCOPED_PROXY_PROVIDER}");
         ensure!(
-            actual.len() == 1 && actual[0][1] == setting,
+            exactly_one(
+                "model_provider",
+                format!("model_provider=\"{SCOPED_PROXY_PROVIDER}\"")
+            ) && exactly_one(
+                &format!("{provider}.base_url"),
+                format!("{provider}.base_url=\"{}/v1\"", self.origin)
+            ) && exactly_one(
+                &format!("{provider}.wire_api"),
+                format!("{provider}.wire_api=\"responses\"")
+            ) && !arguments.iter().any(|a| a.starts_with("openai_base_url=")),
             "scoped auth exact local transport route"
         );
         Ok(())
@@ -1008,6 +1027,16 @@ mod tests {
         assert!(verify_record(&File::open(&root).unwrap(), &record, true).is_err());
         verify_record(&File::open(&root).unwrap(), &record, false).unwrap();
     }
+    fn proxy_route(origin: &str) -> Vec<String> {
+        vec![
+            "--config".into(),
+            "model_provider=\"aq-runner-proxy\"".into(),
+            "--config".into(),
+            format!("model_providers.aq-runner-proxy.base_url=\"{origin}/v1\""),
+            "--config".into(),
+            "model_providers.aq-runner-proxy.wire_api=\"responses\"".into(),
+        ]
+    }
     #[test]
     fn scoped_auth_requires_exact_launch_manifest_deadline_and_single_route() {
         let (scope, manifest) = scoped();
@@ -1033,20 +1062,52 @@ mod tests {
             agent_identity: None,
             command: LocalCommand {
                 executable: "/opt/codex".into(),
-                arguments: vec![
-                    "--config".into(),
-                    format!("openai_base_url=\"{}/v1\"", scope.origin),
-                ],
+                arguments: proxy_route(&scope.origin),
                 environment: Default::default(),
             },
         };
         scope.verify_launch(&config).unwrap();
+        let route = config.command.arguments.clone();
+        // A duplicated provider base URL is refused.
+        config.command.arguments.extend([
+            "--config".into(),
+            format!(
+                "model_providers.aq-runner-proxy.base_url=\"{}/v1\"",
+                scope.origin
+            ),
+        ]);
+        assert!(scope.verify_launch(&config).is_err());
+        // The legacy top-level route is refused alongside the provider route.
+        config.command.arguments = route.clone();
         config.command.arguments.extend([
             "--config".into(),
             format!("openai_base_url=\"{}/v1\"", scope.origin),
         ]);
         assert!(scope.verify_launch(&config).is_err());
-        config.command.arguments.truncate(2);
+        // The legacy top-level route alone is no longer an accepted route.
+        config.command.arguments = vec![
+            "--config".into(),
+            format!("openai_base_url=\"{}/v1\"", scope.origin),
+        ];
+        assert!(scope.verify_launch(&config).is_err());
+        // Each provider setting is required: selector, base URL and wire API.
+        for i in (1..route.len()).step_by(2) {
+            let mut partial = route.clone();
+            partial.drain(i - 1..=i);
+            config.command.arguments = partial;
+            assert!(
+                scope.verify_launch(&config).is_err(),
+                "missing {}",
+                route[i]
+            );
+        }
+        // A different provider selection or origin is refused.
+        config.command.arguments = route.clone();
+        config.command.arguments[1] = "model_provider=\"openai\"".into();
+        assert!(scope.verify_launch(&config).is_err());
+        config.command.arguments = proxy_route("http://127.0.0.1:1");
+        assert!(scope.verify_launch(&config).is_err());
+        config.command.arguments = route;
         config.permit.expires_boot_ms += 1;
         assert!(scope.verify_launch(&config).is_err());
         config.permit.expires_boot_ms -= 1;

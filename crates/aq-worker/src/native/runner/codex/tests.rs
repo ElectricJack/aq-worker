@@ -427,3 +427,79 @@ mod loop_stop {
         assert!(error.to_string().contains("claim conflict"));
     }
 }
+
+fn confinement_cap(id: &str) -> Capability {
+    Capability {
+        id: Text::new(id).unwrap(),
+        version: 1,
+    }
+}
+fn container_proof() -> AuthorizedConfinement {
+    use crate::native::runner::sandbox::confinement::*;
+    authorize(
+        ConfinementMode::Container,
+        &ExecutionConfinement {
+            permit_container: true,
+            require_native: false,
+        },
+        &QualificationRecord::docker_local("aq-rust"),
+        &AttemptSeparation {
+            runner_uid: 1001,
+            agent: aq_session_host::users::AgentIdentity {
+                uid: 1002,
+                gid: 1002,
+            },
+            credentials_attempt_scoped: true,
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn settings_accept_exactly_one_confinement_mode() {
+    let (_dir, mut config) = super::super::tests::config();
+    let native = confinement_cap(aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY);
+    let container = confinement_cap(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY);
+    config
+        .capabilities
+        .extend([native.clone(), container.clone()]);
+    let mut settings = settings(&config);
+    for selected in [&native, &container] {
+        settings.harness.required_capabilities = vec![selected.clone()];
+        settings.validate(&config).unwrap();
+    }
+    settings.harness.required_capabilities = vec![native, container];
+    let err = settings.validate(&config).err().unwrap();
+    assert!(err.to_string().contains("exactly one confinement"), "{err}");
+}
+
+#[test]
+fn container_preflight_requires_authorized_confinement_before_installation() {
+    let (dir, mut config) = super::super::tests::config();
+    let container = confinement_cap(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY);
+    config.capabilities.push(container.clone());
+    let mut settings = settings(&config);
+    settings.harness.required_capabilities = vec![container];
+    let environment = settings.harness.environment.clone();
+    config.executor = Some(ExecutorConfig::TrustedNodeNamedReadonly {
+        settings,
+        environment,
+    });
+    std::fs::remove_file(&config.adapter_manifest).unwrap();
+    let mut worker = worker();
+    worker.server_url = "https://example.invalid".into();
+    let mut executor = CodexExecutor::new(&worker).unwrap();
+    let err = executor.preflight(&config).unwrap_err();
+    assert!(err.to_string().contains("AuthorizedConfinement"), "{err}");
+    assert!(executor.profile.is_none());
+    // With the sandbox's proof, preflight passes the confinement gate and only
+    // then reaches installation (absent here).
+    let mut executor = CodexExecutor::new(&worker)
+        .unwrap()
+        .with_confinement(container_proof())
+        .unwrap();
+    let err = executor.preflight(&config).unwrap_err();
+    assert!(!err.to_string().contains("confinement"), "{err}");
+    assert!(executor.profile.is_none());
+    assert!(!dir.path().join("journal").exists());
+}
