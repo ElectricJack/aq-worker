@@ -589,10 +589,9 @@ async fn shared_sccache_node_config_controls_backend_registration() {
         }
         fs::write(&path, serde_json::to_vec(&doc).unwrap()).unwrap();
         let config = RunConfig::load(&path).unwrap();
-        assert_eq!(config.docker_local.shared_sccache, enabled.unwrap_or(false));
-        let backend = DockerLocalBackend::connect(config.docker_local, Daemon)
-            .await
-            .unwrap();
+        let docker = config.docker_local.unwrap();
+        assert_eq!(docker.shared_sccache, enabled.unwrap_or(false));
+        let backend = DockerLocalBackend::connect(docker, Daemon).await.unwrap();
         let c = Controller::open(
             &config.state_dir,
             Uuid::from_u128(1),
