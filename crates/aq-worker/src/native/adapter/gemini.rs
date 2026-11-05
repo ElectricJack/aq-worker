@@ -75,6 +75,7 @@ pub struct GeminiPaths<'a> {
 }
 
 /// How the CLI authenticates; neither variant carries the provider key.
+#[derive(Clone, Copy)]
 pub enum GeminiAuth<'a> {
     /// Runner-held loopback proxy origin (`http://127.0.0.1:<port>`) and its
     /// attempt-local capability.
