@@ -19,7 +19,10 @@ use uuid::Uuid;
 
 pub use continuation::{ContinuationBootstrap, OperationsGate, SessionLauncher, Woken};
 pub use credentials::{CredentialLayout, ScrubbedSecrets};
-pub use suspend::{Suspended, Suspender, SuspensionPorts};
+pub use suspend::{
+    CheckpointRequest, InputFence, InputGate, Suspended, Suspender, SuspensionPorts, WriterStop,
+    agent_checkpoint_claim,
+};
 
 /// The scoped AQ lifecycle API (H4 routes in production, `ConformancePeer` in tests).
 pub trait LifecycleApi {

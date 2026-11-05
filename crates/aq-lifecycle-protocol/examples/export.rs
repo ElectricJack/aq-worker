@@ -142,6 +142,27 @@ fn retention() -> Vec<RetentionReceipt> {
         })
         .collect()
 }
+/// The guardian stop proof the parking fixture's `ReportedStopped` names.
+pub fn stop_proof() -> StopProof {
+    StopProof {
+        guardian_instance_id: id(31),
+        writer_set_digest: Digest::of(b"owned-writer-set"),
+        stopped_at_boot_ms: 1400,
+    }
+}
+fn stop_proof_receipt() -> RetentionReceipt {
+    let proof = stop_proof();
+    RetentionReceipt {
+        receipt_id: id(42),
+        owner: text("central-retention-owner"),
+        binding_digest: canonical_digest(&binding(false)).unwrap(),
+        artifact: proof.artifact(text("guardian-stop-proof")).unwrap(),
+        role: ArtifactRole::Result,
+        bytes: proof.to_bytes().unwrap().len() as u64,
+        retained_at_ms: 1500,
+        retained_until_ms: 1000000,
+    }
+}
 pub fn fixtures() -> Value {
     let first = ObservationRecord::seal(
         id(101),
@@ -221,16 +242,14 @@ pub fn fixtures() -> Value {
             binding: binding(false),
             continuation: continuation(),
             disposition: SuspensionDisposition::RetainedSuspended,
-            stop: StopObservation::ReportedStopped {
-                observation_id: id(30),
-                guardian_instance_id: id(31),
-                writer_set_digest: Digest::of(b"owned-writer-set"),
-                writer_count: 2,
-                observed_at_ms: 1400,
-                proof: reference("guardian-stop-observation"),
-            },
+            stop: stop_proof()
+                .observation(id(30), 2, 1400, text("guardian-stop-proof"))
+                .unwrap(),
             local_retained_bytes: 256,
-            central_receipts: retention(),
+            central_receipts: retention()
+                .into_iter()
+                .chain([stop_proof_receipt()])
+                .collect(),
             effects: EffectsObservation::Reconciled {
                 receipt: reference("effect-reconciliation"),
             },
@@ -345,7 +364,7 @@ pub fn fixtures() -> Value {
             }
         })
         .collect();
-    json!({"schema_version":1,"predecessor":binding(false),"successor":binding(true),"advertised_capabilities":capabilities,"valid_packets":packets,"receipts":receipts,"first_usage_event":first,"semantics":{"reported_zero":"known value0 is distinct from unknown","billing":"observation claims only; no ledger or exactly-once invoice guarantee","suspended":"distinct attempt disposition; never ordinary success/failure","stop":"reference must be verified by runtime owner","task_mail":"only task-addressed IDs may attach to a successor","bootstrap":"AQ authenticated receipt, not bytes placed in a prompt","legacy_capabilities":"old session0.1.0 behavior preserved"}})
+    json!({"schema_version":1,"predecessor":binding(false),"successor":binding(true),"advertised_capabilities":capabilities,"valid_packets":packets,"receipts":receipts,"first_usage_event":first,"stop_proof":{"body":stop_proof(),"canonical_json":String::from_utf8(stop_proof().to_bytes().unwrap()).unwrap(),"digest":stop_proof().digest().unwrap(),"receipt":stop_proof_receipt()},"semantics":{"reported_zero":"known value0 is distinct from unknown","billing":"observation claims only; no ledger or exactly-once invoice guarantee","suspended":"distinct attempt disposition; never ordinary success/failure","stop":"reference must be verified by runtime owner","stop_proof":"ReportedStopped.proof names a role-result retained artifact whose bytes are canonical StopProof JSON and whose digest is their SHA-256; the successor SessionHost verifies guardian instance and writer set, the server only lineage","task_mail":"only task-addressed IDs may attach to a successor","bootstrap":"AQ authenticated receipt, not bytes placed in a prompt","legacy_capabilities":"old session0.1.0 behavior preserved"}})
 }
 fn main() {
     let schema = format!(
@@ -368,6 +387,14 @@ fn main() {
             format!(
                 "{}\n",
                 serde_json::to_string_pretty(&receipt_schema()).unwrap()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("stop-proof.schema.json"),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&stop_proof_schema()).unwrap()
             ),
         )
         .unwrap();

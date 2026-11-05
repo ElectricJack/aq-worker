@@ -36,6 +36,23 @@ fn successor() -> Binding {
 fn suspend_directive() -> Packet {
     packet(2)
 }
+fn intent() -> SuspensionIntent {
+    match suspend_directive().body.message {
+        Message::Suspend(i) => i,
+        _ => unreachable!(),
+    }
+}
+fn summary(text: &str) -> SummaryClaim {
+    SummaryClaim {
+        text: SummaryText::new(text).unwrap(),
+        context_references: vec![],
+        pending_operation_ids: vec![Uuid::from_u128(0x32)],
+    }
+}
+const GUARDIAN: Uuid = Uuid::from_u128(0x41);
+fn writer_set() -> Digest {
+    Digest::of(b"writers")
+}
 fn artifact(id: &str) -> ArtifactRef {
     ArtifactRef {
         id: Text::new(id).unwrap(),
@@ -44,11 +61,7 @@ fn artifact(id: &str) -> ArtifactRef {
     }
 }
 fn summary_claim(text: &str) -> CheckpointClaim {
-    let summary = SummaryClaim {
-        text: SummaryText::new(text).unwrap(),
-        context_references: vec![],
-        pending_operation_ids: vec![Uuid::from_u128(0x32)],
-    };
+    let summary = summary(text);
     CheckpointClaim::Supplied {
         summary_digest: canonical_digest(&summary).unwrap(),
         summary,
@@ -98,6 +111,8 @@ struct FakeRetention {
     commits: usize,
     corrupt: Option<ArtifactRole>,
     lose: Option<ArtifactRole>,
+    /// Artifacts the agent retained itself (POST /v1/execution/artifacts/*).
+    agent: BTreeMap<Uuid, (RetentionReceipt, Vec<u8>)>,
 }
 impl CentralRetention for FakeRetention {
     fn upload_chunk(&mut self, operation_id: Uuid, offset: u64, chunk: &[u8]) -> Result<u64> {
@@ -154,6 +169,7 @@ impl CentralRetention for FakeRetention {
         let (_, bytes) = self
             .committed
             .values()
+            .chain(self.agent.values())
             .find(|(r, _)| r.receipt_id == receipt.receipt_id)
             .ok_or_else(|| anyhow!("unknown receipt"))?;
         let mut bytes = bytes.clone();
@@ -164,6 +180,31 @@ impl CentralRetention for FakeRetention {
     }
 }
 impl FakeRetention {
+    /// The agent's own checkpoint retention through the artifacts routes.
+    fn agent_retain(
+        &mut self,
+        request: &CheckpointRequest,
+        role: ArtifactRole,
+        bytes: &[u8],
+    ) -> RetentionReceipt {
+        let receipt = RetentionReceipt {
+            receipt_id: Uuid::new_v4(),
+            owner: Text::new("central-retention-owner").unwrap(),
+            binding_digest: canonical_digest(&request.binding).unwrap(),
+            artifact: ArtifactRef {
+                id: request.artifact_id.clone(),
+                version: Text::new("1").unwrap(),
+                digest: Digest::of(bytes),
+            },
+            role,
+            bytes: bytes.len() as u64,
+            retained_at_ms: 1500,
+            retained_until_ms: 1_000_000,
+        };
+        self.agent
+            .insert(receipt.receipt_id, (receipt.clone(), bytes.to_vec()));
+        receipt
+    }
     fn all_bytes(&self) -> Vec<(ArtifactRole, Vec<u8>)> {
         self.committed
             .values()
@@ -173,55 +214,82 @@ impl FakeRetention {
 }
 
 struct FakeNode {
-    claim: CheckpointClaim,
-    stop: StopObservation,
+    agent_checkpoint: Option<RetentionReceipt>,
+    stop: WriterStop,
+    gate: InputGate,
+    fences: Vec<InputFence>,
+    pending: Vec<Vec<Uuid>>,
     closes: usize,
     stops: usize,
     reconciles: usize,
     computes: usize,
     disks: usize,
     log: RefCell<Vec<&'static str>>,
+    _gate_dir: tempfile::TempDir,
 }
 impl FakeNode {
-    fn new() -> Self {
+    fn new(retention: &mut FakeRetention) -> Self {
+        Self::with_summary(retention, SUMMARY)
+    }
+    /// The agent retains `text` as its checkpoint summary before the directive.
+    fn with_summary(retention: &mut FakeRetention, text: &str) -> Self {
+        let request = CheckpointRequest::for_intent(&intent()).unwrap();
+        let bytes = serde_json::to_vec(&summary(text)).unwrap();
+        let receipt = retention.agent_retain(&request, ArtifactRole::Checkpoint, &bytes);
+        let dir = tempfile::tempdir().unwrap();
+        let gate = InputGate::new(dir.path()).unwrap();
         Self {
-            claim: summary_claim(SUMMARY),
-            stop: StopObservation::ReportedStopped {
-                observation_id: Uuid::from_u128(0x40),
-                guardian_instance_id: Uuid::from_u128(0x41),
-                writer_set_digest: Digest::of(b"writers"),
+            agent_checkpoint: Some(receipt),
+            stop: WriterStop::Stopped {
+                proof: StopProof {
+                    guardian_instance_id: GUARDIAN,
+                    writer_set_digest: writer_set(),
+                    stopped_at_boot_ms: 1200,
+                },
                 writer_count: 2,
                 observed_at_ms: 1200,
-                proof: artifact("guardian-stop-proof"),
             },
+            gate,
+            fences: Vec::new(),
+            pending: Vec::new(),
             closes: 0,
             stops: 0,
             reconciles: 0,
             computes: 0,
             disks: 0,
             log: RefCell::new(Vec::new()),
+            _gate_dir: dir,
         }
     }
 }
 impl SuspensionPorts for FakeNode {
-    fn request_checkpoint(&mut self, intent: &SuspensionIntent) -> Result<CheckpointClaim> {
-        assert_eq!(intent.max_summary_bytes, 16384);
+    fn request_checkpoint(
+        &mut self,
+        request: &CheckpointRequest,
+    ) -> Result<Option<RetentionReceipt>> {
+        assert_eq!(request.max_summary_bytes, 16384);
+        assert_eq!(request.role, ArtifactRole::Checkpoint);
         self.log.borrow_mut().push("checkpoint");
-        Ok(self.claim.clone())
+        Ok(self.agent_checkpoint.clone())
     }
-    fn close_input(&mut self) -> Result<()> {
+    fn close_input(&mut self) -> Result<InputFence> {
         self.closes += 1;
         self.log.borrow_mut().push("close_input");
-        Ok(())
+        self.gate.close()
     }
-    fn stop_writers(&mut self) -> Result<StopObservation> {
+    fn stop_writers(&mut self) -> Result<WriterStop> {
         self.stops += 1;
         self.log.borrow_mut().push("stop");
         Ok(self.stop.clone())
     }
-    fn reconcile_effects(&mut self, pending: &[Uuid]) -> Result<EffectsObservation> {
-        assert_eq!(pending, [Uuid::from_u128(0x32)]);
+    fn reconcile_effects(
+        &mut self,
+        fence: &InputFence,
+        pending: &[Uuid],
+    ) -> Result<EffectsObservation> {
         self.reconciles += 1;
+        self.fences.push(fence.clone());
+        self.pending.push(pending.to_vec());
         Ok(EffectsObservation::Reconciled {
             receipt: artifact("effects-reconciliation"),
         })
@@ -352,9 +420,9 @@ fn all_files(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn hibernate(a: &Node) -> (Suspended, FakeRetention, FakeAq, FakeNode) {
-    let mut ports = FakeNode::new();
-    let mut aq = FakeAq::new(predecessor());
     let mut retention = FakeRetention::default();
+    let mut ports = FakeNode::new(&mut retention);
+    let mut aq = FakeAq::new(predecessor());
     let parked = Suspender::new(&a.journal, predecessor(), a.layout.clone())
         .with_chunk_bytes(4096)
         .suspend(&suspend_directive(), &mut ports, &mut aq, &mut retention)
@@ -409,6 +477,7 @@ fn hibernation_leaves_no_credentials_in_retained_state() {
         ReceiptDisposition::ParkingRecorded
     );
     assert_eq!(ports.stops, 1);
+    assert_eq!(ports.pending, [vec![Uuid::from_u128(0x32)]]);
     for path in a.layout.paths() {
         assert!(
             !path.exists(),
@@ -420,8 +489,8 @@ fn hibernation_leaves_no_credentials_in_retained_state() {
     let retained = retention.all_bytes();
     assert_eq!(
         retained.len(),
-        2,
-        "source and checkpoint retained centrally"
+        3,
+        "source, checkpoint and stop proof retained centrally"
     );
     for (role, bytes) in &retained {
         for secret in &secrets {
@@ -474,7 +543,7 @@ fn hibernation_leaves_no_credentials_in_retained_state() {
         held.report.disposition,
         SuspensionDisposition::Held { .. }
     ));
-    assert!(retention.committed.is_empty() && retention.chunks == 0);
+    assert_only_stop_proof_retained(&held, &retention);
     assert!(!held.report.compute_released && ports.computes == 0);
     for path in b.layout.paths() {
         assert!(
@@ -487,10 +556,9 @@ fn hibernation_leaves_no_credentials_in_retained_state() {
     let c = node();
     dirty_workspace(&c.layout);
     let secrets = plant_credentials(&c.layout);
-    let mut ports = FakeNode::new();
-    ports.claim = summary_claim(&format!("my key is {}", secrets[1]));
-    let mut aq = FakeAq::new(predecessor());
     let mut retention = FakeRetention::default();
+    let mut ports = FakeNode::with_summary(&mut retention, &format!("my key is {}", secrets[1]));
+    let mut aq = FakeAq::new(predecessor());
     let held = Suspender::new(&c.journal, predecessor(), c.layout.clone())
         .suspend(&suspend_directive(), &mut ports, &mut aq, &mut retention)
         .unwrap();
@@ -498,7 +566,15 @@ fn hibernation_leaves_no_credentials_in_retained_state() {
         held.report.disposition,
         SuspensionDisposition::Held { .. }
     ));
-    assert!(retention.committed.is_empty());
+    assert_only_stop_proof_retained(&held, &retention);
+}
+
+/// A held suspension after a proven stop retains only the stop proof.
+fn assert_only_stop_proof_retained(held: &Suspended, retention: &FakeRetention) {
+    let roles: Vec<_> = retention.all_bytes().into_iter().map(|(r, _)| r).collect();
+    assert_eq!(roles, [ArtifactRole::Result], "nothing but the stop proof");
+    assert_eq!(held.report.central_receipts.len(), 1);
+    assert!(stop_proof_receipt(&held.report.stop, &held.report.central_receipts).is_some());
 }
 
 #[test]
@@ -507,9 +583,9 @@ fn suspension_recovers_at_every_boundary() {
         let a = node();
         dirty_workspace(&a.layout);
         plant_credentials(&a.layout);
-        let mut ports = FakeNode::new();
-        let mut aq = FakeAq::new(predecessor());
         let mut retention = FakeRetention::default();
+        let mut ports = FakeNode::new(&mut retention);
+        let mut aq = FakeAq::new(predecessor());
         let err = Suspender::new(&a.journal, predecessor(), a.layout.clone())
             .with_chunk_bytes(4096)
             .with_boundaries(Boundaries::crash_after(boundary))
@@ -535,8 +611,16 @@ fn suspension_recovers_at_every_boundary() {
         assert_eq!(ports.stops, 1, "{boundary}: writers stopped once");
         assert_eq!(ports.closes, 1, "{boundary}: input closed once");
         assert_eq!(ports.computes, 1, "{boundary}: compute released once");
-        assert_eq!(retention.commits, 2, "{boundary}: one receipt per artifact");
-        assert_eq!(parked.report.central_receipts.len(), 2);
+        assert_eq!(retention.commits, 3, "{boundary}: one receipt per artifact");
+        assert_eq!(parked.report.central_receipts.len(), 3);
+        assert_eq!(ports.reconciles, 1, "{boundary}: effects handed over once");
+        assert_eq!(
+            ports.fences,
+            [InputFence {
+                last_accepted_operation_id: None
+            }],
+            "{boundary}: the journaled fence reaches effects"
+        );
         assert_eq!(
             ports
                 .log
@@ -598,12 +682,12 @@ fn unknown_stop_holds_without_snapshot_or_release() {
     let a = node();
     dirty_workspace(&a.layout);
     plant_credentials(&a.layout);
-    let mut ports = FakeNode::new();
-    ports.stop = StopObservation::Unknown {
-        reason: Text::new("guardian lost writer ownership").unwrap(),
+    let mut retention = FakeRetention::default();
+    let mut ports = FakeNode::new(&mut retention);
+    ports.stop = WriterStop::Unknown {
+        reason: "guardian lost writer ownership".into(),
     };
     let mut aq = FakeAq::new(predecessor());
-    let mut retention = FakeRetention::default();
     let held = Suspender::new(&a.journal, predecessor(), a.layout.clone())
         .suspend(&suspend_directive(), &mut ports, &mut aq, &mut retention)
         .unwrap();
@@ -657,6 +741,209 @@ fn protected_disk_released_only_by_explicit_directive() {
         .release_disk(&directive, &mut ports, &mut aq)
         .unwrap();
     assert_eq!(ports.disks, 1);
+}
+
+// ---------- agent mediation and stop proof (Gap 4b) ----------
+
+#[test]
+fn stop_proof_artifact_is_retained_with_sha256_of_canonical_json() {
+    let a = node();
+    dirty_workspace(&a.layout);
+    let (parked, retention, _aq, _ports) = hibernate(&a);
+    let stop = &parked.report.stop;
+    let StopObservation::ReportedStopped {
+        proof: reference,
+        guardian_instance_id,
+        writer_set_digest,
+        ..
+    } = stop
+    else {
+        panic!("stop was reported");
+    };
+    assert_eq!(*guardian_instance_id, GUARDIAN);
+    assert_eq!(*writer_set_digest, writer_set());
+
+    // The parking report carries the result-role receipt for exactly that proof.
+    let receipt = stop_proof_receipt(stop, &parked.report.central_receipts)
+        .expect("stop proof retained with role result");
+    assert_eq!(receipt.role, ArtifactRole::Result);
+    assert_eq!(
+        receipt.binding_digest,
+        canonical_digest(&predecessor()).unwrap()
+    );
+
+    // ArtifactRef.digest is the SHA-256 of the canonical JSON body.
+    let bytes = retention.fetch(receipt).unwrap();
+    let expected = StopProof {
+        guardian_instance_id: GUARDIAN,
+        writer_set_digest: writer_set(),
+        stopped_at_boot_ms: 1200,
+    };
+    assert_eq!(bytes, expected.to_bytes().unwrap());
+    assert_eq!(reference.digest, Digest::of(&bytes));
+    assert_eq!(reference.digest, expected.digest().unwrap());
+    assert_eq!(receipt.bytes, bytes.len() as u64);
+    assert_eq!(
+        String::from_utf8(bytes.clone()).unwrap(),
+        format!(
+            "{{\"guardian_instance_id\":\"{GUARDIAN}\",\"stopped_at_boot_ms\":1200,\"writer_set_digest\":\"{}\"}}",
+            writer_set().as_str()
+        )
+    );
+
+    // The successor verifies guardian instance and writer set from the bytes.
+    assert_eq!(
+        verify_stop_proof(stop, &bytes, GUARDIAN, &writer_set()).unwrap(),
+        expected
+    );
+    assert!(verify_stop_proof(stop, &bytes, Uuid::from_u128(0x99), &writer_set()).is_err());
+    assert!(verify_stop_proof(stop, &bytes, GUARDIAN, &Digest::of(b"other")).is_err());
+
+    // Recovery after a crash mid-proof-upload reuses the journaled artifact.
+    for boundary in ["stop_recorded", "upload_chunk:result"] {
+        let b = node();
+        dirty_workspace(&b.layout);
+        let mut retention = FakeRetention::default();
+        let mut ports = FakeNode::new(&mut retention);
+        let mut aq = FakeAq::new(predecessor());
+        assert!(
+            Suspender::new(&b.journal, predecessor(), b.layout.clone())
+                .with_boundaries(Boundaries::crash_after(boundary))
+                .suspend(&suspend_directive(), &mut ports, &mut aq, &mut retention)
+                .is_err()
+        );
+        let parked = Suspender::new(&b.journal, predecessor(), b.layout.clone())
+            .suspend(&suspend_directive(), &mut ports, &mut aq, &mut retention)
+            .unwrap();
+        let receipt = stop_proof_receipt(&parked.report.stop, &parked.report.central_receipts)
+            .unwrap_or_else(|| panic!("{boundary}: proof receipt"));
+        assert_eq!(
+            retention.fetch(receipt).unwrap(),
+            expected.to_bytes().unwrap()
+        );
+        assert_eq!(ports.stops, 1, "{boundary}");
+    }
+}
+
+#[test]
+fn checkpoint_mediation_trusts_only_the_verified_retained_summary() {
+    let request = CheckpointRequest::for_intent(&intent()).unwrap();
+    assert_eq!(request.role, ArtifactRole::Checkpoint);
+    assert_eq!(
+        request.artifact_id,
+        CheckpointRequest::for_intent(&intent())
+            .unwrap()
+            .artifact_id,
+        "deterministic artifact id per continuation generation"
+    );
+    let body = serde_json::to_vec(&summary(SUMMARY)).unwrap();
+    let mut retention = FakeRetention::default();
+    let good = retention.agent_retain(&request, ArtifactRole::Checkpoint, &body);
+    assert_eq!(
+        agent_checkpoint_claim(&request, Some(&good), &retention).unwrap(),
+        summary_claim(SUMMARY)
+    );
+
+    let missing = |claim: CheckpointClaim| matches!(claim, CheckpointClaim::Missing { .. });
+    // No answer by the deadline is an explicit missing claim.
+    assert!(missing(
+        agent_checkpoint_claim(&request, None, &retention).unwrap()
+    ));
+    // Wrong role, artifact id or attempt binding is never trusted.
+    let wrong_role = retention.agent_retain(&request, ArtifactRole::Result, &body);
+    let mut other_id = request.clone();
+    other_id.artifact_id = Text::new("someone-else").unwrap();
+    let wrong_id = retention.agent_retain(&other_id, ArtifactRole::Checkpoint, &body);
+    let mut other_binding = request.clone();
+    other_binding.binding = successor();
+    let wrong_binding = retention.agent_retain(&other_binding, ArtifactRole::Checkpoint, &body);
+    let not_summary = retention.agent_retain(&request, ArtifactRole::Checkpoint, b"{\"text\":1}");
+    for bad in [&wrong_role, &wrong_id, &wrong_binding, &not_summary] {
+        assert!(missing(
+            agent_checkpoint_claim(&request, Some(bad), &retention).unwrap()
+        ));
+    }
+    // A receipt that lies about the retained bytes is refused.
+    let mut lying = good.clone();
+    lying.artifact.digest = Digest::of(b"forged");
+    assert!(missing(
+        agent_checkpoint_claim(&request, Some(&lying), &retention).unwrap()
+    ));
+    retention.corrupt = Some(ArtifactRole::Checkpoint);
+    assert!(missing(
+        agent_checkpoint_claim(&request, Some(&good), &retention).unwrap()
+    ));
+    // Unavailable retention is an infrastructure error, so the step retries.
+    retention.corrupt = None;
+    retention.lose = Some(ArtifactRole::Checkpoint);
+    assert!(agent_checkpoint_claim(&request, Some(&good), &retention).is_err());
+
+    // End to end: an agent that never answers parks with a missing claim.
+    let a = node();
+    dirty_workspace(&a.layout);
+    let mut retention = FakeRetention::default();
+    let mut ports = FakeNode::new(&mut retention);
+    ports.agent_checkpoint = None;
+    let mut aq = FakeAq::new(predecessor());
+    let parked = Suspender::new(&a.journal, predecessor(), a.layout.clone())
+        .suspend(&suspend_directive(), &mut ports, &mut aq, &mut retention)
+        .unwrap();
+    parked.report.validate().unwrap();
+    assert_eq!(
+        ports.pending,
+        [Vec::<Uuid>::new()],
+        "no invented pending ids"
+    );
+    let checkpoint = retention
+        .all_bytes()
+        .into_iter()
+        .find(|(r, _)| *r == ArtifactRole::Checkpoint)
+        .unwrap()
+        .1;
+    let checkpoint: Checkpoint = serde_json::from_slice(&checkpoint).unwrap();
+    assert!(missing(checkpoint.claim));
+}
+
+#[test]
+fn close_input_fence_records_last_accepted_operation_and_reaches_effects() {
+    let dir = tempfile::tempdir().unwrap();
+    let gate = InputGate::new(dir.path()).unwrap();
+    assert_eq!(gate.fence().unwrap(), None);
+    let (first, last) = (Uuid::from_u128(0x51), Uuid::from_u128(0x52));
+    gate.admit(first).unwrap();
+    gate.admit(last).unwrap();
+    let fence = gate.close().unwrap();
+    assert_eq!(fence.last_accepted_operation_id, Some(last));
+    // Closing is idempotent and durable; nothing is admitted afterwards.
+    assert_eq!(gate.close().unwrap(), fence);
+    assert!(gate.admit(Uuid::from_u128(0x53)).is_err());
+    let reopened = InputGate::new(dir.path()).unwrap();
+    assert_eq!(reopened.fence().unwrap(), Some(fence.clone()));
+    assert!(reopened.admit(Uuid::from_u128(0x54)).is_err());
+
+    // The suspension journals the fence and hands it to effects reconciliation.
+    let a = node();
+    dirty_workspace(&a.layout);
+    let mut retention = FakeRetention::default();
+    let mut ports = FakeNode::new(&mut retention);
+    ports.gate.admit(first).unwrap();
+    ports.gate.admit(last).unwrap();
+    let mut aq = FakeAq::new(predecessor());
+    assert!(
+        Suspender::new(&a.journal, predecessor(), a.layout.clone())
+            .with_boundaries(Boundaries::crash_after("input_closed"))
+            .suspend(&suspend_directive(), &mut ports, &mut aq, &mut retention)
+            .is_err()
+    );
+    assert!(
+        ports.gate.admit(Uuid::from_u128(0x55)).is_err(),
+        "closed before stop"
+    );
+    Suspender::new(&a.journal, predecessor(), a.layout.clone())
+        .suspend(&suspend_directive(), &mut ports, &mut aq, &mut retention)
+        .unwrap();
+    assert_eq!(ports.closes, 1);
+    assert_eq!(ports.fences, [fence]);
 }
 
 // ---------- continuation ----------
