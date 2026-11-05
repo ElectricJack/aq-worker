@@ -625,7 +625,27 @@ pub(super) async fn drive_running_owned(
         let _publisher = super::publish_output::OutputPublisher::start(relay);
         let mut renewal_sequence = 1u64;
         let mut next_renewal = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut next_cancel_poll = std::time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
+            // Node-owned (sandboxed) hosts also observe owner cancellation
+            // through the node poll; the session host stops the harness.
+            if local_renewal && std::time::Instant::now() >= next_cancel_poll {
+                next_cancel_poll = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(4),
+                    pipeline.poll_cancellation(id),
+                )
+                .await
+                {
+                    Ok(Ok(Some(cancellation))) => {
+                        tracing::warn!(attempt_id = %id, %cancellation, "owner cancellation observed; stopping the harness");
+                        cause = ResultStopCause::Cancelled;
+                        break;
+                    }
+                    Ok(Ok(None)) => {}
+                    _ => tracing::debug!(attempt_id = %id, "cancellation poll unavailable"),
+                }
+            }
             if local_renewal && std::time::Instant::now() >= next_renewal {
                 renewal_sequence += 1;
                 if let Err(error) = host.renew_local(renewal_sequence, deadline_ns / 1_000_000) {

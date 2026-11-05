@@ -134,6 +134,35 @@ impl InputPipeline {
         })
         .await
     }
+    /// MS1/B3: read this attempt's pending cancellation from the node's own
+    /// poll. A zero-capacity poll asks for no offers; the server answers
+    /// cancellations first. Errors mean "unknown", never "not cancelled".
+    pub async fn poll_cancellation(&self, id: Uuid) -> Result<Option<Uuid>> {
+        let identity = self.snapshot().await?.identity;
+        let page = self
+            .client
+            .poll(&aq_admission::transport::Poll {
+                schema_version: 1,
+                operation_id: Uuid::new_v4(),
+                identity,
+                inventory_sequence: 1,
+                available: aq_admission::Resources {
+                    slots: 0,
+                    memory_bytes: 0,
+                    cpu_millis: 0,
+                    disk_bytes: 0,
+                },
+                limit: 1,
+                after_offer: None,
+            })
+            .await?;
+        Ok(page
+            .page
+            .cancellations
+            .iter()
+            .find(|c| c.binding.attempt_id == id)
+            .map(|c| c.cancellation_id))
+    }
     pub async fn snapshot(&self) -> Result<State> {
         self.storage(|owner| Ok(owner.journal.state().clone()))
             .await

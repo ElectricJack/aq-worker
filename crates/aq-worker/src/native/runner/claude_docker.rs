@@ -24,6 +24,7 @@ pub struct ClaudeDockerSettings {
 }
 
 pub struct ClaudeDockerExecutor {
+    node_id: uuid::Uuid,
     relay: RelayHttp,
     transfer: crate::transfer_client::TransferClient,
     profile: Option<Arc<ClaudeDockerHostProfile>>,
@@ -39,6 +40,7 @@ impl ClaudeDockerExecutor {
         let credential = NodeCredential::new(worker.credential.clone())?;
         let local = reqwest::Url::parse(&worker.server_url).is_ok_and(|u| u.scheme() == "http");
         Ok(Self {
+            node_id: worker.node_id,
             relay: if local {
                 RelayHttp::trusted_local_node(&worker.server_url, &credential)?
             } else {
@@ -120,7 +122,7 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 .create_result_channel_in_namespace(&grant, root, pins)
                 .await?;
             let launched = pipeline
-                .launch_phase_claude_docker_result(&grant, profile, channel)
+                .launch_phase_claude_docker_result(&grant, profile.clone(), channel)
                 .await?;
             let host = match launched {
                 NativeHostLaunchResult::Running(host) => host,
@@ -139,7 +141,7 @@ impl NativeExecutor for ClaudeDockerExecutor {
                     )
                 }
             };
-            super::codex::drive_running_owned(
+            let driven = super::codex::drive_running_owned(
                 pipeline,
                 host,
                 grant.deadline_ns(),
@@ -149,9 +151,34 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 None,
                 true,
             )
-            .await
+            .await;
+            // The host stop kills the driver; make sure its sandbox is stopped
+            // too (preserving its disk). A destroyed or exited one is left as is.
+            if let Err(error) = stop_attempt_sandbox(&profile, self.node_id, id).await {
+                tracing::warn!(attempt_id = %id, "sandbox stop after host stop failed: {error:#}");
+            }
+            driven
         })
     }
+}
+
+/// Stops (never destroys) any still-running sandbox owned by this attempt.
+async fn stop_attempt_sandbox(
+    profile: &ClaudeDockerHostProfile,
+    node: uuid::Uuid,
+    attempt: uuid::Uuid,
+) -> Result<()> {
+    use crate::backend::{PlacementBackend, SandboxState, docker_local::DockerLocalBackend};
+    let mut backend =
+        DockerLocalBackend::connect_unix(profile.config().docker_local.clone()).await?;
+    for entry in backend.list_owned(node).await? {
+        if entry.sandbox.owner.attempt_id == attempt && entry.state == SandboxState::Running {
+            let stopped = backend.stop(&entry.sandbox).await;
+            tracing::warn!(attempt_id = %attempt, sandbox = %entry.sandbox.backend_id,
+                confirmed = stopped.is_confirmed(), "attempt sandbox stopped after host stop");
+        }
+    }
+    Ok(())
 }
 
 /// Installed executor selected by the operator configuration.
