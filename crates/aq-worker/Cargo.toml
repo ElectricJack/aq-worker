@@ -25,7 +25,7 @@ http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 zeroize = "1"
-aq-admission = { path = "../../vendor/aq-admission-0.1.11", version = "=0.1.11" }
+aq-admission = { path = "../../vendor/aq-admission-0.1.12", version = "=0.1.12" }
 aq-session-protocol.workspace = true
 aq-session-host.workspace = true
 aq-protocol.workspace = true

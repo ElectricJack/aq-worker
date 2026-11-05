@@ -56,7 +56,7 @@ name = "refresh_contracts"
 path = "tests/refresh_contracts.rs"
 
 [dependencies.aq-admission]
-version = "=0.1.11"
+version = "=0.1.12"
 
 [dependencies.aq-session-protocol]
 version = "=0.1.0"
