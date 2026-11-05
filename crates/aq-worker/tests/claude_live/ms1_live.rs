@@ -12,8 +12,7 @@
 //! `AQ_CLAUDE_LIVE_IMAGE`, `AQ_CLAUDE_LIVE_TOKEN_FILE`, optional
 //! `AQ_CLAUDE_LIVE_CLI_VERSION`, `AQ_DOCKER_LOCAL_SHARED_ROOT_FS` and
 //! `AQ_CLAUDE_LIVE_EVIDENCE_DIR` (one subdirectory per test).
-#[path = "support/docker_live.rs"]
-mod docker_live;
+use super::docker_live;
 use aq_worker::backend::docker_local::*;
 use aq_worker::backend::*;
 use aq_worker::controller::*;

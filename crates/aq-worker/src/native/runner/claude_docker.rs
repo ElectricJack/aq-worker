@@ -141,7 +141,17 @@ impl NativeExecutor for ClaudeDockerExecutor {
                     )
                 }
             };
-            let driven = super::codex::drive_running_owned(
+            // MS1 review S2: the host's stop proof covers only its own process
+            // tree, not the sandbox container, and the host kills the driver
+            // within its short stop grace while a container stop takes longer.
+            // So the sandbox is stopped (and confirmed) BEFORE the host stop is
+            // reported; an unconfirmed stop withholds Stopped (stop uncertain).
+            let docker_local = profile.config().docker_local.clone();
+            let node = self.node_id;
+            let pre_stop: super::codex::PreStop = Box::new(move || {
+                Box::pin(async move { stop_attempt_sandbox(&docker_local, node, id).await })
+            });
+            super::codex::drive_running_owned(
                 pipeline,
                 host,
                 grant.deadline_ns(),
@@ -150,34 +160,50 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 Some(self.transfer.clone()),
                 None,
                 true,
+                Some(pre_stop),
             )
-            .await;
-            // The host stop kills the driver; make sure its sandbox is stopped
-            // too (preserving its disk). A destroyed or exited one is left as is.
-            if let Err(error) =
-                stop_attempt_sandbox(&profile.config().docker_local, self.node_id, id).await
-            {
-                tracing::warn!(attempt_id = %id, "sandbox stop after host stop failed: {error:#}");
-            }
-            driven
+            .await
         })
     }
 }
 
-/// Stops (never destroys) any still-running sandbox owned by this attempt.
+/// Stops (never destroys) every sandbox of this attempt that may still run,
+/// and fails unless each stop is backend-confirmed. A sandbox already stopped,
+/// archived or destroyed is left as is.
 pub(crate) async fn stop_attempt_sandbox(
     docker_local: &crate::backend::docker_local::DockerLocalConfig,
     node: uuid::Uuid,
     attempt: uuid::Uuid,
 ) -> Result<()> {
-    use crate::backend::{PlacementBackend, SandboxState, docker_local::DockerLocalBackend};
-    let mut backend = DockerLocalBackend::connect_unix(docker_local.clone()).await?;
+    let mut backend =
+        crate::backend::docker_local::DockerLocalBackend::connect_unix(docker_local.clone())
+            .await?;
+    stop_owned_sandboxes(&mut backend, node, attempt).await
+}
+
+pub(crate) async fn stop_owned_sandboxes<B: crate::backend::PlacementBackend>(
+    backend: &mut B,
+    node: uuid::Uuid,
+    attempt: uuid::Uuid,
+) -> Result<()> {
+    use crate::backend::SandboxState;
     for entry in backend.list_owned(node).await? {
-        if entry.sandbox.owner.attempt_id == attempt && entry.state == SandboxState::Running {
-            let stopped = backend.stop(&entry.sandbox).await;
-            tracing::warn!(attempt_id = %attempt, sandbox = %entry.sandbox.backend_id,
-                confirmed = stopped.is_confirmed(), "attempt sandbox stopped after host stop");
+        if entry.sandbox.owner.attempt_id != attempt
+            || matches!(
+                entry.state,
+                SandboxState::Stopped | SandboxState::Archived | SandboxState::Destroyed
+            )
+        {
+            continue;
         }
+        let stopped = backend.stop(&entry.sandbox).await;
+        tracing::warn!(attempt_id = %attempt, sandbox = %entry.sandbox.backend_id,
+            confirmed = stopped.is_confirmed(), "attempt sandbox stop");
+        ensure!(
+            stopped.is_confirmed(),
+            "sandbox {} stop unconfirmed; the harness may still run (stop uncertain)",
+            entry.sandbox.backend_id
+        );
     }
     Ok(())
 }
@@ -272,5 +298,81 @@ impl NativeExecutor for InstalledExecutor {
             Self::Codex(e) => e.execute(pipeline, grant, shutdown),
             Self::Claude(e) => e.execute(pipeline, grant, shutdown),
         }
+    }
+}
+
+#[cfg(test)]
+mod sandbox_stop_tests {
+    use super::stop_owned_sandboxes;
+    use crate::backend::{
+        CreateRequest, FakeBackend, Fault, Ownership, PlacementBackend, PrivateMaterial,
+        SandboxState, TemplateDigest,
+    };
+    use uuid::Uuid;
+    const TEMPLATE: &str =
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+    async fn running(
+        backend: &mut FakeBackend,
+        node: Uuid,
+        attempt: Uuid,
+    ) -> crate::backend::SandboxIdentity {
+        let owner = Ownership {
+            node_id: node,
+            boot_id: Uuid::new_v4(),
+            attempt_id: attempt,
+        };
+        let request = CreateRequest::new(
+            owner,
+            TemplateDigest::parse(TEMPLATE).unwrap(),
+            u64::MAX / 2,
+            vec![],
+        );
+        let sandbox = backend.create(&request).await.unwrap();
+        backend
+            .deliver_private_material(&sandbox, PrivateMaterial::new(b"fixture".to_vec()))
+            .await
+            .unwrap();
+        backend.start_runner(&sandbox).await.unwrap();
+        assert_eq!(
+            backend.inspect(&sandbox).await.unwrap().state,
+            SandboxState::Running
+        );
+        sandbox
+    }
+
+    /// MS1 review S2: the attempt's sandbox is stopped and confirmed before the
+    /// host stop is reported; an unconfirmed stop is an error (stop uncertain),
+    /// and other attempts' sandboxes are never touched.
+    #[tokio::test]
+    async fn attempt_sandbox_stop_must_be_confirmed() {
+        let (node, attempt, other) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let mut backend = FakeBackend::default();
+        let mine = running(&mut backend, node, attempt).await;
+        let theirs = running(&mut backend, node, other).await;
+        stop_owned_sandboxes(&mut backend, node, attempt)
+            .await
+            .unwrap();
+        assert_eq!(
+            backend.inspect(&mine).await.unwrap().state,
+            SandboxState::Stopped
+        );
+        assert_eq!(
+            backend.inspect(&theirs).await.unwrap().state,
+            SandboxState::Running
+        );
+        // Already stopped: nothing to do.
+        stop_owned_sandboxes(&mut backend, node, attempt)
+            .await
+            .unwrap();
+
+        backend.inject(Fault::StopFailure);
+        let error = stop_owned_sandboxes(&mut backend, node, other)
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("stop uncertain"), "{error:#}");
+        assert_eq!(
+            backend.inspect(&theirs).await.unwrap().state,
+            SandboxState::Running
+        );
     }
 }

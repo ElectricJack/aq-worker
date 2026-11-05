@@ -10,6 +10,8 @@ pub use claude_docker::{
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) use codex::drive_running;
 pub use codex::{CodexExecutor, CodexSettings, ExecutorConfig};
+#[cfg(all(test, feature = "test-support"))]
+pub(crate) use codex::{PreStop, drive_running_with_pre_stop};
 mod heartbeat;
 mod prepare;
 #[cfg(test)]

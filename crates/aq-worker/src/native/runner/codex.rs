@@ -555,6 +555,7 @@ impl NativeExecutor for CodexExecutor {
                 transfer,
                 terminal_clock,
                 false,
+                None,
             )
             .await
         })
@@ -563,6 +564,28 @@ impl NativeExecutor for CodexExecutor {
 
 /// Shared actual-host lifecycle used by the concrete executor and pinned local
 /// physical-host fault tests. Opaque LocalPhaseHost cannot be reconstructed.
+#[cfg(all(test, feature = "test-support"))]
+pub(crate) async fn drive_running_with_pre_stop(
+    pipeline: Arc<InputPipeline>,
+    host: crate::native::launch::LocalPhaseHost,
+    deadline_ns: u64,
+    relay_client: RelayHttp,
+    shutdown: watch::Receiver<bool>,
+    pre_stop: PreStop,
+) -> Result<()> {
+    drive_running_owned(
+        pipeline,
+        host,
+        deadline_ns,
+        relay_client,
+        shutdown,
+        None,
+        None,
+        false,
+        Some(pre_stop),
+    )
+    .await
+}
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) async fn drive_running(
     pipeline: Arc<InputPipeline>,
@@ -580,9 +603,16 @@ pub(crate) async fn drive_running(
         None,
         None,
         false,
+        None,
     )
     .await
 }
+#[allow(clippy::too_many_arguments)]
+/// Physical stop of resources outside the host's process tree (a sandbox),
+/// run before the host stop is reported. An error means stop uncertain.
+pub(crate) type PreStop = Box<
+    dyn FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>> + Send,
+>;
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn drive_running_owned(
     pipeline: Arc<InputPipeline>,
@@ -593,6 +623,7 @@ pub(super) async fn drive_running_owned(
     transfer: Option<crate::transfer_client::TransferClient>,
     terminal_clock: Option<aq_session_host::terminal_io::QualifiedClock>,
     local_renewal: bool,
+    pre_stop: Option<PreStop>,
 ) -> Result<()> {
     use crate::native::result::ResultStopCause;
     let id = host.attempt_id();
@@ -693,6 +724,12 @@ pub(super) async fn drive_running_owned(
             None => {}
         }
     }
+    // Stop what the host's proof does not cover (the sandbox) first, so the
+    // host's short stop grace cannot leave it running behind a Stopped report.
+    let outside_stopped = match pre_stop {
+        Some(stop) => stop().await,
+        None => Ok(()),
+    };
     // Creating this future fences launch/current transport synchronously.
     // Physical cleanup must not wait for a slow local projection fsync.
     let stop = pipeline.stop_phase_host(id);
@@ -704,6 +741,14 @@ pub(super) async fn drive_running_owned(
             pipeline.persist_phase_host_uncertain(id).await?;
             anyhow::bail!("native stop uncertain; retained history requires reconciliation")
         }
+    }
+    if let Err(error) = outside_stopped {
+        // The host is stopped, but a sandbox may still run: never report
+        // Stopped (the server then records no stop, so B4 cannot release the
+        // task). reconcile-native replays Stopped once the sandbox stop is
+        // confirmed.
+        pipeline.persist_phase_host_uncertain(id).await?;
+        return Err(error.context("sandbox stop uncertain; Stopped withheld for reconciliation"));
     }
     // Stop and its journal precede the bounded metadata-only final flush.
     // A failed flush retains the execution error but does not gate B1 recording.
