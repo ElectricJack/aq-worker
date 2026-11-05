@@ -412,3 +412,167 @@ async fn measured_inventory_reports_fake_statvfs_and_preserved_sizes() {
         assert!(report.get(field).is_none(), "{field}");
     }
 }
+
+/// In-memory aq-server artifact routes: the server, not the worker, derives
+/// the attempt binding that receipts are bound to.
+struct CentralArtifacts {
+    server_binding: aq_lifecycle_protocol::Binding,
+    state: std::sync::Mutex<(
+        Option<crate::artifact_client::BeginArtifact>,
+        Vec<u8>,
+        usize,
+    )>,
+}
+impl CentralArtifacts {
+    fn new(server_binding: aq_lifecycle_protocol::Binding) -> Self {
+        Self {
+            server_binding,
+            state: Default::default(),
+        }
+    }
+    fn uploads(&self) -> usize {
+        self.state.lock().unwrap().2
+    }
+    fn status(
+        &self,
+        receipt: Option<aq_lifecycle_protocol::RetentionReceipt>,
+    ) -> crate::artifact_client::ArtifactTransferStatus {
+        let s = self.state.lock().unwrap();
+        crate::artifact_client::ArtifactTransferStatus {
+            transfer_id: Uuid::from_u128(7),
+            offset: s.1.len() as u64,
+            bytes: s.0.as_ref().unwrap().bytes,
+            state: if receipt.is_some() {
+                "retained"
+            } else {
+                "uploading"
+            }
+            .into(),
+            receipt,
+        }
+    }
+}
+impl crate::artifact_client::ArtifactRoutes for CentralArtifacts {
+    async fn begin(
+        &self,
+        r: &crate::artifact_client::BeginArtifact,
+    ) -> Result<crate::artifact_client::ArtifactTransferStatus> {
+        {
+            let mut s = self.state.lock().unwrap();
+            ensure!(r.attempt_id == self.server_binding.attempt_id && r.bytes > 0);
+            *s = (Some(r.clone()), Vec::new(), s.2 + 1);
+        }
+        Ok(self.status(None))
+    }
+    async fn chunk(
+        &self,
+        _: Uuid,
+        _: Uuid,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<crate::artifact_client::ArtifactTransferStatus> {
+        {
+            let mut s = self.state.lock().unwrap();
+            ensure!(
+                offset == s.1.len() as u64 && bytes.len() <= crate::artifact_client::CHUNK_BYTES
+            );
+            s.1.extend_from_slice(bytes);
+        }
+        Ok(self.status(None))
+    }
+    async fn commit(
+        &self,
+        _: Uuid,
+        _: &crate::artifact_client::CommitArtifact,
+    ) -> Result<crate::artifact_client::ArtifactTransferStatus> {
+        let receipt = {
+            let s = self.state.lock().unwrap();
+            let begin = s.0.clone().unwrap();
+            ensure!(aq_lifecycle_protocol::Digest::of(&s.1) == begin.artifact.digest);
+            aq_lifecycle_protocol::RetentionReceipt {
+                receipt_id: Uuid::new_v4(),
+                owner: aq_lifecycle_protocol::Text::new("aq-server:project")?,
+                binding_digest: aq_lifecycle_protocol::canonical_digest(&self.server_binding)?,
+                artifact: begin.artifact,
+                role: begin.role,
+                bytes: begin.bytes,
+                retained_at_ms: 1,
+                retained_until_ms: 2,
+            }
+        };
+        Ok(self.status(Some(receipt)))
+    }
+}
+
+#[tokio::test]
+async fn destroy_yields_receipts_that_pass_validate_retention_against_the_attempt_binding() {
+    use aq_lifecycle_protocol::{ArtifactRole, Binding, validate_retention};
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = open(&dir, false);
+    let id = accept(&mut c).await;
+    c.launch(id, &()).await.unwrap();
+    assert!(c.stop(id).await.unwrap().is_confirmed());
+    let owner = c.state().attempts[&id].sandbox.clone().unwrap().owner;
+    let binding = Binding {
+        project_id: Uuid::new_v4(),
+        task_id: Uuid::new_v4(),
+        lineage_id: Uuid::new_v4(),
+        attempt_id: owner.attempt_id,
+        attempt_generation: 1,
+        session: SessionIdentity::Remote {
+            node_id: owner.node_id,
+            boot_id: owner.boot_id,
+            attempt_id: owner.attempt_id,
+            assignment_generation: 1,
+            session_id: Uuid::new_v4(),
+        },
+    };
+    // Spans two server chunks.
+    let source = vec![0x5a; crate::artifact_client::CHUNK_BYTES + 17];
+
+    // A receipt bound to another binding never authorizes destroy.
+    let foreign = CentralArtifacts::new(Binding {
+        lineage_id: Uuid::new_v4(),
+        ..binding.clone()
+    });
+    assert!(
+        c.retain_source_and_destroy(id, &binding, &source, &foreign)
+            .await
+            .is_err()
+    );
+    assert_ne!(c.state().attempts[&id].phase, Phase::Destroyed);
+    assert!(c.state().attempts[&id].destroy_authorization.is_none());
+
+    let central = CentralArtifacts::new(binding.clone());
+    c.backend.inner.inject(Fault::DestroyFailure);
+    let first = c
+        .retain_source_and_destroy(id, &binding, &source, &central)
+        .await
+        .unwrap();
+    assert!(!first.confirmation.is_confirmed());
+    // The retry reuses the journaled receipts instead of uploading again.
+    let done = c
+        .retain_source_and_destroy(id, &binding, &source, &central)
+        .await
+        .unwrap();
+    assert!(done.confirmation.is_confirmed());
+    assert_eq!(central.uploads(), 1);
+    assert_eq!(done.receipts, first.receipts);
+    assert_eq!(c.state().attempts[&id].phase, Phase::Destroyed);
+
+    validate_retention(&done.receipts, &binding).unwrap();
+    assert_eq!(done.receipts.len(), 1);
+    assert_eq!(done.receipts[0].role, ArtifactRole::Source);
+    assert_eq!(
+        done.receipts[0].artifact.digest,
+        aq_lifecycle_protocol::Digest::of(&source)
+    );
+    assert_eq!(
+        c.state().attempts[&id]
+            .destroy_authorization
+            .as_ref()
+            .unwrap()
+            .lifecycle_receipts(),
+        &done.receipts[..]
+    );
+}

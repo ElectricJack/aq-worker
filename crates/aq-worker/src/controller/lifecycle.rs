@@ -2,6 +2,13 @@ use super::*;
 use aq_admission_sandbox::sandbox::PermitScope;
 use zeroize::Zeroizing;
 
+/// Outcome of [`Controller::retain_source_and_destroy`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedDestroy {
+    pub confirmation: Confirmation<StoppedWriterProof>,
+    pub receipts: Vec<aq_lifecycle_protocol::RetentionReceipt>,
+}
+
 impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
     pub async fn launch(&mut self, id: Uuid, request: &P::Request) -> Result<()> {
         let mut a = self.attempt(id)?;
@@ -207,6 +214,52 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             "cleanup grace has not elapsed"
         );
         self.destroy_at(id, authorization).await
+    }
+    /// Retain the stopped sandbox's source snapshot centrally (role
+    /// `source`) and destroy only under the returned CON-03 receipts. A
+    /// journaled lifecycle authorization is reused, so a retried destroy does
+    /// not upload again. Receipts are returned for the parking report.
+    pub async fn retain_source_and_destroy<R: crate::artifact_client::ArtifactRoutes>(
+        &mut self,
+        id: Uuid,
+        binding: &aq_lifecycle_protocol::Binding,
+        source: &[u8],
+        routes: &R,
+    ) -> Result<RetainedDestroy> {
+        let a = self.attempt(id)?;
+        let sandbox = a
+            .sandbox
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("sandbox identity not recorded"))?;
+        ensure!(
+            a.stopped.is_some(),
+            "source retention requires a stopped writer"
+        );
+        let journaled = a
+            .destroy_authorization
+            .as_ref()
+            .map(|d| d.lifecycle_receipts().to_vec())
+            .filter(|r| !r.is_empty());
+        let receipts = match journaled {
+            Some(receipts) => receipts,
+            None => vec![
+                crate::artifact_client::retain_artifact(
+                    routes,
+                    binding,
+                    aq_lifecycle_protocol::ArtifactRole::Source,
+                    &format!("sandbox-source/{}", sandbox.owner.deterministic_name()),
+                    source,
+                )
+                .await?,
+            ],
+        };
+        let authorization =
+            DestroyAuthorization::retained_lifecycle(sandbox, binding, receipts.clone())?;
+        let confirmation = self.destroy(id, &authorization).await?;
+        Ok(RetainedDestroy {
+            confirmation,
+            receipts,
+        })
     }
     pub(super) async fn destroy_at(
         &mut self,
