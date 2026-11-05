@@ -583,6 +583,7 @@ pub(crate) async fn drive_running(
     )
     .await
 }
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn drive_running_owned(
     pipeline: Arc<InputPipeline>,
     host: crate::native::launch::LocalPhaseHost,

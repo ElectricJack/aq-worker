@@ -320,10 +320,7 @@ pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String]) -> String 
         .find(|l| l.trim_start().starts_with("Changes:"))
         .map(|l| l.trim_start().trim_start_matches("Changes:").to_string())
         .unwrap_or(text.clone());
-    let summary = summary
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let summary = summary.split_whitespace().collect::<Vec<_>>().join(" ");
     let files = if changed.is_empty() {
         "none".to_string()
     } else {
@@ -461,7 +458,10 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             // a stopped attempt with no report holding the task.
             submit_claim(
                 &config,
-                format!("Changes: unknown; Runner failure: {error:#}; sandbox {} preserved", sandbox.backend_id),
+                format!(
+                    "Changes: unknown; Runner failure: {error:#}; sandbox {} preserved",
+                    sandbox.backend_id
+                ),
             );
             return Ok(3);
         }
