@@ -62,11 +62,19 @@ debug = false
 lto = "thin"
 strip = true
 
-# CI-only images: release code generation without the serial ThinLTO link
-# step. Release artifacts keep [profile.release]. (aq-server's Dockerfile.worker
-# defines the same profile with --config for pinned sources that predate it.)
+# CI-only images: no ThinLTO, low optimization. Release artifacts keep
+# [profile.release]. (aq-server's Dockerfile.worker defines the same profile
+# with --config for pinned sources that predate it.)
+# Dropping ThinLTO alone saves nothing on a 4-vCPU runner (LTO builds
+# dependencies as bitcode and generates code once); the optimization level is
+# the lever (aq-server: 796 s release, 793 s without LTO, 445 s with workspace
+# opt-level 0 and dependencies 1). Debug assertions stay off, as in release.
 [profile.ci-image]
 inherits = "release"
 lto = false
+opt-level = 0
 codegen-units = 16
+
+[profile.ci-image.package."*"]
+opt-level = 1
 

@@ -97,7 +97,8 @@ raising the budget. Raising a budget needs the owner's review.
   458f682d).
 - **Release-only settings stay out of CI images.** ThinLTO lives only in
   `[profile.release]`. Images built only for CI or tests use the `ci-image`
-  profile (release without LTO). aq-worker images are built by aq-server's
+  profile (no LTO, workspace opt-level 0, dependencies 1;
+  dropping LTO alone saves nothing on a 4-vCPU runner). aq-worker images are built by aq-server's
   `Dockerfile.worker` from the pinned source archive. Its target cache is keyed
   by the archive digest, and CI images pass `--build-arg CARGO_PROFILE=ci-image`.
   The same profile is defined in this repository's `Cargo.toml`.
