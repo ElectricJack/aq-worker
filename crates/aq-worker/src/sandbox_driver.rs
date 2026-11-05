@@ -195,7 +195,35 @@ pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
         if git(rel) {
             continue;
         }
+        if let TreeEntry::Symlink { target, .. } = entry {
+            // A link may only point inside the workspace, relatively.
+            let target = Path::new(target);
+            ensure!(
+                !target.is_absolute()
+                    && target
+                        .components()
+                        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir)),
+                "copy-back symlink target must be relative and stay inside the workspace"
+            );
+        }
         wanted.insert(rel.to_owned());
+    }
+    // No entry may sit below a path the archive itself makes a symlink: a
+    // later write would otherwise go through that link.
+    let links: BTreeSet<&str> = entries
+        .iter()
+        .filter(|e| matches!(e, TreeEntry::Symlink { .. }))
+        .map(|e| e.path())
+        .collect();
+    for entry in entries {
+        let mut parent = Path::new(entry.path()).parent();
+        while let Some(p) = parent.filter(|p| !p.as_os_str().is_empty()) {
+            ensure!(
+                !links.contains(p.to_str().unwrap_or_default()),
+                "copy-back entry below a symlinked parent"
+            );
+            parent = p.parent();
+        }
     }
     // Remove what the sandbox no longer has (deepest first).
     let current = collect_tree(root, u64::MAX)?;
@@ -756,6 +784,35 @@ fn read_tree_file(archive: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copy_back_refuses_symlinked_parents_and_escaping_links() {
+        let root = tempfile::tempdir().unwrap();
+        let link = |path: &str, target: &str| TreeEntry::Symlink {
+            path: path.into(),
+            target: target.into(),
+        };
+        let file = |path: &str| TreeEntry::File {
+            path: path.into(),
+            mode: 0o644,
+            data: b"x".to_vec(),
+        };
+        for bad in [
+            vec![link("out", "/etc")],
+            vec![link("out", "../outside")],
+            vec![link("out", "sub/../../x")],
+            vec![link("d", "sub"), file("d/escape.txt")],
+        ] {
+            assert!(sync_tree(root.path(), &bad).is_err());
+        }
+        assert!(!root.path().join("d").exists() && !root.path().join("out").exists());
+        sync_tree(
+            root.path(),
+            &[file("a.txt"), link("b", "a.txt"), link("c", "./a.txt")],
+        )
+        .unwrap();
+        assert!(root.path().join("b").is_symlink());
+    }
 
     /// MS1 review S3b: copy-back and success are refused when the token's
     /// exact bytes appear in a copied-back file, path or link, the transcript
