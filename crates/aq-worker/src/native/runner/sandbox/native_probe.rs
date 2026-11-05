@@ -194,6 +194,7 @@ fn claude_command(model: &str) -> Result<ClaudeCommand> {
             executable: Path::new("/opt/aq/bin/claude"),
             workspace: Path::new(WORKSPACE),
             private_home: Path::new(CLAUDE_HOME),
+            session: uuid::Uuid::new_v4(),
         },
         ConfinementMode::Native,
     )?;

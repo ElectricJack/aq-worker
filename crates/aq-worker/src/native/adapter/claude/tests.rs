@@ -35,8 +35,10 @@ fn paths() -> ClaudePaths<'static> {
         executable: Path::new("/opt/aq/bin/claude"),
         workspace: Path::new("/work"),
         private_home: Path::new("/home/agent/.aq/claude"),
+        session: SESSION,
     }
 }
+const SESSION: uuid::Uuid = uuid::Uuid::from_u128(0x0e8e_1959_de20_4be5_9f1d_72a3_a30e_3cd8);
 fn flag<'a>(recipe: &'a ClaudeRecipe, name: &str) -> &'a str {
     let i = recipe.arguments.iter().position(|a| a == name).unwrap();
     assert_eq!(recipe.arguments.iter().filter(|a| *a == name).count(), 1);
@@ -65,7 +67,6 @@ fn native_claude_recipe_uses_harness_sandbox_and_accept_edits() {
     for f in [
         "--verbose",
         "--strict-mcp-config",
-        "--no-session-persistence",
         "--disable-slash-commands",
     ] {
         assert!(recipe.arguments.iter().any(|a| a == f), "missing {f}");
@@ -170,10 +171,41 @@ fn claude_recipe_refuses_unsupported_settings_and_paths() {
             executable: Path::new("/opt/aq/bin/claude"),
             workspace: Path::new(workspace),
             private_home: Path::new(home),
+            session: SESSION,
         };
         assert!(
             map(&harness, &model, p, mode).is_err(),
             "{workspace} {home}"
         );
     }
+}
+
+#[test]
+fn claude_recipe_pins_session_and_reports_native_transcript() {
+    let (harness, model) = settings(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY);
+    let mut p = paths();
+    p.workspace = Path::new("/aq/work/repo_1.x");
+    let recipe = map(&harness, &model, p, ConfinementMode::Container).unwrap();
+    // The session is persisted (the transcript reader's input) under the
+    // attempt-chosen identifier, never a CLI-chosen one.
+    assert_eq!(
+        flag(&recipe, "--session-id"),
+        "0e8e1959-de20-4be5-9f1d-72a3a30e3cd8"
+    );
+    assert!(
+        !recipe
+            .arguments
+            .iter()
+            .any(|a| a == "--no-session-persistence")
+    );
+    assert_eq!(
+        recipe.transcript,
+        Path::new(
+            "/home/agent/.aq/claude/projects/-aq-work-repo-1-x/0e8e1959-de20-4be5-9f1d-72a3a30e3cd8.jsonl"
+        )
+    );
+    // Claude shortens long project slugs; the recipe refuses rather than guess.
+    let long = format!("/{}", "w".repeat(200));
+    p.workspace = Path::new(&long);
+    assert!(map(&harness, &model, p, ConfinementMode::Container).is_err());
 }

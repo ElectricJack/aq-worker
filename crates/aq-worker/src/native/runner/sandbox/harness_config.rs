@@ -103,13 +103,23 @@ impl CodexAgentHome {
 
 pub struct ClaudeAgentHome;
 impl ClaudeAgentHome {
+    /// The recipe for an authorized mode, without touching the filesystem
+    /// (for a home that lives inside the sandbox, not on this host).
+    pub fn plan(
+        confinement: &AuthorizedConfinement,
+        harness: &HarnessSettings,
+        model: &ModelSettings,
+        paths: ClaudePaths<'_>,
+    ) -> Result<ClaudeRecipe> {
+        claude::map(harness, model, paths, confinement.mode())
+    }
     pub fn install(
         confinement: &AuthorizedConfinement,
         harness: &HarnessSettings,
         model: &ModelSettings,
         paths: ClaudePaths<'_>,
     ) -> Result<ClaudeRecipe> {
-        let recipe = claude::map(harness, model, paths, confinement.mode())?;
+        let recipe = Self::plan(confinement, harness, model, paths)?;
         let home = create_private_home(paths.private_home)?;
         write_private(&home, claude::SETTINGS_FILE, &recipe.settings_json)?;
         Ok(recipe)

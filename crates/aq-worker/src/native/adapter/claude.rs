@@ -21,6 +21,7 @@ use std::{
     collections::BTreeMap,
     path::{Component, Path, PathBuf},
 };
+use uuid::Uuid;
 
 /// The Claude Code CLI version this recipe was written against (operator spike).
 pub const CLAUDE_CLI_VERSION: &str = "2.1.318";
@@ -49,6 +50,9 @@ pub struct ClaudePaths<'a> {
     pub workspace: &'a Path,
     /// Private agent home: both `HOME` and `CLAUDE_CONFIG_DIR`.
     pub private_home: &'a Path,
+    /// Attempt-chosen native session identifier (`--session-id`). It names
+    /// the native transcript the observation reader is bound to.
+    pub session: Uuid,
 }
 
 pub struct ClaudeRecipe {
@@ -58,7 +62,14 @@ pub struct ClaudeRecipe {
     pub working_directory: PathBuf,
     /// Bytes for `<private_home>/settings.json`.
     pub settings_json: Vec<u8>,
+    /// Exact native session transcript the pinned CLI writes:
+    /// `<private_home>/projects/<workspace slug>/<session>.jsonl`.
+    pub transcript: PathBuf,
 }
+
+/// Longest project slug the pinned CLI uses verbatim; longer ones are
+/// shortened with a hash the recipe does not reproduce.
+const MAX_PROJECT_SLUG: usize = 200;
 
 /// Crate-private: callers outside the crate reach it only through
 /// `ClaudeAgentHome::install`, which requires an `AuthorizedConfinement`.
@@ -97,6 +108,7 @@ pub(crate) fn map(
         executable,
         workspace,
         private_home,
+        session,
     } = paths;
     for path in [executable, workspace, private_home] {
         ensure!(
@@ -113,6 +125,29 @@ pub(crate) fn map(
         "Claude private home must be disjoint from the workspace"
     );
     let home = private_home.to_str().context("Claude home UTF8")?;
+    // The pinned CLI stores a session under its working directory with every
+    // non-alphanumeric byte replaced by `-` (witnessed on 2.1.318).
+    let slug: String = workspace
+        .to_str()
+        .context("Claude workspace UTF8")?
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() {
+                b as char
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    ensure!(
+        slug.len() <= MAX_PROJECT_SLUG,
+        "Claude workspace path too long for an exact transcript path"
+    );
+    let session = session.hyphenated().to_string();
+    let transcript = private_home
+        .join("projects")
+        .join(slug)
+        .join(format!("{session}.jsonl"));
     let settings_path = private_home.join(SETTINGS_FILE);
     let permission_mode = match mode {
         ConfinementMode::Native => "acceptEdits",
@@ -136,7 +171,11 @@ pub(crate) fn map(
         "--settings",
         settings_path.to_str().context("Claude settings UTF8")?,
         "--strict-mcp-config",
-        "--no-session-persistence",
+        // Persist the session under the attempt's identifier: the native
+        // transcript is the observation reader's input. The private home is
+        // wiped with the sandbox.
+        "--session-id",
+        &session,
         "--disable-slash-commands",
     ]
     .map(String::from)
@@ -160,6 +199,7 @@ pub(crate) fn map(
         environment,
         working_directory: workspace.to_owned(),
         settings_json: serde_json::to_vec_pretty(&settings(mode))?,
+        transcript,
     })
 }
 

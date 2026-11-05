@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.78s
+     Running tests/claude_live.rs (target/debug/deps/claude_live-79bd1afa253559ff)
+
+running 1 test
+runner exit Some(Exited(0)) after 10.65953567s: {"base":"c788c729aabff1ba25e2331941a073b9fcb3cc92","cap_eff":"0000000000000000","check_rc":0,"claude_rc":0,"cli_version":"2.1.318 (Claude Code)","credentials_file":false,"head":"e49acf7bb7fef626c83737f8c6e810aa0fd02964","material_wiped":true,"native_transcript":true,"no_new_privs":1,"publish_rc":0,"published":"e49acf7bb7fef626c83737f8c6e810aa0fd02964","red":true,"token_files":0,"uid":0}
+frame-bound gaps: 2
+test live_claude_subscription_edit_check_publish_cycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 15.76s
+

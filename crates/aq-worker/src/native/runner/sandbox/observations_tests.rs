@@ -5,6 +5,7 @@ use std::{fs, io::Write, path::Path};
 use uuid::Uuid;
 
 const REAL: &[u8] = include_bytes!("../../../../tests/fixtures/codex-real-0.166.0.jsonl");
+const CLAUDE_REAL: &[u8] = include_bytes!("../../../../tests/fixtures/claude-real-2.1.318.jsonl");
 fn source() -> Source {
     Source {
         binding: Binding {
@@ -524,6 +525,125 @@ fn codex_real_rollout_0166_qualifies_reference_and_durable_engine() {
                     b.category_semantics,
                     CategorySemantics::MayOverlap { .. }
                 ));
+            }
+            _ => assert_eq!(engine.body.kind, reference.body.kind),
+        }
+        assert_eq!(
+            engine.body.provenance.cursor,
+            reference.body.provenance.cursor
+        );
+    }
+}
+
+/// I1: a sanitized real Claude Code 2.1.318 headless session (Read and Edit
+/// tool cycles, three API calls, one turn). Its metadata kinds are skipped,
+/// never gapped, and the reference and durable readers agree.
+#[test]
+fn claude_real_session_2_1_318_qualifies_reference_and_durable_engine() {
+    let text = std::str::from_utf8(CLAUDE_REAL).unwrap();
+    assert!(
+        !["\"cwd\"", "gitBranch", "timestamp", "/aq/", "src/lib.rs"]
+            .iter()
+            .any(|s| text.contains(s)),
+        "fixture carries native content"
+    );
+    let mut claude = source();
+    claude.native_session_key = Text::new("sanitized-i1-session").unwrap();
+    claude.format = Format::ClaudeV1Jsonl9a9b8e8;
+    claude.provider = Text::new("anthropic").unwrap();
+    let reference_source = serde_json::from_value(serde_json::to_value(&claude).unwrap()).unwrap();
+    let mut normalizer = aq_observation::Normalizer::new(reference_source, 4096).unwrap();
+    let frames = aq_observation::framing::frame(CLAUDE_REAL, 0, false).unwrap();
+    let mut reference = vec![];
+    for frame in frames.records {
+        let (next, facts) = normalizer.apply(&frame, 100).unwrap();
+        normalizer = next;
+        reference.extend(facts);
+    }
+    let gaps: Vec<_> = reference
+        .iter()
+        .filter(|e| matches!(e.body.kind, ObservationKind::Gap { .. }))
+        .collect();
+    assert!(gaps.is_empty(), "gaps: {gaps:?}");
+    let usages: Vec<_> = reference
+        .iter()
+        .filter_map(|e| match &e.body.kind {
+            ObservationKind::Usage { usage } => Some(usage),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(usages.len(), 3);
+    for (usage, (input, output, cache_read, cache_write)) in usages.iter().zip([
+        (2, 63, 17482, 1564),
+        (2, 116, 19046, 199),
+        (2, 102, 19245, 188),
+    ]) {
+        assert_eq!(usage.basis, CounterBasis::PerCall);
+        assert_eq!(usage.counters.input, Counter::Known { value: input });
+        assert_eq!(usage.counters.output, Counter::Known { value: output });
+        assert_eq!(
+            usage.counters.cache_read,
+            Counter::Known { value: cache_read }
+        );
+        assert_eq!(
+            usage.counters.cache_write,
+            Counter::Known { value: cache_write }
+        );
+    }
+    let started: Vec<_> = reference
+        .iter()
+        .filter_map(|e| match &e.body.kind {
+            ObservationKind::ToolStarted { call_id, tool_name } => {
+                Some((call_id.as_str().to_owned(), tool_name.as_str().to_owned()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        started,
+        [("toolu-4", "Read"), ("toolu-8", "Edit")].map(|(c, n)| (c.to_owned(), n.to_owned()))
+    );
+    for (call, _) in &started {
+        assert!(reference.iter().any(|e| matches!(
+            &e.body.kind,
+            ObservationKind::ToolResult { call_id, .. } if call_id.as_str() == call
+        )));
+    }
+    assert_eq!(
+        reference
+            .iter()
+            .filter(|e| matches!(
+                e.body.kind,
+                ObservationKind::TurnBoundary { in_turn: false }
+            ))
+            .count(),
+        1
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let native = temp.path().join("native");
+    fs::create_dir(&native).unwrap();
+    fs::write(native.join("session.jsonl"), CLAUDE_REAL).unwrap();
+    let collector = Collector::open(
+        &temp.path().join("rows"),
+        claude,
+        &native,
+        "session.jsonl",
+        std::slice::from_ref(&native),
+    )
+    .unwrap();
+    while collector.collect(100).unwrap().consumed_bytes > 0 {}
+    let packet = collector.prepare().unwrap().unwrap();
+    let Message::Batch(batch) = &packet.body.message else {
+        panic!()
+    };
+    assert_eq!(batch.events.len(), reference.len());
+    for (engine, reference) in batch.events.iter().zip(reference) {
+        match (&engine.body.kind, &reference.body.kind) {
+            (ObservationKind::Usage { usage: a }, ObservationKind::Usage { usage: b }) => {
+                assert_eq!(a.call, b.call);
+                assert_eq!(a.basis, b.basis);
+                assert_eq!(a.counters, b.counters);
+                assert_eq!(a.completeness, b.completeness);
             }
             _ => assert_eq!(engine.body.kind, reference.body.kind),
         }

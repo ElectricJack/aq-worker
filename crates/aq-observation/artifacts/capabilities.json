@@ -45,7 +45,7 @@
         "cache_write"
       ],
       "parser": {
-        "digest": "72e3891d12602d4ed64b3b65864d8bc2fe38025c190d484a285123959cbdef0d",
+        "digest": "e61c4592a8fa69c3bd758f496bef3dfc3051813ef6f3268b33f1e10c57197ce0",
         "id": "claude-v1-9a9b8e8",
         "version": "0.1.0"
       },

@@ -1,0 +1,24 @@
+{
+  "task": "azure-horizon-22.4",
+  "capture_date": "2026-11-04",
+  "cli_version": "2.1.318",
+  "format_id": "claude-jsonl-v1-reference-9a9b8e8",
+  "selection": "Exact native transcript named by the C6a recipe (CLAUDE_CONFIG_DIR/projects/<workspace slug>/<--session-id>.jsonl) in the I1 live docker-local run-2; no directory discovery",
+  "source_sha256": "a5b9c4cf7e5b0a5a1ec7f5ab8e8d685aa2cd918ad97131fd6eb8e3c4c3395b37",
+  "fixture_sha256": "733179315b375006b77fdae332e31038f0fe97a52e65533cabf3ac7afa815967",
+  "records": {
+    "queue-operation": 2,
+    "user": 3,
+    "attachment": 9,
+    "atis-latch": 3,
+    "api-request-shape": 1,
+    "api-request-blob": 2,
+    "api-request": 3,
+    "last-prompt": 3,
+    "tools-used": 2,
+    "assistant": 3,
+    "cost-state": 1
+  },
+  "sanitization": "sanitize.py: kept record order, kinds, attachment subtypes, tool names, model, stop reasons and numeric per-call usage counters; replaced session, row, message and tool-call identifiers; dropped prompts, text, thinking, tool inputs and outputs, cwd, git branch, timestamps, request shapes and bodies. Attachments shrink to their subtype, so the source's two frame-bound (>64 KiB) prompt_snapshot records are not reproduced by the fixture.",
+  "limits": "One headless turn on claude-sonnet-5-5 with Read and Edit; no compaction, sidechain, thinking, interactive-UI records or mixed-model qualification."
+}

@@ -261,7 +261,7 @@
                 "category_semantics": {
                   "kind": "may_overlap",
                   "policy": {
-                    "digest": "17ac57e73412d933425674953530943db9178d28449db8284bc397717e821534",
+                    "digest": "ed7743ec6216a2e0fa996aeb6b4965bd104aa4d2a3502f356fb8f57123c05060",
                     "id": "claude-v1-9a9b8e8",
                     "version": "0.0.1-engine"
                   }
@@ -308,7 +308,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "17ac57e73412d933425674953530943db9178d28449db8284bc397717e821534",
+                "digest": "ed7743ec6216a2e0fa996aeb6b4965bd104aa4d2a3502f356fb8f57123c05060",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -323,8 +323,8 @@
             },
             "sequence": 1
           },
-          "body_digest": "0d8d894f5399c3d47946ca21efce2a6985e3b8f2051baefc610562b9c5c2043b",
-          "event_id": "c590bd72-1fa6-811f-8c83-c37d9dd24182"
+          "body_digest": "286c0d99660b49d272bd05aba40e65b8d02482894e16b957d2f977f6cad0798b",
+          "event_id": "c45227fa-0c89-897d-a19f-716d669bf876"
         },
         {
           "body": {
@@ -362,7 +362,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "17ac57e73412d933425674953530943db9178d28449db8284bc397717e821534",
+                "digest": "ed7743ec6216a2e0fa996aeb6b4965bd104aa4d2a3502f356fb8f57123c05060",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -377,8 +377,8 @@
             },
             "sequence": 2
           },
-          "body_digest": "07bc366b85bb20f974fca0561e8a2145f05a8364fa6e128084dc9b116a325ecf",
-          "event_id": "a8a4156e-00fa-8fad-a8ff-9b86f848ae96"
+          "body_digest": "88ede9e52295dbdbb3903c6cc9c972d0649df00d3f5eba20f40c83b77cd44184",
+          "event_id": "0f537616-e121-8ac2-82d8-ab1763ac01df"
         },
         {
           "body": {
@@ -416,7 +416,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "17ac57e73412d933425674953530943db9178d28449db8284bc397717e821534",
+                "digest": "ed7743ec6216a2e0fa996aeb6b4965bd104aa4d2a3502f356fb8f57123c05060",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -431,8 +431,8 @@
             },
             "sequence": 3
           },
-          "body_digest": "43167ecb8893ec3039e1e2f91fa15bd3b172ba2d4656585fd7efbfd1f2d801cf",
-          "event_id": "0fd462fe-a798-8b52-b7b6-06a1b1a9bfcd"
+          "body_digest": "600d691e058978ad40d8986d32ef9598b672ee16314bcec275dc8467c07cc7a0",
+          "event_id": "b00b3dcb-b2d0-87b8-b218-c4cc775bae58"
         },
         {
           "body": {
@@ -466,7 +466,7 @@
                 "category_semantics": {
                   "kind": "may_overlap",
                   "policy": {
-                    "digest": "17ac57e73412d933425674953530943db9178d28449db8284bc397717e821534",
+                    "digest": "ed7743ec6216a2e0fa996aeb6b4965bd104aa4d2a3502f356fb8f57123c05060",
                     "id": "claude-v1-9a9b8e8",
                     "version": "0.0.1-engine"
                   }
@@ -476,8 +476,8 @@
                   "reason": "incomplete"
                 },
                 "correction_of": {
-                  "digest": "0d8d894f5399c3d47946ca21efce2a6985e3b8f2051baefc610562b9c5c2043b",
-                  "event_id": "c590bd72-1fa6-811f-8c83-c37d9dd24182"
+                  "digest": "286c0d99660b49d272bd05aba40e65b8d02482894e16b957d2f977f6cad0798b",
+                  "event_id": "c45227fa-0c89-897d-a19f-716d669bf876"
                 },
                 "cost": {
                   "kind": "unknown",
@@ -516,7 +516,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "17ac57e73412d933425674953530943db9178d28449db8284bc397717e821534",
+                "digest": "ed7743ec6216a2e0fa996aeb6b4965bd104aa4d2a3502f356fb8f57123c05060",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -531,8 +531,8 @@
             },
             "sequence": 4
           },
-          "body_digest": "1e338814080789f92def5396cbc9898a7ee8ba4af8e14a61b02b96ca1b40c709",
-          "event_id": "0fb946b5-06c4-8966-95f2-7618cbe40ffa"
+          "body_digest": "1097304e4a145d83a709f6203858b47471d21b28dd06609a30c1d26e71c15673",
+          "event_id": "0cb928d0-6806-8a0e-999a-f8778a458aa3"
         },
         {
           "body": {
@@ -570,7 +570,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "17ac57e73412d933425674953530943db9178d28449db8284bc397717e821534",
+                "digest": "ed7743ec6216a2e0fa996aeb6b4965bd104aa4d2a3502f356fb8f57123c05060",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -585,8 +585,8 @@
             },
             "sequence": 5
           },
-          "body_digest": "e55ca159292533600338523f06f6d07cdeaf7778cc88b376113880bc783cf116",
-          "event_id": "73e4dc36-162e-8116-8c67-2bc7601fd386"
+          "body_digest": "129e2a7e163b6e13a1066a31fc37912ed220d6416996d359542eb725519b5953",
+          "event_id": "f63b1637-4228-80e3-8f29-1007730503f8"
         },
         {
           "body": {
@@ -618,7 +618,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "17ac57e73412d933425674953530943db9178d28449db8284bc397717e821534",
+                "digest": "ed7743ec6216a2e0fa996aeb6b4965bd104aa4d2a3502f356fb8f57123c05060",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -633,8 +633,8 @@
             },
             "sequence": 6
           },
-          "body_digest": "389c2e45eec1b273a5e49249ad4289fec3f8e895ea1f2b7d3622441daf28d926",
-          "event_id": "6e7f1435-2442-8145-95aa-45027b38f1a3"
+          "body_digest": "ffcfe1324db0a9d453d58bc409949143df08d9450ce1d8a78836e5a61dda9e5c",
+          "event_id": "5501b052-571d-8fa1-a23d-f8f93d2597ee"
         }
       ],
       "harness": "claude",

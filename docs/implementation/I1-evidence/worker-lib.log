@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 22s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-0eb3ee3a2045451c)
+
+running 26 tests
+test native::adapter::claude::tests::claude_recipe_carries_subscription_only_environment ... ok
+test native::adapter::claude::tests::claude_recipe_pins_session_and_reports_native_transcript ... ok
+test native::adapter::claude::tests::claude_recipe_refuses_unsupported_settings_and_paths ... ok
+test native::adapter::claude::tests::container_claude_recipe_bypasses_permissions_with_harness_sandbox_off ... ok
+test native::adapter::claude::tests::native_claude_recipe_uses_harness_sandbox_and_accept_edits ... ok
+test native::runner::sandbox::native_probe_tests::claude_refusal_requires_an_attempted_outside_bash_call ... ok
+test native::runner::sandbox::native_probe_tests::claude_permission_layer_denial_is_not_a_sandbox_refusal ... ok
+test native::runner::sandbox::native_probe_tests::codex_refusal_requires_inside_write_and_failed_outside_write ... ok
+test native::runner::sandbox::native_probe_tests::claude_sandbox_disabled_fails_open_even_when_nothing_landed ... ok
+test native::runner::sandbox::native_probe_tests::outside_target_is_neither_in_the_workspace_nor_tmp ... ok
+test native::runner::sandbox::native_probe_tests::record_qualifies_native_only_when_every_present_harness_refused ... ok
+test native::runner::sandbox::native_probe_tests::quoting_survives_single_quotes_in_the_model_value ... ok
+test native::runner::sandbox::native_probe_tests::result_json_round_trips_the_runner_format ... ok
+test native::runner::sandbox::native_probe_tests::runner_carries_no_secret_and_wipes_the_material_first ... ok
+test native::runner::sandbox::native_probe_tests::runner_uses_the_production_native_modes ... ok
+test native::runner::sandbox::native_probe_tests::runner_is_valid_bash ... ok
+test native::runner::sandbox::observations_tests::codex_real_rollout_0166_qualifies_reference_and_durable_engine ... ok
+test native::runner::sandbox::observations_tests::claude_real_session_2_1_318_qualifies_reference_and_durable_engine ... ok
+test native::runner::sandbox::observations_tests::observation_cursor_survives_runner_restart_without_duplicates ... ok
+test native::runner::sandbox::observations_tests::observation_paths_identity_partial_and_loss_are_explicit ... ok
+test native::runner::sandbox::observations_tests::observation_permit_delivery_and_held_upload_never_block_control ... ok
+test native::runner::sandbox::observations_tests::observation_reader_requires_explicit_launched_file_owner ... ok
+test native::runner::sandbox::observations_tests::observation_replays_pending_when_exact_source_disappears ... ok
+test native::runner::sandbox::observations_tests::profiled_source_emits_server_identity_while_parsing_native_transcript ... ok
+test native::runner::sandbox::observations_tests::profiled_source_id_matches_server_derivation_vector ... ok
+test native::runner::sandbox::observations_tests::observation_overload_commits_loss_gap_with_cursor_and_holds ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 389 filtered out; finished in 2.53s
+

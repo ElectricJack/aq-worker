@@ -146,8 +146,8 @@
           "sha256": "47db46634ec0afd4de2c207aa972c206fcf638b6261406e9433057a31c8d4df1"
         }
       ],
-      "selected_released_cli_qualification": "pending; closed product native schema not qualified by v1 parser evidence",
-      "fixture_provenance": "sanitized synthetic from v1 reader/test obligations; no user transcripts",
+      "selected_released_cli_qualification": "Claude Code 2.1.318 real headless session qualified by I1; scoped to the committed 32-record session (metadata kinds skipped, Read/Edit tool cycles, three per-call usages, one turn); records above the 64 KiB frame bound are explicit gaps",
+      "fixture_provenance": "I1 sanitized real launched-session transcript; crates/aq-worker/tests/fixtures/claude-real-2.1.318.jsonl; I1-evidence/provenance.json",
       "native_usage": [
         "input",
         "output",

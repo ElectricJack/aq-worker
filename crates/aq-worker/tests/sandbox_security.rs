@@ -580,6 +580,7 @@ async fn api_key_never_visible_to_agent_user() {
                 executable: std::path::Path::new("/opt/aq/bin/claude"),
                 workspace: &workspace,
                 private_home: &claude_home,
+                session: uuid::Uuid::new_v4(),
             },
         )
         .unwrap();

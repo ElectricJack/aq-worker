@@ -1,5 +1,6 @@
-//! Legacy native JSONL shape witnessed by v1 revision9a9b8e8. Product release
-//! qualification remains pending; no claim that every Claude version uses it.
+//! Native JSONL shape witnessed by v1 revision9a9b8e8, qualified against a
+//! real Claude Code 2.1.318 headless session (I1). No claim beyond the
+//! qualified version; unknown record kinds become explicit gaps.
 use crate::{lifecycle::*, normalize::*};
 use anyhow::{Context as _, Result, ensure};
 use serde_json::Value;
@@ -10,7 +11,31 @@ pub(crate) fn normalize(state: &mut Normalizer, value: &Value) -> Result<Vec<Dra
     }
     identity(state.observed_native_identity)?;
     let kind = text(&value["type"])?;
-    if matches!(kind, "summary" | "queue-operation" | "attachment") {
+    // Metadata records that carry no usage, tool or turn facts. The headless
+    // and interactive-UI kinds were witnessed on Claude Code 2.1.318 (I1). The
+    // per-call facts they summarize (`api-request*`, `cost-state`) are read
+    // from the assistant rows instead. `system` (including context-loss
+    // `compact_boundary`) and unknown kinds stay explicit gaps.
+    if matches!(
+        kind,
+        "summary"
+            | "queue-operation"
+            | "attachment"
+            | "atis-latch"
+            | "api-request-shape"
+            | "api-request-blob"
+            | "api-request"
+            | "tools-used"
+            | "last-prompt"
+            | "cost-state"
+            | "mode"
+            | "permission-mode"
+            | "session-owner"
+            | "ai-title"
+            | "pr-link"
+            | "file-history-snapshot"
+            | "file-history-delta"
+    ) {
         return Ok(vec![]);
     }
     if !matches!(kind, "user" | "assistant") {

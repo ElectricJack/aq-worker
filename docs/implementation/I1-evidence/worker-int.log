@@ -1,0 +1,25 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.50s
+     Running tests/claude_live.rs (target/debug/deps/claude_live-79bd1afa253559ff)
+
+running 3 tests
+test live_claude_subscription_edit_check_publish_cycle ... ignored, live: needs the sandbox daemon, the claude-rust image and the owner's token
+test docker_local_offers_container_confinement_only ... ok
+test runner_carries_no_secret_and_wipes_the_material ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sandbox_security.rs (target/debug/deps/sandbox_security-8526b28a6dbdd82a)
+
+running 9 tests
+test api_key_never_visible_to_agent_user ... ok
+test aq_proxy_injects_access_header_without_exposing_token ... ok
+test aq_proxy_refuses_compressed_access_echo ... ok
+test aq_proxy_refuses_non_machine_origins_and_unsafe_access_files ... ok
+test aq_proxy_shutdown_cancels_concurrent_incomplete_requests ... ok
+test runner_private_files_refuse_oversized_and_malformed_secrets ... ok
+test runner_private_layout_refuses_unsafe_secret_files ... ok
+test runner_responses_proxy_keeps_provider_key_at_upstream ... ok
+test agent_user_cannot_read_permit_or_proxy_key ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.55s
+

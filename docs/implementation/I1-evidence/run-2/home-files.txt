@@ -1,0 +1,11 @@
+.claude.json
+.last-cleanup
+backups/.claude.json.backup.1793847564695
+plugins/store/cc-plugin-agents-md_builtin-b049b47b3618.json
+policy-limits.json
+policy-limits.json.signature.json
+policy-limits.json.stamp.json
+projects/-aq-work-repo/06f3c00e-087e-41da-ad05-3bcf01551466.jsonl
+remote-settings.json
+remote-settings.json.synced-at
+settings.json
