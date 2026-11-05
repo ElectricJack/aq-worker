@@ -456,6 +456,13 @@ pub async fn run(config_path: &Path) -> Result<i32> {
                 sandbox.backend_id,
                 stopped.is_confirmed()
             );
+            // Always claim: a recorded (failed) result lets settlement send the
+            // task to rework and a replacement attempt run, instead of leaving
+            // a stopped attempt with no report holding the task.
+            submit_claim(
+                &config,
+                format!("Changes: unknown; Runner failure: {error:#}; sandbox {} preserved", sandbox.backend_id),
+            );
             return Ok(3);
         }
     };
@@ -491,19 +498,35 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             changed.join(", ")
         }
     );
-    if let Some(dir) = &config.result_dir {
+    submit_claim(&config, conclusion(&stream, rc, &changed));
+    Ok(if rc == Some(0) { 0 } else { 1 })
+}
+
+fn submit_claim(config: &DriverConfig, text: String) {
+    let Some(dir) = &config.result_dir else {
+        return;
+    };
+    let mut text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.len() > 500 {
+        let mut cut = 497;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+        text.push_str("...");
+    }
+    let result = (|| -> Result<u8> {
         let input = aq_agent_result_local::SubmissionInput {
             schema_version: 1,
-            conclusion: aq_agent_result_local::Conclusion::new(conclusion(&stream, rc, &changed))?,
+            conclusion: aq_agent_result_local::Conclusion::new(text)?,
         };
         let client = aq_agent_client::completion::ResultClient::open(dir)?;
-        let outcome = client.submit(input)?;
-        println!(
-            "aq-sandbox-harness: result claim submitted (exit {})",
-            outcome.exit_code
-        );
+        Ok(client.submit(input)?.exit_code)
+    })();
+    match result {
+        Ok(code) => println!("aq-sandbox-harness: result claim submitted (exit {code})"),
+        Err(error) => println!("aq-sandbox-harness: result claim refused: {error:#}"),
     }
-    Ok(if rc == Some(0) { 0 } else { 1 })
 }
 
 type Drove = (Option<i32>, Vec<String>, Vec<u8>);
