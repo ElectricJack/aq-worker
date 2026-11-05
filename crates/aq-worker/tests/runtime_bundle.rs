@@ -5,6 +5,7 @@ use std::{fs, path::Path, process::Command};
 /// The Claude Code CLI the C6a recipe (`adapter/claude.rs` `CLAUDE_CLI_VERSION`)
 /// admits; any other manifest `cli_version` is refused there.
 const CLAUDE_CLI_VERSION: &str = "2.1.318";
+const GEMINI_CLI_VERSION: &str = aq_worker::native::adapter::gemini::GEMINI_CLI_VERSION;
 
 #[test]
 fn runtime_bundle_lists_pinned_harness_versions() {
@@ -36,6 +37,25 @@ fn runtime_bundle_lists_pinned_harness_versions() {
             "claude {digest} must be lowercase hex SHA-256"
         );
     }
+    let gemini_pin = &pins["inputs"]["gemini.tgz"];
+    assert_eq!(gemini_pin["version"], GEMINI_CLI_VERSION);
+    assert_eq!(
+        gemini_pin["url"],
+        format!(
+            "https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-{GEMINI_CLI_VERSION}.tgz"
+        )
+    );
+    assert_eq!(gemini_pin["bundle_member"], "package/bundle/gemini.js");
+    for digest in ["sha256", "bundle_sha256"] {
+        let value = gemini_pin[digest].as_str().expect("gemini digest");
+        assert!(
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "gemini {digest} must be lowercase hex SHA-256"
+        );
+    }
     let bundle = tempfile::tempdir().unwrap();
     let root = bundle.path();
     for (path, contents) in [
@@ -45,6 +65,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         ("bin/aq-git", "git"),
         ("harnesses/codex/codex", "codex"),
         ("harnesses/claude/claude", "claude"),
+        ("harnesses/gemini/bundle/gemini.js", "gemini"),
         ("node/bin/node", "node"),
     ] {
         fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
@@ -73,7 +94,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();
     assert_eq!(manifest["schema_version"], 1);
     assert_eq!(manifest["source"], source);
-    assert_eq!(manifest["harnesses"].as_array().unwrap().len(), 2);
+    assert_eq!(manifest["harnesses"].as_array().unwrap().len(), 3);
     let codex = &manifest["harnesses"][0];
     assert_eq!(codex["name"], "codex");
     assert_eq!(codex["version"], pins["inputs"]["codex"]["version"]);
@@ -82,6 +103,10 @@ fn runtime_bundle_lists_pinned_harness_versions() {
     assert_eq!(claude["version"], CLAUDE_CLI_VERSION);
     assert_eq!(claude["path"], "/opt/aq/harnesses/claude/claude");
     assert_eq!(claude["bytes"], "claude".len());
+    let gemini = &manifest["harnesses"][2];
+    assert_eq!(gemini["name"], "gemini");
+    assert_eq!(gemini["version"], GEMINI_CLI_VERSION);
+    assert_eq!(gemini["path"], "/opt/aq/harnesses/gemini/bundle/gemini.js");
     assert_eq!(
         manifest["aq_git"]["version"],
         pins["inputs"]["aq-git"]["version"]
@@ -102,6 +127,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
     for artifact in [
         codex,
         claude,
+        gemini,
         &manifest["agent_client"],
         &manifest["runner"],
         &manifest["session_host"],
@@ -119,5 +145,6 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         );
     }
     assert_eq!(manifest["proxies"]["responses"], "in-process:aq-worker");
+    assert_eq!(manifest["proxies"]["gemini"], "in-process:aq-worker");
     assert_eq!(manifest["proxies"]["aq_loopback"], "in-process:aq-worker");
 }

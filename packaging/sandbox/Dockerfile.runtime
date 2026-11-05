@@ -17,12 +17,16 @@ COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
 RUN apt-get update && apt-get install -y --no-install-recommends python3 xz-utils \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /inputs
-COPY aq-git codex claude node.tar.xz SHA256SUMS ./
+COPY aq-git codex claude gemini.tgz node.tar.xz SHA256SUMS ./
 RUN sha256sum --check SHA256SUMS && test "$(uname -m)" = x86_64 \
-    && mkdir -p /opt/aq/bin /opt/aq/node /opt/aq/harnesses/codex /opt/aq/harnesses/claude \
+    && mkdir -p /opt/aq/bin /opt/aq/node /opt/aq/harnesses/codex /opt/aq/harnesses/claude /opt/aq/harnesses/gemini \
     && cp aq-git /opt/aq/bin/aq-git && cp codex /opt/aq/harnesses/codex/codex \
     && cp claude /opt/aq/harnesses/claude/claude \
     && tar -xf node.tar.xz -C /opt/aq/node --strip-components=1 \
+    && tar -xzf gemini.tgz -C /opt/aq/harnesses/gemini --strip-components=1 --no-same-owner --no-same-permissions \
+    && chmod -R a+rX,go-w /opt/aq/harnesses/gemini \
+    && printf '#!/bin/sh\nexec /opt/aq/node/bin/node /opt/aq/harnesses/gemini/bundle/gemini.js "$@"\n' > /opt/aq/bin/gemini \
+    && chmod 755 /opt/aq/bin/gemini \
     && chmod 755 /opt/aq/bin/aq-git /opt/aq/harnesses/codex/codex /opt/aq/harnesses/claude/claude \
     && ln -s ../harnesses/codex/codex /opt/aq/bin/codex \
     && ln -s ../harnesses/claude/claude /opt/aq/bin/claude
@@ -34,6 +38,8 @@ RUN /opt/aq/bin/aq-worker --version && /opt/aq/bin/aq-agent --version \
     && /opt/aq/bin/codex --version \
     && test "$(DISABLE_AUTOUPDATER=1 /opt/aq/bin/claude --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["claude"]["version"])') (Claude Code)" \
     && /opt/aq/node/bin/node --version \
+    && python3 -c 'import hashlib,json; p=json.load(open("/opt/aq/pins.json"))["inputs"]["gemini.tgz"]; assert hashlib.sha256(open("/opt/aq/harnesses/gemini/bundle/gemini.js","rb").read()).hexdigest()==p["bundle_sha256"]' \
+    && test "$(HOME=$(mktemp -d) GEMINI_CLI_NO_RELAUNCH=true /opt/aq/bin/gemini --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["gemini.tgz"]["version"])')" \
     && python3 /inputs/bundle_manifest.py /opt/aq \
     && find /opt/aq -exec touch -h -d '@0' {} +
 

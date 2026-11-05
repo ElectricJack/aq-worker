@@ -28,8 +28,11 @@ def manifest(root):
         'aq_git': artifact(root, 'aq-git', inputs['aq-git']['version'], 'bin/aq-git'),
         'node': artifact(root, 'node', inputs['node.tar.xz']['version'], 'node/bin/node'),
         'harnesses': [artifact(root, 'codex', inputs['codex']['version'], 'harnesses/codex/codex'),
-                      artifact(root, 'claude', inputs['claude']['version'], 'harnesses/claude/claude')],
-        'proxies': {'responses': 'in-process:aq-worker', 'aq_loopback': 'in-process:aq-worker'},
+                      artifact(root, 'claude', inputs['claude']['version'], 'harnesses/claude/claude'),
+                      # npm bundle run only by the bundle Node (/opt/aq/node).
+                      artifact(root, 'gemini', inputs['gemini.tgz']['version'], 'harnesses/gemini/bundle/gemini.js')],
+        'proxies': {'responses': 'in-process:aq-worker', 'gemini': 'in-process:aq-worker',
+                    'aq_loopback': 'in-process:aq-worker'},
     }
 
 
