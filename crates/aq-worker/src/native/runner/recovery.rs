@@ -52,12 +52,32 @@ pub async fn reconcile_native(
         worker.node_id,
         config.capacity.clone(),
     )?;
-    let attempt = journal
+    let mut attempt = journal
         .state()
         .attempts
         .get(&attempt_id)
         .context("native recovery attempt absent")?
         .clone();
+    // MS1 restart drill: a node that died while its host ran left no stop in
+    // the journal. Recover the host owner from its sealed intent, request a
+    // stop, and retain the actual kernel stopped proof. Never relaunch.
+    if let Some(h) = attempt.native_host.as_ref()
+        && h.stopped.is_none()
+        && let Some(intent) = h.host_intent.as_ref()
+    {
+        let mut handle = aq_session_host::SessionHost::recover(&h.intent.host_root, intent)?;
+        handle.stop()?;
+        handle.wait_stopped(std::time::Duration::from_secs(10))?;
+        let proof = handle.stopped_proof()?;
+        journal.native_stopped(attempt_id, &proof)?;
+        tracing::warn!(%attempt_id, "recovered physical host stop after node restart");
+        attempt = journal
+            .state()
+            .attempts
+            .get(&attempt_id)
+            .context("native recovery attempt absent")?
+            .clone();
+    }
     let client = NativeClient::from_config(worker)?;
     replay(&client, &attempt, |receipt| {
         check_root(config, &held)?;
