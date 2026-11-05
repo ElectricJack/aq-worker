@@ -303,6 +303,51 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     ])
 }
 
+/// The last stream-json `result` event Claude printed, if any.
+fn last_result(stream: &[u8]) -> Option<serde_json::Value> {
+    stream
+        .split(|b| *b == b'\n')
+        .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
+        .filter(|v| v["type"] == "result")
+        .last()
+}
+
+/// MS1 review B1: a Claude exit 0 alone never proves the work was done
+/// (Claude can end its turn with a question, a refusal or "couldn't find X").
+/// The driver records success only when all of these hold; otherwise the
+/// executor reports Failed and D3 sends the task to rework.
+///
+/// - the runner exited 0 (backend-observed);
+/// - the last stream-json `result` event has `subtype == "success"` and
+///   `is_error == false` (auth failures, max-turns, budget and errors set
+///   `is_error`);
+/// - the agent's final text contains its own `Changes:` line;
+/// - the copied-back change set is non-empty.
+pub fn proven_success(
+    stream: &[u8],
+    rc: Option<i32>,
+    changed: &[String],
+) -> std::result::Result<(), &'static str> {
+    if rc != Some(0) {
+        return Err("runner exit not 0");
+    }
+    let result = last_result(stream).ok_or("no final result event")?;
+    if result["subtype"] != "success" || result["is_error"] != false {
+        return Err("final result is not a success");
+    }
+    let text = result["result"].as_str().ok_or("no final message")?;
+    if !text
+        .lines()
+        .any(|line| line.trim_start().starts_with("Changes:"))
+    {
+        return Err("final message has no Changes: line");
+    }
+    if changed.is_empty() {
+        return Err("no workspace change was copied back");
+    }
+    Ok(())
+}
+
 /// One-line, bounded conclusion from Claude's stream-json `result` event.
 pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String]) -> String {
     let mut text = None;
@@ -501,9 +546,15 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     );
     // The exit record precedes the claim: the node may stop this pane as soon
     // as the claim is recorded.
-    write_exit(config_path, rc == Some(0));
+    let proven = proven_success(&stream, rc, &changed);
+    if let Err(reason) = proven {
+        println!(
+            "aq-sandbox-harness: success not proven ({reason}); the result is reported as failed"
+        );
+    }
+    write_exit(config_path, proven.is_ok());
     submit_claim(&config, conclusion(&stream, rc, &changed));
-    Ok(if rc == Some(0) { 0 } else { 1 })
+    Ok(if proven.is_ok() { 0 } else { 1 })
 }
 
 /// `exit.json` beside the driver config: success means the runner exited 0
@@ -716,6 +767,69 @@ mod tests {
         assert!(!root.join("gone.txt").exists());
         assert_eq!(std::fs::read(root.join(".git/HEAD")).unwrap(), b"ref");
         assert!(sync_tree(root, &entries).unwrap().is_empty(), "idempotent");
+    }
+
+    #[test]
+    fn success_requires_exit_zero_a_successful_result_a_changes_line_and_changes() {
+        let result = |subtype: &str, is_error: bool, text: &str| {
+            format!(
+                "{{\"type\":\"system\"}}\n{}\n",
+                serde_json::json!({"type":"result","subtype":subtype,"is_error":is_error,"result":text})
+            )
+            .into_bytes()
+        };
+        let done = result(
+            "success",
+            false,
+            "Did it.\nChanges: src/lib.rs; Checks: cargo test; Limits: none",
+        );
+        let files = vec!["src/lib.rs".to_string()];
+        assert_eq!(proven_success(&done, Some(0), &files), Ok(()));
+        // Each refusal case alone keeps the attempt failed.
+        assert_eq!(
+            proven_success(&done, Some(1), &files),
+            Err("runner exit not 0")
+        );
+        assert_eq!(
+            proven_success(&done, None, &files),
+            Err("runner exit not 0")
+        );
+        assert_eq!(
+            proven_success(b"{\"type\":\"assistant\"}\n", Some(0), &files),
+            Err("no final result event")
+        );
+        for (subtype, is_error) in [
+            ("success", true),
+            ("error_max_turns", true),
+            ("error_during_execution", false),
+        ] {
+            assert_eq!(
+                proven_success(&result(subtype, is_error, "Changes: x"), Some(0), &files),
+                Err("final result is not a success"),
+                "{subtype} {is_error}"
+            );
+        }
+        // A clarifying question or refusal ends the turn without a Changes line.
+        let question = result(
+            "success",
+            false,
+            "Which file should I edit? I could not find src/lib.rs.",
+        );
+        assert_eq!(
+            proven_success(&question, Some(0), &files),
+            Err("final message has no Changes: line")
+        );
+        assert_eq!(
+            proven_success(&done, Some(0), &[]),
+            Err("no workspace change was copied back")
+        );
+        // Only the LAST result event counts.
+        let mut later = done.clone();
+        later.extend(result("error_during_execution", true, "Changes: none"));
+        assert_eq!(
+            proven_success(&later, Some(0), &files),
+            Err("final result is not a success")
+        );
     }
 
     #[test]
