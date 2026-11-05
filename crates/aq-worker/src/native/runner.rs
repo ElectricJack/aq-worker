@@ -133,6 +133,7 @@ pub async fn run_once<E: NativeExecutor>(
         .await?;
     let inventory = producer.begin_inventory(config.inventory_ttl_ms)?;
     let acknowledged = producer.publish_inventory(&inventory).await?;
+    pipeline.record_inventory_sequence(inventory.request().sequence);
     ensure!(
         super::http::boot_ns()? < acknowledged.deadline_ns(),
         "native inventory expired before poll"
