@@ -60,7 +60,8 @@ exit "$rc"
 pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and \
 AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the result client. \
 The node runner submits your final message as the AQ result claim, so end with exactly one line: \
-Changes: ...; Checks: exact commands and outcomes; Limits: ...\n";
+Changes: ...; Checks: exact commands and outcomes; Limits: .... Your worktree is retained as is: keep \
+build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -318,6 +318,32 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Backe
         if total > max_total {
             return Err(BackendError::InvalidRequest("archive exceeds read cap"));
         }
+        if kind == b'1' {
+            // Hard link (cargo's target/ has them): a copy of an earlier file.
+            let link = field(157..257);
+            let link = link.trim_start_matches("./").trim_start_matches('/');
+            let target = match link.split_once('/') {
+                Some((first, rest)) if name.starts_with(&format!("{first}/")) => rest,
+                _ => link,
+            };
+            let data = entries
+                .iter()
+                .find_map(|e| match e {
+                    TreeEntry::File { path, data, .. } if path == target => Some(data.clone()),
+                    _ => None,
+                })
+                .ok_or(malformed.clone())?;
+            total = total.saturating_add(data.len() as u64);
+            if total > max_total {
+                return Err(BackendError::InvalidRequest("archive exceeds read cap"));
+            }
+            entries.push(TreeEntry::File {
+                path: rel.into(),
+                mode,
+                data,
+            });
+            continue;
+        }
         entries.push(match kind {
             b'0' | 0 => TreeEntry::File {
                 path: rel.into(),
@@ -438,5 +464,30 @@ mod tests {
             read_tree(&archive, 100),
             Err(BackendError::InvalidRequest("archive exceeds read cap"))
         );
+    }
+
+    #[test]
+    fn hard_links_become_copies_of_their_earlier_file() {
+        let mut a = Vec::new();
+        push_member(&mut a, "/", 0o755, 0, b'5', "");
+        push_member(&mut a, "/f", 0o644, 3, b'0', "");
+        let start = a.len();
+        a.extend_from_slice(b"abc");
+        a.resize(start + padded(3), 0);
+        push_member(&mut a, "/g", 0o644, 0, b'1', "/f");
+        a.resize(a.len() + 2 * BLOCK, 0);
+        let read = read_tree(&a, 1 << 20).unwrap();
+        assert_eq!(
+            read[1],
+            TreeEntry::File {
+                path: "g".into(),
+                mode: 0o644,
+                data: b"abc".to_vec()
+            }
+        );
+        let mut bad = Vec::new();
+        push_member(&mut bad, "/g", 0o644, 0, b'1', "/missing");
+        bad.resize(bad.len() + 2 * BLOCK, 0);
+        assert!(read_tree(&bad, 1 << 20).is_err());
     }
 }
