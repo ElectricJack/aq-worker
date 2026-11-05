@@ -52,6 +52,12 @@ pub enum ExecutorConfig {
         client_manifest_digest: Digest,
         composite_definition: PathBuf,
     },
+    /// MS1: Claude Code in a docker-local sandbox (`runner::claude_docker`).
+    #[serde(rename = "claude-2.1.318-docker-local-result-local-v1")]
+    ClaudeDockerLocalResultLocal {
+        settings: super::claude_docker::ClaudeDockerSettings,
+        composite_definition: PathBuf,
+    },
     #[serde(rename = "codex-0.166-chatgpt-interactive-result-local-v1")]
     ChatgptInteractiveResultLocal {
         settings: CodexSettings,
@@ -322,6 +328,9 @@ impl NativeExecutor for CodexExecutor {
                     composite_definition,
                 )),
             ),
+            Some(ExecutorConfig::ClaudeDockerLocalResultLocal { .. }) => {
+                anyhow::bail!("Claude docker-local settings select the Claude executor")
+            }
             Some(ExecutorConfig::Codex { .. }) => {
                 anyhow::bail!(
                     "legacy sealed-memfd executor is not qualified for Codex tools; no admission attempted"
@@ -572,7 +581,7 @@ pub(crate) async fn drive_running(
     )
     .await
 }
-async fn drive_running_owned(
+pub(super) async fn drive_running_owned(
     pipeline: Arc<InputPipeline>,
     host: crate::native::launch::LocalPhaseHost,
     deadline_ns: u64,

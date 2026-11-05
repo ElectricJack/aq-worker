@@ -25,6 +25,7 @@ pub enum Checkpoint {
     Started,
 }
 mod authority;
+pub mod claude_docker;
 mod control_relay;
 mod native;
 mod output_relay;
@@ -103,6 +104,7 @@ enum Profile {
     #[cfg(any(test, feature = "test-support"))]
     Synthetic(Arc<SyntheticHostProfile>),
     Native(Arc<NativeCodexHostProfile>),
+    ClaudeDocker(Arc<claude_docker::ClaudeDockerHostProfile>),
 }
 impl Profile {
     fn root(&self) -> &RootGuard {
@@ -110,6 +112,7 @@ impl Profile {
             #[cfg(any(test, feature = "test-support"))]
             Self::Synthetic(p) => &p.root,
             Self::Native(p) => &p.root,
+            Self::ClaudeDocker(p) => &p.root,
         }
     }
 }
@@ -586,6 +589,28 @@ impl InputPipeline {
             });
         self.launch_claimed(claimed)
     }
+    /// MS1: the session host runs the docker-local Claude driver with the
+    /// attempt's actual result channel.
+    pub fn launch_phase_claude_docker_result(
+        self: &Arc<Self>,
+        execution: &DurablePhaseExecution,
+        profile: Arc<claude_docker::ClaudeDockerHostProfile>,
+        channel: crate::native::result::VerifiedResultChannel,
+    ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
+        let claimed = self
+            .launch_scope(execution)
+            .and_then(|scope| {
+                channel.check_pipeline(self, &scope)?;
+                self.launch
+                    .claim_profile(scope, Profile::ClaudeDocker(profile), Some(channel))
+            })
+            .map(|entry| ClaimGuard {
+                registry: self.launch.clone(),
+                entry,
+                admitted: false,
+            });
+        self.launch_claimed(claimed)
+    }
     #[cfg(any(test, feature = "test-support"))]
     pub fn launch_phase_synthetic(
         self: &Arc<Self>,
@@ -790,6 +815,7 @@ impl InputPipeline {
 fn bootstrap(owner: &Arc<Mutex<Owned>>, _registry: &Registry, entry: &Arc<Entry>) -> Result<()> {
     match entry.profile.as_ref().context("native profile absent")? {
         Profile::Native(profile) => native::bootstrap(owner, entry, profile),
+        Profile::ClaudeDocker(profile) => claude_docker::bootstrap(owner, entry, profile),
         #[cfg(any(test, feature = "test-support"))]
         Profile::Synthetic(_) => bootstrap_synthetic(owner, _registry, entry),
     }

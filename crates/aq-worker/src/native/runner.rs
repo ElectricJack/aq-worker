@@ -1,10 +1,12 @@
 //! One fresh native attempt. Configuration and executor readiness precede all
 //! network admission. Retained journal/resources are never released on exit.
+mod claude_docker;
 mod codex;
 mod config;
 pub mod sandbox;
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) use codex::drive_running;
+pub use claude_docker::{ClaudeDockerExecutor, ClaudeDockerSettings, InstalledExecutor};
 pub use codex::{CodexExecutor, CodexSettings, ExecutorConfig};
 mod heartbeat;
 mod prepare;
