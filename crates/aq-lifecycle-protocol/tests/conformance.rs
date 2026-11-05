@@ -32,6 +32,13 @@ fn public_artifacts_drift_and_all_packets_roundtrip() {
         ),
         include_str!("../artifacts/contract.schema.json")
     );
+    assert_eq!(
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&stop_proof_schema()).unwrap()
+        ),
+        include_str!("../artifacts/stop-proof.schema.json")
+    );
     for raw in fixture()["valid_packets"].as_array().unwrap() {
         let encoded = serde_json::to_vec(raw).unwrap();
         let packet = decode(&encoded).unwrap();
@@ -48,6 +55,10 @@ fn public_artifacts_drift_and_all_packets_roundtrip() {
         assert_eq!(
             std::fs::read(repo.join("protocol/lifecycle-v1/contract.schema.json")).unwrap(),
             include_bytes!("../artifacts/contract.schema.json")
+        );
+        assert_eq!(
+            std::fs::read(repo.join("protocol/lifecycle-v1/stop-proof.schema.json")).unwrap(),
+            include_bytes!("../artifacts/stop-proof.schema.json")
         );
         assert_eq!(
             std::fs::read(repo.join("protocol/lifecycle-v1/fixtures.json")).unwrap(),
@@ -383,4 +394,102 @@ fn available_raw_bytes_must_agree_with_the_declared_source_span() {
     source.validate().unwrap();
     source.cursor = SourceCursor::Bytes { start: 0, end: 21 };
     source.validate().unwrap();
+}
+#[test]
+fn stop_proof_artifact_digest_is_sha256_of_canonical_json() {
+    let fixture = &fixture()["stop_proof"];
+    let proof: StopProof = serde_json::from_value(fixture["body"].clone()).unwrap();
+    let canonical = fixture["canonical_json"].as_str().unwrap().as_bytes();
+    // Canonical form: compact, keys sorted, integer units.
+    assert_eq!(
+        canonical,
+        format!(
+            "{{\"guardian_instance_id\":\"{}\",\"stopped_at_boot_ms\":{},\"writer_set_digest\":\"{}\"}}",
+            proof.guardian_instance_id,
+            proof.stopped_at_boot_ms,
+            proof.writer_set_digest.as_str()
+        )
+        .as_bytes()
+    );
+    assert_eq!(proof.to_bytes().unwrap(), canonical);
+    let digest: Digest = serde_json::from_value(fixture["digest"].clone()).unwrap();
+    assert_eq!(Digest::of(canonical), digest);
+    assert_eq!(proof.digest().unwrap(), digest);
+    assert_eq!(StopProof::decode(canonical).unwrap(), proof);
+    // The parking fixture names this proof and retains it under role result.
+    let Message::Parking(report) = packet(3).body.message else {
+        unreachable!()
+    };
+    let StopObservation::ReportedStopped {
+        proof: reference, ..
+    } = &report.stop
+    else {
+        unreachable!()
+    };
+    assert_eq!(reference.digest, digest);
+    let receipt = stop_proof_receipt(&report.stop, &report.central_receipts).unwrap();
+    assert_eq!(receipt.role, ArtifactRole::Result);
+    assert_eq!(receipt.bytes, canonical.len() as u64);
+    assert_eq!(
+        serde_json::to_value(receipt).unwrap(),
+        fixture["receipt"].clone()
+    );
+    validate_retention(std::slice::from_ref(receipt), &predecessor()).unwrap();
+    // Pretty, reordered or extended bodies are refused: one proof, one digest.
+    let pretty = serde_json::to_vec_pretty(&proof).unwrap();
+    assert!(StopProof::decode(&pretty).is_err());
+    let mut extended = fixture["body"].clone();
+    extended["writer_count"] = json!(2);
+    let mut extended = serde_json::to_value(&extended).unwrap();
+    extended.sort_all_objects();
+    assert!(StopProof::decode(&serde_json::to_vec(&extended).unwrap()).is_err());
+    assert!(StopProof::decode(&vec![b' '; STOP_PROOF_MAX_BYTES + 1]).is_err());
+    let nil = StopProof {
+        guardian_instance_id: Uuid::nil(),
+        ..proof
+    };
+    assert!(nil.to_bytes().is_err());
+}
+#[test]
+fn successor_verifies_stop_proof_guardian_instance_and_writer_set() {
+    let fixture = &fixture()["stop_proof"];
+    let canonical = fixture["canonical_json"].as_str().unwrap().as_bytes();
+    let Message::Parking(report) = packet(3).body.message else {
+        unreachable!()
+    };
+    let guardian = Uuid::from_u128(31);
+    let writers = Digest::of(b"owned-writer-set");
+    let proof = verify_stop_proof(&report.stop, canonical, guardian, &writers).unwrap();
+    assert_eq!(proof.stopped_at_boot_ms, 1400);
+    // Another guardian instance or writer set is refused.
+    assert!(verify_stop_proof(&report.stop, canonical, Uuid::from_u128(99), &writers).is_err());
+    assert!(verify_stop_proof(&report.stop, canonical, guardian, &Digest::of(b"other")).is_err());
+    // Bytes that are not the referenced artifact are refused.
+    let forged = StopProof {
+        stopped_at_boot_ms: 1,
+        ..proof.clone()
+    };
+    assert!(
+        verify_stop_proof(
+            &report.stop,
+            &forged.to_bytes().unwrap(),
+            guardian,
+            &writers
+        )
+        .is_err()
+    );
+    // An observation disagreeing with its own proof body is refused.
+    let mut stop = report.stop.clone();
+    if let StopObservation::ReportedStopped {
+        writer_set_digest, ..
+    } = &mut stop
+    {
+        *writer_set_digest = Digest::of(b"other");
+    }
+    assert!(verify_stop_proof(&stop, canonical, guardian, &Digest::of(b"other")).is_err());
+    let unknown = StopObservation::Unknown {
+        reason: Text::new("lost ownership").unwrap(),
+    };
+    assert!(verify_stop_proof(&unknown, canonical, guardian, &writers).is_err());
+    assert!(stop_proof_receipt(&unknown, &report.central_receipts).is_none());
 }

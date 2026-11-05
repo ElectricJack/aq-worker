@@ -1,0 +1,34 @@
+{
+  "$defs": {
+    "Digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "guardian_instance_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "stopped_at_boot_ms": {
+      "format": "uint64",
+      "maximum": 18446744073709551615,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "writer_set_digest": {
+      "$ref": "#/$defs/Digest"
+    }
+  },
+  "required": [
+    "guardian_instance_id",
+    "writer_set_digest",
+    "stopped_at_boot_ms"
+  ],
+  "title": "StopProof",
+  "type": "object",
+  "x-canonical": "retained bytes are canonical JSON; ArtifactRef.digest is their lowercase SHA-256",
+  "x-max-wire-bytes": 1024
+}
