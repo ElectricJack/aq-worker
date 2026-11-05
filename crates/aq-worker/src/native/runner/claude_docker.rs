@@ -182,6 +182,61 @@ pub(crate) async fn stop_attempt_sandbox(
     Ok(())
 }
 
+/// Operator release of a preserved (stopped, never running) docker-local
+/// sandbox of one attempt (SBX5 "an operator explicitly releases it"). The
+/// sandbox is destroyed only with the operator's non-empty release reason as
+/// destroy evidence; a running or unknown sandbox is refused. Returns the
+/// released backend identifiers.
+pub async fn release_preserved_sandbox(
+    config: &NativeConfig,
+    node: uuid::Uuid,
+    attempt: uuid::Uuid,
+    reason: &str,
+) -> Result<Vec<String>> {
+    use crate::backend::{
+        Confirmation, DestroyAuthorization, PlacementBackend, SandboxState,
+        docker_local::DockerLocalBackend,
+    };
+    let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+        &config.executor
+    else {
+        anyhow::bail!("not a Claude docker-local node configuration");
+    };
+    ensure!(
+        !reason.trim().is_empty() && reason.len() <= 512,
+        "an operator release needs a reason (at most 512 bytes)"
+    );
+    let mut backend = DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
+    let mut released = Vec::new();
+    for entry in backend.list_owned(node).await? {
+        if entry.sandbox.owner.attempt_id != attempt {
+            continue;
+        }
+        ensure!(
+            entry.state == SandboxState::Stopped,
+            "sandbox {} is {:?}, not stopped; it is never released while it may run",
+            entry.sandbox.backend_id,
+            entry.state
+        );
+        let authorization = DestroyAuthorization::operator_released(
+            entry.sandbox.clone(),
+            format!("operator-release:{attempt}:{reason}"),
+        )?;
+        match backend.destroy(&entry.sandbox, &authorization).await {
+            Confirmation::Confirmed(_) => released.push(entry.sandbox.backend_id.clone()),
+            other => anyhow::bail!(
+                "destroy of {} not confirmed: {other:?}",
+                entry.sandbox.backend_id
+            ),
+        }
+    }
+    ensure!(
+        !released.is_empty(),
+        "no preserved sandbox of attempt {attempt} on this node"
+    );
+    Ok(released)
+}
+
 /// Installed executor selected by the operator configuration.
 pub enum InstalledExecutor {
     Codex(Box<CodexExecutor>),

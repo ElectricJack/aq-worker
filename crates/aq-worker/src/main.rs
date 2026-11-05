@@ -158,6 +158,16 @@ enum Cmd {
         #[arg(long)]
         native_config: PathBuf,
     },
+    /// Operator release: destroy the preserved (stopped) docker-local sandbox
+    /// of one attempt, recording the reason as destroy evidence.
+    ReleaseNativeSandbox {
+        #[arg(long)]
+        native_config: PathBuf,
+        #[arg(long)]
+        attempt_id: uuid::Uuid,
+        #[arg(long)]
+        reason: String,
+    },
     /// Replay retained reports for one stopped native attempt; preserves all local state.
     ReconcileNative {
         #[arg(long)]
@@ -517,6 +527,34 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     ExitCode::SUCCESS
                 }
                 Err(error) => native_diagnostics::refuse(&error, Some(&worker), disposition),
+            }
+        }
+        Cmd::ReleaseNativeSandbox {
+            native_config,
+            attempt_id,
+            reason,
+        } => {
+            let result = async {
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
+                aq_worker::native::runner::release_preserved_sandbox(
+                    &config,
+                    worker.node_id,
+                    attempt_id,
+                    &reason,
+                )
+                .await
+            }
+            .await;
+            match result {
+                Ok(released) => {
+                    println!(
+                        "operator release: attempt {attempt_id} sandbox(es) {} destroyed; reason recorded as destroy evidence",
+                        released.join(", ")
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => usage_err(format!("operator release refused: {error:#}")),
             }
         }
         Cmd::ReconcileNative {

@@ -4,7 +4,9 @@ mod claude_docker;
 mod codex;
 mod config;
 pub mod sandbox;
-pub use claude_docker::{ClaudeDockerExecutor, ClaudeDockerSettings, InstalledExecutor};
+pub use claude_docker::{
+    ClaudeDockerExecutor, ClaudeDockerSettings, InstalledExecutor, release_preserved_sandbox,
+};
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) use codex::drive_running;
 pub use codex::{CodexExecutor, CodexSettings, ExecutorConfig};
