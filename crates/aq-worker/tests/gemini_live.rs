@@ -608,3 +608,12 @@ fn live_reader_path_reads_the_qualified_cli_recording() {
         include_bytes!("../../aq-observation/tests/fixtures/gemini-cli-0.67.0-recording.jsonl");
     assert_eq!(read_recording(fixture), 2, "one usage per model turn");
 }
+
+#[test]
+fn live_reader_path_accepts_the_in_sandbox_error_recording() {
+    // Written in the sandbox by the blocked live run (provider 402): user turn,
+    // `$rewindTo` after the failed turn, no model usage.
+    let recording =
+        include_bytes!("../../../docs/implementation/I2-evidence/blocked-run/recording.jsonl");
+    assert_eq!(read_recording(recording), 0);
+}
