@@ -51,8 +51,8 @@ CLAUDE_CODE_OAUTH_TOKEN="$token" IS_SANDBOX=1 "$exe" "$@" < "$in/prompt" 2> "$ou
 rc=${PIPESTATUS[0]}
 unset token
 echo "$rc" > "$out/rc"
-credentials=false; [ -e "$HOME/.credentials.json" ] && credentials=true
-echo "aq-runner: claude exit $rc credentials_file=$credentials"
+login_file=false; [ -e "$HOME/.credentials.json" ] && login_file=true
+echo "aq-runner: claude exit $rc login_file=$login_file"
 exit "$rc"
 "#;
 
@@ -687,12 +687,12 @@ mod tests {
     #[test]
     fn token_trims_newlines_and_refuses_bad_shapes() {
         assert_eq!(
-            &parse_token(b"sk-ant-oat01-abcdefghijklmnop\r\n").unwrap()[..],
-            b"sk-ant-oat01-abcdefghijklmnop"
+            &parse_token(b"fixture-login-abcdefghijklmnop\r\n").unwrap()[..],
+            b"fixture-login-abcdefghijklmnop"
         );
         assert!(parse_token(b"short\n").is_err());
-        assert!(parse_token(b"sk-ant-oat01-abc defghijklmnop\n").is_err());
-        assert!(parse_token(b"sk-ant-oat01-abcdefghijklmnop\nsecond\n").is_err());
+        assert!(parse_token(b"fixture-login-abc defghijklmnop\n").is_err());
+        assert!(parse_token(b"fixture-login-abcdefghijklmnop\nsecond\n").is_err());
     }
 
     #[test]
