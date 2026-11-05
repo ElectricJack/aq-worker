@@ -4,37 +4,45 @@
 //! repeats a port effect whose journal write was lost to a crash.
 //!
 //! The agent-side effects (`request_checkpoint`, `close_input`,
-//! `reconcile_effects`) have no AQ or harness surface yet. They go through the
-//! `AgentLifecycle` port until the platform follow-up defines one
+//! `reconcile_effects`) go through the `AgentLifecycle` port. Their mediation
+//! is defined in `suspend.rs` (eager-horizon-82); the production adapter over
+//! the agent artifacts and lifecycle effects routes is a follow-up
 //! (docs/implementation/H5.md, "Port-level TODOs").
 use anyhow::{Result, bail};
 use aq_lifecycle_protocol::{
-    ArtifactRef, CheckpointClaim, Digest, EffectsObservation, StopObservation, SuspensionIntent,
+    ArtifactRef, Digest, EffectsObservation, RetentionReceipt, StopObservation, StopProof,
 };
 use aq_worker_protocol::ProcessOutcome;
-use sha2::{Digest as _, Sha256};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-use super::{SuspensionPorts, artifact_ref, text};
+use super::{CheckpointRequest, InputFence, SuspensionPorts, WriterStop};
 use crate::backend::{Confirmation, DestroyAuthorization, PlacementBackend, SandboxIdentity};
 use crate::guardian::{self, GuardianIdentity, GuardianPhase, GuardianState, Operation};
 
-/// TODO(platform follow-up): agent-side suspension surface. No AQ route or
-/// harness API exists for these yet; do not invent one in this adapter.
+/// Agent-side suspension surface; the contract is `SuspensionPorts`'
+/// (see `suspend.rs`). TODO(platform follow-up): production adapter.
 pub trait AgentLifecycle {
-    /// Ask the agent for a bounded checkpoint summary (`intent.max_summary_bytes`).
-    fn request_checkpoint(&mut self, intent: &SuspensionIntent) -> Result<CheckpointClaim>;
-    /// Close new input and ordinary agent operations. Idempotent.
-    fn close_input(&mut self) -> Result<()>;
-    /// Hand pending domain effects to central reconciliation. Idempotent.
-    fn reconcile_effects(&mut self, pending: &[Uuid]) -> Result<EffectsObservation>;
+    /// Ask the agent to retain its checkpoint summary under `request`; the
+    /// receipt it observed, if any. The Suspender verifies it.
+    fn request_checkpoint(
+        &mut self,
+        request: &CheckpointRequest,
+    ) -> Result<Option<RetentionReceipt>>;
+    /// Close the worker-local input gate. Idempotent.
+    fn close_input(&mut self) -> Result<InputFence>;
+    /// Hand pending domain effects, under `fence`, to central reconciliation.
+    fn reconcile_effects(
+        &mut self,
+        fence: &InputFence,
+        pending: &[Uuid],
+    ) -> Result<EffectsObservation>;
 }
 
 /// Stop every owned writer and report stopped-writer evidence.
 pub trait WriterGuardian {
-    fn stop_writers(&mut self) -> Result<StopObservation>;
+    fn stop_writers(&mut self) -> Result<WriterStop>;
 }
 
 /// The subreaper guardian for one launch directory.
@@ -50,10 +58,8 @@ impl LocalGuardian {
             stop_wait: Duration::from_secs(6),
         }
     }
-    fn state(&self, identity: &GuardianIdentity) -> Result<(GuardianState, Vec<u8>)> {
-        let state = guardian::read_state(&self.directory, identity)?;
-        let bytes = std::fs::read(self.directory.join("guardian-state.json"))?;
-        Ok((state, bytes))
+    fn state(&self, identity: &GuardianIdentity) -> Result<GuardianState> {
+        guardian::read_state(&self.directory, identity)
     }
 }
 impl WriterGuardian for LocalGuardian {
@@ -62,9 +68,9 @@ impl WriterGuardian for LocalGuardian {
     /// reported as `Unknown` (the suspender then holds). A guardian that has
     /// not reached a terminal phase within the bound is an error, which the
     /// suspender retries without journaling a stop.
-    fn stop_writers(&mut self) -> Result<StopObservation> {
+    fn stop_writers(&mut self) -> Result<WriterStop> {
         let identity = guardian::read_identity(&self.directory)?;
-        let (state, _) = self.state(&identity)?;
+        let state = self.state(&identity)?;
         if matches!(state.phase, GuardianPhase::Waiting | GuardianPhase::Running) {
             let sent = guardian::control(
                 &self.directory,
@@ -76,7 +82,7 @@ impl WriterGuardian for LocalGuardian {
             );
             if let Err(error) = sent {
                 // The guardian may have stopped and exited after saving proof.
-                let (state, _) = self.state(&identity)?;
+                let state = self.state(&identity)?;
                 if !matches!(
                     state.phase,
                     GuardianPhase::Stopped | GuardianPhase::StopUncertain
@@ -87,12 +93,12 @@ impl WriterGuardian for LocalGuardian {
         }
         let deadline = Instant::now() + self.stop_wait;
         loop {
-            let (state, bytes) = self.state(&identity)?;
+            let state = self.state(&identity)?;
             match state.phase {
-                GuardianPhase::Stopped => return stopped_observation(&identity, &state, &bytes),
+                GuardianPhase::Stopped => return stopped_writers(&identity, &state),
                 GuardianPhase::StopUncertain => {
-                    return Ok(StopObservation::Unknown {
-                        reason: text("guardian lost; stopped writers unproven")?,
+                    return Ok(WriterStop::Unknown {
+                        reason: "guardian lost; stopped writers unproven".into(),
                     });
                 }
                 _ if Instant::now() >= deadline => {
@@ -104,48 +110,37 @@ impl WriterGuardian for LocalGuardian {
     }
 }
 
-/// Map an exact guardian `Stopped` receipt (kernel ECHILD proof) to the wire
-/// observation. Deterministic in the receipt bytes, so replays are identical:
-/// - `observation_id`: first 16 bytes of sha256(receipt bytes);
+/// Map an exact guardian `Stopped` receipt (kernel ECHILD proof) to the
+/// stop proof. Deterministic in the receipt, so replays are identical:
 /// - `guardian_instance_id`: the guardian launch id;
 /// - `writer_set_digest`: digest of the guardian identity JSON;
-/// - `writer_count`: processes the guardian reaped;
-/// - `proof`: `guardian-stop:<launch_id>` over the receipt bytes.
-pub fn stopped_observation(
-    identity: &GuardianIdentity,
-    state: &GuardianState,
-    receipt_bytes: &[u8],
-) -> Result<StopObservation> {
-    let (true, Some(observed_at_ms)) = (
+/// - `stopped_at_boot_ms` / `observed_at_ms`: the receipt's `stopped_at_ms`;
+/// - `writer_count`: processes the guardian reaped.
+///
+/// The Suspender builds `ReportedStopped` and retains the proof bytes.
+pub fn stopped_writers(identity: &GuardianIdentity, state: &GuardianState) -> Result<WriterStop> {
+    let (true, Some(stopped_at_ms)) = (
         state.phase == GuardianPhase::Stopped && state.kernel_wait_echild,
         state.stopped_at_ms,
     ) else {
         bail!("guardian receipt carries no kernel stopped proof");
     };
-    let Ok(writer_count) = u32::try_from(state.reaped_count) else {
-        return Ok(StopObservation::Unknown {
-            reason: text("guardian writer count out of range")?,
-        });
+    let writer_count = match u32::try_from(state.reaped_count) {
+        Ok(count) if count <= 65536 => count,
+        _ => {
+            return Ok(WriterStop::Unknown {
+                reason: "guardian writer count out of range".into(),
+            });
+        }
     };
-    if writer_count > 65536 {
-        return Ok(StopObservation::Unknown {
-            reason: text("guardian writer count out of range")?,
-        });
-    }
-    let hash = Sha256::digest(receipt_bytes);
-    let mut id = [0u8; 16];
-    id.copy_from_slice(&hash[..16]);
-    let proof: ArtifactRef = artifact_ref(
-        format!("guardian-stop:{}", identity.launch_id),
-        receipt_bytes,
-    )?;
-    Ok(StopObservation::ReportedStopped {
-        observation_id: Uuid::from_bytes(id),
-        guardian_instance_id: identity.launch_id,
-        writer_set_digest: Digest::of(&serde_json::to_vec(identity)?),
+    Ok(WriterStop::Stopped {
+        proof: StopProof {
+            guardian_instance_id: identity.launch_id,
+            writer_set_digest: Digest::of(&serde_json::to_vec(identity)?),
+            stopped_at_boot_ms: stopped_at_ms,
+        },
         writer_count,
-        observed_at_ms,
-        proof,
+        observed_at_ms: stopped_at_ms,
     })
 }
 
@@ -200,17 +195,24 @@ fn confirmed<T>(what: &str, result: Confirmation<T>) -> Result<T> {
 impl<B: PlacementBackend, G: WriterGuardian, A: AgentLifecycle> SuspensionPorts
     for NodePorts<B, G, A>
 {
-    fn request_checkpoint(&mut self, intent: &SuspensionIntent) -> Result<CheckpointClaim> {
-        self.agent.request_checkpoint(intent)
+    fn request_checkpoint(
+        &mut self,
+        request: &CheckpointRequest,
+    ) -> Result<Option<RetentionReceipt>> {
+        self.agent.request_checkpoint(request)
     }
-    fn close_input(&mut self) -> Result<()> {
+    fn close_input(&mut self) -> Result<InputFence> {
         self.agent.close_input()
     }
-    fn stop_writers(&mut self) -> Result<StopObservation> {
+    fn stop_writers(&mut self) -> Result<WriterStop> {
         self.guardian.stop_writers()
     }
-    fn reconcile_effects(&mut self, pending: &[Uuid]) -> Result<EffectsObservation> {
-        self.agent.reconcile_effects(pending)
+    fn reconcile_effects(
+        &mut self,
+        fence: &InputFence,
+        pending: &[Uuid],
+    ) -> Result<EffectsObservation> {
+        self.agent.reconcile_effects(fence, pending)
     }
     /// A disk-preserving backend stop; an already stopped sandbox confirms again.
     fn release_compute(&mut self, stop: &StopObservation) -> Result<()> {

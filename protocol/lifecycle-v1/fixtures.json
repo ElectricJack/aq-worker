@@ -165,7 +165,7 @@
       "through_sequence": null
     },
     {
-      "body_digest": "287e11cd01570547870d52e62b321f3065e65e4a9144e5504a1b3a0e5ee8be31",
+      "body_digest": "b58afc35409d6645ced968b6bebbaa899b122ee302dc4a6919a00db63b9b8cb1",
       "disposition": "parking_recorded",
       "message_id": "00000000-0000-0000-0000-0000000000cb",
       "schema_version": 1,
@@ -242,8 +242,32 @@
     "legacy_capabilities": "old session0.1.0 behavior preserved",
     "reported_zero": "known value0 is distinct from unknown",
     "stop": "reference must be verified by runtime owner",
+    "stop_proof": "ReportedStopped.proof names a role-result retained artifact whose bytes are canonical StopProof JSON and whose digest is their SHA-256; the successor SessionHost verifies guardian instance and writer set, the server only lineage",
     "suspended": "distinct attempt disposition; never ordinary success/failure",
     "task_mail": "only task-addressed IDs may attach to a successor"
+  },
+  "stop_proof": {
+    "body": {
+      "guardian_instance_id": "00000000-0000-0000-0000-00000000001f",
+      "stopped_at_boot_ms": 1400,
+      "writer_set_digest": "4da783f860ef8413d25b5c1a3493d06ed2c83f8f01f70331391a51fce69277d1"
+    },
+    "canonical_json": "{\"guardian_instance_id\":\"00000000-0000-0000-0000-00000000001f\",\"stopped_at_boot_ms\":1400,\"writer_set_digest\":\"4da783f860ef8413d25b5c1a3493d06ed2c83f8f01f70331391a51fce69277d1\"}",
+    "digest": "b01e2015b545811349c389b0929d77c09aacfc059d32cb8392849470a30268fe",
+    "receipt": {
+      "artifact": {
+        "digest": "b01e2015b545811349c389b0929d77c09aacfc059d32cb8392849470a30268fe",
+        "id": "guardian-stop-proof",
+        "version": "1"
+      },
+      "binding_digest": "2e91e4389927d272847ef83a5a5a05ab7ec0b8e969451d46aaf351a2f42b5374",
+      "bytes": 176,
+      "owner": "central-retention-owner",
+      "receipt_id": "00000000-0000-0000-0000-00000000002a",
+      "retained_at_ms": 1500,
+      "retained_until_ms": 1000000,
+      "role": "result"
+    }
   },
   "successor": {
     "attempt_generation": 5,
@@ -668,6 +692,20 @@
                 "retained_at_ms": 1500,
                 "retained_until_ms": 1000000,
                 "role": "checkpoint"
+              },
+              {
+                "artifact": {
+                  "digest": "b01e2015b545811349c389b0929d77c09aacfc059d32cb8392849470a30268fe",
+                  "id": "guardian-stop-proof",
+                  "version": "1"
+                },
+                "binding_digest": "2e91e4389927d272847ef83a5a5a05ab7ec0b8e969451d46aaf351a2f42b5374",
+                "bytes": 176,
+                "owner": "central-retention-owner",
+                "receipt_id": "00000000-0000-0000-0000-00000000002a",
+                "retained_at_ms": 1500,
+                "retained_until_ms": 1000000,
+                "role": "result"
               }
             ],
             "compute_released": true,
@@ -700,8 +738,8 @@
               "observation_id": "00000000-0000-0000-0000-00000000001e",
               "observed_at_ms": 1400,
               "proof": {
-                "digest": "8510646b6a7a09be815ae3b4d02bc3ba91f0026f76d06d85c63270baef8c6c8e",
-                "id": "guardian-stop-observation",
+                "digest": "b01e2015b545811349c389b0929d77c09aacfc059d32cb8392849470a30268fe",
+                "id": "guardian-stop-proof",
                 "version": "1"
               },
               "writer_count": 2,
@@ -719,7 +757,7 @@
         ],
         "schema_version": 1
       },
-      "body_digest": "287e11cd01570547870d52e62b321f3065e65e4a9144e5504a1b3a0e5ee8be31"
+      "body_digest": "b58afc35409d6645ced968b6bebbaa899b122ee302dc4a6919a00db63b9b8cb1"
     },
     {
       "body": {

@@ -3,15 +3,28 @@
 //! operation: no repeated stop after a durable stop record, uploads resume at
 //! the journaled offset under the same operation id, and the parking report
 //! reuses one message id.
+//!
+//! Agent-side mediation (design review rev-agile-falcon, Gap 4b):
+//! - `request_checkpoint` asks the agent to retain its [`SummaryClaim`] JSON
+//!   through `POST /v1/execution/artifacts/*` with role `checkpoint`; the
+//!   Suspender fetches and verifies those retained bytes before it trusts the
+//!   claim ([`agent_checkpoint_claim`]).
+//! - `close_input` is a worker-local [`InputGate`] fence recording the last
+//!   accepted operation id. AQ observes it only through the effects report
+//!   (`POST /v1/worker/lifecycle/effects`), which `reconcile_effects` carries.
+//! - `ReportedStopped` names a retained `result` artifact whose bytes are the
+//!   canonical [`StopProof`] JSON; the Suspender retains it right after the
+//!   stop is journaled so every parking report carries its receipt.
 use super::archive::{SourceArchive, Unsupported};
 use super::credentials::{self, CredentialLayout, ScrubbedSecrets};
 use super::journal::{Bound, Journal};
 use super::{Boundaries, CentralRetention, LifecycleApi, artifact_ref, require, send_exact, text};
 use anyhow::{Context, Result, bail};
 use aq_lifecycle_protocol::{
-    ArtifactRef, ArtifactRole, Binding, Checkpoint, CheckpointClaim, Digest, EffectsObservation,
-    Message, Packet, ParkingReport, Receipt, RetentionReceipt, StopObservation,
-    SuspensionDisposition, SuspensionIntent, Validate, canonical_digest,
+    ArtifactRef, ArtifactRole, Binding, Checkpoint, CheckpointClaim, ContinuationRef, Digest,
+    EffectsObservation, Message, Packet, ParkingReport, Receipt, RetentionReceipt, StopObservation,
+    StopProof, SummaryClaim, SuspensionDisposition, SuspensionIntent, Text, Validate,
+    canonical_digest,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -24,6 +37,9 @@ pub const SUSPENSION_BOUNDARIES: &[&str] = &[
     "checkpoint_recorded",
     "input_closed",
     "stop_recorded",
+    "upload_journaled:result",
+    "upload_chunk:result",
+    "receipt_recorded:result",
     "snapshot_recorded",
     "credentials_scrubbed",
     "upload_journaled:source",
@@ -39,16 +55,132 @@ pub const SUSPENSION_BOUNDARIES: &[&str] = &[
 
 const SOURCE_FILE: &str = "source.archive";
 
+/// Upper bound on the agent's retained checkpoint artifact (a [`SummaryClaim`]
+/// JSON body: 16 KiB of summary text plus bounded references and ids).
+pub const AGENT_CHECKPOINT_MAX_BYTES: u64 = 64 * 1024;
+
+/// What the agent is asked to retain for a checkpoint. The artifact id is
+/// deterministic per continuation generation so a repeated request after a
+/// crash names the same artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckpointRequest {
+    pub binding: Binding,
+    pub continuation: ContinuationRef,
+    pub artifact_id: Text,
+    pub role: ArtifactRole,
+    pub deadline_ms: u64,
+    pub max_summary_bytes: u32,
+}
+impl CheckpointRequest {
+    pub fn for_intent(intent: &SuspensionIntent) -> Result<Self> {
+        let c = &intent.continuation;
+        Ok(Self {
+            binding: intent.binding.clone(),
+            continuation: c.clone(),
+            artifact_id: text(format!(
+                "hibernation-agent-checkpoint-{}-g{}",
+                c.continuation_id, c.generation
+            ))?,
+            role: ArtifactRole::Checkpoint,
+            deadline_ms: intent.deadline_ms,
+            max_summary_bytes: intent.max_summary_bytes,
+        })
+    }
+}
+
+/// The worker-local input fence: the last agent operation accepted before
+/// input closed (`None` if none was accepted). AQ sees it only through the
+/// effects report.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputFence {
+    pub last_accepted_operation_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GateState {
+    last_accepted_operation_id: Option<Uuid>,
+    closed: bool,
+}
+
+/// Durable worker-local admission gate for agent operations. `admit` records
+/// each accepted operation id; `close` fences input and returns the fence.
+/// Closing is idempotent, and no operation is admitted after it.
+pub struct InputGate {
+    journal: Journal,
+}
+impl InputGate {
+    pub fn new(dir: impl AsRef<std::path::Path>) -> Result<Self> {
+        Ok(Self {
+            journal: Journal::new(dir.as_ref(), "input-fence")?,
+        })
+    }
+    fn state(&self) -> Result<GateState> {
+        Ok(self.journal.load()?.unwrap_or_default())
+    }
+    /// Admit one agent operation, journaled before the caller acts on it.
+    pub fn admit(&self, operation_id: Uuid) -> Result<()> {
+        let mut state = self.state()?;
+        require(!state.closed, "agent input is closed for suspension")?;
+        state.last_accepted_operation_id = Some(operation_id);
+        self.journal.store(&state)
+    }
+    /// Close input and return the fence. Repeats return the same fence.
+    pub fn close(&self) -> Result<InputFence> {
+        let mut state = self.state()?;
+        if !state.closed {
+            state.closed = true;
+            self.journal.store(&state)?;
+        }
+        Ok(InputFence {
+            last_accepted_operation_id: state.last_accepted_operation_id,
+        })
+    }
+    /// The recorded fence, if input has closed.
+    pub fn fence(&self) -> Result<Option<InputFence>> {
+        let state = self.state()?;
+        Ok(state.closed.then_some(InputFence {
+            last_accepted_operation_id: state.last_accepted_operation_id,
+        }))
+    }
+}
+
+/// The guardian's answer to a writer stop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WriterStop {
+    /// Stop could not be proven; suspension holds.
+    Unknown { reason: String },
+    /// Every owned writer stopped; `proof` becomes the retained `result` artifact.
+    Stopped {
+        proof: StopProof,
+        writer_count: u32,
+        observed_at_ms: u64,
+    },
+}
+
 /// Node effects driven by an admitted suspension directive.
 pub trait SuspensionPorts {
-    /// Bounded agent checkpoint through the scoped AQ API. A claim, not stop proof.
-    fn request_checkpoint(&mut self, intent: &SuspensionIntent) -> Result<CheckpointClaim>;
-    /// Close new input and ordinary agent operations.
-    fn close_input(&mut self) -> Result<()>;
+    /// Ask the agent, through the scoped AQ API, to retain its `SummaryClaim`
+    /// JSON as `request.artifact_id` with role `checkpoint`. Returns the
+    /// observed retention receipt, or `None` if the agent did not answer by
+    /// the deadline. A claim, not stop proof.
+    fn request_checkpoint(
+        &mut self,
+        request: &CheckpointRequest,
+    ) -> Result<Option<RetentionReceipt>>;
+    /// Close new input and ordinary agent operations ([`InputGate::close`]).
+    /// Must be idempotent and return the same fence on repeat.
+    fn close_input(&mut self) -> Result<InputFence>;
     /// Stop every owned writer through the guardian.
-    fn stop_writers(&mut self) -> Result<StopObservation>;
-    /// Hand pending domain effects to central reconciliation.
-    fn reconcile_effects(&mut self, pending: &[Uuid]) -> Result<EffectsObservation>;
+    fn stop_writers(&mut self) -> Result<WriterStop>;
+    /// Hand pending domain effects and the input fence to central
+    /// reconciliation (`POST /v1/worker/lifecycle/effects`).
+    fn reconcile_effects(
+        &mut self,
+        fence: &InputFence,
+        pending: &[Uuid],
+    ) -> Result<EffectsObservation>;
     /// Release compute after stopped-writer proof. Must be idempotent.
     fn release_compute(&mut self, stop: &StopObservation) -> Result<()>;
     /// Release protected disk under an explicit directive. Must be idempotent.
@@ -74,10 +206,12 @@ struct State {
     checkpoint_message_id: Uuid,
     parking_message_id: Uuid,
     disk_message_id: Uuid,
+    stop_observation_id: Uuid,
     checkpoint: Option<Checkpoint>,
     checkpoint_recorded: bool,
-    input_closed: bool,
+    input_fence: Option<InputFence>,
     stop: Option<StopObservation>,
+    stop_proof: Option<StopProof>,
     hold: Option<String>,
     source: Option<(Digest, u64)>,
     credential_fingerprints: Vec<String>,
@@ -165,10 +299,12 @@ impl Suspender {
                 checkpoint_message_id: Uuid::new_v4(),
                 parking_message_id: Uuid::new_v4(),
                 disk_message_id: Uuid::new_v4(),
+                stop_observation_id: Uuid::new_v4(),
                 checkpoint: None,
                 checkpoint_recorded: false,
-                input_closed: false,
+                input_fence: None,
                 stop: None,
+                stop_proof: None,
                 hold: None,
                 source: None,
                 credential_fingerprints: Vec::new(),
@@ -192,7 +328,10 @@ impl Suspender {
 
         // 2. Bounded checkpoint summary, journaled before it is sent.
         if state.checkpoint.is_none() {
-            let claim = bounded_claim(ports.request_checkpoint(intent)?, intent)?;
+            let request = CheckpointRequest::for_intent(intent)?;
+            let retained = ports.request_checkpoint(&request)?;
+            let claim = agent_checkpoint_claim(&request, retained.as_ref(), retention)?;
+            let claim = bounded_claim(claim, intent)?;
             let checkpoint = Checkpoint {
                 binding: intent.binding.clone(),
                 continuation: intent.continuation.clone(),
@@ -214,15 +353,43 @@ impl Suspender {
         }
 
         // 3. Close input, then stop every writer through the guardian.
-        if !state.input_closed {
-            ports.close_input()?;
-            state.input_closed = true;
+        if state.input_fence.is_none() {
+            state.input_fence = Some(ports.close_input()?);
             self.save(&journal, &state, "input_closed")?;
         }
+        let fence = state.input_fence.clone().context("journaled input fence")?;
         if state.stop.is_none() {
-            let stop = ports.stop_writers()?;
+            let (stop, proof) = match ports.stop_writers()? {
+                WriterStop::Unknown { reason } => (
+                    StopObservation::Unknown {
+                        reason: text(reason)?,
+                    },
+                    None,
+                ),
+                WriterStop::Stopped {
+                    proof,
+                    writer_count,
+                    observed_at_ms,
+                } => {
+                    let c = &intent.continuation;
+                    let id = format!(
+                        "hibernation-{}-{}-g{}",
+                        role_name(&ArtifactRole::Result),
+                        c.continuation_id,
+                        c.generation
+                    );
+                    let stop = proof.observation(
+                        state.stop_observation_id,
+                        writer_count,
+                        observed_at_ms,
+                        text(id)?,
+                    )?;
+                    (stop, Some(proof))
+                }
+            };
             stop.validate()?;
             state.stop = Some(stop);
+            state.stop_proof = proof;
             self.save(&journal, &state, "stop_recorded")?;
         }
         let stop = state.stop.clone().context("journaled stop")?;
@@ -230,6 +397,20 @@ impl Suspender {
             let reason = format!("writer stop not proven: {}", reason.as_str());
             return self.park(&journal, &mut state, Some(reason), aq);
         }
+        // Retain the stop proof (role `result`) before anything relies on it.
+        let proof = state.stop_proof.clone().context("journaled stop proof")?;
+        let proof_bytes = proof.to_bytes()?;
+        self.upload(
+            &journal,
+            &mut state,
+            ArtifactRole::Result,
+            &proof_bytes,
+            retention,
+        )?;
+        require(
+            aq_lifecycle_protocol::stop_proof_receipt(&stop, &self.receipts(&state)).is_some(),
+            "retained stop proof does not match the reported observation",
+        )?;
 
         // 4. After confirmed stop: snapshot, scan for credentials, then scrub.
         let checkpoint_bytes = serde_json::to_vec(&checkpoint)?;
@@ -284,7 +465,7 @@ impl Suspender {
                 CheckpointClaim::Supplied { summary, .. } => summary.pending_operation_ids.clone(),
                 CheckpointClaim::Missing { .. } => Vec::new(),
             };
-            let effects = ports.reconcile_effects(&pending)?;
+            let effects = ports.reconcile_effects(&fence, &pending)?;
             effects.validate()?;
             state.effects = Some(effects);
             self.save(&journal, &state, "effects_recorded")?;
@@ -366,6 +547,14 @@ impl Suspender {
         Ok(())
     }
 
+    fn receipts(&self, state: &State) -> Vec<RetentionReceipt> {
+        state
+            .uploads
+            .iter()
+            .filter_map(|u| u.receipt.clone())
+            .collect()
+    }
+
     fn report(&self, state: &State, hold: Option<String>) -> Result<ParkingReport> {
         let stop = state
             .stop
@@ -398,11 +587,7 @@ impl Suspender {
             disposition,
             stop,
             local_retained_bytes: local,
-            central_receipts: state
-                .uploads
-                .iter()
-                .filter_map(|u| u.receipt.clone())
-                .collect(),
+            central_receipts: self.receipts(state),
             effects,
             compute_released: state.compute_released,
             protected_disk_released: false,
@@ -471,6 +656,49 @@ impl Suspender {
         self.save(&journal, &state, "disk_released")?;
         Ok(Suspended { report, receipt })
     }
+}
+
+/// Turn the agent's retained checkpoint artifact into a claim. Anything the
+/// agent got wrong (no answer, wrong role, artifact or attempt, digest or byte
+/// mismatch, undecodable body) is an explicit missing claim, never an invented
+/// one. Infrastructure failures (retention fetch) are errors so the step retries.
+pub fn agent_checkpoint_claim(
+    request: &CheckpointRequest,
+    retained: Option<&RetentionReceipt>,
+    retention: &impl CentralRetention,
+) -> Result<CheckpointClaim> {
+    let missing = |why: &str| -> Result<CheckpointClaim> {
+        Ok(CheckpointClaim::Missing { reason: text(why)? })
+    };
+    let Some(receipt) = retained else {
+        return missing("agent did not checkpoint before the directive deadline");
+    };
+    if receipt.validate().is_err()
+        || receipt.role != request.role
+        || receipt.artifact.id != request.artifact_id
+        || receipt.binding_digest != canonical_digest(&request.binding)?
+    {
+        return missing("agent checkpoint receipt does not match the requested artifact");
+    }
+    if receipt.bytes > AGENT_CHECKPOINT_MAX_BYTES {
+        return missing("agent checkpoint exceeded the retained byte bound");
+    }
+    let bytes = retention
+        .fetch(receipt)
+        .context("fetch agent checkpoint artifact")?;
+    if bytes.len() as u64 != receipt.bytes || Digest::of(&bytes) != receipt.artifact.digest {
+        return missing("agent checkpoint bytes do not match the retention receipt");
+    }
+    let Ok(summary) = serde_json::from_slice::<SummaryClaim>(&bytes) else {
+        return missing("agent checkpoint is not a summary claim");
+    };
+    if summary.validate().is_err() {
+        return missing("agent checkpoint is not a valid summary claim");
+    }
+    Ok(CheckpointClaim::Supplied {
+        summary_digest: canonical_digest(&summary)?,
+        summary,
+    })
 }
 
 /// Enforce the directive's summary budget. An over-budget summary becomes an

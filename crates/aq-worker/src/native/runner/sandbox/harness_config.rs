@@ -11,10 +11,13 @@
 //! - Claude gets a private `HOME`/`CLAUDE_CONFIG_DIR` holding `settings.json`.
 //!   It logs in by subscription only, so the home holds no key or token here.
 //!
-//! - Gemini gets a private `GEMINI_CLI_HOME` holding the system-scope
-//!   `system-settings.json` (it outranks workspace settings). With the
-//!   runner's loopback Gemini proxy it carries only the proxy capability, in
-//!   the spawn environment; on subscription the C6b login installs
+//! - Gemini gets an empty private `GEMINI_CLI_HOME`. Its system-scope
+//!   `system-settings.json` (it outranks workspace settings) is written as
+//!   uid 0 into a root-owned directory outside the home, because Gemini CLI
+//!   0.67.0 ignores system settings unless the file and every ancestor are
+//!   root-owned and not group/other writable. With the runner's loopback
+//!   Gemini proxy it carries only the proxy capability, in the spawn
+//!   environment; on subscription the C6b login installs
 //!   `.gemini/oauth_creds.json` after this home exists.
 //!
 //! These are library APIs; B6a2 owns wiring them into `run_as_agent`.
@@ -28,7 +31,7 @@ use aq_session_protocol::{HarnessSettings, ModelSettings};
 use std::{
     fs::{self, DirBuilder, OpenOptions},
     io::Write,
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 use zeroize::Zeroizing;
@@ -173,8 +176,23 @@ impl OpenCodeAgentHome {
 
 pub struct GeminiAgentHome;
 impl GeminiAgentHome {
-    /// Creates the home and its system settings; the state directory
-    /// `.gemini` is left to the CLI or to the C6b subscription login.
+    /// The launch recipe alone, with nothing written.
+    pub fn recipe(
+        confinement: &AuthorizedConfinement,
+        harness: &HarnessSettings,
+        model: &ModelSettings,
+        paths: GeminiPaths<'_>,
+        auth: GeminiAuth<'_>,
+    ) -> Result<GeminiRecipe> {
+        gemini::map(harness, model, paths, confinement.mode(), auth)
+    }
+
+    /// Creates the empty home and, as uid 0, the system settings directory
+    /// (0755) and file (0644). The parent of `system_settings_dir` is checked
+    /// before anything is written, and the written file is checked against the
+    /// CLI's ownership rule, so a file the CLI would skip is never accepted.
+    /// The state directory `.gemini` is left to the CLI or to the C6b
+    /// subscription login.
     pub fn install(
         confinement: &AuthorizedConfinement,
         harness: &HarnessSettings,
@@ -182,13 +200,110 @@ impl GeminiAgentHome {
         paths: GeminiPaths<'_>,
         auth: GeminiAuth<'_>,
     ) -> Result<GeminiRecipe> {
-        let recipe = gemini::map(harness, model, paths, confinement.mode(), auth)?;
-        let home = create_private_home(paths.private_home)?;
-        write_private(
-            &home,
-            gemini::SYSTEM_SETTINGS_FILE,
-            &recipe.system_settings_json,
+        let recipe = Self::recipe(confinement, harness, model, paths, auth)?;
+        let dir = paths.system_settings_dir;
+        ensure_root_secure(
+            dir.parent()
+                .context("Gemini system settings directory has no parent")?,
         )?;
+        create_private_home(paths.private_home)?;
+        let settings = dir.join(gemini::SYSTEM_SETTINGS_FILE);
+        as_root(|| {
+            DirBuilder::new()
+                .mode(0o755)
+                .create(dir)
+                .with_context(|| format!("create Gemini system settings {}", dir.display()))?;
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o644)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&settings)?;
+            file.set_permissions(fs::Permissions::from_mode(0o644))?;
+            file.write_all(&recipe.system_settings_json)?;
+            file.sync_all()?;
+            Ok(())
+        })?;
+        ensure_root_secure(&settings)?;
         Ok(recipe)
+    }
+}
+
+/// Gemini CLI 0.67.0's rule for system settings, made strict: `path` and
+/// every ancestor are owned by uid 0, not group/other writable and not
+/// symlinks; directories are traversable and a file is readable by others,
+/// so the agent uid can read it rather than see it as absent.
+pub(crate) fn ensure_root_secure(path: &Path) -> Result<()> {
+    ensure!(
+        path.is_absolute(),
+        "Gemini system settings path must be absolute"
+    );
+    for (depth, at) in path.ancestors().enumerate() {
+        let meta = fs::symlink_metadata(at)
+            .with_context(|| format!("inspect Gemini system settings {}", at.display()))?;
+        let mode = meta.mode();
+        let reachable = if meta.is_dir() {
+            mode & 0o001 != 0
+        } else {
+            depth == 0 && meta.is_file() && mode & 0o004 != 0
+        };
+        ensure!(
+            meta.uid() == 0 && mode & 0o022 == 0 && reachable,
+            "Gemini CLI ignores system settings unless every path element is \
+             root-owned and not group/other writable: {} (uid {}, mode {:o})",
+            at.display(),
+            meta.uid(),
+            mode & 0o7777
+        );
+    }
+    Ok(())
+}
+
+/// Run `op` with effective uid and gid 0. A root runner runs it inline; the
+/// separated non-root runner switches one scoped thread through its retained
+/// `CAP_SETUID`/`CAP_SETGID` (raw syscalls change only that thread).
+fn as_root<T: Send>(op: impl FnOnce() -> Result<T> + Send) -> Result<T> {
+    if unsafe { libc::geteuid() } == 0 && unsafe { libc::getegid() } == 0 {
+        return op();
+    }
+    std::thread::scope(|scope| {
+        scope
+            .spawn(move || {
+                let keep = libc::c_long::from(-1i32);
+                ensure!(
+                    unsafe { libc::syscall(libc::SYS_setresgid, keep, 0 as libc::c_long, keep) }
+                        == 0
+                        && unsafe {
+                            libc::syscall(libc::SYS_setresuid, keep, 0 as libc::c_long, keep)
+                        } == 0
+                        && unsafe { libc::geteuid() } == 0
+                        && unsafe { libc::getegid() } == 0,
+                    "root identity for Gemini system settings refused: {}",
+                    std::io::Error::last_os_error()
+                );
+                op()
+            })
+            .join()
+            .map_err(|_| anyhow::anyhow!("Gemini system settings operation panicked"))?
+    })
+}
+
+#[cfg(test)]
+mod gemini_settings_tests {
+    use super::ensure_root_secure;
+    use std::path::Path;
+
+    #[test]
+    fn root_secure_matches_the_cli_ownership_rule() {
+        // A standard root-owned 0644 file under 0755 root directories.
+        ensure_root_secure(Path::new("/etc/passwd")).unwrap();
+        // World-writable /tmp, or a non-root owner, makes the CLI skip it.
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("system-settings.json");
+        std::fs::write(&file, b"{}").unwrap();
+        assert!(ensure_root_secure(&file).is_err());
+        assert!(ensure_root_secure(Path::new("/tmp")).is_err());
+        assert!(ensure_root_secure(Path::new("/nonexistent/aq")).is_err());
     }
 }

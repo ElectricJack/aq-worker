@@ -670,8 +670,9 @@ async fn api_key_never_visible_to_agent_user() {
     proxy.stop().await.unwrap();
 }
 
-// I2: the Gemini home holds only system settings; the agent sees only the
-// proxy capability, and a native confinement is refused before any file exists.
+// I2: the agent sees only the proxy capability; system settings never land
+// in the agent home or under a directory the CLI would distrust (B6a2), and a
+// native confinement is refused before any file exists.
 #[tokio::test]
 async fn gemini_home_carries_only_the_proxy_capability() {
     use aq_session_protocol::{ArtifactRef, Capability, Digest, HarnessSettings, Text};
@@ -734,6 +735,7 @@ async fn gemini_home_carries_only_the_proxy_capability() {
         script: std::path::Path::new("/opt/aq/harnesses/gemini/bundle/gemini.js"),
         workspace: Box::leak(workspace.clone().into_boxed_path()),
         private_home: Box::leak(root.path().join(home).into_boxed_path()),
+        system_settings_dir: Box::leak(root.path().join("system").into_boxed_path()),
     };
     let auth = GeminiAuth::ApiKeyProxy {
         origin: proxy.origin(),
@@ -746,7 +748,7 @@ async fn gemini_home_carries_only_the_proxy_capability() {
         &separation,
     )
     .unwrap();
-    let recipe = GeminiAgentHome::install(
+    let recipe = GeminiAgentHome::recipe(
         &container,
         &harness("aq.harness.container-confinement"),
         &model,
@@ -754,15 +756,32 @@ async fn gemini_home_carries_only_the_proxy_capability() {
         auth,
     )
     .unwrap();
-    let home = root.path().join("gemini-home");
-    assert_eq!(std::fs::metadata(&home).unwrap().mode() & 0o777, 0o700);
-    let listed: Vec<_> = std::fs::read_dir(&home)
-        .unwrap()
-        .map(|e| e.unwrap().file_name())
-        .collect();
-    assert_eq!(listed, ["system-settings.json"]);
-    let settings = home.join("system-settings.json");
-    assert_eq!(std::fs::metadata(&settings).unwrap().mode() & 0o777, 0o600);
+    assert_eq!(
+        recipe.environment["GEMINI_CLI_SYSTEM_SETTINGS_PATH"],
+        root.path()
+            .join("system/system-settings.json")
+            .to_str()
+            .unwrap()
+    );
+    // The tempdir sits under world-writable /tmp, which the CLI distrusts:
+    // install refuses before creating the home or the settings directory.
+    let Err(refused) = GeminiAgentHome::install(
+        &container,
+        &harness("aq.harness.container-confinement"),
+        &model,
+        paths("gemini-home"),
+        auth,
+    ) else {
+        panic!("system settings under /tmp accepted");
+    };
+    assert!(format!("{refused:#}").contains("root-owned"), "{refused:#}");
+    assert!(!root.path().join("gemini-home").exists());
+    assert!(!root.path().join("system").exists());
+    assert!(
+        !String::from_utf8(recipe.system_settings_json.clone())
+            .unwrap()
+            .contains(KEY)
+    );
     let all: Vec<&str> = recipe
         .arguments
         .iter()
@@ -772,11 +791,6 @@ async fn gemini_home_carries_only_the_proxy_capability() {
     assert!(
         !all.iter()
             .any(|v| v.contains(KEY) || v.contains("provider.key"))
-    );
-    assert!(
-        !String::from_utf8(std::fs::read(&settings).unwrap())
-            .unwrap()
-            .contains(KEY)
     );
     assert_eq!(
         recipe.environment["GEMINI_API_KEY"],

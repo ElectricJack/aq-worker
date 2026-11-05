@@ -27,7 +27,10 @@ pub use launcher::{
     FreshSessionLauncher, IssuedCredentials, SessionHostStart, SuccessorCredentials,
 };
 pub use ports::{AgentLifecycle, LocalGuardian, NodePorts, WriterGuardian};
-pub use suspend::{Suspended, Suspender, SuspensionPorts};
+pub use suspend::{
+    CheckpointRequest, InputFence, InputGate, Suspended, Suspender, SuspensionPorts, WriterStop,
+    agent_checkpoint_claim,
+};
 
 /// The scoped AQ lifecycle API (`HttpLifecycleApi` over the worker lifecycle
 /// routes in production, `ConformancePeer` in tests).

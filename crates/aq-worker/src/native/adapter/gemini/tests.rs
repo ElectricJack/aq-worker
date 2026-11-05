@@ -38,6 +38,7 @@ fn paths() -> GeminiPaths<'static> {
         script: Path::new("/opt/aq/harnesses/gemini/bundle/gemini.js"),
         workspace: Path::new("/work"),
         private_home: Path::new("/home/agent/.aq/gemini"),
+        system_settings_dir: Path::new("/run/aq/gemini/attempt-1"),
     }
 }
 fn proxy() -> GeminiAuth<'static> {
@@ -76,7 +77,7 @@ fn proxy_recipe_runs_bundle_node_headless_with_loopback_key_route() {
     assert_eq!(e["GEMINI_CLI_HOME"], "/home/agent/.aq/gemini");
     assert_eq!(
         e["GEMINI_CLI_SYSTEM_SETTINGS_PATH"],
-        "/home/agent/.aq/gemini/system-settings.json"
+        "/run/aq/gemini/attempt-1/system-settings.json"
     );
     assert_eq!(e["GEMINI_CLI_NO_RELAUNCH"], "true");
     assert_eq!(e["GOOGLE_GEMINI_BASE_URL"], "http://127.0.0.1:4242");
@@ -158,4 +159,26 @@ fn refuses_wrong_settings_capability_origin_and_paths() {
     let mut p = paths();
     p.script = Path::new("/opt/aq/../tmp/gemini.js");
     assert!(map(&h, &m, p, ConfinementMode::Container, proxy()).is_err());
+}
+
+#[test]
+fn system_settings_dir_must_be_outside_home_and_workspace() {
+    let (h, m) = container();
+    for dir in [
+        "/home/agent/.aq/gemini/system",
+        "/home/agent/.aq",
+        "/work/settings",
+        "/",
+        "/run/aq/../x",
+        "run/aq",
+    ] {
+        let p = GeminiPaths {
+            system_settings_dir: Path::new(dir),
+            ..paths()
+        };
+        assert!(
+            map(&h, &m, p, ConfinementMode::Container, proxy()).is_err(),
+            "{dir} accepted"
+        );
+    }
 }
