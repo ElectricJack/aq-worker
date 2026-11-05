@@ -581,9 +581,13 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                         shutdown_signal().await;
                         let _ = signal.send(true);
                     });
-                    let result =
-                        aq_worker::native::runner::run_once(&worker, config, &mut executor, shutdown)
-                            .await;
+                    let result = aq_worker::native::runner::run_once(
+                        &worker,
+                        config,
+                        &mut executor,
+                        shutdown,
+                    )
+                    .await;
                     watcher.abort();
                     return result;
                 }

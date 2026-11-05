@@ -27,8 +27,11 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
     std::fs::write(work.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
     std::fs::write(
         root.join("session/context-0.bin"),
-        "Append exactly one line `hello from the MS1 driver test` to README.md. \
-         Change nothing else and do not run shell commands.",
+        std::env::var("AQ_MS1_PROMPT").unwrap_or_else(|_| {
+            "Append exactly one line `hello from the MS1 driver test` to README.md. \
+             Change nothing else and do not run shell commands."
+                .into()
+        }),
     )
     .unwrap();
     // Copy the token into a private file the driver deletes; never print it.
@@ -120,10 +123,19 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         .unwrap();
     unsafe { std::env::set_var("AQ_SESSION_DIRECTORY", root.join("session")) };
     let code = run(&config_file).await.unwrap();
+    if let Ok(out) = std::env::var("AQ_MS1_STREAM_OUT") {
+        std::fs::copy(root.join("private/claude.jsonl"), out).unwrap();
+    }
     let readme = std::fs::read_to_string(work.join("README.md")).unwrap();
     assert!(!token_file.exists(), "token file wiped");
     assert_eq!(code, 0, "driver exit");
-    assert!(readme.contains("hello from the MS1 driver test"), "{readme}");
+    if std::env::var("AQ_MS1_PROMPT").is_ok() {
+        return;
+    }
+    assert!(
+        readme.contains("hello from the MS1 driver test"),
+        "{readme}"
+    );
     assert_eq!(
         std::fs::read_to_string(work.join(".git/HEAD")).unwrap(),
         "ref: refs/heads/main\n"

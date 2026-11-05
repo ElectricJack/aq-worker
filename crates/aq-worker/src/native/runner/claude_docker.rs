@@ -53,7 +53,10 @@ impl ClaudeDockerExecutor {
 }
 impl NativeExecutor for ClaudeDockerExecutor {
     fn preflight(&mut self, config: &NativeConfig) -> Result<()> {
-        ensure!(self.profile.is_none(), "Claude executor already preflighted");
+        ensure!(
+            self.profile.is_none(),
+            "Claude executor already preflighted"
+        );
         let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal {
             settings,
             composite_definition,
@@ -91,7 +94,9 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 && !settings.host.root.starts_with(&config.git_root),
             "Claude host root must be a separate private state child"
         );
-        self.profile = Some(Arc::new(ClaudeDockerHostProfile::new(settings.host.clone())?));
+        self.profile = Some(Arc::new(ClaudeDockerHostProfile::new(
+            settings.host.clone(),
+        )?));
         self.pins = Some(pins);
         self.result_root = Some(config.state_dir.join("result"));
         Ok(())
@@ -104,7 +109,10 @@ impl NativeExecutor for ClaudeDockerExecutor {
     ) -> ExecutionFuture<'a> {
         Box::pin(async move {
             ensure!(!*shutdown.borrow(), "shutdown requested before launch");
-            let profile = self.profile.clone().context("Claude executor not preflighted")?;
+            let profile = self
+                .profile
+                .clone()
+                .context("Claude executor not preflighted")?;
             let pins = self.pins.clone().context("Claude result pins absent")?;
             let root = self.result_root.clone().context("result root absent")?;
             let id = grant.history().attempt_id();

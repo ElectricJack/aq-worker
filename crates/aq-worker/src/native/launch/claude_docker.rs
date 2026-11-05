@@ -128,7 +128,8 @@ impl ClaudeDockerHostProfile {
     pub fn verify_installation(&self) -> Result<()> {
         self.root.verify()?;
         for pin in [&self.config.helper, &self.config.tmux, &self.config.driver] {
-            let (digest, _) = hash_file(&pin.path, aq_session_host::observed::MAX_NATIVE_EXEC_BYTES)?;
+            let (digest, _) =
+                hash_file(&pin.path, aq_session_host::observed::MAX_NATIVE_EXEC_BYTES)?;
             ensure!(
                 digest == pin.artifact.digest.as_str(),
                 "pinned program changed"

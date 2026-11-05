@@ -28,7 +28,7 @@ macro_rules! http_history {
                     .await
                     .map_err(|_| anyhow::anyhow!("phase history transport failed"))?;
                 if !response.status().is_success() {
-                    return Err(HttpStatus(response.status()).into());
+                    { let status = response.status(); let path = response.url().path().to_owned(); let body: String = response.text().await.unwrap_or_default().chars().take(400).collect(); tracing::warn!(%path, %status, %body, "native endpoint refused"); return Err(HttpStatus(status).into()); }
                 }
                 let mut versions = response
                     .headers()

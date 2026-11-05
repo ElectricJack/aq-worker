@@ -29,7 +29,19 @@ impl NativeClient {
             .await
             .map_err(|_| anyhow::anyhow!("inventory publication failed; disposition unknown"))?;
         if !response.status().is_success() {
-            return Err(HttpStatus(response.status()).into());
+            {
+                let status = response.status();
+                let path = response.url().path().to_owned();
+                let body: String = response
+                    .text()
+                    .await
+                    .unwrap_or_default()
+                    .chars()
+                    .take(400)
+                    .collect();
+                tracing::warn!(%path, %status, %body, "native endpoint refused");
+                return Err(HttpStatus(status).into());
+            }
         }
         let bytes = body(response, wire::MAX_RECEIPT_BYTES).await?;
         let received = boot_ns()?;
@@ -63,7 +75,19 @@ impl NativeClient {
             .await
             .map_err(|_| anyhow::anyhow!("presence publication failed; disposition unknown"))?;
         if !response.status().is_success() {
-            return Err(HttpStatus(response.status()).into());
+            {
+                let status = response.status();
+                let path = response.url().path().to_owned();
+                let body: String = response
+                    .text()
+                    .await
+                    .unwrap_or_default()
+                    .chars()
+                    .take(400)
+                    .collect();
+                tracing::warn!(%path, %status, %body, "native endpoint refused");
+                return Err(HttpStatus(status).into());
+            }
         }
         let bytes = body(response, wire::MAX_RECEIPT_BYTES).await?;
         let receipt: wire::PresenceReceipt = serde_json::from_slice(&bytes)

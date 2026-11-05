@@ -120,9 +120,19 @@ pub fn single_file(archive: &[u8], max: u64) -> Result<Vec<u8>, BackendError> {
 /// One member of a non-secret tree archive. Paths are relative and normalized.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TreeEntry {
-    Dir { path: String, mode: u32 },
-    File { path: String, mode: u32, data: Vec<u8> },
-    Symlink { path: String, target: String },
+    Dir {
+        path: String,
+        mode: u32,
+    },
+    File {
+        path: String,
+        mode: u32,
+        data: Vec<u8>,
+    },
+    Symlink {
+        path: String,
+        target: String,
+    },
 }
 impl TreeEntry {
     pub fn path(&self) -> &str {
@@ -157,7 +167,10 @@ fn push_member(out: &mut Vec<u8>, name: &str, mode: u32, size: usize, kind: u8, 
 /// e.g. `aq/work`). Owner is root (the sandbox runner in single-UID mode).
 pub fn tree_archive(prefix: &str, entries: &[TreeEntry]) -> Result<Vec<u8>, BackendError> {
     let bad = BackendError::InvalidRequest("tree archive path unsupported");
-    if prefix.is_empty() || prefix.starts_with('/') || prefix.split('/').any(|c| c.is_empty() || c == "..") {
+    if prefix.is_empty()
+        || prefix.starts_with('/')
+        || prefix.split('/').any(|c| c.is_empty() || c == "..")
+    {
         return Err(bad);
     }
     let mut out = Vec::new();
@@ -176,7 +189,9 @@ pub fn tree_archive(prefix: &str, entries: &[TreeEntry]) -> Result<Vec<u8>, Back
         }
         let name = format!("{prefix}/{rel}");
         match entry {
-            TreeEntry::Dir { mode, .. } => push_member(&mut out, &format!("{name}/"), *mode, 0, b'5', ""),
+            TreeEntry::Dir { mode, .. } => {
+                push_member(&mut out, &format!("{name}/"), *mode, 0, b'5', "")
+            }
             TreeEntry::File { mode, data, .. } => {
                 push_member(&mut out, &name, *mode, data.len(), b'0', "");
                 let start = out.len();
@@ -199,7 +214,9 @@ fn valid_relative(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')
         && !path.contains('\0')
-        && path.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
+        && path
+            .split('/')
+            .all(|c| !c.is_empty() && c != "." && c != "..")
 }
 
 fn pax_path(record: &[u8]) -> Option<String> {
@@ -237,7 +254,13 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Backe
         let sum: u64 = h
             .iter()
             .enumerate()
-            .map(|(i, b)| if (148..156).contains(&i) { 32 } else { u64::from(*b) })
+            .map(|(i, b)| {
+                if (148..156).contains(&i) {
+                    32
+                } else {
+                    u64::from(*b)
+                }
+            })
             .sum();
         if sum != stored {
             return Err(malformed);
@@ -253,7 +276,11 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Backe
                 return Err(malformed);
             }
             long_name = if kind == b'L' {
-                Some(String::from_utf8_lossy(data).trim_end_matches('\0').to_owned())
+                Some(
+                    String::from_utf8_lossy(data)
+                        .trim_end_matches('\0')
+                        .to_owned(),
+                )
             } else {
                 pax_path(data).or(long_name)
             };
@@ -272,7 +299,11 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Backe
             None => {
                 let prefix = field(345..500);
                 let name = field(0..100);
-                if prefix.is_empty() { name } else { format!("{prefix}/{name}") }
+                if prefix.is_empty() {
+                    name
+                } else {
+                    format!("{prefix}/{name}")
+                }
             }
         };
         let name = name.trim_start_matches("./").trim_end_matches('/');
@@ -288,9 +319,19 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Backe
             return Err(BackendError::InvalidRequest("archive exceeds read cap"));
         }
         entries.push(match kind {
-            b'0' | 0 => TreeEntry::File { path: rel.into(), mode, data: data.to_vec() },
-            b'5' => TreeEntry::Dir { path: rel.into(), mode },
-            b'2' => TreeEntry::Symlink { path: rel.into(), target: field(157..257) },
+            b'0' | 0 => TreeEntry::File {
+                path: rel.into(),
+                mode,
+                data: data.to_vec(),
+            },
+            b'5' => TreeEntry::Dir {
+                path: rel.into(),
+                mode,
+            },
+            b'2' => TreeEntry::Symlink {
+                path: rel.into(),
+                target: field(157..257),
+            },
             _ => return Err(malformed),
         });
     }
@@ -331,10 +372,24 @@ mod tests {
     fn tree_archive_round_trips_long_names_and_refuses_traversal() {
         let long = format!("{}/file.txt", "d".repeat(120));
         let entries = vec![
-            TreeEntry::Dir { path: "src".into(), mode: 0o755 },
-            TreeEntry::File { path: "src/lib.rs".into(), mode: 0o644, data: b"fn x() {}\n".to_vec() },
-            TreeEntry::File { path: long.clone(), mode: 0o755, data: vec![7; 700] },
-            TreeEntry::Symlink { path: "link".into(), target: "src/lib.rs".into() },
+            TreeEntry::Dir {
+                path: "src".into(),
+                mode: 0o755,
+            },
+            TreeEntry::File {
+                path: "src/lib.rs".into(),
+                mode: 0o644,
+                data: b"fn x() {}\n".to_vec(),
+            },
+            TreeEntry::File {
+                path: long.clone(),
+                mode: 0o755,
+                data: vec![7; 700],
+            },
+            TreeEntry::Symlink {
+                path: "link".into(),
+                target: "src/lib.rs".into(),
+            },
         ];
         let archive = tree_archive("aq/work", &entries).unwrap();
         // A GET of /aq/work names members "work/...": strip one more level.
@@ -342,13 +397,38 @@ mod tests {
         let read: Vec<_> = read
             .into_iter()
             .filter_map(|e| match e {
-                TreeEntry::Dir { path, mode } => path.strip_prefix("work/").map(|p| TreeEntry::Dir { path: p.into(), mode }),
-                TreeEntry::File { path, mode, data } => path.strip_prefix("work/").map(|p| TreeEntry::File { path: p.into(), mode, data }),
-                TreeEntry::Symlink { path, target } => path.strip_prefix("work/").map(|p| TreeEntry::Symlink { path: p.into(), target }),
+                TreeEntry::Dir { path, mode } => {
+                    path.strip_prefix("work/").map(|p| TreeEntry::Dir {
+                        path: p.into(),
+                        mode,
+                    })
+                }
+                TreeEntry::File { path, mode, data } => {
+                    path.strip_prefix("work/").map(|p| TreeEntry::File {
+                        path: p.into(),
+                        mode,
+                        data,
+                    })
+                }
+                TreeEntry::Symlink { path, target } => {
+                    path.strip_prefix("work/").map(|p| TreeEntry::Symlink {
+                        path: p.into(),
+                        target,
+                    })
+                }
             })
             .collect();
         assert_eq!(read, entries);
-        assert!(tree_archive("aq/work", &[TreeEntry::Dir { path: "../x".into(), mode: 0o755 }]).is_err());
+        assert!(
+            tree_archive(
+                "aq/work",
+                &[TreeEntry::Dir {
+                    path: "../x".into(),
+                    mode: 0o755
+                }]
+            )
+            .is_err()
+        );
         assert!(tree_archive("/aq", &entries).is_err());
         let mut evil = Vec::new();
         push_member(&mut evil, "work/../../etc/passwd", 0o644, 0, b'0', "");

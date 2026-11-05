@@ -154,7 +154,10 @@ pub fn collect_tree(root: &Path, max_bytes: u64) -> Result<Vec<TreeEntry>> {
                 stack.push(path);
             } else if meta.is_file() {
                 total = total.saturating_add(meta.len());
-                ensure!(total <= max_bytes, "workspace exceeds the sandbox copy bound");
+                ensure!(
+                    total <= max_bytes,
+                    "workspace exceeds the sandbox copy bound"
+                );
                 entries.push(TreeEntry::File {
                     path: rel,
                     mode,
@@ -386,8 +389,7 @@ pub struct DriverOutcome {
 /// Entrypoint for `aq-worker sandbox-harness`. Exit code 0 only when Claude
 /// exited 0, the workspace was copied back and the claim was submitted.
 pub async fn run(config_path: &Path) -> Result<i32> {
-    let config: DriverConfig =
-        serde_json::from_slice(&read_private(config_path, 1024 * 1024)?)?;
+    let config: DriverConfig = serde_json::from_slice(&read_private(config_path, 1024 * 1024)?)?;
     let session = std::env::var_os("AQ_SESSION_DIRECTORY").context("session directory")?;
     let prompt = std::fs::read(Path::new(&session).join("context-0.bin"))?;
     let token = parse_token(&read_private(&config.token_file, 64 * 1024)?)?;
@@ -417,7 +419,16 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         }
     };
     println!("aq-sandbox-harness: sandbox {} created", sandbox.backend_id);
-    let outcome = drive(&mut backend, &config, &sandbox, &prompt, token, &mut term, &mut hup).await;
+    let outcome = drive(
+        &mut backend,
+        &config,
+        &sandbox,
+        &prompt,
+        token,
+        &mut term,
+        &mut hup,
+    )
+    .await;
     let (rc, changed, stream) = match outcome {
         Ok(v) => v,
         Err(error) => {
@@ -431,6 +442,15 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             return Ok(3);
         }
     };
+    // Non-secret transcript beside the driver config (evidence, measurement).
+    if let Some(dir) = config_path.parent() {
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(dir.join("claude.jsonl"))
+            .and_then(|mut f| f.write_all(&stream));
+    }
     let stopped = backend.stop(&sandbox).await;
     let destroyed = if stopped.is_confirmed() {
         let authorization = DestroyAuthorization::retained(
@@ -448,7 +468,11 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         "aq-sandbox-harness: sandbox {} stopped={} destroyed={destroyed}; changed: {}",
         sandbox.backend_id,
         stopped.is_confirmed(),
-        if changed.is_empty() { "none".into() } else { changed.join(", ") }
+        if changed.is_empty() {
+            "none".into()
+        } else {
+            changed.join(", ")
+        }
     );
     if let Some(dir) = &config.result_dir {
         let input = aq_agent_result_local::SubmissionInput {
@@ -478,7 +502,10 @@ async fn drive(
 ) -> Result<Drove> {
     let workspace = collect_tree(&config.workspace, config.max_workspace_bytes)?;
     backend
-        .put_archive(sandbox, tree_archive("aq/in", &input_entries(config, prompt)?)?)
+        .put_archive(
+            sandbox,
+            tree_archive("aq/in", &input_entries(config, prompt)?)?,
+        )
         .await?;
     backend
         .put_archive(sandbox, tree_archive("aq/work", &workspace)?)
@@ -632,7 +659,10 @@ mod tests {
     fn conclusion_is_one_bounded_line() {
         let stream = b"{\"type\":\"system\"}\n{\"type\":\"result\",\"result\":\"Added hello.\\nAll good.\"}\n";
         let line = conclusion(stream, Some(0), &["src/lib.rs".into()]);
-        assert_eq!(line, "Changes: src/lib.rs; Claude exit 0; Summary: Added hello. All good.");
+        assert_eq!(
+            line,
+            "Changes: src/lib.rs; Claude exit 0; Summary: Added hello. All good."
+        );
         let long = format!("{{\"type\":\"result\",\"result\":\"{}\"}}", "é".repeat(400));
         assert!(conclusion(long.as_bytes(), None, &[]).len() <= 512);
     }

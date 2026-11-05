@@ -169,7 +169,10 @@ pub(crate) fn map(
 /// Definition (`aq-worker ms1-definitions` prints them).
 pub fn docker_local_recipe_body() -> String {
     use sha2::Digest as _;
-    let runner = format!("{:x}", sha2::Sha256::digest(crate::sandbox_driver::RUNNER.as_bytes()));
+    let runner = format!(
+        "{:x}",
+        sha2::Sha256::digest(crate::sandbox_driver::RUNNER.as_bytes())
+    );
     let mut value = serde_json::json!({
         "schema_version": 1,
         "profile": "claude-2.1.318-docker-local-result-local-v1",
