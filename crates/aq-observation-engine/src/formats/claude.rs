@@ -3,6 +3,24 @@
 use crate::{lifecycle::*, normalize::*};
 use anyhow::{Context as _, Result, ensure};
 use serde_json::Value;
+/// Claude Code (2.1.3xx) writes `prompt_snapshot` attachment records, mostly
+/// tool schemas, that exceed the frame bound. Attachment records carry no
+/// facts, so an oversized snapshot is skipped like a bounded attachment rather
+/// than reported as a malformed gap. Only the record prefix is visible and the
+/// top-level `"type":"attachment"` comes last, so this requires the
+/// `attachment` object to be a top-level key preceded by bracket-free fields.
+pub(crate) fn skips_oversized(prefix: &[u8]) -> bool {
+    const KEY: &[u8] = br#""attachment":{"type":"prompt_snapshot""#;
+    let window = &prefix[..prefix.len().min(1024)];
+    window.first() == Some(&b'{')
+        && window
+            .windows(KEY.len())
+            .position(|w| w == KEY)
+            .is_some_and(|at| {
+                matches!(window[at - 1], b'{' | b',')
+                    && !window[1..at].iter().any(|b| matches!(b, b'{' | b'['))
+            })
+}
 pub(crate) fn normalize(state: &mut Normalizer, value: &Value) -> Result<Vec<Draft>> {
     if let Some(session) = value["sessionId"].as_str() {
         identity(session == state.source.native_session_key.as_str())?;

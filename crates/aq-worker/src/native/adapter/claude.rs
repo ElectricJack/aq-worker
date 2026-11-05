@@ -8,8 +8,9 @@
 //!
 //! The confinement mode comes from the frozen manifest (see
 //! `runner::sandbox::confinement`):
-//! - `native`: Claude's own sandbox is on, unsandboxed commands are refused and
-//!   the permission mode is `acceptEdits`, with bypass mode disabled;
+//! - `native`: Claude's own sandbox is on and fails closed when it cannot
+//!   start, unsandboxed commands are refused and the permission mode is
+//!   `acceptEdits`, with bypass mode disabled;
 //! - `container`: Claude's sandbox is off and the permission mode is
 //!   `bypassPermissions`, because the backend sandbox is the boundary.
 use crate::native::runner::sandbox::confinement::ConfinementMode;
@@ -172,6 +173,9 @@ fn settings(mode: ConfinementMode) -> serde_json::Value {
                 "enabled": true,
                 "autoAllowBashIfSandboxed": true,
                 "allowUnsandboxedCommands": false,
+                // Claude's sandbox is fail-open by default: if it cannot start
+                // it warns and runs commands unsandboxed (calm-delta-18.9.4).
+                "failIfUnavailable": true,
             })
         }
         ConfinementMode::Container => {
