@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 
 pub mod claude;
 pub mod codex;
+pub mod gemini;
 pub mod named_exec;
 pub mod native_exec;
 pub mod responses_transport;

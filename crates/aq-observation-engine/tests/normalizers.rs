@@ -324,6 +324,39 @@ fn codex_structured_questions_and_lost_context_do_not_become_task_or_model_autho
     );
     assert!(matches!(usages(&out)[0].cost, Cost::Unknown { .. }));
 }
+/// I2: a recording written by the released Gemini CLI 0.67.0 itself (scripted
+/// SSE upstream, one `write_file` call, then a text turn). The CLI re-records
+/// the tool-calling message under the same id; usage is counted once.
+#[test]
+fn gemini_cli_0_67_0_recording_is_read_with_usage_once_and_no_raw_content() {
+    let recording = include_str!("fixtures/gemini-cli-0.67.0-recording.jsonl");
+    let header: Value = serde_json::from_str(recording.lines().next().unwrap()).unwrap();
+    let mut bound = source(Format::GeminiRecording6814e00);
+    bound.native_session_key = Text::new(header["sessionId"].as_str().unwrap()).unwrap();
+    let mut s = Normalizer::new(bound, 128).unwrap();
+    let mut seen = vec![];
+    for line in recording.lines() {
+        let value: Value = serde_json::from_str(line).unwrap();
+        for usage in usages(&apply(&mut s, &value)) {
+            seen.push(usage.counters.clone());
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        2,
+        "one usage per native gemini message: {seen:?}"
+    );
+    assert_eq!(seen[0].input, Counter::Known { value: 1200 });
+    assert_eq!(seen[0].output, Counter::Known { value: 40 });
+    assert_eq!(seen[0].cache_read, Counter::Known { value: 0 });
+    assert_eq!(seen[1].input, Counter::Known { value: 1300 });
+    assert_eq!(seen[1].output, Counter::Known { value: 6 });
+    assert_eq!(seen[1].cache_read, Counter::Known { value: 1024 });
+    let retained = serde_json::to_string(&s).unwrap();
+    for raw in ["Fix add in m.py", "return a + b", "Fixed add in m.py."] {
+        assert!(!retained.contains(raw), "retained raw content {raw:?}");
+    }
+}
 fn apply_stream(state: &mut Normalizer, bytes: &[u8]) -> Vec<ObservationRecord> {
     let (mut offset, mut discarding, mut out) = (0usize, false, vec![]);
     while offset < bytes.len() {

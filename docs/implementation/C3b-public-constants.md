@@ -192,6 +192,20 @@ sha512 equals the registry `integrity`). The same bytes were independently
 matched against a native-installer copy of 2.1.318. `verify_public_files.py`
 covers the record; one appended byte still refuses.
 
+## Gemini CLI 0.67.0 (azure-horizon-22.5)
+
+The runtime bundle now ships the public npm package `@google/gemini-cli@0.67.0`
+(archive `3f42374e…6fc2`, whose sha512 equals the registry `integrity`)
+extracted under `opt/aq/harnesses/gemini`, run only by the bundle Node. The
+strict scanner refuses 36 of its files (1831 token/assignment matches): the
+esbuild chunks carry the CLI's published installed-app OAuth client constants,
+public endpoint and header names, and test/doc example keys; `README.md` and
+`bundle/docs/**` carry configuration examples. No AQ or owner credential is
+among them. Each file has one exact entry (`example_image_path`
+`opt/aq/harnesses/gemini/...`, upstream member `package/...`).
+`verify_public_files.py` reads the `.tgz` through `tarfile` like the other npm
+records; a one-byte append to any entry still refuses.
+
 ## Limits
 
 This remains conservative pattern/path detection. A catalog entry proves that
