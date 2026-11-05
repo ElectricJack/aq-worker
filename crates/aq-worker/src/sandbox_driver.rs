@@ -453,6 +453,7 @@ pub async fn run(config_path: &Path) -> Result<i32> {
                 sandbox.backend_id,
                 stopped.is_confirmed()
             );
+            write_exit(config_path, false);
             // Always claim: a recorded (failed) result lets settlement send the
             // task to rework and a replacement attempt run, instead of leaving
             // a stopped attempt with no report holding the task.
@@ -498,8 +499,30 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             changed.join(", ")
         }
     );
+    // The exit record precedes the claim: the node may stop this pane as soon
+    // as the claim is recorded.
+    write_exit(config_path, rc == Some(0));
     submit_claim(&config, conclusion(&stream, rc, &changed));
     Ok(if rc == Some(0) { 0 } else { 1 })
+}
+
+/// `exit.json` beside the driver config: success means the runner exited 0
+/// (backend-observed) and the workspace was copied back.
+fn write_exit(config_path: &Path, success: bool) {
+    if let Some(dir) = config_path.parent() {
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(dir.join("exit.json"))
+            .and_then(|mut f| {
+                f.write_all(
+                    serde_json::json!({ "success": success })
+                        .to_string()
+                        .as_bytes(),
+                )
+            });
+    }
 }
 
 fn submit_claim(config: &DriverConfig, text: String) {

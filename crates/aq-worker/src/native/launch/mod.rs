@@ -406,6 +406,22 @@ impl LocalPhaseHost {
             .context("native physical handle absent")?
             .renew(&permit)
     }
+    /// MS1 docker-local: the driver's own exit record (`exit.json` in its
+    /// private directory), written before it submits the claim. None when the
+    /// host is not a Claude docker-local host or the record is absent.
+    pub fn claude_driver_succeeded(&self) -> Option<bool> {
+        let intent = lock(&self.entry.history).ok()?.as_ref()?.intent.clone();
+        if !matches!(self.entry.profile, Some(Profile::ClaudeDocker(_))) {
+            return None;
+        }
+        let path = intent
+            .host_root
+            .join(format!("driver-{}", intent.launch_id))
+            .join("exit.json");
+        let bytes = std::fs::read(path).ok()?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        value["success"].as_bool()
+    }
     pub fn started_request(&self) -> Result<aq_admission::started::Request> {
         lock(&self.entry.history)?
             .as_ref()

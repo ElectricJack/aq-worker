@@ -679,6 +679,20 @@ pub(super) async fn drive_running_owned(
         Ok::<(), anyhow::Error>(())
     }
     .await;
+    // MS1 docker-local: only the driver's proven harness exit decides
+    // success or failure; an unproven natural end stays Unknown.
+    if local_renewal
+        && matches!(
+            cause,
+            ResultStopCause::Natural | ResultStopCause::ResultRecorded
+        )
+    {
+        match host.claude_driver_succeeded() {
+            Some(true) => cause = ResultStopCause::HarnessSucceeded,
+            Some(false) => cause = ResultStopCause::Failure,
+            None => {}
+        }
+    }
     // Creating this future fences launch/current transport synchronously.
     // Physical cleanup must not wait for a slow local projection fsync.
     let stop = pipeline.stop_phase_host(id);
