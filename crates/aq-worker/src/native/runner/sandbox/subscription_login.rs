@@ -22,11 +22,13 @@
 //! Only the login files are wiped there, so the session recording survives
 //! for the transcript reader.
 //!
-//! These are library APIs; B6a2 owns wiring them into launch.
+//! `sandbox::run_with_login` wires this into launch (calm-delta-18.10.1);
+//! `RunnerLogins` is the runner's `LoginService`. In separated-user mode the
+//! Codex home or Gemini login file is created, reconciled and wiped as the agent user (`as_owner`).
 use super::harness_config::{create_private_home, write_private};
 use super::private::RunnerFiles;
 use anyhow::{Context, Result, bail, ensure};
-use aq_session_host::PrivateLaunchInput;
+use aq_session_host::{PrivateLaunchInput, users::AgentIdentity};
 use aq_session_protocol::Digest;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -254,7 +256,58 @@ fn newer(refreshed: Option<&str>, installed: Option<&str>) -> bool {
     }
 }
 
-fn install(issued: IssuedLogin, login_home: Option<&Path>, fresh: bool) -> Result<InstalledLogin> {
+/// Run a login file operation as `owner`. Linux credentials are per thread at
+/// the syscall level, so the raw `setresgid`/`setresuid` calls on this scoped
+/// thread change only it, never the runner's runtime threads; the thread then
+/// exits. The runner keeps SETUID/SETGID after `bootstrap_runner`. `None` runs
+/// inline as the current user (same-user mode and fixtures).
+fn as_owner<T: Send>(
+    owner: Option<AgentIdentity>,
+    op: impl FnOnce() -> Result<T> + Send,
+) -> Result<T> {
+    let Some(agent) = owner else {
+        return op();
+    };
+    agent.validate()?;
+    std::thread::scope(|scope| {
+        scope
+            .spawn(move || {
+                let keep = libc::c_long::from(-1i32);
+                ensure!(
+                    unsafe {
+                        libc::syscall(
+                            libc::SYS_setresgid,
+                            keep,
+                            libc::c_long::from(agent.gid),
+                            keep,
+                        )
+                    } == 0
+                        && unsafe {
+                            libc::syscall(
+                                libc::SYS_setresuid,
+                                keep,
+                                libc::c_long::from(agent.uid),
+                                keep,
+                            )
+                        } == 0
+                        && unsafe { libc::geteuid() } == agent.uid
+                        && unsafe { libc::getegid() } == agent.gid,
+                    "agent login identity transition refused: {}",
+                    std::io::Error::last_os_error()
+                );
+                op()
+            })
+            .join()
+            .map_err(|_| anyhow::anyhow!("agent login operation panicked"))?
+    })
+}
+
+fn install(
+    issued: IssuedLogin,
+    login_home: Option<&Path>,
+    fresh: bool,
+    owner: Option<AgentIdentity>,
+) -> Result<InstalledLogin> {
     let digest = Digest::of(&issued.material);
     let (secret, stamp) = match issued.kind {
         LoginKind::ClaudeOauthToken => {
@@ -277,13 +330,13 @@ fn install(issued: IssuedLogin, login_home: Option<&Path>, fresh: bool) -> Resul
             );
             let stamp = stamp(issued.kind, &issued.material)?;
             let home = login_home.context("Codex login requires a private CODEX_HOME")?;
-            place(home, AUTH_FILE, &issued.material, fresh)?;
+            place(home, AUTH_FILE, &issued.material, fresh, owner)?;
             (Secret::Codex(home.to_owned()), stamp)
         }
         LoginKind::GeminiOauthCreds => {
             let stamp = stamp(issued.kind, &issued.material)?;
             let dir = login_home.context("Gemini login requires a private state directory")?;
-            place(dir, GEMINI_OAUTH_FILE, &issued.material, fresh)?;
+            place(dir, GEMINI_OAUTH_FILE, &issued.material, fresh, owner)?;
             (Secret::Gemini(dir.to_owned()), stamp)
         }
     };
@@ -299,17 +352,25 @@ fn install(issued: IssuedLogin, login_home: Option<&Path>, fresh: bool) -> Resul
 
 /// Write the login file into a fresh owner-only directory, or replace it in
 /// the existing one on a relaunch.
-fn place(dir: &Path, name: &str, bytes: &[u8], fresh: bool) -> Result<()> {
-    if fresh {
-        create_private_home(dir)?;
-    } else {
-        super::private::check_directory(dir)?;
-        match fs::remove_file(dir.join(name)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
-            _ => {}
+fn place(
+    dir: &Path,
+    name: &str,
+    bytes: &[u8],
+    fresh: bool,
+    owner: Option<AgentIdentity>,
+) -> Result<()> {
+    as_owner(owner, || {
+        if fresh {
+            create_private_home(dir)?;
+        } else {
+            super::private::check_directory(dir)?;
+            match fs::remove_file(dir.join(name)) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+                _ => {}
+            }
         }
-    }
-    write_private(dir, name, bytes)
+        write_private(dir, name, bytes)
+    })
 }
 
 /// Durable, byte-free record of what happened to the login at teardown.
@@ -338,6 +399,7 @@ pub enum ReceiptOutcome {
 #[must_use = "finish() writes back and wipes the login"]
 pub struct SubscriptionLogin {
     installed: InstalledLogin,
+    owner: Option<AgentIdentity>,
 }
 impl SubscriptionLogin {
     /// Fetch the newest leased login and install it. `login_home` (Codex
@@ -348,10 +410,21 @@ impl SubscriptionLogin {
         kind: LoginKind,
         login_home: Option<&Path>,
     ) -> Result<Self> {
+        Self::start_as(service, kind, login_home, None).await
+    }
+    /// `start`, with the login home owned by `owner` (the agent user in
+    /// separated-user mode) so the harness can read it.
+    pub async fn start_as(
+        service: &mut impl LoginService,
+        kind: LoginKind,
+        login_home: Option<&Path>,
+        owner: Option<AgentIdentity>,
+    ) -> Result<Self> {
         let issued = service.fetch_newest(kind).await?;
         ensure!(issued.kind == kind, "leased login kind changed");
         Ok(Self {
-            installed: install(issued, login_home, true)?,
+            installed: install(issued, login_home, true, owner)?,
+            owner,
         })
     }
     pub fn installed(&self) -> &InstalledLogin {
@@ -381,7 +454,7 @@ impl SubscriptionLogin {
                         .codex_home()
                         .or(self.installed.gemini_state())
                         .map(Path::to_owned);
-                    self.installed = install(newest, home.as_deref(), false)?;
+                    self.installed = install(newest, home.as_deref(), false, self.owner)?;
                 }
                 HarnessExit::AuthenticationFailed => {
                     return Ok(AttemptOutcome::Failed(LoginFailure::CREDENTIAL_INVALID));
@@ -400,7 +473,7 @@ impl SubscriptionLogin {
         files: &RunnerFiles,
         deadline: Instant,
     ) -> Result<WriteBackReceipt> {
-        let installed = self.installed;
+        let (installed, owner) = (self.installed, self.owner);
         let mut receipt = WriteBackReceipt {
             kind: installed.kind,
             lease_id: installed.lease_id,
@@ -417,7 +490,9 @@ impl SubscriptionLogin {
             Secret::Claude(_) => None,
         };
         if let Some(file) = &login_file
-            && let Some(refreshed) = refreshed(file, &installed)
+            && let Some(refreshed) = as_owner(owner, || Ok(refreshed(file, &installed)))
+                .ok()
+                .flatten()
         {
             receipt.content_digest = Some(Digest::of(&refreshed));
             match upload(service, &installed, &refreshed, deadline).await {
@@ -446,7 +521,7 @@ impl SubscriptionLogin {
                 }
             }
         }
-        if let Err(e) = wipe(installed) {
+        if let Err(e) = wipe(installed, owner) {
             failure.get_or_insert(e);
         }
         aq_session_host::durable_new(
@@ -507,18 +582,18 @@ async fn upload(
     }
 }
 
-fn wipe(installed: InstalledLogin) -> Result<()> {
+fn wipe(installed: InstalledLogin, owner: Option<AgentIdentity>) -> Result<()> {
     match installed.secret {
         // Zeroizing clears the token on drop.
         Secret::Claude(token) => drop(token),
-        Secret::Codex(home) => match fs::remove_dir_all(&home) {
+        Secret::Codex(home) => as_owner(owner, || match fs::remove_dir_all(&home) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 bail!("wipe Codex login home: {e}")
             }
-            _ => {}
-        },
+            _ => Ok(()),
+        })?,
         // The state directory keeps the session recording for the reader.
-        Secret::Gemini(dir) => {
+        Secret::Gemini(dir) => as_owner(owner, || {
             for name in GEMINI_LOGIN_FILES {
                 match fs::remove_file(dir.join(name)) {
                     Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -527,7 +602,61 @@ fn wipe(installed: InstalledLogin) -> Result<()> {
                     _ => {}
                 }
             }
-        }
+            Ok(())
+        })?,
     }
     Ok(())
+}
+
+/// The runner's `LoginService`: the one leased login the material fetch
+/// issued, and C5b write-back over `RunnerHttp::refresh_login`.
+///
+/// `version` is the version the server issued these bytes at. C5b does not
+/// deliver it with the material yet (aq-server follow-up recorded on
+/// calm-delta-18.10), so a missing version refuses the login: it is never
+/// defaulted, because a guessed base would let a stale write-back win.
+/// There is no runner route for a newer login, so a second `fetch_newest`
+/// fails and an authentication failure stays `credential_invalid`.
+pub struct RunnerLogins<'a> {
+    http: &'a super::auth::RunnerHttp,
+    issued: Option<IssuedLogin>,
+}
+impl<'a> RunnerLogins<'a> {
+    pub fn new(
+        http: &'a super::auth::RunnerHttp,
+        kind: LoginKind,
+        lease_id: Uuid,
+        version: Option<i64>,
+        material: Zeroizing<Vec<u8>>,
+    ) -> Result<Self> {
+        let version = version.context("issued login version unavailable")?;
+        ensure!(!lease_id.is_nil(), "leased login identity");
+        Ok(Self {
+            http,
+            issued: Some(IssuedLogin {
+                kind,
+                lease_id,
+                version,
+                material,
+            }),
+        })
+    }
+}
+impl LoginService for RunnerLogins<'_> {
+    async fn fetch_newest(&mut self, kind: LoginKind) -> Result<IssuedLogin> {
+        let issued = self
+            .issued
+            .take()
+            .context("no newer leased login is available to the runner")?;
+        ensure!(issued.kind == kind, "leased login kind mismatch");
+        Ok(issued)
+    }
+    async fn write_back(
+        &mut self,
+        lease_id: Uuid,
+        base_version: i64,
+        bytes: &[u8],
+    ) -> Result<WriteBack> {
+        self.http.refresh_login(lease_id, base_version, bytes).await
+    }
 }

@@ -94,7 +94,12 @@ The task is not marked for one. The task's J4 review covers the Codex `auth.json
 ## Limits
 
 - **No real-server round-trip.** C5b is unmerged. The wire contract is checked against a recording peer built from C5b's `login_refresh/api.rs` on `aq/calm-delta-18.8`.
-- **Not wired into launch.** Calling `start`, `run` and `finish` from sandbox launch and every teardown path is `calm-delta-18.10.1`.
+- **Launch wiring (`calm-delta-18.10.1`).** `sandbox::run_with_login` calls `start_as` before the spawn and `finish` on every post-launch teardown path before any stopped/preserved record, retention or finished outcome. The tests are `sandbox_runner` `login::*`. These limits remain:
+  - The Claude token is added to the adapter's `LocalCommand.environment`. That environment is sealed in the runner-private host `launch.json`, so the token is at rest in runner-only state for the attempt. Exec-time-only delivery is a follow-up.
+  - The sandbox launches once. An `AuthenticationFailed` exit, decided by the caller-supplied `classify`, is final: `RunOutcome::LoginFailed(credential_invalid)`. `SubscriptionLogin::run`'s relaunch is not used. No adapter emits an authentication-failure signal yet.
+  - A subscription login and a C6a private input cannot be used together, because the host pins `CODEX_HOME` for private inputs.
+  - Separated-user installs use per-thread `setresuid`/`setresgid` (`as_owner`). This path is untested here, because it needs the runner capabilities and accounts.
+  - No production caller constructs `RunnerLogins` yet. It needs the material fetch and the issued version, which is the aq-server follow-up.
 - **No runner `fetch_newest` implementation.** There is no runner material fetch for subscription logins yet, and C5b does not deliver the issued version with the material. The version is therefore explicit input and is never defaulted. A cross-repo aq-server follow-up is recorded on `calm-delta-18.10`.
 - **The Codex `auth.json` is readable by the agent.** The CLI must read the file itself, so the `runner`/`agent` separation does **not** protect it. The controls are lease scope, one attempt per sandbox, the wipe and the J4 review.
 - **`credential_invalid` is a runner-local reason.** There is no protocol schema change. Carrying it in the session result is part of launch wiring.
@@ -103,5 +108,4 @@ The task is not marked for one. The task's J4 review covers the Codex `auth.json
 
 ## Follow-ups
 
-- `calm-delta-18.10.1`: wire C6b `SubscriptionLogin` into sandbox launch and teardown, and implement the runner `LoginService`.
 - Cross-repo (aq-server), recorded as a comment on `calm-delta-18.10`: deliver the issued login version with the leased material, and confirm the `aq-runner-channel` requirement for the refresh route.
