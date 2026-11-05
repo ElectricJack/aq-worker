@@ -51,6 +51,10 @@ const HARNESS: &str = "gemini";
 const MATERIAL: &str = "/aq/private/material";
 const OUT: &str = "/aq/work/out";
 const HOME: &str = "/aq/agent-home";
+/// Root-owned 0755 chain outside the home: Gemini honours system settings
+/// only when the file and every ancestor are root-owned and not
+/// group/other writable.
+const SYSTEM_SETTINGS_DIR: &str = "/etc/aq/gemini";
 const REPO: &str = "/aq/work/repo";
 const RUN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const PROMPT: &str = "The unit test in src/lib.rs fails. Fix the add function in src/lib.rs so that cargo test passes. Edit only src/lib.rs and do not run any commands.";
@@ -71,8 +75,8 @@ fn sh_quote(s: &str) -> String {
 }
 
 /// The adapter's own recipe (argv, environment, system settings) for the
-/// sandbox paths. The home is installed in a scratch dir only to obtain the
-/// settings bytes; paths are then rewritten to the sandbox home.
+/// sandbox paths. The home path is a scratch placeholder, rewritten to the
+/// sandbox home; nothing is written on the host.
 fn recipe(mode: Mode, model_id: &str) -> (Vec<String>, Vec<(String, String)>, String) {
     let text = |s: &str| Text::new(s).unwrap();
     let artifact = ArtifactRef {
@@ -131,7 +135,7 @@ fn recipe(mode: Mode, model_id: &str) -> (Vec<String>, Vec<(String, String)>, St
         },
         Mode::Subscription => GeminiAuth::Subscription,
     };
-    let recipe = GeminiAgentHome::install(
+    let recipe = GeminiAgentHome::recipe(
         &container,
         &harness,
         &model,
@@ -140,6 +144,7 @@ fn recipe(mode: Mode, model_id: &str) -> (Vec<String>, Vec<(String, String)>, St
             script: Path::new("/opt/aq/harnesses/gemini/bundle/gemini.js"),
             workspace,
             private_home: &home,
+            system_settings_dir: Path::new(SYSTEM_SETTINGS_DIR),
         },
         auth,
     )
@@ -217,12 +222,13 @@ home={HOME}
 fail() {{ printf '{{"error":"%s"}}\n' "$1" > "$out/result.json"; exit 2; }}
 [ -s "$material" ] || fail material_missing
 umask 077
-# Root-owned 0700 home: Gemini reads system settings only from a root-owned,
-# non-group/other-writable file and parent directory.
 install -d -m 0700 "$home"
-cat > "$home/system-settings.json" <<'JSON'
+# Outside the home, root-owned and not group/other writable all the way up.
+install -d -m 0755 /etc/aq {SYSTEM_SETTINGS_DIR}
+cat > {SYSTEM_SETTINGS_DIR}/system-settings.json <<'JSON'
 {settings}
 JSON
+chmod 0644 {SYSTEM_SETTINGS_DIR}/system-settings.json
 {install}
 material_wiped=false; [ -e "$material" ] || material_wiped=true
 export GIT_AUTHOR_NAME=aq-sandbox GIT_AUTHOR_EMAIL=sandbox@aq.invalid
@@ -323,7 +329,7 @@ fn runner_carries_no_secret_and_wipes_the_material() {
         assert!(runner.contains("'--model' 'gemini-2.5-flash'"));
         assert!(runner.contains(&format!("export GEMINI_CLI_HOME='{HOME}'")));
         assert!(runner.contains(&format!(
-            "export GEMINI_CLI_SYSTEM_SETTINGS_PATH='{HOME}/system-settings.json'"
+            "export GEMINI_CLI_SYSTEM_SETTINGS_PATH='{SYSTEM_SETTINGS_DIR}/system-settings.json'"
         )));
     }
     let proxy = runner(Mode::ApiKeyProxy, "gemini-2.5-flash");
