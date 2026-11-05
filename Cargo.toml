@@ -45,13 +45,15 @@ uuid = { version = "1", features = ["v4", "serde"] }
 libc = "0.2"
 
 # Bound target/ growth: full (debug = 2) DWARF made each test binary several
-# hundred MB, and incremental caches add gigabytes per slot. Line tables keep
-# file:line in backtraces for workspace code; third-party crates drop debuginfo.
-# `[profile.test]` inherits these settings. `incremental = false` replaces a
-# per-invocation CARGO_INCREMENTAL=0 (the env var still overrides it).
+# hundred MB. Line tables keep file:line in backtraces for workspace code;
+# third-party crates drop debuginfo. `[profile.test]` inherits these settings.
+# Interactive edit/test loops are incremental: it is several times faster to
+# rebuild after an edit, at the cost of gigabytes of target/incremental per
+# checkout. CI and single-use sandboxes set CARGO_INCREMENTAL=0, which
+# overrides this. See AGENTS.md "Build health".
 [profile.dev]
 debug = "line-tables-only"
-incremental = false
+incremental = true
 
 [profile.dev.package."*"]
 debug = false
@@ -59,4 +61,20 @@ debug = false
 [profile.release]
 lto = "thin"
 strip = true
+
+# CI-only images: no ThinLTO, low optimization. Release artifacts keep
+# [profile.release]. (aq-server's Dockerfile.worker defines the same profile
+# with --config for pinned sources that predate it.)
+# Dropping ThinLTO alone saves nothing on a 4-vCPU runner (LTO builds
+# dependencies as bitcode and generates code once); the optimization level is
+# the lever (aq-server: 796 s release, 793 s without LTO, 445 s with workspace
+# opt-level 0 and dependencies 1). Debug assertions stay off, as in release.
+[profile.ci-image]
+inherits = "release"
+lto = false
+opt-level = 0
+codegen-units = 16
+
+[profile.ci-image.package."*"]
+opt-level = 1
 
