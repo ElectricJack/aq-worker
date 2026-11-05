@@ -33,6 +33,7 @@ impl LaunchAuthority for Authority {
                 h.host_intent.is_none(),
                 "host configuration already recorded"
             );
+            ensure!(h.closure.is_none(), "launch closed before Started");
             h.host_intent = Some(intent);
             Ok(())
         })
@@ -41,6 +42,7 @@ impl LaunchAuthority for Authority {
         let guardian = guardian.clone();
         self.update(Checkpoint::Guardian, move |h, _, _| {
             ensure!(h.guardian.is_none(), "guardian already recorded");
+            ensure!(h.closure.is_none(), "launch closed before Started");
             h.guardian = Some(guardian);
             Ok(())
         })
@@ -59,6 +61,7 @@ impl LaunchAuthority for Authority {
                     && !h.start_intended,
                 "start scope changed"
             );
+            ensure!(h.closure.is_none(), "launch closed before Started");
             h.start_intended = true;
             Ok(())
         })
@@ -70,6 +73,7 @@ impl LaunchAuthority for Authority {
                 h.running.is_none() && h.baseline.is_some(),
                 "Running already recorded or baseline absent"
             );
+            ensure!(h.closure.is_none(), "launch closed before Started");
             let mapped: aq_admission::started::RunningObservation =
                 serde_json::from_value(serde_json::to_value(&observation)?)?;
             mapped.validate()?;
