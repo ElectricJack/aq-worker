@@ -46,7 +46,9 @@ async fn swaps_capability_for_runner_key_on_generation_paths() {
         b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 12\r\n\r\ndata: done\n\n",
     )
     .await;
-    let proxy = GeminiApiProxy::development_loopback(&origin, &key).await.unwrap();
+    let proxy = GeminiApiProxy::development_loopback(&origin, &key)
+        .await
+        .unwrap();
     let capability = proxy.local_capability().to_owned();
     assert!(is_capability(&capability));
     assert!(!capability.contains(KEY));
@@ -76,16 +78,24 @@ async fn refuses_bad_capability_and_paths_before_any_upstream_call() {
     let (_root, key) = fixture().await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let proxy = GeminiApiProxy::development_loopback(&origin, &key).await.unwrap();
+    let proxy = GeminiApiProxy::development_loopback(&origin, &key)
+        .await
+        .unwrap();
     let good = proxy.local_capability().to_owned();
     let client = reqwest::Client::new();
     for (path, capability) in [
         (PATH, "aq-gemini-wrong"),
         (PATH, KEY),
-        ("/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=x", good.as_str()),
+        (
+            "/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=x",
+            good.as_str(),
+        ),
         ("/v1beta/files", good.as_str()),
         ("/v1beta/models/../files:generateContent", good.as_str()),
-        ("/v1beta/models/gemini-2.5-flash:embedContent", good.as_str()),
+        (
+            "/v1beta/models/gemini-2.5-flash:embedContent",
+            good.as_str(),
+        ),
         ("/v1/models/gemini-2.5-flash:generateContent", good.as_str()),
     ] {
         let status = client
@@ -124,7 +134,9 @@ async fn refuses_upstream_echo_of_the_key_and_encoded_bodies() {
         b"HTTP/1.1 302 Found\r\nLocation: https://example.com/\r\nContent-Length: 0\r\n\r\n",
     ] {
         let (origin, peer) = upstream(Box::leak(reply.to_vec().into_boxed_slice())).await;
-        let proxy = GeminiApiProxy::development_loopback(&origin, &key).await.unwrap();
+        let proxy = GeminiApiProxy::development_loopback(&origin, &key)
+            .await
+            .unwrap();
         let response = reqwest::Client::new()
             .post(format!("{}{PATH}", proxy.origin()))
             .header("x-goog-api-key", proxy.local_capability())
@@ -142,14 +154,25 @@ async fn refuses_upstream_echo_of_the_key_and_encoded_bodies() {
 #[tokio::test]
 async fn refuses_non_loopback_fixture_and_malformed_key_files() {
     let (root, key) = fixture().await;
-    for origin in ["https://127.0.0.1:1", "http://localhost:1", "http://127.0.0.1"] {
-        assert!(GeminiApiProxy::development_loopback(origin, &key).await.is_err());
+    for origin in [
+        "https://127.0.0.1:1",
+        "http://localhost:1",
+        "http://127.0.0.1",
+    ] {
+        assert!(
+            GeminiApiProxy::development_loopback(origin, &key)
+                .await
+                .is_err()
+        );
     }
     let files = RunnerFiles::create(&root.path().join("other")).unwrap();
     files.write_secret("provider.key", b"has space\n").unwrap();
     assert!(
-        GeminiApiProxy::development_loopback("http://127.0.0.1:9", &files.root().join("provider.key"))
-            .await
-            .is_err()
+        GeminiApiProxy::development_loopback(
+            "http://127.0.0.1:9",
+            &files.root().join("provider.key")
+        )
+        .await
+        .is_err()
     );
 }

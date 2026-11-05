@@ -78,7 +78,10 @@ pub struct GeminiPaths<'a> {
 pub enum GeminiAuth<'a> {
     /// Runner-held loopback proxy origin (`http://127.0.0.1:<port>`) and its
     /// attempt-local capability.
-    ApiKeyProxy { origin: &'a str, capability: &'a str },
+    ApiKeyProxy {
+        origin: &'a str,
+        capability: &'a str,
+    },
     /// File-stored Google login leased by C6b.
     Subscription,
 }
