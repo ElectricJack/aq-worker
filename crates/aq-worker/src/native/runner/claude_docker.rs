@@ -146,12 +146,13 @@ impl NativeExecutor for ClaudeDockerExecutor {
             // within its short stop grace while a container stop takes longer.
             // So the sandbox is stopped (and confirmed) BEFORE the host stop is
             // reported; an unconfirmed stop withholds Stopped (stop uncertain).
+            let driver_dir = host.claude_driver_dir();
             let docker_local = profile.config().docker_local.clone();
             let node = self.node_id;
             let pre_stop: super::codex::PreStop = Box::new(move || {
                 Box::pin(async move { stop_attempt_sandbox(&docker_local, node, id).await })
             });
-            super::codex::drive_running_owned(
+            let driven = super::codex::drive_running_owned(
                 pipeline,
                 host,
                 grant.deadline_ns(),
@@ -162,7 +163,11 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 true,
                 Some(pre_stop),
             )
-            .await
+            .await;
+            if let Some(dir) = driver_dir {
+                crate::native::launch::wipe_claude_driver_secrets(&dir);
+            }
+            driven
         })
     }
 }

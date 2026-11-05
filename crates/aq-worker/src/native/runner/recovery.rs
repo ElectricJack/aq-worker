@@ -91,8 +91,11 @@ pub async fn reconcile_native(
     // MS1 review: a host stop kills the node-side driver, not its docker-local
     // sandbox, where Claude would keep running with the attempt's token. Stop
     // (never destroy) any still-running sandbox of this attempt.
-    if attempt.native_host.is_some() {
+    if let Some(h) = attempt.native_host.as_ref() {
         stop_claude_sandbox(config, worker.node_id, attempt_id).await?;
+        crate::native::launch::wipe_claude_driver_secrets(
+            &crate::native::launch::claude_driver_dir(&h.intent.host_root, h.intent.launch_id),
+        );
     }
     let client = NativeClient::from_config(worker)?;
     replay(&client, &attempt, |receipt| {
@@ -258,6 +261,10 @@ async fn close_unstarted(
         tracing::warn!(%attempt_id, "stopped the unstarted launch's host before closure");
     }
     stop_claude_sandbox(config, worker.node_id, attempt_id).await?;
+    crate::native::launch::wipe_claude_driver_secrets(&crate::native::launch::claude_driver_dir(
+        &h.intent.host_root,
+        h.intent.launch_id,
+    ));
     let operation = Uuid::new_v4();
     check_root(config, held)?;
     let request = journal.native_closure(attempt_id, |a, revision, state| {

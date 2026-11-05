@@ -608,6 +608,63 @@ pub(crate) async fn drive_running(
     .await
 }
 #[allow(clippy::too_many_arguments)]
+/// MS1 docker-local: the driver's exit record decides Success or Failure; a
+/// missing or unreadable record (None) leaves the natural end Unknown.
+pub(crate) fn driver_proven_cause(
+    cause: crate::native::result::ResultStopCause,
+    driver: Option<bool>,
+) -> crate::native::result::ResultStopCause {
+    use crate::native::result::ResultStopCause;
+    match driver {
+        Some(true) => ResultStopCause::HarnessSucceeded,
+        Some(false) => ResultStopCause::Failure,
+        None => cause,
+    }
+}
+#[cfg(test)]
+mod driver_cause_tests {
+    use super::driver_proven_cause;
+    use crate::native::launch::driver_exit_success;
+    use crate::native::result::ResultStopCause;
+    use aq_admission::transport::ProcessOutcome;
+    /// MS1 review S5: a missing, unreadable or malformed exit.json is Unknown,
+    /// never Success; only an explicit record decides.
+    #[test]
+    fn missing_or_unreadable_exit_record_maps_to_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("exit.json");
+        assert_eq!(driver_exit_success(&path), None, "missing");
+        std::fs::write(&path, b"{not json").unwrap();
+        assert_eq!(driver_exit_success(&path), None, "malformed");
+        std::fs::write(&path, br#"{"success":"yes"}"#).unwrap();
+        assert_eq!(driver_exit_success(&path), None, "wrong type");
+        std::fs::write(&path, br#"{"success":false}"#).unwrap();
+        assert_eq!(driver_exit_success(&path), Some(false));
+        std::fs::write(&path, br#"{"success":true}"#).unwrap();
+        assert_eq!(driver_exit_success(&path), Some(true));
+        let dirpath = dir.path().join("unreadable");
+        std::fs::create_dir(&dirpath).unwrap();
+        assert_eq!(
+            driver_exit_success(&dirpath),
+            None,
+            "unreadable (a directory)"
+        );
+        for natural in [ResultStopCause::Natural, ResultStopCause::ResultRecorded] {
+            assert!(matches!(
+                driver_proven_cause(natural, None).process_outcome(),
+                ProcessOutcome::Unknown
+            ));
+            assert!(matches!(
+                driver_proven_cause(natural, Some(false)).process_outcome(),
+                ProcessOutcome::Failed
+            ));
+            assert!(matches!(
+                driver_proven_cause(natural, Some(true)).process_outcome(),
+                ProcessOutcome::Success
+            ));
+        }
+    }
+}
 /// Physical stop of resources outside the host's process tree (a sandbox),
 /// run before the host stop is reported. An error means stop uncertain.
 pub(crate) type PreStop = Box<
@@ -718,11 +775,7 @@ pub(super) async fn drive_running_owned(
             ResultStopCause::Natural | ResultStopCause::ResultRecorded
         )
     {
-        match host.claude_driver_succeeded() {
-            Some(true) => cause = ResultStopCause::HarnessSucceeded,
-            Some(false) => cause = ResultStopCause::Failure,
-            None => {}
-        }
+        cause = driver_proven_cause(cause, host.claude_driver_succeeded());
     }
     // Stop what the host's proof does not cover (the sandbox) first, so the
     // host's short stop grace cannot leave it running behind a Stopped report.

@@ -410,18 +410,39 @@ impl LocalPhaseHost {
     /// private directory), written before it submits the claim. None when the
     /// host is not a Claude docker-local host or the record is absent.
     pub fn claude_driver_succeeded(&self) -> Option<bool> {
-        let intent = lock(&self.entry.history).ok()?.as_ref()?.intent.clone();
+        driver_exit_success(&self.claude_driver_dir()?.join("exit.json"))
+    }
+    /// MS1 docker-local: the driver's private directory, if this is a Claude
+    /// docker-local host.
+    pub fn claude_driver_dir(&self) -> Option<std::path::PathBuf> {
         if !matches!(self.entry.profile, Some(Profile::ClaudeDocker(_))) {
             return None;
         }
-        let path = intent
-            .host_root
-            .join(format!("driver-{}", intent.launch_id))
-            .join("exit.json");
-        let bytes = std::fs::read(path).ok()?;
-        let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-        value["success"].as_bool()
+        let intent = lock(&self.entry.history).ok()?.as_ref()?.intent.clone();
+        Some(claude_driver_dir(&intent.host_root, intent.launch_id))
     }
+}
+/// `<host_root>/driver-<launch_id>`: the private directory of one launch.
+pub fn claude_driver_dir(host_root: &std::path::Path, launch_id: Uuid) -> std::path::PathBuf {
+    host_root.join(format!("driver-{launch_id}"))
+}
+/// The driver's exit record. Missing, unreadable or malformed is None
+/// (Unknown): only an explicit `{"success": true}` can report Success.
+pub fn driver_exit_success(path: &std::path::Path) -> Option<bool> {
+    let bytes = std::fs::read(path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    value["success"].as_bool()
+}
+/// MS1 review S3a: after the host stopped, the launch's leased token file is
+/// removed whatever happened to the driver (it normally deleted it itself).
+pub fn wipe_claude_driver_secrets(dir: &std::path::Path) {
+    match std::fs::remove_file(dir.join("token")) {
+        Ok(()) => tracing::warn!(dir = %dir.display(), "removed a leftover leased token file"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(dir = %dir.display(), "leased token file not removed: {e}"),
+    }
+}
+impl LocalPhaseHost {
     pub fn started_request(&self) -> Result<aq_admission::started::Request> {
         lock(&self.entry.history)?
             .as_ref()
@@ -1048,4 +1069,22 @@ mod frozen_terminal_reports {
 mod refresh_terminal_reports {
     use super::*;
     crate::native::phase_profile_shared::report_terminal! { aq_phase_terminal_protocol::refresh_v1, crate::native::journal::refresh_terminal::PhaseTerminalHistory, refresh_terminal_history, refresh_terminal, report_refresh_terminal_started, report_refresh_terminal_stopped, refresh_terminal_started, refresh_terminal_stopped, refresh_started_receipt, refresh_stopped_receipt }
+}
+
+#[cfg(test)]
+mod driver_dir_tests {
+    #[test]
+    fn leftover_token_is_wiped_and_a_missing_one_is_fine() {
+        let dir = tempfile::tempdir().unwrap();
+        let token = dir.path().join("token");
+        std::fs::write(&token, b"x").unwrap();
+        std::fs::write(dir.path().join("exit.json"), b"{}").unwrap();
+        super::wipe_claude_driver_secrets(dir.path());
+        assert!(!token.exists());
+        assert!(
+            dir.path().join("exit.json").exists(),
+            "non-secret records stay"
+        );
+        super::wipe_claude_driver_secrets(dir.path());
+    }
 }

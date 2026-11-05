@@ -415,11 +415,21 @@ fn pane_line(line: &[u8]) -> Option<String> {
     }
 }
 
-fn print_logs(bytes: &[u8], partial: &mut Vec<u8>) {
+/// Prints complete runner lines to the pane. A line holding the token is
+/// never printed (a note is); returns whether that happened.
+fn print_logs(bytes: &[u8], partial: &mut Vec<u8>, token: &[u8]) -> bool {
+    let mut leaked = false;
     partial.extend_from_slice(bytes);
     while let Some(pos) = partial.iter().position(|b| *b == b'\n') {
         let line: Vec<u8> = partial.drain(..=pos).collect();
         let line = &line[..line.len() - 1];
+        if holds_token(line, token) {
+            leaked = true;
+            println!(
+                "aq-sandbox-harness: [a runner output line was withheld: it held the login token]"
+            );
+            continue;
+        }
         if line.starts_with(b"{") {
             if let Some(text) = pane_line(line) {
                 println!("{text}");
@@ -429,6 +439,7 @@ fn print_logs(bytes: &[u8], partial: &mut Vec<u8>) {
         }
     }
     let _ = std::io::stdout().flush();
+    leaked
 }
 
 fn now_ms() -> u64 {
@@ -448,11 +459,20 @@ pub struct DriverOutcome {
 /// Entrypoint for `aq-worker sandbox-harness`. Exit code 0 only when Claude
 /// exited 0, the workspace was copied back and the claim was submitted.
 pub async fn run(config_path: &Path) -> Result<i32> {
-    let config: DriverConfig = serde_json::from_slice(&read_private(config_path, 1024 * 1024)?)?;
+    // MS1 review S3a: the leased token leaves the disk before anything else
+    // can fail: read and unlink it first, then parse the rest.
+    let parsed = read_private(config_path, 1024 * 1024)
+        .and_then(|bytes| Ok(serde_json::from_slice::<DriverConfig>(&bytes)?));
+    let token_file = match &parsed {
+        Ok(config) => config.token_file.clone(),
+        Err(_) => config_path.with_file_name("token"),
+    };
+    let raw = read_private(&token_file, 64 * 1024);
+    let _ = std::fs::remove_file(&token_file);
+    let config = parsed?;
+    let token = parse_token(&raw?)?;
     let session = std::env::var_os("AQ_SESSION_DIRECTORY").context("session directory")?;
     let prompt = std::fs::read(Path::new(&session).join("context-0.bin"))?;
-    let token = parse_token(&read_private(&config.token_file, 64 * 1024)?)?;
-    std::fs::remove_file(&config.token_file)?;
     println!(
         "aq-sandbox-harness: attempt {} template {}",
         config.owner.attempt_id,
@@ -483,12 +503,12 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         &config,
         &sandbox,
         &prompt,
-        token,
+        &token,
         &mut term,
         &mut hup,
     )
     .await;
-    let (rc, changed, stream) = match outcome {
+    let (rc, changed, stream, leak) = match outcome {
         Ok(v) => v,
         Err(error) => {
             // Keep the disk: stop and preserve, never destroy unretained work.
@@ -512,8 +532,12 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             return Ok(3);
         }
     };
-    // Non-secret transcript beside the driver config (evidence, measurement).
-    if let Some(dir) = config_path.parent() {
+    drop(token);
+    // Non-secret transcript beside the driver config (evidence, measurement),
+    // in the private driver directory, and never when it held the token.
+    if let Some(dir) = config_path.parent()
+        && leak.is_none()
+    {
         let _ = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -546,14 +570,26 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     );
     // The exit record precedes the claim: the node may stop this pane as soon
     // as the claim is recorded.
-    let proven = proven_success(&stream, rc, &changed);
+    let proven = match leak {
+        Some(place) => Err(place),
+        None => proven_success(&stream, rc, &changed),
+    };
     if let Err(reason) = proven {
         println!(
             "aq-sandbox-harness: success not proven ({reason}); the result is reported as failed"
         );
     }
     write_exit(config_path, proven.is_ok());
-    submit_claim(&config, conclusion(&stream, rc, &changed));
+    submit_claim(
+        &config,
+        match leak {
+            // Never forward the agent's own text when the token leaked.
+            Some(place) => {
+                format!("Changes: none (copy-back refused); Refused: {place}; the attempt failed")
+            }
+            None => conclusion(&stream, rc, &changed),
+        },
+    );
     Ok(if proven.is_ok() { 0 } else { 1 })
 }
 
@@ -603,14 +639,45 @@ fn submit_claim(config: &DriverConfig, text: String) {
     }
 }
 
-type Drove = (Option<i32>, Vec<String>, Vec<u8>);
+/// Return code, copied-back changes, transcript, and where the token leaked.
+type Drove = (Option<i32>, Vec<String>, Vec<u8>, Option<&'static str>);
+
+/// Whether `haystack` contains the token's exact bytes.
+pub fn holds_token(haystack: &[u8], token: &[u8]) -> bool {
+    !token.is_empty()
+        && haystack.len() >= token.len()
+        && haystack.windows(token.len()).any(|w| w == token)
+}
+
+/// MS1 review S3b: the agent's tools can read the token from the claude
+/// process environment. Refuse the copy-back (it would reach central
+/// retention and, under D1, the remote) when any copied-back file or link,
+/// or the transcript, holds the token's exact bytes. Never names the bytes.
+pub fn token_leak(entries: &[TreeEntry], stream: &[u8], token: &[u8]) -> Option<&'static str> {
+    let in_tree = entries.iter().any(|e| match e {
+        TreeEntry::File { path, data, .. } => {
+            holds_token(data, token) || holds_token(path.as_bytes(), token)
+        }
+        TreeEntry::Symlink { path, target, .. } => {
+            holds_token(target.as_bytes(), token) || holds_token(path.as_bytes(), token)
+        }
+        TreeEntry::Dir { path, .. } => holds_token(path.as_bytes(), token),
+    });
+    if in_tree {
+        Some("the Claude login token appeared in the workspace")
+    } else if holds_token(stream, token) {
+        Some("the Claude login token appeared in the Claude transcript")
+    } else {
+        None
+    }
+}
 
 async fn drive(
     backend: &mut DockerLocalBackend,
     config: &DriverConfig,
     sandbox: &SandboxIdentity,
     prompt: &[u8],
-    token: Zeroizing<Vec<u8>>,
+    token: &Zeroizing<Vec<u8>>,
     term: &mut tokio::signal::unix::Signal,
     hup: &mut tokio::signal::unix::Signal,
 ) -> Result<Drove> {
@@ -627,11 +694,11 @@ async fn drive(
     backend
         .deliver_private_material(sandbox, PrivateMaterial::new(token.to_vec()))
         .await?;
-    drop(token);
     backend.start_runner(sandbox).await?;
     println!("aq-sandbox-harness: runner started");
     let mut since = now_ms() / 1000;
     let mut partial = Vec::new();
+    let mut pane_leak = false;
     let exit = loop {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(2)) => {},
@@ -640,12 +707,12 @@ async fn drive(
         }
         let poll = now_ms() / 1000;
         if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
-            print_logs(&bytes, &mut partial);
+            pane_leak |= print_logs(&bytes, &mut partial, token);
             since = poll;
         }
         if let Ok(exit) = backend.runner_exit(sandbox).await {
             if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
-                print_logs(&bytes, &mut partial);
+                pane_leak |= print_logs(&bytes, &mut partial, token);
             }
             break exit;
         }
@@ -672,8 +739,14 @@ async fn drive(
         .await
         .context("workspace copy-back")?;
     let entries = read_tree(&archive, config.max_workspace_bytes)?;
+    let leak = token_leak(&entries, &stream, token)
+        .or(pane_leak.then_some("the Claude login token appeared in the runner output"));
+    if leak.is_some() {
+        // Nothing the sandbox produced is copied back.
+        return Ok((rc, Vec::new(), Vec::new(), leak));
+    }
     let changed = sync_tree(&config.workspace, &entries)?;
-    Ok((rc, changed, stream))
+    Ok((rc, changed, stream, None))
 }
 
 fn read_tree_file(archive: &[u8]) -> Option<Vec<u8>> {
@@ -683,6 +756,65 @@ fn read_tree_file(archive: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// MS1 review S3b: copy-back and success are refused when the token's
+    /// exact bytes appear in a copied-back file, path or link, the transcript
+    /// or a pane line (which is then withheld).
+    #[test]
+    fn token_in_workspace_transcript_or_pane_is_refused() {
+        let token: Vec<u8> = [b"fixture-login-", &b"0123456789abcdef"[..]].concat();
+        let file = |path: &str, data: &[u8]| TreeEntry::File {
+            path: path.into(),
+            mode: 0o644,
+            data: data.to_vec(),
+        };
+        let clean = vec![file("src/lib.rs", b"pub fn hello() {}\n")];
+        assert_eq!(token_leak(&clean, b"{\"type\":\"result\"}", &token), None);
+        let mut leaked = token.clone();
+        leaked.splice(0..0, b"export TOKEN=".iter().copied());
+        assert!(token_leak(&[file("notes.txt", &leaked)], b"", &token).is_some());
+        let name = format!("x{}", String::from_utf8(token.clone()).unwrap());
+        assert!(token_leak(&[file(&name, b"ok")], b"", &token).is_some());
+        let link = TreeEntry::Symlink {
+            path: "l".into(),
+            target: String::from_utf8(token.clone()).unwrap(),
+        };
+        assert!(token_leak(&[link], b"", &token).is_some());
+        assert!(token_leak(&clean, &leaked, &token).is_some_and(|w| w.contains("transcript")));
+        // A near miss is not the token.
+        assert_eq!(token_leak(&clean, &token[..token.len() - 1], &token), None);
+        let mut partial = Vec::new();
+        let mut lines = b"fine\n".to_vec();
+        lines.extend_from_slice(&leaked);
+        lines.push(b'\n');
+        assert!(print_logs(&lines, &mut partial, &token));
+        assert!(!print_logs(b"also fine\n", &mut partial, &token));
+    }
+
+    /// MS1 review S3a: the token file is read and removed before anything that
+    /// can fail, even when the driver config itself is unreadable.
+    #[tokio::test]
+    async fn token_file_is_removed_even_when_the_driver_config_is_bad() {
+        use std::os::unix::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("driver.json");
+        let token = dir.path().join("token");
+        for (path, data) in [
+            (&config, &b"{not a config"[..]),
+            (&token, b"fixture-login-0123456789"),
+        ] {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+                .unwrap()
+                .write_all(data)
+                .unwrap();
+        }
+        assert!(run(&config).await.is_err());
+        assert!(!token.exists(), "the leased token must not stay on disk");
+    }
 
     #[test]
     fn token_trims_newlines_and_refuses_bad_shapes() {
