@@ -403,7 +403,10 @@ async fn cancellation_preserves_and_default_local_permit_is_at_most_120_seconds(
 
 #[tokio::test]
 async fn runner_needs_no_node_credential() {
-    let mut f = Fixture::new(false, 5000);
+    // Hold the fixture agent until the host durably records launch; an
+    // immediately exiting pane can otherwise stop before startup is observed.
+    let mut f = Fixture::new(true, 5000);
+    f.adapter.descendant = false;
     f.worker.credential.clear();
     struct PermitOnly(Central);
     impl aq_worker::native::runner::sandbox::RunnerTransport for PermitOnly {
@@ -444,7 +447,12 @@ async fn runner_needs_no_node_credential() {
         }
     }
     let mut transport = PermitOnly(Central::new(Mode::Complete));
-    assert_eq!(f.run(&mut transport).await.unwrap(), RunOutcome::Finished);
+    let release = async {
+        wait_file(&f.dir.path().join("sandbox-run/started.json")).await;
+        std::fs::write(f.local.workspace.join("release"), b"").unwrap();
+    };
+    let (outcome, ()) = tokio::join!(f.run(&mut transport), release);
+    assert_eq!(outcome.unwrap(), RunOutcome::Finished);
     assert_eq!(transport.0.finishes, 1);
 }
 
