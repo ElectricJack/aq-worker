@@ -593,6 +593,74 @@ async fn api_key_never_visible_to_agent_user() {
             serde_json::from_slice(&std::fs::read(claude_home.join("settings.json")).unwrap())
                 .unwrap();
         assert!(settings.get("apiKeyHelper").is_none() && settings.get("env").is_none());
+        // OpenCode (I3): container only; capability-only `openai` API entry.
+        use aq_worker::native::adapter::opencode::{self, OpenCodePaths, OpenCodeRoute};
+        use aq_worker::native::runner::sandbox::harness_config::OpenCodeAgentHome;
+        let oc_home = root.path().join(format!("opencode-{}", mode.as_str()));
+        let installed = OpenCodeAgentHome::install(
+            &authorized,
+            &harness("opencode", opencode::OPENCODE_CLI_VERSION, confinement),
+            &openai,
+            OpenCodePaths {
+                executable: std::path::Path::new("/usr/local/bin/opencode"),
+                workspace: &workspace,
+                private_home: &oc_home,
+            },
+            OpenCodeRoute::ResponsesProxy { port },
+            Some(&capability),
+        );
+        if mode == ConfinementMode::Native {
+            assert!(installed.is_err() && !oc_home.exists());
+            continue;
+        }
+        let recipe = installed.unwrap();
+        for name in opencode::FORBIDDEN_ENVIRONMENT {
+            assert!(
+                !recipe.environment.contains_key(*name),
+                "{name} in agent env"
+            );
+        }
+        assert!(
+            !recipe
+                .arguments
+                .iter()
+                .chain(recipe.environment.values())
+                .any(|v| contains(v.as_bytes()) || v.contains("aq-responses-"))
+        );
+        let mode_of = |p: &std::path::Path| std::fs::metadata(p).unwrap().mode() & 0o777;
+        assert_eq!(mode_of(&oc_home), 0o700);
+        assert_eq!(mode_of(&oc_home.join("data/opencode")), 0o700);
+        for file in ["opencode.json", opencode::AUTH_FILE] {
+            let path = oc_home.join(file);
+            assert_eq!(mode_of(&path), 0o600);
+            assert!(!contains(&std::fs::read(&path).unwrap()), "{path:?}");
+        }
+        let auth: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(oc_home.join(opencode::AUTH_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(
+            auth,
+            serde_json::json!({"openai":{"type":"api",
+                "key": std::str::from_utf8(&capability).unwrap()}})
+        );
+        // A provider-shaped key is refused before anything is created.
+        let refused = root.path().join("opencode-refused");
+        assert!(
+            OpenCodeAgentHome::install(
+                &authorized,
+                &harness("opencode", opencode::OPENCODE_CLI_VERSION, confinement),
+                &openai,
+                OpenCodePaths {
+                    executable: std::path::Path::new("/usr/local/bin/opencode"),
+                    workspace: &workspace,
+                    private_home: &refused,
+                },
+                OpenCodeRoute::ResponsesProxy { port },
+                Some(KEY),
+            )
+            .is_err()
+                && !refused.exists()
+        );
     }
     // The key never left the runner's private file.
     assert_eq!(

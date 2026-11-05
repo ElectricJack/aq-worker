@@ -9,7 +9,8 @@ security updates advance the snapshot/base pins and rebuild the OS explicitly.
 `aq-sandbox-runtime` is a scratch transport image containing only `/opt/aq`.
 It has no entrypoint and cannot execute by itself. It carries `aq-worker`, its
 `aq-session-host` dependency, published aq-git 0.2.0, the qualified Codex 0.166.0
-native executable, the Claude Code 2.1.318 native executable, a private
+native executable, the Claude Code 2.1.318 native executable, the OpenCode 1.18.35 native
+executable, a private
 Node 22.16.0 distribution and `/opt/aq/bin/aq-agent`, the scoped agent client the sandboxed agent uses to reach AQ through the runner's
 loopback AQ proxy. The full `aq` CLI is never shipped. Both proxies remain inside
 the runner. There are no separate proxy binaries here.
@@ -25,7 +26,7 @@ with `cargo build --locked`.
 ## Prepare and build
 
 Use Python 3.11+ (`hashlib.file_digest` and `tomllib`), Git and
-Docker BuildKit. Supply a directory containing the following five public files:
+Docker BuildKit. Supply a directory containing the following six public files:
 
 - `git.tar.xz`: the upstream Git archive at its pinned URL.
 - `aq-git`: the published aq-git linux-x86_64 binary at its pinned URL.
@@ -37,9 +38,12 @@ Docker BuildKit. Supply a directory containing the following five public files:
   the download against `archive_sha256` before extraction; the generator
   checks the extracted executable against `sha256` and the build checks
   `claude --version` against the pinned version.
+- `opencode`: extract the pinned `archive_member` (`package/bin/opencode`)
+  from the pinned npm tarball of `opencode-linux-x64` (glibc), verified the
+  same way; the build checks `opencode --version` against the pinned version.
 - `node.tar.xz`: the official Node archive at its pinned URL.
 
-Only those five names are read from the public inputs directory. Use no
+Only those six names are read from the public inputs directory. Use no
 credentials, login homes or private build configuration. Example:
 
 ```sh
@@ -58,9 +62,10 @@ revision. Output directories must be fresh; corrupt inputs leave no context.
 
 ## Installed interface
 
-- `/opt/aq/bin/{aq-worker,aq-session-host,aq-git,codex,claude}`
+- `/opt/aq/bin/{aq-worker,aq-session-host,aq-git,codex,claude,opencode}`
 - `/opt/aq/harnesses/codex/codex` (the native executable; `bin/codex` selects it)
 - `/opt/aq/harnesses/claude/claude` (the native executable; `bin/claude` selects it)
+- `/opt/aq/harnesses/opencode/opencode` (the native executable; `bin/opencode` selects it)
 - `/opt/aq/node/bin/node` (absolute private runtime path, independent of the
   project's Node/PATH; future Node-based harness wrappers must select it)
 - `/opt/aq/{manifest.json,pins.json,source.json}`
@@ -70,8 +75,8 @@ revision. Output directories must be fresh; corrupt inputs leave no context.
 entry has `name`, `version`, absolute `path`, lowercase hex `sha256` of the
 installed bytes and `bytes`. `source` records the worker revision, source tar
 digest and crate versions. `harnesses` is a list so later tasks can extend it;
-today it lists Codex and Claude Code (`claude`, the version the C6a recipe
-admits). Proxy values are `in-process:aq-worker`.
+today it lists Codex, Claude Code (`claude`, the version the C6a recipe
+admits) and OpenCode (`opencode`, the version the I3 recipe admits). Proxy values are `in-process:aq-worker`.
 The manifest generator hashes the installed files after copying/extraction.
 Downstream template advertising (SBX18) can read this list directly.
 

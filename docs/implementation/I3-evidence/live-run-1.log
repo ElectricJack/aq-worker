@@ -1,0 +1,11 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-5/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.92s
+     Running tests/opencode_live.rs (target/debug/deps/opencode_live-c17fafcac741dcb1)
+
+running 1 test
+runner exit Some(Exited(0)) after 30.065661741s: {"auth_file":false,"base":"d195856be2f84ec55fae2e8362cefc03617d34d4","cap_eff":"0000000000000000","check_rc":0,"cli_version":"1.18.35","export_rc":0,"head":"e675835ef1a0f08d7bc958eb270c9a971515b589","home_wiped":true,"material_wiped":true,"no_new_privs":1,"opencode_rc":0,"publish_rc":0,"published":"e675835ef1a0f08d7bc958eb270c9a971515b589","red":true,"session":"ses_e562e3932ffei2VIRFPtvdFB5d","uid":0}
+readers: Read { usages: 3, started: 2, results: 2, roles: ["User", "Assistant"], turns: 1, providers: ["ollama", "ollama", "ollama"] }
+test live_opencode_ollama_edit_check_publish_cycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 36.08s
+

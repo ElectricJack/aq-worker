@@ -14,6 +14,7 @@
 //! These are library APIs; B6a2 owns wiring them into `run_as_agent`.
 use super::confinement::{AuthorizedConfinement, ConfinementMode};
 use crate::native::adapter::claude::{self, ClaudePaths, ClaudeRecipe};
+use crate::native::adapter::opencode::{self, OpenCodePaths, OpenCodeRecipe, OpenCodeRoute};
 use anyhow::{Context, Result, ensure};
 use aq_codex_mapper::{LoopbackResponsesEndpoint, Paths, Recipe, Settings};
 use aq_session_protocol::{HarnessSettings, ModelSettings};
@@ -51,6 +52,14 @@ pub(super) fn write_private(home: &Path, name: &str, bytes: &[u8]) -> Result<()>
     Ok(())
 }
 
+fn proxy_capability(capability: &[u8]) -> bool {
+    capability.len() == 77
+        && capability.starts_with(b"aq-responses-")
+        && capability[13..]
+            .iter()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))
+}
+
 pub struct CodexAgentHome;
 impl CodexAgentHome {
     /// `capability` is the proxy's attempt-local bearer
@@ -63,11 +72,7 @@ impl CodexAgentHome {
         capability: &[u8],
     ) -> Result<Recipe> {
         ensure!(
-            capability.len() == 77
-                && capability.starts_with(b"aq-responses-")
-                && capability[13..]
-                    .iter()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b)),
+            proxy_capability(capability),
             "Codex home accepts only the proxy's local capability"
         );
         let home = paths.private_home;
@@ -113,5 +118,48 @@ impl ClaudeAgentHome {
         let home = create_private_home(paths.private_home)?;
         write_private(&home, claude::SETTINGS_FILE, &recipe.settings_json)?;
         Ok(recipe)
+    }
+}
+
+pub struct OpenCodeAgentHome;
+impl OpenCodeAgentHome {
+    /// Proxy route: `capability` is the proxy's attempt-local bearer, never the
+    /// provider key. Subscription route: `capability` must be `None`; the
+    /// caller then passes [`Self::login_dir`] to `SubscriptionLogin::start`.
+    /// Ollama route: `capability` must be `None` and no credential file exists.
+    pub fn install(
+        confinement: &AuthorizedConfinement,
+        harness: &HarnessSettings,
+        model: &ModelSettings,
+        paths: OpenCodePaths<'_>,
+        route: OpenCodeRoute,
+        capability: Option<&[u8]>,
+    ) -> Result<OpenCodeRecipe> {
+        match (route, capability) {
+            (OpenCodeRoute::ResponsesProxy { .. }, Some(c)) => ensure!(
+                proxy_capability(c),
+                "OpenCode home accepts only the proxy's local capability"
+            ),
+            (OpenCodeRoute::Subscription | OpenCodeRoute::Ollama { .. }, None) => {}
+            _ => anyhow::bail!("OpenCode route and credential disagree"),
+        }
+        let recipe = opencode::map(harness, model, paths, confinement.mode(), route)?;
+        let home = create_private_home(paths.private_home)?;
+        write_private(&home, opencode::CONFIG_FILE, &recipe.config_json)?;
+        let data = create_private_home(&home.join("data"))?;
+        if let Some(capability) = capability {
+            let dir = create_private_home(&data.join("opencode"))?;
+            let mut auth = Zeroizing::new(Vec::with_capacity(capability.len() + 40));
+            auth.extend_from_slice(b"{\"openai\":{\"type\":\"api\",\"key\":");
+            serde_json::to_writer(&mut *auth, std::str::from_utf8(capability)?)?;
+            auth.extend_from_slice(b"}}");
+            write_private(&dir, "auth.json", &auth)?;
+        }
+        Ok(recipe)
+    }
+    /// The `$XDG_DATA_HOME/opencode` directory a subscription login installs
+    /// into (it must not exist yet).
+    pub fn login_dir(private_home: &Path) -> PathBuf {
+        private_home.join("data/opencode")
     }
 }

@@ -322,3 +322,63 @@ fn codex_structured_questions_and_lost_context_do_not_become_task_or_model_autho
     );
     assert!(matches!(usages(&out)[0].cost, Cost::Unknown { .. }));
 }
+#[test]
+fn opencode_1_18_35_with_parts_session_normalizes_usage_tools_text_and_turns() {
+    let real: Value =
+        serde_json::from_str(include_str!("fixtures/opencode-1.18.35-session.json")).unwrap();
+    assert_eq!(real["version"], "1.18.35");
+    let session = real["session_id"].as_str().unwrap();
+    let mut src = source(Format::OpenCodeSessionDto6c24ec9);
+    src.native_session_key = Text::new(session).unwrap();
+    src.provider = Text::new("ollama").unwrap();
+    let mut s = Normalizer::new(src, 128)
+        .unwrap()
+        .bind_scoped_record_channel(session)
+        .unwrap();
+    let mut out = vec![];
+    for record in real["messages"].as_array().unwrap() {
+        out.extend(apply(&mut s, record));
+    }
+    let kinds: Vec<_> = out.iter().map(|v| &v.body.kind).collect();
+    let usage: Vec<_> = usages(&out);
+    assert_eq!(usage.len(), 4, "one usage per assistant message");
+    assert_eq!(usage[0].counters.input, Counter::Known { value: 2066 });
+    assert_eq!(usage[0].counters.cache_read, Counter::Known { value: 5365 });
+    assert_eq!(usage[0].call.provider.as_str(), "ollama");
+    let started = kinds
+        .iter()
+        .filter(|k| matches!(k, ObservationKind::ToolStarted { .. }))
+        .count();
+    let results = kinds
+        .iter()
+        .filter(|k| matches!(k, ObservationKind::ToolResult { .. }))
+        .count();
+    assert_eq!((started, results), (3, 3), "read, failed edit, edit");
+    let roles: Vec<_> = kinds
+        .iter()
+        .filter_map(|k| match k {
+            ObservationKind::TextReference { role, .. } => Some(role.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(roles, vec![TextRole::User, TextRole::Assistant]);
+    let turns = kinds
+        .iter()
+        .filter(|k| matches!(k, ObservationKind::TurnBoundary { .. }))
+        .count();
+    assert_eq!(turns, 1, "only the final stop ends the turn");
+    assert!(
+        !kinds
+            .iter()
+            .any(|k| matches!(k, ObservationKind::Gap { .. })),
+        "step, reasoning and patch parts are not gaps"
+    );
+    let mut foreign = real["messages"][1].clone();
+    foreign["info"]["sessionID"] = "ses_foreign".into();
+    let raw = Frame {
+        start: 0,
+        bytes: serde_json::to_vec(&foreign).unwrap(),
+        oversized: false,
+    };
+    assert!(s.apply(&raw, 100).is_err(), "foreign session refused");
+}

@@ -16,6 +16,7 @@ pub mod claude;
 pub mod codex;
 pub mod named_exec;
 pub mod native_exec;
+pub mod opencode;
 pub mod responses_transport;
 pub mod result_client;
 pub mod result_profile;

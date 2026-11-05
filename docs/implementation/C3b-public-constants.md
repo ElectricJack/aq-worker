@@ -15,7 +15,7 @@ Its [upstream self-tests](https://github.com/gnutls/gnutls/blob/3.8.3/lib/crypto
 explain the embedded vectors; qualification verifies the exact Debian package
 bytes rather than assuming a source version produces identical binaries.
 
-`credential_scan.PUBLIC_FILE_CONSTANTS` contains only 75 exact SHA-256/size
+`credential_scan.PUBLIC_FILE_CONSTANTS` contains only 76 exact SHA-256/size
 pairs. `scan_content` hashes every original byte through EOF. A strict content
 match can pass only when the complete file matches one of those reviewed
 public files. The catalog is compiled into the embedded Python scanner. An
@@ -191,6 +191,19 @@ values). One exact entry was added, `708c77b2…f0bd` / 337814032 bytes, the
 sha512 equals the registry `integrity`). The same bytes were independently
 matched against a native-installer copy of 2.1.318. `verify_public_files.py`
 covers the record; one appended byte still refuses.
+
+## OpenCode 1.18.35 (azure-horizon-22.6, I3)
+
+The runtime bundle now ships the OpenCode native executable at
+`opt/aq/harnesses/opencode/opencode`, which the strict scanner refuses (205
+token/assignment matches, all compiled JavaScript and embedded provider
+metadata such as environment-variable names and property assignments; no
+credential values). One exact entry was added, `77b2cfe4…24fa` / 185690240
+bytes, the `package/bin/opencode` member of the public npm tarball
+`opencode-linux-x64@1.18.35` (archive `e5c8997d…6133`, whose sha512 equals
+the registry `integrity`). The same bytes were matched against an
+npm-installed `opencode-ai@1.18.35` host copy. `verify_public_files.py`
+covers the record.
 
 ## Limits
 

@@ -30,6 +30,13 @@
       "archive_member": "package/claude",
       "sha256": "708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd"
     },
+    "opencode": {
+      "version": "1.18.35",
+      "url": "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.18.35.tgz",
+      "archive_sha256": "e5c8997d5d0024d9686a849f20d462766d83646e74d9751dfb172715f2216133",
+      "archive_member": "package/bin/opencode",
+      "sha256": "77b2cfe4b97df6f15c3673b22100b9f79c711f25ecb9bf513bb82526b15d24fa"
+    },
     "node.tar.xz": {
       "version": "22.16.0",
       "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",

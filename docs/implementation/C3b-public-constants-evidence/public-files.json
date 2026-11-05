@@ -720,6 +720,21 @@
       ]
     },
     {
+      "sha256": "77b2cfe4b97df6f15c3673b22100b9f79c711f25ecb9bf513bb82526b15d24fa",
+      "bytes": 185690240,
+      "example_image_path": "opt/aq/harnesses/opencode/opencode",
+      "upstream": {
+        "url": "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.18.35.tgz",
+        "member": "package/bin/opencode",
+        "archive_sha256": "e5c8997d5d0024d9686a849f20d462766d83646e74d9751dfb172715f2216133"
+      },
+      "finding_count": 205,
+      "finding_kinds": [
+        "assignment",
+        "token"
+      ]
+    },
+    {
       "sha256": "bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829",
       "bytes": 963574,
       "example_image_path": "opt/node/lib/node_modules/corepack/dist/lib/corepack.cjs",

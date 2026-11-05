@@ -1,0 +1,424 @@
+{
+ "source": "opencode 1.18.35 `opencode export` of a real `opencode run --format json` session (ollama qwen3.5:9b); workspace paths neutralized to /workspace",
+ "version": "1.18.35",
+ "session_id": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+ "messages": [
+  {
+   "info": {
+    "role": "user",
+    "time": {
+     "created": 1793846496740
+    },
+    "agent": "build",
+    "model": {
+     "providerID": "ollama",
+     "modelID": "qwen3.5:9b"
+    },
+    "summary": {
+     "diffs": [
+      {
+       "file": "lib.py",
+       "patch": "Index: lib.py\n===================================================================\n--- lib.py\t\n+++ lib.py\t\n@@ -1,1 +1,1 @@\n-def add(a,b):\\n    return a-b\n+def add(a,b):\\n    return a+b\n",
+       "additions": 1,
+       "deletions": 1,
+       "status": "modified"
+      }
+     ]
+    },
+    "id": "msg_1a9954de4001jhexZVsajj0g0x",
+    "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ"
+   },
+   "parts": [
+    {
+     "type": "text",
+     "text": "\"Read lib.py and fix add so it returns a+b. Use the edit tool, then reply done.\"",
+     "id": "prt_1a9954dfa001IJXwqsi0bKlL1k",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9954de4001jhexZVsajj0g0x"
+    }
+   ]
+  },
+  {
+   "info": {
+    "parentID": "msg_1a9954de4001jhexZVsajj0g0x",
+    "role": "assistant",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+     "cwd": "/workspace",
+     "root": "/workspace"
+    },
+    "cost": 0,
+    "tokens": {
+     "total": 7553,
+     "input": 2066,
+     "output": 122,
+     "reasoning": 0,
+     "cache": {
+      "write": 0,
+      "read": 5365
+     }
+    },
+    "modelID": "qwen3.5:9b",
+    "providerID": "ollama",
+    "time": {
+     "created": 1793846497689,
+     "completed": 1793846512857
+    },
+    "finish": "tool-calls",
+    "id": "msg_1a9955199001QoodnzHNPq8O57",
+    "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ"
+   },
+   "parts": [
+    {
+     "snapshot": "2e77180bd8998fee6b927b5e407f210770d24997",
+     "type": "step-start",
+     "id": "prt_1a99587060013ceBfCr8ls0sdY",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9955199001QoodnzHNPq8O57"
+    },
+    {
+     "type": "reasoning",
+     "text": "I need to read lib.py first to understand what the current add function looks like and what changes are needed.",
+     "time": {
+      "start": 1793846511373,
+      "end": 1793846512671
+     },
+     "id": "prt_1a995870d001PaPAh99OSTyrli",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9955199001QoodnzHNPq8O57"
+    },
+    {
+     "type": "tool",
+     "tool": "read",
+     "callID": "call_24yyvx75",
+     "state": {
+      "status": "completed",
+      "input": {
+       "filePath": "/workspace/lib.py"
+      },
+      "output": "<path>/workspace/lib.py</path>\n<type>file</type>\n<content>\n1: def add(a,b):\\n    return a-b\n\n(End of file - total 1 lines)\n</content>",
+      "metadata": {
+       "preview": "def add(a,b):\\n    return a-b",
+       "truncated": false,
+       "loaded": [],
+       "display": {
+        "type": "file",
+        "path": "/workspace/lib.py",
+        "text": "def add(a,b):\\n    return a-b",
+        "lineStart": 1,
+        "lineEnd": 1,
+        "totalLines": 1,
+        "truncated": false
+       }
+      },
+      "title": "lib.py",
+      "time": {
+       "start": 1793846512693,
+       "end": 1793846512717
+      }
+     },
+     "id": "prt_1a9958c270018p896iM2hvTQKx",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9955199001QoodnzHNPq8O57"
+    },
+    {
+     "reason": "tool-calls",
+     "snapshot": "2e77180bd8998fee6b927b5e407f210770d24997",
+     "type": "step-finish",
+     "tokens": {
+      "total": 7553,
+      "input": 2066,
+      "output": 122,
+      "reasoning": 0,
+      "cache": {
+       "write": 0,
+       "read": 5365
+      }
+     },
+     "cost": 0,
+     "id": "prt_1a9958cab0019tVAMwp3gMbJf5",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9955199001QoodnzHNPq8O57"
+    }
+   ]
+  },
+  {
+   "info": {
+    "parentID": "msg_1a9954de4001jhexZVsajj0g0x",
+    "role": "assistant",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+     "cwd": "/workspace",
+     "root": "/workspace"
+    },
+    "cost": 0,
+    "tokens": {
+     "total": 7831,
+     "input": 236,
+     "output": 168,
+     "reasoning": 0,
+     "cache": {
+      "write": 0,
+      "read": 7427
+     }
+    },
+    "modelID": "qwen3.5:9b",
+    "providerID": "ollama",
+    "time": {
+     "created": 1793846512862,
+     "completed": 1793846515226
+    },
+    "finish": "tool-calls",
+    "id": "msg_1a9958cde001xKushRsinDLpcX",
+    "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ"
+   },
+   "parts": [
+    {
+     "snapshot": "2e77180bd8998fee6b927b5e407f210770d24997",
+     "type": "step-start",
+     "id": "prt_1a9958e2800174Rlt3oHXJBrwx",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9958cde001xKushRsinDLpcX"
+    },
+    {
+     "type": "reasoning",
+     "text": "Let me edit the file to fix the `add` function to return `a+b` instead of `a-b`.",
+     "time": {
+      "start": 1793846513202,
+      "end": 1793846515103
+     },
+     "id": "prt_1a9958e31001zhO87SB9JNxDpO",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9958cde001xKushRsinDLpcX"
+    },
+    {
+     "type": "tool",
+     "tool": "edit",
+     "callID": "call_3erc4i8n",
+     "state": {
+      "status": "error",
+      "input": {
+       "filePath": "/workspace/lib.py",
+       "oldString": "def add(a,b):\n    return a-b",
+       "newString": "def add(a,b):\n    return a+b"
+      },
+      "error": "Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.",
+      "time": {
+       "start": 1793846515119,
+       "end": 1793846515131
+      }
+     },
+     "id": "prt_1a99595a4001Sr7j6kWnLBaMx6",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9958cde001xKushRsinDLpcX"
+    },
+    {
+     "reason": "tool-calls",
+     "snapshot": "2e77180bd8998fee6b927b5e407f210770d24997",
+     "type": "step-finish",
+     "tokens": {
+      "total": 7831,
+      "input": 236,
+      "output": 168,
+      "reasoning": 0,
+      "cache": {
+       "write": 0,
+       "read": 7427
+      }
+     },
+     "cost": 0,
+     "id": "prt_1a99595e7001EqSSh580gWJVZP",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9958cde001xKushRsinDLpcX"
+    }
+   ]
+  },
+  {
+   "info": {
+    "parentID": "msg_1a9954de4001jhexZVsajj0g0x",
+    "role": "assistant",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+     "cwd": "/workspace",
+     "root": "/workspace"
+    },
+    "cost": 0,
+    "tokens": {
+     "total": 8012,
+     "input": 185,
+     "output": 168,
+     "reasoning": 0,
+     "cache": {
+      "write": 0,
+      "read": 7659
+     }
+    },
+    "modelID": "qwen3.5:9b",
+    "providerID": "ollama",
+    "time": {
+     "created": 1793846515231,
+     "completed": 1793846517667
+    },
+    "finish": "tool-calls",
+    "id": "msg_1a995961f001ej3QPVL6duYpT6",
+    "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ"
+   },
+   "parts": [
+    {
+     "snapshot": "2e77180bd8998fee6b927b5e407f210770d24997",
+     "type": "step-start",
+     "id": "prt_1a99597b1001eYVAAj5D9Ibte7",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a995961f001ej3QPVL6duYpT6"
+    },
+    {
+     "type": "reasoning",
+     "text": "The read showed `def add(a,b):\\n    return a-b` - all on one line with no actual newlines.",
+     "time": {
+      "start": 1793846515639,
+      "end": 1793846517485
+     },
+     "id": "prt_1a99597b7001T2ocuOlOxOZ674",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a995961f001ej3QPVL6duYpT6"
+    },
+    {
+     "type": "tool",
+     "tool": "edit",
+     "callID": "call_3s15atj9",
+     "state": {
+      "status": "completed",
+      "input": {
+       "filePath": "/workspace/lib.py",
+       "oldString": "def add(a,b):\\n    return a-b",
+       "newString": "def add(a,b):\\n    return a+b"
+      },
+      "output": "Edit applied successfully.",
+      "metadata": {
+       "diagnostics": {},
+       "diff": "Index: /workspace/lib.py\n===================================================================\n--- /workspace/lib.py\n+++ /workspace/lib.py\n@@ -1,1 +1,1 @@\n-def add(a,b):\\n    return a-b\n+def add(a,b):\\n    return a+b\n",
+       "filediff": {
+        "file": "/workspace/lib.py",
+        "patch": "Index: /workspace/lib.py\n===================================================================\n--- /workspace/lib.py\n+++ /workspace/lib.py\n@@ -1,1 +1,1 @@\n-def add(a,b):\\n    return a-b\n+def add(a,b):\\n    return a+b\n",
+        "additions": 1,
+        "deletions": 1
+       },
+       "truncated": false
+      },
+      "title": "lib.py",
+      "time": {
+       "start": 1793846517498,
+       "end": 1793846517515
+      }
+     },
+     "id": "prt_1a9959ef1001w2snsZxvAvBLhy",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a995961f001ej3QPVL6duYpT6"
+    },
+    {
+     "reason": "tool-calls",
+     "snapshot": "3f105e258f042e11217e03a6af5c37b91730e19b",
+     "type": "step-finish",
+     "tokens": {
+      "total": 8012,
+      "input": 185,
+      "output": 168,
+      "reasoning": 0,
+      "cache": {
+       "write": 0,
+       "read": 7659
+      }
+     },
+     "cost": 0,
+     "id": "prt_1a9959f680011SLMDUblL0yLFP",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a995961f001ej3QPVL6duYpT6"
+    },
+    {
+     "type": "patch",
+     "hash": "2e77180bd8998fee6b927b5e407f210770d24997",
+     "files": [
+      "/workspace/lib.py"
+     ],
+     "id": "prt_1a9959f9f001H2Jxiufrkm5N0J",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a995961f001ej3QPVL6duYpT6"
+    }
+   ]
+  },
+  {
+   "info": {
+    "parentID": "msg_1a9954de4001jhexZVsajj0g0x",
+    "role": "assistant",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+     "cwd": "/workspace",
+     "root": "/workspace"
+    },
+    "cost": 0,
+    "tokens": {
+     "total": 8010,
+     "input": 166,
+     "output": 4,
+     "reasoning": 0,
+     "cache": {
+      "write": 0,
+      "read": 7840
+     }
+    },
+    "modelID": "qwen3.5:9b",
+    "providerID": "ollama",
+    "time": {
+     "created": 1793846517673,
+     "completed": 1793846518305
+    },
+    "finish": "stop",
+    "id": "msg_1a9959fa9001nUHgtyxECMfbPE",
+    "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ"
+   },
+   "parts": [
+    {
+     "snapshot": "3f105e258f042e11217e03a6af5c37b91730e19b",
+     "type": "step-start",
+     "id": "prt_1a995a17f001CifS0nKwE5UVOk",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9959fa9001nUHgtyxECMfbPE"
+    },
+    {
+     "type": "text",
+     "text": "done",
+     "time": {
+      "start": 1793846518149,
+      "end": 1793846518157
+     },
+     "id": "prt_1a995a1850016G1ISjVdaPh0Co",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9959fa9001nUHgtyxECMfbPE"
+    },
+    {
+     "reason": "stop",
+     "snapshot": "3f105e258f042e11217e03a6af5c37b91730e19b",
+     "type": "step-finish",
+     "tokens": {
+      "total": 8010,
+      "input": 166,
+      "output": 4,
+      "reasoning": 0,
+      "cache": {
+       "write": 0,
+       "read": 7840
+      }
+     },
+     "cost": 0,
+     "id": "prt_1a995a1e5001a732y53LtXJhyC",
+     "sessionID": "ses_e566ab2bfffeN8Az1y7rT7rRwZ",
+     "messageID": "msg_1a9959fa9001nUHgtyxECMfbPE"
+    }
+   ]
+  }
+ ]
+}

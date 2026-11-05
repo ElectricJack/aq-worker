@@ -1,0 +1,20 @@
+# I3: OpenCode 1.18.35 layered on the C3c rust template, for the live
+# docker-local qualification. Built locally and left unadmitted, like I4a's
+# claude-rust image. No credential is baked in.
+#
+# Build context: a directory holding only `opencode`, the `package/bin/opencode`
+# member of https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.18.35.tgz
+# (archive sha256 e5c8997d5d0024d9686a849f20d462766d83646e74d9751dfb172715f2216133),
+# the same pin as packaging/sandbox/pins.json.
+ARG BASE=127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5
+FROM ${BASE}
+ARG OPENCODE_VERSION=1.18.35
+ARG OPENCODE_SHA256=77b2cfe4b97df6f15c3673b22100b9f79c711f25ecb9bf513bb82526b15d24fa
+COPY opencode /tmp/opencode
+RUN echo "${OPENCODE_SHA256}  /tmp/opencode" | sha256sum -c - \
+    && mkdir -p /opt/aq/harnesses/opencode \
+    && install -m 0755 /tmp/opencode /opt/aq/harnesses/opencode/opencode \
+    && rm -f /tmp/opencode \
+    && ln -s ../harnesses/opencode/opencode /opt/aq/bin/opencode \
+    && test "$(HOME=/tmp OPENCODE_DISABLE_AUTOUPDATE=1 /opt/aq/bin/opencode --version)" = "${OPENCODE_VERSION}" \
+    && rm -rf /tmp/.local /tmp/.config /tmp/.cache

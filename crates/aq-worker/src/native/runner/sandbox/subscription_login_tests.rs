@@ -87,7 +87,8 @@ impl Harness for FakeHarness {
                 token.to_owned()
             }),
         ));
-        if let (Some(rewrite), Some(home)) = (self.rewrite.as_mut(), login.codex_home()) {
+        let home = login.codex_home().or(login.opencode_data_dir());
+        if let (Some(rewrite), Some(home)) = (self.rewrite.as_mut(), home) {
             rewrite(home);
         }
         Ok(self.exits.pop_front().unwrap())
@@ -465,4 +466,119 @@ async fn runner_write_back_speaks_c5b_contract() {
     );
     let keys: Vec<_> = refresh.as_object().unwrap().keys().cloned().collect();
     assert_eq!(keys.len(), 7, "exactly MaterialRefresh's fields: {keys:?}");
+}
+
+fn opencode_login(refresh: &str, expires: i64) -> Vec<u8> {
+    serde_json::to_vec(&json!({"openai":{"type":"oauth","refresh":refresh,
+        "access":"offline-access","expires":expires,"accountId":"offline-account"}}))
+    .unwrap()
+}
+async fn opencode_attempt(
+    d: &Dirs,
+    service: &mut FakeServer,
+    rewrite: Option<Rewrite>,
+) -> SubscriptionLogin {
+    let mut login =
+        SubscriptionLogin::start(service, LoginKind::OpenCodeChatgptAuth, Some(&d.home))
+            .await
+            .unwrap();
+    assert_eq!(
+        login.installed().opencode_data_dir(),
+        Some(d.home.as_path())
+    );
+    let mode = |p: &Path| {
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(p).unwrap().permissions())
+            & 0o777
+    };
+    assert_eq!(mode(&d.home), 0o700);
+    assert_eq!(mode(&d.home.join("auth.json")), 0o600);
+    let mut harness = FakeHarness::new(&[HarnessExit::Completed]);
+    harness.rewrite = rewrite;
+    assert_eq!(
+        login.run(service, &mut harness).await.unwrap(),
+        AttemptOutcome::Exited(HarnessExit::Completed)
+    );
+    login
+}
+
+#[tokio::test]
+async fn opencode_refreshed_login_written_back_and_only_the_login_wiped() {
+    let d = dirs();
+    let original = opencode_login("refresh-v7", 1_793_000_000_000);
+    let refreshed = opencode_login("refresh-v8", 1_793_900_000_000);
+    let mut service = server(vec![issued(LoginKind::OpenCodeChatgptAuth, 7, &original)]);
+    service.answers.push_back(Ok(WriteBack::Accepted {
+        version: 8,
+        replayed: false,
+    }));
+    let login = opencode_attempt(&d, &mut service, refresh_to(refreshed.clone())).await;
+    std::fs::write(d.home.join("opencode.db"), b"session store").unwrap();
+    let receipt = login
+        .finish(&mut service, &d.journal, &d.files, soon())
+        .await
+        .unwrap();
+    assert_eq!(service.uploads, vec![(LEASE, 7, refreshed.clone())]);
+    assert_eq!(receipt.outcome, ReceiptOutcome::Accepted);
+    assert_eq!(receipt.version, Some(8));
+    assert!(!d.home.join("auth.json").exists(), "login wiped");
+    assert!(
+        d.home.join("opencode.db").exists(),
+        "transcript store left for the reader"
+    );
+    let raw = std::fs::read_to_string(d.journal.join("login-writeback.json")).unwrap();
+    assert!(!raw.contains("refresh-v8") && !raw.contains("offline-access"));
+}
+
+#[tokio::test]
+async fn opencode_unchanged_stale_or_foreign_login_is_not_uploaded() {
+    for rewrite in [
+        None,
+        // Different bytes, older expiry: not a refresh.
+        refresh_to(opencode_login("refresh-other", 1_700_000_000_000)),
+        // A second provider credential is never accepted back.
+        refresh_to(
+            serde_json::to_vec(&json!({"openai":{"type":"oauth","refresh":"r","access":"a",
+                "expires":1_799_000_000_000_i64},"anthropic":{"type":"api","key":"k"}}))
+            .unwrap(),
+        ),
+    ] {
+        let d = dirs();
+        let original = opencode_login("refresh-v7", 1_793_000_000_000);
+        let mut service = server(vec![issued(LoginKind::OpenCodeChatgptAuth, 7, &original)]);
+        let login = opencode_attempt(&d, &mut service, rewrite).await;
+        let receipt = login
+            .finish(&mut service, &d.journal, &d.files, soon())
+            .await
+            .unwrap();
+        assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
+        assert!(service.uploads.is_empty() && !d.home.join("auth.json").exists());
+    }
+}
+
+#[tokio::test]
+async fn opencode_login_install_refuses_codex_or_api_key_material() {
+    for material in [
+        codex_login("refresh-v7", "2026-11-01T00:00:00Z"),
+        serde_json::to_vec(&json!({"openai":{"type":"api","key":"sk-x"}})).unwrap(),
+    ] {
+        let d = dirs();
+        let mut service = server(vec![issued(LoginKind::OpenCodeChatgptAuth, 7, &material)]);
+        assert!(
+            SubscriptionLogin::start(&mut service, LoginKind::OpenCodeChatgptAuth, Some(&d.home))
+                .await
+                .is_err()
+        );
+        assert!(!d.home.join("auth.json").exists());
+    }
+}
+
+#[test]
+fn login_kind_wire_names() {
+    for (kind, name) in [
+        (LoginKind::ClaudeOauthToken, "claude_oauth_token"),
+        (LoginKind::CodexChatgptAuth, "codex_chatgpt_auth"),
+        (LoginKind::OpenCodeChatgptAuth, "opencode_chatgpt_auth"),
+    ] {
+        assert_eq!(serde_json::to_value(kind).unwrap(), name);
+    }
 }

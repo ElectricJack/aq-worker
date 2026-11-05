@@ -43,6 +43,8 @@ PUBLIC_FILE_CONSTANTS = {
     'b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8': 319346888,
     # opt/aq/harnesses/claude/claude
     '708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd': 337814032,
+    # opt/aq/harnesses/opencode/opencode
+    '77b2cfe4b97df6f15c3673b22100b9f79c711f25ecb9bf513bb82526b15d24fa': 185690240,
     # opt/aq/node/bin/node
     '8142d37c6f2f372ef040419e7a111a6baf17df89f8078d02447d6c639ae20c1d': 121509208,
     # opt/aq/node/lib/node_modules/corepack/dist/lib/corepack.cjs

@@ -340,7 +340,9 @@ impl Normalizer<'_> {
         let raw_digest = Digest::of(&frame.bytes);
         let source_cursor = if self.source.format == Format::OpenCodeSessionDto6c24ec9 {
             let record = crate::json::parse(&frame.bytes).ok();
-            let id = record.as_ref().and_then(|r| r["id"].as_str());
+            let id = record
+                .as_ref()
+                .and_then(|r| r["id"].as_str().or_else(|| r["info"]["id"].as_str()));
             SourceCursor::Record {
                 id: Text::new(
                     id.unwrap_or(&format!("unidentified-record:{}", raw_digest.as_str())),

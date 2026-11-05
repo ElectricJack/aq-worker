@@ -70,6 +70,17 @@ class SandboxPackaging(unittest.TestCase):
             self.package(self.root / 'corrupt')
         self.assertFalse((self.root / 'corrupt').exists())
 
+    def test_opencode_input_is_pinned_and_checked(self):
+        output = self.root / 'out'
+        self.package(output)
+        sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
+        self.assertIn(self.pins['inputs']['opencode']['sha256'] + '  opencode', sums)
+        self.assertEqual((output / 'runtime/opencode').read_bytes(), b'opencode')
+        (self.inputs / 'opencode').write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch: opencode'):
+            self.package(self.root / 'corrupt')
+        self.assertFalse((self.root / 'corrupt').exists())
+
     def test_symlink_input_refuses(self):
         (self.inputs / 'codex').unlink()
         (self.inputs / 'codex').symlink_to('aq-git')

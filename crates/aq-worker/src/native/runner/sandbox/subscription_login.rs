@@ -5,13 +5,15 @@
 //! it: a Claude token goes only into the spawn environment as
 //! `CLAUDE_CODE_OAUTH_TOKEN` (I4a; never argv, never the C6a recipe env, never
 //! a file); a Codex ChatGPT `auth.json` goes into a fresh private `CODEX_HOME`
-//! (the mapper already sets `cli_auth_credentials_store="file"`). The agent
-//! user can read that file: runner/agent separation does not protect it.
+//! (the mapper already sets `cli_auth_credentials_store="file"`); an OpenCode
+//! ChatGPT `auth.json` goes into a fresh private `$XDG_DATA_HOME/opencode`
+//! (I3). The agent user can read that file: runner/agent separation does not
+//! protect it.
 //!
 //! On a mid-run authentication failure the runner fetches the newest version
 //! and relaunches once if it is newer; otherwise the attempt fails fast with
 //! `credential_invalid`, not retryable. After the attempt, a Codex login whose
-//! `last_refresh` advanced is written back as "N+1 based on N" before
+//! `last_refresh` (OpenCode: `openai.expires`) advanced is written back as "N+1 based on N" before
 //! teardown; a newer server version wins and ours is discarded. The login is
 //! then wiped. Only a write-back that failed definitively or ran out of time
 //! keeps a copy, in runner-only state.
@@ -19,6 +21,7 @@
 //! These are library APIs; B6a2 owns wiring them into launch.
 use super::harness_config::{create_private_home, write_private};
 use super::private::RunnerFiles;
+use crate::native::adapter::opencode;
 use anyhow::{Context, Result, bail, ensure};
 use aq_session_host::PrivateLaunchInput;
 use aq_session_protocol::Digest;
@@ -46,6 +49,9 @@ pub const RETAINED_FILE: &str = "refreshed-login.json";
 pub enum LoginKind {
     ClaudeOauthToken,
     CodexChatgptAuth,
+    /// Wire name `opencode_chatgpt_auth` (snake_case would split "OpenCode").
+    #[serde(rename = "opencode_chatgpt_auth")]
+    OpenCodeChatgptAuth,
 }
 
 /// One leased login version as issued by the server. `version` is the
@@ -131,6 +137,8 @@ pub enum AttemptOutcome {
 enum Secret {
     Claude(Zeroizing<String>),
     Codex(PathBuf),
+    /// The private `$XDG_DATA_HOME/opencode` directory holding `auth.json`.
+    OpenCode(PathBuf),
 }
 
 /// The login currently installed for the attempt.
@@ -163,13 +171,26 @@ impl InstalledLogin {
     pub fn claude_env(&self) -> Option<(&'static str, &str)> {
         match &self.secret {
             Secret::Claude(token) => Some((CLAUDE_TOKEN_ENV, token.as_str())),
-            Secret::Codex(_) => None,
+            Secret::Codex(_) | Secret::OpenCode(_) => None,
         }
     }
     /// The private `CODEX_HOME` holding `auth.json`.
     pub fn codex_home(&self) -> Option<&Path> {
         match &self.secret {
             Secret::Codex(home) => Some(home),
+            Secret::Claude(_) | Secret::OpenCode(_) => None,
+        }
+    }
+    /// The private `$XDG_DATA_HOME/opencode` holding OpenCode's `auth.json`.
+    pub fn opencode_data_dir(&self) -> Option<&Path> {
+        match &self.secret {
+            Secret::OpenCode(dir) => Some(dir),
+            Secret::Claude(_) | Secret::Codex(_) => None,
+        }
+    }
+    fn login_dir(&self) -> Option<&Path> {
+        match &self.secret {
+            Secret::Codex(dir) | Secret::OpenCode(dir) => Some(dir),
             Secret::Claude(_) => None,
         }
     }
@@ -179,9 +200,20 @@ impl InstalledLogin {
 struct RefreshStamp {
     last_refresh: Option<String>,
 }
-fn last_refresh(bytes: &[u8]) -> Result<Option<String>> {
-    PrivateLaunchInput::validate_chatgpt_auth_json(bytes)?;
-    Ok(serde_json::from_slice::<RefreshStamp>(bytes)?.last_refresh)
+fn last_refresh(kind: LoginKind, bytes: &[u8]) -> Result<Option<String>> {
+    match kind {
+        LoginKind::OpenCodeChatgptAuth => {
+            // OpenCode rewrites `expires` on every token refresh.
+            let expires = opencode::validate_chatgpt_auth_json(bytes)?;
+            let stamp = chrono::DateTime::from_timestamp_millis(expires)
+                .context("OpenCode login expiry range")?;
+            Ok(Some(stamp.to_rfc3339()))
+        }
+        _ => {
+            PrivateLaunchInput::validate_chatgpt_auth_json(bytes)?;
+            Ok(serde_json::from_slice::<RefreshStamp>(bytes)?.last_refresh)
+        }
+    }
 }
 fn newer(refreshed: Option<&str>, installed: Option<&str>) -> bool {
     let parse = |v: &str| chrono::DateTime::parse_from_rfc3339(v).ok();
@@ -192,7 +224,7 @@ fn newer(refreshed: Option<&str>, installed: Option<&str>) -> bool {
     }
 }
 
-fn install(issued: IssuedLogin, codex_home: Option<&Path>, fresh: bool) -> Result<InstalledLogin> {
+fn install(issued: IssuedLogin, login_dir: Option<&Path>, fresh: bool) -> Result<InstalledLogin> {
     let digest = Digest::of(&issued.material);
     let (secret, last_refresh) = match issued.kind {
         LoginKind::ClaudeOauthToken => {
@@ -205,13 +237,13 @@ fn install(issued: IssuedLogin, codex_home: Option<&Path>, fresh: bool) -> Resul
                 .context("Claude subscription token shape")?;
             (Secret::Claude(Zeroizing::new(token.to_owned())), None)
         }
-        LoginKind::CodexChatgptAuth => {
+        LoginKind::CodexChatgptAuth | LoginKind::OpenCodeChatgptAuth => {
             ensure!(
                 issued.material.len() <= MAX_LOGIN_BYTES,
-                "Codex login byte bound"
+                "file login byte bound"
             );
-            let stamp = last_refresh(&issued.material)?;
-            let home = codex_home.context("Codex login requires a private CODEX_HOME")?;
+            let stamp = last_refresh(issued.kind, &issued.material)?;
+            let home = login_dir.context("file login requires a private login directory")?;
             if fresh {
                 create_private_home(home)?;
             } else {
@@ -222,7 +254,13 @@ fn install(issued: IssuedLogin, codex_home: Option<&Path>, fresh: bool) -> Resul
                 }
             }
             write_private(home, AUTH_FILE, &issued.material)?;
-            (Secret::Codex(home.to_owned()), stamp)
+            let dir = home.to_owned();
+            let secret = if issued.kind == LoginKind::OpenCodeChatgptAuth {
+                Secret::OpenCode(dir)
+            } else {
+                Secret::Codex(dir)
+            };
+            (secret, stamp)
         }
     };
     Ok(InstalledLogin {
@@ -263,8 +301,9 @@ pub struct SubscriptionLogin {
     installed: InstalledLogin,
 }
 impl SubscriptionLogin {
-    /// Fetch the newest leased login and install it. `codex_home` must not
-    /// exist yet; it is created owner-only.
+    /// Fetch the newest leased login and install it. `codex_home` (for
+    /// OpenCode, the `$XDG_DATA_HOME/opencode` directory) must not exist yet;
+    /// it is created owner-only.
     pub async fn start(
         service: &mut impl LoginService,
         kind: LoginKind,
@@ -298,7 +337,7 @@ impl SubscriptionLogin {
                     {
                         return Ok(AttemptOutcome::Failed(LoginFailure::CREDENTIAL_INVALID));
                     }
-                    let home = self.installed.codex_home().map(Path::to_owned);
+                    let home = self.installed.login_dir().map(Path::to_owned);
                     self.installed = install(newest, home.as_deref(), false)?;
                 }
                 HarnessExit::AuthenticationFailed => {
@@ -309,7 +348,7 @@ impl SubscriptionLogin {
         }
     }
 
-    /// Before any teardown: write a refreshed Codex login back, then wipe the
+    /// Before any teardown: write a refreshed Codex or OpenCode login back, then wipe the
     /// login and its home, then journal the receipt into `journal`.
     pub async fn finish(
         self,
@@ -329,7 +368,7 @@ impl SubscriptionLogin {
             retained: false,
         };
         let mut failure = None;
-        if let Secret::Codex(home) = &installed.secret
+        if let Some(home) = installed.login_dir()
             && let Some(refreshed) = refreshed(home, &installed)
         {
             receipt.content_digest = Some(Digest::of(&refreshed));
@@ -393,7 +432,7 @@ fn refreshed(home: &Path, installed: &InstalledLogin) -> Option<Zeroizing<Vec<u8
     if bytes.len() > MAX_LOGIN_BYTES || Digest::of(&bytes) == installed.digest {
         return None;
     }
-    let stamp = last_refresh(&bytes).ok()?;
+    let stamp = last_refresh(installed.kind, &bytes).ok()?;
     newer(stamp.as_deref(), installed.last_refresh.as_deref()).then_some(bytes)
 }
 
@@ -427,6 +466,14 @@ fn wipe(installed: InstalledLogin) -> Result<()> {
         Secret::Codex(home) => match fs::remove_dir_all(&home) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 bail!("wipe Codex login home: {e}")
+            }
+            _ => {}
+        },
+        // Only the login: OpenCode's session store beside it is the
+        // transcript source and is torn down with the private home.
+        Secret::OpenCode(dir) => match fs::remove_file(dir.join(AUTH_FILE)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                bail!("wipe OpenCode login: {e}")
             }
             _ => {}
         },

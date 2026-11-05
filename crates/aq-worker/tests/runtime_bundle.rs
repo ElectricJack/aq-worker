@@ -6,6 +6,19 @@ use std::{fs, path::Path, process::Command};
 /// admits; any other manifest `cli_version` is refused there.
 const CLAUDE_CLI_VERSION: &str = "2.1.318";
 
+fn assert_hex_digests(pin: &Value, name: &str) {
+    for digest in ["archive_sha256", "sha256"] {
+        let value = pin[digest].as_str().expect("digest");
+        assert!(
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "{name} {digest} must be lowercase hex SHA-256"
+        );
+    }
+}
+
 #[test]
 fn runtime_bundle_lists_pinned_harness_versions() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -26,16 +39,18 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         )
     );
     assert_eq!(claude_pin["archive_member"], "package/claude");
-    for digest in ["archive_sha256", "sha256"] {
-        let value = claude_pin[digest].as_str().expect("claude digest");
-        assert!(
-            value.len() == 64
-                && value
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-            "claude {digest} must be lowercase hex SHA-256"
-        );
-    }
+    assert_hex_digests(claude_pin, "claude");
+    let opencode_pin = &pins["inputs"]["opencode"];
+    let opencode_version = aq_worker::native::adapter::opencode::OPENCODE_CLI_VERSION;
+    assert_eq!(opencode_pin["version"], opencode_version);
+    assert_eq!(
+        opencode_pin["url"],
+        format!(
+            "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-{opencode_version}.tgz"
+        )
+    );
+    assert_eq!(opencode_pin["archive_member"], "package/bin/opencode");
+    assert_hex_digests(opencode_pin, "opencode");
     let bundle = tempfile::tempdir().unwrap();
     let root = bundle.path();
     for (path, contents) in [
@@ -45,6 +60,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         ("bin/aq-git", "git"),
         ("harnesses/codex/codex", "codex"),
         ("harnesses/claude/claude", "claude"),
+        ("harnesses/opencode/opencode", "opencode"),
         ("node/bin/node", "node"),
     ] {
         fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
@@ -73,7 +89,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();
     assert_eq!(manifest["schema_version"], 1);
     assert_eq!(manifest["source"], source);
-    assert_eq!(manifest["harnesses"].as_array().unwrap().len(), 2);
+    assert_eq!(manifest["harnesses"].as_array().unwrap().len(), 3);
     let codex = &manifest["harnesses"][0];
     assert_eq!(codex["name"], "codex");
     assert_eq!(codex["version"], pins["inputs"]["codex"]["version"]);
@@ -82,6 +98,11 @@ fn runtime_bundle_lists_pinned_harness_versions() {
     assert_eq!(claude["version"], CLAUDE_CLI_VERSION);
     assert_eq!(claude["path"], "/opt/aq/harnesses/claude/claude");
     assert_eq!(claude["bytes"], "claude".len());
+    let opencode = &manifest["harnesses"][2];
+    assert_eq!(opencode["name"], "opencode");
+    assert_eq!(opencode["version"], opencode_pin["version"]);
+    assert_eq!(opencode["path"], "/opt/aq/harnesses/opencode/opencode");
+    assert_eq!(opencode["bytes"], "opencode".len());
     assert_eq!(
         manifest["aq_git"]["version"],
         pins["inputs"]["aq-git"]["version"]
@@ -102,6 +123,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
     for artifact in [
         codex,
         claude,
+        opencode,
         &manifest["agent_client"],
         &manifest["runner"],
         &manifest["session_host"],
