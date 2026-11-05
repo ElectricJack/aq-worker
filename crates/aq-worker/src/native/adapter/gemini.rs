@@ -2,7 +2,8 @@
 //! `docs/implementation/I2.md`).
 //!
 //! The recipe is metadata only: argv, environment, working directory and the
-//! system-settings bytes the private home must hold. It never carries the
+//! system-settings bytes for the root-owned settings directory. It never
+//! carries the
 //! provider key:
 //! - [`GeminiAuth::ApiKeyProxy`]: `GOOGLE_GEMINI_BASE_URL` points at the
 //!   runner-held loopback proxy and `GEMINI_API_KEY` holds only that proxy's
@@ -13,7 +14,10 @@
 //! The CLI runs from the bundle's private Node, never the project's: the
 //! executable is the bundle `node` and the first argument is the pinned
 //! `gemini.js`. Settings go to the *system* settings file, which outranks the
-//! user and workspace settings the agent's repository could supply.
+//! user and workspace settings the agent's repository could supply. The CLI
+//! honours that file only when it and every ancestor directory are owned by
+//! uid 0 and not group/other writable, so it lives in its own directory
+//! outside the agent home ([`GeminiPaths::system_settings_dir`]).
 //!
 //! Only container confinement is offered: Gemini's own `--sandbox` needs
 //! docker/podman (or macOS `sandbox-exec`), so there is no native mode.
@@ -30,7 +34,7 @@ use std::{
 /// The pinned `@google/gemini-cli` npm version (contains commit 6814e00, the
 /// recording format the observation reader targets).
 pub const GEMINI_CLI_VERSION: &str = "0.67.0";
-/// System settings file inside the private home.
+/// System settings file inside [`GeminiPaths::system_settings_dir`].
 pub const SYSTEM_SETTINGS_FILE: &str = "system-settings.json";
 /// Directory under `GEMINI_CLI_HOME` that holds the CLI's state.
 pub const STATE_DIR: &str = ".gemini";
@@ -72,6 +76,12 @@ pub struct GeminiPaths<'a> {
     pub workspace: &'a Path,
     /// Private agent home: both `HOME` and `GEMINI_CLI_HOME`.
     pub private_home: &'a Path,
+    /// Fresh directory for [`SYSTEM_SETTINGS_FILE`], outside the home and the
+    /// workspace (for example `/run/aq/gemini/<attempt>`). The runner creates
+    /// it as uid 0 with mode 0755; its parent and every ancestor must already
+    /// be root-owned, not group/other writable and traversable, or Gemini CLI
+    /// 0.67.0 ignores the file.
+    pub system_settings_dir: &'a Path,
 }
 
 /// How the CLI authenticates; neither variant carries the provider key.
@@ -92,7 +102,7 @@ pub struct GeminiRecipe {
     pub arguments: Vec<String>,
     pub environment: BTreeMap<String, String>,
     pub working_directory: PathBuf,
-    /// Bytes for `<private_home>/system-settings.json`.
+    /// Bytes for `<system_settings_dir>/system-settings.json`.
     pub system_settings_json: Vec<u8>,
 }
 
@@ -137,8 +147,9 @@ pub(crate) fn map(
         script,
         workspace,
         private_home,
+        system_settings_dir,
     } = paths;
-    for path in [node, script, workspace, private_home] {
+    for path in [node, script, workspace, private_home, system_settings_dir] {
         ensure!(
             path.is_absolute()
                 && path
@@ -152,8 +163,14 @@ pub(crate) fn map(
         !private_home.starts_with(workspace) && !workspace.starts_with(private_home),
         "Gemini private home must be disjoint from the workspace"
     );
+    ensure!(
+        [private_home, workspace].into_iter().all(|other| {
+            !system_settings_dir.starts_with(other) && !other.starts_with(system_settings_dir)
+        }),
+        "Gemini system settings must be outside the agent home and workspace"
+    );
     let home = private_home.to_str().context("Gemini home UTF8")?;
-    let system_settings = private_home.join(SYSTEM_SETTINGS_FILE);
+    let system_settings = system_settings_dir.join(SYSTEM_SETTINGS_FILE);
     let arguments = vec![
         script.to_str().context("Gemini script UTF8")?.to_owned(),
         // Headless; the prompt text arrives on stdin and is appended.
