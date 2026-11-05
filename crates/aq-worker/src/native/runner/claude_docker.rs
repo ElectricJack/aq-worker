@@ -154,7 +154,9 @@ impl NativeExecutor for ClaudeDockerExecutor {
             .await;
             // The host stop kills the driver; make sure its sandbox is stopped
             // too (preserving its disk). A destroyed or exited one is left as is.
-            if let Err(error) = stop_attempt_sandbox(&profile, self.node_id, id).await {
+            if let Err(error) =
+                stop_attempt_sandbox(&profile.config().docker_local, self.node_id, id).await
+            {
                 tracing::warn!(attempt_id = %id, "sandbox stop after host stop failed: {error:#}");
             }
             driven
@@ -163,14 +165,13 @@ impl NativeExecutor for ClaudeDockerExecutor {
 }
 
 /// Stops (never destroys) any still-running sandbox owned by this attempt.
-async fn stop_attempt_sandbox(
-    profile: &ClaudeDockerHostProfile,
+pub(crate) async fn stop_attempt_sandbox(
+    docker_local: &crate::backend::docker_local::DockerLocalConfig,
     node: uuid::Uuid,
     attempt: uuid::Uuid,
 ) -> Result<()> {
     use crate::backend::{PlacementBackend, SandboxState, docker_local::DockerLocalBackend};
-    let mut backend =
-        DockerLocalBackend::connect_unix(profile.config().docker_local.clone()).await?;
+    let mut backend = DockerLocalBackend::connect_unix(docker_local.clone()).await?;
     for entry in backend.list_owned(node).await? {
         if entry.sandbox.owner.attempt_id == attempt && entry.state == SandboxState::Running {
             let stopped = backend.stop(&entry.sandbox).await;

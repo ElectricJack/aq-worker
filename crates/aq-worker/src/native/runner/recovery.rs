@@ -71,6 +71,7 @@ pub async fn reconcile_native(
         let proof = handle.stopped_proof()?;
         journal.native_stopped(attempt_id, &proof)?;
         tracing::warn!(%attempt_id, "recovered physical host stop after node restart");
+
         attempt = journal
             .state()
             .attempts
@@ -78,12 +79,30 @@ pub async fn reconcile_native(
             .context("native recovery attempt absent")?
             .clone();
     }
+    // MS1 review: a host stop kills the node-side driver, not its docker-local
+    // sandbox, where Claude would keep running with the attempt's token. Stop
+    // (never destroy) any still-running sandbox of this attempt.
+    if attempt.native_host.is_some() {
+        stop_claude_sandbox(config, worker.node_id, attempt_id).await?;
+    }
     let client = NativeClient::from_config(worker)?;
     replay(&client, &attempt, |receipt| {
         check_root(config, &held)?;
         receipt.retain(&mut journal, attempt_id)
     })
     .await
+}
+
+/// Stops any still-running docker-local sandbox of a Claude docker attempt
+/// (its disk is preserved). Other executors have no sandbox.
+async fn stop_claude_sandbox(config: &NativeConfig, node: Uuid, attempt: Uuid) -> Result<()> {
+    if let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+        &config.executor
+    {
+        super::claude_docker::stop_attempt_sandbox(&settings.host.docker_local, node, attempt)
+            .await?;
+    }
+    Ok(())
 }
 
 async fn replay(
