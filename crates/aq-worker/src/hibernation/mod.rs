@@ -8,7 +8,10 @@
 pub mod archive;
 pub mod continuation;
 pub mod credentials;
+pub mod http;
 pub mod journal;
+pub mod launcher;
+pub mod ports;
 pub mod suspend;
 
 use anyhow::{Result, anyhow, bail};
@@ -19,9 +22,15 @@ use uuid::Uuid;
 
 pub use continuation::{ContinuationBootstrap, OperationsGate, SessionLauncher, Woken};
 pub use credentials::{CredentialLayout, ScrubbedSecrets};
+pub use http::{Directives, HttpLifecycleApi, LifecycleStatus};
+pub use launcher::{
+    FreshSessionLauncher, IssuedCredentials, SessionHostStart, SuccessorCredentials,
+};
+pub use ports::{AgentLifecycle, LocalGuardian, NodePorts, WriterGuardian};
 pub use suspend::{Suspended, Suspender, SuspensionPorts};
 
-/// The scoped AQ lifecycle API (H4 routes in production, `ConformancePeer` in tests).
+/// The scoped AQ lifecycle API (`HttpLifecycleApi` over the worker lifecycle
+/// routes in production, `ConformancePeer` in tests).
 pub trait LifecycleApi {
     fn send(&mut self, packet: &Packet) -> Result<Receipt>;
 }

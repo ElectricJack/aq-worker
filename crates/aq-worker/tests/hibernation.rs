@@ -897,3 +897,289 @@ fn continuation_recovers_at_every_boundary() {
         );
     }
 }
+
+// ---------- production lifecycle adapter over the worker routes ----------
+
+mod routes {
+    //! Local stand-in for aq-server's `/v1/worker/lifecycle/*` routes: one
+    //! `ConformancePeer` per bearer, receipts deduplicated by message id and
+    //! body digest, and the pending directives for each attempt.
+    use super::*;
+    use axum::{
+        Json, Router,
+        body::Bytes,
+        extract::{Query, State},
+        http::{HeaderMap, StatusCode},
+        routing::{get, post},
+    };
+    use std::sync::{Arc, Mutex};
+
+    pub struct Attempt {
+        pub binding: Binding,
+        pub peer: ConformancePeer,
+        pub directives: Directives,
+        pub posts: usize,
+    }
+    pub type Shared = Arc<Mutex<BTreeMap<String, Attempt>>>;
+
+    #[derive(serde::Deserialize)]
+    struct AttemptQuery {
+        attempt_id: Uuid,
+    }
+
+    fn bearer(headers: &HeaderMap) -> Option<String> {
+        let value = headers.get("authorization")?.to_str().ok()?;
+        Some(value.strip_prefix("Bearer ")?.to_owned())
+    }
+
+    async fn directives(
+        State(shared): State<Shared>,
+        headers: HeaderMap,
+        Query(q): Query<AttemptQuery>,
+    ) -> Result<Json<Directives>, StatusCode> {
+        let all = shared.lock().unwrap();
+        let attempt = bearer(&headers)
+            .and_then(|t| all.get(&t))
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        if attempt.binding.attempt_id != q.attempt_id {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        Ok(Json(attempt.directives.clone()))
+    }
+
+    async fn packets(
+        State(shared): State<Shared>,
+        headers: HeaderMap,
+        body: Bytes,
+    ) -> Result<Json<Receipt>, StatusCode> {
+        let mut all = shared.lock().unwrap();
+        let attempt = bearer(&headers)
+            .and_then(|t| all.get_mut(&t))
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        let packet = decode(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
+        attempt.posts += 1;
+        match attempt.peer.receive(&packet) {
+            Ok(receipt) => Ok(Json(receipt)),
+            Err(ContractError::Conflict) => Err(StatusCode::CONFLICT),
+            Err(ContractError::Stale) => Err(StatusCode::FORBIDDEN),
+            Err(_) => Err(StatusCode::BAD_REQUEST),
+        }
+    }
+
+    /// Serve on a background thread; returns the base URL.
+    pub fn serve(shared: Shared) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+                let app = Router::new()
+                    .route("/v1/worker/lifecycle/directives", get(directives))
+                    .route("/v1/worker/lifecycle/packets", post(packets))
+                    .with_state(shared);
+                let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                axum::serve(listener, app).await.unwrap();
+            });
+        });
+        base
+    }
+}
+
+/// Writer stop stand-in; the guardian receipt mapping is unit-tested.
+struct StoppedGuardian(StopObservation);
+impl WriterGuardian for StoppedGuardian {
+    fn stop_writers(&mut self) -> Result<StopObservation> {
+        Ok(self.0.clone())
+    }
+}
+/// Agent surface stand-in (no AQ or harness route exists yet).
+struct FakeAgent(FakeNode);
+impl AgentLifecycle for FakeAgent {
+    fn request_checkpoint(&mut self, intent: &SuspensionIntent) -> Result<CheckpointClaim> {
+        self.0.request_checkpoint(intent)
+    }
+    fn close_input(&mut self) -> Result<()> {
+        self.0.close_input()
+    }
+    fn reconcile_effects(&mut self, pending: &[Uuid]) -> Result<EffectsObservation> {
+        self.0.reconcile_effects(pending)
+    }
+}
+
+#[test]
+fn suspend_wake_through_http_lifecycle_adapter() {
+    use aq_worker::backend::{self as be, PlacementBackend};
+    use routes::Attempt;
+
+    let caps = caps();
+    let shared: routes::Shared = Default::default();
+    shared.lock().unwrap().insert(
+        "predecessor-permit".into(),
+        Attempt {
+            binding: predecessor(),
+            peer: ConformancePeer::new(predecessor(), caps.clone()).unwrap(),
+            directives: Directives {
+                suspend: Some(suspend_directive()),
+                disk_release: None,
+                continuation: None,
+            },
+            posts: 0,
+        },
+    );
+    let base = routes::serve(shared.clone());
+
+    // Node A: a real placement sandbox behind the node ports.
+    let mut backend = be::FakeBackend::default();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let request = be::CreateRequest::new(
+        be::Ownership {
+            node_id: Uuid::from_u128(1),
+            boot_id: Uuid::from_u128(2),
+            attempt_id: predecessor().attempt_id,
+        },
+        be::TemplateDigest::parse(format!("sha256:{}", "a".repeat(64))).unwrap(),
+        100,
+        vec![be::Capability::PersistentDiskDuringAttempt],
+    );
+    let sandbox = rt.block_on(backend.create(&request)).unwrap();
+    let mut ports = NodePorts::new(
+        backend,
+        sandbox.clone(),
+        StoppedGuardian(FakeNode::new().stop),
+        FakeAgent(FakeNode::new()),
+    )
+    .unwrap();
+
+    let a = node();
+    dirty_workspace(&a.layout);
+    let old_secrets = plant_credentials(&a.layout);
+    let mut aq_a = HttpLifecycleApi::new(&base, "predecessor-permit").unwrap();
+
+    // Suspend: the directive arrives over GET, every packet goes over POST.
+    let pending = aq_a.directives(predecessor().attempt_id).unwrap();
+    let directive = pending.suspend.expect("suspend directive pending");
+    assert_eq!(directive, suspend_directive());
+    let mut retention = FakeRetention::default();
+    let parked = Suspender::new(&a.journal, predecessor(), a.layout.clone())
+        .with_chunk_bytes(4096)
+        .suspend(&directive, &mut ports, &mut aq_a, &mut retention)
+        .unwrap();
+    assert_eq!(
+        parked.report.disposition,
+        SuspensionDisposition::RetainedSuspended
+    );
+    assert_eq!(
+        parked.receipt.disposition,
+        ReceiptDisposition::ParkingRecorded
+    );
+    let inventory = rt.block_on(ports.backend_mut().inspect(&sandbox)).unwrap();
+    assert_eq!(inventory.state, be::SandboxState::Stopped);
+    assert!(inventory.disk_present, "compute release preserves disk");
+    assert_eq!(shared.lock().unwrap()["predecessor-permit"].posts, 2);
+
+    // A replayed directive returns the same parking receipt; AQ dedups.
+    let again = Suspender::new(&a.journal, predecessor(), a.layout.clone())
+        .suspend(&directive, &mut ports, &mut aq_a, &mut retention)
+        .unwrap();
+    assert_eq!(again.receipt, parked.receipt);
+
+    // AQ directs disk release; the node destroys the sandbox under it.
+    let release = artifact("aq-disk-release-directive");
+    shared
+        .lock()
+        .unwrap()
+        .get_mut("predecessor-permit")
+        .unwrap()
+        .directives
+        .disk_release = Some(release.clone());
+    let release = aq_a
+        .directives(predecessor().attempt_id)
+        .unwrap()
+        .disk_release
+        .unwrap();
+    let released = Suspender::new(&a.journal, predecessor(), a.layout.clone())
+        .release_disk(&release, &mut ports, &mut aq_a)
+        .unwrap();
+    assert!(released.report.protected_disk_released);
+    let inventory = rt.block_on(ports.backend_mut().inspect(&sandbox)).unwrap();
+    assert_eq!(inventory.state, be::SandboxState::Destroyed);
+    drop(a);
+
+    // Wake: AQ grants the successor a continuation attachment.
+    let wake = continuation_packet(&parked);
+    let attachment = attachment_of(&wake);
+    let mut peer_b = ConformancePeer::new(successor(), caps).unwrap();
+    peer_b.receive(&wake).unwrap();
+    shared.lock().unwrap().insert(
+        "successor-permit".into(),
+        Attempt {
+            binding: successor(),
+            peer: peer_b,
+            directives: Directives {
+                suspend: None,
+                disk_release: None,
+                continuation: Some(wake.clone()),
+            },
+            posts: 0,
+        },
+    );
+    let mut aq_b = HttpLifecycleApi::new(&base, "successor-permit").unwrap();
+    let wake = aq_b
+        .directives(successor().attempt_id)
+        .unwrap()
+        .continuation
+        .expect("continuation pending");
+
+    let b = node();
+    let mut launcher = FakeLauncher::default();
+    let mut boot = ContinuationBootstrap::new(&b.journal, successor(), b.layout.clone());
+    let woken = boot.wake(&wake, &retention, &mut launcher).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(b.layout.workspace().join("untracked.txt")).unwrap(),
+        "new work\n"
+    );
+    assert_eq!(launcher.launches.len(), 1);
+    for path in b.layout.paths() {
+        assert!(!old_secrets.contains(&std::fs::read_to_string(&path).unwrap()));
+    }
+    assert_eq!(woken.gate, OperationsGate::AwaitingBootstrapAck);
+    let gate = boot
+        .acknowledge(&ack_for(&woken, &attachment), &mut aq_b)
+        .unwrap();
+    assert_eq!(gate, OperationsGate::Open);
+    assert!(
+        shared.lock().unwrap()["successor-permit"]
+            .peer
+            .bootstrap_acknowledged()
+    );
+
+    // Route errors surface as typed statuses, never as receipts.
+    let reused = Packet::seal(
+        woken.ack_message_id,
+        Message::Checkpoint(Checkpoint {
+            binding: successor(),
+            continuation: attachment.continuation.clone(),
+            claim: CheckpointClaim::Missing {
+                reason: Text::new("conflicting body").unwrap(),
+            },
+        }),
+    )
+    .unwrap();
+    let err = aq_b.send(&reused).unwrap_err();
+    assert_eq!(
+        err.downcast_ref::<LifecycleStatus>().map(|s| s.0.as_u16()),
+        Some(409)
+    );
+    let mut stranger = HttpLifecycleApi::new(&base, "unknown-permit").unwrap();
+    let err = stranger.send(&wake).unwrap_err();
+    assert_eq!(
+        err.downcast_ref::<LifecycleStatus>().map(|s| s.0.as_u16()),
+        Some(401)
+    );
+}
