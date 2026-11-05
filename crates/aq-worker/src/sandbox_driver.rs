@@ -307,9 +307,9 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
 fn last_result(stream: &[u8]) -> Option<serde_json::Value> {
     stream
         .split(|b| *b == b'\n')
+        .rev()
         .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
-        .filter(|v| v["type"] == "result")
-        .last()
+        .find(|v| v["type"] == "result")
 }
 
 /// MS1 review B1: a Claude exit 0 alone never proves the work was done
