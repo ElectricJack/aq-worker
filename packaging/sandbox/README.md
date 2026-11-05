@@ -41,9 +41,13 @@ Docker BuildKit. Supply a directory containing the following six public files:
 - `opencode`: extract the pinned `archive_member` (`package/bin/opencode`)
   from the pinned npm tarball of `opencode-linux-x64` (glibc), verified the
   same way; the build checks `opencode --version` against the pinned version.
+- `gemini.tgz`: the pinned npm tarball of `@google/gemini-cli` as published
+  (verify against `sha256` and the registry `integrity`). The build extracts
+  `package/` to `/opt/aq/harnesses/gemini`, checks `bundle/gemini.js` against
+  `bundle_sha256` and `gemini --version` against the pinned version.
 - `node.tar.xz`: the official Node archive at its pinned URL.
 
-Only those six names are read from the public inputs directory. Use no
+Only those seven names are read from the public inputs directory. Use no
 credentials, login homes or private build configuration. Example:
 
 ```sh
@@ -62,10 +66,12 @@ revision. Output directories must be fresh; corrupt inputs leave no context.
 
 ## Installed interface
 
-- `/opt/aq/bin/{aq-worker,aq-session-host,aq-git,codex,claude,opencode}`
+- `/opt/aq/bin/{aq-worker,aq-session-host,aq-git,codex,claude,opencode,gemini}`
 - `/opt/aq/harnesses/codex/codex` (the native executable; `bin/codex` selects it)
 - `/opt/aq/harnesses/claude/claude` (the native executable; `bin/claude` selects it)
 - `/opt/aq/harnesses/opencode/opencode` (the native executable; `bin/opencode` selects it)
+- `/opt/aq/harnesses/gemini/` (the extracted npm package; `bin/gemini` is a
+  wrapper that execs `/opt/aq/node/bin/node /opt/aq/harnesses/gemini/bundle/gemini.js`)
 - `/opt/aq/node/bin/node` (absolute private runtime path, independent of the
   project's Node/PATH; future Node-based harness wrappers must select it)
 - `/opt/aq/{manifest.json,pins.json,source.json}`
@@ -76,7 +82,8 @@ entry has `name`, `version`, absolute `path`, lowercase hex `sha256` of the
 installed bytes and `bytes`. `source` records the worker revision, source tar
 digest and crate versions. `harnesses` is a list so later tasks can extend it;
 today it lists Codex, Claude Code (`claude`, the version the C6a recipe
-admits) and OpenCode (`opencode`, the version the I3 recipe admits). Proxy values are `in-process:aq-worker`.
+admits), OpenCode (`opencode`, the version the I3 recipe admits) and Gemini CLI (`gemini`, the bundle script the I2 recipe runs with
+the bundle Node). Proxy values are `in-process:aq-worker`.
 The manifest generator hashes the installed files after copying/extraction.
 Downstream template advertising (SBX18) can read this list directly.
 

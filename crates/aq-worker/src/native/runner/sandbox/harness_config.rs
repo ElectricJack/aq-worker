@@ -11,9 +11,16 @@
 //! - Claude gets a private `HOME`/`CLAUDE_CONFIG_DIR` holding `settings.json`.
 //!   It logs in by subscription only, so the home holds no key or token here.
 //!
+//! - Gemini gets a private `GEMINI_CLI_HOME` holding the system-scope
+//!   `system-settings.json` (it outranks workspace settings). With the
+//!   runner's loopback Gemini proxy it carries only the proxy capability, in
+//!   the spawn environment; on subscription the C6b login installs
+//!   `.gemini/oauth_creds.json` after this home exists.
+//!
 //! These are library APIs; B6a2 owns wiring them into `run_as_agent`.
 use super::confinement::{AuthorizedConfinement, ConfinementMode};
 use crate::native::adapter::claude::{self, ClaudePaths, ClaudeRecipe};
+use crate::native::adapter::gemini::{self, GeminiAuth, GeminiPaths, GeminiRecipe};
 use crate::native::adapter::opencode::{self, OpenCodePaths, OpenCodeRecipe, OpenCodeRoute};
 use anyhow::{Context, Result, ensure};
 use aq_codex_mapper::{LoopbackResponsesEndpoint, Paths, Recipe, Settings};
@@ -161,5 +168,27 @@ impl OpenCodeAgentHome {
     /// into (it must not exist yet).
     pub fn login_dir(private_home: &Path) -> PathBuf {
         private_home.join("data/opencode")
+    }
+}
+
+pub struct GeminiAgentHome;
+impl GeminiAgentHome {
+    /// Creates the home and its system settings; the state directory
+    /// `.gemini` is left to the CLI or to the C6b subscription login.
+    pub fn install(
+        confinement: &AuthorizedConfinement,
+        harness: &HarnessSettings,
+        model: &ModelSettings,
+        paths: GeminiPaths<'_>,
+        auth: GeminiAuth<'_>,
+    ) -> Result<GeminiRecipe> {
+        let recipe = gemini::map(harness, model, paths, confinement.mode(), auth)?;
+        let home = create_private_home(paths.private_home)?;
+        write_private(
+            &home,
+            gemini::SYSTEM_SETTINGS_FILE,
+            &recipe.system_settings_json,
+        )?;
+        Ok(recipe)
     }
 }

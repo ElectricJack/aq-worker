@@ -118,6 +118,15 @@ pub struct ReparseMetadata {
     pub known: BTreeMap<String, ReplayFact>,
     pub handled: BTreeSet<String>,
 }
+/// An oversized native record spans several frames. The chain names the
+/// continuation frame expected next and whether the record is skipped.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OversizedChain {
+    pub generation: u64,
+    pub next_start: u64,
+    pub skip: bool,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Context {
@@ -135,6 +144,9 @@ pub struct Context {
     pub last_cumulative: Option<Value>,
     pub maximum_tracked: usize,
     pub next_display_ordinal: u64,
+    /// Open oversized-record chain; absent between records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oversized_chain: Option<OversizedChain>,
 }
 impl Context {
     pub fn new(source: Source, maximum_tracked: usize) -> Result<Self> {
@@ -159,6 +171,7 @@ impl Context {
             last_cumulative: None,
             maximum_tracked,
             next_display_ordinal: 0,
+            oversized_chain: None,
         })
     }
     pub fn bind_scoped_record_channel(mut self, key: &str) -> Result<Self> {
@@ -354,7 +367,31 @@ impl Normalizer<'_> {
                 end: frame.end()?,
             }
         };
-        let drafts = if frame.oversized {
+        let skip = frame.oversized
+            && match &self.oversized_chain {
+                Some(chain)
+                    if chain.generation == self.source.generation
+                        && chain.next_start == frame.start =>
+                {
+                    chain.skip
+                }
+                _ => {
+                    self.source.format == Format::ClaudeV1Jsonl9a9b8e8
+                        && formats::claude::skips_oversized(&frame.bytes)
+                }
+            };
+        let oversized_chain = if frame.oversized && !frame.bytes.ends_with(b"\n") {
+            Some(OversizedChain {
+                generation: self.source.generation,
+                next_start: frame.end()?,
+                skip,
+            })
+        } else {
+            None
+        };
+        let drafts = if skip {
+            vec![]
+        } else if frame.oversized {
             vec![gap(
                 GapReason::Malformed,
                 format!("oversized:{}:{}", self.source.generation, frame.start),
@@ -399,6 +436,7 @@ impl Normalizer<'_> {
                 )],
             }
         };
+        next.oversized_chain = oversized_chain;
         if drafts.iter().any(|d| {
             matches!(
                 d.kind,

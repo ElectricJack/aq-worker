@@ -81,6 +81,17 @@ class SandboxPackaging(unittest.TestCase):
             self.package(self.root / 'corrupt')
         self.assertFalse((self.root / 'corrupt').exists())
 
+    def test_gemini_input_is_pinned_and_checked(self):
+        output = self.root / 'out'
+        self.package(output)
+        sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
+        self.assertIn(self.pins['inputs']['gemini.tgz']['sha256'] + '  gemini.tgz', sums)
+        self.assertEqual((output / 'runtime/gemini.tgz').read_bytes(), b'gemini.tgz')
+        (self.inputs / 'gemini.tgz').write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch: gemini.tgz'):
+            self.package(self.root / 'corrupt')
+        self.assertFalse((self.root / 'corrupt').exists())
+
     def test_symlink_input_refuses(self):
         (self.inputs / 'codex').unlink()
         (self.inputs / 'codex').symlink_to('aq-git')

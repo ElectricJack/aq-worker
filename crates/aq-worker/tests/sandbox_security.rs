@@ -669,3 +669,149 @@ async fn api_key_never_visible_to_agent_user() {
     );
     proxy.stop().await.unwrap();
 }
+
+// I2: the Gemini home holds only system settings; the agent sees only the
+// proxy capability, and a native confinement is refused before any file exists.
+#[tokio::test]
+async fn gemini_home_carries_only_the_proxy_capability() {
+    use aq_session_protocol::{ArtifactRef, Capability, Digest, HarnessSettings, Text};
+    use aq_worker::native::adapter::gemini::{
+        FORBIDDEN_ENVIRONMENT, GEMINI_CLI_VERSION, GeminiAuth, GeminiPaths,
+    };
+    use aq_worker::native::runner::sandbox::{
+        confinement::*, gemini_proxy::GeminiApiProxy, harness_config::GeminiAgentHome,
+    };
+    const KEY: &str = "AIzaGeminiProviderOnlySecret_i2";
+    let root = tempfile::tempdir().unwrap();
+    let files = RunnerFiles::create(&root.path().join("runner")).unwrap();
+    files.write_secret("provider.key", KEY.as_bytes()).unwrap();
+    let proxy = GeminiApiProxy::development_loopback(
+        "http://127.0.0.1:9",
+        &files.root().join("provider.key"),
+    )
+    .await
+    .unwrap();
+    let text = |s: &str| Text::new(s).unwrap();
+    let artifact = ArtifactRef {
+        id: text("fixture"),
+        version: text("1"),
+        digest: Digest::of(b"fixture"),
+    };
+    let harness = |confinement: &str| HarnessSettings {
+        harness: text("gemini"),
+        cli_version: text(GEMINI_CLI_VERSION),
+        adapter: artifact.clone(),
+        environment: artifact.clone(),
+        required_capabilities: ["aq.harness.startup-context", confinement, "aq.harness.stop"]
+            .map(|id| Capability {
+                id: text(id),
+                version: 1,
+            })
+            .to_vec(),
+    };
+    let model = aq_session_protocol::ModelSettings {
+        provider: text("google"),
+        model: text("gemini-2.5-flash"),
+        reasoning: text("medium"),
+        max_output_tokens: 100,
+        spending_budget: None,
+    };
+    let separation = AttemptSeparation {
+        runner_uid: 1001,
+        agent: aq_session_host::users::AgentIdentity {
+            uid: 1002,
+            gid: 1002,
+        },
+        credentials_attempt_scoped: true,
+    };
+    let permit = ExecutionConfinement {
+        permit_container: true,
+        require_native: false,
+    };
+    let workspace = root.path().join("work");
+    let paths = |home: &'static str| GeminiPaths {
+        node: std::path::Path::new("/opt/aq/node/bin/node"),
+        script: std::path::Path::new("/opt/aq/harnesses/gemini/bundle/gemini.js"),
+        workspace: Box::leak(workspace.clone().into_boxed_path()),
+        private_home: Box::leak(root.path().join(home).into_boxed_path()),
+    };
+    let auth = GeminiAuth::ApiKeyProxy {
+        origin: proxy.origin(),
+        capability: proxy.local_capability(),
+    };
+    let container = authorize(
+        ConfinementMode::Container,
+        &permit,
+        &QualificationRecord::docker_local("aq-rust"),
+        &separation,
+    )
+    .unwrap();
+    let recipe = GeminiAgentHome::install(
+        &container,
+        &harness("aq.harness.container-confinement"),
+        &model,
+        paths("gemini-home"),
+        auth,
+    )
+    .unwrap();
+    let home = root.path().join("gemini-home");
+    assert_eq!(std::fs::metadata(&home).unwrap().mode() & 0o777, 0o700);
+    let listed: Vec<_> = std::fs::read_dir(&home)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(listed, ["system-settings.json"]);
+    let settings = home.join("system-settings.json");
+    assert_eq!(std::fs::metadata(&settings).unwrap().mode() & 0o777, 0o600);
+    let all: Vec<&str> = recipe
+        .arguments
+        .iter()
+        .chain(recipe.environment.values())
+        .map(String::as_str)
+        .collect();
+    assert!(
+        !all.iter()
+            .any(|v| v.contains(KEY) || v.contains("provider.key"))
+    );
+    assert!(
+        !String::from_utf8(std::fs::read(&settings).unwrap())
+            .unwrap()
+            .contains(KEY)
+    );
+    assert_eq!(
+        recipe.environment["GEMINI_API_KEY"],
+        proxy.local_capability()
+    );
+    for name in FORBIDDEN_ENVIRONMENT {
+        if !matches!(*name, "GEMINI_API_KEY" | "GOOGLE_GEMINI_BASE_URL") {
+            assert!(!recipe.environment.contains_key(*name), "{name}");
+        }
+    }
+    let native = authorize(
+        ConfinementMode::Native,
+        &permit,
+        &QualificationRecord::from_native_probe(
+            "aq-rust",
+            "vm",
+            BackendBoundary::Container,
+            NativeProbe {
+                outside_write_refused: true,
+            },
+            "fixture",
+        ),
+        &separation,
+    )
+    .unwrap();
+    assert!(
+        GeminiAgentHome::install(
+            &native,
+            &harness("aq.harness.confined-worktree"),
+            &model,
+            paths("gemini-native"),
+            auth,
+        )
+        .is_err()
+    );
+    assert!(!root.path().join("gemini-native").exists());
+    proxy.stop().await.unwrap();
+}

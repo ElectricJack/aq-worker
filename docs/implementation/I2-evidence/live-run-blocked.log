@@ -1,0 +1,27 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-3/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.25s
+     Running tests/gemini_live.rs (target/debug/deps/gemini_live-c6f31f941d7b84ef)
+
+running 2 tests
+
+thread 'live_gemini_subscription_edit_check_publish_cycle_with_write_back' (1820457) panicked at crates/aq-worker/tests/gemini_live.rs:282:44:
+AQ_GEMINI_LIVE_OAUTH_CREDS_FILE must be set for the live Gemini test
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test live_gemini_subscription_edit_check_publish_cycle_with_write_back ... FAILED
+runner exit Some(Exited(1)): {"base":"8c09fa6944e98ab66f6e5417fac349814fb358b6","cap_eff":"0000000000000000","check_rc":101,"cli_version":"0.67.0","gemini_rc":146,"head":"8c09fa6944e98ab66f6e5417fac349814fb358b6","material_wiped":true,"no_new_privs":1,"proxy_rc":0,"publish_rc":1,"published":"none","recordings":1,"red":true,"secret_files":0,"uid":0}
+
+thread 'live_gemini_api_key_proxy_edit_check_publish_cycle' (1820456) panicked at crates/aq-worker/tests/gemini_live.rs:496:5:
+assertion `left == right` failed: result: {"base":"8c09fa6944e98ab66f6e5417fac349814fb358b6","cap_eff":"0000000000000000","check_rc":101,"cli_version":"0.67.0","gemini_rc":146,"head":"8c09fa6944e98ab66f6e5417fac349814fb358b6","material_wiped":true,"no_new_privs":1,"proxy_rc":0,"publish_rc":1,"published":"none","recordings":1,"red":true,"secret_files":0,"uid":0}
+  left: Some(Exited(1))
+ right: Some(Exited(0))
+test live_gemini_api_key_proxy_edit_check_publish_cycle ... FAILED
+
+failures:
+
+failures:
+    live_gemini_api_key_proxy_edit_check_publish_cycle
+    live_gemini_subscription_edit_check_publish_cycle_with_write_back
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3 filtered out; finished in 19.41s
+
+error: test failed, to rerun pass `-p aq-worker --test gemini_live`

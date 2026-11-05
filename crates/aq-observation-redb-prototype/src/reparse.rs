@@ -219,6 +219,7 @@ impl Store {
         context.counter_generation = 1;
         context.last_cumulative = None;
         context.next_display_ordinal = 0;
+        context.oversized_chain = None;
         context.reparse = Some(engine::ReparseMetadata {
             operation_id: plan.operation_id,
             known: plan.known.clone(),

@@ -72,6 +72,7 @@ impl<'a> SandboxStartup<'a> {
         journal: &mut journal::Journal,
         agent: Option<aq_session_host::users::AgentIdentity>,
         mut shutdown: watch::Receiver<bool>,
+        login: Option<LoginEnv<'_>>,
     ) -> Result<(SessionHandle, Option<OutputRuntime>)> {
         use crate::native::launch::sandbox as host;
         match self {
@@ -82,7 +83,7 @@ impl<'a> SandboxStartup<'a> {
                     &frozen.manifest,
                     permit,
                     local,
-                    &HarnessRef(adapter),
+                    &HarnessRef(adapter, login),
                     journal,
                     agent,
                 )?,
@@ -99,7 +100,7 @@ impl<'a> SandboxStartup<'a> {
                     startup,
                     permit,
                     local,
-                    &ObservedRef(adapter),
+                    &ObservedRef(adapter, login),
                     journal,
                     agent,
                 )?;
@@ -130,14 +131,48 @@ impl<'a> SandboxStartup<'a> {
         }
     }
 }
-struct HarnessRef<'a>(&'a dyn HarnessAdapter);
+/// One subscription-login entry for the spawned harness process environment
+/// (`CLAUDE_CODE_OAUTH_TOKEN` or `CODEX_HOME`). It is added to the adapter's
+/// command environment only: never argv, never the C6a recipe environment.
+#[derive(Clone, Copy)]
+pub(super) struct LoginEnv<'a> {
+    pub name: &'static str,
+    pub value: &'a str,
+}
+fn with_login(
+    mut launch: aq_session_host::AdapterLaunch,
+    login: Option<LoginEnv<'_>>,
+) -> Result<aq_session_host::AdapterLaunch> {
+    if let Some(login) = login {
+        ensure!(
+            launch
+                .command
+                .environment
+                .insert(login.name.to_owned(), login.value.to_owned())
+                .is_none(),
+            "adapter already sets the subscription login variable"
+        );
+    }
+    Ok(launch)
+}
+fn without_private_input(
+    input: Option<aq_session_host::PrivateLaunchInput>,
+    login: Option<LoginEnv<'_>>,
+) -> Result<Option<aq_session_host::PrivateLaunchInput>> {
+    ensure!(
+        login.is_none() || input.is_none(),
+        "subscription login and private launch input are exclusive"
+    );
+    Ok(input)
+}
+struct HarnessRef<'a>(&'a dyn HarnessAdapter, Option<LoginEnv<'a>>);
 impl HarnessAdapter for HarnessRef<'_> {
     fn prepare(
         &self,
         m: &aq_session_protocol::LaunchManifest,
         p: &Path,
     ) -> Result<aq_session_host::AdapterLaunch> {
-        self.0.prepare(m, p)
+        with_login(self.0.prepare(m, p)?, self.1)
     }
     fn readiness(
         &self,
@@ -150,17 +185,17 @@ impl HarnessAdapter for HarnessRef<'_> {
         m: &aq_session_protocol::LaunchManifest,
         p: &Path,
     ) -> Result<Option<aq_session_host::PrivateLaunchInput>> {
-        self.0.private_input(m, p)
+        without_private_input(self.0.private_input(m, p)?, self.1)
     }
 }
-struct ObservedRef<'a>(&'a dyn ObservedHarnessAdapter);
+struct ObservedRef<'a>(&'a dyn ObservedHarnessAdapter, Option<LoginEnv<'a>>);
 impl HarnessAdapter for ObservedRef<'_> {
     fn prepare(
         &self,
         m: &aq_session_protocol::LaunchManifest,
         p: &Path,
     ) -> Result<aq_session_host::AdapterLaunch> {
-        self.0.prepare(m, p)
+        with_login(self.0.prepare(m, p)?, self.1)
     }
     fn readiness(
         &self,
@@ -173,7 +208,7 @@ impl HarnessAdapter for ObservedRef<'_> {
         m: &aq_session_protocol::LaunchManifest,
         p: &Path,
     ) -> Result<Option<aq_session_host::PrivateLaunchInput>> {
-        self.0.private_input(m, p)
+        without_private_input(self.0.private_input(m, p)?, self.1)
     }
 }
 impl ObservedHarnessAdapter for ObservedRef<'_> {

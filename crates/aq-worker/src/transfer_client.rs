@@ -108,12 +108,18 @@ impl TransferClient {
     }
 
     fn request(&self, method: Method, suffix: &str) -> reqwest::RequestBuilder {
+        self.at(method, &format!("{PREFIX}/{suffix}"))
+    }
+
+    /// Node-authenticated request to `path` on the coordinator (shared with
+    /// [`crate::artifact_client::ArtifactClient`]).
+    pub(crate) fn at(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
         self.http
-            .request(method, format!("{}/{PREFIX}/{suffix}", self.base))
+            .request(method, format!("{}/{path}", self.base))
             .header(header::AUTHORIZATION, self.credential.clone())
     }
 
-    async fn bytes(request: reqwest::RequestBuilder, limit: usize) -> Result<Vec<u8>> {
+    pub(crate) async fn bytes(request: reqwest::RequestBuilder, limit: usize) -> Result<Vec<u8>> {
         let mut response = request
             .send()
             .await

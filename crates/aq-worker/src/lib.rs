@@ -1,5 +1,6 @@
 //! Agent Q worker connector library.
 
+pub mod artifact_client;
 pub mod backend;
 pub mod backoff;
 pub mod checks;

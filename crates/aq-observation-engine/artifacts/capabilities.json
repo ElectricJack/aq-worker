@@ -18,7 +18,7 @@
         "reasoning"
       ],
       "parser": {
-        "digest": "66ec0218e78e75a3d08a613535a6df77ca730876fa4f4cdfe08d3ce2fddf8afc",
+        "digest": "048a19804f680b53ed5a14bc33f65984b4842da457c3bf42e1c443ccd9e5cad9",
         "id": "codex-rollout-67f0994",
         "version": "0.0.1-engine"
       },
@@ -45,7 +45,7 @@
         "cache_write"
       ],
       "parser": {
-        "digest": "73af50eaaf0701f874f7a0cc1b486f3c50094190241017a7881c4e9ad1b20509",
+        "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
         "id": "claude-v1-9a9b8e8",
         "version": "0.0.1-engine"
       },
@@ -72,7 +72,7 @@
         "reasoning"
       ],
       "parser": {
-        "digest": "a5d9465163819a225ef9a1e112cb7354200a169edf7e627c81f31bd061205e4c",
+        "digest": "cea2ca3aecea14990edd065c011d42e73e752f2933dc1a9c3a1c1754fab071e4",
         "id": "gemini-recording-6814e00",
         "version": "0.0.1-engine"
       },
@@ -100,7 +100,7 @@
         "reasoning"
       ],
       "parser": {
-        "digest": "bea9a52260ae9124db36bf2af916f48466e38f263eb698c7786a02e964bb687d",
+        "digest": "68e8f61324c455603ce160d98379ab67049aa2b99112de19e33ffc8d36427fef",
         "id": "opencode-session-dto-6c24ec9",
         "version": "0.0.1-engine"
       },
