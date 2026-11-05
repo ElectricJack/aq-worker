@@ -11855,5 +11855,31 @@
       }
     },
     "expected": "expired"
+  },
+  {
+    "name": "shared_build_cache_supported",
+    "case": {
+      "kind": "compatibility",
+      "required": [
+        "shared-build-cache"
+      ],
+      "supported": [
+        "shared-build-cache"
+      ]
+    },
+    "expected": "accepted"
+  },
+  {
+    "name": "shared_build_cache_disabled",
+    "case": {
+      "kind": "compatibility",
+      "required": [
+        "shared-build-cache"
+      ],
+      "supported": [
+        "persistent-disk-during-attempt"
+      ]
+    },
+    "expected": "unsupported_required_capability"
   }
 ]

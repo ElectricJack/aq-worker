@@ -551,3 +551,63 @@ fn inventory_serialization_shows_measured_disk_fields_and_accepts_legacy_reports
     assert_eq!(decoded.preserved_count, None);
     assert_eq!(decoded.available_disk_bytes, config().capacity.disk_bytes);
 }
+
+#[tokio::test]
+async fn shared_sccache_node_config_controls_backend_registration() {
+    use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig, SandboxConfig};
+    use crate::backend::docker_local::{
+        DockerRequest, DockerResponse, DockerTransport, TransportError,
+    };
+    struct Daemon;
+    impl DockerTransport for Daemon {
+        async fn send(
+            &self,
+            _: DockerRequest,
+        ) -> std::result::Result<DockerResponse, TransportError> {
+            Ok(DockerResponse { status: 200, body: serde_json::to_vec(&serde_json::json!({
+                "SecurityOptions": ["name=rootless"], "CgroupDriver": "systemd", "CgroupVersion": "2"
+            })).unwrap() })
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("sandbox.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let path = dir.path().join("controller.json");
+    let mut node = config();
+    node.templates.clear();
+    let base = serde_json::json!({
+        "state_dir": dir.path().join("state"), "node": node,
+        // The fake daemon shares the test host's root filesystem (SBX20).
+        "docker_local": {"socket": socket, "shared_root_fs": true}
+    });
+    assert!(!DockerLocalConfig::new(socket).shared_sccache);
+    assert!(!SandboxConfig::default().shared_sccache);
+    for enabled in [None, Some(false), Some(true)] {
+        let mut doc = base.clone();
+        if let Some(enabled) = enabled {
+            doc["sandbox"] = serde_json::json!({"shared_sccache": enabled});
+        }
+        fs::write(&path, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let config = RunConfig::load(&path).unwrap();
+        let docker = config.docker_local.unwrap();
+        assert_eq!(docker.shared_sccache, enabled.unwrap_or(false));
+        let backend = DockerLocalBackend::connect(docker, Daemon).await.unwrap();
+        let c = Controller::open(
+            &config.state_dir,
+            Uuid::from_u128(1),
+            config.node,
+            backend,
+            Provider,
+        )
+        .unwrap();
+        let registration = c.registration().unwrap();
+        registration.validate().unwrap();
+        assert_eq!(
+            registration
+                .backend
+                .capabilities
+                .contains(&sandbox::BackendCapability::SharedBuildCache),
+            enabled.unwrap_or(false)
+        );
+    }
+}

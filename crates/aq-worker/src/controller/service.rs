@@ -12,6 +12,8 @@ pub struct RunConfig {
     pub node: NodeConfig,
     pub docker_local: Option<crate::backend::docker_local::DockerLocalConfig>,
     pub boat: Option<crate::backend::boat::BoatConfig>,
+    #[serde(default)]
+    pub sandbox: crate::backend::docker_local::SandboxConfig,
     /// C4: advertise templates resolved from the C3b allowlist file.
     #[serde(default)]
     pub template_allowlist: Option<super::allowlist::TemplateAllowlistConfig>,
@@ -42,6 +44,14 @@ impl RunConfig {
         );
         if let Some(boat) = &config.boat {
             boat.validate()?;
+        }
+        // The node-shared sccache volume is a docker-local mount only.
+        ensure!(
+            !config.sandbox.shared_sccache || config.docker_local.is_some(),
+            "sandbox.shared_sccache requires the docker-local backend"
+        );
+        if let Some(docker) = &mut config.docker_local {
+            docker.shared_sccache = config.sandbox.shared_sccache;
         }
         // Every advertised template must be allowed by the selected backend.
         for template in &config.node.templates {

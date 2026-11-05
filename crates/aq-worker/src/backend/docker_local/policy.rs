@@ -1,7 +1,7 @@
 //! Fixed launch policy and label identity. Nothing in an offer or request can
 //! widen the create body: limits come from the reservation, mounts only from
-//! the per-attempt volume and operator-declared aliases.
-use super::config::{DockerLocalConfig, WORK_TARGET};
+//! the per-attempt volume, operator cache opt-in and declared aliases.
+use super::config::{DockerLocalConfig, SCCACHE_CACHE_SIZE, SCCACHE_TARGET, WORK_TARGET};
 use crate::backend::{
     BackendError, BackendKind, CreateRequest, InventoryEntry, Ownership, ResourceLimits,
     SandboxIdentity, SandboxState, TemplateDigest, UnconfirmedReason,
@@ -56,6 +56,11 @@ pub fn volume_body(
         body["DriverOpts"] = json!({ "o": format!("size={}", disk_limit_bytes(config, request)) });
     }
     body
+}
+
+/// Node-owned cache; unlike work volumes, never labelled with attempt ownership.
+pub fn sccache_volume_name(node: Uuid) -> String {
+    format!("aq-{}-sccache", node.simple())
 }
 
 pub fn volume_name(name: &str) -> String {
@@ -118,6 +123,17 @@ pub fn create_body(
         "Target": WORK_TARGET,
         "ReadOnly": false,
     })];
+    let mut env = Vec::new();
+    if config.shared_sccache {
+        mounts.push(json!({
+            "Type": "volume",
+            "Source": sccache_volume_name(request.owner.node_id),
+            "Target": SCCACHE_TARGET,
+            "ReadOnly": false,
+        }));
+        env.push(format!("SCCACHE_DIR={SCCACHE_TARGET}"));
+        env.push(format!("SCCACHE_CACHE_SIZE={SCCACHE_CACHE_SIZE}"));
+    }
     for alias in &request.mount_aliases {
         let declared = &config.mount_aliases[alias];
         mounts.push(json!({
@@ -130,7 +146,7 @@ pub fn create_body(
     let mut body = json!({
         "Image": image,
         "Labels": labels(request),
-        "Env": [],
+        "Env": env,
         "WorkingDir": WORK_TARGET,
         "ExposedPorts": {},
         "AttachStdin": false,

@@ -1,0 +1,7 @@
+   Compiling uuid v1.29.0
+   Compiling schemars v1.2.3
+   Compiling aq-session-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-session-protocol)
+   Compiling aq-lifecycle-protocol v0.1.0 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-lifecycle-protocol)
+   Compiling aq-admission v0.3.3 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/protocol/aq-admission)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 42.28s
+     Running `target/debug/examples/export_sandbox`

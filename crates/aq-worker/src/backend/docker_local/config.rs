@@ -12,6 +12,17 @@ use std::{
 pub const MAIN_DAEMON_SOCKETS: &[&str] = &["/var/run/docker.sock", "/run/docker.sock"];
 /// The per-attempt work volume is always mounted here.
 pub const WORK_TARGET: &str = "/aq/work";
+/// Shared cache location, outside the per-attempt work volume.
+pub const SCCACHE_TARGET: &str = "/var/cache/sccache";
+pub const SCCACHE_CACHE_SIZE: &str = "10G";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SandboxConfig {
+    /// Opt in to a shared compiler cache with sccache's 10G eviction cap.
+    #[serde(default)]
+    pub shared_sccache: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,6 +47,9 @@ pub struct MountAlias {
 pub struct DockerLocalConfig {
     /// The dedicated sandbox daemon's API socket. Never the host's main daemon.
     pub socket: PathBuf,
+    /// Populated from the node's `sandbox.shared_sccache` configuration.
+    #[serde(skip)]
+    pub shared_sccache: bool,
     #[serde(default)]
     pub templates: Vec<AllowedTemplate>,
     #[serde(default)]
@@ -99,6 +113,7 @@ impl DockerLocalConfig {
     pub fn new(socket: PathBuf) -> Self {
         Self {
             socket,
+            shared_sccache: false,
             templates: Vec::new(),
             mount_aliases: BTreeMap::new(),
             runner_command: None,

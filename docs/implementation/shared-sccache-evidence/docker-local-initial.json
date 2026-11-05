@@ -1,0 +1,15 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "aq-worker",
+    "--test",
+    "docker_local_backend",
+    "--",
+    "--test-threads=2"
+  ],
+  "exit_code": 101,
+  "log": "/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/docs/implementation/shared-sccache-evidence/docker-local-initial.log"
+}

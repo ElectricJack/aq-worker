@@ -19,6 +19,7 @@ pub enum Capability {
     NestedDocker,
     SuspendSnapshot,
     PersistentDiskDuringAttempt,
+    SharedBuildCache,
 }
 
 /// Immutable OCI digest, exactly as selected by the launch manifest. Never a tag.

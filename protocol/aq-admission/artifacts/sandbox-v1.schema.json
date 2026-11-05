@@ -28,7 +28,7 @@
           "items": {
             "$ref": "#/$defs/BackendCapability"
           },
-          "maxItems": 4,
+          "maxItems": 5,
           "type": "array"
         },
         "kind": {
@@ -71,7 +71,8 @@
         "vm-isolation",
         "nested-docker",
         "suspend-snapshot",
-        "persistent-disk-during-attempt"
+        "persistent-disk-during-attempt",
+        "shared-build-cache"
       ],
       "type": "string"
     },

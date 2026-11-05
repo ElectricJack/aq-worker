@@ -1,0 +1,39 @@
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 43s
+     Running tests/docker_local_backend.rs (target/debug/deps/docker_local_backend-c26f38e2e86765c0)
+
+running 31 tests
+test confinement_is_container_only ... ok
+test advertises_no_vm_nested_or_snapshot ... ok
+test create_conflicts_on_foreign_same_name ... ok
+test create_is_idempotent_for_identical_request ... ok
+test destroy_requires_authorization_and_proves_absence ... ok
+test connect_times_out_as_uncertain ... ok
+test launch_policy_is_fixed ... ok
+test inventory_failure_is_err ... ok
+test live_conformance ... ignored, needs a dedicated sandbox daemon: AQ_DOCKER_LOCAL_SOCKET
+test live_launch_policy_applied ... ignored, needs a dedicated sandbox daemon: AQ_DOCKER_LOCAL_SOCKET
+test live_wsl_suspend_resume_reconciles_sandboxes ... ignored, needs a dedicated sandbox daemon: AQ_DOCKER_LOCAL_SOCKET, AQ_DOCKER_LOCAL_DAEMON_PID
+test list_owned_scopes_node_and_includes_old_boots ... ok
+test lost_create_reply_is_discoverable ... ok
+test pull_template_proves_presence ... ok
+test material_is_delivered_by_archive_only ... ok
+test refuses_daemon_that_drops_resource_limits ... ok
+test refuses_missing_resources ... ok
+test refuses_non_rootless_daemon ... ok
+test refuses_socket_not_owned_by_current_user ... ok
+test refuses_main_docker_socket ... ok
+test refuses_undeclared_mount_alias ... ok
+test refuses_unallowlisted_template ... ok
+test refuses_unsafe_config ... ok
+test refuses_unsupported_capabilities ... ok
+test shared_sccache_is_opt_in_and_required_capability_is_enforced ... ok
+test scripted_conformance ... ok
+test shared_sccache_reuses_capped_volume_and_survives_attempt_destroy ... ok
+test stop_is_proven_by_inspect ... ok
+test start_runner_and_bounded_read ... ok
+test unreachable_daemon_is_unknown_never_gone ... ok
+test wsl_suspend_resume_reconciles_sandboxes ... ok
+
+test result: ok. 28 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 1.04s
+

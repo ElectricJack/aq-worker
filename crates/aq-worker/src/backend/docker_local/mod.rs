@@ -508,7 +508,11 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
     }
 
     fn capabilities(&self) -> Vec<Capability> {
-        vec![Capability::PersistentDiskDuringAttempt]
+        let mut capabilities = vec![Capability::PersistentDiskDuringAttempt];
+        if self.config.shared_sccache {
+            capabilities.push(Capability::SharedBuildCache);
+        }
+        capabilities
     }
 
     async fn create(&mut self, request: &CreateRequest) -> Result<SandboxIdentity, BackendError> {
