@@ -78,9 +78,45 @@ pub struct NativeHostHistory {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeClosure {
-    pub request: aq_phase_terminal_protocol::ClosureRequest,
+    pub request: ClosureRequest,
     pub recorded_revision: u64,
-    pub receipt: Option<aq_phase_terminal_protocol::ClosureReceipt>,
+    pub receipt: Option<ClosureReceipt>,
+}
+/// The closure envelope of the attempt's own terminal profile.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "profile", content = "envelope", rename_all = "snake_case")]
+pub enum ClosureRequest {
+    Frozen(aq_phase_terminal_protocol::ClosureRequest),
+    Refresh(aq_phase_terminal_protocol::refresh_v1::ClosureRequest),
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "profile", content = "envelope", rename_all = "snake_case")]
+pub enum ClosureReceipt {
+    Frozen(aq_phase_terminal_protocol::ClosureReceipt),
+    Refresh(aq_phase_terminal_protocol::refresh_v1::ClosureReceipt),
+}
+impl ClosureRequest {
+    pub fn original(&self) -> &aq_admission::granted_closure::Request {
+        match self {
+            Self::Frozen(q) => &q.original,
+            Self::Refresh(q) => &q.original,
+        }
+    }
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            Self::Frozen(q) => q.validate()?,
+            Self::Refresh(q) => q.validate()?,
+        }
+        Ok(())
+    }
+    pub fn accepts(&self, receipt: &ClosureReceipt) -> Result<()> {
+        match (self, receipt) {
+            (Self::Frozen(q), ClosureReceipt::Frozen(r)) => r.validate_for(q)?,
+            (Self::Refresh(q), ClosureReceipt::Refresh(r)) => r.validate_for(q)?,
+            _ => anyhow::bail!("closure receipt profile differs from its request"),
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -175,7 +211,7 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
         "start before guardian"
     );
     if let Some(c) = &h.closure {
-        let q = &c.request.original;
+        let q = c.request.original();
         c.request.validate()?;
         ensure!(
             h.running.is_none()
@@ -193,7 +229,7 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
             "launch closure scope"
         );
         if let Some(receipt) = &c.receipt {
-            receipt.validate_for(&c.request)?;
+            c.request.accepts(receipt)?;
         }
     }
     if let Some(b) = &h.baseline {
@@ -435,8 +471,8 @@ impl Journal {
     pub(crate) fn native_closure(
         &mut self,
         id: Uuid,
-        build: impl FnOnce(&Attempt, u64, &State) -> Result<aq_phase_terminal_protocol::ClosureRequest>,
-    ) -> Result<aq_phase_terminal_protocol::ClosureRequest> {
+        build: impl FnOnce(&Attempt, u64, &State) -> Result<ClosureRequest>,
+    ) -> Result<ClosureRequest> {
         self.storage.check_owner()?;
         ensure!(!self.poisoned, "native writer poisoned");
         let old = self
@@ -476,7 +512,7 @@ impl Journal {
     pub(crate) fn native_closure_receipt(
         &mut self,
         id: Uuid,
-        receipt: aq_phase_terminal_protocol::ClosureReceipt,
+        receipt: ClosureReceipt,
     ) -> Result<()> {
         self.storage.check_owner()?;
         ensure!(!self.poisoned, "native writer poisoned");
@@ -487,7 +523,7 @@ impl Journal {
             .and_then(|a| a.native_host.as_mut())
             .and_then(|h| h.closure.as_mut())
             .context("native closure absent")?;
-        receipt.validate_for(&c.request)?;
+        c.request.accepts(&receipt)?;
         if let Some(old) = &c.receipt {
             ensure!(
                 canonical_digest(old)? == canonical_digest(&receipt)?,

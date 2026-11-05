@@ -270,7 +270,11 @@ fn unstarted_launch_closes_by_suppression_and_started_never_does() {
     let op = Uuid::new_v4();
     let q = closure_request(&a, 8, &state, op).unwrap();
     q.validate().unwrap();
-    let original = &q.original;
+    let original = q.original();
+    assert!(matches!(
+        q,
+        crate::native::journal::launch::ClosureRequest::Frozen(_)
+    ));
     assert_eq!(original.operation_id, op);
     assert_eq!(original.journal.revision, 8);
     let aq_admission::granted_closure::Evidence::Suppressed { record, .. } = &original.evidence
@@ -291,4 +295,36 @@ fn unstarted_launch_closes_by_suppression_and_started_never_does() {
         .unwrap(),
     );
     assert!(closure_request(&a, 8, &state, op).is_err());
+}
+
+/// The same closure for a registry-refresh profile attempt uses the refresh
+/// envelope (the server's launch-closure route dispatches on negotiation).
+#[test]
+fn refresh_profile_unstarted_launch_closes_with_the_refresh_envelope() {
+    let mut a = terminal_attempt(true, false);
+    let h = a.native_host.as_mut().unwrap();
+    h.running = None;
+    h.refresh_terminal = None;
+    h.start_intended = false;
+    assert!(unstarted(&a));
+    let state = crate::native::journal::State {
+        format: 1,
+        identity: aq_admission::transport::WorkerIdentity {
+            node_id: Uuid::from_u128(1),
+            boot_id: Uuid::from_u128(2),
+        },
+        kernel_boot_id: Uuid::from_u128(3),
+        revision: 7,
+        attempts: Default::default(),
+    };
+    let q = closure_request(&a, 8, &state, Uuid::new_v4()).unwrap();
+    q.validate().unwrap();
+    assert!(matches!(
+        q,
+        crate::native::journal::launch::ClosureRequest::Refresh(_)
+    ));
+    assert!(matches!(
+        q.original().evidence,
+        aq_admission::granted_closure::Evidence::Suppressed { .. }
+    ));
 }

@@ -116,8 +116,7 @@ async fn stop_claude_sandbox(config: &NativeConfig, node: Uuid, attempt: Uuid) -
 
 /// A Frozen-phase launch whose host never recorded Running or a terminal.
 fn unstarted(a: &Attempt) -> bool {
-    a.phase_acceptance.is_some()
-        && a.refresh_acceptance.is_none()
+    (a.phase_acceptance.is_some() != a.refresh_acceptance.is_some())
         && a.native_host.as_ref().is_some_and(|h| {
             h.running.is_none()
                 && h.started_receipt.is_none()
@@ -133,7 +132,7 @@ fn closure_request(
     revision: u64,
     state: &crate::native::journal::State,
     operation_id: Uuid,
-) -> Result<aq_phase_terminal_protocol::ClosureRequest> {
+) -> Result<crate::native::journal::launch::ClosureRequest> {
     use aq_admission::granted_closure::{
         DriverIntent, Evidence, HostStoppedProof, JournalCheckpoint, Request, SuppressionRecord,
     };
@@ -205,6 +204,20 @@ fn closure_request(
         },
         evidence,
     };
+    use crate::native::journal::launch::ClosureRequest;
+    if a.refresh_acceptance.is_some() {
+        use aq_phase_terminal_protocol::refresh_v1 as wire;
+        return crate::native::journal::refresh_terminal::with_context(a, |c| {
+            let request = wire::ClosureRequest {
+                schema_version: 1,
+                negotiation: wire::Negotiation::current()?,
+                origin: wire::Origin::for_context(c)?,
+                original,
+            };
+            request.validate_for(c)?;
+            Ok(ClosureRequest::Refresh(request))
+        });
+    }
     crate::native::journal::phase_terminal::with_context(a, |c| {
         let request = aq_phase_terminal_protocol::ClosureRequest {
             schema_version: 1,
@@ -213,7 +226,7 @@ fn closure_request(
             original,
         };
         request.validate_for(c)?;
-        Ok(request)
+        Ok(ClosureRequest::Frozen(request))
     })
 }
 
@@ -261,7 +274,7 @@ async fn close_unstarted(
         return Ok(ReconcileDisposition::LaunchClosed);
     }
     let client = NativeClient::from_config(worker)?;
-    let receipt = client.phase_terminal_closure(&request).await?;
+    let receipt = client.launch_closure(&request).await?;
     check_root(config, held)?;
     journal.native_closure_receipt(attempt_id, receipt)?;
     tracing::warn!(%attempt_id, "granted launch closed before Started; awaiting server settlement");
