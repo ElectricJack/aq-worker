@@ -1,0 +1,16 @@
+test native::runner::sandbox::auth_tests::runner_channel_refusal_is_shared_authority_loss ... ok
+test native::runner::sandbox::auth_tests::runner_authenticates_with_delegated_permit_and_refuses_foreign_scope ... ok
+test native::runner::sandbox::auth_tests::runner_exchange_refusal_and_unavailability_have_distinct_authority ... ok
+test native::runner::sandbox::auth_tests::runner_readoption_replies_extend_nothing ... ok
+test native::runner::sandbox::auth_tests::runner_grant_upgrade_and_renewal_keep_original_scope ... ok
+test native::runner::sandbox::auth_tests::runner_refuses_foreign_session_on_mail_and_terminal_routes ... ok
+test native::runner::sandbox::subscription_login_tests::expired_subscription_login_fails_fast_with_credential_reason ... ok
+test native::runner::sandbox::subscription_login_tests::invalid_refreshed_login_is_not_uploaded ... ok
+test native::runner::sandbox::subscription_login_tests::login_debug_redacts_material ... ok
+test native::runner::sandbox::subscription_login_tests::reconcile_refuses_symlinked_login_and_still_wipes ... ok
+test native::runner::sandbox::subscription_login_tests::refreshed_login_written_back_before_teardown ... ok
+test native::runner::sandbox::subscription_login_tests::runner_write_back_speaks_c5b_contract ... ok
+test native::runner::sandbox::subscription_login_tests::superseded_write_back_discards_refreshed_login ... ok
+test native::runner::sandbox::subscription_login_tests::failed_write_back_retains_runner_only_copy ... ok
+test native::runner::sandbox::subscription_login_tests::unchanged_or_stale_login_is_not_uploaded ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 398 filtered out; finished in 0.45s

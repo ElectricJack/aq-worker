@@ -25,7 +25,10 @@ impl RunnerFiles {
     }
     pub fn write_secret(&self, name: &str, bytes: &[u8]) -> Result<()> {
         ensure!(
-            matches!(name, "permit.json" | "provider.key" | "access.json"),
+            matches!(
+                name,
+                "permit.json" | "provider.key" | "access.json" | "refreshed-login.json"
+            ),
             "unknown runner file"
         );
         ensure!(

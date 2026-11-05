@@ -26,7 +26,7 @@ use std::{
 use zeroize::Zeroizing;
 
 /// Create a fresh owner-only directory; an existing path is refused.
-fn create_private_home(path: &Path) -> Result<PathBuf> {
+pub(super) fn create_private_home(path: &Path) -> Result<PathBuf> {
     DirBuilder::new()
         .mode(0o700)
         .create(path)
@@ -39,7 +39,7 @@ fn create_private_home(path: &Path) -> Result<PathBuf> {
     Ok(path.to_owned())
 }
 
-fn write_private(home: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+pub(super) fn write_private(home: &Path, name: &str, bytes: &[u8]) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

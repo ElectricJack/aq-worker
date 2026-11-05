@@ -10,6 +10,7 @@ pub mod native_probe;
 pub mod private;
 pub mod proxy;
 pub mod responses;
+pub mod subscription_login;
 pub use manifest::FrozenLaunch;
 pub(crate) fn boot_ns() -> anyhow::Result<u64> {
     super::super::http::boot_ns()
@@ -607,3 +608,5 @@ mod native_probe_tests;
 mod observations_tests;
 #[cfg(test)]
 mod output_tests;
+#[cfg(test)]
+mod subscription_login_tests;
