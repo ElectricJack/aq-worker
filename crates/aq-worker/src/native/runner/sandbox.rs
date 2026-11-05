@@ -8,6 +8,7 @@ pub mod mail;
 mod manifest;
 pub mod native_probe;
 pub mod private;
+pub mod gemini_proxy;
 pub mod proxy;
 pub mod responses;
 pub mod subscription_login;
