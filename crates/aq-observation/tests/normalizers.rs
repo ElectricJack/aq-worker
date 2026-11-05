@@ -322,3 +322,77 @@ fn codex_structured_questions_and_lost_context_do_not_become_task_or_model_autho
     );
     assert!(matches!(usages(&out)[0].cost, Cost::Unknown { .. }));
 }
+fn apply_stream(state: &mut Normalizer, bytes: &[u8]) -> Vec<ObservationRecord> {
+    let (mut offset, mut discarding, mut out) = (0usize, false, vec![]);
+    while offset < bytes.len() {
+        let end = bytes.len().min(offset + MAX_READ_BYTES);
+        let framed = frame(&bytes[offset..end], offset as u64, discarding).unwrap();
+        assert!(framed.consumed > 0);
+        for f in &framed.records {
+            let (next, events) = state.apply(f, 100).unwrap();
+            *state = next;
+            out.extend(events);
+        }
+        offset += framed.consumed;
+        discarding = framed.discarding_oversized;
+    }
+    out
+}
+fn oversized_record(prefix: &str, suffix: &str) -> Vec<u8> {
+    let mut bytes = prefix.as_bytes().to_vec();
+    bytes.extend(std::iter::repeat_n(b'x', 2 * MAX_RECORD_BYTES + 4096));
+    bytes.extend(suffix.as_bytes());
+    bytes.push(b'\n');
+    bytes
+}
+fn gaps(events: &[ObservationRecord]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| matches!(e.body.kind, ObservationKind::Gap { .. }))
+        .map(|e| format!("{:?}", e.body.kind))
+        .collect()
+}
+#[test]
+fn claude_oversized_prompt_snapshot_is_skipped_but_other_oversized_records_gap() {
+    let tail = r#""},"type":"attachment","uuid":"snap-1","sessionId":"native-fixture"}"#;
+    let snapshot = r#"{"parentUuid":"54e0b998-9228-4f63-80a9-4d7023dcffda","isSidechain":false,"attachment":{"type":"prompt_snapshot","systemPrompt":""#;
+    let row = serde_json::to_vec(&fixtures()["claude"][0]).unwrap();
+    let mut s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
+    let mut stream = oversized_record(snapshot, tail);
+    assert!(stream.len() > 2 * MAX_RECORD_BYTES);
+    stream.extend(&row);
+    stream.push(b'\n');
+    let events = apply_stream(&mut s, &stream);
+    assert!(gaps(&events).is_empty(), "{:?}", gaps(&events));
+    assert_eq!(usages(&events).len(), 1, "facts after the snapshot survive");
+    assert!(!s.context_gap && s.oversized_chain.is_none());
+
+    let leading = r#"{"attachment":{"type":"prompt_snapshot","systemPrompt":""#;
+    let mut s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
+    assert!(gaps(&apply_stream(&mut s, &oversized_record(leading, tail))).is_empty());
+
+    for (format, prefix) in [
+        (
+            Format::ClaudeV1Jsonl9a9b8e8,
+            r#"{"parentUuid":null,"attachment":{"type":"hook_output","text":""#,
+        ),
+        (
+            Format::ClaudeV1Jsonl9a9b8e8,
+            r#"{"type":"user","message":{"attachment":{"type":"prompt_snapshot","text":""#,
+        ),
+        (
+            Format::ClaudeV1Jsonl9a9b8e8,
+            r#"{"parentUuid":"x{","attachment":{"type":"prompt_snapshot","text":""#,
+        ),
+        (Format::CodexRollout67f0994, snapshot),
+    ] {
+        let mut s = Normalizer::new(source(format.clone()), 128).unwrap();
+        let events = apply_stream(&mut s, &oversized_record(prefix, tail));
+        assert_eq!(
+            gaps(&events).len(),
+            3,
+            "{format:?} {prefix}: every frame gaps"
+        );
+        assert!(s.context_gap && s.oversized_chain.is_none());
+    }
+}

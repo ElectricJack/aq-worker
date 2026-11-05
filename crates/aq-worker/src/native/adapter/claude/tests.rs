@@ -80,6 +80,10 @@ fn native_claude_recipe_uses_harness_sandbox_and_accept_edits() {
     assert_eq!(s["sandbox"]["enabled"], true);
     assert_eq!(s["sandbox"]["allowUnsandboxedCommands"], false);
     assert_eq!(s["sandbox"]["autoAllowBashIfSandboxed"], true);
+    assert_eq!(
+        s["sandbox"]["failIfUnavailable"], true,
+        "Claude's sandbox is fail-open unless told otherwise"
+    );
     assert!(s["sandbox"].get("enableWeakerNestedSandbox").is_none());
     assert_eq!(s["permissions"]["defaultMode"], "acceptEdits");
     assert_eq!(s["permissions"]["disableBypassPermissionsMode"], "disable");
