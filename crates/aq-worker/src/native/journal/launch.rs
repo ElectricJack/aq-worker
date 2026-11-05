@@ -189,8 +189,10 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
                         .checked_add(1)
                         .context("Started revision overflow")?
                 && v.observation.permit_sequence == 1
+                // A non-interactive host's local permit is capped below the
+                // grant (MAX_PERMIT_MS) and renewed locally; never beyond it.
                 && v.observation.permit_deadline_boot_ms
-                    == i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
+                    <= i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
                 && v.request.binding == i.binding
                 && v.request.grant_id == i.grant_id
                 && v.request.guardian_id == i.logical_guardian_id
@@ -220,9 +222,9 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
                     == execution.kernel_boot_id
                 && !s.observation.guardian.nonce.is_nil()
                 && s.observation.guardian.nonce != i.logical_guardian_id
-                && s.observation.permit_sequence == 1
+                && s.observation.permit_sequence >= 1
                 && s.observation.permit_deadline_boot_ms
-                    == i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
+                    <= i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
                 && h.host_intent.as_ref() == Some(&s.observation.guardian.intent)
                 && s.recorded_revision <= revision
                 && s.recorded_revision > i.created_revision

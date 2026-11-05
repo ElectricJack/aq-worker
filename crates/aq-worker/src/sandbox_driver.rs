@@ -56,6 +56,12 @@ echo "aq-runner: claude exit $rc credentials_file=$credentials"
 exit "$rc"
 "#;
 
+/// Appended to the startup context inside the sandbox.
+pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and \
+AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the result client. \
+The node runner submits your final message as the AQ result claim, so end with exactly one line: \
+Changes: ...; Checks: exact commands and outcomes; Limits: ...\n";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DriverConfig {
@@ -283,8 +289,12 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
         mode: 0o600,
         data,
     };
+    // The startup context tells the agent to run the AQ result client; inside
+    // the sandbox the node driver submits the claim from the final message.
+    let mut prompt = prompt.to_vec();
+    prompt.extend_from_slice(RUNNER_NOTE.as_bytes());
     Ok(vec![
-        file("prompt", prompt.to_vec()),
+        file("prompt", prompt),
         file("args", (config.arguments.join("\n") + "\n").into_bytes()),
         file("env", env.into_bytes()),
         file("settings.json", config.settings_json.clone().into_bytes()),
@@ -302,8 +312,14 @@ pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String]) -> String 
             text = v["result"].as_str().map(str::to_owned);
         }
     }
+    let text = text.unwrap_or_else(|| "no final message".into());
     let summary = text
-        .unwrap_or_else(|| "no final message".into())
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with("Changes:"))
+        .map(|l| l.trim_start().trim_start_matches("Changes:").to_string())
+        .unwrap_or(text.clone());
+    let summary = summary
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
