@@ -1,0 +1,12 @@
+# Mutation (applied to crates/aq-worker/src/native/runner/sandbox/subscription_login.rs, then restored with git checkout):
+-                        || newest.version <= self.installed.version
++                        || false
+-        if let Secret::Codex(home) = &installed.secret
++        if false && let Secret::Codex(home) = &installed.secret
+$ cargo test --locked -p aq-worker --lib -- expired_subscription_login_fails_fast_with_credential_reason refreshed_login_written_back_before_teardown
+test native::runner::sandbox::subscription_login_tests::expired_subscription_login_fails_fast_with_credential_reason ... FAILED
+test native::runner::sandbox::subscription_login_tests::refreshed_login_written_back_before_teardown ... FAILED
+thread 'native::runner::sandbox::subscription_login_tests::expired_subscription_login_fails_fast_with_credential_reason' (1632948) panicked at crates/aq-worker/src/native/runner/sandbox/subscription_login_tests.rs:141:5:
+thread 'native::runner::sandbox::subscription_login_tests::refreshed_login_written_back_before_teardown' (1632949) panicked at crates/aq-worker/src/native/runner/sandbox/subscription_login_tests.rs:231:5:
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 411 filtered out; finished in 0.03s
+error: test failed, to rerun pass `-p aq-worker --lib`

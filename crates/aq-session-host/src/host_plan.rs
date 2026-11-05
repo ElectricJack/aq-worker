@@ -1,7 +1,10 @@
 //! Subject-neutral physical hosting contract, version 1. Artifact pins describe
 //! caller-validated execution; they never confer authority by themselves.
 use super::*;
-use aq_session_protocol::{ContractError, HarnessSettings, ResourceLimits, TerminalPolicy};
+use aq_session_protocol::{
+    CONTAINER_CONFINEMENT_CAPABILITY, ContractError, HarnessSettings,
+    NATIVE_CONFINEMENT_CAPABILITY, ResourceLimits, TerminalPolicy,
+};
 
 /// A logical subject is independent of a physical session. New subject kinds
 /// require an explicit contract revision; there are no synthetic task bindings.
@@ -103,19 +106,20 @@ impl Validate for HostPlan {
             &self.harness.required_capabilities,
             &self.harness.required_capabilities,
         )?;
-        for id in [
-            "aq.harness.startup-context",
-            "aq.harness.confined-worktree",
-            "aq.harness.stop",
-        ] {
-            require(
-                self.harness
-                    .required_capabilities
-                    .iter()
-                    .any(|c| c.id.as_str() == id && c.version == 1),
-                "mandatory host adapter capability",
-            )?;
+        let declared = |id: &str| {
+            self.harness
+                .required_capabilities
+                .iter()
+                .any(|c| c.id.as_str() == id && c.version == 1)
+        };
+        for id in ["aq.harness.startup-context", "aq.harness.stop"] {
+            require(declared(id), "mandatory host adapter capability")?;
         }
+        // Exactly one confinement mode: native (`confined-worktree`) or container.
+        require(
+            declared(NATIVE_CONFINEMENT_CAPABILITY) != declared(CONTAINER_CONFINEMENT_CAPABILITY),
+            "exactly one host confinement mode",
+        )?;
         require(
             !self.machine_boot_id.is_nil()
                 && self.deadline_boot_ms > self.admitted_boot_ms

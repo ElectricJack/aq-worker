@@ -34,6 +34,8 @@ pub enum Runner {
     Exits,
     /// Writes the fixture output when material is present and keeps running.
     StaysRunning,
+    /// Like `Exits`, with this exit code.
+    ExitsWith(i32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +52,7 @@ pub struct Container {
     pub body: Value,
     pub status: &'static str,
     pub layer: BTreeMap<String, File>,
+    pub exit_code: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -397,6 +400,7 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
                     body,
                     status: "created",
                     layer: BTreeMap::new(),
+                    exit_code: 0,
                 },
             );
             ok_json(201, json!({ "Id": id, "Warnings": [] }))
@@ -423,7 +427,7 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
                         "Running": running,
                         "Paused": false,
                         "Pid": if running { 4242 } else { 0 },
-                        "ExitCode": 0,
+                        "ExitCode": c.exit_code,
                     },
                 });
                 if let Some(Some(size)) = size_rw {
@@ -473,8 +477,12 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
                 .get(&material_path)
                 .is_some_and(|file| !file.data.is_empty());
             container.status = match runner {
-                Runner::Exits => "exited",
+                Runner::Exits | Runner::ExitsWith(_) => "exited",
                 Runner::StaysRunning => "running",
+            };
+            container.exit_code = match runner {
+                Runner::ExitsWith(code) => code,
+                _ => 0,
             };
             if has_material {
                 let output = File {

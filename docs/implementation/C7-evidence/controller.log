@@ -1,0 +1,60 @@
+COMMAND: ['cargo', 'test', '--locked', '-p', 'aq-worker', '--lib', 'controller::']
+    Blocking waiting for file lock on build directory
+   Compiling aq-worker v0.5.1 (/home/jkern/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-2/crates/aq-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 57.06s
+     Running unittests src/lib.rs (target/debug/deps/aq_worker-53dae0d62afb911f)
+
+running 51 tests
+test controller::lifecycle_tests::ambiguous_create_is_not_retried_or_released ... ok
+test controller::lifecycle_tests::destroyed_inspection_without_authority_poisons_and_retains_disk ... ok
+test controller::lifecycle_tests::destroyed_stop_proof_without_authority_poisons_and_retains_disk ... ok
+test controller::lifecycle_tests::expired_permit_cannot_deliver_or_start ... ok
+test controller::lifecycle_tests::failed_intent_write_prevents_create_and_poison_blocks_admission ... ok
+test controller::lifecycle_tests::journal_records_intent_before_backend_create ... ok
+test controller::lifecycle_tests::stop_and_destroy_require_confirmation_and_retention ... ok
+test controller::lifecycle_tests::wrong_permit_cannot_deliver_or_start ... ok
+test controller::lifecycle_tests::unknown_inventory_retains_capacity_and_stopped_disk_is_reserved ... ok
+test controller::recovery_ports::admission_replay_and_changed_bytes_are_distinct ... ok
+test controller::recovery_ports::b5a_snapshot_remains_readable_without_recovery_fields ... ok
+test controller::recovery_ports::actual_fixture_child_completes_once_and_report_retry_is_identical ... ok
+test controller::recovery_ports::blocked_fixture_is_killed_and_reaped_on_cancellation ... ok
+test controller::recovery_ports::grace_is_durable_and_failed_destroy_is_retried_without_reextracting ... ok
+test controller::recovery_ports::lost_acceptance_and_late_response_never_revive_expired_reservation ... ok
+test controller::recovery_ports::missing_inventory_never_releases_uncertain_writers ... ok
+test controller::recovery_ports::nonstart_restart_preserves_known_cancellation_and_defaults_unknown_to_expired ... ok
+test controller::recovery_ports::directive_receipts_are_bounded_and_exact_replay_survives_the_bound ... ok
+test controller::recovery_ports::observations_and_directive_receipts_cross_durable_boundary ... ok
+test controller::recovery_ports::orderly_journal_release_does_not_wait_for_an_unrelated_fork_child ... ok
+test controller::recovery_ports::oversized_journal_is_refused_before_deserialization ... ok
+test controller::recovery_ports::recovery_configuration_is_bounded ... ok
+test controller::recovery_ports::request_send_time_includes_network_delay_and_suspend ... ok
+test controller::recovery_ports::preparation_permit_does_not_rebind_execution_after_restart ... ok
+test controller::recovery_ports::service_consumes_poll_and_enforces_cancellation_on_next_tick ... ok
+test controller::recovery_ports::stopped_report_recovers_before_new_boot_registration_without_relaunch ... ok
+test controller::recovery_ports::stopped_slots_do_not_bypass_pending_result_storage_bounds ... ok
+test controller::recovery_ports::sweeps_ignore_foreign_scope_and_never_destroy_retained_work ... ok
+test controller::recovery_ports::uncertain_directory_sync_poison_requires_recovery_and_preserves_reservation ... ok
+test controller::recovery_ports::write_failures_never_acknowledge_unpersisted_admission ... ok
+test controller::recovery_ports::unsupported_capabilities_and_forged_grants_are_rejected ... ok
+test controller::recovery_tests::controller_restart_reconciles_journal_against_backend_inventory ... ok
+test controller::recovery_tests::explicit_no_current_grant_stops_and_preserves ... ok
+test controller::recovery_tests::launch_intent_crash_never_blindly_relaunches_or_releases_writers ... ok
+test controller::recovery_tests::readoption_failure_reuses_operation_and_leaves_runner_until_deadline ... ok
+test controller::recovery_tests::retention_waits_for_final_writer_proof ... ok
+test controller::recovery_tests::unretained_sandbox_is_preserved_not_destroyed ... ok
+test controller::recovery_tests::unknown_orphan_is_retained_after_grace_and_operator_release_is_supported ... ok
+test controller::tests::capacity_refuses_offer_at_sandbox_ceiling_with_typed_reason ... ok
+test controller::tests::heartbeat_does_not_hide_controller_journal_failure ... ok
+test controller::tests::registration_advertises_actual_backend_and_template_versions ... ok
+test controller::tests::reservation_is_durable_before_acceptance_and_timeout_holds_capacity ... ok
+test controller::tests::root_replacement_prevents_reservation_or_acceptance ... ok
+test controller::tests::capacity_checks_spend_resources_environment_and_drain ... ok
+test controller::tests::startup_rejects_second_owner_bad_version_symlink_and_missing_state ... ok
+test controller::tests::run_registers_holds_root_and_drains_on_shutdown ... ok
+test controller::tests::startup_rotates_boot_and_holds_old_reservations ... ok
+test controller::tests::unavailable_provider_preserves_terminal_heartbeat_error ... ok
+test controller::tests::unavailable_provider_refuses_before_backend_effects ... ok
+test controller::tests::unregistered_and_wrong_boot_offers_are_refused ... ok
+test controller::tests::unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shutdown ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 238 filtered out; finished in 15.78s

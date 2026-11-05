@@ -60,6 +60,16 @@ reconciliation. These remain claims whose exact owners, retention, process set a
 current fences must be verified by runtime services. A stop report cannot by itself
 close a graph task or consume a failure retry.
 
+`ReportedStopped.proof` names a retained artifact with role `result` whose bytes
+are the canonical JSON of `StopProof {guardian_instance_id, writer_set_digest,
+stopped_at_boot_ms}` (`stop-proof.schema.json`, at most 1024 bytes); its
+`ArtifactRef.digest` is the lowercase SHA-256 of exactly those bytes, and
+`StopProof::decode` refuses non-canonical bytes so one proof has one digest. The
+successor SessionHost verifies guardian instance and writer set with
+`verify_stop_proof`; the server verifies only lineage (the `result` receipt's
+attempt binding, found with `stop_proof_receipt`). The fixture's `stop_proof`
+entry carries the body, canonical JSON, digest and receipt.
+
 Continuation attachments bind predecessor, fresh successor attempt/session,
 continuation/wait/outcome identities, retained-source receipts, fresh offer digest,
 held task-addressed mail and a lineage ledger/budget checkpoint. The lineage UUID

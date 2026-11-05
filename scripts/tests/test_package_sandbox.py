@@ -33,7 +33,7 @@ class SandboxPackaging(unittest.TestCase):
         repo = self.root / 'repo'
         repo.mkdir()
         for path in ['Cargo.toml', 'Cargo.lock', 'crates/aq-worker/Cargo.toml',
-                     'crates/aq-session-host/Cargo.toml']:
+                     'crates/aq-session-host/Cargo.toml', 'crates/aq-agent-client/Cargo.toml']:
             target = repo / path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / path, target)
@@ -58,6 +58,39 @@ class SandboxPackaging(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'checksum mismatch: codex'):
             self.package(self.root / 'out')
         self.assertFalse((self.root / 'out').exists())
+
+    def test_claude_input_is_pinned_and_checked(self):
+        output = self.root / 'out'
+        self.package(output)
+        sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
+        self.assertIn(self.pins['inputs']['claude']['sha256'] + '  claude', sums)
+        self.assertEqual((output / 'runtime/claude').read_bytes(), b'claude')
+        (self.inputs / 'claude').write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch: claude'):
+            self.package(self.root / 'corrupt')
+        self.assertFalse((self.root / 'corrupt').exists())
+
+    def test_opencode_input_is_pinned_and_checked(self):
+        output = self.root / 'out'
+        self.package(output)
+        sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
+        self.assertIn(self.pins['inputs']['opencode']['sha256'] + '  opencode', sums)
+        self.assertEqual((output / 'runtime/opencode').read_bytes(), b'opencode')
+        (self.inputs / 'opencode').write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch: opencode'):
+            self.package(self.root / 'corrupt')
+        self.assertFalse((self.root / 'corrupt').exists())
+
+    def test_gemini_input_is_pinned_and_checked(self):
+        output = self.root / 'out'
+        self.package(output)
+        sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
+        self.assertIn(self.pins['inputs']['gemini.tgz']['sha256'] + '  gemini.tgz', sums)
+        self.assertEqual((output / 'runtime/gemini.tgz').read_bytes(), b'gemini.tgz')
+        (self.inputs / 'gemini.tgz').write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch: gemini.tgz'):
+            self.package(self.root / 'corrupt')
+        self.assertFalse((self.root / 'corrupt').exists())
 
     def test_symlink_input_refuses(self):
         (self.inputs / 'codex').unlink()

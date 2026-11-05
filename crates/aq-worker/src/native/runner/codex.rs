@@ -9,6 +9,7 @@ use crate::native::{
         result_profile::{ExpectedResultAdapter, ResultAdapterDefinition},
     },
     launch::{NativeCodexHostProfile, NativeHostLaunchResult, NativeStopOutcome},
+    runner::sandbox::confinement::{AuthorizedConfinement, ConfinementMode},
 };
 use aq_session_host::{
     HostPhase,
@@ -107,12 +108,28 @@ impl CodexSettings {
                         | "aq.terminal"
                         | "aq.harness.startup-context"
                         | "aq.harness.confined-worktree"
+                        | "aq.harness.container-confinement"
                         | "aq.harness.stop"
                 ) && capability.version == 1,
                 "unsupported mandatory Codex capability"
             );
         }
+        // Advertised capabilities may offer both modes; the selected harness may
+        // not require both. The frozen manifest must declare exactly one and
+        // `prepare_inputs` binds it to these settings; the mapper routes container
+        // only through an `AuthorizedConfinement` (adapter/codex.rs).
+        ensure!(
+            !(self.declares(aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY)
+                && self.declares(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY)),
+            "Codex settings must declare exactly one confinement mode"
+        );
         Ok(())
+    }
+    fn declares(&self, id: &str) -> bool {
+        self.harness
+            .required_capabilities
+            .iter()
+            .any(|c| c.id.as_str() == id && c.version == 1)
     }
 }
 /// No Debug/Serialize. Node transport authentication stays in the relay client;
@@ -123,6 +140,8 @@ pub struct CodexExecutor {
     result_root: Option<PathBuf>,
     installation_reserved_bytes: Option<u64>,
     result_transfer: Option<crate::transfer_client::TransferClient>,
+    /// Sandbox-issued proof for container confinement; absent means native only.
+    confinement: Option<AuthorizedConfinement>,
     #[cfg(feature = "test-support")]
     development_provider: Option<String>,
 }
@@ -149,6 +168,7 @@ impl CodexExecutor {
             result_transfer: Some(crate::transfer_client::TransferClient::from_config(
                 worker, 1,
             )?),
+            confinement: None,
             #[cfg(feature = "test-support")]
             development_provider: None,
         })
@@ -167,9 +187,20 @@ impl CodexExecutor {
             result_transfer: Some(crate::transfer_client::TransferClient::from_config(
                 worker, 1,
             )?),
+            confinement: None,
             #[cfg(feature = "test-support")]
             development_provider: None,
         })
+    }
+    /// Attach the sandbox's confinement authorization before preflight. A
+    /// container-confined harness preflights only with a `Container` proof.
+    pub fn with_confinement(mut self, confinement: AuthorizedConfinement) -> Result<Self> {
+        ensure!(
+            self.profile.is_none() && self.confinement.is_none(),
+            "confinement must be attached once, before preflight"
+        );
+        self.confinement = Some(confinement);
+        Ok(self)
     }
     /// Separate installation-cache reservation metadata. This includes the
     /// result client's additional pool and does not reinterpret task memory.
@@ -233,6 +264,7 @@ impl CodexExecutor {
             result_root: None,
             installation_reserved_bytes: None,
             result_transfer: None,
+            confinement: None,
             #[cfg(feature = "test-support")]
             development_provider: None,
         })
@@ -298,6 +330,16 @@ impl NativeExecutor for CodexExecutor {
             None => anyhow::bail!("closed Codex executor settings absent"),
         };
         settings.validate(config)?;
+        // Before any installation work: container needs the sandbox's proof.
+        let mode = crate::native::adapter::codex::selected_confinement(
+            &settings.harness,
+            self.confinement.as_ref(),
+            interactive_clock.is_some(),
+        )?;
+        ensure!(
+            result.is_none() || mode == ConfinementMode::Native,
+            "result-local Codex mapping is qualified for native confinement only"
+        );
         ensure!(
             config.adapter.id.as_str() != "aq.codex-result-local-adapter" || result.is_some(),
             "known result adapter requires the result-enabled executor"
@@ -364,6 +406,7 @@ impl NativeExecutor for CodexExecutor {
             model: settings.model.clone(),
             permissions_digest: settings.permissions_digest.clone(),
             renderer: config.renderer.clone(),
+            confinement: self.confinement.clone(),
         };
         let selected_client_manifest = definition.as_ref().map(|d| d.client_manifest.clone());
         let profile = match (result, definition) {
@@ -574,20 +617,17 @@ async fn drive_running_owned(
             {
                 anyhow::bail!("Codex interactive authentication required; session quarantined");
             }
-            if *shutdown.borrow() {
-                cause = ResultStopCause::Cancelled;
+            let cancelled = *shutdown.borrow();
+            if let Some(stop) = loop_stop_cause(
+                cancelled,
+                || Ok(super::super::http::boot_ns()? >= deadline_ns),
+                || Ok(host.observe()?.phase == HostPhase::Running),
+                result_enabled.then(|| pipeline.poll_result_claim(id)),
+            )
+            .await?
+            {
+                cause = stop;
                 break;
-            }
-            if super::super::http::boot_ns()? >= deadline_ns {
-                cause = ResultStopCause::Expired;
-                break;
-            }
-            if host.observe()?.phase != HostPhase::Running {
-                cause = ResultStopCause::Natural;
-                break;
-            }
-            if result_enabled {
-                pipeline.poll_result_claim(id).await?;
             }
             tokio::select! {
                 _=tokio::time::sleep(std::time::Duration::from_millis(250))=>{},
@@ -694,6 +734,38 @@ async fn drive_running_owned(
     }
     operation?;
     Ok(())
+}
+
+/// One run-loop decision. Cancellation, deadline expiry and natural pane exit
+/// keep their precedence and are observed before the result claim is polled, so
+/// an expired grant is never turned into a claim-recording error. A durably
+/// recorded in-session result claim then ends the session at once instead of
+/// holding it open until the wall deadline and reporting Expired (I0 run 13c).
+async fn loop_stop_cause<P>(
+    cancelled: bool,
+    expired: impl FnOnce() -> Result<bool>,
+    running: impl FnOnce() -> Result<bool>,
+    poll_result: Option<P>,
+) -> Result<Option<crate::native::result::ResultStopCause>>
+where
+    P: std::future::Future<Output = Result<bool>>,
+{
+    use crate::native::result::ResultStopCause;
+    if cancelled {
+        return Ok(Some(ResultStopCause::Cancelled));
+    }
+    if expired()? {
+        return Ok(Some(ResultStopCause::Expired));
+    }
+    if !running()? {
+        return Ok(Some(ResultStopCause::Natural));
+    }
+    if let Some(poll) = poll_result
+        && poll.await?
+    {
+        return Ok(Some(ResultStopCause::ResultRecorded));
+    }
+    Ok(None)
 }
 
 async fn stop_requested(shutdown: &mut watch::Receiver<bool>, deadline_ns: u64) {

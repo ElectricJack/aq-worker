@@ -22,6 +22,7 @@ struct Sandbox {
     inventory: InventoryEntry,
     material: Option<PrivateMaterial>,
     fixture_output: Option<Vec<u8>>,
+    exit: Option<RunnerExit>,
     /// Modelled workspace paths (no real files); SBX23 deletes declared ones.
     paths: BTreeSet<String>,
 }
@@ -33,6 +34,7 @@ pub struct FakeBackend {
     disk_used: BTreeMap<String, u64>,
     measured_disk: BackendDiskUsage,
     disk_queries: Vec<Vec<SandboxIdentity>>,
+    runner_exit_on_start: Option<RunnerExit>,
 }
 impl FakeBackend {
     /// Reported SBX20 watchdog usage for one sandbox; no bytes are written.
@@ -47,6 +49,18 @@ impl FakeBackend {
     /// The preserved sets the controller asked to size, in call order.
     pub fn disk_queries(&self) -> &[Vec<SandboxIdentity>] {
         &self.disk_queries
+    }
+    /// Later started runners end at once with this exit (default: keep running).
+    pub fn exit_runners_on_start(&mut self, exit: RunnerExit) {
+        self.runner_exit_on_start = Some(exit);
+    }
+    /// The private material delivered to a sandbox, if any.
+    pub fn delivered_material(&self, identity: &SandboxIdentity) -> Option<&[u8]> {
+        self.get(identity)
+            .ok()?
+            .material
+            .as_ref()
+            .map(PrivateMaterial::expose_for_control_channel)
     }
     /// A one-shot fault is consumed only by its corresponding operation.
     pub fn inject(&mut self, fault: Fault) {
@@ -114,6 +128,7 @@ impl FakeBackend {
                 },
                 material: None,
                 fixture_output: None,
+                exit: None,
                 paths: BTreeSet::new(),
             },
         );
@@ -220,6 +235,12 @@ impl PlacementBackend for FakeBackend {
         sandbox.inventory.state = SandboxState::Running;
         sandbox.inventory.running_processes = Some(1);
         sandbox.fixture_output = Some(b"fixture-complete\n".to_vec());
+        if let Some(exit) = self.runner_exit_on_start {
+            let sandbox = self.get_mut(identity)?;
+            sandbox.inventory.state = SandboxState::Stopped;
+            sandbox.inventory.running_processes = Some(0);
+            sandbox.exit = Some(exit);
+        }
         Ok(())
     }
     async fn inspect(
@@ -237,6 +258,16 @@ impl PlacementBackend for FakeBackend {
             inventory.running_processes = None;
         }
         Ok(inventory)
+    }
+    async fn runner_exit(
+        &mut self,
+        identity: &SandboxIdentity,
+    ) -> Result<RunnerExit, BackendError> {
+        let sandbox = self.get(identity)?;
+        match (sandbox.inventory.state, sandbox.exit) {
+            (SandboxState::Stopped, Some(exit)) => Ok(exit),
+            _ => Err(BackendError::InvalidState),
+        }
     }
     async fn list_owned(&mut self, node_id: Uuid) -> Result<Vec<InventoryEntry>, BackendError> {
         if self.take_fault(Fault::UnknownSandbox) {

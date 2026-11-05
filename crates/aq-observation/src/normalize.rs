@@ -103,6 +103,15 @@ pub struct Mutation {
     pub affected_native_ids: Vec<Text>,
     pub prior_events: Vec<EventRef>,
 }
+/// An oversized native record spans several frames. The chain names the
+/// continuation frame expected next and whether the record is skipped.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OversizedChain {
+    pub generation: u64,
+    pub next_start: u64,
+    pub skip: bool,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Normalizer {
@@ -123,6 +132,9 @@ pub struct Normalizer {
     pub display_order: Vec<String>,
     pub mutations: Vec<Mutation>,
     pub maximum_tracked: usize,
+    /// Open oversized-record chain; absent between records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oversized_chain: Option<OversizedChain>,
 }
 pub(crate) struct Draft {
     pub key: String,
@@ -153,6 +165,7 @@ impl Normalizer {
             display_order: vec![],
             mutations: vec![],
             maximum_tracked,
+            oversized_chain: None,
         })
     }
     pub fn begin_reparse(&self, plan: &crate::ReparsePlan) -> Result<Self> {
@@ -186,6 +199,7 @@ impl Normalizer {
         next.last_cumulative = None;
         next.counter_generation = 1;
         next.native_messages.clear();
+        next.oversized_chain = None;
         next.display_order.clear();
         next.reparse = Some(crate::ReparseMetadata {
             operation_id: plan.operation_id,
@@ -227,7 +241,9 @@ impl Normalizer {
         let raw_digest = Digest::of(&frame.bytes);
         let source_cursor = if self.source.format == Format::OpenCodeSessionDto6c24ec9 {
             let record = crate::json::parse(&frame.bytes).ok();
-            let id = record.as_ref().and_then(|r| r["id"].as_str());
+            let id = record
+                .as_ref()
+                .and_then(|r| r["id"].as_str().or_else(|| r["info"]["id"].as_str()));
             SourceCursor::Record {
                 id: Text::new(
                     id.unwrap_or(&format!("unidentified-record:{}", raw_digest.as_str())),
@@ -239,7 +255,31 @@ impl Normalizer {
                 end: frame.end()?,
             }
         };
-        let drafts = if frame.oversized {
+        let skip = frame.oversized
+            && match &self.oversized_chain {
+                Some(chain)
+                    if chain.generation == self.source.generation
+                        && chain.next_start == frame.start =>
+                {
+                    chain.skip
+                }
+                _ => {
+                    self.source.format == Format::ClaudeV1Jsonl9a9b8e8
+                        && formats::claude::skips_oversized(&frame.bytes)
+                }
+            };
+        let oversized_chain = if frame.oversized && !frame.bytes.ends_with(b"\n") {
+            Some(OversizedChain {
+                generation: self.source.generation,
+                next_start: frame.end()?,
+                skip,
+            })
+        } else {
+            None
+        };
+        let drafts = if skip {
+            vec![]
+        } else if frame.oversized {
             vec![gap(
                 GapReason::Malformed,
                 format!("oversized:{}:{}", self.source.generation, frame.start),
@@ -281,6 +321,7 @@ impl Normalizer {
                 )],
             }
         };
+        next.oversized_chain = oversized_chain;
         if drafts.iter().any(|d| {
             matches!(
                 d.kind,

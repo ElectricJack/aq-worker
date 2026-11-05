@@ -1,0 +1,19 @@
+# commit 3059b80 (pre-squash; same source tree as the squashed commit)
+   Compiling aq-agent-client v0.1.0 (~/dev/aq-platform-agents/projects/aq-worker/.aq/worktrees/slot-1/crates/aq-agent-client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.28s
+     Running tests/client.rs (target/debug/deps/client-ec4c22db547d1604)
+
+running 10 tests
+test agent_body_follows_chunks_under_one_digest ... ok
+test agent_reply_reaches_supervisor_mailbox ... ok
+test actual_cli_preserves_operation_states_and_safe_error_output ... ok
+test message_inbox_and_send_stay_in_bound_mailbox ... ok
+test lost_response_survives_process_reopen_with_exact_id_bytes_and_receipt ... ok
+test published_read_shapes_and_live_context_use_only_session_authority ... ok
+test node_credential_symlink_permissions_and_expiry_are_refused_before_network ... ok
+test required_context_and_access_profile_binding_cannot_be_silently_changed ... ok
+test status_lookup_without_local_intent_still_validates_receipt_scope ... ok
+test response_version_binding_and_offline_state_never_become_applied ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.98s
+

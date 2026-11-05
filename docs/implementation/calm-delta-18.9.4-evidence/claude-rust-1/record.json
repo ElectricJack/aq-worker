@@ -1,0 +1,8 @@
+{
+  "backend": "docker-local",
+  "default_mode": "container",
+  "evidence": "native probe (calm-delta-18.9.4): codex=inconclusive(sandboxed write inside the workspace did not land); claude=sandbox-disabled",
+  "image": "127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:194e11f54fbe104734166ec219f5ac13b2e54055fae01f6c3ce264a915f172a4",
+  "native_supported": false,
+  "template": "claude-rust-1"
+}

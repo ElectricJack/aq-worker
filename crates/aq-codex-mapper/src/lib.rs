@@ -60,6 +60,7 @@ fn validate_settings_mode(settings: Settings<'_>, interactive: bool) -> Result<(
                     | "aq.terminal"
                     | "aq.harness.startup-context"
                     | "aq.harness.confined-worktree"
+                    | "aq.harness.container-confinement"
                     | "aq.harness.stop"
             ) && cap.version == 1,
             "Codex exec unsupported mandatory capability"
@@ -68,16 +69,52 @@ fn validate_settings_mode(settings: Settings<'_>, interactive: bool) -> Result<(
     Ok(())
 }
 
+fn declares(settings: Settings<'_>, id: &str) -> bool {
+    settings
+        .harness
+        .required_capabilities
+        .iter()
+        .any(|c| c.id.as_str() == id && c.version == 1)
+}
+
+/// Native confinement only (`--sandbox workspace-write`). Refuses a manifest that
+/// declares container confinement: that mode is never a silent result (SBX13).
 pub fn map(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
-    map_mode(settings, paths, false)
+    map_mode(settings, paths, false, false)
 }
 /// V1's interactive TUI launch: the exact verified startup is one bounded argv
 /// value; the host independently verifies it and leaves stdin on the PTY.
 pub fn map_interactive(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
-    map_mode(settings, paths, true)
+    map_mode(settings, paths, true, false)
 }
-fn map_mode(settings: Settings<'_>, paths: Paths<'_>, interactive: bool) -> Result<Recipe> {
+/// Container confinement (0005 SBX19): `--sandbox danger-full-access`, every other
+/// hardening flag unchanged. Requires the manifest's declared container capability.
+/// Metadata only: the caller must separately hold the sandbox's confinement
+/// authorization (profile permission, backend boundary, runner/agent separation).
+pub fn map_container(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
+    map_mode(settings, paths, false, true)
+}
+fn map_mode(
+    settings: Settings<'_>,
+    paths: Paths<'_>,
+    interactive: bool,
+    container: bool,
+) -> Result<Recipe> {
     validate_settings_mode(settings, interactive)?;
+    ensure!(
+        declares(
+            settings,
+            aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY
+        ) == container
+            && !(container
+                && declares(settings, aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY)),
+        "Codex confinement mode does not match the declared manifest mode"
+    );
+    let sandbox = if container {
+        "danger-full-access"
+    } else {
+        "workspace-write"
+    };
     let Paths {
         executable,
         workspace,
@@ -98,7 +135,7 @@ fn map_mode(settings: Settings<'_>, paths: Paths<'_>, interactive: bool) -> Resu
         vec![
             "--no-daemon".into(),
             "--sandbox".into(),
-            "workspace-write".into(),
+            sandbox.into(),
             "-m".into(),
             settings.model.model.as_str().into(),
             "--cd".into(),
@@ -115,7 +152,7 @@ fn map_mode(settings: Settings<'_>, paths: Paths<'_>, interactive: bool) -> Resu
             "--color".into(),
             "never".into(),
             "--sandbox".into(),
-            "workspace-write".into(),
+            sandbox.into(),
             "--model".into(),
             settings.model.model.as_str().into(),
             "--cd".into(),
@@ -204,6 +241,39 @@ impl LoopbackResponsesEndpoint {
         Ok(Self { port })
     }
 }
+/// Provider id of the runner's loopback Responses proxy (0005 §8.3).
+pub const PROXY_PROVIDER_ID: &str = "aq-runner-proxy";
+
+/// Sandbox route: a custom model provider at the runner's loopback Responses
+/// proxy. Codex reads only the proxy's local capability from the private
+/// file-store `auth.json`; no provider key, env key name or bearer is configured.
+pub fn proxy_provider_overrides(endpoint: LoopbackResponsesEndpoint) -> Vec<String> {
+    let provider = format!("model_providers.{PROXY_PROVIDER_ID}");
+    let mut overrides = vec![
+        format!(
+            "model_provider={}",
+            toml::Value::String(PROXY_PROVIDER_ID.into())
+        ),
+        format!(
+            "{provider}.name={}",
+            toml::Value::String("AQ runner Responses proxy".into())
+        ),
+        format!(
+            "{provider}.base_url={}",
+            toml::Value::String(format!("http://127.0.0.1:{}/v1", endpoint.port))
+        ),
+        format!("{provider}.wire_api=\"responses\""),
+        format!("{provider}.requires_openai_auth=true"),
+        "cli_auth_credentials_store=\"file\"".into(),
+    ];
+    overrides.extend(
+        responses_overrides(endpoint)
+            .into_iter()
+            .filter(|o| !o.starts_with("openai_base_url=")),
+    );
+    overrides
+}
+
 pub fn responses_overrides(endpoint: LoopbackResponsesEndpoint) -> Vec<String> {
     let origin = format!("http://127.0.0.1:{}", endpoint.port);
     vec![

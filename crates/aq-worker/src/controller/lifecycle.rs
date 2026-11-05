@@ -2,6 +2,13 @@ use super::*;
 use aq_admission_sandbox::sandbox::PermitScope;
 use zeroize::Zeroizing;
 
+/// Outcome of [`Controller::retain_source_and_destroy`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedDestroy {
+    pub confirmation: Confirmation<StoppedWriterProof>,
+    pub receipts: Vec<aq_lifecycle_protocol::RetentionReceipt>,
+}
+
 impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
     pub async fn launch(&mut self, id: Uuid, request: &P::Request) -> Result<()> {
         let mut a = self.attempt(id)?;
@@ -12,7 +19,8 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         );
         a.phase = Phase::CreateIntent;
         self.save(id, a.clone())?;
-        let sandbox = self.backend.create(&a.create).await?;
+        let result = self.backend.create(&a.create).await;
+        let sandbox = self.backend_result(result)?;
         ensure!(
             sandbox.kind == self.backend.kind()
                 && sandbox.owner == a.create.owner
@@ -79,9 +87,11 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         });
         a.phase = Phase::MaterialIntent;
         self.save(id, a.clone())?;
-        self.backend
+        let result = self
+            .backend
             .deliver_private_material(&sandbox, material.payload)
-            .await?;
+            .await;
+        self.backend_result(result)?;
         a.phase = Phase::MaterialDelivered;
         self.save(id, a.clone())?;
         self.admit_effect(&a)?;
@@ -91,9 +101,22 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
         );
         a.phase = Phase::StartIntent;
         self.save(id, a.clone())?;
-        self.backend.start_runner(&sandbox).await?;
+        let result = self.backend.start_runner(&sandbox).await;
+        self.backend_result(result)?;
         a.phase = Phase::Running;
         self.save(id, a)
+    }
+    // Preserve the durable effect intent: unavailable does not mean no VM exists.
+    fn backend_result<T>(
+        &mut self,
+        result: std::result::Result<T, crate::backend::BackendError>,
+    ) -> Result<T> {
+        match result {
+            Err(crate::backend::BackendError::Unavailable(_)) => {
+                self.refuse(RefusalReason::BackendUnavailable)
+            }
+            other => other.map_err(Into::into),
+        }
     }
     pub(super) fn record_proof(
         &mut self,
@@ -191,6 +214,52 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             "cleanup grace has not elapsed"
         );
         self.destroy_at(id, authorization).await
+    }
+    /// Retain the stopped sandbox's source snapshot centrally (role
+    /// `source`) and destroy only under the returned CON-03 receipts. A
+    /// journaled lifecycle authorization is reused, so a retried destroy does
+    /// not upload again. Receipts are returned for the parking report.
+    pub async fn retain_source_and_destroy<R: crate::artifact_client::ArtifactRoutes>(
+        &mut self,
+        id: Uuid,
+        binding: &aq_lifecycle_protocol::Binding,
+        source: &[u8],
+        routes: &R,
+    ) -> Result<RetainedDestroy> {
+        let a = self.attempt(id)?;
+        let sandbox = a
+            .sandbox
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("sandbox identity not recorded"))?;
+        ensure!(
+            a.stopped.is_some(),
+            "source retention requires a stopped writer"
+        );
+        let journaled = a
+            .destroy_authorization
+            .as_ref()
+            .map(|d| d.lifecycle_receipts().to_vec())
+            .filter(|r| !r.is_empty());
+        let receipts = match journaled {
+            Some(receipts) => receipts,
+            None => vec![
+                crate::artifact_client::retain_artifact(
+                    routes,
+                    binding,
+                    aq_lifecycle_protocol::ArtifactRole::Source,
+                    &format!("sandbox-source/{}", sandbox.owner.deterministic_name()),
+                    source,
+                )
+                .await?,
+            ],
+        };
+        let authorization =
+            DestroyAuthorization::retained_lifecycle(sandbox, binding, receipts.clone())?;
+        let confirmation = self.destroy(id, &authorization).await?;
+        Ok(RetainedDestroy {
+            confirmation,
+            receipts,
+        })
     }
     pub(super) async fn destroy_at(
         &mut self,

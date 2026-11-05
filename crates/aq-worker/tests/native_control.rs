@@ -377,3 +377,24 @@ async fn occupied_control_and_bulk_lanes_leave_the_renewal_lane_available() {
         h.abort();
     }
 }
+
+/// I0 run 13 offer_window_race: server poll processing that precedes its reply
+/// clock stamp must not also be charged against the stated offer window.
+#[tokio::test]
+async fn slow_poll_reply_keeps_the_stated_offer_window_after_receipt() {
+    let s = Server::new().await;
+    s.peer.stall.store(true, Ordering::SeqCst);
+    let c = s.client.clone();
+    let poll = tokio::spawn(async move { c.poll(&request("poll")).await });
+    tokio::time::timeout(Duration::from_secs(1), s.peer.entered.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    // Fixture window is 500 ms; a send-anchored deadline would leave <= 200 ms.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    s.peer.release.add_permits(1);
+    let poll = poll.await.unwrap().unwrap();
+    let remaining = poll.offer_deadlines_ns[0].saturating_sub(boot_ns());
+    assert!(remaining > 400_000_000, "remaining window {remaining} ns");
+}

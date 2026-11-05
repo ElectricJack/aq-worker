@@ -1,3 +1,4 @@
+use aq_lifecycle_protocol::{ArtifactRole, Binding, RetentionReceipt, validate_retention};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
@@ -246,6 +247,14 @@ pub struct SandboxIdentity {
     pub owner: Ownership,
 }
 
+/// How a stopped runner process ended, as the backend observed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunnerExit {
+    Exited(i32),
+    /// Killed by the runtime (e.g. the OOM killer); no trustworthy exit code.
+    Signalled,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SandboxState {
@@ -346,6 +355,9 @@ impl StoppedWriterProof {
 pub enum RetentionEvidence {
     CentralReceipt(String),
     OperatorRelease(String),
+    /// CON-03 central receipts already checked by `validate_retention`
+    /// against the attempt binding, including at least one source receipt.
+    Lifecycle(Vec<RetentionReceipt>),
 }
 
 /// The controller validates retention/operator authority before constructing
@@ -368,6 +380,29 @@ impl DestroyAuthorization {
     ) -> Result<Self, BackendError> {
         Self::new(sandbox, RetentionEvidence::OperatorRelease(release.into()))
     }
+    /// Typed central retention: every receipt must bind `binding` (the
+    /// sandbox owner's attempt) and one must retain the source.
+    pub fn retained_lifecycle(
+        sandbox: SandboxIdentity,
+        binding: &Binding,
+        receipts: Vec<RetentionReceipt>,
+    ) -> Result<Self, BackendError> {
+        if binding.attempt_id != sandbox.owner.attempt_id
+            || validate_retention(&receipts, binding).is_err()
+        {
+            return Err(BackendError::InvalidRequest(
+                "retention receipts do not bind this attempt",
+            ));
+        }
+        Self::new(sandbox, RetentionEvidence::Lifecycle(receipts))
+    }
+    /// Receipts carried by [`Self::retained_lifecycle`]; empty otherwise.
+    pub fn lifecycle_receipts(&self) -> &[RetentionReceipt] {
+        match &self.evidence {
+            RetentionEvidence::Lifecycle(receipts) => receipts,
+            _ => &[],
+        }
+    }
     fn new(sandbox: SandboxIdentity, evidence: RetentionEvidence) -> Result<Self, BackendError> {
         let value = Self { sandbox, evidence };
         if !value.authorizes(&value.sandbox) {
@@ -376,14 +411,29 @@ impl DestroyAuthorization {
         Ok(value)
     }
     pub fn authorizes(&self, sandbox: &SandboxIdentity) -> bool {
-        let (RetentionEvidence::CentralReceipt(reference)
-        | RetentionEvidence::OperatorRelease(reference)) = &self.evidence;
-        &self.sandbox == sandbox && !reference.trim().is_empty()
+        let evidence = match &self.evidence {
+            RetentionEvidence::CentralReceipt(reference)
+            | RetentionEvidence::OperatorRelease(reference) => !reference.trim().is_empty(),
+            RetentionEvidence::Lifecycle(receipts) => {
+                receipts.iter().any(|r| r.role == ArtifactRole::Source)
+            }
+        };
+        &self.sandbox == sandbox && evidence
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendUnavailable {
+    Api,
+    RateLimited,
+    Capacity,
+    Transport,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendError {
+    /// Temporary remote outage/capacity refusal; intent may already exist.
+    Unavailable(BackendUnavailable),
     InvalidRequest(&'static str),
     UnsupportedCapability(Capability),
     UnsupportedOperation,

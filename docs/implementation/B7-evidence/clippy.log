@@ -1,0 +1,4 @@
+$ cargo clippy --locked -p aq-agent-client -p aq-worker --all-targets -- -D warnings
+# commit 0fa4aea
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.37s
+rc=0

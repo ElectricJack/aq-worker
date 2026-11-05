@@ -1,0 +1,9 @@
+COMMAND: ['cargo', 'test', '--locked', '-p', 'aq-worker', '--test', 'boat_backend', 'boat_live_conformance', '--', '--ignored', '--nocapture']
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-c7b3b4c4fc6e3933)
+
+running 1 test
+NOT RUN: live Boat qualification requires both BOAT_LIVE_CONFIG and BOAT_API_KEY
+test boat_live_conformance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s

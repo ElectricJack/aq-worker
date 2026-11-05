@@ -41,6 +41,82 @@ PUBLIC_FILE_CONSTANTS = {
     '7ae8cae2e64856b34c80276deb1dcf60f76da27bc1e00382201ba7bb7dc33311': 12332,
     # opt/aq/harnesses/codex/codex
     'b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8': 319346888,
+    # opt/aq/harnesses/claude/claude
+    '708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd': 337814032,
+    # opt/aq/harnesses/opencode/opencode
+    '77b2cfe4b97df6f15c3673b22100b9f79c711f25ecb9bf513bb82526b15d24fa': 185690240,
+    # opt/aq/harnesses/gemini/README.md
+    '7235196f55461732c246c20ce9996cc56ba2e52641f183ccf4e6493bd93c1c94': 12107,
+    # opt/aq/harnesses/gemini/bundle/bundled/chrome-devtools-mcp.mjs
+    'b7bccc7a27f2b2d5689ec6096f9d73bd6d12ec172cd838373c804baf3fb6657e': 11629199,
+    # opt/aq/harnesses/gemini/bundle/bundled/third_party/index.js
+    '162f5d1e7d1be664945cd0107ebb23bd822b99795b896b5d42a2ff084a0f5769': 7995195,
+    # opt/aq/harnesses/gemini/bundle/bundled/third_party/issue-descriptions/corsRedirectContainsCredentials.md
+    '0099164610ffb6ccf2001d3d5f1c94bbe7bad671c5623c50e001c9b07e3fba3b': 377,
+    # opt/aq/harnesses/gemini/bundle/chunk-5RNHNFYV.js
+    '76ea4cb08171d4636c418a934f9c9f8076a0da1740fbdb0a8b2fb435d8cc82c6': 2680262,
+    # opt/aq/harnesses/gemini/bundle/chunk-664ZODQF.js
+    '0e5e41b8af7ca2ddd1bc3509c7276559d48a99705d6716b6d45c4c64b4f9168c': 123520,
+    # opt/aq/harnesses/gemini/bundle/chunk-BW65QRZA.js
+    'bde9bcb2673611604fcfad60830f95783dcd4d01ceaf48e784fe4359adad0f18': 1632350,
+    # opt/aq/harnesses/gemini/bundle/chunk-CJFBYU4J.js
+    '4eaad86c398b16126d3b1bc116b97b984d3e2ef3e84bcea77adc3c60400ab609': 2680262,
+    # opt/aq/harnesses/gemini/bundle/chunk-IUUIT4SU.js
+    '878469f1440495db8e40b033dde88ab96c0ee7d9e40c3deb4cee91dde1c8031a': 56507,
+    # opt/aq/harnesses/gemini/bundle/chunk-LAR4JEC7.js
+    '10250bdeaea7afde7f8107109b97cce273a91e0e2ae9fed41e3219f372f0af04': 16799212,
+    # opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js
+    '37e3e8cebdcfe5dabfe3cea87c0ce6022f02cbbd89a543046fb4d6ab81ab5a32': 16762057,
+    # opt/aq/harnesses/gemini/bundle/chunk-O7MGOE2I.js
+    'a9972316ce0974111ca8906ee6148dbf89f19b8aa032a17f463db03b917d4110': 16799232,
+    # opt/aq/harnesses/gemini/bundle/chunk-P62CI7AR.js
+    'c8662875f269e738964ec2c81f2655e89418fef2bf36b004d0681a8c4cb0beab': 1632346,
+    # opt/aq/harnesses/gemini/bundle/chunk-VO6PFWLY.js
+    '8a03e94c879e78ac6068b88f0de54102fb93d4cf44bbf774dbb83dce3a2edbe7': 1632346,
+    # opt/aq/harnesses/gemini/bundle/chunk-XETHQLRU.js
+    'b4a23beb48145efb0d8266f010b9c5a9f48cfa2d462eec88a0da7baa7a306c48': 2680349,
+    # opt/aq/harnesses/gemini/bundle/devtoolsService-6V46WMXX.js
+    'ad0e88b28c28e3261f59d9eb0fef95406955e4b3b9dccb8b0774fcfd541e3354': 149131,
+    # opt/aq/harnesses/gemini/bundle/devtoolsService-E74ZMDMM.js
+    '5e465cc5344af92715b81678f471d5b882db986de2d315b49d1555e53896406e': 149134,
+    # opt/aq/harnesses/gemini/bundle/devtoolsService-EFJXZRFD.js
+    '0c6f92c2455ec3054ed786e3f2dca3cb0f2d13f947159c9285b464f366d04c2f': 149131,
+    # opt/aq/harnesses/gemini/bundle/docs/cli/cli-reference.md
+    'ec376db5857fe8dda715ce38575370c33aa03390925b2d7024f0642021525545': 16563,
+    # opt/aq/harnesses/gemini/bundle/docs/cli/telemetry.md
+    'c731cf1f5403c2164f1164dc1c9581782e324c16cc6c4fedb51716978d45c133': 29634,
+    # opt/aq/harnesses/gemini/bundle/docs/cli/tutorials/mcp-setup.md
+    '9a4633c905689c79d06e1e3fe59236ccc76010bce5ef6da38b0ff41e5f14a4b0': 3254,
+    # opt/aq/harnesses/gemini/bundle/docs/get-started/authentication.mdx
+    '8a2eb3910788d931b0892f2cc5d188f6f0dd4602349767db307df2b242bbfd5f': 15046,
+    # opt/aq/harnesses/gemini/bundle/docs/ide-integration/ide-companion-spec.md
+    '143b49bbf7817cc5d6c8c3c6e3e1b255cb2a0f4c710a039d756cf8028c68cd91': 10821,
+    # opt/aq/harnesses/gemini/bundle/docs/reference/configuration.md
+    '4b86e73ee6da5b18ec0515c3fbf12b9b72fb07fbb545fa93362507596cbc64f4': 102685,
+    # opt/aq/harnesses/gemini/bundle/docs/tools/mcp-server.md
+    '9e4608980e3adf50d39c6b336536829257f45f48a83f5e7e677a622929693b46': 44112,
+    # opt/aq/harnesses/gemini/bundle/gemini-4JPKPLQN.js
+    '445fdc1c0c535e2017aa891a055e65534a5ccd662c24b0c7030783f6d5b19463': 691780,
+    # opt/aq/harnesses/gemini/bundle/gemini-QWDTSJTS.js
+    '3ba01a4e7e18cea5d27ee401f5f12d315971769c1c1f686d598f0a9a4d0a7491': 691770,
+    # opt/aq/harnesses/gemini/bundle/gemini-VF5FS3OM.js
+    '5ba06a235e29c4abd306765329ffacaaac82d719d27c2696c8e077f238076730': 691371,
+    # opt/aq/harnesses/gemini/bundle/interactiveCli-F2YYMYTP.js
+    '2f692696d0c62966fcd77802cb3a0653ce734c1a16c0aad5f35ad0db09c1f440': 1337852,
+    # opt/aq/harnesses/gemini/bundle/interactiveCli-FQ3YKGOG.js
+    'a1a7db6b7386f91c969649d162bdad614256613ff6d7d928e7160d5fed6ab663': 1337852,
+    # opt/aq/harnesses/gemini/bundle/interactiveCli-QJZZISQQ.js
+    'd6ae7102d5624f04a89fbce297fbd1afcd371308175a4de4c53cfdc58f83a536': 1336760,
+    # opt/aq/harnesses/gemini/bundle/oauth2-provider-6UCP23AQ.js
+    '24f152aa4015ed4ebad1985650f91d88e9ce91a70e6edfdceda29372cc778272': 10252,
+    # opt/aq/harnesses/gemini/bundle/oauth2-provider-C65IJMNQ.js
+    '371203d2fbc754c20364b5669d9548f6853734194cff80c39f47cfa3c0e5269f': 10570,
+    # opt/aq/harnesses/gemini/bundle/oauth2-provider-H2KV36NU.js
+    '36f5885c436d7f914b3fc5fdc4669306729d272191c9c0dbe49afbbd05e4a946': 10570,
+    # opt/aq/harnesses/gemini/bundle/src-XZYPU6PJ.js
+    'e5c8c17f156442e50819612bde280e458f9a07286ea8384e725871baa7a22210': 352121,
+    # opt/aq/harnesses/gemini/bundle/tree-sitter-bash-LMFXTVOP.js
+    '8327848fcd92d2f4737422c797749a650fd21261b0c28d6ec7cead86e2276c2d': 1841544,
     # opt/aq/node/bin/node
     '8142d37c6f2f372ef040419e7a111a6baf17df89f8078d02447d6c639ae20c1d': 121509208,
     # opt/aq/node/lib/node_modules/corepack/dist/lib/corepack.cjs
@@ -233,7 +309,7 @@ def credential_path(name):
                      'oauth_creds.json', '.credentials.json'}
             or any(p in {'.codex', '.claude', '.gemini', '.aws', '.azure'} for p in parts[:-1])
             or any('/' + p + '/' in '/' + name.lower() + '/' for p in
-                   ['.config/gcloud', '.config/gh', '.config/doctl', '.config/oci'])
+                   ['.config/gcloud', '.config/gh', '.config/doctl', '.config/oci', '.config/ascii/boat'])
             or ('.ssh' in parts[:-1] and base.startswith('id_'))
             or ('.docker' in parts[:-1] and base == 'config.json'))
 
@@ -453,3 +529,52 @@ def scan_oci(path):
         return _scan_oci(path)
     except (OSError, EOFError, tarfile.TarError, KeyError, TypeError, AttributeError, RecursionError) as error:
         raise ValueError('invalid OCI image archive') from error
+
+
+def scan_snapshot(path):
+    """Scan captured VM changes and Docker volumes without extracting any member.
+
+    Boat omits unmodified stock-image files; the OCI is scanned separately. This
+    scan covers every captured member, including deleted-layer residue stored by
+    Docker. No credential-bearing paths or links receive a content exception.
+    """
+    path = Path(path)
+    if path.stat().st_size > MAX_ARCHIVE:
+        raise ValueError('snapshot size limit')
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    entries = files = expanded = 0
+    names = set()
+    try:
+        with tarfile.open(path, mode='r|*') as archive:
+            for item in archive:
+                entries += 1
+                expanded += item.size
+                if entries > MAX_ENTRIES or expanded > MAX_EXPANDED:
+                    raise ValueError('snapshot expanded limits')
+                name = safe_path(item.name)
+                if name in names:
+                    raise ValueError('duplicate snapshot member')
+                names.add(name)
+                if credential_path(name) and not item.isdir():
+                    raise ValueError('credential snapshot path')
+                if item.issym() or item.islnk():
+                    target = posixpath.normpath(posixpath.join(posixpath.dirname(name), item.linkname)) if item.issym() else item.linkname
+                    if credential_link_path(name) or credential_link_path(target):
+                        raise ValueError('credential snapshot link')
+                    if target.startswith('/'):
+                        target = target[1:]
+                    safe_path(target)
+                elif item.isfile():
+                    scan_content(archive.extractfile(item))
+                    files += 1
+                elif not item.isdir():
+                    raise ValueError('unsupported snapshot member')
+    except (OSError, EOFError, tarfile.TarError) as error:
+        raise ValueError('invalid snapshot archive') from error
+    if not files:
+        raise ValueError('empty snapshot refuses admission')
+    return {'archive_digest': 'sha256:' + digest.hexdigest(), 'files_scanned': files,
+            'credential_scan_policy': 'aq-credential-scan-v1'}

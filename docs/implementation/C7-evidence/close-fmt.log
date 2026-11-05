@@ -1,0 +1,2 @@
+COMMAND: cargo fmt -p aq-worker -- --check
+EXIT: 0

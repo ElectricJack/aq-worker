@@ -4,6 +4,7 @@ mod journal;
 mod service;
 pub use service::{ProviderUnavailable, RunConfig, UnavailableProvider};
 mod lifecycle;
+pub use lifecycle::RetainedDestroy;
 mod recovery;
 mod storage;
 mod types;

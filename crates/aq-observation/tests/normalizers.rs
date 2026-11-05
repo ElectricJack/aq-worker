@@ -322,3 +322,171 @@ fn codex_structured_questions_and_lost_context_do_not_become_task_or_model_autho
     );
     assert!(matches!(usages(&out)[0].cost, Cost::Unknown { .. }));
 }
+#[test]
+fn opencode_1_18_35_with_parts_session_normalizes_usage_tools_text_and_turns() {
+    let real: Value =
+        serde_json::from_str(include_str!("fixtures/opencode-1.18.35-session.json")).unwrap();
+    assert_eq!(real["version"], "1.18.35");
+    let session = real["session_id"].as_str().unwrap();
+    let mut src = source(Format::OpenCodeSessionDto6c24ec9);
+    src.native_session_key = Text::new(session).unwrap();
+    src.provider = Text::new("ollama").unwrap();
+    let mut s = Normalizer::new(src, 128)
+        .unwrap()
+        .bind_scoped_record_channel(session)
+        .unwrap();
+    let mut out = vec![];
+    for record in real["messages"].as_array().unwrap() {
+        out.extend(apply(&mut s, record));
+    }
+    let kinds: Vec<_> = out.iter().map(|v| &v.body.kind).collect();
+    let usage: Vec<_> = usages(&out);
+    assert_eq!(usage.len(), 4, "one usage per assistant message");
+    assert_eq!(usage[0].counters.input, Counter::Known { value: 2066 });
+    assert_eq!(usage[0].counters.cache_read, Counter::Known { value: 5365 });
+    assert_eq!(usage[0].call.provider.as_str(), "ollama");
+    let started = kinds
+        .iter()
+        .filter(|k| matches!(k, ObservationKind::ToolStarted { .. }))
+        .count();
+    let results = kinds
+        .iter()
+        .filter(|k| matches!(k, ObservationKind::ToolResult { .. }))
+        .count();
+    assert_eq!((started, results), (3, 3), "read, failed edit, edit");
+    let roles: Vec<_> = kinds
+        .iter()
+        .filter_map(|k| match k {
+            ObservationKind::TextReference { role, .. } => Some(role.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(roles, vec![TextRole::User, TextRole::Assistant]);
+    let turns = kinds
+        .iter()
+        .filter(|k| matches!(k, ObservationKind::TurnBoundary { .. }))
+        .count();
+    assert_eq!(turns, 1, "only the final stop ends the turn");
+    assert!(
+        !kinds
+            .iter()
+            .any(|k| matches!(k, ObservationKind::Gap { .. })),
+        "step, reasoning and patch parts are not gaps"
+    );
+    let mut foreign = real["messages"][1].clone();
+    foreign["info"]["sessionID"] = "ses_foreign".into();
+    let raw = Frame {
+        start: 0,
+        bytes: serde_json::to_vec(&foreign).unwrap(),
+        oversized: false,
+    };
+    assert!(s.apply(&raw, 100).is_err(), "foreign session refused");
+}
+
+/// I2: a recording written by the released Gemini CLI 0.67.0 itself (scripted
+/// SSE upstream, one `write_file` call, then a text turn). The CLI re-records
+/// the tool-calling message under the same id; usage is counted once.
+#[test]
+fn gemini_cli_0_67_0_recording_is_read_with_usage_once_and_no_raw_content() {
+    let recording = include_str!("fixtures/gemini-cli-0.67.0-recording.jsonl");
+    let header: Value = serde_json::from_str(recording.lines().next().unwrap()).unwrap();
+    let mut bound = source(Format::GeminiRecording6814e00);
+    bound.native_session_key = Text::new(header["sessionId"].as_str().unwrap()).unwrap();
+    let mut s = Normalizer::new(bound, 128).unwrap();
+    let mut seen = vec![];
+    for line in recording.lines() {
+        let value: Value = serde_json::from_str(line).unwrap();
+        for usage in usages(&apply(&mut s, &value)) {
+            seen.push(usage.counters.clone());
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        2,
+        "one usage per native gemini message: {seen:?}"
+    );
+    assert_eq!(seen[0].input, Counter::Known { value: 1200 });
+    assert_eq!(seen[0].output, Counter::Known { value: 40 });
+    assert_eq!(seen[0].cache_read, Counter::Known { value: 0 });
+    assert_eq!(seen[1].input, Counter::Known { value: 1300 });
+    assert_eq!(seen[1].output, Counter::Known { value: 6 });
+    assert_eq!(seen[1].cache_read, Counter::Known { value: 1024 });
+    let retained = serde_json::to_string(&s).unwrap();
+    for raw in ["Fix add in m.py", "return a + b", "Fixed add in m.py."] {
+        assert!(!retained.contains(raw), "retained raw content {raw:?}");
+    }
+}
+fn apply_stream(state: &mut Normalizer, bytes: &[u8]) -> Vec<ObservationRecord> {
+    let (mut offset, mut discarding, mut out) = (0usize, false, vec![]);
+    while offset < bytes.len() {
+        let end = bytes.len().min(offset + MAX_READ_BYTES);
+        let framed = frame(&bytes[offset..end], offset as u64, discarding).unwrap();
+        assert!(framed.consumed > 0);
+        for f in &framed.records {
+            let (next, events) = state.apply(f, 100).unwrap();
+            *state = next;
+            out.extend(events);
+        }
+        offset += framed.consumed;
+        discarding = framed.discarding_oversized;
+    }
+    out
+}
+fn oversized_record(prefix: &str, suffix: &str) -> Vec<u8> {
+    let mut bytes = prefix.as_bytes().to_vec();
+    bytes.extend(std::iter::repeat_n(b'x', 2 * MAX_RECORD_BYTES + 4096));
+    bytes.extend(suffix.as_bytes());
+    bytes.push(b'\n');
+    bytes
+}
+fn gaps(events: &[ObservationRecord]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| matches!(e.body.kind, ObservationKind::Gap { .. }))
+        .map(|e| format!("{:?}", e.body.kind))
+        .collect()
+}
+#[test]
+fn claude_oversized_prompt_snapshot_is_skipped_but_other_oversized_records_gap() {
+    let tail = r#""},"type":"attachment","uuid":"snap-1","sessionId":"native-fixture"}"#;
+    let snapshot = r#"{"parentUuid":"54e0b998-9228-4f63-80a9-4d7023dcffda","isSidechain":false,"attachment":{"type":"prompt_snapshot","systemPrompt":""#;
+    let row = serde_json::to_vec(&fixtures()["claude"][0]).unwrap();
+    let mut s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
+    let mut stream = oversized_record(snapshot, tail);
+    assert!(stream.len() > 2 * MAX_RECORD_BYTES);
+    stream.extend(&row);
+    stream.push(b'\n');
+    let events = apply_stream(&mut s, &stream);
+    assert!(gaps(&events).is_empty(), "{:?}", gaps(&events));
+    assert_eq!(usages(&events).len(), 1, "facts after the snapshot survive");
+    assert!(!s.context_gap && s.oversized_chain.is_none());
+
+    let leading = r#"{"attachment":{"type":"prompt_snapshot","systemPrompt":""#;
+    let mut s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
+    assert!(gaps(&apply_stream(&mut s, &oversized_record(leading, tail))).is_empty());
+
+    for (format, prefix) in [
+        (
+            Format::ClaudeV1Jsonl9a9b8e8,
+            r#"{"parentUuid":null,"attachment":{"type":"hook_output","text":""#,
+        ),
+        (
+            Format::ClaudeV1Jsonl9a9b8e8,
+            r#"{"type":"user","message":{"attachment":{"type":"prompt_snapshot","text":""#,
+        ),
+        (
+            Format::ClaudeV1Jsonl9a9b8e8,
+            r#"{"parentUuid":"x{","attachment":{"type":"prompt_snapshot","text":""#,
+        ),
+        (Format::CodexRollout67f0994, snapshot),
+    ] {
+        let mut s = Normalizer::new(source(format.clone()), 128).unwrap();
+        let events = apply_stream(&mut s, &oversized_record(prefix, tail));
+        assert_eq!(
+            gaps(&events).len(),
+            3,
+            "{format:?} {prefix}: every frame gaps"
+        );
+        assert!(s.context_gap && s.oversized_chain.is_none());
+    }
+}

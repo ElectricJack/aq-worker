@@ -338,3 +338,168 @@ fn old_named_profile_cannot_advertise_known_result_adapter_without_channel() {
     assert!(executor.profile.is_none());
     assert!(!root.path().join("journal").exists());
 }
+
+mod loop_stop {
+    use super::super::loop_stop_cause;
+    use crate::native::result::ResultStopCause;
+    use aq_admission::transport::ProcessOutcome;
+    use std::future::Future;
+    use std::pin::Pin;
+    type Poll = Pin<Box<dyn Future<Output = anyhow::Result<bool>>>>;
+    fn poll(recorded: bool) -> Option<Poll> {
+        Some(Box::pin(async move { Ok(recorded) }))
+    }
+    fn unpolled() -> Option<Poll> {
+        Some(Box::pin(async {
+            panic!("result claim must not be polled after a prior stop cause")
+        }))
+    }
+    fn cause(
+        cancelled: bool,
+        expired: bool,
+        running: bool,
+        poll_result: Option<Poll>,
+    ) -> Option<ResultStopCause> {
+        block_on(loop_stop_cause(
+            cancelled,
+            || Ok(expired),
+            || Ok(running),
+            poll_result,
+        ))
+        .unwrap()
+    }
+    fn block_on<F: Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    /// I0 run 13c: Codex submitted its result 35 s after launch but the
+    /// session stayed open to the 900 s wall limit and reported Expired.
+    #[test]
+    fn recorded_result_claim_ends_running_session_before_deadline() {
+        assert!(matches!(
+            cause(false, false, true, poll(true)),
+            Some(ResultStopCause::ResultRecorded)
+        ));
+        assert!(matches!(
+            ResultStopCause::ResultRecorded.process_outcome(),
+            ProcessOutcome::Unknown
+        ));
+    }
+
+    #[test]
+    fn running_session_without_recorded_claim_continues() {
+        assert!(cause(false, false, true, poll(false)).is_none());
+        assert!(cause(false, false, true, None).is_none());
+    }
+
+    #[test]
+    fn cancel_expiry_and_natural_exit_precede_result_poll() {
+        assert!(matches!(
+            cause(true, true, false, unpolled()),
+            Some(ResultStopCause::Cancelled)
+        ));
+        assert!(matches!(
+            cause(false, true, false, unpolled()),
+            Some(ResultStopCause::Expired)
+        ));
+        assert!(matches!(
+            cause(false, false, false, unpolled()),
+            Some(ResultStopCause::Natural)
+        ));
+        assert!(matches!(
+            ResultStopCause::Expired.process_outcome(),
+            ProcessOutcome::Expired
+        ));
+        assert!(matches!(
+            ResultStopCause::Cancelled.process_outcome(),
+            ProcessOutcome::Cancelled
+        ));
+    }
+
+    #[test]
+    fn result_poll_error_is_not_masked_as_a_stop_cause() {
+        let failing: Option<Poll> = Some(Box::pin(async { anyhow::bail!("claim conflict") }));
+        let error =
+            block_on(loop_stop_cause(false, || Ok(false), || Ok(true), failing)).unwrap_err();
+        assert!(error.to_string().contains("claim conflict"));
+    }
+}
+
+fn confinement_cap(id: &str) -> Capability {
+    Capability {
+        id: Text::new(id).unwrap(),
+        version: 1,
+    }
+}
+fn container_proof() -> AuthorizedConfinement {
+    use crate::native::runner::sandbox::confinement::*;
+    authorize(
+        ConfinementMode::Container,
+        &ExecutionConfinement {
+            permit_container: true,
+            require_native: false,
+        },
+        &QualificationRecord::docker_local("aq-rust"),
+        &AttemptSeparation {
+            runner_uid: 1001,
+            agent: aq_session_host::users::AgentIdentity {
+                uid: 1002,
+                gid: 1002,
+            },
+            credentials_attempt_scoped: true,
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn settings_accept_exactly_one_confinement_mode() {
+    let (_dir, mut config) = super::super::tests::config();
+    let native = confinement_cap(aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY);
+    let container = confinement_cap(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY);
+    config
+        .capabilities
+        .extend([native.clone(), container.clone()]);
+    let mut settings = settings(&config);
+    for selected in [&native, &container] {
+        settings.harness.required_capabilities = vec![selected.clone()];
+        settings.validate(&config).unwrap();
+    }
+    settings.harness.required_capabilities = vec![native, container];
+    let err = settings.validate(&config).err().unwrap();
+    assert!(err.to_string().contains("exactly one confinement"), "{err}");
+}
+
+#[test]
+fn container_preflight_requires_authorized_confinement_before_installation() {
+    let (dir, mut config) = super::super::tests::config();
+    let container = confinement_cap(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY);
+    config.capabilities.push(container.clone());
+    let mut settings = settings(&config);
+    settings.harness.required_capabilities = vec![container];
+    let environment = settings.harness.environment.clone();
+    config.executor = Some(ExecutorConfig::TrustedNodeNamedReadonly {
+        settings,
+        environment,
+    });
+    std::fs::remove_file(&config.adapter_manifest).unwrap();
+    let mut worker = worker();
+    worker.server_url = "https://example.invalid".into();
+    let mut executor = CodexExecutor::new(&worker).unwrap();
+    let err = executor.preflight(&config).unwrap_err();
+    assert!(err.to_string().contains("AuthorizedConfinement"), "{err}");
+    assert!(executor.profile.is_none());
+    // With the sandbox's proof, preflight passes the confinement gate and only
+    // then reaches installation (absent here).
+    let mut executor = CodexExecutor::new(&worker)
+        .unwrap()
+        .with_confinement(container_proof())
+        .unwrap();
+    let err = executor.preflight(&config).unwrap_err();
+    assert!(!err.to_string().contains("confinement"), "{err}");
+    assert!(executor.profile.is_none());
+    assert!(!dir.path().join("journal").exists());
+}

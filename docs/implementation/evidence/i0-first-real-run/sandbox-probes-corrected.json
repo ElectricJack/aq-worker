@@ -1,0 +1,56 @@
+[
+  {
+    "command": [
+      "docker",
+      "run",
+      "--rm",
+      "--read-only",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges=true",
+      "--network",
+      "none",
+      "--tmpfs",
+      "/state:rw,nosuid,nodev,mode=1777",
+      "--tmpfs",
+      "/tmp:rw,nosuid,nodev,mode=1777",
+      "--entrypoint",
+      "python3",
+      "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d",
+      "-c",
+      "import os,pathlib,subprocess,sys\np=pathlib.Path('/state/codex-probe');p.mkdir(mode=0o700)\nw=pathlib.Path('/state/workspace');w.mkdir(mode=0o700)\nos.environ['CODEX_HOME']=str(p)\nsys.exit(subprocess.run(['/opt/aq-runtime/codex','sandbox','--','/bin/true'],cwd=w).returncode)\n"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces. See <https://deb.li/bubblewrap> or <file:///usr/share/doc/bubblewrap/README.Debian.gz>.\n"
+  },
+  {
+    "command": [
+      "docker",
+      "run",
+      "--rm",
+      "--read-only",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges=true",
+      "--network",
+      "none",
+      "--tmpfs",
+      "/state:rw,nosuid,nodev,mode=1777",
+      "--tmpfs",
+      "/tmp:rw,nosuid,nodev,mode=1777",
+      "--security-opt",
+      "seccomp=unconfined",
+      "--entrypoint",
+      "python3",
+      "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d",
+      "-c",
+      "import os,pathlib,subprocess,sys\np=pathlib.Path('/state/codex-probe');p.mkdir(mode=0o700)\nw=pathlib.Path('/state/workspace');w.mkdir(mode=0o700)\nos.environ['CODEX_HOME']=str(p)\nsys.exit(subprocess.run(['/opt/aq-runtime/codex','sandbox','--','/bin/true'],cwd=w).returncode)\n"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+]

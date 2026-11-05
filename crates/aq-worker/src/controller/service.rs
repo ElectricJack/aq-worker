@@ -10,7 +10,8 @@ use tokio::sync::watch;
 pub struct RunConfig {
     pub state_dir: PathBuf,
     pub node: NodeConfig,
-    pub docker_local: crate::backend::docker_local::DockerLocalConfig,
+    pub docker_local: Option<crate::backend::docker_local::DockerLocalConfig>,
+    pub boat: Option<crate::backend::boat::BoatConfig>,
     #[serde(default)]
     pub sandbox: crate::backend::docker_local::SandboxConfig,
     /// C4: advertise templates resolved from the C3b allowlist file.
@@ -29,7 +30,6 @@ impl RunConfig {
             "controller configuration too large"
         );
         let mut config: Self = serde_json::from_slice(&bytes)?;
-        config.docker_local.shared_sccache = config.sandbox.shared_sccache;
         if let Some(allowlist) = &config.template_allowlist {
             let resolved = super::allowlist::load(allowlist, path)?;
             config.node.templates.extend(resolved);
@@ -38,17 +38,32 @@ impl RunConfig {
             config.state_dir.is_absolute(),
             "controller root must be absolute"
         );
-        // Every advertised template must be allowed by this actual backend.
+        ensure!(
+            config.docker_local.is_some() ^ config.boat.is_some(),
+            "configure exactly one placement backend"
+        );
+        if let Some(boat) = &config.boat {
+            boat.validate()?;
+        }
+        // The node-shared sccache volume is a docker-local mount only.
+        ensure!(
+            !config.sandbox.shared_sccache || config.docker_local.is_some(),
+            "sandbox.shared_sccache requires the docker-local backend"
+        );
+        if let Some(docker) = &mut config.docker_local {
+            docker.shared_sccache = config.sandbox.shared_sccache;
+        }
+        // Every advertised template must be allowed by the selected backend.
         for template in &config.node.templates {
-            ensure!(
-                config
-                    .docker_local
-                    .templates
-                    .iter()
-                    .any(|allowed| allowed.digest.as_str()
-                        == format!("sha256:{}", template.digest.as_str())),
-                "advertised template is not configured in backend"
-            );
+            let digest = format!("sha256:{}", template.digest.as_str());
+            let allowed = match (&config.docker_local, &config.boat) {
+                (Some(docker), None) => {
+                    docker.templates.iter().any(|t| t.digest.as_str() == digest)
+                }
+                (None, Some(boat)) => boat.templates.iter().any(|t| t.digest.as_str() == digest),
+                _ => false,
+            };
+            ensure!(allowed, "advertised template is not configured in backend");
         }
         Ok(config)
     }

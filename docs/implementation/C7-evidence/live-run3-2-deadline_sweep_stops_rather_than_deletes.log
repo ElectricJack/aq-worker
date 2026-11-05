@@ -1,0 +1,12 @@
+# boat_live_conformance live run 3.2, personal account, stock busybox@sha256:a7dbc319..., BOAT_LIVE_SCENARIOS=deadline_sweep_stops_rather_than_deletes
+# adapter at c5fecfe (includes c5fecfe archived-read _data fix); start 2026-11-03T18:09:31Z
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/boat_backend.rs (target/debug/deps/boat_backend-7729c51d9bddcb94)
+
+running 1 test
+LIVE PASS deadline_sweep_stops_rather_than_deletes in 43.8s
+test boat_live_conformance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 44.29s
+
+# exit 0 end 2026-11-03T18:10:16Z

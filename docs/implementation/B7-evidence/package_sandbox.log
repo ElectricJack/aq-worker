@@ -1,0 +1,5 @@
+$ python3 -m pytest -q -p no:cacheprovider scripts/tests/test_package_sandbox.py
+# commit 0fa4aea
+......                                                                   [100%]
+6 passed in 0.87s
+rc=0

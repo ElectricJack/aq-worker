@@ -24,10 +24,16 @@ def manifest(root):
         'source': source,
         'runner': artifact(root, 'aq-worker', source['runner_version'], 'bin/aq-worker'),
         'session_host': artifact(root, 'aq-session-host', source['session_host_version'], 'bin/aq-session-host'),
+        'agent_client': artifact(root, 'aq-agent', source['agent_client_version'], 'bin/aq-agent'),
         'aq_git': artifact(root, 'aq-git', inputs['aq-git']['version'], 'bin/aq-git'),
         'node': artifact(root, 'node', inputs['node.tar.xz']['version'], 'node/bin/node'),
-        'harnesses': [artifact(root, 'codex', inputs['codex']['version'], 'harnesses/codex/codex')],
-        'proxies': {'responses': 'in-process:aq-worker', 'aq_loopback': 'in-process:aq-worker'},
+        'harnesses': [artifact(root, 'codex', inputs['codex']['version'], 'harnesses/codex/codex'),
+                      artifact(root, 'claude', inputs['claude']['version'], 'harnesses/claude/claude'),
+                      artifact(root, 'opencode', inputs['opencode']['version'], 'harnesses/opencode/opencode'),
+                      # npm bundle run only by the bundle Node (/opt/aq/node).
+                      artifact(root, 'gemini', inputs['gemini.tgz']['version'], 'harnesses/gemini/bundle/gemini.js')],
+        'proxies': {'responses': 'in-process:aq-worker', 'gemini': 'in-process:aq-worker',
+                    'aq_loopback': 'in-process:aq-worker'},
     }
 
 

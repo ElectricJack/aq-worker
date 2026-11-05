@@ -175,6 +175,17 @@ def validate_entry(entry):
         text(version, 128, r'[A-Za-z0-9_.+-]+')
     if not isinstance(entry['materializations'], dict) or len(canonical(entry['materializations'])) > 65536:
         raise ValueError('invalid materialization metadata')
+    if 'boat' in entry['materializations']:
+        boat = entry['materializations']['boat']
+        fields = {'image_digest','saved_snapshot','snapshot_id','scan_policy','snapshot_archive_digest',
+                  'build_org','builder_identity','built_at'}
+        if not isinstance(boat, dict) or set(boat) != fields or boat['image_digest'] != entry['image_digest']:
+            raise ValueError('boat materialization digest mismatch')
+        for key in ['saved_snapshot','snapshot_id','build_org','builder_identity']:
+            text(boat[key],128,r'[A-Za-z0-9][A-Za-z0-9_.-]*')
+        text(boat['built_at'],40,r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?\+00:00')
+        if boat['scan_policy'] != 'aq-credential-scan-v1' or not scan.DIGEST.fullmatch(boat['snapshot_archive_digest']):
+            raise ValueError('boat snapshot scan evidence missing')
     if scan.secret_shaped(canonical(entry)):
         raise ValueError('credential in allowlist metadata')
     return entry
@@ -307,9 +318,22 @@ def main():
     builder.add_argument('--output', type=Path, required=True)
     scanner = sub.add_parser('scan')
     scanner.add_argument('archive', type=Path)
+    boat = sub.add_parser('boat-materialize')
+    boat.add_argument('template', help='allowlisted name@version')
+    boat.add_argument('--build-config', type=Path, required=True)
+    boat.add_argument('--oci', type=Path, required=True)
+    boat.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     try:
-        result = build(args.recipe, args.build_config, args.output) if args.command == 'build' else scan.scan_oci(args.archive)
+        if args.command == 'boat-materialize':
+            spec = importlib.util.spec_from_file_location('boat_materialize', Path(__file__).with_name('boat_materialize.py'))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            result = module.materialize(args.build_config, args.template, args.oci, args.output)
+        elif args.command == 'build':
+            result = build(args.recipe, args.build_config, args.output)
+        else:
+            result = scan.scan_oci(args.archive)
         print(json.dumps(result, sort_keys=True))
     except (ValueError, OSError, KeyError, TypeError, RecursionError):
         # Never echo untrusted recipe fields, paths, build output or secret bytes.

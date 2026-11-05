@@ -15,7 +15,7 @@ Its [upstream self-tests](https://github.com/gnutls/gnutls/blob/3.8.3/lib/crypto
 explain the embedded vectors; qualification verifies the exact Debian package
 bytes rather than assuming a source version produces identical binaries.
 
-`credential_scan.PUBLIC_FILE_CONSTANTS` contains only 74 exact SHA-256/size
+`credential_scan.PUBLIC_FILE_CONSTANTS` contains only 76 exact SHA-256/size
 pairs. `scan_content` hashes every original byte through EOF. A strict content
 match can pass only when the complete file matches one of those reviewed
 public files. The catalog is compiled into the embedded Python scanner. An
@@ -178,6 +178,46 @@ the initial area checks. The first synced Rust run caught the public Serde
 label false positive described above (`rust-area-final.log`); it is retained
 as regression evidence. `cargo fmt --check` also passed after sync
 (`fmt-final.log`).
+
+## Claude Code 2.1.318 (calm-delta-18.9.3)
+
+The runtime bundle now ships the Claude Code native executable at
+`opt/aq/harnesses/claude/claude`, which the strict scanner refuses (178
+token/assignment matches, all compiled JavaScript: concatenated CSS and skill
+identifiers, PEM-header regexes and property assignments; no credential
+values). One exact entry was added, `708c77b2…f0bd` / 337814032 bytes, the
+`package/claude` member of the public npm tarball
+`@anthropic-ai/claude-code-linux-x64@2.1.318` (archive `2a4d5e3b…554f`, whose
+sha512 equals the registry `integrity`). The same bytes were independently
+matched against a native-installer copy of 2.1.318. `verify_public_files.py`
+covers the record; one appended byte still refuses.
+
+## OpenCode 1.18.35 (azure-horizon-22.6, I3)
+
+The runtime bundle now ships the OpenCode native executable at
+`opt/aq/harnesses/opencode/opencode`, which the strict scanner refuses (205
+token/assignment matches, all compiled JavaScript and embedded provider
+metadata such as environment-variable names and property assignments; no
+credential values). One exact entry was added, `77b2cfe4…24fa` / 185690240
+bytes, the `package/bin/opencode` member of the public npm tarball
+`opencode-linux-x64@1.18.35` (archive `e5c8997d…6133`, whose sha512 equals
+the registry `integrity`). The same bytes were matched against an
+npm-installed `opencode-ai@1.18.35` host copy. `verify_public_files.py`
+covers the record.
+
+## Gemini CLI 0.67.0 (azure-horizon-22.5)
+
+The runtime bundle now ships the public npm package `@google/gemini-cli@0.67.0`
+(archive `3f42374e…6fc2`, whose sha512 equals the registry `integrity`)
+extracted under `opt/aq/harnesses/gemini`, run only by the bundle Node. The
+strict scanner refuses 36 of its files (1831 token/assignment matches): the
+esbuild chunks carry the CLI's published installed-app OAuth client constants,
+public endpoint and header names, and test/doc example keys; `README.md` and
+`bundle/docs/**` carry configuration examples. No AQ or owner credential is
+among them. Each file has one exact entry (`example_image_path`
+`opt/aq/harnesses/gemini/...`, upstream member `package/...`).
+`verify_public_files.py` reads the `.tgz` through `tarfile` like the other npm
+records; a one-byte append to any entry still refuses.
 
 ## Limits
 

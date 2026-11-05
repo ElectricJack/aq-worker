@@ -46,6 +46,8 @@ pub enum TerminalRoute {
 #[derive(Clone, Copy)]
 pub enum RunnerRoute {
     Material,
+    /// C5b compare-and-swap write-back of a refreshed subscription login.
+    MaterialRefresh,
     Prepared,
     Started,
     Renew,
@@ -66,6 +68,7 @@ impl RunnerRoute {
     fn path(self) -> &'static str {
         match self {
             Self::Material => "/v1/worker/profiled/material",
+            Self::MaterialRefresh => "/v1/worker/profiled/material/refresh",
             Self::Prepared => "/v1/worker/profiled-v2/prepare",
             Self::Started => "/v1/worker/profiled-v2/started",
             Self::Renew => "/v1/worker/profiled/renew",
@@ -88,13 +91,15 @@ impl RunnerRoute {
         use RunnerOperation::*;
         if scope == PermitScope::Preparation {
             return match self {
-                Self::Material | Self::Artifact => Ok(FetchPreparationMaterial),
+                Self::Material | Self::MaterialRefresh | Self::Artifact => {
+                    Ok(FetchPreparationMaterial)
+                }
                 Self::Prepared => Ok(Prepared),
                 _ => anyhow::bail!("execution requires a committed grant"),
             };
         }
         Ok(match self {
-            Self::Material | Self::Artifact => FetchExecutionMaterial,
+            Self::Material | Self::MaterialRefresh | Self::Artifact => FetchExecutionMaterial,
             Self::Prepared => anyhow::bail!("Prepared requires preparation scope"),
             Self::Started => Started,
             Self::Renew => Renew,
@@ -549,6 +554,66 @@ impl RunnerHttp {
         let bytes = self.read(response, count).await?;
         ensure!(bytes.len() == count, "runner source short chunk");
         Ok(bytes)
+    }
+    /// C5b write-back: "version N+1 based on `base_version`". 200 and 409 are
+    /// semantic answers here, not authority loss; other refusals go through
+    /// `status`, and transport/server failures are `Err` (retry).
+    pub async fn refresh_login(
+        &self,
+        lease_id: Uuid,
+        base_version: i64,
+        bytes: &[u8],
+    ) -> Result<super::subscription_login::WriteBack> {
+        use super::subscription_login::{MAX_LOGIN_BYTES, WriteBack};
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        #[derive(serde::Deserialize)]
+        struct RefreshOutcome {
+            accepted: bool,
+            version: i64,
+            replayed: bool,
+        }
+        ensure!(
+            !bytes.is_empty() && bytes.len() <= MAX_LOGIN_BYTES,
+            "login write-back size"
+        );
+        let binding = self.binding();
+        let refresh = serde_json::json!({
+            "schema_version": 1,
+            "operation_id": Uuid::new_v4(),
+            "identity": {"node_id": binding.node.node_id, "boot_id": binding.node.boot_id},
+            "binding": self.launch_binding(),
+            "lease_id": lease_id,
+            "base_version": base_version,
+            "content_digest": aq_session_protocol::Digest::of(bytes),
+        });
+        let refresh = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&refresh)?);
+        ensure!(refresh.len() <= 8192, "login write-back header size");
+        let authorization = self.authorize(RunnerRoute::MaterialRefresh, &binding, &Value::Null)?;
+        let response = self
+            .http
+            .post(self.origin.join(RunnerRoute::MaterialRefresh.path())?)
+            .header(header::AUTHORIZATION, authorization)
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .header("aq-material-refresh", refresh)
+            .body(bytes.to_vec())
+            .send()
+            .await
+            .map_err(|_| anyhow::anyhow!("login write-back unavailable; disposition unknown"))?;
+        let status = response.status();
+        if status != StatusCode::OK && status != StatusCode::CONFLICT {
+            self.status(&response)?;
+            anyhow::bail!("login write-back unexpected status");
+        }
+        let outcome = serde_json::from_slice::<RefreshOutcome>(&self.read(response, 4096).await?);
+        Ok(match (status, outcome) {
+            (StatusCode::OK, Ok(o)) if o.accepted => WriteBack::Accepted {
+                version: o.version,
+                replayed: o.replayed,
+            },
+            (StatusCode::OK, _) => anyhow::bail!("invalid login write-back outcome"),
+            (_, Ok(o)) if !o.accepted => WriteBack::Superseded { version: o.version },
+            _ => WriteBack::NotRenewable,
+        })
     }
     fn status(&self, response: &reqwest::Response) -> Result<()> {
         let status = response.status();

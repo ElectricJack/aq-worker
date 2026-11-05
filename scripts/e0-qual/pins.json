@@ -5,20 +5,26 @@
     "path": "~/.local/state/aq-platform-e0-final/source-refresh-c802fed50bd5",
     "revision": "c802fed50bd579009b13a4cc11f77af52fe88d22"
   },
+  "server_source": {
+    "repository": "ElectricJack/aq-server",
+    "revision": "2d337f368ffcfc71c5de929a38fbacaa3b0c5d75",
+    "note": "aq-server main containing PR #50 (merge 2d337f36, keen-impact-58 settlement routes); the qual server image is built from it"
+  },
   "images": {
-    "server": "sha256:6f119d44a482162e7c8d8c04255e56e1e571b9b9e518efd03a8c0fbbd4fd4f96",
+    "server": "sha256:f7f726c88654c7b16494f0a4bee71425c25ddffa04c18b4baa86a5cac800cb6b",
     "server_support": "sha256:94a3d9adea2cf2f693cde66e8c0b58dd9d9cd3a2b47eced78545092dbefdb638",
     "graph": "sha256:807beba98dcd20b0ae335f09cae8c06ecb182a352ee78de278cb47fccb2ee3be",
-    "worker_i0": "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d"
+    "worker_i0": "sha256:20abe6352e6a1161a70ce56ee89239487a2d50f3235701088862c131a64db389"
   },
   "worker_i0": {
-    "source_revision": "dc62cfc0faf2109485b1c9f17a024f6fcb37ebd5",
-    "archive_sha256": "38dfa8fed216d7bc2621d68d58550849714fdd009db4006fadfffb743356ef01",
+    "source_revision": "f4703fec23b1d7d0b4cb7bd2a9edf46031a7b5cd",
+    "archive_sha256": "1632043a812d89943a46a89b98bc43cadc12684b39f7b98ccd2856141a199c15",
     "runtime_version": "0.5.1",
+    "definition_version": "3",
     "programs": {
-      "aq-worker": {"path": "/opt/aq-runtime/aq-worker", "sha256": "6785361916b0fbb630a3b5118ce71227d84b733e9db175dcf011a7a74de9b064", "bytes": 20263504},
-      "aq-session-host": {"path": "/opt/aq-runtime/aq-session-host", "sha256": "9e8cdf0633061ffe5eece467ecf23849213b0cc7af0f63d11b9151373b1c24b6", "bytes": 1791336},
-      "aq-agent": {"path": "/opt/aq-runtime/aq-agent", "sha256": "37f3a5a1107bbe9314474c314b7b8a718710b0d5cceafb362842a7242de2638c", "bytes": 5396720},
+      "aq-worker": {"path": "/opt/aq-runtime/aq-worker", "sha256": "0d438750781df46e02da155db14cc3fc1d1d4e7573a924762d32c2fafaf9fa67", "bytes": 21694176},
+      "aq-session-host": {"path": "/opt/aq-runtime/aq-session-host", "sha256": "be37b8a054c3b3e79d22c9c7d8165fa2c3cf8096bb3d2c9139e96068fb3cdfda", "bytes": 1858752},
+      "aq-agent": {"path": "/opt/aq-runtime/aq-agent", "sha256": "9aed2a18a7d0fd080c8614967d078a6cbecf004de066b7cdbadd8f1193a9ee85", "bytes": 5396464},
       "aq-git": {"path": "/opt/aq-runtime/aq-git", "sha256": "9de33fd4e79d68a9cb8c72532ee03825dca3a3dbaf979bcd8770a53ef8fe9d3a", "bytes": 3142096},
       "codex": {"path": "/opt/aq-runtime/codex", "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8", "bytes": 319346888, "version": "0.166.0"},
       "tmux": {"path": "/opt/aq-runtime/tmux", "sha256": "48418cb9d1a947623cb3f0fc294ddf9179173231a39e83c076d5e0f4a50411b4", "bytes": 1152952, "version": "3.4"},
@@ -37,7 +43,8 @@
     "revision": 1,
     "provider": "openai",
     "source": "~/.codex/auth.json",
-    "server_secret_file": "/qual-vault/owner-chatgpt-codex.auth.json"
+    "server_secret_file": "/qual-vault/owner-chatgpt-codex.auth.json",
+    "registered_image": "sha256:0b7defe69f3e4cfde180f1de332cdae169aa16ac71805875770c4537ce9ddc7d"
   },
   "model": {"provider": "openai", "model": "gpt-6.1-sol", "native_reasoning": "high"}
 }

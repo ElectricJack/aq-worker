@@ -198,6 +198,20 @@ impl PrivateDir {
         let _ = unsafe { libc::unlinkat(self.dir.as_raw_fd(), temp.as_ptr(), 0) };
         result
     }
+    /// Remove a member if present. Returns whether one was removed.
+    pub fn remove(&self, member: &str) -> Result<bool> {
+        let c = name(member)?;
+        self.check_route()?;
+        if unsafe { libc::unlinkat(self.dir.as_raw_fd(), c.as_ptr(), 0) } < 0 {
+            let e = std::io::Error::last_os_error();
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Ok(false);
+            }
+            return Err(e.into());
+        }
+        self.dir.sync_all()?;
+        Ok(true)
+    }
     pub fn lock(&self) -> Result<File> {
         self.lock_named("owner.lock")
     }

@@ -1,0 +1,32 @@
+# I2: Gemini CLI 0.67.0 layered on the C3c rust template, for live
+# qualification only. Left unadmitted (as I4a): never in a template allowlist.
+# No credential is baked in; the runner receives one only as private material.
+#
+# The runner is rebuilt in-image (the host build links GLIBC_2.39; the base is
+# bookworm) with `test-support`, which adds the `gemini-proxy` subcommand the
+# live runner uses to hold the provider key in its own process.
+ARG BASE=127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:4c9c20007445c3a207f31787e635ec753e64b13f22300cd90030784f7862a1c5
+FROM ${BASE} AS runner
+COPY source.tar /src/source.tar
+RUN mkdir /src/tree && tar -xf /src/source.tar -C /src/tree --no-same-owner \
+    && cd /src/tree \
+    && cargo build --locked --release -p aq-worker --features test-support --bin aq-worker \
+    && install -m 0755 target/release/aq-worker /aq-worker-test-support
+
+FROM ${BASE}
+ARG GEMINI_CLI_VERSION=0.67.0
+ARG GEMINI_TGZ_SHA256=3f42374e88171031459ad16e5fac32b161adba330292a1822fb7aae7fb476fc2
+ARG GEMINI_BUNDLE_SHA256=7e35ba8d8629a295c0db3e6a60040177e87f1a6440c51b379922e046db9939a3
+COPY gemini.tgz /tmp/gemini.tgz
+# Same layout and checks as packaging/sandbox/Dockerfile.runtime.
+RUN echo "${GEMINI_TGZ_SHA256}  /tmp/gemini.tgz" | sha256sum -c - \
+    && mkdir -p /opt/aq/harnesses/gemini \
+    && tar -xzf /tmp/gemini.tgz -C /opt/aq/harnesses/gemini --strip-components=1 \
+           --no-same-owner --no-same-permissions \
+    && rm /tmp/gemini.tgz \
+    && chmod -R a+rX,go-w /opt/aq/harnesses/gemini \
+    && echo "${GEMINI_BUNDLE_SHA256}  /opt/aq/harnesses/gemini/bundle/gemini.js" | sha256sum -c - \
+    && printf '#!/bin/sh\nexec /opt/aq/node/bin/node /opt/aq/harnesses/gemini/bundle/gemini.js "$@"\n' > /opt/aq/bin/gemini \
+    && chmod 755 /opt/aq/bin/gemini \
+    && test "$(HOME=$(mktemp -d) GEMINI_CLI_NO_RELAUNCH=true /opt/aq/bin/gemini --version)" = "${GEMINI_CLI_VERSION}"
+COPY --from=runner /aq-worker-test-support /opt/aq/bin/aq-worker-test-support

@@ -1,0 +1,56 @@
+{
+  "programs": {
+    "aq-worker": {
+      "sha256": "6785361916b0fbb630a3b5118ce71227d84b733e9db175dcf011a7a74de9b064",
+      "bytes": 20263504,
+      "links": 1
+    },
+    "aq-session-host": {
+      "sha256": "9e8cdf0633061ffe5eece467ecf23849213b0cc7af0f63d11b9151373b1c24b6",
+      "bytes": 1791336,
+      "links": 1
+    },
+    "aq-agent": {
+      "sha256": "37f3a5a1107bbe9314474c314b7b8a718710b0d5cceafb362842a7242de2638c",
+      "bytes": 5396720,
+      "links": 1
+    },
+    "aq-git": {
+      "sha256": "9de33fd4e79d68a9cb8c72532ee03825dca3a3dbaf979bcd8770a53ef8fe9d3a",
+      "bytes": 3142096,
+      "links": 1
+    },
+    "codex": {
+      "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+      "bytes": 319346888,
+      "links": 1
+    },
+    "tmux": {
+      "sha256": "48418cb9d1a947623cb3f0fc294ddf9179173231a39e83c076d5e0f4a50411b4",
+      "bytes": 1152952,
+      "links": 1
+    }
+  },
+  "versions": {
+    "aq-worker": {
+      "exit": 0,
+      "output": "aq-worker 0.5.1",
+      "stderr": ""
+    },
+    "codex": {
+      "exit": 0,
+      "output": "codex-cli 0.166.0",
+      "stderr": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/i0-codex\"))"
+    },
+    "tmux": {
+      "exit": 0,
+      "output": "tmux 3.4",
+      "stderr": ""
+    },
+    "git": {
+      "exit": 0,
+      "output": "git version 2.56.0",
+      "stderr": ""
+    }
+  }
+}

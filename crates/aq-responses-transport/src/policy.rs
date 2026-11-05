@@ -318,6 +318,30 @@ pub(super) mod tests {
         assert!(scope.prepare(&self::body()).is_err());
     }
     #[test]
+    fn typeless_easy_input_message_is_a_message_and_nothing_else_is() {
+        let scope = scope();
+        let with = |item: Value| {
+            let mut value: Value = serde_json::from_slice(&body()).unwrap();
+            value["input"] = serde_json::json!([item]);
+            scope.prepare(&serde_json::to_vec(&value).unwrap())
+        };
+        // The AI SDK's shape (OpenCode, I3).
+        assert!(with(serde_json::json!({"role":"developer","content":"system prompt"})).is_ok());
+        assert!(
+            with(serde_json::json!({"role":"user","content":[{"type":"input_text","text":"hi"}]}))
+                .is_ok()
+        );
+        for item in [
+            serde_json::json!({"role":"tool","content":"x"}),
+            serde_json::json!({"role":"user","content":[{"type":"input_file","file_id":"f"}]}),
+            serde_json::json!({"role":"user","content":"x","id":"msg_foreign"}),
+            serde_json::json!({"call_id":"c","output":"x"}),
+            serde_json::json!({"content":"x"}),
+        ] {
+            assert!(with(item.clone()).is_err(), "{item}");
+        }
+    }
+    #[test]
     fn server_side_references_and_hosted_tools_refuse_before_cap_insertion() {
         let scope = scope();
         for item in [

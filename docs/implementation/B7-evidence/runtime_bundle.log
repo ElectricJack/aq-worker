@@ -1,0 +1,33 @@
+$ cargo test --locked -p aq-worker --test runtime_bundle --test agent_access --test sandbox_security
+# commit 0fa4aea
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running tests/agent_access.rs (target/debug/deps/agent_access-7d70721b144fad0b)
+
+running 2 tests
+test agent_credential_expires_with_attempt ... ok
+test agent_reads_scoped_context_and_writes_versioned_mutation ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/runtime_bundle.rs (target/debug/deps/runtime_bundle-5887d9a07c9d87ae)
+
+running 1 test
+test runtime_bundle_lists_pinned_harness_versions ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/sandbox_security.rs (target/debug/deps/sandbox_security-3317c9abf16f28c8)
+
+running 8 tests
+test aq_proxy_injects_access_header_without_exposing_token ... ok
+test aq_proxy_refuses_compressed_access_echo ... ok
+test aq_proxy_refuses_non_machine_origins_and_unsafe_access_files ... ok
+test aq_proxy_shutdown_cancels_concurrent_incomplete_requests ... ok
+test runner_private_files_refuse_oversized_and_malformed_secrets ... ok
+test runner_private_layout_refuses_unsafe_secret_files ... ok
+test runner_responses_proxy_keeps_provider_key_at_upstream ... ok
+test agent_user_cannot_read_permit_or_proxy_key ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.64s
+
+rc=0

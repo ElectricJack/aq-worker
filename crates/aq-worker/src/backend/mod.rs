@@ -51,6 +51,15 @@ pub trait PlacementBackend: Send {
         &mut self,
         node_id: Uuid,
     ) -> impl Future<Output = Result<Vec<InventoryEntry>, BackendError>> + Send;
+    /// Controller proof: complete inventory plus abandonment before any create
+    /// intent. Backends with lifecycle accounting may persist a zero interval.
+    fn record_not_created(
+        &mut self,
+        _request: &CreateRequest,
+        _at_ms: u64,
+    ) -> impl Future<Output = Result<(), BackendError>> + Send {
+        async { Ok(()) }
+    }
     fn stop(
         &mut self,
         sandbox: &SandboxIdentity,
@@ -87,6 +96,14 @@ pub trait PlacementBackend: Send {
     ) -> impl Future<Output = Result<SandboxIdentity, BackendError>> + Send {
         async { Err(BackendError::UnsupportedOperation) }
     }
+    /// The stopped runner's exit as observed by the backend. Err while the
+    /// runner is running or its end is unknown; never a guessed code.
+    fn runner_exit(
+        &mut self,
+        _sandbox: &SandboxIdentity,
+    ) -> impl Future<Output = Result<RunnerExit, BackendError>> + Send {
+        async { Err(BackendError::UnsupportedOperation) }
+    }
     /// SBX20: how this backend bounds per-attempt disk. Default: not at all.
     fn disk_limit(&self) -> DiskLimitStatus {
         DiskLimitStatus::default()
@@ -116,3 +133,7 @@ pub trait PlacementBackend: Send {
         authorization: &DestroyAuthorization,
     ) -> impl Future<Output = Confirmation<StoppedWriterProof>> + Send;
 }
+
+pub mod boat;
+mod selected;
+pub use selected::SelectedBackend;

@@ -1,0 +1,8 @@
+./config/opencode/.gitignore
+./data/opencode/log/opencode.log
+./data/opencode/opencode.db
+./data/opencode/opencode.db-shm
+./data/opencode/opencode.db-wal
+./opencode.json
+./state/opencode/locks/6c406e1871b4f5d285b86091d74b3fad225f43c4.lock/heartbeat
+./state/opencode/locks/6c406e1871b4f5d285b86091d74b3fad225f43c4.lock/meta.json

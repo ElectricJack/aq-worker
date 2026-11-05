@@ -1,0 +1,17 @@
+Warning: 256-color support not detected. Using a terminal with at least 256-color support is recommended for a better visual experience.
+YOLO mode is enabled. All tool calls will be automatically approved.
+YOLO mode is enabled. All tool calls will be automatically approved.
+Ripgrep is not available. Falling back to GrepTool.
+Error when talking to Gemini API Full report available at: /tmp/gemini-client-error-Turn.run-sendMessageStream-2026-11-05T03-18-13-716Z.json _ApiError: {"error":{"message":"{\n  \"error\": {\n    \"code\": 402,\n    \"message\": \"Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#prepay. \",\n    \"status\": \"RESOURCE_EXHAUSTED\"\n  }\n}\n","code":402,"status":"Upstream"}}
+    at throwErrorIfNotOK (file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:267940:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:267703:7
+    at async Models.generateContentStream (file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:268799:16)
+    at async file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:313130:19
+    at async file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:289147:23
+    at async retryWithBackoff (file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:309418:23)
+    at async GeminiChat.makeApiCallAndProcessStream (file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:334666:28)
+    at async GeminiChat.streamWithRetries (file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:334361:29)
+    at async Turn.run (file:///opt/aq/harnesses/gemini/bundle/chunk-NGQU3QTQ.js:335403:24) {
+  status: 402
+}

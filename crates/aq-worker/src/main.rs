@@ -52,6 +52,22 @@ enum Cmd {
         #[arg(long)]
         controller_config: PathBuf,
     },
+    /// Claim and run server check attempts (aq.check.sandbox/v1) on the
+    /// Docker-local sandbox, reporting exactly one stop each.
+    RunChecks {
+        /// Operator JSON: journal_dir, checkpoint_dir, docker_local, runner.
+        #[arg(long)]
+        checks_config: PathBuf,
+    },
+    /// Import evidence-backed historical Boat VM lifecycle facts, then replay.
+    /// Stop the controller first: this uses its exclusive Boat journal lock.
+    BoatVmTimeBackfill {
+        #[arg(long)]
+        controller_config: PathBuf,
+        /// JSON array of H2 VM-time facts; no credentials or no-create guesses.
+        #[arg(long)]
+        facts: PathBuf,
+    },
     /// Run the protocol-2 synthetic execution candidate (no real provider harness).
     #[cfg(feature = "synthetic-runtime")]
     RunExecution {
@@ -142,6 +158,16 @@ enum Cmd {
     /// Pure finite qualification vectors/request checks; never executes a model.
     #[cfg(feature = "test-support")]
     FixtureResponses,
+    /// Live-qualification only: serve the runner-held Gemini API-key proxy
+    /// until SIGTERM, writing `{origin, capability}` (never the key) to an
+    /// owner-only ready file.
+    #[cfg(feature = "test-support")]
+    GeminiProxy {
+        #[arg(long)]
+        key_file: PathBuf,
+        #[arg(long)]
+        ready_file: PathBuf,
+    },
     /// Print the node id and server (never the credential).
     Status,
 }
@@ -268,6 +294,33 @@ fn configured_native_executor(
     Ok(Some(aq_worker::native::runner::CodexExecutor::configured(
         worker, config,
     )?))
+}
+
+#[cfg(feature = "test-support")]
+async fn gemini_proxy_cli(
+    key_file: &std::path::Path,
+    ready_file: &std::path::Path,
+) -> anyhow::Result<()> {
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    let proxy =
+        aq_worker::native::runner::sandbox::gemini_proxy::GeminiApiProxy::start(key_file).await?;
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let ready =
+        serde_json::json!({"origin": proxy.origin(), "capability": proxy.local_capability()});
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(ready_file)?;
+    file.write_all(&serde_json::to_vec(&ready)?)?;
+    file.sync_all()?;
+    drop(file);
+    tokio::select! {
+        _ = term.recv() => {},
+        _ = tokio::signal::ctrl_c() => {},
+    }
+    proxy.stop().await
 }
 
 fn main() -> ExitCode {
@@ -545,6 +598,14 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             Ok(()) => ExitCode::SUCCESS,
             Err(_) => usage_err("finite response fixture input refused"),
         },
+        #[cfg(feature = "test-support")]
+        Cmd::GeminiProxy {
+            key_file,
+            ready_file,
+        } => match gemini_proxy_cli(&key_file, &ready_file).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => usage_err(format!("gemini proxy refused: {e:#}")),
+        },
         Cmd::Status => match WorkerConfig::load(&path) {
             Ok(c) => {
                 println!("node id: {}", c.node_id);
@@ -553,15 +614,90 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             }
             Err(e) => usage_err(format!("{e:#}")),
         },
+        Cmd::BoatVmTimeBackfill {
+            controller_config,
+            facts,
+        } => {
+            let result: anyhow::Result<()> = async {
+                use aq_worker::backend::boat::{BoatBackend, BoatKey, VmTimeFact};
+                use std::io::Read;
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::controller::RunConfig::load(&controller_config)?;
+                let boat = config
+                    .boat
+                    .ok_or_else(|| anyhow::anyhow!("backfill requires Boat backend"))?;
+                anyhow::ensure!(
+                    boat.node_id == worker.node_id,
+                    "boat node identity differs from enrollment"
+                );
+                let key = BoatKey::load(&boat.key_file)?;
+                let mut backend = BoatBackend::connect(boat, key)?
+                    .with_vm_time_client(Client::from_config(&worker)?);
+                let mut bytes = Vec::new();
+                std::fs::File::open(facts)?
+                    .take(1_048_577)
+                    .read_to_end(&mut bytes)?;
+                anyhow::ensure!(bytes.len() <= 1_048_576, "backfill file too large");
+                let facts: Vec<VmTimeFact> = serde_json::from_slice(&bytes)?;
+                for fact in facts {
+                    backend.backfill_vm_time(fact)?;
+                }
+                backend.replay_vm_time().await?;
+                anyhow::ensure!(
+                    backend.pending_vm_time_reports() == 0,
+                    "VM-time facts journaled but delivery pending; rerun to retry"
+                );
+                Ok(())
+            }
+            .await;
+            match result {
+                Ok(()) => {
+                    println!("Boat VM-time backfill recorded");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => usage_err(format!("{e:#}")),
+            }
+        }
+        Cmd::RunChecks { checks_config } => {
+            let result: anyhow::Result<()> = async {
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::checks::ChecksConfig::load(&checks_config)?;
+                let (tx, rx) = tokio::sync::watch::channel(false);
+                let watcher = tokio::spawn(async move {
+                    shutdown_signal().await;
+                    let _ = tx.send(true);
+                });
+                let result = aq_worker::checks::run(&worker, config, rx).await;
+                watcher.abort();
+                result
+            }
+            .await;
+            match result {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    let (message, code) = run_error(&e);
+                    eprintln!("error: {message}");
+                    code
+                }
+            }
+        }
         Cmd::Run { controller_config } => {
             let result: anyhow::Result<()> = async {
                 use aq_worker::controller::{Controller, RunConfig, UnavailableProvider};
-                use aq_worker::backend::docker_local::DockerLocalBackend;
+                use aq_worker::backend::{SelectedBackend, boat::{BoatBackend, BoatKey}, docker_local::DockerLocalBackend};
                 let worker = WorkerConfig::load(&path)?;
                 let config = RunConfig::load(&controller_config)?;
-                let backend = DockerLocalBackend::connect_unix(config.docker_local).await?;
-                let mut controller = Controller::open(&config.state_dir, worker.node_id, config.node, backend, UnavailableProvider)?;
                 let client = Client::from_config(&worker)?;
+                let backend = match (config.docker_local, config.boat) {
+                    (Some(docker), None) => SelectedBackend::Docker(Box::new(DockerLocalBackend::connect_unix(docker).await?)),
+                    (None, Some(boat)) => {
+                        anyhow::ensure!(boat.node_id == worker.node_id, "boat node identity differs from enrollment");
+                        let key = BoatKey::load(&boat.key_file)?;
+                        SelectedBackend::Boat(Box::new(BoatBackend::connect(boat, key)?.with_vm_time_client(client.clone())))
+                    }
+                    _ => anyhow::bail!("configure exactly one placement backend"),
+                };
+                let mut controller = Controller::open(&config.state_dir, worker.node_id, config.node, backend, UnavailableProvider)?;
                 let (tx, rx) = tokio::sync::watch::channel(false);
                 let watcher = tokio::spawn(async move {
                     shutdown_signal().await;

@@ -297,6 +297,7 @@ async fn codex_prepared(
         model: m.model.clone(),
         permissions_digest: crate::native::journal::canonical_digest(&m.permissions).unwrap(),
         renderer,
+        confinement: None,
     };
     let policy = m.terminal.clone();
     let host_root = h._dir.path().join("codex-host");

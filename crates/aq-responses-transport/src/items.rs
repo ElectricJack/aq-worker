@@ -40,10 +40,20 @@ pub(super) fn validate(body: &serde_json::Map<String, Value>) -> Result<()> {
         .context("Responses inputs absent")?;
     for input in inputs {
         let item = input.as_object().context("Responses input item shape")?;
-        let kind = item
-            .get("type")
-            .and_then(Value::as_str)
-            .context("Responses explicit input kind required")?;
+        // OpenAI's typeless "easy input message" (`{role, content}` only, as
+        // the AI SDK sends it, I3) is a message; any other typeless item is
+        // refused.
+        let kind = match item.get("type") {
+            None if item
+                .keys()
+                .all(|k| matches!(k.as_str(), "role" | "content")) =>
+            {
+                "message"
+            }
+            kind => kind
+                .and_then(Value::as_str)
+                .context("Responses explicit input kind required")?,
+        };
         let allowed: &[&str] = match kind {
             "message" => &[
                 "type",

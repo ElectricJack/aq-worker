@@ -118,6 +118,50 @@ fn supervisor_session_contract_and_v1_validation() {
     assert!(legacy.validate().is_err());
 }
 #[test]
+fn host_plan_accepts_exactly_one_confinement_mode() {
+    use aq_session_protocol::{
+        CONTAINER_CONFINEMENT_CAPABILITY, Capability, NATIVE_CONFINEMENT_CAPABILITY,
+    };
+    let cap = |id: &str| Capability {
+        id: Text::new(id).unwrap(),
+        version: 1,
+    };
+    let native = fixture();
+    native.validate().unwrap();
+    assert!(
+        native
+            .harness
+            .required_capabilities
+            .contains(&cap(NATIVE_CONFINEMENT_CAPABILITY))
+    );
+    let mut container = native.clone();
+    for c in &mut container.harness.required_capabilities {
+        if c.id.as_str() == NATIVE_CONFINEMENT_CAPABILITY {
+            *c = cap(CONTAINER_CONFINEMENT_CAPABILITY);
+        }
+    }
+    container.validate().unwrap();
+    HostPlan::decode(&serde_json::to_vec(&container).unwrap()).unwrap();
+    let mut both = native.clone();
+    both.harness
+        .required_capabilities
+        .push(cap(CONTAINER_CONFINEMENT_CAPABILITY));
+    let err = both.validate().unwrap_err();
+    assert!(err.to_string().contains("confinement"), "{err}");
+    let mut neither = native.clone();
+    neither
+        .harness
+        .required_capabilities
+        .retain(|c| c.id.as_str() != NATIVE_CONFINEMENT_CAPABILITY);
+    assert!(neither.validate().is_err());
+    let mut no_stop = native;
+    no_stop
+        .harness
+        .required_capabilities
+        .retain(|c| c.id.as_str() != "aq.harness.stop");
+    assert!(no_stop.validate().is_err());
+}
+#[test]
 fn supervisor_session_permit_binds_every_plan_input_and_original_deadline() {
     let p = fixture();
     let grant = permit(&p, 1000);
