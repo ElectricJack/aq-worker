@@ -1,19 +1,50 @@
 name: check
 on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # CI builds are one-shot: incremental state only costs time and cache space.
+  # Interactive builds keep Cargo.toml's incremental dev profile.
+  CARGO_INCREMENTAL: 0
+
+# Lint and test run as parallel jobs; each keeps its own dependency cache.
 jobs:
-  rust:
+  lint:
+    name: fmt, clippy and contracts
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3f2778ee6a28c53e512b95bbcf7b2120993da70d # 1.96.1
+        with:
+          toolchain: 1.96.1
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: python3 scripts/build-budget.py
       - run: cmp protocol/execution-v2.schema.json crates/aq-worker-protocol/fixtures/execution-v2.schema.json
       - run: cmp protocol/conformance-v2.json crates/aq-worker-protocol/fixtures/conformance-v2.json
       - run: python3 scripts/package-admission.py --check
       - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3f2778ee6a28c53e512b95bbcf7b2120993da70d # 1.96.1
+        with:
+          toolchain: 1.96.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: sudo apt-get update && sudo apt-get install -y tmux
       # The numeric-UID security probe deliberately uses --pull=never.
       - run: docker pull ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
       - run: cargo test --workspace --locked --all-features
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
