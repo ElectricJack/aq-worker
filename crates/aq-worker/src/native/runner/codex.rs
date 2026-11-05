@@ -554,6 +554,7 @@ impl NativeExecutor for CodexExecutor {
                 shutdown,
                 transfer,
                 terminal_clock,
+                false,
             )
             .await
         })
@@ -578,6 +579,7 @@ pub(crate) async fn drive_running(
         shutdown,
         None,
         None,
+        false,
     )
     .await
 }
@@ -589,6 +591,7 @@ pub(super) async fn drive_running_owned(
     mut shutdown: watch::Receiver<bool>,
     transfer: Option<crate::transfer_client::TransferClient>,
     terminal_clock: Option<aq_session_host::terminal_io::QualifiedClock>,
+    local_renewal: bool,
 ) -> Result<()> {
     use crate::native::result::ResultStopCause;
     let id = host.attempt_id();
@@ -619,7 +622,16 @@ pub(super) async fn drive_running_owned(
         control_receipts = control.clone();
         let controller = control.map(super::publish_output::ControlPublisher::start);
         let _publisher = super::publish_output::OutputPublisher::start(relay);
+        let mut renewal_sequence = 1u64;
+        let mut next_renewal = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
+            if local_renewal && std::time::Instant::now() >= next_renewal {
+                renewal_sequence += 1;
+                if let Err(error) = host.renew_local(renewal_sequence, deadline_ns / 1_000_000) {
+                    tracing::warn!(attempt_id = %id, "local host permit renewal refused: {error:#}");
+                }
+                next_renewal = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            }
             if controller
                 .as_ref()
                 .is_some_and(|c| c.authentication_required())

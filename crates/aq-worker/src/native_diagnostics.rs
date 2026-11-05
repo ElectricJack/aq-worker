@@ -8,6 +8,10 @@ pub(super) fn refuse(
     disposition: &str,
 ) -> ExitCode {
     eprintln!("error: {}", message(error, worker));
+    // Operator diagnostics: the error's capture site (code locations only).
+    if std::env::var_os("AQ_NATIVE_BACKTRACE").is_some() {
+        eprintln!("backtrace:\n{}", error.backtrace());
+    }
     super::usage_err(disposition)
 }
 

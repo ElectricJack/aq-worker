@@ -189,6 +189,21 @@ fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
     f.sync_all()?;
     Ok(())
 }
+/// Deletes the private token file unless the driver was started (it then owns
+/// the file and deletes it after reading).
+struct TokenGuard(Option<PathBuf>);
+impl TokenGuard {
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+impl Drop for TokenGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
 fn wall_ms() -> Result<u64> {
     Ok(std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -308,6 +323,7 @@ pub(super) fn bootstrap(
     let private = profile.config.root.join(format!("driver-{}", i.launch_id));
     std::fs::DirBuilder::new().mode(0o700).create(&private)?;
     let token_file = private.join("token");
+    let mut guard = TokenGuard(Some(token_file.clone()));
     private_write(&token_file, &token)?;
     drop(token);
     let result_dir = entry
@@ -359,7 +375,9 @@ pub(super) fn bootstrap(
         manifest_digest: i.binding.launch_manifest_digest.clone(),
         sequence: 1,
         issued_boot_ms: boot_ns()? / 1_000_000,
-        expires_boot_ms: hard / 1_000_000,
+        // Non-interactive local permits are capped; the executor renews them.
+        expires_boot_ms: (hard / 1_000_000)
+            .min(boot_ns()? / 1_000_000 + aq_session_host::MAX_PERMIT_MS - 5_000),
     };
     let local = aq_session_host::LocalEnvironment {
         resource_policy: aq_session_host::ResourcePolicy::CallerAdmission(
@@ -440,6 +458,7 @@ pub(super) fn bootstrap(
             state.observer = Some(observer);
             state.pending_output = bootstrap_output;
             state.outcome = Outcome::Running;
+            guard.disarm();
             return Ok(());
         }
         ensure!(

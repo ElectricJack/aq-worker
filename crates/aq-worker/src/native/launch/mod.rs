@@ -382,6 +382,30 @@ impl LocalPhaseHost {
             .context("native physical handle absent")?
             .observe()
     }
+    /// Extend the host guardian's local permit (never server authority) up to
+    /// `until_boot_ms`, which the caller bounds by the server grant. Used by
+    /// non-interactive hosts whose local permit is capped at MAX_PERMIT_MS.
+    pub fn renew_local(&self, sequence: u64, until_boot_ms: u64) -> Result<()> {
+        let intent = lock(&self.entry.history)?
+            .as_ref()
+            .map(|h| h.intent.clone())
+            .context("native launch intent absent")?;
+        let now = boot_ns()? / 1_000_000;
+        let permit = ExecutionPermit {
+            session: intent.binding.session.clone(),
+            manifest_digest: intent.binding.launch_manifest_digest.clone(),
+            sequence,
+            issued_boot_ms: now,
+            expires_boot_ms: until_boot_ms
+                .min(now + aq_session_host::MAX_PERMIT_MS - 5_000)
+                .min(intent.hard_deadline_ns.min(intent.deadline_ns) / 1_000_000),
+        };
+        lock(&self.entry.physical)?
+            .handle
+            .as_ref()
+            .context("native physical handle absent")?
+            .renew(&permit)
+    }
     pub fn started_request(&self) -> Result<aq_admission::started::Request> {
         lock(&self.entry.history)?
             .as_ref()
@@ -654,6 +678,9 @@ impl InputPipeline {
                 let _host_slot = host_slot;
                 let _writer = writer;
                 let result = bootstrap(&owner, &registry, &entry);
+                if let Err(error) = &result {
+                    tracing::warn!(attempt_id = %entry.id, "native host bootstrap refused: {error:#}");
+                }
                 if result.is_err() {
                     let _ = entry.stop_now();
                     if let Ok(mut owned) = lock(&owner) {

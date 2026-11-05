@@ -147,6 +147,7 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 shutdown,
                 Some(self.transfer.clone()),
                 None,
+                true,
             )
             .await
         })
