@@ -16,6 +16,12 @@
 //! then wiped. Only a write-back that failed definitively or ran out of time
 //! keeps a copy, in runner-only state.
 //!
+//! A Gemini CLI login is the google-auth-library `oauth_creds.json` in the
+//! harness state directory (`$GEMINI_CLI_HOME/.gemini`, file storage forced);
+//! its write-back stamp is `expiry_date`, which advances on every refresh.
+//! Only the login files are wiped there, so the session recording survives
+//! for the transcript reader.
+//!
 //! These are library APIs; B6a2 owns wiring them into launch.
 use super::harness_config::{create_private_home, write_private};
 use super::private::RunnerFiles;
@@ -37,6 +43,9 @@ use zeroize::Zeroizing;
 /// C5b's material store bound; also the write-back body bound.
 pub const MAX_LOGIN_BYTES: usize = 64 * 1024;
 const AUTH_FILE: &str = "auth.json";
+pub const GEMINI_OAUTH_FILE: &str = "oauth_creds.json";
+/// Files the Gemini CLI writes beside the login; wiped with it.
+const GEMINI_LOGIN_FILES: [&str; 2] = [GEMINI_OAUTH_FILE, "google_accounts.json"];
 pub const CLAUDE_TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 pub const JOURNAL_RECEIPT: &str = "login-writeback.json";
 pub const RETAINED_FILE: &str = "refreshed-login.json";
@@ -46,6 +55,7 @@ pub const RETAINED_FILE: &str = "refreshed-login.json";
 pub enum LoginKind {
     ClaudeOauthToken,
     CodexChatgptAuth,
+    GeminiOauthCreds,
 }
 
 /// One leased login version as issued by the server. `version` is the
@@ -131,6 +141,17 @@ pub enum AttemptOutcome {
 enum Secret {
     Claude(Zeroizing<String>),
     Codex(PathBuf),
+    /// The Gemini state directory holding `oauth_creds.json`.
+    Gemini(PathBuf),
+}
+
+/// What a refresh advances: Codex `last_refresh` (RFC 3339) or Gemini
+/// `expiry_date` (epoch milliseconds).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Stamp {
+    None,
+    Rfc3339(Option<String>),
+    ExpiryMs(Option<i64>),
 }
 
 /// The login currently installed for the attempt.
@@ -139,7 +160,7 @@ pub struct InstalledLogin {
     lease_id: Uuid,
     version: i64,
     digest: Digest,
-    last_refresh: Option<String>,
+    stamp: Stamp,
     secret: Secret,
 }
 impl std::fmt::Debug for InstalledLogin {
@@ -163,14 +184,22 @@ impl InstalledLogin {
     pub fn claude_env(&self) -> Option<(&'static str, &str)> {
         match &self.secret {
             Secret::Claude(token) => Some((CLAUDE_TOKEN_ENV, token.as_str())),
-            Secret::Codex(_) => None,
+            _ => None,
         }
     }
     /// The private `CODEX_HOME` holding `auth.json`.
     pub fn codex_home(&self) -> Option<&Path> {
         match &self.secret {
             Secret::Codex(home) => Some(home),
-            Secret::Claude(_) => None,
+            _ => None,
+        }
+    }
+    /// The Gemini state directory (`$GEMINI_CLI_HOME/.gemini`) holding
+    /// `oauth_creds.json`.
+    pub fn gemini_state(&self) -> Option<&Path> {
+        match &self.secret {
+            Secret::Gemini(dir) => Some(dir),
+            _ => None,
         }
     }
 }
@@ -183,6 +212,39 @@ fn last_refresh(bytes: &[u8]) -> Result<Option<String>> {
     PrivateLaunchInput::validate_chatgpt_auth_json(bytes)?;
     Ok(serde_json::from_slice::<RefreshStamp>(bytes)?.last_refresh)
 }
+#[derive(Deserialize)]
+struct GeminiCreds {
+    refresh_token: Option<String>,
+    expiry_date: Option<i64>,
+}
+/// A file-stored Gemini OAuth login: a JSON object with a refresh token.
+fn gemini_expiry(bytes: &[u8]) -> Result<Option<i64>> {
+    ensure!(bytes.len() <= MAX_LOGIN_BYTES, "Gemini login byte bound");
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| anyhow::anyhow!("Gemini login shape"))?;
+    ensure!(value.is_object(), "Gemini login shape");
+    let creds: GeminiCreds =
+        serde_json::from_value(value).map_err(|_| anyhow::anyhow!("Gemini login shape"))?;
+    ensure!(
+        creds.refresh_token.is_some_and(|t| !t.is_empty()),
+        "Gemini login requires a refresh token"
+    );
+    Ok(creds.expiry_date)
+}
+fn stamp(kind: LoginKind, bytes: &[u8]) -> Result<Stamp> {
+    Ok(match kind {
+        LoginKind::ClaudeOauthToken => Stamp::None,
+        LoginKind::CodexChatgptAuth => Stamp::Rfc3339(last_refresh(bytes)?),
+        LoginKind::GeminiOauthCreds => Stamp::ExpiryMs(gemini_expiry(bytes)?),
+    })
+}
+fn stamp_newer(refreshed: &Stamp, installed: &Stamp) -> bool {
+    match (refreshed, installed) {
+        (Stamp::Rfc3339(new), Stamp::Rfc3339(old)) => newer(new.as_deref(), old.as_deref()),
+        (Stamp::ExpiryMs(Some(new)), Stamp::ExpiryMs(old)) => old.is_none_or(|old| *new > old),
+        _ => false,
+    }
+}
 fn newer(refreshed: Option<&str>, installed: Option<&str>) -> bool {
     let parse = |v: &str| chrono::DateTime::parse_from_rfc3339(v).ok();
     match (refreshed.and_then(parse), installed) {
@@ -192,9 +254,9 @@ fn newer(refreshed: Option<&str>, installed: Option<&str>) -> bool {
     }
 }
 
-fn install(issued: IssuedLogin, codex_home: Option<&Path>, fresh: bool) -> Result<InstalledLogin> {
+fn install(issued: IssuedLogin, login_home: Option<&Path>, fresh: bool) -> Result<InstalledLogin> {
     let digest = Digest::of(&issued.material);
-    let (secret, last_refresh) = match issued.kind {
+    let (secret, stamp) = match issued.kind {
         LoginKind::ClaudeOauthToken => {
             let token = std::str::from_utf8(&issued.material)
                 .ok()
@@ -203,26 +265,26 @@ fn install(issued: IssuedLogin, codex_home: Option<&Path>, fresh: bool) -> Resul
                     !t.is_empty() && t.len() <= 4096 && t.bytes().all(|b| b.is_ascii_graphic())
                 })
                 .context("Claude subscription token shape")?;
-            (Secret::Claude(Zeroizing::new(token.to_owned())), None)
+            (
+                Secret::Claude(Zeroizing::new(token.to_owned())),
+                Stamp::None,
+            )
         }
         LoginKind::CodexChatgptAuth => {
             ensure!(
                 issued.material.len() <= MAX_LOGIN_BYTES,
                 "Codex login byte bound"
             );
-            let stamp = last_refresh(&issued.material)?;
-            let home = codex_home.context("Codex login requires a private CODEX_HOME")?;
-            if fresh {
-                create_private_home(home)?;
-            } else {
-                super::private::check_directory(home)?;
-                match fs::remove_file(home.join(AUTH_FILE)) {
-                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
-                    _ => {}
-                }
-            }
-            write_private(home, AUTH_FILE, &issued.material)?;
+            let stamp = stamp(issued.kind, &issued.material)?;
+            let home = login_home.context("Codex login requires a private CODEX_HOME")?;
+            place(home, AUTH_FILE, &issued.material, fresh)?;
             (Secret::Codex(home.to_owned()), stamp)
+        }
+        LoginKind::GeminiOauthCreds => {
+            let stamp = stamp(issued.kind, &issued.material)?;
+            let dir = login_home.context("Gemini login requires a private state directory")?;
+            place(dir, GEMINI_OAUTH_FILE, &issued.material, fresh)?;
+            (Secret::Gemini(dir.to_owned()), stamp)
         }
     };
     Ok(InstalledLogin {
@@ -230,9 +292,24 @@ fn install(issued: IssuedLogin, codex_home: Option<&Path>, fresh: bool) -> Resul
         lease_id: issued.lease_id,
         version: issued.version,
         digest,
-        last_refresh,
+        stamp,
         secret,
     })
+}
+
+/// Write the login file into a fresh owner-only directory, or replace it in
+/// the existing one on a relaunch.
+fn place(dir: &Path, name: &str, bytes: &[u8], fresh: bool) -> Result<()> {
+    if fresh {
+        create_private_home(dir)?;
+    } else {
+        super::private::check_directory(dir)?;
+        match fs::remove_file(dir.join(name)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
+    }
+    write_private(dir, name, bytes)
 }
 
 /// Durable, byte-free record of what happened to the login at teardown.
@@ -263,17 +340,18 @@ pub struct SubscriptionLogin {
     installed: InstalledLogin,
 }
 impl SubscriptionLogin {
-    /// Fetch the newest leased login and install it. `codex_home` must not
-    /// exist yet; it is created owner-only.
+    /// Fetch the newest leased login and install it. `login_home` (Codex
+    /// `CODEX_HOME`, or the Gemini `$GEMINI_CLI_HOME/.gemini`) must not exist
+    /// yet; it is created owner-only.
     pub async fn start(
         service: &mut impl LoginService,
         kind: LoginKind,
-        codex_home: Option<&Path>,
+        login_home: Option<&Path>,
     ) -> Result<Self> {
         let issued = service.fetch_newest(kind).await?;
         ensure!(issued.kind == kind, "leased login kind changed");
         Ok(Self {
-            installed: install(issued, codex_home, true)?,
+            installed: install(issued, login_home, true)?,
         })
     }
     pub fn installed(&self) -> &InstalledLogin {
@@ -298,7 +376,11 @@ impl SubscriptionLogin {
                     {
                         return Ok(AttemptOutcome::Failed(LoginFailure::CREDENTIAL_INVALID));
                     }
-                    let home = self.installed.codex_home().map(Path::to_owned);
+                    let home = self
+                        .installed
+                        .codex_home()
+                        .or(self.installed.gemini_state())
+                        .map(Path::to_owned);
                     self.installed = install(newest, home.as_deref(), false)?;
                 }
                 HarnessExit::AuthenticationFailed => {
@@ -329,8 +411,13 @@ impl SubscriptionLogin {
             retained: false,
         };
         let mut failure = None;
-        if let Secret::Codex(home) = &installed.secret
-            && let Some(refreshed) = refreshed(home, &installed)
+        let login_file = match &installed.secret {
+            Secret::Codex(home) => Some(home.join(AUTH_FILE)),
+            Secret::Gemini(dir) => Some(dir.join(GEMINI_OAUTH_FILE)),
+            Secret::Claude(_) => None,
+        };
+        if let Some(file) = &login_file
+            && let Some(refreshed) = refreshed(file, &installed)
         {
             receipt.content_digest = Some(Digest::of(&refreshed));
             match upload(service, &installed, &refreshed, deadline).await {
@@ -373,14 +460,14 @@ impl SubscriptionLogin {
     }
 }
 
-/// The agent-visible `auth.json`, only when it is a valid login that differs
-/// from the installed one and carries a newer `last_refresh`. A symlink,
+/// The agent-visible login file, only when it is a valid login that differs
+/// from the installed one and carries a newer refresh stamp. A symlink,
 /// oversize or invalid file is never followed or uploaded.
-fn refreshed(home: &Path, installed: &InstalledLogin) -> Option<Zeroizing<Vec<u8>>> {
+fn refreshed(path: &Path, installed: &InstalledLogin) -> Option<Zeroizing<Vec<u8>>> {
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(home.join(AUTH_FILE))
+        .open(path)
         .ok()?;
     if !file.metadata().ok()?.is_file() {
         return None;
@@ -393,8 +480,8 @@ fn refreshed(home: &Path, installed: &InstalledLogin) -> Option<Zeroizing<Vec<u8
     if bytes.len() > MAX_LOGIN_BYTES || Digest::of(&bytes) == installed.digest {
         return None;
     }
-    let stamp = last_refresh(&bytes).ok()?;
-    newer(stamp.as_deref(), installed.last_refresh.as_deref()).then_some(bytes)
+    let new = stamp(installed.kind, &bytes).ok()?;
+    stamp_newer(&new, &installed.stamp).then_some(bytes)
 }
 
 /// `Some` is a definitive server answer; `None` means the deadline passed.
@@ -430,6 +517,17 @@ fn wipe(installed: InstalledLogin) -> Result<()> {
             }
             _ => {}
         },
+        // The state directory keeps the session recording for the reader.
+        Secret::Gemini(dir) => {
+            for name in GEMINI_LOGIN_FILES {
+                match fs::remove_file(dir.join(name)) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                        bail!("wipe Gemini login: {e}")
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
     Ok(())
 }

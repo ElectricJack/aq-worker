@@ -2,6 +2,7 @@
 pub mod agent_access;
 pub mod auth;
 pub mod confinement;
+pub mod gemini_proxy;
 pub mod harness_config;
 mod journal;
 pub mod mail;

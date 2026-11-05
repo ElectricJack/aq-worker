@@ -158,6 +158,16 @@ enum Cmd {
     /// Pure finite qualification vectors/request checks; never executes a model.
     #[cfg(feature = "test-support")]
     FixtureResponses,
+    /// Live-qualification only: serve the runner-held Gemini API-key proxy
+    /// until SIGTERM, writing `{origin, capability}` (never the key) to an
+    /// owner-only ready file.
+    #[cfg(feature = "test-support")]
+    GeminiProxy {
+        #[arg(long)]
+        key_file: PathBuf,
+        #[arg(long)]
+        ready_file: PathBuf,
+    },
     /// Print the node id and server (never the credential).
     Status,
 }
@@ -284,6 +294,33 @@ fn configured_native_executor(
     Ok(Some(aq_worker::native::runner::CodexExecutor::configured(
         worker, config,
     )?))
+}
+
+#[cfg(feature = "test-support")]
+async fn gemini_proxy_cli(
+    key_file: &std::path::Path,
+    ready_file: &std::path::Path,
+) -> anyhow::Result<()> {
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    let proxy =
+        aq_worker::native::runner::sandbox::gemini_proxy::GeminiApiProxy::start(key_file).await?;
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let ready =
+        serde_json::json!({"origin": proxy.origin(), "capability": proxy.local_capability()});
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(ready_file)?;
+    file.write_all(&serde_json::to_vec(&ready)?)?;
+    file.sync_all()?;
+    drop(file);
+    tokio::select! {
+        _ = term.recv() => {},
+        _ = tokio::signal::ctrl_c() => {},
+    }
+    proxy.stop().await
 }
 
 fn main() -> ExitCode {
@@ -560,6 +597,14 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
         Cmd::FixtureResponses => match fixture_responses_cli::run() {
             Ok(()) => ExitCode::SUCCESS,
             Err(_) => usage_err("finite response fixture input refused"),
+        },
+        #[cfg(feature = "test-support")]
+        Cmd::GeminiProxy {
+            key_file,
+            ready_file,
+        } => match gemini_proxy_cli(&key_file, &ready_file).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => usage_err(format!("gemini proxy refused: {e:#}")),
         },
         Cmd::Status => match WorkerConfig::load(&path) {
             Ok(c) => {

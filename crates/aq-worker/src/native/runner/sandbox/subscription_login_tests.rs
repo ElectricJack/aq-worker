@@ -87,7 +87,10 @@ impl Harness for FakeHarness {
                 token.to_owned()
             }),
         ));
-        if let (Some(rewrite), Some(home)) = (self.rewrite.as_mut(), login.codex_home()) {
+        if let (Some(rewrite), Some(home)) = (
+            self.rewrite.as_mut(),
+            login.codex_home().or(login.gemini_state()),
+        ) {
             rewrite(home);
         }
         Ok(self.exits.pop_front().unwrap())
@@ -465,4 +468,110 @@ async fn runner_write_back_speaks_c5b_contract() {
     );
     let keys: Vec<_> = refresh.as_object().unwrap().keys().cloned().collect();
     assert_eq!(keys.len(), 7, "exactly MaterialRefresh's fields: {keys:?}");
+}
+
+fn gemini_login(refresh: &str, expiry_ms: i64) -> Vec<u8> {
+    serde_json::to_vec(&json!({"access_token":"offline-gemini-access",
+        "refresh_token":refresh,"scope":"openid","token_type":"Bearer",
+        "id_token":"offline-id","expiry_date":expiry_ms}))
+    .unwrap()
+}
+async fn gemini_attempt(
+    d: &Dirs,
+    service: &mut FakeServer,
+    rewrite: Option<Rewrite>,
+) -> SubscriptionLogin {
+    let state = d.home.join(".gemini");
+    std::fs::create_dir(&d.home).unwrap();
+    let mut login = SubscriptionLogin::start(service, LoginKind::GeminiOauthCreds, Some(&state))
+        .await
+        .unwrap();
+    assert_eq!(login.installed().gemini_state(), Some(state.as_path()));
+    assert!(login.installed().claude_env().is_none() && login.installed().codex_home().is_none());
+    let creds = std::fs::metadata(state.join(GEMINI_OAUTH_FILE)).unwrap();
+    assert_eq!(
+        std::os::unix::fs::PermissionsExt::mode(&creds.permissions()) & 0o777,
+        0o600
+    );
+    let mut harness = FakeHarness::new(&[HarnessExit::Completed]);
+    harness.rewrite = rewrite;
+    login.run(service, &mut harness).await.unwrap();
+    login
+}
+fn gemini_refresh_to(bytes: Vec<u8>) -> Option<Rewrite> {
+    Some(Box::new(move |state: &Path| {
+        std::fs::write(state.join(GEMINI_OAUTH_FILE), &bytes).unwrap();
+        std::fs::write(state.join("google_accounts.json"), b"{}").unwrap();
+        std::fs::create_dir_all(state.join("tmp/w/chats")).unwrap();
+        std::fs::write(state.join("tmp/w/chats/session.jsonl"), b"{}\n").unwrap();
+    }))
+}
+
+#[tokio::test]
+async fn gemini_refreshed_creds_written_back_and_only_login_files_wiped() {
+    let d = dirs();
+    let original = gemini_login("g-refresh-3", 1_800_000_000_000);
+    let refreshed = gemini_login("g-refresh-3", 1_800_000_360_000);
+    let mut service = server(vec![issued(LoginKind::GeminiOauthCreds, 3, &original)]);
+    service.answers.push_back(Ok(WriteBack::Accepted {
+        version: 4,
+        replayed: false,
+    }));
+    let login = gemini_attempt(&d, &mut service, gemini_refresh_to(refreshed.clone())).await;
+    let receipt = login
+        .finish(&mut service, &d.journal, &d.files, soon())
+        .await
+        .unwrap();
+    assert_eq!(service.uploads, vec![(LEASE, 3, refreshed.clone())]);
+    assert_eq!(receipt.outcome, ReceiptOutcome::Accepted);
+    assert_eq!(journaled(&d)["kind"], "gemini_oauth_creds");
+    let state = d.home.join(".gemini");
+    assert!(!state.join(GEMINI_OAUTH_FILE).exists());
+    assert!(!state.join("google_accounts.json").exists());
+    assert!(
+        state.join("tmp/w/chats/session.jsonl").exists(),
+        "recording kept for the reader"
+    );
+    let raw = std::fs::read_to_string(d.journal.join("login-writeback.json")).unwrap();
+    assert!(!raw.contains("g-refresh-3") && !raw.contains("offline-gemini-access"));
+}
+
+#[tokio::test]
+async fn gemini_equal_older_or_invalid_creds_are_not_uploaded() {
+    let original = gemini_login("g-refresh-3", 1_800_000_000_000);
+    for rewrite in [
+        None,
+        gemini_refresh_to(gemini_login("g-other", 1_800_000_000_000)),
+        gemini_refresh_to(gemini_login("g-other", 1_700_000_000_000)),
+        gemini_refresh_to(br#"{"access_token":"a","expiry_date":1900000000000}"#.to_vec()),
+        gemini_refresh_to(b"[]".to_vec()),
+    ] {
+        let d = dirs();
+        let mut service = server(vec![issued(LoginKind::GeminiOauthCreds, 3, &original)]);
+        let login = gemini_attempt(&d, &mut service, rewrite).await;
+        let receipt = login
+            .finish(&mut service, &d.journal, &d.files, soon())
+            .await
+            .unwrap();
+        assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
+        assert!(service.uploads.is_empty());
+        assert!(!d.home.join(".gemini").join(GEMINI_OAUTH_FILE).exists());
+    }
+}
+
+#[tokio::test]
+async fn gemini_login_without_refresh_token_is_refused_at_install() {
+    let d = dirs();
+    let mut service = server(vec![issued(
+        LoginKind::GeminiOauthCreds,
+        1,
+        br#"{"access_token":"only-access"}"#,
+    )]);
+    let state = d.home.join(".gemini");
+    assert!(
+        SubscriptionLogin::start(&mut service, LoginKind::GeminiOauthCreds, Some(&state))
+            .await
+            .is_err()
+    );
+    assert!(!state.exists());
 }
