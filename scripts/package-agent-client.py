@@ -34,6 +34,11 @@ def main():
         data = (package / path).read_bytes()
         if sha(data) != expected["sha256"] or len(data) != expected["bytes"]:
             raise ValueError("public API extracted package changed")
+    comments = json.loads((ROOT / "vendor/agent-comments-v1-source.json").read_bytes())
+    for path, expected in comments["files"].items():
+        data = (ROOT / "vendor/agent-comments-v1" / path).read_bytes()
+        if sha(data) != expected["sha256"] or len(data) != expected["bytes"]:
+            raise ValueError("agent comments contract changed")
     command = ["cargo", "build", "--locked", "--release", "-p", "aq-agent-client", "--bin", "aq-agent", "--message-format=json"]
     if args.offline:
         command.append("--offline")
@@ -50,6 +55,7 @@ def main():
              "agent-api-contract.json": (ROOT / "vendor/agent-api-contract.json").read_bytes()}
     for name in ["schema.json", "openapi.json", "cli-contract.json"]:
         files["contracts/" + name] = (package / "artifacts" / name).read_bytes()
+    files["contracts/agent-comments-routes.json"] = (ROOT / "vendor/agent-comments-v1/routes.json").read_bytes()
     result_contract = ROOT / "crates/aq-agent-result-local"
     files["contracts/agent-result-local.json"] = (result_contract / "artifacts/contract.json").read_bytes()
     files["instructions/agent-result-startup.md"] = (result_contract / "artifacts/startup.md").read_bytes()
@@ -59,7 +65,7 @@ def main():
                 "rustc": checked("rustc", "-vV"), "agent_api_version": 1,
                 "api_archive_sha256": pin["archive_sha256"],
                 "runtime": "Linux host target; no portable libc or container qualification claim",
-                "capabilities": ["context.live", "context.cached", "graph.read", "graph.command", "operation.get", "result.submit.local", "result.status.local"],
+                "capabilities": ["context.live", "context.cached", "graph.read", "graph.command", "operation.get", "comment.add", "comment.list", "result.submit.local", "result.status.local"],
                 "files": {name: {"sha256": sha(data), "bytes": len(data)} for name, data in sorted(files.items())}}
     files["manifest.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
     # Exclusive creation prevents replacing an existing release. Deterministic

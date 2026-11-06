@@ -1,0 +1,67 @@
+{
+  "contract": "human-graph-1",
+  "project": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "name": "Contract fixture",
+    "revision": "1",
+    "workspace_id": "00000000-0000-0000-0000-000000000002"
+  },
+  "observed_at": "2026-11-06T12:00:00Z",
+  "data": {
+    "task_id": "00000000-0000-0000-0000-000000000003",
+    "items": [
+      {
+        "comment_id": "00000000-0000-0000-0000-0000000000c3",
+        "task_id": "00000000-0000-0000-0000-000000000003",
+        "author": {
+          "kind": "owner",
+          "user_id": "00000000-0000-0000-0000-0000000000a1",
+          "display_name": "owner@example.com",
+          "session_id": null,
+          "attempt_id": null
+        },
+        "body": "Please also cover the **phone** layout.",
+        "created_at": "2026-11-06T11:58:00.000Z",
+        "edited_at": "2026-11-06T11:59:30.000Z",
+        "deleted_at": null,
+        "revision": "2",
+        "can_edit": true
+      },
+      {
+        "comment_id": "00000000-0000-0000-0000-0000000000c2",
+        "task_id": "00000000-0000-0000-0000-000000000003",
+        "author": {
+          "kind": "owner",
+          "user_id": "00000000-0000-0000-0000-0000000000a1",
+          "display_name": "owner@example.com",
+          "session_id": null,
+          "attempt_id": null
+        },
+        "body": null,
+        "created_at": "2026-11-06T11:50:00.000Z",
+        "edited_at": null,
+        "deleted_at": "2026-11-06T11:51:00.000Z",
+        "revision": "2",
+        "can_edit": false
+      },
+      {
+        "comment_id": "00000000-0000-0000-0000-0000000000c1",
+        "task_id": "00000000-0000-0000-0000-000000000003",
+        "author": {
+          "kind": "agent",
+          "user_id": null,
+          "display_name": null,
+          "session_id": "00000000-0000-0000-0000-0000000000b1",
+          "attempt_id": "00000000-0000-0000-0000-0000000000b2"
+        },
+        "body": "Finding: the list adapter drops `executions`.\n\n- see `features/work/adapter.ts`",
+        "created_at": "2026-11-06T11:40:00.000Z",
+        "edited_at": null,
+        "deleted_at": null,
+        "revision": "1",
+        "can_edit": false
+      }
+    ],
+    "next_cursor": "opaque-encrypted-cursor"
+  }
+}

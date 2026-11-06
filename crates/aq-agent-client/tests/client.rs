@@ -116,6 +116,88 @@ struct Peer {
     calls: AtomicUsize,
     posts: Mutex<Vec<Vec<u8>>>,
     mode: usize,
+    /// The fixture task thread, oldest first.
+    comments: Mutex<Vec<Value>>,
+}
+fn agent_error(status: StatusCode, code: &str) -> Response {
+    (
+        status,
+        [("X-AQ-Agent-API-Version", "1")],
+        axum::Json(
+            json!({"api_version":1,"request_id":Uuid::new_v4(),"operation_id":null,
+            "code":code,"message":"agent access request refused","effect":"not_applied",
+            "retryable":false,"recovery":null}),
+        ),
+    )
+        .into_response()
+}
+/// The agent-comments v1 routes as aq-server serves them (protocol/agent-comments/v1).
+#[allow(clippy::result_large_err)] // test fixture: the error is the reply
+fn comment_route(s: &Peer, path: &str, raw: &[u8]) -> Result<Value, Response> {
+    let request: Value = serde_json::from_slice(raw).unwrap();
+    let binding = &s.base["context"]["binding"];
+    if s.mode == 32 {
+        return Err(agent_error(StatusCode::UNAUTHORIZED, "session_revoked"));
+    }
+    let mut thread = s.comments.lock().unwrap();
+    if path == "/v1/agent/comments" {
+        assert_eq!(
+            request.as_object().unwrap().len(),
+            3,
+            "only api_version, operation_id and body: {request}"
+        );
+        s.posts.lock().unwrap().push(raw.to_vec());
+        let op = &request["operation_id"];
+        let comment = match thread.iter().find(|c| &c["comment_id"] == op) {
+            Some(c) if c["body"] == request["body"] => c.clone(),
+            Some(_) => return Err(agent_error(StatusCode::CONFLICT, "id_conflict")),
+            None => {
+                let c = json!({"comment_id":op,"task_id":binding["task_id"],
+                    "author":{"kind":"agent","user_id":null,"display_name":null,
+                        "session_id":binding["session_id"],"attempt_id":binding["attempt_id"]},
+                    "body":request["body"],"created_at":format!("2026-11-06T12:00:{:02}.000Z", thread.len()),
+                    "edited_at":null,"deleted_at":null,"revision":"1","can_edit":false});
+                thread.push(c.clone());
+                c
+            }
+        };
+        if s.mode == 31 && s.posts.lock().unwrap().len() == 1 {
+            // Recorded, but the response is lost on the way back.
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                [("X-AQ-Agent-API-Version", "1")],
+                "lost",
+            )
+                .into_response());
+        }
+        let mut comment = comment;
+        if s.mode == 30 {
+            comment["author"]["attempt_id"] = json!(Uuid::new_v4());
+        }
+        return Ok(json!({"api_version":1,"comment":comment}));
+    }
+    assert_eq!(path, "/v1/agent/comments/list");
+    let limit = request["limit"].as_u64().unwrap_or(50) as usize;
+    let before = request["cursor"]
+        .as_str()
+        .map(|c| c.strip_prefix("tc1.").unwrap().parse::<usize>().unwrap())
+        .unwrap_or(thread.len() + 1);
+    let mut items: Vec<(usize, Value)> = thread
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(i, c)| (i + 1, c))
+        .filter(|(seq, _)| *seq < before)
+        .rev()
+        .collect();
+    let more = items.len() > limit;
+    items.truncate(limit);
+    let next = more.then(|| format!("tc1.{}", items.last().unwrap().0));
+    let mut items: Vec<Value> = items.into_iter().map(|(_, c)| c).collect();
+    if s.mode == 33 {
+        items[0]["task_id"] = json!(Uuid::new_v4());
+    }
+    Ok(json!({"api_version":1,"task_id":binding["task_id"],"items":items,"next_cursor":next}))
 }
 async fn endpoint(State(s): State<Arc<Peer>>, req: Request<Body>) -> Response {
     assert_eq!(
@@ -126,7 +208,22 @@ async fn endpoint(State(s): State<Arc<Peer>>, req: Request<Body>) -> Response {
     assert!(req.headers().get("cf-access-client-secret").is_none());
     s.calls.fetch_add(1, Ordering::SeqCst);
     let path = req.uri().path().to_owned();
+    let csrf = req.headers().get("X-AQ-Request").cloned();
     let raw = to_bytes(req.into_body(), 1_048_576).await.unwrap();
+    if path.starts_with("/v1/agent/comments") {
+        assert_eq!(csrf.unwrap(), "1");
+        return match comment_route(&s, &path, &raw) {
+            Ok(value) => (
+                [
+                    ("X-AQ-Agent-API-Version", "1"),
+                    ("Cache-Control", "no-store"),
+                ],
+                axum::Json(value),
+            )
+                .into_response(),
+            Err(response) => response,
+        };
+    }
     let mut value = if path == "/v1/agent/context" {
         s.base["context"].clone()
     } else if path == "/v1/agent/graph/read" {
@@ -259,6 +356,7 @@ async fn peer(mode: usize) -> (String, Arc<Peer>, tokio::task::JoinHandle<()>) {
         calls: AtomicUsize::new(0),
         posts: Mutex::new(vec![]),
         mode,
+        comments: Mutex::new(vec![]),
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -633,4 +731,242 @@ async fn actual_cli_preserves_operation_states_and_safe_error_output() {
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["cached"], true);
     assert_eq!(value["live_authority"], false);
+}
+
+async fn comment_client(mode: usize) -> (TempDir, Arc<Peer>, tokio::task::JoinHandle<()>) {
+    let (url, peer, server) = peer(mode).await;
+    let root = TempDir::new().unwrap();
+    install(root.path(), &url, base()["context"].clone());
+    (root, peer, server)
+}
+#[tokio::test]
+async fn comment_add_replays_and_conflicts_by_operation_id() {
+    let (root, peer, server) = comment_client(0).await;
+    let client = AgentClient::open(root.path()).unwrap();
+    let binding = &base()["context"]["binding"];
+    let op = Uuid::from_u128(0xc1);
+    let body = "Finding: the adapter drops `executions`.\n\n- café 世界";
+    let added = client.comment_add(op, body).await.unwrap();
+    assert_eq!(added.exit_code, 0);
+    let c = &added.value["comment"];
+    assert_eq!(c["comment_id"], json!(op));
+    assert_eq!(c["task_id"], binding["task_id"]);
+    assert_eq!(c["author"]["kind"], "agent");
+    assert_eq!(c["author"]["attempt_id"], binding["attempt_id"]);
+    assert!(aq_agent_client::comments::valid_comment(c));
+    // The request names no task: the credential binding decides the thread.
+    let sent: Value = serde_json::from_slice(&peer.posts.lock().unwrap()[0]).unwrap();
+    assert_eq!(sent, json!({"api_version":1,"operation_id":op,"body":body}));
+    // Same ID and body: the same comment. A different body: id_conflict, exit 11.
+    let replay = client.comment_add(op, body).await.unwrap();
+    assert_eq!((replay.exit_code, &replay.value), (0, &added.value));
+    let conflict = client.comment_add(op, "Something else").await.unwrap();
+    assert_eq!(conflict.exit_code, 11);
+    assert_eq!(conflict.value["code"], "id_conflict");
+    assert_eq!(peer.comments.lock().unwrap().len(), 1);
+    server.abort();
+}
+#[tokio::test]
+async fn comment_bodies_are_checked_before_any_request() {
+    let (root, peer, server) = comment_client(0).await;
+    let client = AgentClient::open(root.path()).unwrap();
+    for bad in [
+        String::new(),
+        " \n\t".into(),
+        "bell\u{7}".into(),
+        "x".repeat(16_385),
+    ] {
+        let error = client
+            .comment_add(Uuid::new_v4(), &bad)
+            .await
+            .err()
+            .unwrap();
+        let failure = error.downcast_ref::<Failure>().unwrap();
+        assert_eq!(
+            (failure.code, failure.effect),
+            ("invalid_comment_body", "not_applied")
+        );
+    }
+    assert!(client.comment_add(Uuid::nil(), "ok").await.is_err());
+    for (cursor, limit) in [
+        (None, Some(0)),
+        (None, Some(101)),
+        (Some(""), None),
+        (Some("a b"), None),
+    ] {
+        assert!(client.comment_list(cursor, limit).await.is_err());
+    }
+    assert_eq!(peer.calls.load(Ordering::SeqCst), 0);
+    // Tab, LF, CR and a full 16 KiB of multibyte text are accepted.
+    let ok = client
+        .comment_add(Uuid::new_v4(), "a\tb\r\nc")
+        .await
+        .unwrap();
+    assert_eq!(ok.exit_code, 0);
+    let full = client
+        .comment_add(Uuid::new_v4(), &"é".repeat(8192))
+        .await
+        .unwrap();
+    assert_eq!(full.exit_code, 0);
+    server.abort();
+}
+#[tokio::test]
+async fn comment_list_pages_newest_first_and_checks_the_thread() {
+    let (root, _peer, server) = comment_client(0).await;
+    let client = AgentClient::open(root.path()).unwrap();
+    for n in 1..=3u128 {
+        let added = client
+            .comment_add(Uuid::from_u128(n), &format!("note {n}"))
+            .await;
+        assert_eq!(added.unwrap().exit_code, 0);
+    }
+    let first = client.comment_list(None, Some(2)).await.unwrap();
+    assert_eq!(first.exit_code, 0);
+    let bodies = |v: &Value| -> Vec<String> {
+        v["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["body"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(bodies(&first.value), ["note 3", "note 2"]);
+    let cursor = first.value["next_cursor"].as_str().unwrap().to_owned();
+    let text = aq_agent_client::comments::render_page(&first.value);
+    assert!(text.contains("2 comments (newest first)"), "{text}");
+    assert!(text.contains("    note 3"), "{text}");
+    assert!(
+        text.contains(&format!("aq-agent comment list --cursor {cursor}")),
+        "{text}"
+    );
+    let older = client.comment_list(Some(&cursor), Some(2)).await.unwrap();
+    assert_eq!(bodies(&older.value), ["note 1"]);
+    assert!(older.value["next_cursor"].is_null());
+    server.abort();
+}
+#[tokio::test]
+async fn comment_responses_outside_the_attempt_or_lost_stay_uncertain() {
+    // Another attempt's author, or another task's comment, is never accepted.
+    for mode in [30, 33] {
+        let (root, _peer, server) = comment_client(mode).await;
+        let client = AgentClient::open(root.path()).unwrap();
+        let op = Uuid::new_v4();
+        if mode == 30 {
+            let error = client.comment_add(op, "x").await.err().unwrap();
+            let failure = error.downcast_ref::<Failure>().unwrap();
+            assert_eq!(
+                (failure.operation_id, failure.effect),
+                (Some(op), "unknown")
+            );
+        } else {
+            client.comment_add(op, "x").await.unwrap();
+            let error = client.comment_list(None, None).await.err().unwrap();
+            assert_eq!(error.downcast_ref::<Failure>().unwrap().effect, "read_only");
+        }
+        server.abort();
+    }
+    // A lost response reports the ID as safe to retry; the retry returns the
+    // comment recorded by the first send.
+    let (root, peer, server) = comment_client(31).await;
+    let client = AgentClient::open(root.path()).unwrap();
+    let op = Uuid::new_v4();
+    let error = client.comment_add(op, "lost once").await.err().unwrap();
+    let failure = error.downcast_ref::<Failure>().unwrap();
+    assert_eq!(failure.code, "remote_response_unknown");
+    assert_eq!((failure.operation_id, failure.retryable), (Some(op), true));
+    let retry = client.comment_add(op, "lost once").await.unwrap();
+    assert_eq!(retry.value["comment"]["comment_id"], json!(op));
+    assert_eq!(peer.comments.lock().unwrap().len(), 1);
+    server.abort();
+    // A revoked credential is a definite refusal, exit 14.
+    let (root, _peer, server) = comment_client(32).await;
+    let client = AgentClient::open(root.path()).unwrap();
+    let refused = client.comment_list(None, None).await.unwrap();
+    assert_eq!(
+        (refused.exit_code, refused.value["code"].as_str()),
+        (14, Some("session_revoked"))
+    );
+    server.abort();
+}
+#[tokio::test]
+async fn actual_cli_comment_add_and_list() {
+    use std::process::Stdio;
+    use tokio::{io::AsyncWriteExt, process::Command};
+    let (root, peer, server) = comment_client(0).await;
+    let cli = |args: &[&str]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_aq-agent"));
+        command
+            .arg("--state-dir")
+            .arg(root.path())
+            .arg("comment")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        command
+    };
+    let op = Uuid::from_u128(0xa1).to_string();
+    let output = cli(&["add", "Finding: **one**", "--operation-id", &op])
+        .output()
+        .await
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.starts_with(&format!("Comment {op} recorded on task ")),
+        "{text}"
+    );
+    // Body from stdin; the trailing newline is dropped. --json prints the response.
+    let mut child = cli(&["add", "--json"]).spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all("Second\nline\n".as_bytes()).await.unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().await.unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let added: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(added["comment"]["body"], "Second\nline");
+    // Body from a file.
+    let file = root.path().join("note.md");
+    std::fs::write(&file, "From a file\n").unwrap();
+    let output = cli(&["add", "--file", file.to_str().unwrap()])
+        .output()
+        .await
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    // Same ID, different body: conflict on stderr, exit 11.
+    let output = cli(&["add", "changed", "--operation-id", &op])
+        .output()
+        .await
+        .unwrap();
+    assert_eq!(output.status.code(), Some(11));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("id_conflict"));
+    // A blank body never reaches the server: exit 15.
+    let posts = peer.posts.lock().unwrap().len();
+    let output = cli(&["add", "  "]).output().await.unwrap();
+    assert_eq!(output.status.code(), Some(15));
+    assert_eq!(peer.posts.lock().unwrap().len(), posts);
+    let output = cli(&["list", "--limit", "101"]).output().await.unwrap();
+    assert_eq!(output.status.code(), Some(2), "clap rejects the limit");
+    // Text and JSON listings.
+    let output = cli(&["list", "--limit", "2"]).output().await.unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("2 comments (newest first)"), "{text}");
+    assert!(text.contains("    From a file"), "{text}");
+    assert!(text.contains("agent (attempt "), "{text}");
+    assert!(
+        text.contains("aq-agent comment list --cursor tc1.2"),
+        "{text}"
+    );
+    let output = cli(&["list", "--json", "--cursor", "tc1.2"])
+        .output()
+        .await
+        .unwrap();
+    let page: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(page["items"][0]["body"], "Finding: **one**");
+    for stream in [&output.stdout, &output.stderr] {
+        assert!(!String::from_utf8_lossy(stream).contains("aqa_"));
+    }
+    server.abort();
 }

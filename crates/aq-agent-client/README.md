@@ -1,10 +1,11 @@
 # AQ agent client
 
 `aq-agent` is a finite, session-scoped API 1 CLI and Rust client. It provides live
-or explicitly cached context, six graph reads, graph commands and existing
-operation status. It consumes the separately packaged public `aq-agent-api`
-contract, without linking the daemon or graph database. Messaging, terminal
-control, suspension and provider harness launching are not exposed by this CLI.
+or explicitly cached context, six graph reads, graph commands, existing
+operation status, mailbox messages and task comments. It consumes the
+separately packaged public `aq-agent-api` contract, without linking the daemon
+or graph database. Terminal control, suspension and provider harness launching
+are not exposed by this CLI.
 
 An independently installed local result channel supports one explicit completion
 claim. It uses no Graph credential or HTTP client configuration:
@@ -56,6 +57,38 @@ aq-agent --state-dir /absolute/private/session graph get NODE_UUID
 aq-agent --state-dir /absolute/private/session graph command --request-file request.json
 aq-agent --state-dir /absolute/private/session operation get OPERATION_UUID
 ```
+
+Task comments (aq-server `protocol/agent-comments/v1`, pinned in
+`vendor/agent-comments-v1` with `vendor/agent-comments-v1-source.json`) let the
+agent record findings on its own task, which the owner sees in the task view:
+
+```sh
+aq-agent --state-dir DIR comment add "Finding: the adapter drops \`executions\`."
+aq-agent --state-dir DIR comment add --file notes.md      # or the body on stdin
+aq-agent --state-dir DIR comment list [--limit 20] [--cursor tc1.N] [--json]
+```
+
+The body is Markdown, 1..16384 bytes, not blank, with no control characters
+other than tab, LF and CR; it is checked before anything is sent. A trailing
+newline from `--file` or stdin is dropped. The credential binding chooses the
+task, session and attempt; the request names none of them. Each add sends once
+with a new operation UUID (the comment ID). After an uncertain outcome the
+stderr JSON carries that `operation_id` with `"retryable":true`: rerun with
+`--operation-id` and the same body, and the server returns the original comment
+instead of a duplicate. The same ID with a different body is `id_conflict`
+(exit 11). `list` shows the task's thread newest first, including comments from
+earlier attempts and the owner; pass the printed `--cursor` for older ones.
+Without `--json` both print text; with it, the validated response JSON. Agents
+cannot edit or delete comments.
+
+Availability: an agent can run `comment` only where its runner installs the
+per-attempt state directory (`client.json`, `context.json`, `credential.json`)
+and the AQ origin is reachable. The sandbox runtime image ships
+`/opt/aq/bin/aq-agent`, and the B7 runner path (`AgentAccess` behind the B6b
+loopback proxy) installs that directory. The MS1 docker-local Claude driver
+(`aq-worker` `sandbox_driver`) does not yet: it issues no agent credential,
+mounts no state directory and gives the agent no route to aq-server, so its
+runner note does not mention comments.
 
 Command JSON follows the packaged `contracts/schema.json` `CommandRequest`.
 The caller supplies an operation UUID. Canonical request bytes, cumulative retry
