@@ -141,11 +141,9 @@ impl NativeExecutor for ClaudeDockerExecutor {
                     )
                 }
             };
-            // MS1 review S2: the host's stop proof covers only its own process
-            // tree, not the sandbox container, and the host kills the driver
-            // within its short stop grace while a container stop takes longer.
-            // So the sandbox is stopped (and confirmed) BEFORE the host stop is
-            // reported; an unconfirmed stop withholds Stopped (stop uncertain).
+            // MS1 review S2: the host's stop proof does not cover the sandbox,
+            // and its short stop grace kills the driver first. So the sandbox
+            // stop is confirmed BEFORE the host stop; else Stopped is withheld.
             let driver_dir = host.claude_driver_dir();
             let docker_local = profile.config().docker_local.clone();
             let node = self.node_id;
