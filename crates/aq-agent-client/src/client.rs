@@ -132,8 +132,10 @@ impl Http {
             if body.len() > aq_agent_api::MAX_DOCUMENT_BYTES {
                 return Err(Failure::uncertain(None));
             }
+            // Mutations carry the CSRF marker the agent routes document.
             request = request
                 .header(header::CONTENT_TYPE, "application/json")
+                .header("X-AQ-Request", "1")
                 .body(body);
         }
         let mut response = request.send().await.map_err(|_| Failure::uncertain(None))?;
@@ -611,6 +613,97 @@ impl AgentClient {
             offset = chunk["next_offset"].as_str().unwrap_or_default().to_owned();
         }
         anyhow::bail!("message body chunk bound")
+    }
+}
+/// Task comments (agent-comments v1). The thread and author come from the
+/// credential's binding; nothing in the request names a task.
+impl AgentClient {
+    /// One send. Pass the same `operation_id` and body to retry after an
+    /// uncertain outcome: the server returns the original comment.
+    pub async fn comment_add(&self, operation_id: Uuid, body: &str) -> Result<Outcome> {
+        let request = crate::comments::add_request(operation_id, body).map_err(|_| Failure {
+            code: "invalid_comment_body",
+            operation_id: Some(operation_id),
+            effect: "not_applied",
+            retryable: false,
+        })?;
+        let uncertain = Failure {
+            // A replay with the same ID and body is safe, so say so.
+            retryable: true,
+            ..Failure::uncertain(Some(operation_id))
+        };
+        self.comment_exchange(
+            crate::comments::ADD_PATH,
+            request,
+            Some(operation_id),
+            uncertain,
+        )
+        .await
+    }
+    /// One page of the task's thread, newest first.
+    pub async fn comment_list(&self, cursor: Option<&str>, limit: Option<u16>) -> Result<Outcome> {
+        let request = crate::comments::list_request(cursor, limit).map_err(|_| Failure {
+            code: "invalid_comment_page",
+            operation_id: None,
+            effect: "read_only",
+            retryable: false,
+        })?;
+        self.comment_exchange(
+            crate::comments::LIST_PATH,
+            request,
+            None,
+            Failure::uncertain(None),
+        )
+        .await
+    }
+    async fn comment_exchange(
+        &self,
+        path: &str,
+        request: Value,
+        operation_id: Option<Uuid>,
+        uncertain: Failure,
+    ) -> Result<Outcome> {
+        let now = Stamp::now()?;
+        // Nothing is sent with an expired or malformed credential.
+        self.credential(&now).map_err(|_| Failure {
+            code: "authentication_or_authority_refused",
+            operation_id,
+            effect: "not_asserted",
+            retryable: false,
+        })?;
+        let Ok((status, value)) = self
+            .request(Method::POST, path, Some(canonical(&request)?), &now)
+            .await
+        else {
+            return Err(uncertain.into());
+        };
+        let binding = &self.config.binding;
+        if status == 200 {
+            let associated = if operation_id.is_some() {
+                crate::comments::added(binding, &request, &value)
+            } else {
+                crate::comments::page(binding, &request, &value)
+            };
+            return if associated {
+                Ok(Outcome {
+                    value,
+                    exit_code: 0,
+                })
+            } else {
+                Err(uncertain.into())
+            };
+        }
+        // A published refusal is definite; anything else stays uncertain.
+        if !valid("ErrorResponse", &value) || value["effect"] != "not_applied" {
+            return Err(uncertain.into());
+        }
+        let exit_code = match status {
+            401 | 403 => 14,
+            409 => 11,
+            400 | 404 | 426 => 12,
+            _ => 13,
+        };
+        Ok(Outcome { value, exit_code })
     }
 }
 fn operation_http_status(status: u16, value: &Value) -> bool {

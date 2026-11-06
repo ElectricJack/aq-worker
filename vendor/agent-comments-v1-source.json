@@ -1,0 +1,30 @@
+{
+  "name": "agent-comments",
+  "version": 1,
+  "producer_repository": "ElectricJack/aq-server",
+  "source_revision": "6661d7bed671dec405079219251cd928abb4758a",
+  "source_pull_request": 98,
+  "note": "Exact copies of the aq-server protocol files; re-vendor by copying them again from a newer aq-server revision and updating this pin.",
+  "files": {
+    "README.md": {
+      "source_path": "protocol/agent-comments/v1/README.md",
+      "sha256": "6eb6c7ce331b88fa43fc18ae11154e860e9934db957da9f2032c3cb9bf5e818c",
+      "bytes": 2095
+    },
+    "human-graph-v1.comments.example.json": {
+      "source_path": "protocol/human-graph/v1/examples/comments.json",
+      "sha256": "b334a762abcacb991c96d163f5c0abbccb4924be61443f8480c725d062ebafc7",
+      "bytes": 2196
+    },
+    "human-graph-v1.schema.json": {
+      "source_path": "protocol/human-graph/v1/schema.json",
+      "sha256": "5e4b55e93f58b4bc06c068b70f44e0820f110929e5b167327abcaeeae07a7e91",
+      "bytes": 34751
+    },
+    "routes.json": {
+      "source_path": "protocol/agent-comments/v1/routes.json",
+      "sha256": "d486e09b1b9e587bea3c48185cc3c8ca95096455895eac2d8c51c77c807b4fcc",
+      "bytes": 1291
+    }
+  }
+}

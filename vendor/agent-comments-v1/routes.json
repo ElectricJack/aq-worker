@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "credential": "per-attempt machine credential (Authorization: Bearer, X-AQ-Request: 1); project_id, task_id, session_id and attempt_id are taken from the authenticated binding, never from the body",
+  "comment_schema": "protocol/human-graph/v1/schema.json#/components/schemas/HumanComment",
+  "routes": [
+    {
+      "method": "POST", "path": "/v1/agent/comments", "capability": "comment.add",
+      "request": {"api_version": 1, "operation_id": "uuid", "body": "markdown string, 1..16384 bytes, not blank, no control characters except tab/LF/CR"},
+      "response": {"api_version": 1, "comment": "HumanComment (author.kind agent, can_edit false)"}
+    },
+    {
+      "method": "POST", "path": "/v1/agent/comments/list", "capability": "comment.list",
+      "request": {"api_version": 1, "cursor?": "string from next_cursor", "limit?": "integer 1..100, default 50"},
+      "response": {"api_version": 1, "task_id": "uuid", "items": "HumanComment[] newest first", "next_cursor": "string or null"}
+    }
+  ],
+  "owner_actions": ["task.comment.add", "task.comment.edit", "task.comment.delete"],
+  "errors": {
+    "invalid_request": 400,
+    "unauthorized": 401, "session_revoked": 401, "session_expired": 401,
+    "unsupported_api_version": 426,
+    "id_conflict": 409
+  }
+}

@@ -44,6 +44,40 @@ enum Command {
         #[command(subcommand)]
         command: Message,
     },
+    /// Comments on your own task: record findings the owner sees in the task view.
+    Comment {
+        #[command(subcommand)]
+        command: Comment,
+    },
+}
+#[derive(Subcommand)]
+enum Comment {
+    /// Add a Markdown comment to this task. The body is BODY, --file, or stdin.
+    /// After an uncertain outcome, rerun with the printed --operation-id and the
+    /// same body: the server returns the original comment, never a duplicate.
+    Add {
+        /// The Markdown body (1..16384 bytes). Omit it, or pass "-", to read stdin.
+        #[arg(conflicts_with = "file")]
+        body: Option<String>,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Retry an earlier add; a new UUID is generated when omitted.
+        #[arg(long)]
+        operation_id: Option<Uuid>,
+        /// Print the validated server response JSON instead of text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// List this task's comments, newest first, including earlier attempts'.
+    List {
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u16).range(1..=100))]
+        limit: u16,
+        /// The next_cursor of a previous page, for older comments.
+        #[arg(long)]
+        cursor: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 #[derive(Subcommand)]
 enum Message {
@@ -182,6 +216,35 @@ fn body_input(path: Option<PathBuf>) -> Result<String> {
     reader.take(limit as u64 + 1).read_to_end(&mut bytes)?;
     Ok(String::from_utf8(bytes)?)
 }
+/// The comment body from the argument, a file or stdin. A trailing newline
+/// from a file or stdin is not part of the comment.
+fn comment_body(body: Option<String>, file: Option<PathBuf>) -> Result<String> {
+    if let Some(body) = body.filter(|b| b != "-") {
+        return Ok(body);
+    }
+    let limit = aq_agent_client::comments::MAX_BODY_BYTES;
+    let reader: Box<dyn Read> = match file {
+        Some(path) => Box::new(std::fs::File::open(path)?),
+        None => Box::new(std::io::stdin()),
+    };
+    let mut bytes = vec![];
+    reader.take(limit as u64 + 2).read_to_end(&mut bytes)?;
+    let text = String::from_utf8(bytes)?;
+    Ok(text.trim_end_matches(['\n', '\r']).to_owned())
+}
+/// Text output for `comment` without --json. The value becomes a JSON string,
+/// which `main` prints raw.
+fn text(mut outcome: Outcome, json: bool, render: fn(&Value) -> String) -> Outcome {
+    if !json {
+        let line = if outcome.exit_code == 0 {
+            render(&outcome.value)
+        } else {
+            aq_agent_client::comments::render_refusal(&outcome.value)
+        };
+        outcome.value = Value::String(line);
+    }
+    outcome
+}
 async fn run(cli: Cli) -> Result<Outcome> {
     let Cli {
         state_dir,
@@ -229,6 +292,31 @@ async fn run(cli: Cli) -> Result<Outcome> {
         Command::Operation {
             command: Operation::Get { operation_id },
         } => client.operation(operation_id).await,
+        Command::Comment {
+            command:
+                Comment::Add {
+                    body,
+                    file,
+                    operation_id,
+                    json,
+                },
+        } => {
+            let body = comment_body(body, file)?;
+            let operation_id = operation_id.unwrap_or_else(Uuid::new_v4);
+            let outcome = client.comment_add(operation_id, &body).await?;
+            Ok(text(outcome, json, aq_agent_client::comments::render_added))
+        }
+        Command::Comment {
+            command:
+                Comment::List {
+                    limit,
+                    cursor,
+                    json,
+                },
+        } => {
+            let outcome = client.comment_list(cursor.as_deref(), Some(limit)).await?;
+            Ok(text(outcome, json, aq_agent_client::comments::render_page))
+        }
         Command::Graph {
             command: Graph::Command { request_file },
         } => client.command(input(request_file)?).await,
@@ -324,7 +412,14 @@ async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     match run(cli).await {
         Ok(outcome) => {
-            if outcome.exit_code == 14 || outcome.exit_code == 15 {
+            // Comment text output is a plain string; failures go to stderr.
+            if let Value::String(text) = &outcome.value {
+                if outcome.exit_code == 0 {
+                    println!("{text}");
+                } else {
+                    eprintln!("{text}");
+                }
+            } else if outcome.exit_code == 14 || outcome.exit_code == 15 {
                 eprintln!("{}", outcome.value);
             } else {
                 println!("{}", outcome.value);
@@ -335,11 +430,11 @@ async fn main() -> std::process::ExitCode {
             // Never print raw parser, filesystem, credential, URL or response errors.
             if let Some(failure) = error.downcast_ref::<Failure>() {
                 eprintln!("{}", serde_json::to_string(failure).unwrap());
-                (if failure.code == "authentication_or_authority_refused" {
-                    14
-                } else {
-                    13
-                })
+                match failure.code {
+                    "authentication_or_authority_refused" => 14,
+                    "invalid_comment_body" | "invalid_comment_page" => 15,
+                    _ => 13,
+                }
                 .into()
             } else {
                 eprintln!(
