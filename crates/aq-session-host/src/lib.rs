@@ -21,7 +21,7 @@ mod supervisor;
 pub mod terminal_io;
 pub mod terminal_output;
 pub mod terminal_viewer;
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use aq_session_protocol::{
     ArtifactRef, Capability, Digest, LaunchManifest, SessionIdentity, Validate, canonical_digest,
     require_capabilities,
@@ -1329,6 +1329,7 @@ fn tmux(config: &SealedLaunch, directory: &Path, args: &[&str]) -> Result<Vec<u8
             .arg(directory.join("tmux.sock"))
             .args(args),
     )
+    .map_err(|error| anyhow!("{error} (tmux {})", args.first().unwrap_or(&"")))
 }
 /// Helper entrypoint must run in a dedicated single-threaded executable.
 pub fn helper_main() -> Result<()> {

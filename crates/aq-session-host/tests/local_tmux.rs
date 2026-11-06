@@ -1062,7 +1062,8 @@ fn launch_child_fixture() {
         return;
     };
     let temp = TempDir::new_in(&root).unwrap();
-    let mut c = Case::at(temp, "interactive", false);
+    let mode = std::env::var("AQ_HOST_CASE_MODE").unwrap_or_else(|_| "interactive".into());
+    let mut c = Case::at(temp, &mode, false);
     std::fs::write(
         Path::new(&root).join("case-root"),
         c.temp.path().to_str().unwrap(),
@@ -1088,6 +1089,9 @@ fn launch_child_fixture() {
     std::mem::forget(c);
 }
 fn spawn_case(root: &Path, stage: &str, guardian_fault: bool) -> Child {
+    spawn_case_mode(root, stage, guardian_fault, "interactive")
+}
+fn spawn_case_mode(root: &Path, stage: &str, guardian_fault: bool, mode: &str) -> Child {
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
         .args([
@@ -1097,6 +1101,7 @@ fn spawn_case(root: &Path, stage: &str, guardian_fault: bool) -> Child {
             "--test-threads=1",
         ])
         .env("AQ_HOST_CASE_ROOT", root)
+        .env("AQ_HOST_CASE_MODE", mode)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     if guardian_fault {
@@ -1317,6 +1322,34 @@ fn failed_durable_start_and_socket_collision_never_launch_native_child() {
             assert!(!dir.join("start.request").exists());
         }
     }
+}
+#[cfg(feature = "test-support")]
+#[test]
+#[ignore = "requires explicit local tmux 3.4 qualification"]
+fn harness_waits_until_the_guardian_records_its_pane() {
+    let root = TempDir::new().unwrap();
+    let mut caller = spawn_case_mode(root.path(), "pane-created", true, "exit");
+    let case = wait(|| std::fs::read_to_string(root.path().join("case-root")).ok());
+    let dir = Path::new(&case).join(Uuid::from_u128(2).to_string());
+    wait(|| dir.join("guardian-fault.json").exists().then_some(()));
+    let identity: GuardianIdentity =
+        serde_json::from_slice(&std::fs::read(dir.join("identity.json")).unwrap()).unwrap();
+    // A harness that exits at once must not run while the guardian, held
+    // after new-session, has not yet recorded the live pane identity.
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!dir.join("fixture.claim").exists());
+    let fd = ownership::verified_pidfd(&identity.process).unwrap();
+    ownership::signal(&fd, libc::SIGCONT).unwrap();
+    let stopped = wait(|| {
+        serde_json::from_slice::<HostObservation>(&std::fs::read(dir.join("state.json")).ok()?)
+            .ok()
+            .filter(|s| s.phase == HostPhase::Stopped)
+    });
+    assert!(stopped.kernel_wait_echild && stopped.pane.is_some());
+    assert_eq!(stopped.stop_reason.as_deref(), Some("harness pane exited"));
+    assert!(dir.join("fixture.claim").exists());
+    caller.kill().unwrap();
+    caller.wait().unwrap();
 }
 #[cfg(feature = "test-support")]
 #[test]
