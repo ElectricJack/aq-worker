@@ -12,6 +12,8 @@ use std::{
 pub const MAIN_DAEMON_SOCKETS: &[&str] = &["/var/run/docker.sock", "/run/docker.sock"];
 /// The per-attempt work volume is always mounted here.
 pub const WORK_TARGET: &str = "/aq/work";
+/// The attempt's agent-channel directory is always mounted here (0006 §5.1).
+pub const CHANNEL_TARGET: &str = aq_agent_channel::CONTAINER_DIR;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,6 +71,10 @@ pub struct DockerLocalConfig {
     /// work volumes. The watchdog stays on regardless.
     #[serde(default)]
     pub hard_disk_limit: bool,
+    /// Node-owned root of the per-attempt channel directories; a request with
+    /// `agent_channel` mounts `<channel_root>/<attempt>` at `/aq/channel`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_root: Option<PathBuf>,
 }
 
 fn default_material_path() -> String {
@@ -112,6 +118,7 @@ impl DockerLocalConfig {
             disk_watch_interval_ms: default_disk_watch_interval_ms(),
             shared_root_fs: false,
             hard_disk_limit: false,
+            channel_root: None,
         }
     }
 
@@ -136,7 +143,19 @@ impl DockerLocalConfig {
                 return Err(BackendError::InvalidRequest("duplicate template digest"));
             }
         }
-        if !container_path_ok(&self.material_path) || under(&self.material_path, WORK_TARGET) {
+        if self
+            .channel_root
+            .as_ref()
+            .is_some_and(|root| !root.is_absolute() || self.exposes_daemon_socket(root))
+        {
+            return Err(BackendError::InvalidRequest(
+                "channel root must be absolute and expose no daemon socket",
+            ));
+        }
+        if !container_path_ok(&self.material_path)
+            || under(&self.material_path, WORK_TARGET)
+            || under(&self.material_path, CHANNEL_TARGET)
+        {
             return Err(BackendError::InvalidRequest(
                 "material path must be under /aq/ and outside the work volume",
             ));
@@ -158,6 +177,8 @@ impl DockerLocalConfig {
             }
             if !container_path_ok(&alias.target)
                 || under(&alias.target, WORK_TARGET)
+                || under(&alias.target, CHANNEL_TARGET)
+                || under(CHANNEL_TARGET, &alias.target)
                 || under(&self.material_path, &alias.target)
                 || under(&alias.target, parent(&self.material_path))
                 || !targets.insert(alias.target.as_str())

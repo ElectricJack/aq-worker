@@ -416,6 +416,65 @@ async fn launch_policy_is_fixed() {
     drop(h.socket);
 }
 
+/// Spec 0006 §5.1: the agent channel is a fixed mount kind. The source is
+/// always `<channel_root>/<attempt>` (the request only says "yes"), the target
+/// always `/aq/channel`, read-write; no channel directory means no create, and
+/// a request without the channel hashes exactly as before.
+#[tokio::test]
+async fn agent_channel_mount_is_fixed_to_the_attempt_directory() {
+    let channels = tempfile::tempdir().unwrap();
+    let root = channels.path().to_owned();
+    let mut h = harness_with(ScriptedDocker::new(), |c| c.channel_root = Some(root)).await;
+    let request = request(1, 2, 3).with_agent_channel();
+    assert_eq!(
+        bounded(h.backend.create(&request)).await,
+        Err(BackendError::InvalidRequest(
+            "agent channel directory absent (agent_channel_unavailable)"
+        ))
+    );
+    let source = channels.path().join(Uuid::from_u128(3).to_string());
+    std::fs::create_dir(&source).unwrap();
+    bounded(h.backend.create(&request)).await.unwrap();
+    let mounts = h.docker.container(&request.name).unwrap().body["HostConfig"]["Mounts"].clone();
+    assert_eq!(
+        mounts[1],
+        json!({"Type": "bind", "Source": source.to_str().unwrap(), "Target": "/aq/channel", "ReadOnly": false})
+    );
+    assert_eq!(mounts.as_array().unwrap().len(), 2);
+    assert!(
+        !serde_json::to_string(&self::request(1, 2, 3))
+            .unwrap()
+            .contains("agent_channel")
+    );
+
+    let mut bare = harness().await;
+    assert!(
+        bounded(
+            bare.backend
+                .create(&self::request(1, 2, 4).with_agent_channel())
+        )
+        .await
+        .is_err(),
+        "no channel root configured"
+    );
+    let socket = owned_socket();
+    let (cache, scratch) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    for edit in [
+        |c: &mut DockerLocalConfig| {
+            c.mount_aliases.get_mut("scratch").unwrap().target = "/aq/channel".into()
+        },
+        |c: &mut DockerLocalConfig| {
+            c.mount_aliases.get_mut("scratch").unwrap().target = "/aq/channel/x".into()
+        },
+        |c: &mut DockerLocalConfig| c.material_path = "/aq/channel/material".into(),
+        |c: &mut DockerLocalConfig| c.channel_root = Some("relative".into()),
+    ] {
+        let mut config = base_config(&socket, &cache, &scratch);
+        edit(&mut config);
+        assert!(config.validate().is_err());
+    }
+}
+
 #[tokio::test]
 async fn refuses_unallowlisted_template() {
     let mut h = harness().await;

@@ -123,6 +123,8 @@ struct Physical {
     output_taken_without_sequencer: bool,
     stopped: Option<StoppedProof>,
     transport: Option<crate::native::adapter::responses_transport::ScopedResponsesTransport>,
+    /// Spec 0006 agent channel; closed with the host, removed after Stopped.
+    channel: Option<aq_agent_channel::AgentChannel>,
     outcome: Outcome,
 }
 impl Physical {
@@ -193,6 +195,7 @@ impl Registry {
                             output_taken_without_sequencer: false,
                             stopped: None,
                             transport: None,
+                            channel: None,
                             outcome: Outcome::Unknown,
                         }),
                     }),
@@ -344,6 +347,7 @@ impl Registry {
                 output_taken_without_sequencer: false,
                 stopped: None,
                 transport: None,
+                channel: None,
                 outcome: Outcome::Pending,
             }),
         });
@@ -472,6 +476,9 @@ impl Entry {
         if let Some(transport) = &physical.transport {
             transport.cancel();
         }
+        if let Some(channel) = &physical.channel {
+            channel.close();
+        }
     }
     #[cfg(test)]
     fn hook(&self, stage: Checkpoint, journal: &mut Journal) -> Result<()> {
@@ -559,6 +566,7 @@ impl Entry {
             if physical.stopped.is_none() {
                 return Ok(());
             }
+            drop(physical.channel.take()); // removes the socket directory
             physical.transport.take()
         };
         if let Some(transport) = transport {

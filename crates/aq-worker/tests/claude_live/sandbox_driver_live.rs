@@ -112,6 +112,7 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         settings_json: r#"{"permissions":{"defaultMode":"bypassPermissions"},"sandbox":{"enabled":false},"disableAllHooks":true,"enableAllProjectMcpServers":false,"cleanupPeriodDays":1,"forceLoginMethod":"claudeai"}"#.into(),
         result_dir: None,
         max_workspace_bytes: 64 * 1024 * 1024,
+        agent_channel: false,
     };
     let config_file = root.join("private/driver.json");
     std::fs::OpenOptions::new()

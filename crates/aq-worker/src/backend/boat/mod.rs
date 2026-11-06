@@ -455,7 +455,7 @@ impl PlacementBackend for BoatBackend {
                 return Err(BackendError::UnsupportedCapability(*cap));
             }
         }
-        if !r.mount_aliases.is_empty() {
+        if !r.mount_aliases.is_empty() || r.agent_channel {
             return Err(BackendError::InvalidRequest(
                 "boat has no host mount aliases",
             ));

@@ -1,0 +1,4 @@
+whoami=200 rc=0
+node=403 rc=0
+revoke=401 rc=0
+after=000 rc=7

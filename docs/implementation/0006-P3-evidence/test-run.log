@@ -1,0 +1,19 @@
+
+running 1 test
+aq-sandbox-harness: attempt 84f17d8d-030e-455f-b051-4d7ce65acdfc template sha256:194e11f54fbe104734166ec219f5ac13b2e54055fae01f6c3ce264a915f172a4
+aq-sandbox-harness: agent channel mounted at /aq/channel
+aq-sandbox-harness: sandbox aq-cab021e783fc4ac9be512ecef9e11e6a-84f17d8d030e455fb0514d7ce65acdfc created
+aq-sandbox-harness: runner started
+aq-runner: claude GNU bash, version 5.2.15(1)-release (x86_64-pc-linux-gnu)
+Copyright (C) 2022 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+
+This is free software; you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law. uid=0 capeff=0000000000000000 nnp=1
+claude result: success turns=null cost_usd=null
+aq-runner: claude exit 0 login_file=false
+aq-sandbox-harness: sandbox aq-cab021e783fc4ac9be512ecef9e11e6a-84f17d8d030e455fb0514d7ce65acdfc stopped=true destroyed=true; changed: channel-after.txt, codes.txt, env-channel.txt, refusal.json, whoami.json
+test channel_live::container_calls_whoami_through_the_agent_channel ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 5.66s
+

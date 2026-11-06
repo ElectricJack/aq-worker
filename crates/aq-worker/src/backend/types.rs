@@ -83,6 +83,10 @@ pub struct CreateRequest {
     /// Names of node-local mount aliases selected by the assignment, never host paths.
     #[serde(default)]
     pub mount_aliases: Vec<String>,
+    /// Mount the attempt's agent-channel directory at `/aq/channel` (0006
+    /// §5.1). The source is fixed by the node, never named by the request.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_channel: bool,
 }
 impl CreateRequest {
     pub fn new(
@@ -99,7 +103,12 @@ impl CreateRequest {
             required_capabilities,
             resources: None,
             mount_aliases: Vec::new(),
+            agent_channel: false,
         }
+    }
+    pub fn with_agent_channel(mut self) -> Self {
+        self.agent_channel = true;
+        self
     }
     pub fn with_resources(mut self, resources: ResourceLimits) -> Self {
         self.resources = Some(resources);

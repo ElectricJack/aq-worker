@@ -43,12 +43,35 @@ pub struct ClaudeDockerHostConfig {
     /// Claude Code inside the template image.
     pub claude_executable: PathBuf,
     pub max_workspace_bytes: u64,
+    /// Spec 0006 §5.4: every attempt gets an agent channel or does not
+    /// launch. Only an explicit `"disabled"` runs agents with no path back.
+    #[serde(default, skip_serializing_if = "ChannelMode::is_required")]
+    pub agent_channel: ChannelMode,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelMode {
+    #[default]
+    Required,
+    Disabled,
+}
+impl ChannelMode {
+    fn is_required(&self) -> bool {
+        *self == Self::Required
+    }
+}
+/// How the node issues agent credentials: its own server origin and node
+/// credential (`/v2/worker/agent-session`). Held in memory only.
+pub struct ChannelIssuance {
+    pub origin: String,
+    pub node_credential: zeroize::Zeroizing<String>,
 }
 pub struct ClaudeDockerHostProfile {
     pub(super) config: ClaudeDockerHostConfig,
     pub(super) root: RootGuard,
     pub(super) digest: Digest,
     pool: NativeExecPool,
+    issuance: Option<ChannelIssuance>,
 }
 fn hash_file(path: &Path, max: u64) -> Result<(String, u64)> {
     let mut f = std::fs::OpenOptions::new()
@@ -121,8 +144,11 @@ impl ClaudeDockerHostProfile {
             root,
             digest,
             pool,
+            issuance: None,
         };
         profile.verify_installation()?;
+        // Channels die with their node process; drop what a dead one left.
+        aq_agent_channel::sweep(&profile.channel_root())?;
         Ok(profile)
     }
     pub fn verify_installation(&self) -> Result<()> {
@@ -139,6 +165,60 @@ impl ClaudeDockerHostProfile {
     }
     pub fn config(&self) -> &ClaudeDockerHostConfig {
         &self.config
+    }
+    pub fn with_issuance(mut self, issuance: ChannelIssuance) -> Self {
+        self.issuance = Some(issuance);
+        self
+    }
+    fn channel_root(&self) -> PathBuf {
+        self.config.root.join("channels")
+    }
+    /// 0006 §5.4 Launch: credential issued and proxy listening before the
+    /// driver (and so the sandbox) exists; any failure refuses the launch.
+    fn open_channel(
+        &self,
+        session: &aq_session_protocol::SessionIdentity,
+        not_after_ms: u64,
+    ) -> Result<aq_agent_channel::AgentChannel> {
+        use aq_agent_channel::{AttemptIdentity, ChannelConfig, NodeIssuer, UNAVAILABLE};
+        let issuance = self
+            .issuance
+            .as_ref()
+            .with_context(|| format!("{UNAVAILABLE}: the node has no credential issuance"))?;
+        let aq_session_protocol::SessionIdentity::Remote {
+            node_id,
+            boot_id,
+            attempt_id,
+            assignment_generation,
+            session_id,
+        } = *session
+        else {
+            anyhow::bail!("{UNAVAILABLE}: not a remote node session");
+        };
+        let identity = AttemptIdentity {
+            node_id,
+            boot_id,
+            attempt_id,
+            session_id,
+            generation: assignment_generation,
+        };
+        let issuer = NodeIssuer::new(&issuance.origin, &issuance.node_credential, None, identity)
+            .with_context(|| UNAVAILABLE)?;
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .recursive(true)
+            .create(self.channel_root())?;
+        let config = ChannelConfig {
+            attempt_id,
+            directory: self.channel_root().join(attempt_id.to_string()),
+            origin: issuance.origin.clone(),
+            access: None,
+            not_after_ms,
+        };
+        tokio::runtime::Handle::try_current()?.block_on(aq_agent_channel::AgentChannel::open(
+            config,
+            Arc::new(issuer),
+        ))
     }
 }
 pub(super) struct Adapter {
@@ -320,6 +400,17 @@ pub(super) fn bootstrap(
     let deadline_ms = wall_ms()?
         .checked_add(hard.saturating_sub(now) / 1_000_000)
         .context("sandbox deadline overflow")?;
+    let mut docker_local = profile.config.docker_local.clone();
+    let agent_channel = profile.config.agent_channel.is_required();
+    if agent_channel {
+        let channel = profile.open_channel(&i.binding.session, deadline_ms)?;
+        let mut physical = lock(&entry.physical)?;
+        if entry.stop.load(Ordering::SeqCst) {
+            channel.close();
+        }
+        physical.channel = Some(channel);
+        docker_local.channel_root = Some(profile.channel_root());
+    }
     let private = profile.config.root.join(format!("driver-{}", i.launch_id));
     std::fs::DirBuilder::new().mode(0o700).create(&private)?;
     let token_file = private.join("token");
@@ -331,7 +422,7 @@ pub(super) fn bootstrap(
         .as_ref()
         .map(|channel| channel.root().to_owned());
     let driver = crate::sandbox_driver::DriverConfig {
-        docker_local: profile.config.docker_local.clone(),
+        docker_local,
         template: profile.config.template.clone(),
         owner: Ownership {
             node_id,
@@ -357,6 +448,7 @@ pub(super) fn bootstrap(
         settings_json: String::from_utf8(recipe.settings_json)?,
         result_dir,
         max_workspace_bytes: profile.config.max_workspace_bytes,
+        agent_channel,
     };
     let driver_file = private.join("driver.json");
     private_write(&driver_file, &serde_json::to_vec(&driver)?)?;

@@ -1,0 +1,22 @@
+[package]
+name = "aq-agent-channel"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "Route-agnostic AQ forwarding: the per-attempt agent channel (spec 0006 §5) and the B6b loopback proxy."
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+libc.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+zeroize = "1"
+
+[dev-dependencies]
+axum.workspace = true
+tempfile.workspace = true
