@@ -277,6 +277,9 @@ fn clock_failure_uses_raw_clock_to_escalate_ignored_term() {
             .unwrap();
         marker(temp.path(), "start-receipt-durable");
         let dir = directory(temp.path());
+        // The fixture ignores TERM before it writes any evidence; expiring it
+        // earlier would let TERM end it before SIGKILL escalation is needed.
+        wait(|| dir.join("started.claim").exists().then_some(()));
         kill(&mut child);
         if unreadable {
             fs::remove_file(&offset).unwrap();
@@ -574,7 +577,7 @@ fn slow_drip_control_has_total_deadline_and_cannot_starve_expiry() {
     let dripping = Arc::new(AtomicBool::new(true));
     let running = dripping.clone();
     let thread = std::thread::spawn(move || {
-        let end = Instant::now() + Duration::from_secs(2);
+        let end = Instant::now() + Duration::from_secs(4);
         while running.load(Ordering::SeqCst) && Instant::now() < end {
             let _ = sender.write(b" ");
             std::thread::sleep(Duration::from_millis(2));
@@ -588,8 +591,10 @@ fn slow_drip_control_has_total_deadline_and_cannot_starve_expiry() {
             .ok()
             .filter(|s| s.phase == GuardianPhase::Stopped)
     });
+    // A read without a total deadline would last as long as the 4 s drip.
+    // The bound sits well inside that, with margin for loaded runners.
     assert!(
-        start.elapsed() < Duration::from_millis(900),
+        start.elapsed() < Duration::from_millis(2500),
         "slow drip starved the independent expiry watchdog"
     );
     assert!(dripping.load(Ordering::SeqCst));

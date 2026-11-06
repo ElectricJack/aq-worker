@@ -73,6 +73,12 @@ pub fn now_ns() -> u64 {
 }
 impl Fixture {
     pub fn new(hold: bool, ttl_ms: u64) -> Self {
+        // Runner warnings (for example why a host launch failed) go to the
+        // captured test output, so a failing test shows its cause.
+        let _ = tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_max_level(tracing::Level::WARN)
+            .try_init();
         let dir = tempfile::tempdir().unwrap();
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let workspace = dir.path().join("workspace");
