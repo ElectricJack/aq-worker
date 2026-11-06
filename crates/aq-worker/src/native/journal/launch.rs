@@ -70,6 +70,53 @@ pub struct NativeHostHistory {
     pub uncertain: Option<LaunchFailure>,
     pub terminal: Option<super::phase_terminal::PhaseTerminalHistory>,
     pub refresh_terminal: Option<super::refresh_terminal::PhaseTerminalHistory>,
+    /// Durable no-Started launch closure (B5b/AQ-08). Once recorded the launch
+    /// can never start; only the exact request is replayed to the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closure: Option<NativeClosure>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeClosure {
+    pub request: ClosureRequest,
+    pub recorded_revision: u64,
+    pub receipt: Option<ClosureReceipt>,
+}
+/// The closure envelope of the attempt's own terminal profile.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "profile", content = "envelope", rename_all = "snake_case")]
+pub enum ClosureRequest {
+    Frozen(aq_phase_terminal_protocol::ClosureRequest),
+    Refresh(aq_phase_terminal_protocol::refresh_v1::ClosureRequest),
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "profile", content = "envelope", rename_all = "snake_case")]
+pub enum ClosureReceipt {
+    Frozen(aq_phase_terminal_protocol::ClosureReceipt),
+    Refresh(aq_phase_terminal_protocol::refresh_v1::ClosureReceipt),
+}
+impl ClosureRequest {
+    pub fn original(&self) -> &aq_admission::granted_closure::Request {
+        match self {
+            Self::Frozen(q) => &q.original,
+            Self::Refresh(q) => &q.original,
+        }
+    }
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            Self::Frozen(q) => q.validate()?,
+            Self::Refresh(q) => q.validate()?,
+        }
+        Ok(())
+    }
+    pub fn accepts(&self, receipt: &ClosureReceipt) -> Result<()> {
+        match (self, receipt) {
+            (Self::Frozen(q), ClosureReceipt::Frozen(r)) => r.validate_for(q)?,
+            (Self::Refresh(q), ClosureReceipt::Refresh(r)) => r.validate_for(q)?,
+            _ => anyhow::bail!("closure receipt profile differs from its request"),
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -163,6 +210,28 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
         !h.start_intended || h.guardian.is_some(),
         "start before guardian"
     );
+    if let Some(c) = &h.closure {
+        let q = c.request.original();
+        c.request.validate()?;
+        ensure!(
+            h.running.is_none()
+                && h.started_receipt.is_none()
+                && h.terminal.is_none()
+                && h.refresh_terminal.is_none()
+                && q.binding == i.binding
+                && q.grant_id == i.grant_id
+                && q.guardian_id == i.logical_guardian_id
+                && q.launch_id == i.launch_id
+                && q.reservation_id == i.reservation_id
+                && q.journal.revision == c.recorded_revision
+                && c.recorded_revision > i.created_revision
+                && c.recorded_revision <= revision,
+            "launch closure scope"
+        );
+        if let Some(receipt) = &c.receipt {
+            c.request.accepts(receipt)?;
+        }
+    }
     if let Some(b) = &h.baseline {
         ensure!(
             h.start_intended
@@ -189,8 +258,10 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
                         .checked_add(1)
                         .context("Started revision overflow")?
                 && v.observation.permit_sequence == 1
+                // A non-interactive host's local permit is capped below the
+                // grant (MAX_PERMIT_MS) and renewed locally; never beyond it.
                 && v.observation.permit_deadline_boot_ms
-                    == i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
+                    <= i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
                 && v.request.binding == i.binding
                 && v.request.grant_id == i.grant_id
                 && v.request.guardian_id == i.logical_guardian_id
@@ -220,9 +291,9 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
                     == execution.kernel_boot_id
                 && !s.observation.guardian.nonce.is_nil()
                 && s.observation.guardian.nonce != i.logical_guardian_id
-                && s.observation.permit_sequence == 1
+                && s.observation.permit_sequence >= 1
                 && s.observation.permit_deadline_boot_ms
-                    == i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
+                    <= i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
                 && h.host_intent.as_ref() == Some(&s.observation.guardian.intent)
                 && s.recorded_revision <= revision
                 && s.recorded_revision > i.created_revision
@@ -276,6 +347,7 @@ impl Journal {
             uncertain: None,
             terminal: None,
             refresh_terminal: None,
+            closure: None,
         });
         self.persist(next)
     }
@@ -392,6 +464,74 @@ impl Journal {
         if let Some(t) = h.refresh_terminal.as_mut() {
             t.stopped = refresh_publication;
         }
+        self.persist(next)
+    }
+    /// Records the durable no-Started closure once, built from the history at
+    /// the next revision. A recorded closure is returned unchanged on replay.
+    pub(crate) fn native_closure(
+        &mut self,
+        id: Uuid,
+        build: impl FnOnce(&Attempt, u64, &State) -> Result<ClosureRequest>,
+    ) -> Result<ClosureRequest> {
+        self.storage.check_owner()?;
+        ensure!(!self.poisoned, "native writer poisoned");
+        let old = self
+            .state
+            .attempts
+            .get(&id)
+            .context("native closure attempt absent")?;
+        let h = old
+            .native_host
+            .as_ref()
+            .context("native closure launch absent")?;
+        if let Some(c) = &h.closure {
+            return Ok(c.request.clone());
+        }
+        ensure!(
+            h.running.is_none()
+                && h.started_receipt.is_none()
+                && h.terminal.is_none()
+                && h.refresh_terminal.is_none(),
+            "a launch with Running history is never closed as unstarted"
+        );
+        let mut next = self.next()?;
+        let revision = next.revision;
+        let request = build(old, revision, &self.state)?;
+        next.attempts
+            .get_mut(&id)
+            .and_then(|a| a.native_host.as_mut())
+            .context("native closure launch absent")?
+            .closure = Some(NativeClosure {
+            request: request.clone(),
+            recorded_revision: revision,
+            receipt: None,
+        });
+        self.persist(next)?;
+        Ok(request)
+    }
+    pub(crate) fn native_closure_receipt(
+        &mut self,
+        id: Uuid,
+        receipt: ClosureReceipt,
+    ) -> Result<()> {
+        self.storage.check_owner()?;
+        ensure!(!self.poisoned, "native writer poisoned");
+        let mut next = self.next()?;
+        let c = next
+            .attempts
+            .get_mut(&id)
+            .and_then(|a| a.native_host.as_mut())
+            .and_then(|h| h.closure.as_mut())
+            .context("native closure absent")?;
+        c.request.accepts(&receipt)?;
+        if let Some(old) = &c.receipt {
+            ensure!(
+                canonical_digest(old)? == canonical_digest(&receipt)?,
+                "native closure receipt changed"
+            );
+            return Ok(());
+        }
+        c.receipt = Some(receipt);
         self.persist(next)
     }
 }

@@ -46,6 +46,25 @@ const PULL_TIMEOUT: Duration = Duration::from_secs(600);
 /// on the host is never offered by docker-local.
 pub const CONFINEMENT: &[ConfinementMode] = &[ConfinementMode::Container];
 
+/// Docker's non-TTY log stream frames each chunk with an 8-byte header
+/// (stream, 0, 0, 0, big-endian length). Unframed bodies pass through.
+pub fn demux_logs(body: &[u8]) -> Vec<u8> {
+    let framed = |b: &[u8]| b.len() >= 8 && matches!(b[0], 0..=2) && b[1..4] == [0, 0, 0];
+    if !framed(body) {
+        return body.to_vec();
+    }
+    let mut out = Vec::with_capacity(body.len());
+    let mut rest = body;
+    while framed(rest) {
+        let len = u32::from_be_bytes([rest[4], rest[5], rest[6], rest[7]]) as usize;
+        let end = (8 + len).min(rest.len());
+        out.extend_from_slice(&rest[8..end]);
+        rest = &rest[end..];
+    }
+    out.extend_from_slice(rest);
+    out
+}
+
 pub fn require_confinement(mode: ConfinementMode) -> Result<(), BackendError> {
     if CONFINEMENT.contains(&mode) {
         Ok(())
@@ -443,6 +462,103 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         };
         match response.status {
             200 => tar::single_file(&response.body, self.config.max_read_bytes),
+            404 => Err(BackendError::NotFound),
+            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
+        }
+    }
+
+    /// Uploads a non-secret ustar archive, extracted at `/`, into a created
+    /// (not yet started) sandbox container. Secrets use
+    /// `deliver_private_material` instead.
+    pub async fn put_archive(
+        &mut self,
+        sandbox: &SandboxIdentity,
+        archive: Vec<u8>,
+    ) -> Result<(), BackendError> {
+        let observed = self.observe(sandbox).await?;
+        if !observed.container || observed.entry.state != SandboxState::Created {
+            return Err(BackendError::InvalidState);
+        }
+        let path = format!("/containers/{}/archive?path=%2F", sandbox.backend_id);
+        let response = self
+            .call(
+                DockerMethod::Put,
+                &path,
+                Some("application/x-tar"),
+                Zeroizing::new(archive),
+                MAX_JSON_BYTES,
+                self.api_timeout().max(Duration::from_secs(60)),
+            )
+            .await?;
+        match response.status {
+            200 => Ok(()),
+            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
+        }
+    }
+
+    /// Reads `path` (a file or directory) from a sandbox container as a raw
+    /// ustar archive, bounded by `max_bytes`. Works on stopped containers.
+    pub async fn get_archive(
+        &mut self,
+        sandbox: &SandboxIdentity,
+        path: &str,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, BackendError> {
+        if !self.observe(sandbox).await?.container {
+            return Err(BackendError::NotFound);
+        }
+        let request = format!(
+            "/containers/{}/archive?path={}",
+            sandbox.backend_id,
+            encode(path)
+        );
+        let response = match self
+            .call(
+                DockerMethod::Get,
+                &request,
+                None,
+                Zeroizing::default(),
+                max_bytes,
+                self.api_timeout().max(Duration::from_secs(60)),
+            )
+            .await
+        {
+            Err(CallError::TooLarge) => {
+                return Err(BackendError::InvalidRequest("archive exceeds read cap"));
+            }
+            other => other?,
+        };
+        match response.status {
+            200 => Ok(response.body.to_vec()),
+            404 => Err(BackendError::NotFound),
+            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
+        }
+    }
+
+    /// Runner stdout and stderr since `since_secs` (Unix seconds), demultiplexed.
+    /// Observation only: never stop proof or a result.
+    pub async fn logs_since(
+        &mut self,
+        sandbox: &SandboxIdentity,
+        since_secs: u64,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, BackendError> {
+        let request = format!(
+            "/containers/{}/logs?stdout=1&stderr=1&since={since_secs}",
+            sandbox.backend_id
+        );
+        let response = self
+            .call(
+                DockerMethod::Get,
+                &request,
+                None,
+                Zeroizing::default(),
+                max_bytes,
+                self.api_timeout(),
+            )
+            .await?;
+        match response.status {
+            200 => Ok(demux_logs(&response.body)),
             404 => Err(BackendError::NotFound),
             _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }

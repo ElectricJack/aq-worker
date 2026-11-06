@@ -5,3 +5,5 @@
 .env
 *.sock
 /graft/
+__pycache__/
+*.pyc

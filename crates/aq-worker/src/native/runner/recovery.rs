@@ -6,6 +6,9 @@ use profile::TerminalProfile;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReconcileDisposition {
+    /// A granted launch that never reached Started is durably closed and the
+    /// server acknowledged `LaunchClosedAwaitingSettlement` (B5b/AQ-08).
+    LaunchClosed,
     /// The stopped lifecycle is acknowledged; no frozen result report exists.
     StopReported,
     /// The exact frozen result report is retained by the server.
@@ -52,18 +55,237 @@ pub async fn reconcile_native(
         worker.node_id,
         config.capacity.clone(),
     )?;
-    let attempt = journal
+    let mut attempt = journal
         .state()
         .attempts
         .get(&attempt_id)
         .context("native recovery attempt absent")?
         .clone();
+    // B5b/AQ-08: a granted Frozen-phase launch with no Running history never
+    // started. Stop any host it configured, durably close it, and report the
+    // closure; never relaunch it.
+    if unstarted(&attempt) {
+        return close_unstarted(worker, config, &held, &mut journal, attempt_id).await;
+    }
+    // MS1 restart drill: a node that died while its host ran left no stop in
+    // the journal. Recover the host owner from its sealed intent, request a
+    // stop, and retain the actual kernel stopped proof. Never relaunch.
+    if let Some(h) = attempt.native_host.as_ref()
+        && h.stopped.is_none()
+        && let Some(intent) = h.host_intent.as_ref()
+    {
+        let mut handle = aq_session_host::SessionHost::recover(&h.intent.host_root, intent)?;
+        handle.stop()?;
+        handle.wait_stopped(std::time::Duration::from_secs(10))?;
+        let proof = handle.stopped_proof()?;
+        journal.native_stopped(attempt_id, &proof)?;
+        tracing::warn!(%attempt_id, "recovered physical host stop after node restart");
+
+        attempt = journal
+            .state()
+            .attempts
+            .get(&attempt_id)
+            .context("native recovery attempt absent")?
+            .clone();
+    }
+    // MS1 review: a host stop kills the node-side driver, not its docker-local
+    // sandbox, where Claude would keep running with the attempt's token. Stop
+    // (never destroy) any still-running sandbox of this attempt.
+    if let Some(h) = attempt.native_host.as_ref() {
+        stop_claude_sandbox(config, worker.node_id, attempt_id).await?;
+        crate::native::launch::wipe_claude_driver_secrets(
+            &crate::native::launch::claude_driver_dir(&h.intent.host_root, h.intent.launch_id),
+        );
+    }
     let client = NativeClient::from_config(worker)?;
     replay(&client, &attempt, |receipt| {
         check_root(config, &held)?;
         receipt.retain(&mut journal, attempt_id)
     })
     .await
+}
+
+/// Stops any still-running docker-local sandbox of a Claude docker attempt
+/// (its disk is preserved). Other executors have no sandbox.
+async fn stop_claude_sandbox(config: &NativeConfig, node: Uuid, attempt: Uuid) -> Result<()> {
+    if let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+        &config.executor
+    {
+        super::claude_docker::stop_attempt_sandbox(&settings.host.docker_local, node, attempt)
+            .await?;
+    }
+    Ok(())
+}
+
+/// A Frozen-phase launch whose host never recorded Running or a terminal.
+fn unstarted(a: &Attempt) -> bool {
+    (a.phase_acceptance.is_some() != a.refresh_acceptance.is_some())
+        && a.native_host.as_ref().is_some_and(|h| {
+            h.running.is_none()
+                && h.started_receipt.is_none()
+                && h.terminal.is_none()
+                && h.refresh_terminal.is_none()
+        })
+}
+
+/// Closure evidence for a launch that never started: a durable suppression when
+/// no host process was ever started, otherwise the host's own stopped proof.
+fn closure_request(
+    a: &Attempt,
+    revision: u64,
+    state: &crate::native::journal::State,
+    operation_id: Uuid,
+) -> Result<crate::native::journal::launch::ClosureRequest> {
+    use aq_admission::granted_closure::{
+        DriverIntent, Evidence, HostStoppedProof, JournalCheckpoint, Request, SuppressionRecord,
+    };
+    let h = a.native_host.as_ref().context("closure host absent")?;
+    let i = &h.intent;
+    let execution = a.phase_scope()?;
+    let previous = JournalCheckpoint {
+        revision: state.revision,
+        digest: crate::native::journal::canonical_digest(state)?,
+    };
+    let evidence = match (&h.guardian, &h.stopped) {
+        (None, _) if !h.start_intended => {
+            let record = SuppressionRecord {
+                schema_version: 1,
+                operation_id,
+                suppression_id: Uuid::new_v4(),
+                binding: i.binding.clone(),
+                grant_id: i.grant_id,
+                guardian_id: i.logical_guardian_id,
+                launch_id: i.launch_id,
+                reservation_id: i.reservation_id,
+                original_kernel_boot_id: execution.kernel_boot_id,
+                recording_kernel_boot_id: state.kernel_boot_id,
+                previous: previous.clone(),
+                terminal_revision: revision,
+            };
+            let record_digest = record.digest()?;
+            Evidence::Suppressed {
+                record,
+                record_digest,
+            }
+        }
+        (Some(_), Some(stopped)) => {
+            let proof = HostStoppedProof {
+                observation: serde_json::from_value(serde_json::to_value(&stopped.observation)?)?,
+            };
+            let host = h
+                .host_intent
+                .as_ref()
+                .context("closure host intent absent")?;
+            Evidence::HostStopped {
+                driver_intent: Box::new(DriverIntent {
+                    binding: i.binding.clone(),
+                    grant_id: i.grant_id,
+                    guardian_id: i.logical_guardian_id,
+                    reservation_id: i.reservation_id,
+                    host: serde_json::from_value(serde_json::to_value(host)?)?,
+                    journal: previous.clone(),
+                }),
+                proof_digest: proof.digest()?,
+                proof,
+            }
+        }
+        _ => anyhow::bail!("unstarted launch has no closure evidence (host not stopped)"),
+    };
+    let original = Request {
+        schema_version: 1,
+        operation_id,
+        binding: i.binding.clone(),
+        grant_id: i.grant_id,
+        guardian_id: i.logical_guardian_id,
+        launch_id: i.launch_id,
+        reservation_id: i.reservation_id,
+        runtime: i.runtime.runtime.clone(),
+        qualification: i.runtime.qualification.clone(),
+        journal: JournalCheckpoint {
+            revision,
+            digest: previous.digest,
+        },
+        evidence,
+    };
+    use crate::native::journal::launch::ClosureRequest;
+    if a.refresh_acceptance.is_some() {
+        use aq_phase_terminal_protocol::refresh_v1 as wire;
+        return crate::native::journal::refresh_terminal::with_context(a, |c| {
+            let request = wire::ClosureRequest {
+                schema_version: 1,
+                negotiation: wire::Negotiation::current()?,
+                origin: wire::Origin::for_context(c)?,
+                original,
+            };
+            request.validate_for(c)?;
+            Ok(ClosureRequest::Refresh(request))
+        });
+    }
+    crate::native::journal::phase_terminal::with_context(a, |c| {
+        let request = aq_phase_terminal_protocol::ClosureRequest {
+            schema_version: 1,
+            negotiation: aq_phase_terminal_protocol::Negotiation::current()?,
+            origin: aq_phase_terminal_protocol::Origin::for_context(c)?,
+            original,
+        };
+        request.validate_for(c)?;
+        Ok(ClosureRequest::Frozen(request))
+    })
+}
+
+async fn close_unstarted(
+    worker: &WorkerConfig,
+    config: &NativeConfig,
+    held: &std::fs::File,
+    journal: &mut Journal,
+    attempt_id: Uuid,
+) -> Result<ReconcileDisposition> {
+    let attempt = journal
+        .state()
+        .attempts
+        .get(&attempt_id)
+        .context("native recovery attempt absent")?
+        .clone();
+    let h = attempt.native_host.as_ref().unwrap();
+    if h.closure.is_none()
+        && h.stopped.is_none()
+        && let (Some(_), Some(intent)) = (&h.guardian, &h.host_intent)
+    {
+        // A guardian was started: stop it and retain its actual kernel proof.
+        let mut handle = aq_session_host::SessionHost::recover(&h.intent.host_root, intent)?;
+        handle.stop()?;
+        handle.wait_stopped(std::time::Duration::from_secs(10))?;
+        let proof = handle.stopped_proof()?;
+        check_root(config, held)?;
+        journal.native_stopped(attempt_id, &proof)?;
+        tracing::warn!(%attempt_id, "stopped the unstarted launch's host before closure");
+    }
+    stop_claude_sandbox(config, worker.node_id, attempt_id).await?;
+    crate::native::launch::wipe_claude_driver_secrets(&crate::native::launch::claude_driver_dir(
+        &h.intent.host_root,
+        h.intent.launch_id,
+    ));
+    let operation = Uuid::new_v4();
+    check_root(config, held)?;
+    let request = journal.native_closure(attempt_id, |a, revision, state| {
+        closure_request(a, revision, state, operation)
+    })?;
+    let recorded = journal
+        .state()
+        .attempts
+        .get(&attempt_id)
+        .and_then(|a| a.native_host.as_ref())
+        .and_then(|h| h.closure.as_ref())
+        .is_some_and(|c| c.receipt.is_some());
+    if recorded {
+        return Ok(ReconcileDisposition::LaunchClosed);
+    }
+    let client = NativeClient::from_config(worker)?;
+    let receipt = client.launch_closure(&request).await?;
+    check_root(config, held)?;
+    journal.native_closure_receipt(attempt_id, receipt)?;
+    tracing::warn!(%attempt_id, "granted launch closed before Started; awaiting server settlement");
+    Ok(ReconcileDisposition::LaunchClosed)
 }
 
 async fn replay(

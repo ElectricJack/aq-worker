@@ -143,10 +143,30 @@ enum Cmd {
         #[arg(long)]
         server_url: String,
     },
+    /// MS1: print the public Claude docker-local Definition bodies (JSON).
+    #[command(hide = true)]
+    Ms1Definitions,
+    /// MS1 pane program: drive one Claude attempt in a docker-local sandbox.
+    /// Started only by the native session host; no node credential is read.
+    #[command(hide = true)]
+    SandboxHarness {
+        #[arg(long)]
+        driver_config: PathBuf,
+    },
     /// Validate native configuration and installed executor without admission.
     CheckNative {
         #[arg(long)]
         native_config: PathBuf,
+    },
+    /// Operator release: destroy the preserved (stopped) docker-local sandbox
+    /// of one attempt, recording the reason as destroy evidence.
+    ReleaseNativeSandbox {
+        #[arg(long)]
+        native_config: PathBuf,
+        #[arg(long)]
+        attempt_id: uuid::Uuid,
+        #[arg(long)]
+        reason: String,
     },
     /// Replay retained reports for one stopped native attempt; preserves all local state.
     ReconcileNative {
@@ -282,6 +302,13 @@ async fn shutdown_signal() {
         }
     };
     tokio::select! { _ = ctrl_c => {}, _ = term => {} }
+}
+
+fn claude_docker(config: &aq_worker::native::runner::NativeConfig) -> bool {
+    matches!(
+        config.executor,
+        Some(aq_worker::native::runner::ExecutorConfig::ClaudeDockerLocalResultLocal { .. })
+    )
 }
 
 fn configured_native_executor(
@@ -445,6 +472,33 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                 Err(e) => usage_err(e),
             }
         }
+        Cmd::Ms1Definitions => {
+            let recipe = aq_worker::native::adapter::claude::docker_local_recipe_artifact();
+            println!(
+                "{}",
+                serde_json::json!({
+                    "recipe": {
+                        "id": recipe.id.as_str(),
+                        "version": recipe.version.as_str(),
+                        "digest": recipe.digest.as_str(),
+                        "body": aq_worker::native::adapter::claude::docker_local_recipe_body(),
+                    },
+                    "contract": aq_agent_result_local::artifact(),
+                    "startup": aq_agent_result_local::startup_artifact(),
+                })
+            );
+            ExitCode::SUCCESS
+        }
+        Cmd::SandboxHarness { driver_config } => {
+            match aq_worker::sandbox_driver::run(&driver_config).await {
+                Ok(0) => ExitCode::SUCCESS,
+                Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+                Err(e) => {
+                    println!("aq-sandbox-harness: refused: {e:#}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         Cmd::CheckNative { native_config } => {
             let disposition = "native configuration check refused";
             let worker = match WorkerConfig::load(&path) {
@@ -454,6 +508,14 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             let result = (|| -> anyhow::Result<()> {
                 let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
                 config.validate()?;
+                if claude_docker(&config) {
+                    let mut executor =
+                        aq_worker::native::runner::ClaudeDockerExecutor::configured(&worker)?;
+                    return aq_worker::native::runner::NativeExecutor::preflight(
+                        &mut executor,
+                        &config,
+                    );
+                }
                 let mut executor = configured_native_executor(&worker, &config)?
                     .ok_or_else(|| anyhow::anyhow!("native executor is not configured"))?;
                 aq_worker::native::runner::NativeExecutor::preflight(&mut executor, &config)?;
@@ -465,6 +527,34 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     ExitCode::SUCCESS
                 }
                 Err(error) => native_diagnostics::refuse(&error, Some(&worker), disposition),
+            }
+        }
+        Cmd::ReleaseNativeSandbox {
+            native_config,
+            attempt_id,
+            reason,
+        } => {
+            let result = async {
+                let worker = WorkerConfig::load(&path)?;
+                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
+                aq_worker::native::runner::release_preserved_sandbox(
+                    &config,
+                    worker.node_id,
+                    attempt_id,
+                    &reason,
+                )
+                .await
+            }
+            .await;
+            match result {
+                Ok(released) => {
+                    println!(
+                        "operator release: attempt {attempt_id} sandbox(es) {} destroyed; reason recorded as destroy evidence",
+                        released.join(", ")
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => usage_err(format!("operator release refused: {error:#}")),
             }
         }
         Cmd::ReconcileNative {
@@ -521,6 +611,24 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     .inspect_err(|_| {
                         tracing::info!(stage = "native_config_load", "native execution refused");
                     })?;
+                if claude_docker(&config) {
+                    let mut executor =
+                        aq_worker::native::runner::ClaudeDockerExecutor::configured(&worker)?;
+                    let (signal, shutdown) = tokio::sync::watch::channel(false);
+                    let watcher = tokio::spawn(async move {
+                        shutdown_signal().await;
+                        let _ = signal.send(true);
+                    });
+                    let result = aq_worker::native::runner::run_once(
+                        &worker,
+                        config,
+                        &mut executor,
+                        shutdown,
+                    )
+                    .await;
+                    watcher.abort();
+                    return result;
+                }
                 #[cfg(feature = "test-support")]
                 let executor = match &fixture {
                     Some(options) => Some(options.executor(&worker)?),

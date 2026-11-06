@@ -52,6 +52,12 @@ pub enum ExecutorConfig {
         client_manifest_digest: Digest,
         composite_definition: PathBuf,
     },
+    /// MS1: Claude Code in a docker-local sandbox (`runner::claude_docker`).
+    #[serde(rename = "claude-2.1.318-docker-local-result-local-v1")]
+    ClaudeDockerLocalResultLocal {
+        settings: super::claude_docker::ClaudeDockerSettings,
+        composite_definition: PathBuf,
+    },
     #[serde(rename = "codex-0.166-chatgpt-interactive-result-local-v1")]
     ChatgptInteractiveResultLocal {
         settings: CodexSettings,
@@ -322,6 +328,9 @@ impl NativeExecutor for CodexExecutor {
                     composite_definition,
                 )),
             ),
+            Some(ExecutorConfig::ClaudeDockerLocalResultLocal { .. }) => {
+                anyhow::bail!("Claude docker-local settings select the Claude executor")
+            }
             Some(ExecutorConfig::Codex { .. }) => {
                 anyhow::bail!(
                     "legacy sealed-memfd executor is not qualified for Codex tools; no admission attempted"
@@ -545,6 +554,8 @@ impl NativeExecutor for CodexExecutor {
                 shutdown,
                 transfer,
                 terminal_clock,
+                false,
+                None,
             )
             .await
         })
@@ -553,6 +564,28 @@ impl NativeExecutor for CodexExecutor {
 
 /// Shared actual-host lifecycle used by the concrete executor and pinned local
 /// physical-host fault tests. Opaque LocalPhaseHost cannot be reconstructed.
+#[cfg(all(test, feature = "test-support"))]
+pub(crate) async fn drive_running_with_pre_stop(
+    pipeline: Arc<InputPipeline>,
+    host: crate::native::launch::LocalPhaseHost,
+    deadline_ns: u64,
+    relay_client: RelayHttp,
+    shutdown: watch::Receiver<bool>,
+    pre_stop: PreStop,
+) -> Result<()> {
+    drive_running_owned(
+        pipeline,
+        host,
+        deadline_ns,
+        relay_client,
+        shutdown,
+        None,
+        None,
+        false,
+        Some(pre_stop),
+    )
+    .await
+}
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) async fn drive_running(
     pipeline: Arc<InputPipeline>,
@@ -569,10 +602,76 @@ pub(crate) async fn drive_running(
         shutdown,
         None,
         None,
+        false,
+        None,
     )
     .await
 }
-async fn drive_running_owned(
+#[allow(clippy::too_many_arguments)]
+/// MS1 docker-local: the driver's exit record decides Success or Failure; a
+/// missing or unreadable record (None) leaves the natural end Unknown.
+pub(crate) fn driver_proven_cause(
+    cause: crate::native::result::ResultStopCause,
+    driver: Option<bool>,
+) -> crate::native::result::ResultStopCause {
+    use crate::native::result::ResultStopCause;
+    match driver {
+        Some(true) => ResultStopCause::HarnessSucceeded,
+        Some(false) => ResultStopCause::Failure,
+        None => cause,
+    }
+}
+#[cfg(test)]
+mod driver_cause_tests {
+    use super::driver_proven_cause;
+    use crate::native::launch::driver_exit_success;
+    use crate::native::result::ResultStopCause;
+    use aq_admission::transport::ProcessOutcome;
+    /// MS1 review S5: a missing, unreadable or malformed exit.json is Unknown,
+    /// never Success; only an explicit record decides.
+    #[test]
+    fn missing_or_unreadable_exit_record_maps_to_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("exit.json");
+        assert_eq!(driver_exit_success(&path), None, "missing");
+        std::fs::write(&path, b"{not json").unwrap();
+        assert_eq!(driver_exit_success(&path), None, "malformed");
+        std::fs::write(&path, br#"{"success":"yes"}"#).unwrap();
+        assert_eq!(driver_exit_success(&path), None, "wrong type");
+        std::fs::write(&path, br#"{"success":false}"#).unwrap();
+        assert_eq!(driver_exit_success(&path), Some(false));
+        std::fs::write(&path, br#"{"success":true}"#).unwrap();
+        assert_eq!(driver_exit_success(&path), Some(true));
+        let dirpath = dir.path().join("unreadable");
+        std::fs::create_dir(&dirpath).unwrap();
+        assert_eq!(
+            driver_exit_success(&dirpath),
+            None,
+            "unreadable (a directory)"
+        );
+        for natural in [ResultStopCause::Natural, ResultStopCause::ResultRecorded] {
+            assert!(matches!(
+                driver_proven_cause(natural, None).process_outcome(),
+                ProcessOutcome::Unknown
+            ));
+            assert!(matches!(
+                driver_proven_cause(natural, Some(false)).process_outcome(),
+                ProcessOutcome::Failed
+            ));
+            assert!(matches!(
+                driver_proven_cause(natural, Some(true)).process_outcome(),
+                ProcessOutcome::Success
+            ));
+        }
+    }
+}
+/// Physical stop of resources outside the host's process tree (a sandbox),
+/// run before the host stop is reported. An error means stop uncertain.
+pub(crate) type PreStop = Box<
+    dyn FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>> + Send,
+>;
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn drive_running_owned(
     pipeline: Arc<InputPipeline>,
     host: crate::native::launch::LocalPhaseHost,
     deadline_ns: u64,
@@ -580,6 +679,8 @@ async fn drive_running_owned(
     mut shutdown: watch::Receiver<bool>,
     transfer: Option<crate::transfer_client::TransferClient>,
     terminal_clock: Option<aq_session_host::terminal_io::QualifiedClock>,
+    local_renewal: bool,
+    pre_stop: Option<PreStop>,
 ) -> Result<()> {
     use crate::native::result::ResultStopCause;
     let id = host.attempt_id();
@@ -610,7 +711,36 @@ async fn drive_running_owned(
         control_receipts = control.clone();
         let controller = control.map(super::publish_output::ControlPublisher::start);
         let _publisher = super::publish_output::OutputPublisher::start(relay);
+        let mut renewal_sequence = 1u64;
+        let mut next_renewal = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut next_cancel_poll = std::time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
+            // Node-owned (sandboxed) hosts also observe owner cancellation
+            // through the node poll; the session host stops the harness.
+            if local_renewal && std::time::Instant::now() >= next_cancel_poll {
+                next_cancel_poll = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(4),
+                    pipeline.poll_cancellation(id),
+                )
+                .await
+                {
+                    Ok(Ok(Some(cancellation))) => {
+                        tracing::warn!(attempt_id = %id, %cancellation, "owner cancellation observed; stopping the harness");
+                        cause = ResultStopCause::Cancelled;
+                        break;
+                    }
+                    Ok(Ok(None)) => {}
+                    _ => tracing::debug!(attempt_id = %id, "cancellation poll unavailable"),
+                }
+            }
+            if local_renewal && std::time::Instant::now() >= next_renewal {
+                renewal_sequence += 1;
+                if let Err(error) = host.renew_local(renewal_sequence, deadline_ns / 1_000_000) {
+                    tracing::warn!(attempt_id = %id, "local host permit renewal refused: {error:#}");
+                }
+                next_renewal = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            }
             if controller
                 .as_ref()
                 .is_some_and(|c| c.authentication_required())
@@ -637,6 +767,22 @@ async fn drive_running_owned(
         Ok::<(), anyhow::Error>(())
     }
     .await;
+    // MS1 docker-local: only the driver's proven harness exit decides
+    // success or failure; an unproven natural end stays Unknown.
+    if local_renewal
+        && matches!(
+            cause,
+            ResultStopCause::Natural | ResultStopCause::ResultRecorded
+        )
+    {
+        cause = driver_proven_cause(cause, host.claude_driver_succeeded());
+    }
+    // Stop what the host's proof does not cover (the sandbox) first, so the
+    // host's short stop grace cannot leave it running behind a Stopped report.
+    let outside_stopped = match pre_stop {
+        Some(stop) => stop().await,
+        None => Ok(()),
+    };
     // Creating this future fences launch/current transport synchronously.
     // Physical cleanup must not wait for a slow local projection fsync.
     let stop = pipeline.stop_phase_host(id);
@@ -648,6 +794,14 @@ async fn drive_running_owned(
             pipeline.persist_phase_host_uncertain(id).await?;
             anyhow::bail!("native stop uncertain; retained history requires reconciliation")
         }
+    }
+    if let Err(error) = outside_stopped {
+        // The host is stopped, but a sandbox may still run: never report
+        // Stopped (the server then records no stop, so B4 cannot release the
+        // task). reconcile-native replays Stopped once the sandbox stop is
+        // confirmed.
+        pipeline.persist_phase_host_uncertain(id).await?;
+        return Err(error.context("sandbox stop uncertain; Stopped withheld for reconciliation"));
     }
     // Stop and its journal precede the bounded metadata-only final flush.
     // A failed flush retains the execution error but does not gate B1 recording.

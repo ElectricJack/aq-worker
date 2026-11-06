@@ -241,3 +241,90 @@ async fn recovery_never_creates_missing_history_or_replaces_original_identity() 
     assert!(journal.available().is_err());
     assert!(!dir.path().join("materials").exists());
 }
+
+/// B5b/AQ-08: a granted launch with no host process closes with a durable
+/// suppression bound to the exact phase history; a launch with Running history
+/// is never treated as unstarted.
+#[test]
+fn unstarted_launch_closes_by_suppression_and_started_never_does() {
+    let mut a = terminal_attempt(false, false);
+    assert!(
+        !unstarted(&a),
+        "Running history is never closed as unstarted"
+    );
+    let h = a.native_host.as_mut().unwrap();
+    h.running = None;
+    h.terminal = None;
+    h.start_intended = false;
+    assert!(unstarted(&a));
+    let state = crate::native::journal::State {
+        format: 1,
+        identity: aq_admission::transport::WorkerIdentity {
+            node_id: Uuid::from_u128(1),
+            boot_id: Uuid::from_u128(2),
+        },
+        kernel_boot_id: Uuid::from_u128(3),
+        revision: 7,
+        attempts: Default::default(),
+    };
+    let op = Uuid::new_v4();
+    let q = closure_request(&a, 8, &state, op).unwrap();
+    q.validate().unwrap();
+    let original = q.original();
+    assert!(matches!(
+        q,
+        crate::native::journal::launch::ClosureRequest::Frozen(_)
+    ));
+    assert_eq!(original.operation_id, op);
+    assert_eq!(original.journal.revision, 8);
+    let aq_admission::granted_closure::Evidence::Suppressed { record, .. } = &original.evidence
+    else {
+        panic!("no host process: suppression evidence");
+    };
+    assert_eq!(record.previous.revision, 7);
+    assert_eq!(record.terminal_revision, 8);
+    assert_eq!(record.recording_kernel_boot_id, Uuid::from_u128(3));
+    // A started guardian without a retained stopped proof has no evidence yet.
+    let h = a.native_host.as_mut().unwrap();
+    h.start_intended = true;
+    h.guardian = Some(
+        serde_json::from_value(
+            fixture(false)["stopped_request"]["original"]["proof"]["observation"]["guardian"]
+                .clone(),
+        )
+        .unwrap(),
+    );
+    assert!(closure_request(&a, 8, &state, op).is_err());
+}
+
+/// The same closure for a registry-refresh profile attempt uses the refresh
+/// envelope (the server's launch-closure route dispatches on negotiation).
+#[test]
+fn refresh_profile_unstarted_launch_closes_with_the_refresh_envelope() {
+    let mut a = terminal_attempt(true, false);
+    let h = a.native_host.as_mut().unwrap();
+    h.running = None;
+    h.refresh_terminal = None;
+    h.start_intended = false;
+    assert!(unstarted(&a));
+    let state = crate::native::journal::State {
+        format: 1,
+        identity: aq_admission::transport::WorkerIdentity {
+            node_id: Uuid::from_u128(1),
+            boot_id: Uuid::from_u128(2),
+        },
+        kernel_boot_id: Uuid::from_u128(3),
+        revision: 7,
+        attempts: Default::default(),
+    };
+    let q = closure_request(&a, 8, &state, Uuid::new_v4()).unwrap();
+    q.validate().unwrap();
+    assert!(matches!(
+        q,
+        crate::native::journal::launch::ClosureRequest::Refresh(_)
+    ));
+    assert!(matches!(
+        q.original().evidence,
+        aq_admission::granted_closure::Evidence::Suppressed { .. }
+    ));
+}

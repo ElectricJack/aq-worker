@@ -1,11 +1,17 @@
 //! One fresh native attempt. Configuration and executor readiness precede all
 //! network admission. Retained journal/resources are never released on exit.
+mod claude_docker;
 mod codex;
 mod config;
 pub mod sandbox;
+pub use claude_docker::{
+    ClaudeDockerExecutor, ClaudeDockerSettings, InstalledExecutor, release_preserved_sandbox,
+};
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) use codex::drive_running;
 pub use codex::{CodexExecutor, CodexSettings, ExecutorConfig};
+#[cfg(all(test, feature = "test-support"))]
+pub(crate) use codex::{PreStop, drive_running_with_pre_stop};
 mod heartbeat;
 mod prepare;
 #[cfg(test)]
@@ -131,6 +137,7 @@ pub async fn run_once<E: NativeExecutor>(
         .await?;
     let inventory = producer.begin_inventory(config.inventory_ttl_ms)?;
     let acknowledged = producer.publish_inventory(&inventory).await?;
+    pipeline.record_inventory_sequence(inventory.request().sequence);
     ensure!(
         super::http::boot_ns()? < acknowledged.deadline_ns(),
         "native inventory expired before poll"

@@ -15,6 +15,10 @@
 //! `CLAUDE_CODE_OAUTH_TOKEN`, deletes the file and never writes it back.
 #[path = "support/docker_live.rs"]
 mod docker_live;
+#[path = "claude_live/ms1_live.rs"]
+mod ms1_live;
+#[path = "claude_live/sandbox_driver_live.rs"]
+mod sandbox_driver_live;
 use aq_worker::backend::docker_local::*;
 use aq_worker::backend::*;
 use aq_worker::controller::*;

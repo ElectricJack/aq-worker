@@ -9,6 +9,10 @@ pub enum ResultStopCause {
     /// The worker ended a still-running session because its explicit in-session
     /// result claim was durably recorded. This is not a deadline expiry.
     ResultRecorded,
+    /// MS1 docker-local: the node-side driver proved the harness exited 0 in
+    /// its sandbox (backend runner exit) and the workspace was copied back,
+    /// before submitting the claim. The only cause that reports Success.
+    HarnessSucceeded,
 }
 impl ResultStopCause {
     /// Process outcome retained in the stop anchor. root_status is the tmux
@@ -20,7 +24,10 @@ impl ResultStopCause {
         match self {
             Self::Cancelled => ProcessOutcome::Cancelled,
             Self::Expired => ProcessOutcome::Expired,
-            Self::Natural | Self::Failure | Self::ResultRecorded => ProcessOutcome::Unknown,
+            // A failed execution is reported as failed, never as unknown.
+            Self::Failure => ProcessOutcome::Failed,
+            Self::HarnessSucceeded => ProcessOutcome::Success,
+            Self::Natural | Self::ResultRecorded => ProcessOutcome::Unknown,
         }
     }
 }
@@ -148,5 +155,28 @@ impl InputPipeline {
             tracing::warn!(attempt_id=%id,"stopped result retained; local acknowledgement projection unavailable");
         }
         Ok(Some(DurableStoppedResult { custody, proof }))
+    }
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::ResultStopCause;
+    use aq_admission::transport::ProcessOutcome;
+    #[test]
+    fn only_a_proven_harness_success_reports_success_and_failure_reports_failed() {
+        assert!(matches!(
+            ResultStopCause::HarnessSucceeded.process_outcome(),
+            ProcessOutcome::Success
+        ));
+        assert!(matches!(
+            ResultStopCause::Failure.process_outcome(),
+            ProcessOutcome::Failed
+        ));
+        for unproven in [ResultStopCause::Natural, ResultStopCause::ResultRecorded] {
+            assert!(matches!(
+                unproven.process_outcome(),
+                ProcessOutcome::Unknown
+            ));
+        }
     }
 }

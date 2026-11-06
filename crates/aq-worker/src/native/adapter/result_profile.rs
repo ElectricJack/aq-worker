@@ -12,6 +12,9 @@ pub enum ResultAdapterKind {
     Codex0166TrustedNodeNamedReadonlyLocalV1,
     #[serde(rename = "codex-0.166-chatgpt-interactive-result-local-v1")]
     Codex0166ChatgptInteractiveLocalV1,
+    /// MS1: Claude Code in a docker-local sandbox driven from the node.
+    #[serde(rename = "claude-2.1.318-docker-local-result-local-v1")]
+    Claude2318DockerLocalV1,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -51,7 +54,11 @@ impl ResultAdapterDefinition {
     ) -> Result<ArtifactRef> {
         revision.validate()?;
         Ok(ArtifactRef {
-            id: aq_session_protocol::Text::new("aq.codex-result-local-adapter")?,
+            id: aq_session_protocol::Text::new(if self.is_claude_docker() {
+                "aq.claude-result-local-adapter"
+            } else {
+                "aq.codex-result-local-adapter"
+            })?,
             version: revision.clone(),
             digest: Digest::of(&self.encode()?),
         })
@@ -75,8 +82,13 @@ impl ResultAdapterDefinition {
             ResultAdapterKind::Codex0166ChatgptInteractiveLocalV1
         )
     }
+    pub fn is_claude_docker(&self) -> bool {
+        matches!(self.profile, ResultAdapterKind::Claude2318DockerLocalV1)
+    }
     pub fn recipe_artifact(&self) -> ArtifactRef {
-        if self.interactive() {
+        if self.is_claude_docker() {
+            super::claude::docker_local_recipe_artifact()
+        } else if self.interactive() {
             aq_codex_mapper::interactive_result_local_recipe_artifact()
         } else {
             aq_codex_mapper::result_local_recipe_artifact()
@@ -152,6 +164,9 @@ impl ResultAdapterDefinition {
                     == self.permission_digest,
             "result adapter manifest opt-in/settings/permissions differ"
         );
+        if self.is_claude_docker() {
+            return super::claude::validate_docker_local_manifest(manifest);
+        }
         let settings = aq_codex_mapper::Settings {
             harness: &manifest.harness,
             model: &manifest.model,

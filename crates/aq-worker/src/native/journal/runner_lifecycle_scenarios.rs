@@ -247,6 +247,43 @@ async fn shutdown_during_delayed_started_ack_stops_physically_and_preserves_unce
     assert!(result.is_err());
     stopped(&h, false).await;
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires pinned physical helper/periodic synthetic ELF and actual tmux"]
+async fn unconfirmed_sandbox_stop_withholds_the_stopped_report() {
+    // MS1 review S2: the host stops physically, but an unconfirmed stop of a
+    // resource outside its process tree (the sandbox) keeps Stopped unreported.
+    let (h, _git, grant, host, policy) = launched().await;
+    let (http, _peer) = output_peer(policy, false).await;
+    let (tx, rx) = watch::channel(false);
+    let pipeline = h.pipeline().clone();
+    let deadline = grant.deadline_ns();
+    let pre_stop: crate::native::runner::PreStop =
+        Box::new(|| Box::pin(async { anyhow::bail!("sandbox stop unconfirmed (test)") }));
+    let task = tokio::spawn(crate::native::runner::drive_running_with_pre_stop(
+        pipeline, host, deadline, http, rx, pre_stop,
+    ));
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while h.phase_terminal_calls.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tx.send(true).unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(3), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(format!("{:#}", result.unwrap_err()).contains("sandbox stop uncertain"));
+    let state = h.pipeline().snapshot().await.unwrap();
+    let native = state.attempts[&h.id].native_host.as_ref().unwrap();
+    assert!(
+        native.stopped.is_some(),
+        "the host itself stopped physically"
+    );
+    let calls = h.phase_terminal_calls.lock().unwrap();
+    assert_eq!(calls.iter().filter(|(p, _)| p == "stopped").count(), 0);
+}
 
 #[path = "codex_process_scenarios.rs"]
 mod codex_process_scenarios;

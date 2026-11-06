@@ -117,6 +117,253 @@ pub fn single_file(archive: &[u8], max: u64) -> Result<Vec<u8>, BackendError> {
     Err(malformed)
 }
 
+/// One member of a non-secret tree archive. Paths are relative and normalized.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TreeEntry {
+    Dir {
+        path: String,
+        mode: u32,
+    },
+    File {
+        path: String,
+        mode: u32,
+        data: Vec<u8>,
+    },
+    Symlink {
+        path: String,
+        target: String,
+    },
+}
+impl TreeEntry {
+    pub fn path(&self) -> &str {
+        match self {
+            Self::Dir { path, .. } | Self::File { path, .. } | Self::Symlink { path, .. } => path,
+        }
+    }
+}
+
+fn push_member(out: &mut Vec<u8>, name: &str, mode: u32, size: usize, kind: u8, link: &str) {
+    if name.len() >= 100 {
+        // GNU long name record, then a truncated name in the real header.
+        let mut long = name.as_bytes().to_vec();
+        long.push(0);
+        out.extend_from_slice(&header("././@LongLink", 0o644, 0, 0, long.len(), b'L'));
+        let start = out.len();
+        out.extend_from_slice(&long);
+        out.resize(start + padded(long.len()), 0);
+    }
+    let short: String = name.chars().take(99).collect();
+    let mut h = header(&short, mode, 0, 0, size, kind);
+    if !link.is_empty() {
+        h[157..157 + link.len().min(100)].copy_from_slice(&link.as_bytes()[..link.len().min(100)]);
+        h[148..156].copy_from_slice(b"        ");
+        let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
+        h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+    }
+    out.extend_from_slice(&h);
+}
+
+/// Archive for upload at `/`: every entry is placed under `prefix` (relative,
+/// e.g. `aq/work`). Owner is root (the sandbox runner in single-UID mode).
+pub fn tree_archive(prefix: &str, entries: &[TreeEntry]) -> Result<Vec<u8>, BackendError> {
+    let bad = BackendError::InvalidRequest("tree archive path unsupported");
+    if prefix.is_empty()
+        || prefix.starts_with('/')
+        || prefix.split('/').any(|c| c.is_empty() || c == "..")
+    {
+        return Err(bad);
+    }
+    let mut out = Vec::new();
+    let mut acc = String::new();
+    for part in prefix.split('/') {
+        if !acc.is_empty() {
+            acc.push('/');
+        }
+        acc.push_str(part);
+        push_member(&mut out, &format!("{acc}/"), 0o755, 0, b'5', "");
+    }
+    for entry in entries {
+        let rel = entry.path();
+        if !valid_relative(rel) {
+            return Err(bad);
+        }
+        let name = format!("{prefix}/{rel}");
+        match entry {
+            TreeEntry::Dir { mode, .. } => {
+                push_member(&mut out, &format!("{name}/"), *mode, 0, b'5', "")
+            }
+            TreeEntry::File { mode, data, .. } => {
+                push_member(&mut out, &name, *mode, data.len(), b'0', "");
+                let start = out.len();
+                out.extend_from_slice(data);
+                out.resize(start + padded(data.len()), 0);
+            }
+            TreeEntry::Symlink { target, .. } => {
+                if target.len() >= 100 {
+                    return Err(bad);
+                }
+                push_member(&mut out, &name, 0o777, 0, b'2', target)
+            }
+        }
+    }
+    out.resize(out.len() + 2 * BLOCK, 0);
+    Ok(out)
+}
+
+fn valid_relative(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains('\0')
+        && path
+            .split('/')
+            .all(|c| !c.is_empty() && c != "." && c != "..")
+}
+
+fn pax_path(record: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(record).ok()?;
+    let mut rest = text;
+    let mut found = None;
+    while !rest.is_empty() {
+        let (len, _) = rest.split_once(' ')?;
+        let n: usize = len.parse().ok()?;
+        let line = rest.get(..n)?;
+        rest = &rest[n..];
+        let (_, kv) = line.split_once(' ')?;
+        let kv = kv.strip_suffix('\n')?;
+        if let Some(v) = kv.strip_prefix("path=") {
+            found = Some(v.to_owned());
+        }
+    }
+    found
+}
+
+/// Reads a Docker `GET archive` of a directory. The leading component (the
+/// directory's own name) is stripped. Unsafe or unsupported members are refused,
+/// never skipped silently; hard links, devices and FIFOs are refused.
+pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, BackendError> {
+    let malformed = BackendError::InvalidRequest("tree archive malformed or unsafe");
+    let mut offset = 0;
+    let mut entries = Vec::new();
+    let mut total = 0u64;
+    let mut long_name: Option<String> = None;
+    while let Some(h) = archive.get(offset..offset + BLOCK) {
+        if h.iter().all(|b| *b == 0) {
+            break;
+        }
+        let stored = octal(&h[148..156]).ok_or(malformed.clone())?;
+        let sum: u64 = h
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                if (148..156).contains(&i) {
+                    32
+                } else {
+                    u64::from(*b)
+                }
+            })
+            .sum();
+        if sum != stored {
+            return Err(malformed);
+        }
+        let size = octal(&h[124..136]).ok_or(malformed.clone())? as usize;
+        let data = archive
+            .get(offset + BLOCK..offset + BLOCK + size)
+            .ok_or(malformed.clone())?;
+        offset += BLOCK + padded(size);
+        let kind = h[156];
+        if matches!(kind, b'L' | b'x') {
+            if size > 64 * 1024 {
+                return Err(malformed);
+            }
+            long_name = if kind == b'L' {
+                Some(
+                    String::from_utf8_lossy(data)
+                        .trim_end_matches('\0')
+                        .to_owned(),
+                )
+            } else {
+                pax_path(data).or(long_name)
+            };
+            continue;
+        }
+        if kind == b'g' {
+            continue;
+        }
+        let field = |range: std::ops::Range<usize>| {
+            let raw = &h[range];
+            let end = raw.iter().position(|b| *b == 0).unwrap_or(raw.len());
+            String::from_utf8_lossy(&raw[..end]).into_owned()
+        };
+        let name = match long_name.take() {
+            Some(name) => name,
+            None => {
+                let prefix = field(345..500);
+                let name = field(0..100);
+                if prefix.is_empty() {
+                    name
+                } else {
+                    format!("{prefix}/{name}")
+                }
+            }
+        };
+        let name = name.trim_start_matches("./").trim_end_matches('/');
+        let Some((_, rel)) = name.split_once('/') else {
+            continue; // the archived directory itself
+        };
+        if !valid_relative(rel) {
+            return Err(malformed);
+        }
+        let mode = octal(&h[100..108]).ok_or(malformed.clone())? as u32 & 0o777;
+        total = total.saturating_add(size as u64);
+        if total > max_total {
+            return Err(BackendError::InvalidRequest("archive exceeds read cap"));
+        }
+        if kind == b'1' {
+            // Hard link (cargo's target/ has them): a copy of an earlier file.
+            let link = field(157..257);
+            let link = link.trim_start_matches("./").trim_start_matches('/');
+            let target = match link.split_once('/') {
+                Some((first, rest)) if name.starts_with(&format!("{first}/")) => rest,
+                _ => link,
+            };
+            let data = entries
+                .iter()
+                .find_map(|e| match e {
+                    TreeEntry::File { path, data, .. } if path == target => Some(data.clone()),
+                    _ => None,
+                })
+                .ok_or(malformed.clone())?;
+            total = total.saturating_add(data.len() as u64);
+            if total > max_total {
+                return Err(BackendError::InvalidRequest("archive exceeds read cap"));
+            }
+            entries.push(TreeEntry::File {
+                path: rel.into(),
+                mode,
+                data,
+            });
+            continue;
+        }
+        entries.push(match kind {
+            b'0' | 0 => TreeEntry::File {
+                path: rel.into(),
+                mode,
+                data: data.to_vec(),
+            },
+            b'5' => TreeEntry::Dir {
+                path: rel.into(),
+                mode,
+            },
+            b'2' => TreeEntry::Symlink {
+                path: rel.into(),
+                target: field(157..257),
+            },
+            _ => return Err(malformed),
+        });
+    }
+    Ok(entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +393,101 @@ mod tests {
         file[0] ^= 1;
         assert!(single_file(&file, 100).is_err());
         assert!(single_file(&archive, 100).is_err(), "directory first");
+    }
+    #[test]
+    fn tree_archive_round_trips_long_names_and_refuses_traversal() {
+        let long = format!("{}/file.txt", "d".repeat(120));
+        let entries = vec![
+            TreeEntry::Dir {
+                path: "src".into(),
+                mode: 0o755,
+            },
+            TreeEntry::File {
+                path: "src/lib.rs".into(),
+                mode: 0o644,
+                data: b"fn x() {}\n".to_vec(),
+            },
+            TreeEntry::File {
+                path: long.clone(),
+                mode: 0o755,
+                data: vec![7; 700],
+            },
+            TreeEntry::Symlink {
+                path: "link".into(),
+                target: "src/lib.rs".into(),
+            },
+        ];
+        let archive = tree_archive("aq/work", &entries).unwrap();
+        // A GET of /aq/work names members "work/...": strip one more level.
+        let read = read_tree(&archive, 1 << 20).unwrap();
+        let read: Vec<_> = read
+            .into_iter()
+            .filter_map(|e| match e {
+                TreeEntry::Dir { path, mode } => {
+                    path.strip_prefix("work/").map(|p| TreeEntry::Dir {
+                        path: p.into(),
+                        mode,
+                    })
+                }
+                TreeEntry::File { path, mode, data } => {
+                    path.strip_prefix("work/").map(|p| TreeEntry::File {
+                        path: p.into(),
+                        mode,
+                        data,
+                    })
+                }
+                TreeEntry::Symlink { path, target } => {
+                    path.strip_prefix("work/").map(|p| TreeEntry::Symlink {
+                        path: p.into(),
+                        target,
+                    })
+                }
+            })
+            .collect();
+        assert_eq!(read, entries);
+        assert!(
+            tree_archive(
+                "aq/work",
+                &[TreeEntry::Dir {
+                    path: "../x".into(),
+                    mode: 0o755
+                }]
+            )
+            .is_err()
+        );
+        assert!(tree_archive("/aq", &entries).is_err());
+        let mut evil = Vec::new();
+        push_member(&mut evil, "work/../../etc/passwd", 0o644, 0, b'0', "");
+        evil.resize(evil.len() + 2 * BLOCK, 0);
+        assert!(read_tree(&evil, 1 << 20).is_err());
+        assert_eq!(
+            read_tree(&archive, 100),
+            Err(BackendError::InvalidRequest("archive exceeds read cap"))
+        );
+    }
+
+    #[test]
+    fn hard_links_become_copies_of_their_earlier_file() {
+        let mut a = Vec::new();
+        push_member(&mut a, "/", 0o755, 0, b'5', "");
+        push_member(&mut a, "/f", 0o644, 3, b'0', "");
+        let start = a.len();
+        a.extend_from_slice(b"abc");
+        a.resize(start + padded(3), 0);
+        push_member(&mut a, "/g", 0o644, 0, b'1', "/f");
+        a.resize(a.len() + 2 * BLOCK, 0);
+        let read = read_tree(&a, 1 << 20).unwrap();
+        assert_eq!(
+            read[1],
+            TreeEntry::File {
+                path: "g".into(),
+                mode: 0o644,
+                data: b"abc".to_vec()
+            }
+        );
+        let mut bad = Vec::new();
+        push_member(&mut bad, "/g", 0o644, 0, b'1', "/missing");
+        bad.resize(bad.len() + 2 * BLOCK, 0);
+        assert!(read_tree(&bad, 1 << 20).is_err());
     }
 }

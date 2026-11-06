@@ -245,6 +245,10 @@ impl FixtureHandle {
 /// Fixture-only descendant mode deliberately changes session and double-forks.
 /// It stays in the guardian's kernel ancestry and continuously changes a counter.
 pub fn run_fixture(directory: &Path) -> Result<()> {
+    // Before any evidence file, so a test that saw one knows TERM is ignored.
+    if std::env::var_os("AQ_FIXTURE_IGNORE_TERM").is_some() {
+        unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) };
+    }
     guardian::durable_new(
         &directory.join("started.claim"),
         b"deterministic-agent-v1\n",
@@ -259,9 +263,6 @@ pub fn run_fixture(directory: &Path) -> Result<()> {
         &directory.join("process.json"),
         &serde_json::to_vec(&process_evidence(std::process::id())?)?,
     )?;
-    if std::env::var_os("AQ_FIXTURE_IGNORE_TERM").is_some() {
-        unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) };
-    }
     if std::env::var_os("AQ_FIXTURE_DESCENDANT").is_some() {
         spawn_escaped_writer(directory)?;
         if std::env::var("AQ_FIXTURE_DESCENDANT").ok().as_deref()

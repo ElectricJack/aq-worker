@@ -242,9 +242,11 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     root = Some(child);
                     durable_new(&dir.join("server.json"), &serde_json::to_vec(&server)?)?;
                 }
+                // tmux binds its socket before it listens; a client that
+                // connects in between fails with "no server running".
                 if state.phase == HostPhase::Starting
                     && state.pane.is_none()
-                    && dir.join("tmux.sock").exists()
+                    && std::os::unix::net::UnixStream::connect(dir.join("tmux.sock")).is_ok()
                 {
                     fault_point(dir, "socket-created")?;
                     ensure!(
@@ -421,6 +423,34 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+/// Holds the harness until the guardian has recorded this pane's identity, so a
+/// harness that finishes at once never leaves only a dead pane to verify.
+fn wait_recorded(
+    dir: &Path,
+    guardian: &GuardianIdentity,
+    server: &ProcessEvidence,
+    expires_boot_ms: u64,
+) -> Result<()> {
+    let me = process_evidence(std::process::id())?;
+    loop {
+        let state: HostObservation = read_json(&dir.join("state.json"))?;
+        ensure!(state.guardian == *guardian, "pane guardian state mismatch");
+        if let Some(pane) = &state.pane {
+            ensure!(
+                pane.pane == me && pane.server == *server,
+                "pane identity recorded for another process"
+            );
+            return Ok(());
+        }
+        ensure!(
+            state.phase == HostPhase::Starting
+                && raw_boot_ms() < expires_boot_ms
+                && !dir.join("stop.request").exists(),
+            "pane cancelled before its identity was recorded"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
 pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
     let config: SealedLaunch = read_json(&dir.join("launch.json"))?;
     let identity: GuardianIdentity = read_json(&dir.join("identity.json"))?;
@@ -453,6 +483,7 @@ pub(crate) fn exec_pane(dir: &Path) -> Result<()> {
     if config.observed.is_some() {
         return observed::gate::wait_closed(dir, &config, &identity, &server);
     }
+    wait_recorded(dir, &identity, &server, permit.expires_boot_ms)?;
     durable_new(
         &dir.join("pane-exec.claim"),
         b"one native harness exec; no fallback shell\n",
@@ -497,6 +528,9 @@ pub(crate) fn fixture(dir: &Path, mode: &str) -> Result<()> {
         &dir.join("fixture-process.json"),
         &serde_json::to_vec(&process_evidence(std::process::id())?)?,
     )?;
+    if mode == "exit" {
+        return Ok(());
+    }
     if mode == "rendered" {
         let bytes = read_bytes(&dir.join("context-0.bin"), 1_048_576)?;
         durable_new(&dir.join("rendered-received.bin"), &bytes)?;

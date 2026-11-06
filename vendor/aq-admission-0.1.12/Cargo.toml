@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "aq-admission"
-version = "0.1.11"
+version = "0.1.12"
 build = false
 publish = false
 autolib = false

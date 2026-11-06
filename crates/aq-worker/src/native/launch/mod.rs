@@ -25,6 +25,7 @@ pub enum Checkpoint {
     Started,
 }
 mod authority;
+pub mod claude_docker;
 mod control_relay;
 mod native;
 mod output_relay;
@@ -103,6 +104,7 @@ enum Profile {
     #[cfg(any(test, feature = "test-support"))]
     Synthetic(Arc<SyntheticHostProfile>),
     Native(Arc<NativeCodexHostProfile>),
+    ClaudeDocker(Arc<claude_docker::ClaudeDockerHostProfile>),
 }
 impl Profile {
     fn root(&self) -> &RootGuard {
@@ -110,6 +112,7 @@ impl Profile {
             #[cfg(any(test, feature = "test-support"))]
             Self::Synthetic(p) => &p.root,
             Self::Native(p) => &p.root,
+            Self::ClaudeDocker(p) => &p.root,
         }
     }
 }
@@ -379,6 +382,67 @@ impl LocalPhaseHost {
             .context("native physical handle absent")?
             .observe()
     }
+    /// Extend the host guardian's local permit (never server authority) up to
+    /// `until_boot_ms`, which the caller bounds by the server grant. Used by
+    /// non-interactive hosts whose local permit is capped at MAX_PERMIT_MS.
+    pub fn renew_local(&self, sequence: u64, until_boot_ms: u64) -> Result<()> {
+        let intent = lock(&self.entry.history)?
+            .as_ref()
+            .map(|h| h.intent.clone())
+            .context("native launch intent absent")?;
+        let now = boot_ns()? / 1_000_000;
+        let permit = ExecutionPermit {
+            session: intent.binding.session.clone(),
+            manifest_digest: intent.binding.launch_manifest_digest.clone(),
+            sequence,
+            issued_boot_ms: now,
+            expires_boot_ms: until_boot_ms
+                .min(now + aq_session_host::MAX_PERMIT_MS - 5_000)
+                .min(intent.hard_deadline_ns.min(intent.deadline_ns) / 1_000_000),
+        };
+        lock(&self.entry.physical)?
+            .handle
+            .as_ref()
+            .context("native physical handle absent")?
+            .renew(&permit)
+    }
+    /// MS1 docker-local: the driver's own exit record (`exit.json` in its
+    /// private directory), written before it submits the claim. None when the
+    /// host is not a Claude docker-local host or the record is absent.
+    pub fn claude_driver_succeeded(&self) -> Option<bool> {
+        driver_exit_success(&self.claude_driver_dir()?.join("exit.json"))
+    }
+    /// MS1 docker-local: the driver's private directory, if this is a Claude
+    /// docker-local host.
+    pub fn claude_driver_dir(&self) -> Option<std::path::PathBuf> {
+        if !matches!(self.entry.profile, Some(Profile::ClaudeDocker(_))) {
+            return None;
+        }
+        let intent = lock(&self.entry.history).ok()?.as_ref()?.intent.clone();
+        Some(claude_driver_dir(&intent.host_root, intent.launch_id))
+    }
+}
+/// `<host_root>/driver-<launch_id>`: the private directory of one launch.
+pub fn claude_driver_dir(host_root: &std::path::Path, launch_id: Uuid) -> std::path::PathBuf {
+    host_root.join(format!("driver-{launch_id}"))
+}
+/// The driver's exit record. Missing, unreadable or malformed is None
+/// (Unknown): only an explicit `{"success": true}` can report Success.
+pub fn driver_exit_success(path: &std::path::Path) -> Option<bool> {
+    let bytes = std::fs::read(path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    value["success"].as_bool()
+}
+/// MS1 review S3a: after the host stopped, the launch's leased token file is
+/// removed whatever happened to the driver (it normally deleted it itself).
+pub fn wipe_claude_driver_secrets(dir: &std::path::Path) {
+    match std::fs::remove_file(dir.join("token")) {
+        Ok(()) => tracing::warn!(dir = %dir.display(), "removed a leftover leased token file"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(dir = %dir.display(), "leased token file not removed: {e}"),
+    }
+}
+impl LocalPhaseHost {
     pub fn started_request(&self) -> Result<aq_admission::started::Request> {
         lock(&self.entry.history)?
             .as_ref()
@@ -586,6 +650,28 @@ impl InputPipeline {
             });
         self.launch_claimed(claimed)
     }
+    /// MS1: the session host runs the docker-local Claude driver with the
+    /// attempt's actual result channel.
+    pub fn launch_phase_claude_docker_result(
+        self: &Arc<Self>,
+        execution: &DurablePhaseExecution,
+        profile: Arc<claude_docker::ClaudeDockerHostProfile>,
+        channel: crate::native::result::VerifiedResultChannel,
+    ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
+        let claimed = self
+            .launch_scope(execution)
+            .and_then(|scope| {
+                channel.check_pipeline(self, &scope)?;
+                self.launch
+                    .claim_profile(scope, Profile::ClaudeDocker(profile), Some(channel))
+            })
+            .map(|entry| ClaimGuard {
+                registry: self.launch.clone(),
+                entry,
+                admitted: false,
+            });
+        self.launch_claimed(claimed)
+    }
     #[cfg(any(test, feature = "test-support"))]
     pub fn launch_phase_synthetic(
         self: &Arc<Self>,
@@ -629,6 +715,9 @@ impl InputPipeline {
                 let _host_slot = host_slot;
                 let _writer = writer;
                 let result = bootstrap(&owner, &registry, &entry);
+                if let Err(error) = &result {
+                    tracing::warn!(attempt_id = %entry.id, "native host bootstrap refused: {error:#}");
+                }
                 if result.is_err() {
                     let _ = entry.stop_now();
                     if let Ok(mut owned) = lock(&owner) {
@@ -790,6 +879,7 @@ impl InputPipeline {
 fn bootstrap(owner: &Arc<Mutex<Owned>>, _registry: &Registry, entry: &Arc<Entry>) -> Result<()> {
     match entry.profile.as_ref().context("native profile absent")? {
         Profile::Native(profile) => native::bootstrap(owner, entry, profile),
+        Profile::ClaudeDocker(profile) => claude_docker::bootstrap(owner, entry, profile),
         #[cfg(any(test, feature = "test-support"))]
         Profile::Synthetic(_) => bootstrap_synthetic(owner, _registry, entry),
     }
@@ -979,4 +1069,22 @@ mod frozen_terminal_reports {
 mod refresh_terminal_reports {
     use super::*;
     crate::native::phase_profile_shared::report_terminal! { aq_phase_terminal_protocol::refresh_v1, crate::native::journal::refresh_terminal::PhaseTerminalHistory, refresh_terminal_history, refresh_terminal, report_refresh_terminal_started, report_refresh_terminal_stopped, refresh_terminal_started, refresh_terminal_stopped, refresh_started_receipt, refresh_stopped_receipt }
+}
+
+#[cfg(test)]
+mod driver_dir_tests {
+    #[test]
+    fn leftover_token_is_wiped_and_a_missing_one_is_fine() {
+        let dir = tempfile::tempdir().unwrap();
+        let token = dir.path().join("token");
+        std::fs::write(&token, b"x").unwrap();
+        std::fs::write(dir.path().join("exit.json"), b"{}").unwrap();
+        super::wipe_claude_driver_secrets(dir.path());
+        assert!(!token.exists());
+        assert!(
+            dir.path().join("exit.json").exists(),
+            "non-secret records stay"
+        );
+        super::wipe_claude_driver_secrets(dir.path());
+    }
 }

@@ -44,13 +44,16 @@ async fn runner_cannot_report_before_handoff_receipts() {
             assert_eq!(outcome, RunOutcome::Finished);
             assert_eq!(central.finishes, 1);
         } else {
-            assert!(matches!(
-                outcome,
-                RunOutcome::Preserved {
-                    stop_proven: true,
-                    ..
-                }
-            ));
+            assert!(
+                matches!(
+                    outcome,
+                    RunOutcome::Preserved {
+                        stop_proven: true,
+                        ..
+                    }
+                ),
+                "{outcome:?}"
+            );
             assert_eq!(central.finishes, 0);
         }
         assert_eq!(central.retentions, 1);
@@ -101,13 +104,16 @@ async fn delegated_permit_expiry_caps_initial_grant() {
     let mut central = Central::new(Mode::Stall);
 
     let outcome = f.run(&mut central).await.unwrap();
-    assert!(matches!(
-        outcome,
-        RunOutcome::Preserved {
-            stop_proven: true,
-            ..
-        }
-    ));
+    assert!(
+        matches!(
+            outcome,
+            RunOutcome::Preserved {
+                stop_proven: true,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
     let initial: aq_session_host::ExecutionPermit = serde_json::from_slice(
         &std::fs::read(f.dir.path().join("sandbox-run/initial-permit.json")).unwrap(),
     )
@@ -240,13 +246,17 @@ async fn unknown_stop_retains_without_reporting_or_claiming_proof() {
         std::fs::create_dir(directory.join("stop.request")).unwrap();
     };
     let (outcome, ()) = tokio::join!(f.run(&mut central), corrupt_stop);
-    assert!(matches!(
-        outcome.unwrap(),
-        RunOutcome::Preserved {
-            stop_proven: false,
-            ..
-        }
-    ));
+    let outcome = outcome.unwrap();
+    assert!(
+        matches!(
+            outcome,
+            RunOutcome::Preserved {
+                stop_proven: false,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
     assert_eq!(central.retentions, 0);
     assert_eq!(central.finishes, 0);
     assert!(!f.dir.path().join("sandbox-run/stopped.json").exists());
@@ -291,13 +301,17 @@ async fn tmux_exit_requires_descendant_stop_proof() {
         );
     };
     let (outcome, ()) = tokio::join!(f.run(&mut central), kill_tmux);
-    assert!(matches!(
-        outcome.unwrap(),
-        RunOutcome::Preserved {
-            stop_proven: true,
-            ..
-        }
-    ));
+    let outcome = outcome.unwrap();
+    assert!(
+        matches!(
+            outcome,
+            RunOutcome::Preserved {
+                stop_proven: true,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
     assert_eq!(central.finishes, 0);
     let proof: serde_json::Value = serde_json::from_slice(
         &std::fs::read(f.dir.path().join("sandbox-run/stopped.json")).unwrap(),

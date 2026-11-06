@@ -283,6 +283,24 @@ class TemplateTests(unittest.TestCase):
             with self.subTest(value=value[:48]):
                 self.assertTrue(scanner.secret_shaped(value))
 
+    def test_docker_local_disk_limit_label_is_not_a_provider_token(self):
+        scanner = load('credential_scan')
+        # The SBX20 label key sits in .rodata against whichever literal codegen
+        # places next (observed: 'assertion failed: self.is_cha...').
+        label = 'aq.disk-limit-bytes'
+        for neighbor in ['assertion failed: self.is_char_boundary(new_len)',
+                         'aq.template-digest', 'x' * 40, '']:
+            with self.subTest(neighbor=neighbor[:24]):
+                self.assertFalse(scanner.secret_shaped('aq.hard-deadline-ms' + label + neighbor))
+        for value in [label + 'sk-proj-' + 'x' * 40,
+                      label + 'ghp_' + 'x' * 36,
+                      label + 'sk-' + label + 'sk-ant-' + 'x' * 40,
+                      'xx.disk-limit-bytes' + 'x' * 40,
+                      'aq.disk-limit_bytes' + 'x' * 40,
+                      'sk-limit-bytes' + 'x' * 40]:
+            with self.subTest(value=value[:48]):
+                self.assertTrue(scanner.secret_shaped(value))
+
     def test_public_constants_require_exact_reviewed_content(self):
         scanner = load('credential_scan')
         # A miniature public source example stands in for a reviewed upstream

@@ -8,7 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PINS = json.loads((ROOT / 'scripts/e0-qual/pins.json').read_text())
-VENDOR = 'vendor/aq-admission-0.1.11/src'
+VENDOR = 'vendor/aq-admission-0.1.12/src'
 
 
 def load():

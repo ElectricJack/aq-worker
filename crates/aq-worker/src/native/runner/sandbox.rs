@@ -405,7 +405,8 @@ async fn run_inner<S: LoginService>(
         .await;
     let (mut handle, output_runtime) = match launched {
         Ok(launched) => launched,
-        Err(_) => {
+        Err(error) => {
+            tracing::warn!("sandbox host launch failed: {error:#}");
             let proof = journal
                 .intent
                 .as_ref()

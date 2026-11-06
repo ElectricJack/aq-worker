@@ -13,7 +13,7 @@ pub const MAIN_DAEMON_SOCKETS: &[&str] = &["/var/run/docker.sock", "/run/docker.
 /// The per-attempt work volume is always mounted here.
 pub const WORK_TARGET: &str = "/aq/work";
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AllowedTemplate {
     /// Pullable reference, which must end in `@{digest}`.
@@ -21,7 +21,7 @@ pub struct AllowedTemplate {
     pub digest: TemplateDigest,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MountAlias {
     pub host_path: PathBuf,
@@ -31,7 +31,7 @@ pub struct MountAlias {
     pub read_only: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DockerLocalConfig {
     /// The dedicated sandbox daemon's API socket. Never the host's main daemon.

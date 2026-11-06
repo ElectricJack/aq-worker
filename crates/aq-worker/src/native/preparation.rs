@@ -49,6 +49,9 @@ pub struct InputPipeline {
     launch: Arc<launch::Registry>,
     results: result::Registry,
     scoped_presence_owned: std::sync::atomic::AtomicBool,
+    /// Sequence of this node's last acknowledged inventory (0 = none yet);
+    /// the server refuses a poll that names any other sequence.
+    inventory_sequence: std::sync::atomic::AtomicU64,
 }
 impl InputPipeline {
     /// Reserve through the original live journal and install its process-local
@@ -92,6 +95,7 @@ impl InputPipeline {
             launch,
             results: result::Registry::default(),
             scoped_presence_owned: std::sync::atomic::AtomicBool::new(false),
+            inventory_sequence: std::sync::atomic::AtomicU64::new(0),
         }
     }
     async fn storage<T: Send + 'static>(
@@ -133,6 +137,47 @@ impl InputPipeline {
             Ok(())
         })
         .await
+    }
+    /// MS1/B3: read this attempt's pending cancellation from the node's own
+    /// poll. A zero-capacity poll asks for no offers; the server answers
+    /// cancellations first. Errors mean "unknown", never "not cancelled".
+    /// Records the node's acknowledged inventory sequence for later polls.
+    pub fn record_inventory_sequence(&self, sequence: u64) {
+        self.inventory_sequence
+            .store(sequence, std::sync::atomic::Ordering::SeqCst);
+    }
+    pub async fn poll_cancellation(&self, id: Uuid) -> Result<Option<Uuid>> {
+        let inventory_sequence = self
+            .inventory_sequence
+            .load(std::sync::atomic::Ordering::SeqCst);
+        anyhow::ensure!(
+            inventory_sequence > 0,
+            "no acknowledged inventory; cancellation unknown"
+        );
+        let identity = self.snapshot().await?.identity;
+        let page = self
+            .client
+            .poll(&aq_admission::transport::Poll {
+                schema_version: 1,
+                operation_id: Uuid::new_v4(),
+                identity,
+                inventory_sequence,
+                available: aq_admission::Resources {
+                    slots: 0,
+                    memory_bytes: 0,
+                    cpu_millis: 0,
+                    disk_bytes: 0,
+                },
+                limit: 1,
+                after_offer: None,
+            })
+            .await?;
+        Ok(page
+            .page
+            .cancellations
+            .iter()
+            .find(|c| c.binding.attempt_id == id)
+            .map(|c| c.cancellation_id))
     }
     pub async fn snapshot(&self) -> Result<State> {
         self.storage(|owner| Ok(owner.journal.state().clone()))

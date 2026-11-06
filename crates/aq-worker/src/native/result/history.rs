@@ -237,11 +237,6 @@ impl ResultHistory {
         if let Some(stop) = &self.stop {
             ensure!(
                 self.intake_closed
-                    && !matches!(
-                        stop.outcome,
-                        aq_admission::transport::ProcessOutcome::Success
-                            | aq_admission::transport::ProcessOutcome::Failed
-                    )
                     && stop.native_stopped_revision > 0
                     && stop.recorded_revision >= stop.native_stopped_revision
                     && stop.recorded_revision > s.recorded_revision,

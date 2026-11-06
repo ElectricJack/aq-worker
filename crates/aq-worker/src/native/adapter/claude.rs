@@ -164,6 +164,58 @@ pub(crate) fn map(
     })
 }
 
+/// MS1 docker-local result recipe: the public, content-addressed description of
+/// how the node driver runs this recipe in a sandbox. Its bytes are a server
+/// Definition (`aq-worker ms1-definitions` prints them).
+pub fn docker_local_recipe_body() -> String {
+    use sha2::Digest as _;
+    let runner = format!(
+        "{:x}",
+        sha2::Sha256::digest(crate::sandbox_driver::RUNNER.as_bytes())
+    );
+    let mut value = serde_json::json!({
+        "schema_version": 1,
+        "profile": "claude-2.1.318-docker-local-result-local-v1",
+        "cli_version": CLAUDE_CLI_VERSION,
+        "confinement": "container",
+        "runner_sha256": runner,
+        "token_delivery": "private_material_env_only_v1",
+        "result_claim": "node_driver_final_message_v1",
+        "workspace": "copy_in_copy_out_v1",
+    });
+    value.sort_all_objects();
+    value.to_string()
+}
+pub fn docker_local_recipe_artifact() -> aq_session_protocol::ArtifactRef {
+    aq_session_protocol::ArtifactRef {
+        id: aq_session_protocol::Text::new("aq.claude-docker-local-result-local-recipe")
+            .expect("static id"),
+        version: aq_session_protocol::Text::new("1").expect("static version"),
+        digest: aq_session_protocol::Digest::of(docker_local_recipe_body().as_bytes()),
+    }
+}
+/// Manifest settings this recipe accepts: Claude 2.1.318 on an Anthropic
+/// subscription model, container confinement, no terminal input.
+pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -> Result<()> {
+    let declares = |id: &str| {
+        m.harness
+            .required_capabilities
+            .iter()
+            .any(|c| c.id.as_str() == id && c.version == 1)
+    };
+    ensure!(
+        m.harness.harness.as_str() == "claude"
+            && m.harness.cli_version.as_str() == CLAUDE_CLI_VERSION
+            && m.model.provider.as_str() == "anthropic"
+            && m.model.spending_budget.is_none()
+            && !m.terminal.input_enabled
+            && declares(CONTAINER_CONFINEMENT_CAPABILITY)
+            && !declares(NATIVE_CONFINEMENT_CAPABILITY),
+        "Claude docker-local result recipe unsupported manifest settings"
+    );
+    Ok(())
+}
+
 fn settings(mode: ConfinementMode) -> serde_json::Value {
     let mut permissions = serde_json::json!({ "defaultMode": "acceptEdits" });
     let sandbox = match mode {

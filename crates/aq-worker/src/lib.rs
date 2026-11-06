@@ -23,6 +23,7 @@ pub mod guardian;
 /// H5 physical suspension and continuation bootstrap over CON-03 ports.
 pub mod hibernation;
 
+pub mod sandbox_driver;
 pub mod source;
 #[cfg(feature = "synthetic-runtime")]
 mod source_driver;
