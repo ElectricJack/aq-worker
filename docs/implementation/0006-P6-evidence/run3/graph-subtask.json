@@ -1,0 +1,23 @@
+{
+ "subtask": {
+  "id": "e7660092-be26-4345-9e09-c0a5c3c18ee0",
+  "title": "Verify changelog links",
+  "task_state": "active",
+  "metadata": {
+   "aq:agent_attempt_id": "2b770724-3445-5cab-953e-0dd191bf1904",
+   "aq:agent_task_id": "dc4689c1-cf9b-4f95-9b06-bfabba7ad8d2",
+   "aq:project_id": "e0000000-0000-4000-8000-000000000002"
+  },
+  "created_by": "dev-service"
+ },
+ "in_ready_set": true,
+ "parent_edges": [
+  {
+   "id": "6386d954-5cd8-7102-91bd-bac728ad03eb",
+   "source": "dc4689c1-cf9b-4f95-9b06-bfabba7ad8d2",
+   "target": "e7660092-be26-4345-9e09-c0a5c3c18ee0",
+   "edge_type": "parent-child"
+  }
+ ],
+ "parent": "dc4689c1-cf9b-4f95-9b06-bfabba7ad8d2"
+}

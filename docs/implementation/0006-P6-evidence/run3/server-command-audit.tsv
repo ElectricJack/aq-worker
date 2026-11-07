@@ -1,0 +1,15 @@
+at	caller_kind	command	grant_operation	target	decision	reason_code	operation_id
+2026-11-07 03:09:29.622+00	agent	whoami		{"kind": "own_attempt"}	allow		
+2026-11-07 03:09:29.685+00	agent	task.show	task.read	{"kind": "task", "relation": "own", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 03:09:29.724+00	agent	knowledge.search	knowledge.read	{"kind": "project", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 03:09:32.026+00	agent	knowledge.show	knowledge.read	{"kind": "project", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 03:09:32.051+00	agent	task.create	task.create.subtask	{"kind": "task", "relation": "descendant:1", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		e7660092-be26-4345-9e09-c0a5c3c18ee0
+2026-11-07 03:09:32.126+00	agent	task.children	task.read	{"kind": "task", "relation": "own", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 03:09:32.158+00	agent	task.comment.add	comment.write	{"kind": "task", "relation": "own", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		006e4fc8-efb2-427f-baaf-cafff935adc0
+2026-11-07 03:09:32.179+00	agent	comment.list	comment.read	{"kind": "task", "relation": "own", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 03:09:33.696+00	agent	question.ask	question.ask	{"kind": "own_attempt"}	allow		53387470-90c0-4124-956a-8e870d843782
+2026-11-07 03:09:35.663+00	agent	question.show	question.read	{"kind": "own_attempt"}	allow		
+2026-11-07 03:09:37.497+00	agent	task.create	task.create.subtask	{"kind": "project", "project_id": "e0000000-0000-4000-8000-000000000002"}	deny	grant_missing	cd5535de-b19b-4eef-a657-a2032ad237e9
+2026-11-07 03:09:37.523+00	agent	whoami		{"kind": "own_attempt"}	allow		
+2026-11-07 03:09:37.536+00	agent	message.send	message.send	{"kind": "own_attempt"}	allow		e19d90cf-ce2e-45d3-a814-2fadab6d3434
+(13 rows)
