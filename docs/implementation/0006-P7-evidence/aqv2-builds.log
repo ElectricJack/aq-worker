@@ -1,8 +1,17 @@
-## build a
+## merge commit 85070006, build a
+1111267136ac03c21728981ac60bf2424de4f7db420a34abcdd681150da924d6  aqv2
+aq-server 85070006a0bec9298d18252ed98cc63afe36cc5e
+aqv2 matches pins.json
+## merge commit 85070006, build b
+1111267136ac03c21728981ac60bf2424de4f7db420a34abcdd681150da924d6  aqv2
+aq-server 85070006a0bec9298d18252ed98cc63afe36cc5e
+aqv2 matches pins.json
+
+## #111 head 52e68a52, build a
 1111267136ac03c21728981ac60bf2424de4f7db420a34abcdd681150da924d6  aqv2
 aq-server 52e68a521c3d6bbd48b24d40d98ce3f64dce65a7
 aqv2 differs from the pinned SHA-256 eef04c9850b69a2795af3edf0ebebd25356fa7e52d46caab0821e027e908b3c3
-## build b
+## #111 head 52e68a52, build b
 1111267136ac03c21728981ac60bf2424de4f7db420a34abcdd681150da924d6  aqv2
 aq-server 52e68a521c3d6bbd48b24d40d98ce3f64dce65a7
 aqv2 differs from the pinned SHA-256 eef04c9850b69a2795af3edf0ebebd25356fa7e52d46caab0821e027e908b3c3

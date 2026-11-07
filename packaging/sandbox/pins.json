@@ -53,7 +53,7 @@
     "aqv2": {
       "version": "0.1.0",
       "source": "https://github.com/ElectricJack/aq-server",
-      "source_revision": "52e68a521c3d6bbd48b24d40d98ce3f64dce65a7",
+      "source_revision": "85070006a0bec9298d18252ed98cc63afe36cc5e",
       "build": "packaging/sandbox/build-aqv2.sh: static musl build of aq-server crates/aqv2 at source_revision in the pinned builder, as aq-server CI job musl does (no release asset yet)",
       "sha256": "1111267136ac03c21728981ac60bf2424de4f7db420a34abcdd681150da924d6"
     }
