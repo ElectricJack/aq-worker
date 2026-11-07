@@ -390,3 +390,91 @@ fn input_file_is_bounded_regular_and_privilege_fields_are_rejected() {
     std::fs::write(&input, vec![b' '; wire::MAX_INPUT_BYTES + 1]).unwrap();
     assert!(aq_agent_client::completion::read_input(&input).is_err());
 }
+/// Spec 0006 §9 step 4: `aq result submit|status` (aq-server `aqv2`) replaces
+/// `aq-agent result`, and the bundle's `aq-agent` wrapper execs `aq`. The
+/// golden file is aq-server's `crates/aqv2/tests/golden/result.json`, copied
+/// verbatim: aq-agent must print the same documents with the same exit
+/// statuses for every step, so either client behaves the same on one outbox.
+#[test]
+fn aq_agent_result_matches_the_aq_result_submit_golden() {
+    let golden: serde_json::Value =
+        serde_json::from_slice(include_bytes!("fixtures/result-golden.json")).unwrap();
+    let text = |k: &str| golden[k].as_str().unwrap().as_bytes().to_vec();
+    let binding: Binding = wire::decode(&text("binding")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let private = std::fs::Permissions::from_mode(0o700);
+    std::fs::set_permissions(dir.path(), private.clone()).unwrap();
+    let submissions = dir.path().join(wire::SUBMISSIONS_DIRECTORY);
+    std::fs::create_dir(&submissions).unwrap();
+    std::fs::set_permissions(&submissions, private).unwrap();
+    let write = |name: &str, bytes: &[u8]| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    };
+    let owner = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(dir.path().join(wire::OWNER_LOCK_FILE))
+        .unwrap();
+    fs2::FileExt::try_lock_exclusive(&owner).unwrap();
+    write(wire::BINDING_FILE, &text("binding"));
+    let stamp = aq_agent_client::journal::Stamp::now().unwrap();
+    let presence = Presence {
+        schema_version: 1,
+        binding_digest: binding.digest().unwrap(),
+        kernel_boot_id: stamp.boot_id,
+        original_execution_deadline_boot_ns: (stamp.boottime_ms + 60_000) * 1_000_000,
+        original_hard_deadline_boot_ns: (stamp.boottime_ms + 120_000) * 1_000_000,
+    };
+    write(wire::PRESENCE_FILE, &wire::encode(&presence).unwrap());
+    write("submissions/request.json", &text("request"));
+    write("submissions/other.json", &text("other"));
+    let mut checked = 0;
+    for step in golden["steps"].as_array().unwrap() {
+        if step["aq_only"] == true {
+            continue;
+        }
+        for (file, bytes) in step["write"].as_object().unwrap() {
+            write(file, bytes.as_str().unwrap().as_bytes());
+        }
+        let mut c = Command::new(env!("CARGO_BIN_EXE_aq-agent"));
+        c.env_remove(wire::RESULT_DIR_ENV);
+        if step["name"] != "no_channel" {
+            c.env(wire::RESULT_DIR_ENV, dir.path());
+        }
+        for arg in step["args"].as_array().unwrap() {
+            c.arg(match arg.as_str().unwrap() {
+                "$REQUEST" => submissions.join("request.json"),
+                "$OTHER" => submissions.join("other.json"),
+                a => PathBuf::from(a),
+            });
+        }
+        let out = c.output().unwrap();
+        let name = &step["name"];
+        assert_eq!(
+            out.status.code(),
+            step["exit"].as_i64().map(|c| c as i32),
+            "{name}"
+        );
+        assert_eq!(
+            String::from_utf8(out.stdout).unwrap(),
+            step["stdout"],
+            "{name}"
+        );
+        assert_eq!(
+            String::from_utf8(out.stderr).unwrap(),
+            step["stderr"],
+            "{name}"
+        );
+        if name == "submit" {
+            let published = submissions.join(wire::SUBMISSION_FILE);
+            assert_eq!(std::fs::read(published).unwrap(), text("submission"));
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, 7);
+    drop(owner);
+}

@@ -178,6 +178,10 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         "test \"$(stat -c '%a %u %g' /opt/aq/bin/aq)\" = \"755 0 0\"",
         "/opt/aq/bin/aq --help | grep -q '^Usage: aq '",
         "exec /opt/aq/bin/aq \"$@\"",
+        // The wrapper's `result` reaches `aq result` (spec 0006 §9 step 4).
+        "/opt/aq/bin/aq-agent result status 2>&1 >/dev/null | grep -q '\"invalid_contract_or_private_state\"'",
+        // The shared target cache needs the touch step (AGENTS.md).
+        "find crates vendor protocol packaging -type f -exec touch {} + \\\n    && cargo build --locked",
     ] {
         assert!(definition.contains(check), "bundle build lacks: {check}");
     }
