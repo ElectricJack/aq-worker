@@ -1,0 +1,11 @@
+{
+  "repository": "ElectricJack/aq-server",
+  "commit": "UNPINNED-refresh-from-server-merge-commit",
+  "sha256": {
+    "v1/README.md": "79a34390e7f298157dff5b27d36f334f41e61576c9fd7862af2693415b535baf",
+    "v1/schema.json": "018a6dac91a38b39f4524ca6cbeb6ca503cafdcce07a50d55e379a67e0898965",
+    "v1/check.py": "5cc98d33e5c869ee01c78efc6d416b81b61efbbe9182916c734a0b10b2f3bde7",
+    "v1/fixtures/report-linux.json": "81f8a46afe989dacc2ba3163b00227cb166dd3143699e4720b8b065c69244019",
+    "v1/fixtures/report-windows-host.json": "606b3d422615a1af3edc2f8ed21f6618289ccf428848535ff030305e35394e39"
+  }
+}
