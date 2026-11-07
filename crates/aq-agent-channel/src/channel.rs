@@ -48,13 +48,34 @@ use zeroize::Zeroizing;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 /// How long in-flight calls may finish after a close.
 const CLOSE_GRACE: Duration = Duration::from_secs(1);
-/// Retry spacing after an unavailable rotation, and the shortest spacing of
+/// Retry spacing after an unavailable rotation, and the first spacing of
 /// the re-issuance an upstream 401 asks for.
 const RETRY: Duration = if cfg!(test) {
     Duration::from_millis(200)
 } else {
     Duration::from_secs(5)
 };
+/// 401-driven re-issues back off exponentially from [`RETRY`] up to this
+/// multiple of it (320 s in production), until a scheduled rotation.
+const STALE_BACKOFF_MAX: u32 = 64;
+
+/// The newest credential version an upstream 401 was answered for. Versions
+/// only grow, so a late 401 for an older version never hides a newer one.
+#[derive(Default)]
+pub(crate) struct StaleSignal {
+    version: AtomicU64,
+    notify: Notify,
+}
+impl StaleSignal {
+    pub(crate) fn raise(&self, version: u64) {
+        self.version.fetch_max(version, Ordering::SeqCst);
+        self.notify.notify_one();
+    }
+    /// Whether a 401 has been answered for `held`, the version held now.
+    pub(crate) fn raised_for(&self, held: u64) -> bool {
+        self.version.load(Ordering::SeqCst) == held
+    }
+}
 
 pub struct ChannelConfig {
     pub attempt_id: Uuid,
@@ -83,10 +104,9 @@ struct Shared {
     access: Option<AccessHeaders>,
     credential: RwLock<Credential>,
     closed: watch::Sender<bool>,
-    /// An upstream 401 for credential version `stale_version`: re-issue now
-    /// if that is still the held version (bounded).
-    stale: Notify,
-    stale_version: AtomicU64,
+    /// An upstream 401 for a credential version: re-issue now if that is
+    /// still the held version (bounded).
+    stale: StaleSignal,
     not_after_ms: u64,
 }
 impl Credentials for Shared {
@@ -146,7 +166,7 @@ fn accepted(issued: &Issued, held: u64, now: u64) -> bool {
     issued.valid_shape() && issued.version > held && issued.expires_at_ms > now
 }
 
-fn open_dir(directory: &Path) -> std::io::Result<std::fs::File> {
+pub(crate) fn open_dir(directory: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::OpenOptions::new()
         .read(true)
@@ -195,11 +215,10 @@ async fn claim(directory: &Path) -> Result<(UnixListener, std::fs::File)> {
             tokio::time::sleep(Duration::from_millis(10)).await;
             continue;
         }
-        let held = dir.metadata()?;
-        let named = std::fs::symlink_metadata(directory).ok();
-        if !named.is_some_and(|m| m.dev() == held.dev() && m.ino() == held.ino()) {
+        if !is_at(directory, &dir) {
             continue; // swept between creation and lock
         }
+        let held = dir.metadata()?;
         ensure!(
             held.is_dir() && held.uid() == euid,
             "channel directory is not the node's own directory"
@@ -314,8 +333,7 @@ impl AgentChannel {
                 expires_at_ms: issued.expires_at_ms,
             }),
             closed: watch::channel(false).0,
-            stale: Notify::new(),
-            stale_version: AtomicU64::new(0),
+            stale: StaleSignal::default(),
             not_after_ms: config.not_after_ms,
         });
         let serving = shared.clone();
@@ -408,8 +426,14 @@ async fn handle(shared: Arc<Shared>, mut stream: UnixStream) {
     )
     .await
     .unwrap_or(Err(Failure::Upstream));
-    let (status, response, refused, version) = match outcome {
-        Ok(done) => (done.status, done.response, done.refused, done.version),
+    let (status, response, refused, version, foreign_version) = match outcome {
+        Ok(done) => (
+            done.status,
+            done.response,
+            done.refused,
+            done.version,
+            done.foreign_version,
+        ),
         Err(failure) => {
             let (status, code, message, effect) = match failure {
                 Failure::Refused(why) => (403, "channel_refused", why, "not_applied"),
@@ -445,6 +469,7 @@ async fn handle(shared: Arc<Shared>, mut stream: UnixStream) {
                 [head.into_bytes(), body.into_bytes()].concat(),
                 None,
                 None,
+                false,
             )
         }
     };
@@ -472,11 +497,10 @@ async fn handle(shared: Arc<Shared>, mut stream: UnixStream) {
         // The held credential no longer authenticates: revoked (the server
         // drops the verifier), or a rotation response was lost. Re-issuing
         // tells which; the rotation task bounds it.
-        Some("unauthorized" | "session_expired") => {
-            shared
-                .stale_version
-                .store(version.unwrap_or(0), Ordering::SeqCst);
-            shared.stale.notify_one();
+        // A caller-chosen API version gets `unauthorized` from the command
+        // surface whatever the credential; it never asks for a re-issue.
+        Some("unauthorized" | "session_expired") if !foreign_version => {
+            shared.stale.raise(version.unwrap_or(0));
         }
         _ => {}
     }
@@ -503,9 +527,12 @@ fn command_name(path: &str) -> String {
 /// fail with the server's `session_expired`, and the channel stays usable.
 ///
 /// - **Stale credential.** An upstream 401 for the held version re-issues at
-///   once, at most once per held version and never sooner than [`RETRY`]
-///   after the previous issuance. A revoked or closed attempt answers that
-///   issuance with `session_revoked`, and the channel closes.
+///   once, at most once per held version. The spacing from the previous
+///   issuance starts at [`RETRY`] and doubles with each such re-issue up to
+///   [`STALE_BACKOFF_MAX`] times it; a scheduled rotation resets it. A
+///   sandbox that provokes 401s therefore forces only a few rotations per
+///   rotation period. A revoked or closed attempt answers the re-issue with
+///   `session_revoked`, and the channel closes.
 /// - **Lost response.** The server commits a rotation before it answers, and
 ///   keeps no idempotency record. If an issuance came back unavailable, the
 ///   server may hold `expected + 1` and answer the retry `id_conflict`. Only
@@ -520,6 +547,8 @@ async fn rotate(shared: Arc<Shared>, issuer: Arc<dyn CredentialIssuer>) {
     let mut stale = false;
     let mut probed: Option<u64> = None;
     let mut last_issue = 0u64;
+    let base = RETRY.as_millis() as u64;
+    let mut spacing = base;
     loop {
         let (version, due) = {
             let Ok(c) = shared.credential.read() else {
@@ -532,7 +561,7 @@ async fn rotate(shared: Arc<Shared>, issuer: Arc<dyn CredentialIssuer>) {
                 retry_at.unwrap_or(c.issued_at_ms + (c.expires_at_ms - c.issued_at_ms) * 2 / 3)
             };
             if stale {
-                due = due.min(last_issue + RETRY.as_millis() as u64);
+                due = due.min(last_issue + spacing);
             }
             (c.version, due.min(shared.not_after_ms))
         };
@@ -540,9 +569,8 @@ async fn rotate(shared: Arc<Shared>, issuer: Arc<dyn CredentialIssuer>) {
         tokio::select! {
             _ = closed.wait_for(|c| *c) => return,
             _ = tokio::time::sleep(wait) => {}
-            _ = shared.stale.notified(), if !stale => {
-                stale = probed != Some(version)
-                    && shared.stale_version.load(Ordering::SeqCst) == version;
+            _ = shared.stale.notify.notified(), if !stale => {
+                stale = probed != Some(version) && shared.stale.raised_for(version);
                 continue;
             }
         }
@@ -550,8 +578,10 @@ async fn rotate(shared: Arc<Shared>, issuer: Arc<dyn CredentialIssuer>) {
         if now >= shared.not_after_ms {
             return shared.close("the attempt grant ended");
         }
-        if std::mem::take(&mut stale) {
+        let reissue = std::mem::take(&mut stale);
+        if reissue {
             probed = Some(version);
+            spacing = (spacing * 2).min(base * u64::from(STALE_BACKOFF_MAX));
         }
         last_issue = now;
         let expected = version + lost;
@@ -566,6 +596,9 @@ async fn rotate(shared: Arc<Shared>, issuer: Arc<dyn CredentialIssuer>) {
                     };
                 }
                 (retry_at, lost, uncertain) = (None, 0, false);
+                if !reissue {
+                    spacing = base;
+                }
                 tracing::info!(target: "aq_agent_channel", attempt_id = %shared.attempt_id,
                     version = issued.version, "agent credential rotated");
             }
@@ -605,10 +638,29 @@ pub fn sweep(root: &Path) -> Result<usize> {
             .and_then(|n| n.to_str())
             .is_some_and(|n| Uuid::parse_str(n).is_ok());
         let Ok(dir) = open_dir(&path) else { continue };
-        if named && try_lock(&dir) {
-            remove(&path)?;
+        if named && sweep_one(&path, &dir)? {
             removed += 1;
         }
     }
     Ok(removed)
+}
+
+/// Remove `path` if `dir` (opened from it) is unlocked and still the
+/// directory at `path`. Another sweep may have removed it since it was opened
+/// and a claim created and locked a new one there; locking the old handle
+/// then succeeds, but the path is no longer its directory.
+pub(crate) fn sweep_one(path: &Path, dir: &std::fs::File) -> Result<bool> {
+    if !try_lock(dir) || !is_at(path, dir) {
+        return Ok(false);
+    }
+    remove(path)?;
+    Ok(true)
+}
+
+/// Whether the directory `dir` is the one named `path` (same device and inode).
+fn is_at(path: &Path, dir: &std::fs::File) -> bool {
+    let (Ok(held), Ok(named)) = (dir.metadata(), std::fs::symlink_metadata(path)) else {
+        return false;
+    };
+    named.dev() == held.dev() && named.ino() == held.ino()
 }

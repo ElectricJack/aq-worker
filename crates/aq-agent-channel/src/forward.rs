@@ -159,6 +159,10 @@ pub(crate) struct Forwarded {
     pub not_applied: bool,
     /// The credential version the answered request carried.
     pub version: Option<u64>,
+    /// The caller asked for an agent API version other than 1. aq-server's
+    /// command surface answers that `unauthorized`, which says nothing about
+    /// the credential.
+    pub foreign_version: bool,
 }
 
 /// Method and path (no query) of a request, for logs. Never headers or bodies.
@@ -359,6 +363,9 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
     // not at accept. A 401 `unauthorized` (`not_applied`: authentication fails
     // before any handler runs) for a credential a rotation has since replaced
     // is sent once more with the new one.
+    let foreign_version = headers
+        .get("x-aq-agent-api-version")
+        .is_some_and(|v| v != "1");
     let mut retried = false;
     loop {
         let taken = credentials.take().ok_or(Failure::Upstream)?;
@@ -377,6 +384,7 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
         let protected: Vec<&[u8]> = taken.protected.iter().map(|v| v.as_slice()).collect();
         let mut done = respond(response, &protected).await?;
         done.version = taken.version;
+        done.foreign_version = foreign_version;
         if !retried
             && done.refused.as_deref() == Some("unauthorized")
             && done.not_applied
@@ -449,5 +457,6 @@ async fn respond(
         refused,
         not_applied: parsed["effect"] == "not_applied",
         version: None,
+        foreign_version: false,
     })
 }
