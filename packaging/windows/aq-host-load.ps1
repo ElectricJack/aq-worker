@@ -34,7 +34,9 @@ param(
 $ErrorActionPreference = "Stop"
 $TaskName = "AQ host load probe"
 $Out = Join-Path $OutDir "host-load.json"
-$Copy = Join-Path $OutDir "aq-host-load.ps1"
+# The script copy lives in the user profile so another local user cannot replace it.
+$CopyDir = Join-Path $env:LOCALAPPDATA "agent-q"
+$Copy = Join-Path $CopyDir "aq-host-load.ps1"
 
 function Write-Sample {
   $cpu  = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime
@@ -47,7 +49,9 @@ function Write-Sample {
     memory_total_bytes = $total; memory_used_bytes = $total - $free;
     disk_total_bytes = [uint64]$disk.Size; disk_free_bytes = [uint64]$disk.FreeSpace }
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-  $tmp = "$Out.tmp"; [IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Compress)); Move-Item -Force $tmp $Out
+  $tmp = "$Out.tmp"; [IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Compress))
+  # File.Replace is atomic on an existing destination; Move-Item -Force is not on PowerShell 5.1.
+  if (Test-Path $Out) { [IO.File]::Replace($tmp, $Out, $null) } else { Move-Item $tmp $Out }
 }
 
 if ($Once) { Write-Sample; exit 0 }
@@ -72,12 +76,14 @@ if ($Uninstall) {
 }
 
 if ($Install) {
-  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+  New-Item -ItemType Directory -Force -Path $OutDir, $CopyDir | Out-Null
   Copy-Item -Force $PSCommandPath $Copy
   $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $action   = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Copy`" -OutDir `"$OutDir`""
-  $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-  Register-ScheduledTask -TaskName $TaskName -Trigger $trigger -Action $action -Settings $settings -Force | Out-Null
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+  $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+  Register-ScheduledTask -TaskName $TaskName -Trigger $trigger -Action $action -Settings $settings -Principal $principal -Force | Out-Null
   if ($StartNow) { Start-ScheduledTask -TaskName $TaskName }
   exit 0
 }

@@ -225,8 +225,9 @@ The worker uses the file when it is at most 30 s old. Without a fresh file the
 report carries the WSL VM load and the page says "Windows host probe stale:
 showing WSL VM load" (or that the probe is missing).
 
-`-Status` shows the task state and the age of the file. `-Uninstall` removes
-the task and the copied script.
+The task runs a copy of the script kept in `%LOCALAPPDATA%\agent-q`, which only
+your user can write. `-Status` shows the task state and the age of the file.
+`-Uninstall` removes the task and the copied script.
 
 ## What happens on restart, sleep and WSL shutdown
 

@@ -106,6 +106,59 @@ fn machine_config_defaults_and_bounds() {
 }
 
 #[test]
+fn config_with_extra_field_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("machine.json");
+    std::fs::write(&p, r#"{"key":"desktop","future_field":{"a":1}}"#).unwrap();
+    assert_eq!(
+        MachineConfig::load_optional(&p).unwrap().key.as_deref(),
+        Some("desktop")
+    );
+}
+
+#[test]
+fn bad_machine_json_turns_reporting_off_instead_of_failing() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("machine.json");
+    for body in [
+        r#"{"key":"Bad Key!"}"#,
+        "not json",
+        r#"{"interval_secs":1}"#,
+    ] {
+        std::fs::write(&p, body).unwrap();
+        assert!(
+            crate::sampler_from_file(&p, dir.path().to_path_buf()).is_none(),
+            "{body}"
+        );
+    }
+    std::fs::write(&p, r#"{"key":"ok","extra":true}"#).unwrap();
+    assert!(crate::sampler_from_file(&p, dir.path().to_path_buf()).is_some());
+}
+
+#[tokio::test]
+async fn report_loop_sends_reports_from_a_blocking_sample() {
+    let dir = tempfile::tempdir().unwrap();
+    let sampler = Sampler::new(MachineConfig::default(), dir.path().to_path_buf());
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let task = tokio::spawn(crate::report_loop(
+        sampler,
+        std::time::Duration::from_millis(10),
+        move |r| {
+            let tx = tx.clone();
+            async move { tx.send(r).map_err(|e| e.to_string()) }
+        },
+        async move {
+            let _ = stop_rx.await;
+        },
+    ));
+    let report = rx.recv().await.unwrap();
+    assert_eq!(report.schema_version, 1);
+    let _ = stop_tx.send(());
+    task.await.unwrap();
+}
+
+#[test]
 fn pinned_fixtures_round_trip() {
     for text in [
         include_str!(

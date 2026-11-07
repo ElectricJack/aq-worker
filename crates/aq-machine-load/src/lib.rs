@@ -72,7 +72,6 @@ fn default_interval_secs() -> u64 {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MachineConfig {
     #[serde(default)]
     pub key: Option<String>,
@@ -139,6 +138,21 @@ impl MachineConfig {
             );
         }
         Ok(cfg)
+    }
+}
+
+/// Load `machine.json` for `aq-worker run`. A bad or newer file logs one
+/// warning and turns machine reporting off; it never stops the worker.
+pub fn sampler_from_file(path: &Path, state_dir: PathBuf) -> Option<(Sampler, Duration)> {
+    match MachineConfig::load_optional(path) {
+        Ok(config) => {
+            let interval = Duration::from_secs(config.interval_secs);
+            Some((Sampler::new(config, state_dir), interval))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, path = %path.display(), "machine.json ignored; machine reporting is off");
+            None
+        }
     }
 }
 
@@ -259,7 +273,22 @@ pub async fn report_loop<F, Fut>(
             () = &mut shutdown => return,
             () = tokio::time::sleep(interval) => {}
         }
-        let report = match sampler.sample(now_ms()) {
+        // /proc and a /mnt/c host file can block on slow I/O; keep it off the runtime threads.
+        let now = now_ms();
+        let (back, result) = match tokio::task::spawn_blocking(move || {
+            let result = sampler.sample(now);
+            (sampler, result)
+        })
+        .await
+        {
+            Ok(pair) => pair,
+            Err(e) => {
+                tracing::warn!(error = %e, "machine load sampler stopped");
+                return;
+            }
+        };
+        sampler = back;
+        let report = match result {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, "machine load sample failed");
