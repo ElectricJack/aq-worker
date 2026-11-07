@@ -1,0 +1,3 @@
+2026-11-07 01:39:38.698 UTC [135096] ERROR:  insert or update on table "dashboard_operations" violates foreign key constraint "dashboard_operations_supervisor_session_id_fkey"
+2026-11-07 01:39:38.698 UTC [135096] DETAIL:  Key (supervisor_session_id)=(2cb65ea4-d884-55ef-8844-1dc6c5cf334e) is not present in table "central_session_generations".
+2026-11-07 01:39:38.698 UTC [135096] STATEMENT:  INSERT INTO dashboard_operations(operation_id,principal_id,kind,scope,request_digest,disposition,response,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'pending',$6,$7,$7) ON CONFLICT(operation_id) DO NOTHING

@@ -1,0 +1,9 @@
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+CLAUDE_CONFIG_DIR=/home/agent/.aq/claude
+DISABLE_AUTOUPDATER=1
+DISABLE_ERROR_REPORTING=1
+DISABLE_TELEMETRY=1
+HOME=/home/agent/.aq/claude
+PATH=/opt/aq/bin:/usr/local/bin:/usr/bin:/bin
+AQ_CHANNEL=unix:/aq/channel/aq.sock

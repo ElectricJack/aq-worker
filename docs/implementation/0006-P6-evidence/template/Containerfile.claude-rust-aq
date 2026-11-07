@@ -1,0 +1,17 @@
+# Spec 0006 phase 6 live proof: the I4a claude-rust template plus the agent's
+# `aq` CLI, installed with the same pinned bytes and the same commands as
+# packaging/sandbox/Dockerfile.runtime (/opt/aq/bin/aq and the aq-agent
+# wrapper). Built locally and unadmitted, like its I4a base (the C3c scanner
+# refuses on this host). No credential is baked in.
+# Context: `aqv2` (packaging/sandbox/build-aqv2.sh output) and SHA256SUMS.
+ARG BASE=127.0.0.1:5138/electricjack/aq-template-unadmitted@sha256:194e11f54fbe104734166ec219f5ac13b2e54055fae01f6c3ce264a915f172a4
+FROM ${BASE}
+COPY aqv2 SHA256SUMS /tmp/aq-input/
+RUN cd /tmp/aq-input && sha256sum --check SHA256SUMS \
+    && install -o root -g root -m 0755 aqv2 /opt/aq/bin/aq \
+    && printf '#!/bin/sh\n# Deprecated (spec 0006 section 9): aq-agent is now aq.\nexec /opt/aq/bin/aq "$@"\n' > /opt/aq/bin/aq-agent \
+    && chmod 755 /opt/aq/bin/aq-agent && cd / && rm -rf /tmp/aq-input \
+    && test "$(stat -c '%a %u %g' /opt/aq/bin/aq)" = "755 0 0" \
+    && test "$(/opt/aq/bin/aq --version)" = "aq 0.1.0" \
+    && /opt/aq/bin/aq --help | grep -q '^Usage: aq ' \
+    && /opt/aq/bin/aq-agent --help | grep -q '^Usage: aq '

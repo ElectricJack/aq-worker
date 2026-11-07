@@ -1,0 +1,6 @@
+#19 [bundle 10/10] RUN /opt/aq/bin/aq-worker --version     && test -f /opt/aq/bin/aq && test "$(stat -c '%a %u %g' /opt/aq/bin/aq)" = "755 0 0"     && test "$(/opt/aq/bin/aq --version)" = "aq $(python3 -c 'import json; print(json.load(open(
+#19 0.369 aq-worker 0.5.1
+#19 0.436 aq-git 0.2.0
+#19 0.598 codex-cli 0.166.0
+#19 1.505 v22.16.0
+#19 DONE 52.5s

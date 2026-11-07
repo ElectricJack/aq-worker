@@ -1,0 +1,8 @@
+uid=10002 gid=10002 groups=10002
+ls: cannot open directory '/aq/channel': Permission denied
+711 1000 directory
+666 1000 socket
+{"error":{"code":"invalid_response","message":"Invalid whoami response"},"schema_version":1}
+rc=15
+{"error":{"code":"transport_error","message":"human API transport failed; mutation outcome may be unknown"},"schema_version":1}
+rc=13
