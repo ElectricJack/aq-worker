@@ -17,8 +17,16 @@ fn parses_proc_stat_and_counts_cpus() {
 
 #[test]
 fn cpu_bps_from_two_readings() {
-    let prev = CpuTimes { busy: 150, total: 1000, logical_cpus: 2 };
-    let cur = CpuTimes { busy: 400, total: 1500, logical_cpus: 2 };
+    let prev = CpuTimes {
+        busy: 150,
+        total: 1000,
+        logical_cpus: 2,
+    };
+    let cur = CpuTimes {
+        busy: 400,
+        total: 1500,
+        logical_cpus: 2,
+    };
     assert_eq!(cpu_busy_bps(&prev, &cur), 5000);
     assert_eq!(cpu_busy_bps(&prev, &prev), 0);
 }
@@ -50,8 +58,14 @@ fn fresh_host_file_is_used() {
 fn stale_host_file_falls_back_to_linux_and_says_stale() {
     let dir = tempfile::tempdir().unwrap();
     let p = host_file(&dir, HOST_FILE);
-    assert_eq!(read_host_load(&p, 1000 + HOST_FRESH_MS + 1), HostLoad::Stale);
-    let config = MachineConfig { host_load_file: Some(p), ..MachineConfig::default() };
+    assert_eq!(
+        read_host_load(&p, 1000 + HOST_FRESH_MS + 1),
+        HostLoad::Stale
+    );
+    let config = MachineConfig {
+        host_load_file: Some(p),
+        ..MachineConfig::default()
+    };
     let mut sampler = Sampler::new(config, dir.path().to_path_buf());
     let report = sampler.sample(1000 + HOST_FRESH_MS + 1).unwrap();
     assert_eq!(report.source, LoadSource::Linux);
@@ -61,7 +75,10 @@ fn stale_host_file_falls_back_to_linux_and_says_stale() {
 #[test]
 fn missing_or_wrong_schema_is_missing() {
     let dir = tempfile::tempdir().unwrap();
-    assert_eq!(read_host_load(&dir.path().join("nope.json"), 1), HostLoad::Missing);
+    assert_eq!(
+        read_host_load(&dir.path().join("nope.json"), 1),
+        HostLoad::Missing
+    );
     let p = host_file(&dir, &HOST_FILE.replace("aq-host-load-1", "other"));
     assert_eq!(read_host_load(&p, 1000), HostLoad::Missing);
     let p = host_file(&dir, "not json");
@@ -77,14 +94,23 @@ fn machine_config_defaults_and_bounds() {
     let p = dir.path().join("machine.json");
     std::fs::write(&p, r#"{"interval_secs":4}"#).unwrap();
     assert!(MachineConfig::load_optional(&p).is_err());
-    std::fs::write(&p, r#"{"key":"desktop","host_load_file":null,"interval_secs":30}"#).unwrap();
-    assert_eq!(MachineConfig::load_optional(&p).unwrap().key.as_deref(), Some("desktop"));
+    std::fs::write(
+        &p,
+        r#"{"key":"desktop","host_load_file":null,"interval_secs":30}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        MachineConfig::load_optional(&p).unwrap().key.as_deref(),
+        Some("desktop")
+    );
 }
 
 #[test]
 fn pinned_fixtures_round_trip() {
     for text in [
-        include_str!("../../../protocol/pinned/worker-machine/v1/fixtures/report-windows-host.json"),
+        include_str!(
+            "../../../protocol/pinned/worker-machine/v1/fixtures/report-windows-host.json"
+        ),
         include_str!("../../../protocol/pinned/worker-machine/v1/fixtures/report-linux.json"),
     ] {
         let report: MachineReport = serde_json::from_str(text).unwrap();
@@ -97,13 +123,17 @@ fn pinned_fixtures_round_trip() {
 
 #[test]
 fn pinned_contract_digests_match() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../protocol/pinned/worker-machine");
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../protocol/pinned/worker-machine");
     let source: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root.join("source.json")).unwrap()).unwrap();
     let digests = source["sha256"].as_object().unwrap();
     assert_eq!(digests.len(), 5);
     for (file, want) in digests {
-        let got = format!("{:x}", Sha256::digest(std::fs::read(root.join(file)).unwrap()));
+        let got = format!(
+            "{:x}",
+            Sha256::digest(std::fs::read(root.join(file)).unwrap())
+        );
         assert_eq!(want.as_str().unwrap(), got, "{file}");
     }
 }

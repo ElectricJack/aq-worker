@@ -12,7 +12,10 @@ pub fn parse_proc_stat(text: &str) -> Option<CpuTimes> {
     let mut cpus = 0u32;
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("cpu ") {
-            let v: Vec<u64> = rest.split_whitespace().filter_map(|f| f.parse().ok()).collect();
+            let v: Vec<u64> = rest
+                .split_whitespace()
+                .filter_map(|f| f.parse().ok())
+                .collect();
             if v.len() < 8 {
                 return None;
             }
@@ -25,7 +28,11 @@ pub fn parse_proc_stat(text: &str) -> Option<CpuTimes> {
         }
     }
     let (busy, total) = agg?;
-    Some(CpuTimes { busy, total, logical_cpus: cpus })
+    Some(CpuTimes {
+        busy,
+        total,
+        logical_cpus: cpus,
+    })
 }
 
 pub fn cpu_busy_bps(prev: &CpuTimes, cur: &CpuTimes) -> u16 {
@@ -42,7 +49,11 @@ pub fn parse_meminfo(text: &str) -> Option<(u64, u64)> {
     let (mut total, mut avail) = (None, None);
     for line in text.lines() {
         let kb = |rest: &str| -> Option<u64> {
-            rest.split_whitespace().next()?.parse::<u64>().ok()?.checked_mul(1024)
+            rest.split_whitespace()
+                .next()?
+                .parse::<u64>()
+                .ok()?
+                .checked_mul(1024)
         };
         if let Some(r) = line.strip_prefix("MemTotal:") {
             total = kb(r);

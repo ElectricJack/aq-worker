@@ -109,15 +109,28 @@ impl MachineConfig {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(e).with_context(|| format!("stat {}", path.display())),
         };
-        anyhow::ensure!(meta.len() <= 64 * 1024, "{} is larger than 64 KiB", path.display());
-        let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-        let cfg: Self = serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
-        anyhow::ensure!((5..=300).contains(&cfg.interval_secs), "interval_secs must be 5..=300");
+        anyhow::ensure!(
+            meta.len() <= 64 * 1024,
+            "{} is larger than 64 KiB",
+            path.display()
+        );
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        let cfg: Self =
+            serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+        anyhow::ensure!(
+            (5..=300).contains(&cfg.interval_secs),
+            "interval_secs must be 5..=300"
+        );
         if let Some(k) = &cfg.key {
             let ok = (1..=63).contains(&k.len())
-                && k.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && k.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
                 && !k.starts_with('-');
-            anyhow::ensure!(ok, "machine key must be 1-63 characters of [a-z0-9-] starting with [a-z0-9]");
+            anyhow::ensure!(
+                ok,
+                "machine key must be 1-63 characters of [a-z0-9-] starting with [a-z0-9]"
+            );
         }
         if let Some(l) = &cfg.label {
             anyhow::ensure!(
@@ -159,8 +172,15 @@ pub struct Sampler {
 
 impl Sampler {
     pub fn new(config: MachineConfig, state_dir: PathBuf) -> Self {
-        let prev = std::fs::read_to_string("/proc/stat").ok().and_then(|t| parse_proc_stat(&t));
-        Self { config, state_dir, prev, wsl: is_wsl() }
+        let prev = std::fs::read_to_string("/proc/stat")
+            .ok()
+            .and_then(|t| parse_proc_stat(&t));
+        Self {
+            config,
+            state_dir,
+            prev,
+            wsl: is_wsl(),
+        }
     }
 
     pub fn sample(&mut self, now_ms: u64) -> anyhow::Result<MachineReport> {
@@ -181,7 +201,11 @@ impl Sampler {
             },
             observed_at_ms: now_ms,
             source: LoadSource::Linux,
-            host_probe: if self.wsl { HostProbe::Missing } else { HostProbe::NotApplicable },
+            host_probe: if self.wsl {
+                HostProbe::Missing
+            } else {
+                HostProbe::NotApplicable
+            },
             logical_cpus: cur.logical_cpus.max(1),
             memory_total_bytes: total,
             memory_used_bytes: total.saturating_sub(avail),

@@ -286,13 +286,16 @@ async fn machine_report_posts_with_bearer() {
         post(move |h: HeaderMap, body: axum::Json<serde_json::Value>| {
             let sink = sink.clone();
             async move {
-                *sink.lock().unwrap() = Some((h["authorization"].to_str().unwrap().to_owned(), body.0));
+                *sink.lock().unwrap() =
+                    Some((h["authorization"].to_str().unwrap().to_owned(), body.0));
                 json_resp(StatusCode::OK, r#"{"recorded":true}"#)
             }
         }),
     );
     let url = serve(app).await;
-    let text = include_str!("../../../protocol/pinned/worker-machine/v1/fixtures/report-windows-host.json");
+    let text = include_str!(
+        "../../../protocol/pinned/worker-machine/v1/fixtures/report-windows-host.json"
+    );
     let report: aq_machine_load::MachineReport = serde_json::from_str(text).unwrap();
     client(&url)
         .post::<_, serde_json::Value>("/v1/worker/machine", &report, true)
@@ -300,5 +303,8 @@ async fn machine_report_posts_with_bearer() {
         .unwrap();
     let (auth, body) = seen.lock().unwrap().take().unwrap();
     assert_eq!(auth, "Bearer aqn_x");
-    assert_eq!(body, serde_json::from_str::<serde_json::Value>(text).unwrap());
+    assert_eq!(
+        body,
+        serde_json::from_str::<serde_json::Value>(text).unwrap()
+    );
 }
