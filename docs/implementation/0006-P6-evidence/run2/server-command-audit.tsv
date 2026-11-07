@@ -1,0 +1,16 @@
+at	caller_kind	command	grant_operation	target	decision	reason_code	operation_id
+2026-11-07 01:39:36.39+00	agent	whoami		{"kind": "own_attempt"}	allow		
+2026-11-07 01:39:36.625+00	agent	task.show	task.read	{"kind": "task", "relation": "own", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 01:39:36.652+00	agent	knowledge.search	knowledge.read	{"kind": "project", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 01:39:38.651+00	agent	knowledge.show	knowledge.read	{"kind": "project", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 01:39:38.679+00	agent	task.create	task.create.subtask	{"kind": "task", "relation": "descendant:1", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		70985b7e-3c68-4184-afbb-10b64cd4c694
+2026-11-07 01:39:38.711+00	agent	task.children	task.read	{"kind": "task", "relation": "own", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 01:39:41.426+00	agent	operation.show		{"kind": "own_attempt"}	allow		
+2026-11-07 01:39:41.443+00	agent	task.comment.add	comment.write	{"kind": "task", "relation": "own", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		5a4eaab2-58f5-4ed2-9148-e210b2ae1d29
+2026-11-07 01:39:41.472+00	agent	comment.list	comment.read	{"kind": "task", "relation": "own", "project_id": "e0000000-0000-4000-8000-000000000002"}	allow		
+2026-11-07 01:39:43.013+00	agent	question.ask	question.ask	{"kind": "own_attempt"}	allow		56460d9e-c9ca-46d3-a469-f1eef947dde0
+2026-11-07 01:39:44.855+00	agent	question.show	question.read	{"kind": "own_attempt"}	allow		
+2026-11-07 01:39:48.922+00	agent	task.create	task.create.subtask	{"kind": "project", "project_id": "e0000000-0000-4000-8000-000000000002"}	deny	grant_missing	4bfc19f6-8ea5-4aa5-a85e-d082b2465e71
+2026-11-07 01:39:48.936+00	agent	whoami		{"kind": "own_attempt"}	allow		
+2026-11-07 01:39:48.946+00	agent	message.send	message.send	{"kind": "own_attempt"}	allow		3b4ddfeb-edef-4087-9707-e5d6a9864bca
+(14 rows)

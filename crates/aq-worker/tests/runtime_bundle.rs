@@ -71,12 +71,38 @@ fn runtime_bundle_lists_pinned_harness_versions() {
             "gemini {digest} must be lowercase hex SHA-256"
         );
     }
+    // The agent's CLI is aq-server's static aqv2 (spec 0006 section 9 step 3),
+    // pinned by aq-server commit and SHA-256 until a release asset exists.
+    let aqv2_pin = &pins["inputs"]["aqv2"];
+    assert_eq!(
+        aqv2_pin["source"],
+        "https://github.com/ElectricJack/aq-server"
+    );
+    let revision = aqv2_pin["source_revision"]
+        .as_str()
+        .expect("aq-server commit");
+    assert!(
+        revision.len() == 40
+            && revision
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "aqv2 is pinned by a full aq-server commit"
+    );
+    let aqv2_digest = aqv2_pin["sha256"].as_str().expect("aqv2 digest");
+    assert!(
+        aqv2_digest.len() == 64
+            && aqv2_digest
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "aqv2 sha256 must be lowercase hex SHA-256"
+    );
     let bundle = tempfile::tempdir().unwrap();
     let root = bundle.path();
     for (path, contents) in [
         ("bin/aq-worker", "runner"),
         ("bin/aq-session-host", "host"),
-        ("bin/aq-agent", "agent"),
+        ("bin/aq", "aq"),
+        ("bin/aq-agent", "#!/bin/sh\nexec /opt/aq/bin/aq \"$@\"\n"),
         ("bin/aq-git", "git"),
         ("harnesses/codex/codex", "codex"),
         ("harnesses/claude/claude", "claude"),
@@ -92,7 +118,6 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         "revision": "a".repeat(40),
         "runner_version": env!("CARGO_PKG_VERSION"),
         "session_host_version": "0.1.5",
-        "agent_client_version": "0.1.0",
         "archive_sha256": "b".repeat(64)
     });
     fs::write(
@@ -137,13 +162,32 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         manifest["node"]["version"],
         pins["inputs"]["node.tar.xz"]["version"]
     );
-    assert_eq!(manifest["agent_client"]["name"], "aq-agent");
-    assert_eq!(manifest["agent_client"]["version"], "0.1.0");
-    assert_eq!(manifest["agent_client"]["path"], "/opt/aq/bin/aq-agent");
-    let rendered = serde_json::to_string(&manifest).unwrap();
+    // B7's "never ship aq" check, inverted (spec 0006 owner decision 5).
+    assert_eq!(manifest["agent_client"]["name"], "aq");
+    assert_eq!(manifest["agent_client"]["version"], aqv2_pin["version"]);
+    assert_eq!(manifest["agent_client"]["path"], "/opt/aq/bin/aq");
+    assert_eq!(manifest["agent_client"]["bytes"], "aq".len());
+    assert_eq!(manifest["agent_client_wrapper"]["name"], "aq-agent");
+    assert_eq!(
+        manifest["agent_client_wrapper"]["path"],
+        "/opt/aq/bin/aq-agent"
+    );
+    let definition = fs::read_to_string(repo.join("packaging/sandbox/Dockerfile.runtime")).unwrap();
+    for check in [
+        "install -o root -g root -m 0755 aqv2 /opt/aq/bin/aq ",
+        "test \"$(stat -c '%a %u %g' /opt/aq/bin/aq)\" = \"755 0 0\"",
+        "/opt/aq/bin/aq --help | grep -q '^Usage: aq '",
+        "exec /opt/aq/bin/aq \"$@\"",
+    ] {
+        assert!(definition.contains(check), "bundle build lacks: {check}");
+    }
     assert!(
-        !rendered.contains("\"/opt/aq/bin/aq\""),
-        "the sandbox bundle ships aq-agent, never the full aq CLI"
+        definition.contains("test \"$(/opt/aq/bin/aq --version)\" = \"aq $("),
+        "the bundle build runs aq --version against the pin"
+    );
+    assert!(
+        !definition.contains("test ! -e /opt/aq/bin/aq"),
+        "the bundle must ship aq"
     );
     for artifact in [
         codex,
@@ -151,6 +195,7 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         opencode,
         gemini,
         &manifest["agent_client"],
+        &manifest["agent_client_wrapper"],
         &manifest["runner"],
         &manifest["session_host"],
         &manifest["aq_git"],

@@ -1,0 +1,3 @@
+decision_id	decision_revision	state	question	answered
+df8262af-a3c9-419a-9cec-d26e32e8ac6c	2	answered	Should the release notes include the deprecated API?	t
+(1 row)

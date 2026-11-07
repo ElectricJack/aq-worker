@@ -64,7 +64,7 @@ def package(revision, inputs, destination, *, pins=None):
             raise ValueError(f'{field} must be digest-pinned')
     if not re.fullmatch(r'\d{8}T\d{6}Z', pins['debian_snapshot']):
         raise ValueError('invalid Debian snapshot timestamp')
-    required = {'git.tar.xz', 'aq-git', 'codex', 'claude', 'opencode', 'gemini.tgz', 'node.tar.xz'}
+    required = {'git.tar.xz', 'aq-git', 'aqv2', 'codex', 'claude', 'opencode', 'gemini.tgz', 'node.tar.xz'}
     if set(pins['inputs']) != required:
         raise ValueError('unsupported public input set')
     for name, pin in pins['inputs'].items():
@@ -88,7 +88,7 @@ def package(revision, inputs, destination, *, pins=None):
                 definition = definition.replace(token, value)
             (context / 'Dockerfile').write_text(definition)
             (context / 'snapshot.sources').write_text(snapshot_sources(pins['debian_snapshot']))
-            names = ['git.tar.xz'] if kind == 'os' else ['aq-git', 'codex', 'claude', 'opencode', 'gemini.tgz', 'node.tar.xz']
+            names = ['git.tar.xz'] if kind == 'os' else ['aq-git', 'aqv2', 'codex', 'claude', 'opencode', 'gemini.tgz', 'node.tar.xz']
             (context / 'SHA256SUMS').write_text(''.join(
                 pins['inputs'][name]['sha256'] + '  ' + name + '\n' for name in names))
         (runtime / 'pins.json').write_text(json.dumps(pins, sort_keys=True, indent=2) + '\n')
@@ -96,7 +96,8 @@ def package(revision, inputs, destination, *, pins=None):
         # Git archive exports committed paths only; no worktree traversal or homes.
         with (runtime / 'worker-source.tar').open('xb') as output:
             subprocess.run(['git', 'archive', '--format=tar', revision, 'Cargo.toml', 'Cargo.lock', 'crates', 'vendor',
-                            PACKAGE + 'template_tool.py', PACKAGE + 'credential_scan.py', 'protocol/aq-admission'],
+                            PACKAGE + 'template_tool.py', PACKAGE + 'credential_scan.py',
+                            PACKAGE + 'boat_materialize.py', 'protocol/aq-admission'],
                            cwd=ROOT, stdout=output, check=True)
         archive_digest = digest(runtime / 'worker-source.tar')
         source = {
@@ -104,7 +105,6 @@ def package(revision, inputs, destination, *, pins=None):
             'archive_sha256': archive_digest,
             'runner_version': tomllib.loads(read('crates/aq-worker/Cargo.toml').decode())['package']['version'],
             'session_host_version': tomllib.loads(read('crates/aq-session-host/Cargo.toml').decode())['package']['version'],
-            'agent_client_version': tomllib.loads(read('crates/aq-agent-client/Cargo.toml').decode())['package']['version'],
         }
         (runtime / 'source.json').write_text(json.dumps(source, sort_keys=True, indent=2) + '\n')
         (runtime / 'worker-source.sha256').write_text(archive_digest + '  worker-source.tar\n')

@@ -1,0 +1,13 @@
+Spec 0006 phase 6 live proof of the agent channel. Use the `aq` CLI with your Bash tool for every AQ step below, in order. Run each command exactly as written, adding `; echo "exit=$?"` after it, and copy every command with its full output (stdout, stderr and the exit status) into your final message under a heading per step. Do not retry a refused command.
+
+0. Environment: `echo "AQ_CHANNEL=$AQ_CHANNEL"; echo "PATH=$PATH"; command -v aq; aq --version; id; ls -lnd /aq/channel /aq/channel/aq.sock`
+1. `aq whoami` and then `aq commands --all`
+2. `aq task show self`
+3. `aq knowledge search "release checklist" --limit 20`, then `aq knowledge show <ID>` for the "Release checklist" record it returns.
+4. `aq task create --parent self --title "Verify changelog links" --body "Subtask created by the agent channel proof."`, then `aq task children`
+5. `aq comment add "Found the checklist; following it."`, then `aq comment list`
+6. `aq question ask "Should the release notes include the deprecated API?"`, then `aq question wait <DECISION_ID> --timeout 900` with the decision ID it printed. The owner will answer; wait for it.
+7. `aq task create --title "Unrelated top-level task" --body "This must be refused."` This is expected to be refused (exit 14, grant_missing). Report the refusal; do not retry or work around it.
+8. `aq message send "Agent channel proof: steps 0-7 done. Owner answer: <the answer from step 6>" --to supervisor`
+
+Then write the file `release-notes-x.md` at the repository root: a three-line draft of release notes for X that follows the checklist from step 3 and the owner's answer from step 6. Do not change any other file.
