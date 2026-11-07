@@ -1,0 +1,3 @@
+#!/bin/sh
+# Deprecated (spec 0006 section 9): aq-agent is now aq.
+exec /opt/aq/bin/aq "$@"
