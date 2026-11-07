@@ -839,11 +839,11 @@ async fn an_unauthorized_answer_reissues_and_a_revoked_attempt_closes() {
     );
 }
 
-/// Finding 6, bounded: repeated 401s re-issue at most once per retry
-/// interval (200 ms under test, 5 s in production), and a re-issue that
-/// succeeds keeps the channel open.
+/// Finding 6, bounded: repeated 401s re-issue with exponential backoff
+/// (200 ms, 400 ms, 800 ms, … under test; 5 s doubling to 320 s in
+/// production), and a re-issue that succeeds keeps the channel open.
 #[tokio::test]
-async fn unauthorized_answers_reissue_at_most_once_per_interval() {
+async fn unauthorized_answers_reissue_with_exponential_backoff() {
     let (origin, _) = stub().await;
     let root = tempfile::tempdir().unwrap();
     let issuer = scripted(600_000, u64::MAX);
@@ -854,7 +854,7 @@ async fn unauthorized_answers_reissue_at_most_once_per_interval() {
     .await
     .unwrap();
     let started = std::time::Instant::now();
-    for _ in 0..20 {
+    while started.elapsed() < Duration::from_millis(2_500) {
         let (status, _) = call(
             &channel.socket_path(),
             "POST",
@@ -866,14 +866,97 @@ async fn unauthorized_answers_reissue_at_most_once_per_interval() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     tokio::time::sleep(Duration::from_millis(50)).await;
+    // Open, then re-issues at about 0, 0.4, 1.2 and 2.8 s; a fixed 200 ms
+    // spacing would have allowed about 13.
     let calls = issuer.calls.load(Ordering::SeqCst);
-    let bound = 2 + started.elapsed().as_millis() as u64 / 200;
-    assert!(
-        (2..=bound).contains(&calls),
-        "{calls} issuances, bound {bound}"
-    );
+    assert!((3..=5).contains(&calls), "{calls} issuances");
     assert!(!channel.is_closed());
     channel.stop().await.unwrap();
+}
+
+/// Follow-up 1: a caller that asks for another agent API version gets the
+/// command surface's `unauthorized` whatever the credential; that never asks
+/// for a re-issue. The same 401 without the header does.
+#[tokio::test]
+async fn a_caller_chosen_api_version_never_forces_a_reissue() {
+    let (origin, _) = stub().await;
+    let root = tempfile::tempdir().unwrap();
+    let issuer = scripted(600_000, u64::MAX);
+    let channel = AgentChannel::open(
+        config(root.path(), &origin, now() + 600_000),
+        issuer.clone(),
+    )
+    .await
+    .unwrap();
+    let socket = channel.socket_path();
+    for _ in 0..5 {
+        let (status, _) = call(
+            &socket,
+            "POST",
+            "/api/v1/commands/unauthorized",
+            "X-AQ-Agent-API-Version: 2\r\n",
+        )
+        .await;
+        assert_eq!(status, 401);
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(issuer.calls.load(Ordering::SeqCst), 1);
+    let (status, _) = call(&socket, "POST", "/api/v1/commands/unauthorized", "").await;
+    assert_eq!(status, 401);
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while issuer.calls.load(Ordering::SeqCst) < 2 {
+        assert!(std::time::Instant::now() < deadline, "no re-issue");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    channel.stop().await.unwrap();
+}
+
+/// Follow-up 3: the 401 signal keeps the newest version; a late 401 for an
+/// older credential never hides one for the held credential.
+#[test]
+fn a_late_401_for_an_older_version_keeps_the_newer_signal() {
+    let signal = crate::channel::StaleSignal::default();
+    signal.raise(2);
+    signal.raise(1);
+    assert!(signal.raised_for(2));
+    assert!(!signal.raised_for(1));
+    signal.raise(3);
+    assert!(signal.raised_for(3));
+}
+
+/// Follow-up 2: a sweep holding a handle to a directory another sweep has
+/// already removed must not remove the live directory a claim has since
+/// created at the same path. A stale directory still at its path is removed.
+#[tokio::test]
+async fn a_sweep_never_removes_a_directory_it_did_not_lock() {
+    let (origin, _) = stub().await;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(Uuid::from_u128(7).to_string());
+    std::fs::create_dir(&path).unwrap();
+    let old = crate::channel::open_dir(&path).unwrap();
+    std::fs::remove_dir(&path).unwrap(); // the other sweep
+    let channel = AgentChannel::open(
+        config(root.path(), &origin, now() + 60_000),
+        scripted(60_000, u64::MAX),
+    )
+    .await
+    .unwrap();
+    assert!(!crate::channel::sweep_one(&path, &old).unwrap());
+    let (status, _) = call(
+        &channel.socket_path(),
+        "POST",
+        "/api/v1/commands/whoami",
+        "",
+    )
+    .await;
+    assert_eq!(status, 200);
+    channel.stop().await.unwrap();
+
+    let stale = root.path().join(Uuid::from_u128(8).to_string());
+    std::fs::create_dir(&stale).unwrap();
+    let dir = crate::channel::open_dir(&stale).unwrap();
+    assert!(crate::channel::sweep_one(&stale, &dir).unwrap());
+    assert!(!stale.exists());
 }
 
 /// aq-server's issuance as it is: one version per attempt, the expected
