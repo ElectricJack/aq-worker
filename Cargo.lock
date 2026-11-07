@@ -421,6 +421,7 @@ dependencies = [
  "aq-agent-result-local",
  "aq-codex-mapper",
  "aq-lifecycle-protocol",
+ "aq-machine-load",
  "aq-observation",
  "aq-observation-engine",
  "aq-observation-redb-prototype",

@@ -135,7 +135,7 @@ impl Client {
         Ok(())
     }
 
-    async fn post<B: Serialize, T: DeserializeOwned>(
+    pub async fn post<B: Serialize, T: DeserializeOwned>(
         &self,
         path: &str,
         body: &B,
