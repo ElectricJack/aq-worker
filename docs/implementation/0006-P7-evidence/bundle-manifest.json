@@ -1,0 +1,87 @@
+{
+  "agent_client": {
+    "bytes": 5679368,
+    "name": "aq",
+    "path": "/opt/aq/bin/aq",
+    "sha256": "1111267136ac03c21728981ac60bf2424de4f7db420a34abcdd681150da924d6",
+    "version": "0.1.0"
+  },
+  "agent_client_wrapper": {
+    "bytes": 91,
+    "name": "aq-agent",
+    "path": "/opt/aq/bin/aq-agent",
+    "sha256": "90226f2979ee0aa55f7f31a8a7b48e66e62128014a95e1e7c792b385de7ead8f",
+    "version": "0.1.0"
+  },
+  "aq_git": {
+    "bytes": 3373392,
+    "name": "aq-git",
+    "path": "/opt/aq/bin/aq-git",
+    "sha256": "3feca63cffa5065566f2c604fd00d4ad92e1bc367c62ec69bedd42c2b37f35d2",
+    "version": "0.2.0"
+  },
+  "harnesses": [
+    {
+      "bytes": 319346888,
+      "name": "codex",
+      "path": "/opt/aq/harnesses/codex/codex",
+      "sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+      "version": "0.166.0"
+    },
+    {
+      "bytes": 337814032,
+      "name": "claude",
+      "path": "/opt/aq/harnesses/claude/claude",
+      "sha256": "708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd",
+      "version": "2.1.318"
+    },
+    {
+      "bytes": 185690240,
+      "name": "opencode",
+      "path": "/opt/aq/harnesses/opencode/opencode",
+      "sha256": "77b2cfe4b97df6f15c3673b22100b9f79c711f25ecb9bf513bb82526b15d24fa",
+      "version": "1.18.35"
+    },
+    {
+      "bytes": 5152,
+      "name": "gemini",
+      "path": "/opt/aq/harnesses/gemini/bundle/gemini.js",
+      "sha256": "7e35ba8d8629a295c0db3e6a60040177e87f1a6440c51b379922e046db9939a3",
+      "version": "0.67.0"
+    }
+  ],
+  "node": {
+    "bytes": 121509208,
+    "name": "node",
+    "path": "/opt/aq/node/bin/node",
+    "sha256": "8142d37c6f2f372ef040419e7a111a6baf17df89f8078d02447d6c639ae20c1d",
+    "version": "22.16.0"
+  },
+  "platform": "linux/amd64",
+  "proxies": {
+    "aq_loopback": "in-process:aq-worker",
+    "gemini": "in-process:aq-worker",
+    "responses": "in-process:aq-worker"
+  },
+  "runner": {
+    "bytes": 24640600,
+    "name": "aq-worker",
+    "path": "/opt/aq/bin/aq-worker",
+    "sha256": "fe5e2aa3fdd0767ee25d416138d730abac7b3c457bb62997a618379161dc878a",
+    "version": "0.5.1"
+  },
+  "schema_version": 1,
+  "session_host": {
+    "bytes": 1881024,
+    "name": "aq-session-host",
+    "path": "/opt/aq/bin/aq-session-host",
+    "sha256": "f43bb071fefc7ac60ee3b59ac22fd22bd02e06bcba07eba8efe48fcacfb6e013",
+    "version": "0.1.7"
+  },
+  "source": {
+    "archive_sha256": "f1972203b40c54d80555a517cf45e196ee3a34caee79c7e5ac4608370e28cc4e",
+    "revision": "8b750ced9efd80ec9d221c0bcb0fd0cc08936723",
+    "runner_version": "0.5.1",
+    "session_host_version": "0.1.7"
+  }
+}

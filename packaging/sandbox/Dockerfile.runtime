@@ -6,9 +6,12 @@ RUN sha256sum --check worker-source.sha256 && mkdir /worker \
     && tar -xf worker-source.tar -C /worker
 WORKDIR /worker
 ENV CARGO_BUILD_JOBS=2
+# The target cache is shared by every build on the host, so the touch makes
+# cargo rebuild this source instead of trusting another tree's mtimes (AGENTS.md).
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/worker/target,sharing=locked \
-    cargo build --locked --release -p aq-worker --bin aq-worker -p aq-session-host --bin aq-session-host \
+    find crates vendor protocol packaging -type f -exec touch {} + \
+    && cargo build --locked --release -p aq-worker --bin aq-worker -p aq-session-host --bin aq-session-host \
     && mkdir /out && cp target/release/aq-worker target/release/aq-session-host /out/
 
 FROM @@BUILDER@@ AS bundle
@@ -42,6 +45,7 @@ RUN /opt/aq/bin/aq-worker --version \
     && test "$(/opt/aq/bin/aq --version)" = "aq $(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["aqv2"]["version"])')" \
     && /opt/aq/bin/aq --help | grep -q '^Usage: aq ' \
     && /opt/aq/bin/aq-agent --help | grep -q '^Usage: aq ' && /opt/aq/bin/aq-git --version \
+    && { env -u AQ_AGENT_RESULT_DIR /opt/aq/bin/aq-agent result status 2>&1 >/dev/null | grep -q '"invalid_contract_or_private_state"'; } \
     && /opt/aq/bin/codex --version \
     && test "$(DISABLE_AUTOUPDATER=1 /opt/aq/bin/claude --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["claude"]["version"])') (Claude Code)" \
     && test "$(HOME=/tmp OPENCODE_DISABLE_AUTOUPDATE=1 /opt/aq/bin/opencode --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["opencode"]["version"])')" \

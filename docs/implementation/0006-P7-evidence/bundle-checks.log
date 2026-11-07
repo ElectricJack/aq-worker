@@ -1,0 +1,17 @@
+#19 [bundle 10/10] RUN /opt/aq/bin/aq-worker --version     && test -f /opt/aq/bin/aq && test "$(stat -c '%a %u %g' /opt/aq/bin/aq)" = "755 0 0"     && test "$(/opt/aq/bin/aq --version)" = "aq $(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["aqv2"]["version"])')"     && /opt/aq/bin/aq --help | grep -q '^Usage: aq '     && /opt/aq/bin/aq-agent --help | grep -q '^Usage: aq ' && /opt/aq/bin/aq-git --version     && { env -u AQ_AGENT_RESULT_DIR /opt/aq/bin/aq-agent result status 2>&1 >/dev/null | grep -q '"invalid_contract_or_private_state"'; }     && /opt/aq/bin/codex --version     && test "$(DISABLE_AUTOUPDATER=1 /opt/aq/bin/claude --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["claude"]["version"])') (Claude Code)"     && test "$(HOME=/tmp OPENCODE_DISABLE_AUTOUPDATE=1 /opt/aq/bin/opencode --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["opencode"]["version"])')"     && /opt/aq/node/bin/node --version     && python3 -c 'import hashlib,json; p=json.load(open("/opt/aq/pins.json"))["inputs"]["gemini.tgz"]; assert hashlib.sha256(open("/opt/aq/harnesses/gemini/bundle/gemini.js","rb").read()).hexdigest()==p["bundle_sha256"]'     && test "$(HOME=$(mktemp -d) GEMINI_CLI_NO_RELAUNCH=true /opt/aq/bin/gemini --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["gemini.tgz"]["version"])')"     && python3 /inputs/bundle_manifest.py /opt/aq     && find /opt/aq -exec touch -h -d '@0' {} +
+#19 0.386 aq-worker 0.5.1
+#19 0.457 aq-git 0.2.0
+#19 0.626 codex-cli 0.166.0
+#19 1.483 v22.16.0
+#19 DONE 44.0s
+
+#20 [aq-sandbox-runtime 1/1] COPY --from=bundle /opt/aq /opt/aq
+#20 DONE 5.7s
+
+#21 exporting to image
+#21 exporting layers
+#21 exporting layers 3.0s done
+#21 writing image sha256:8978e4bc4e4c9908647635a8f2c70352e9872f5136e69c2958f269bf3885511c
+#21 writing image sha256:8978e4bc4e4c9908647635a8f2c70352e9872f5136e69c2958f269bf3885511c done
+#21 naming to docker.io/library/aq-sandbox-runtime:chan-p7 0.0s done
+#21 DONE 3.1s

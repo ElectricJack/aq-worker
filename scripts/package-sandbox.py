@@ -20,6 +20,15 @@ def git(*args):
     return subprocess.check_output(['git', *args], cwd=ROOT)
 
 
+def content_mtime(path):
+    """A file's mtime from its SHA-256 (31 bits, so any signed 32-bit time
+    holds it): equal bytes give equal metadata, changed bytes a new mtime.
+    Directories and links get 0."""
+    if path.is_symlink() or not path.is_file():
+        return 0
+    return int(digest(path)[:8], 16) & 0x7FFFFFFF
+
+
 def digest(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -108,9 +117,13 @@ def package(revision, inputs, destination, *, pins=None):
         }
         (runtime / 'source.json').write_text(json.dumps(source, sort_keys=True, indent=2) + '\n')
         (runtime / 'worker-source.sha256').write_text(archive_digest + '  worker-source.tar\n')
-        # Stable metadata avoids spurious COPY invalidation across fresh contexts.
+        # Stable metadata avoids spurious COPY invalidation across fresh contexts,
+        # and a content-derived mtime makes every content change invalidate:
+        # BuildKit's context sync compares size and mtime, so with one fixed
+        # mtime a changed file of the same size (worker-source.sha256) was
+        # reused from the previous build (spec 0006 phase 6 proof).
         for path in stage.rglob('*'):
-            os.utime(path, (0, 0), follow_symlinks=False)
+            os.utime(path, (content_mtime(path),) * 2, follow_symlinks=False)
         # os.rename is atomic within the destination's filesystem.
         os.rename(stage, destination)
     return source

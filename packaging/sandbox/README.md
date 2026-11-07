@@ -21,6 +21,17 @@ that socket holds the attempt's credential, so the sandbox holds none.
 template generation (spec 0006 section 9). Both proxies remain inside the
 runner or the node. There are no separate proxy binaries here.
 
+> **Deprecated: `aq-agent` (spec 0006 §9, phase 7).** Use `aq`. Every
+> `aq-agent` subcommand that still has a meaning is an `aq` command:
+> `aq-agent result submit|status` is `aq result submit|status` (the same
+> worker-local claim, byte-for-byte the same output and exit statuses), and
+> AQ calls go through `aq commands` / `aq run` and the typed subcommands. The
+> wrapper exists only so templates built from this generation keep working.
+> The next runtime bundle generation drops it, after which aq-server removes
+> the `/v1/agent/*` routes. The removal checklist, including how to verify that
+> no supported template still ships `aq-agent`, is in
+> [`docs/implementation/0006-P7.md`](../../docs/implementation/0006-P7.md).
+
 The single [pins.json](pins.json) records all external input versions, SHA-256
 digests, immutable builder/base image references and the Debian snapshot.
 The Dockerfiles are definitions with pin placeholders; use the generator to

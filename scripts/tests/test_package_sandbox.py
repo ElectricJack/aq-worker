@@ -144,6 +144,28 @@ class SandboxPackaging(unittest.TestCase):
         self.assertEqual(files(before / 'os'), files(after / 'os'))
         self.assertNotEqual(files(before / 'runtime'), files(after / 'runtime'))
 
+    def test_context_mtimes_follow_content(self):
+        # BuildKit reuses a context file whose size and mtime are unchanged, so
+        # equal bytes must give equal mtimes (reproducible contexts) and changed
+        # bytes of the same size a different mtime (spec 0006 phase 6 proof).
+        first, again, changed = self.root / 'first', self.root / 'again', self.root / 'changed'
+        self.package(first)
+        self.package(again)
+        (self.inputs / 'codex').write_bytes(b'xodec')
+        self.pins['inputs']['codex']['sha256'] = hashlib.sha256(b'xodec').hexdigest()
+        self.package(changed)
+        def meta(root):
+            return {str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns)
+                    for p in root.rglob('*') if p.is_file()}
+        self.assertEqual(meta(first), meta(again))
+        a, b = meta(first), meta(changed)
+        self.assertEqual(a['runtime/codex'][0], b['runtime/codex'][0])
+        self.assertNotEqual(a['runtime/codex'][1], b['runtime/codex'][1])
+        self.assertNotEqual(a['runtime/SHA256SUMS'][1], b['runtime/SHA256SUMS'][1])
+        self.assertEqual(a['runtime/Dockerfile'], b['runtime/Dockerfile'])
+        expected = int(hashlib.sha256(b'xodec').hexdigest()[:8], 16) & 0x7FFFFFFF
+        self.assertEqual(b['runtime/codex'][1], expected * 10**9)
+
     def test_floating_image_refuses(self):
         self.pins['base'] = 'debian:bookworm-slim'
         with self.assertRaisesRegex(ValueError, 'digest-pinned'):
