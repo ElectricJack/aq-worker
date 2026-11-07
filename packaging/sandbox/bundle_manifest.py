@@ -24,7 +24,10 @@ def manifest(root):
         'source': source,
         'runner': artifact(root, 'aq-worker', source['runner_version'], 'bin/aq-worker'),
         'session_host': artifact(root, 'aq-session-host', source['session_host_version'], 'bin/aq-session-host'),
-        'agent_client': artifact(root, 'aq-agent', source['agent_client_version'], 'bin/aq-agent'),
+        # The agent's CLI (aq-server aqv2, spec 0006 section 4); aq-agent is a
+        # deprecated wrapper that execs it, kept for one template generation.
+        'agent_client': artifact(root, 'aq', inputs['aqv2']['version'], 'bin/aq'),
+        'agent_client_wrapper': artifact(root, 'aq-agent', inputs['aqv2']['version'], 'bin/aq-agent'),
         'aq_git': artifact(root, 'aq-git', inputs['aq-git']['version'], 'bin/aq-git'),
         'node': artifact(root, 'node', inputs['node.tar.xz']['version'], 'node/bin/node'),
         'harnesses': [artifact(root, 'codex', inputs['codex']['version'], 'harnesses/codex/codex'),

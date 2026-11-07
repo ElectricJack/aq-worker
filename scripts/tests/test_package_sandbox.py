@@ -70,6 +70,21 @@ class SandboxPackaging(unittest.TestCase):
             self.package(self.root / 'corrupt')
         self.assertFalse((self.root / 'corrupt').exists())
 
+    def test_aqv2_input_is_pinned_and_checked(self):
+        output = self.root / 'out'
+        source = self.package(output)
+        self.assertNotIn('agent_client_version', source)
+        sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
+        self.assertIn(self.pins['inputs']['aqv2']['sha256'] + '  aqv2', sums)
+        self.assertEqual((output / 'runtime/aqv2').read_bytes(), b'aqv2')
+        dockerfile = (output / 'runtime/Dockerfile').read_text()
+        self.assertIn('install -o root -g root -m 0755 aqv2 /opt/aq/bin/aq ', dockerfile)
+        self.assertNotIn('--bin aq-agent', dockerfile)
+        (self.inputs / 'aqv2').write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch: aqv2'):
+            self.package(self.root / 'corrupt')
+        self.assertFalse((self.root / 'corrupt').exists())
+
     def test_opencode_input_is_pinned_and_checked(self):
         output = self.root / 'out'
         self.package(output)

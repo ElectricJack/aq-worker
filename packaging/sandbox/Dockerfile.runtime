@@ -9,18 +9,20 @@ ENV CARGO_BUILD_JOBS=2
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/worker/target,sharing=locked \
     cargo build --locked --release -p aq-worker --bin aq-worker -p aq-session-host --bin aq-session-host \
-    -p aq-agent-client --bin aq-agent \
-    && mkdir /out && cp target/release/aq-worker target/release/aq-session-host target/release/aq-agent /out/
+    && mkdir /out && cp target/release/aq-worker target/release/aq-session-host /out/
 
 FROM @@BUILDER@@ AS bundle
 COPY snapshot.sources /etc/apt/sources.list.d/debian.sources
 RUN apt-get update && apt-get install -y --no-install-recommends python3 xz-utils \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /inputs
-COPY aq-git codex claude opencode gemini.tgz node.tar.xz SHA256SUMS ./
+COPY aq-git aqv2 codex claude opencode gemini.tgz node.tar.xz SHA256SUMS ./
 RUN sha256sum --check SHA256SUMS && test "$(uname -m)" = x86_64 \
     && mkdir -p /opt/aq/bin /opt/aq/node /opt/aq/harnesses/codex /opt/aq/harnesses/claude /opt/aq/harnesses/opencode /opt/aq/harnesses/gemini \
     && cp aq-git /opt/aq/bin/aq-git && cp codex /opt/aq/harnesses/codex/codex \
+    && install -o root -g root -m 0755 aqv2 /opt/aq/bin/aq \
+    && printf '#!/bin/sh\n# Deprecated (spec 0006 section 9): aq-agent is now aq.\nexec /opt/aq/bin/aq "$@"\n' > /opt/aq/bin/aq-agent \
+    && chmod 755 /opt/aq/bin/aq-agent \
     && cp claude /opt/aq/harnesses/claude/claude \
     && cp opencode /opt/aq/harnesses/opencode/opencode \
     && tar -xf node.tar.xz -C /opt/aq/node --strip-components=1 \
@@ -35,8 +37,11 @@ RUN sha256sum --check SHA256SUMS && test "$(uname -m)" = x86_64 \
 COPY --from=runner-build /out/ /opt/aq/bin/
 COPY pins.json source.json /opt/aq/
 COPY bundle_manifest.py /inputs/bundle_manifest.py
-RUN /opt/aq/bin/aq-worker --version && /opt/aq/bin/aq-agent --version \
-    && test ! -e /opt/aq/bin/aq && /opt/aq/bin/aq-git --version \
+RUN /opt/aq/bin/aq-worker --version \
+    && test -f /opt/aq/bin/aq && test "$(stat -c '%a %u %g' /opt/aq/bin/aq)" = "755 0 0" \
+    && test "$(/opt/aq/bin/aq --version)" = "aq $(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["aqv2"]["version"])')" \
+    && /opt/aq/bin/aq --help | grep -q '^Usage: aq ' \
+    && /opt/aq/bin/aq-agent --help | grep -q '^Usage: aq ' && /opt/aq/bin/aq-git --version \
     && /opt/aq/bin/codex --version \
     && test "$(DISABLE_AUTOUPDATER=1 /opt/aq/bin/claude --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["claude"]["version"])') (Claude Code)" \
     && test "$(HOME=/tmp OPENCODE_DISABLE_AUTOUPDATE=1 /opt/aq/bin/opencode --version)" = "$(python3 -c 'import json; print(json.load(open("/opt/aq/pins.json"))["inputs"]["opencode"]["version"])')" \
