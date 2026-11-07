@@ -17,8 +17,8 @@ mod loopback;
 #[cfg(test)]
 mod tests;
 
-pub use channel::{AgentChannel, ChannelConfig, sweep};
-pub use forward::{AGENT_PREFIXES, NODE_PREFIXES, agent_path};
+pub use channel::{AgentChannel, ChannelConfig, NodeLink, sweep};
+pub use forward::{AGENT_PREFIXES, NODE_PREFIXES, agent_path, node_origin};
 pub use issuer::{AttemptIdentity, CredentialIssuer, IssueError, IssueFuture, Issued, NodeIssuer};
 pub use loopback::LoopbackProxy;
 
@@ -86,7 +86,36 @@ pub fn socket_ready(root: Option<&std::path::Path>, attempt: uuid::Uuid) -> Resu
     Ok(())
 }
 
+/// Whether `a` and `b` overlap: one equals, contains or sits under the other,
+/// lexically or after resolving symlinks (a path that does not exist yet
+/// resolves through its nearest existing ancestor).
+pub fn paths_overlap(a: &std::path::Path, b: &std::path::Path) -> bool {
+    fn resolved(path: &std::path::Path) -> std::path::PathBuf {
+        let mut rest = Vec::new();
+        let mut at = path;
+        loop {
+            if let Ok(real) = std::fs::canonicalize(at) {
+                return rest.iter().rev().fold(real, |p, c| p.join(c));
+            }
+            match (at.parent(), at.file_name()) {
+                (Some(parent), Some(name)) => {
+                    rest.push(name.to_owned());
+                    at = parent;
+                }
+                _ => return path.to_owned(),
+            }
+        }
+    }
+    let forms = |p: &std::path::Path| [p.to_owned(), resolved(p)];
+    forms(a).iter().any(|x| {
+        forms(b)
+            .iter()
+            .any(|y| x.starts_with(y) || y.starts_with(x))
+    })
+}
+
 /// Cloudflare Access service-token headers for a production upstream.
+#[derive(Clone)]
 pub struct AccessHeaders {
     client_id: Zeroizing<String>,
     client_secret: Zeroizing<String>,

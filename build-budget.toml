@@ -18,4 +18,4 @@ target = 40000
 
 [lib_lines.ratchet]
 # Crates above the target while they are being split. Each may only shrink.
-aq-worker = 71390
+aq-worker = 71389

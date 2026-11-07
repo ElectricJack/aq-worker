@@ -143,14 +143,8 @@ impl DockerLocalConfig {
                 return Err(BackendError::InvalidRequest("duplicate template digest"));
             }
         }
-        if self
-            .channel_root
-            .as_ref()
-            .is_some_and(|root| !root.is_absolute() || self.exposes_daemon_socket(root))
-        {
-            return Err(BackendError::InvalidRequest(
-                "channel root must be absolute and expose no daemon socket",
-            ));
+        if let Some(root) = &self.channel_root {
+            self.check_channel_root(root)?;
         }
         if !container_path_ok(&self.material_path)
             || under(&self.material_path, WORK_TARGET)
@@ -203,6 +197,21 @@ impl DockerLocalConfig {
         {
             return Err(BackendError::InvalidRequest(
                 "invalid docker-local timeouts or limits",
+            ));
+        }
+        Ok(())
+    }
+
+    /// The channel root is absolute, exposes no daemon socket, and no mount
+    /// alias's host path equals, contains or sits under it.
+    pub fn check_channel_root(&self, root: &Path) -> Result<(), BackendError> {
+        let alias = |a: &MountAlias| aq_agent_channel::paths_overlap(&a.host_path, root);
+        if !root.is_absolute()
+            || self.exposes_daemon_socket(root)
+            || self.mount_aliases.values().any(alias)
+        {
+            return Err(BackendError::InvalidRequest(
+                "channel root must be absolute, expose no daemon socket and overlap no mount alias",
             ));
         }
         Ok(())

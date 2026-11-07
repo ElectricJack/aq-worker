@@ -6,7 +6,7 @@ use crate::native::{
     adapter::result_profile::{ExpectedResultAdapter, ResultAdapterDefinition},
     launch::{
         NativeHostLaunchResult, NativeStopOutcome,
-        claude_docker::{ChannelIssuance, ClaudeDockerHostConfig, ClaudeDockerHostProfile},
+        claude_docker::{ClaudeDockerHostConfig, ClaudeDockerHostProfile},
     },
     result::ResultInstallationPins,
 };
@@ -30,8 +30,8 @@ pub struct ClaudeDockerExecutor {
     profile: Option<Arc<ClaudeDockerHostProfile>>,
     pins: Option<ResultInstallationPins>,
     result_root: Option<PathBuf>,
-    /// The node's server origin and credential, for agent-channel issuance.
-    issuance: (String, zeroize::Zeroizing<String>),
+    /// The node's enrollment (origin, credential, Access), for the agent channel.
+    issuance: aq_agent_channel::NodeLink,
 }
 impl ClaudeDockerExecutor {
     pub fn configured(worker: &WorkerConfig) -> Result<Self> {
@@ -52,10 +52,12 @@ impl ClaudeDockerExecutor {
             profile: None,
             pins: None,
             result_root: None,
-            issuance: (
-                worker.server_url.clone(),
-                zeroize::Zeroizing::new(worker.credential.clone()),
-            ),
+            issuance: aq_agent_channel::NodeLink::new(
+                &worker.server_url,
+                &worker.credential,
+                worker.cf_client_id.as_deref(),
+                worker.cf_client_secret.as_deref(),
+            )?,
         })
     }
 }
@@ -103,10 +105,8 @@ impl NativeExecutor for ClaudeDockerExecutor {
             "Claude host root must be a separate private state child"
         );
         self.profile = Some(Arc::new(
-            ClaudeDockerHostProfile::new(settings.host.clone())?.with_issuance(ChannelIssuance {
-                origin: self.issuance.0.clone(),
-                node_credential: self.issuance.1.clone(),
-            }),
+            ClaudeDockerHostProfile::new(settings.host.clone())?
+                .with_issuance(self.issuance.clone()),
         ));
         self.pins = Some(pins);
         self.result_root = Some(config.state_dir.join("result"));

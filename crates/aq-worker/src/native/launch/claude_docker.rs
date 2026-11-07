@@ -60,18 +60,13 @@ impl ChannelMode {
         *self == Self::Required
     }
 }
-/// How the node issues agent credentials: its own server origin and node
-/// credential (`/v2/worker/agent-session`). Held in memory only.
-pub struct ChannelIssuance {
-    pub origin: String,
-    pub node_credential: zeroize::Zeroizing<String>,
-}
 pub struct ClaudeDockerHostProfile {
     pub(super) config: ClaudeDockerHostConfig,
     pub(super) root: RootGuard,
     pub(super) digest: Digest,
     pool: NativeExecPool,
-    issuance: Option<ChannelIssuance>,
+    /// The node's enrollment, for agent-credential issuance. Memory only.
+    issuance: Option<aq_agent_channel::NodeLink>,
 }
 fn hash_file(path: &Path, max: u64) -> Result<(String, u64)> {
     let mut f = std::fs::OpenOptions::new()
@@ -126,6 +121,8 @@ impl ClaudeDockerHostProfile {
                 .any(|t| t.digest == config.template),
             "Claude template is not allowlisted for docker-local"
         );
+        // No mount alias may expose the channel directories (0006 §5.1).
+        (config.docker_local).check_channel_root(&config.root.join("channels"))?;
         let root = RootGuard::open(&config.root, None)?;
         let digest = crate::native::journal::canonical_digest(&config)?;
         let (_, driver_bytes) = hash_file(
@@ -166,7 +163,7 @@ impl ClaudeDockerHostProfile {
     pub fn config(&self) -> &ClaudeDockerHostConfig {
         &self.config
     }
-    pub fn with_issuance(mut self, issuance: ChannelIssuance) -> Self {
+    pub fn with_issuance(mut self, issuance: aq_agent_channel::NodeLink) -> Self {
         self.issuance = Some(issuance);
         self
     }
@@ -180,8 +177,8 @@ impl ClaudeDockerHostProfile {
         session: &aq_session_protocol::SessionIdentity,
         not_after_ms: u64,
     ) -> Result<aq_agent_channel::AgentChannel> {
-        use aq_agent_channel::{AttemptIdentity, ChannelConfig, NodeIssuer, UNAVAILABLE};
-        let issuance = self
+        use aq_agent_channel::{AttemptIdentity, UNAVAILABLE};
+        let link = self
             .issuance
             .as_ref()
             .with_context(|| format!("{UNAVAILABLE}: the node has no credential issuance"))?;
@@ -202,22 +199,15 @@ impl ClaudeDockerHostProfile {
             session_id,
             generation: assignment_generation,
         };
-        let issuer = NodeIssuer::new(&issuance.origin, &issuance.node_credential, None, identity)
-            .with_context(|| UNAVAILABLE)?;
         std::fs::DirBuilder::new()
             .mode(0o700)
             .recursive(true)
             .create(self.channel_root())?;
-        let config = ChannelConfig {
-            attempt_id,
-            directory: self.channel_root().join(attempt_id.to_string()),
-            origin: issuance.origin.clone(),
-            access: None,
+        let directory = self.channel_root().join(attempt_id.to_string());
+        tokio::runtime::Handle::try_current()?.block_on(link.open(
+            identity,
+            directory,
             not_after_ms,
-        };
-        tokio::runtime::Handle::try_current()?.block_on(aq_agent_channel::AgentChannel::open(
-            config,
-            Arc::new(issuer),
         ))
     }
 }

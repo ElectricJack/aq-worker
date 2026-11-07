@@ -5,7 +5,7 @@
 //! keeps the B6b behaviour exactly.
 use crate::{
     Accept, AccessHeaders,
-    forward::{Failure, Origins, Rules, Seen, Upstream, forward},
+    forward::{Failure, Fixed, Origins, Rules, Seen, Upstream, forward},
 };
 use anyhow::Result;
 use std::{sync::Arc, time::Duration};
@@ -41,7 +41,14 @@ impl LoopbackProxy {
     }
     async fn start_inner(server: &str, origins: Origins, access: AccessHeaders) -> Result<Self> {
         let upstream = Upstream::new(server, origins, Duration::from_secs(25))?;
-        let inject = access.headers()?;
+        let fixed = Fixed(
+            access.headers()?,
+            access
+                .values()
+                .iter()
+                .map(|v| zeroize::Zeroizing::new(v.to_vec()))
+                .collect(),
+        );
         let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
         let local = listener.local_addr()?;
         let state = Arc::new((
@@ -51,8 +58,7 @@ impl LoopbackProxy {
                 replace_authorization: false,
                 agent_paths: false,
             },
-            inject,
-            access,
+            fixed,
         ));
         let (stop, stopped) = watch::channel(false);
         let task = tokio::spawn(crate::serve(
@@ -63,18 +69,11 @@ impl LoopbackProxy {
             move |mut stream: TcpStream| {
                 let state = state.clone();
                 async move {
-                    let (upstream, rules, inject, access) = &*state;
+                    let (upstream, rules, fixed) = &*state;
                     let mut seen = Seen::default();
                     let result = tokio::time::timeout(
                         Duration::from_secs(30),
-                        forward(
-                            upstream,
-                            rules,
-                            inject,
-                            &access.values(),
-                            &mut stream,
-                            &mut seen,
-                        ),
+                        forward(upstream, rules, fixed, &mut stream, &mut seen),
                     )
                     .await;
                     match result {

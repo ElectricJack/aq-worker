@@ -20,12 +20,31 @@ pub(crate) fn token(n: u64) -> String {
     format!("aqa_{:0>43}", format!("fixture{n}"))
 }
 
-/// Requests the stub saw: (path, authorization, any cf-access header).
-type Seen = Arc<Mutex<Vec<(String, String, bool)>>>;
+/// One request the stub saw.
+#[derive(Clone, Debug)]
+struct Saw {
+    path: String,
+    auth: String,
+    /// `cf-access-client-id`, if any.
+    access: Option<String>,
+    /// Every header name, sorted.
+    names: Vec<String>,
+}
+type Seen = Arc<Mutex<Vec<Saw>>>;
+
+/// The highest credential version a [`Scripted`] issuer has issued, which
+/// the stub treats as the one live verifier (aq-server keeps one per attempt).
+static NO_LIVE: AtomicU64 = AtomicU64::new(0);
 
 /// Stub aq-server: `whoami` answers the principal for the presented token;
-/// `echo` returns the authorization header; `revoked` answers 401.
+/// `echo` returns the authorization header; `revoked` answers 401;
+/// `unauthorized` answers the server's unknown-verifier 401; `live/<n>`
+/// answers 200 only for the version `live` holds, after waiting for it to
+/// reach n (a request that raced a rotation); `cookie` sets a cookie.
 async fn stub() -> (String, Seen) {
+    stub_with(&NO_LIVE).await
+}
+async fn stub_with(live: &'static AtomicU64) -> (String, Seen) {
     let seen: Seen = Arc::default();
     let log = seen.clone();
     let app = Router::new().fallback(move |uri: Uri, headers: HeaderMap, _body: Bytes| {
@@ -36,7 +55,9 @@ async fn stub() -> (String, Seen) {
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or_default()
                 .to_owned();
-            let access = headers.keys().any(|k| k.as_str().starts_with("cf-access-"));
+            let access = headers
+                .get("cf-access-client-id")
+                .map(|v| v.to_str().unwrap().to_owned());
             let path = match (
                 uri.query(),
                 headers.get("x-aq-request"),
@@ -45,14 +66,59 @@ async fn stub() -> (String, Seen) {
                 (Some(q), Some(x), None) if x == "1" => format!("{}?{q} x-aq-request", uri.path()),
                 _ => uri.path().to_owned(),
             };
-            log.lock().unwrap().push((path, auth.clone(), access));
+            let mut names: Vec<String> = headers.keys().map(|k| k.as_str().to_owned()).collect();
+            names.sort();
+            log.lock().unwrap().push(Saw {
+                path,
+                auth: auth.clone(),
+                access,
+                names,
+            });
+            let unauthorized = || {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({"code": "unauthorized", "effect": "not_applied"})),
+                )
+                    .into_response()
+            };
+            if let Some(n) = uri.path().strip_prefix("/api/v1/commands/live/") {
+                let n: u64 = n.parse().unwrap();
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while live.load(Ordering::SeqCst) < n && std::time::Instant::now() < deadline {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                // Let the channel store what the issuer just returned.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let current = format!("Bearer {}", token(live.load(Ordering::SeqCst)));
+                return if auth == current {
+                    StatusCode::OK.into_response()
+                } else {
+                    unauthorized()
+                };
+            }
             match uri.path() {
+                "/api/v1/commands/unauthorized" => unauthorized(),
+                "/api/v1/commands/cookie" => (
+                    [("set-cookie", "CF_Authorization=edge-session; Path=/")],
+                    "ok",
+                )
+                    .into_response(),
                 "/api/v1/commands/whoami" => Json(serde_json::json!({
                     "principal": "agent",
                     "version": auth.trim_start_matches("Bearer aqa_").trim_start_matches('0'),
                 }))
                 .into_response(),
                 "/api/v1/commands/echo" => auth.into_response(),
+                "/api/v1/commands/echo-access" => headers
+                    .get("cf-access-client-secret")
+                    .map(|v| v.to_str().unwrap().to_owned())
+                    .unwrap_or_default()
+                    .into_response(),
+                "/v2/worker/agent-session" => {
+                    Json(serde_json::json!({"api_version":1,"token":token(1),
+                    "context":{"credential":{"version":"1","expires_at":"2099-01-01T00:00:00Z"}}}))
+                    .into_response()
+                }
                 "/api/v1/commands/revoked" => (
                     StatusCode::UNAUTHORIZED,
                     Json(serde_json::json!({"code": "session_revoked", "effect": "not_applied"})),
@@ -74,6 +140,8 @@ struct Scripted {
     refuse_from: u64,
     refuse: std::sync::atomic::AtomicBool,
     calls: AtomicU64,
+    /// Set to the version issued last, if any.
+    live: Option<&'static AtomicU64>,
 }
 impl CredentialIssuer for Scripted {
     fn issue(&self, expected: u64) -> IssueFuture<'_> {
@@ -81,6 +149,9 @@ impl CredentialIssuer for Scripted {
             self.calls.fetch_add(1, Ordering::SeqCst);
             if expected + 1 >= self.refuse_from || self.refuse.load(Ordering::SeqCst) {
                 return Err(IssueError::Refused("session_revoked".into()));
+            }
+            if let Some(live) = self.live {
+                live.store(expected + 1, Ordering::SeqCst);
             }
             Ok(Issued {
                 token: Zeroizing::new(token(expected + 1)),
@@ -96,6 +167,7 @@ fn scripted(ttl_ms: u64, refuse_from: u64) -> Arc<Scripted> {
         refuse_from,
         refuse: Default::default(),
         calls: AtomicU64::new(0),
+        live: None,
     })
 }
 
@@ -267,7 +339,7 @@ async fn channel_injects_the_attempt_credential_and_refuses_node_paths() {
 
     let seen = seen.lock().unwrap().clone();
     assert_eq!(
-        seen.iter().map(|s| s.0.as_str()).collect::<Vec<_>>(),
+        seen.iter().map(|s| s.path.as_str()).collect::<Vec<_>>(),
         [
             "/api/v1/commands/whoami",
             "/api/v1/commands?all=true x-aq-request",
@@ -275,9 +347,9 @@ async fn channel_injects_the_attempt_credential_and_refuses_node_paths() {
         ],
         "refused paths never reach the server"
     );
-    for (_, auth, access) in &seen {
-        assert_eq!(auth, &format!("Bearer {}", token(1)));
-        assert!(!access);
+    for saw in &seen {
+        assert_eq!(saw.auth, format!("Bearer {}", token(1)));
+        assert_eq!(saw.access, None);
     }
     let dir = channel.directory().to_owned();
     channel.stop().await.unwrap();
@@ -305,7 +377,7 @@ async fn rotation_is_invisible_and_a_refused_rotation_closes() {
     }
     let (status, _) = call(&socket, "POST", "/api/v1/commands/whoami", "").await;
     assert_eq!(status, 200);
-    let held = seen.lock().unwrap().last().unwrap().1.clone();
+    let held = seen.lock().unwrap().last().unwrap().auth.clone();
     assert!(
         (2..10).any(|n| held == format!("Bearer {}", token(n))),
         "the caller's call carried a rotated credential"
@@ -372,7 +444,7 @@ async fn open_fails_closed_and_the_grant_end_closes() {
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     for bad in [
         "http://example.com",
-        "https://127.0.0.1",
+        "http://localhost:8080",
         "http://127.0.0.1:1/x",
     ] {
         assert!(
@@ -491,4 +563,427 @@ async fn node_issuer_uses_the_agent_session_route_with_the_version_fence() {
             "expected_credential_version": 0,
         })
     );
+}
+
+/// The full response text of one raw request.
+async fn raw(socket: &std::path::Path, request: &str) -> String {
+    let mut stream = tokio::net::UnixStream::connect(socket).await.unwrap();
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut out = Vec::new();
+    stream.read_to_end(&mut out).await.unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+async fn wait_gone(path: &std::path::Path) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while path.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{path:?} still exists"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+const NODE_CREDENTIAL: &str = "node-credential-0123456789abcdef";
+
+fn attempt() -> AttemptIdentity {
+    AttemptIdentity {
+        node_id: Uuid::from_u128(1),
+        boot_id: Uuid::from_u128(2),
+        attempt_id: Uuid::from_u128(7),
+        session_id: Uuid::from_u128(4),
+        generation: 5,
+    }
+}
+
+/// Finding 1: the channel serves the node's own enrollment under the rule
+/// of the node's native transport (aq-worker `NativeClient::from_config`):
+/// HTTPS to any host, plain HTTP only to a numeric loopback address. Hosts
+/// the node itself refuses for plaintext stay refused. `docker_local_backend`
+/// checks the same table against `NativeClient`.
+#[test]
+fn node_origins_follow_the_native_transport_rule() {
+    for ok in [
+        "https://aq.example.com",
+        "https://aq.example.com:8443/",
+        "https://10.0.0.5",
+        "http://127.0.0.1:32839",
+        "http://127.0.0.1",
+        "http://127.0.0.2:8080",
+        "http://[::1]:8080",
+    ] {
+        assert!(node_origin(ok).is_ok(), "{ok}");
+        assert!(
+            NodeLink::new(ok, NODE_CREDENTIAL, None, None).is_ok(),
+            "{ok}"
+        );
+    }
+    for bad in [
+        "http://host.docker.internal:32839",
+        "http://localhost:8080",
+        "http://aq-server:8080",
+        "http://192.168.1.5:8080",
+        "http://0.0.0.0:8080",
+        "ftp://aq.example.com",
+        "https://user:pw@aq.example.com",
+        "https://aq.example.com/prefix",
+        "https://aq.example.com/?q=1",
+    ] {
+        assert!(node_origin(bad).is_err(), "{bad}");
+        assert!(
+            NodeLink::new(bad, NODE_CREDENTIAL, None, None).is_err(),
+            "{bad}"
+        );
+    }
+}
+
+/// Finding 2: the node's Access service token (from its enrollment) reaches
+/// issuance and every forwarded request; a caller's own Access headers are
+/// replaced, and an answer that echoes the secret is refused.
+#[tokio::test]
+async fn access_headers_reach_issuance_and_every_forwarded_request() {
+    let (origin, seen) = stub().await;
+    assert!(
+        NodeLink::new(&origin, NODE_CREDENTIAL, Some("svc.access"), None).is_err(),
+        "half a service token"
+    );
+    let link = NodeLink::new(
+        &origin,
+        NODE_CREDENTIAL,
+        Some("svc.access"),
+        Some("svc-secret-0123456789"),
+    )
+    .unwrap();
+    assert!(!format!("{link:?}").contains("svc-secret"));
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join(attempt().attempt_id.to_string());
+    let channel = link
+        .open(attempt(), directory, now() + 60_000)
+        .await
+        .unwrap();
+    let socket = channel.socket_path();
+    let (status, _) = call(
+        &socket,
+        "POST",
+        "/api/v1/commands/whoami",
+        "cf-access-client-id: spoofed\r\ncf-access-client-secret: spoofed\r\n",
+    )
+    .await;
+    assert_eq!(status, 200);
+    let (status, body) = call(&socket, "POST", "/api/v1/commands/echo-access", "").await;
+    assert_eq!(status, 502);
+    assert!(!body.contains("svc-secret"));
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(
+        seen.iter().map(|s| s.path.as_str()).collect::<Vec<_>>(),
+        [
+            "/v2/worker/agent-session",
+            "/api/v1/commands/whoami",
+            "/api/v1/commands/echo-access"
+        ]
+    );
+    assert_eq!(seen[0].auth, format!("Bearer {NODE_CREDENTIAL}"));
+    assert_eq!(seen[1].auth, format!("Bearer {}", token(1)));
+    for saw in &seen {
+        assert_eq!(saw.access.as_deref(), Some("svc.access"), "{}", saw.path);
+    }
+    channel.stop().await.unwrap();
+}
+
+/// Finding 7: only allowlisted request headers reach aq-server (no cookies,
+/// forwarding or proxy identity, `cf-*`, development identity or `Origin`),
+/// and no `Set-Cookie` reaches the sandbox.
+#[tokio::test]
+async fn only_allowlisted_headers_pass_and_no_cookie_comes_back() {
+    let (origin, seen) = stub().await;
+    let root = tempfile::tempdir().unwrap();
+    let channel = AgentChannel::open(
+        config(root.path(), &origin, now() + 60_000),
+        scripted(60_000, u64::MAX),
+    )
+    .await
+    .unwrap();
+    let socket = channel.socket_path();
+    let spoofed = [
+        "Cookie: CF_Authorization=stolen",
+        "X-Forwarded-For: 10.0.0.1",
+        "X-Forwarded-Host: evil.example",
+        "Forwarded: for=10.0.0.1",
+        "Cf-Connecting-Ip: 10.0.0.1",
+        "Cf-Ray: 1",
+        "Cf-Access-Jwt-Assertion: forged",
+        "X-Real-Ip: 10.0.0.1",
+        "True-Client-Ip: 10.0.0.1",
+        "X-AQ-Dev-Email: owner@example.test",
+        "Origin: http://evil.example",
+        "Proxy-Authorization: Basic eA==",
+        "Accept: application/json",
+        "X-AQ-Request: 1",
+    ]
+    .map(|h| format!("{h}\r\n"))
+    .concat();
+    let (status, _) = call(&socket, "POST", "/api/v1/commands/whoami", &spoofed).await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        seen.lock().unwrap()[0].names,
+        [
+            "accept",
+            "accept-encoding",
+            "authorization",
+            "content-length",
+            "content-type",
+            "host",
+            "x-aq-request"
+        ]
+    );
+    let text = raw(
+        &socket,
+        "GET /api/v1/commands/cookie HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    )
+    .await;
+    assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+    assert!(!text.to_ascii_lowercase().contains("set-cookie"), "{text}");
+    assert!(!text.contains("CF_Authorization"), "{text}");
+    channel.stop().await.unwrap();
+}
+
+static LIVE_RACE: AtomicU64 = AtomicU64::new(0);
+
+/// Finding 5: the credential is taken just before the upstream send, and a
+/// call whose credential a rotation replaced in flight (the server keeps one
+/// verifier per attempt and answers `unauthorized`, `not_applied`) is sent
+/// once more with the new credential. A 401 for the held version is not.
+#[tokio::test]
+async fn a_call_that_races_a_rotation_is_resent_with_the_new_credential() {
+    let (origin, seen) = stub_with(&LIVE_RACE).await;
+    let root = tempfile::tempdir().unwrap();
+    let issuer = Arc::new(Scripted {
+        ttl_ms: 3_000,
+        refuse_from: u64::MAX,
+        refuse: Default::default(),
+        calls: AtomicU64::new(0),
+        live: Some(&LIVE_RACE),
+    });
+    let channel = AgentChannel::open(config(root.path(), &origin, now() + 60_000), issuer)
+        .await
+        .unwrap();
+    // Sent with version 1; rotation to 2 commits (at 2 s) while it waits.
+    let (status, _) = call(
+        &channel.socket_path(),
+        "POST",
+        "/api/v1/commands/live/2",
+        "",
+    )
+    .await;
+    assert_eq!(status, 200);
+    let auths: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|s| s.auth.clone())
+        .collect();
+    assert_eq!(
+        auths,
+        [
+            format!("Bearer {}", token(1)),
+            format!("Bearer {}", token(2))
+        ]
+    );
+    channel.stop().await.unwrap();
+}
+
+/// Finding 6: revocation drops the verifier, so calls answer `unauthorized`.
+/// That answer reaches the caller (once: the held version did not change),
+/// the node re-issues at once, the issuance answers `session_revoked`, and
+/// the channel closes, so the next call fails at connect (`channel_closed`).
+#[tokio::test]
+async fn an_unauthorized_answer_reissues_and_a_revoked_attempt_closes() {
+    let (origin, seen) = stub().await;
+    let root = tempfile::tempdir().unwrap();
+    let issuer = scripted(600_000, u64::MAX);
+    let channel = AgentChannel::open(
+        config(root.path(), &origin, now() + 600_000),
+        issuer.clone(),
+    )
+    .await
+    .unwrap();
+    issuer.refuse.store(true, Ordering::SeqCst);
+    let (status, body) = call(
+        &channel.socket_path(),
+        "POST",
+        "/api/v1/commands/unauthorized",
+        "",
+    )
+    .await;
+    assert_eq!(status, 401);
+    assert!(body.contains("\"unauthorized\""));
+    tokio::time::timeout(Duration::from_secs(5), channel.closed())
+        .await
+        .unwrap();
+    assert_eq!(
+        issuer.calls.load(Ordering::SeqCst),
+        2,
+        "open, then one re-issue"
+    );
+    assert_eq!(
+        seen.lock().unwrap().len(),
+        1,
+        "a 401 for the held version is not resent"
+    );
+    wait_gone(channel.directory()).await;
+    assert!(
+        tokio::net::UnixStream::connect(channel.socket_path())
+            .await
+            .is_err()
+    );
+}
+
+/// Finding 6, bounded: repeated 401s re-issue at most once per retry
+/// interval (200 ms under test, 5 s in production), and a re-issue that
+/// succeeds keeps the channel open.
+#[tokio::test]
+async fn unauthorized_answers_reissue_at_most_once_per_interval() {
+    let (origin, _) = stub().await;
+    let root = tempfile::tempdir().unwrap();
+    let issuer = scripted(600_000, u64::MAX);
+    let channel = AgentChannel::open(
+        config(root.path(), &origin, now() + 600_000),
+        issuer.clone(),
+    )
+    .await
+    .unwrap();
+    let started = std::time::Instant::now();
+    for _ in 0..20 {
+        let (status, _) = call(
+            &channel.socket_path(),
+            "POST",
+            "/api/v1/commands/unauthorized",
+            "",
+        )
+        .await;
+        assert_eq!(status, 401);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let calls = issuer.calls.load(Ordering::SeqCst);
+    let bound = 2 + started.elapsed().as_millis() as u64 / 200;
+    assert!(
+        (2..=bound).contains(&calls),
+        "{calls} issuances, bound {bound}"
+    );
+    assert!(!channel.is_closed());
+    channel.stop().await.unwrap();
+}
+
+/// aq-server's issuance as it is: one version per attempt, the expected
+/// version fence, no idempotency. `lose` drops the next answer after commit.
+struct Server {
+    version: Mutex<u64>,
+    lose: std::sync::atomic::AtomicBool,
+    calls: AtomicU64,
+}
+impl CredentialIssuer for Server {
+    fn issue(&self, expected: u64) -> IssueFuture<'_> {
+        Box::pin(async move {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut version = self.version.lock().unwrap();
+            if expected != *version {
+                return Err(IssueError::Refused("id_conflict".into()));
+            }
+            *version += 1;
+            if self.lose.swap(false, Ordering::SeqCst) {
+                return Err(IssueError::Unavailable);
+            }
+            Ok(Issued {
+                token: Zeroizing::new(token(*version)),
+                version: *version,
+                expires_at_ms: now() + 1_500,
+            })
+        })
+    }
+}
+
+/// Finding 4: the server commits a rotation and its answer is lost. The
+/// retry (fenced on the old version) gets `id_conflict`; because an
+/// unavailable issuance preceded it, the node fences on the committed version
+/// and the channel stays open. An `id_conflict` with no lost answer before it
+/// (another issuer moved the version) still closes the channel.
+#[tokio::test]
+async fn a_lost_rotation_answer_resyncs_and_a_foreign_rotation_closes() {
+    let (origin, seen) = stub().await;
+    let root = tempfile::tempdir().unwrap();
+    let server = Arc::new(Server {
+        version: Mutex::new(0),
+        lose: Default::default(),
+        calls: AtomicU64::new(0),
+    });
+    let channel = AgentChannel::open(config(root.path(), &origin, now() + 60_000), server.clone())
+        .await
+        .unwrap();
+    server.lose.store(true, Ordering::SeqCst);
+    // Rotation at 1 s commits 2 and loses the answer; the retry 200 ms later
+    // gets id_conflict and the next issuance, fenced on 2, gets 3.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while channel.credential_version() < 3 {
+        assert!(std::time::Instant::now() < deadline, "no re-sync");
+        assert!(!channel.is_closed(), "a lost answer closed the channel");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(channel.credential_version(), 3);
+    assert_eq!(server.calls.load(Ordering::SeqCst), 4);
+    let (status, _) = call(
+        &channel.socket_path(),
+        "POST",
+        "/api/v1/commands/whoami",
+        "",
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        seen.lock().unwrap().last().unwrap().auth,
+        format!("Bearer {}", token(3))
+    );
+    *server.version.lock().unwrap() += 1;
+    tokio::time::timeout(Duration::from_secs(5), channel.closed())
+        .await
+        .unwrap();
+}
+
+/// Finding 9: a sweep running while channels open never removes a directory
+/// an open is creating; every channel opens with a live socket.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_concurrent_sweep_never_breaks_an_opening_channel() {
+    let (origin, _) = stub().await;
+    let root = tempfile::tempdir().unwrap();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sweeper = {
+        let (stop, root) = (stop.clone(), root.path().to_owned());
+        std::thread::spawn(move || {
+            let mut swept = 0;
+            while !stop.load(Ordering::SeqCst) {
+                swept += sweep(&root).unwrap_or(0);
+            }
+            swept
+        })
+    };
+    for _ in 0..100 {
+        let channel = AgentChannel::open(
+            config(root.path(), &origin, now() + 60_000),
+            scripted(60_000, u64::MAX),
+        )
+        .await
+        .unwrap();
+        let (status, _) = call(
+            &channel.socket_path(),
+            "POST",
+            "/api/v1/commands/whoami",
+            "",
+        )
+        .await;
+        assert_eq!(status, 200);
+        channel.stop().await.unwrap();
+    }
+    stop.store(true, Ordering::SeqCst);
+    sweeper.join().unwrap();
 }

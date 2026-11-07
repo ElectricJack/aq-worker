@@ -475,6 +475,73 @@ async fn agent_channel_mount_is_fixed_to_the_attempt_directory() {
     }
 }
 
+/// Finding 8 (PR #43 review): a mount alias whose host path equals, contains
+/// or sits under the channel root would expose other attempts' sockets. It is
+/// refused at config load, through a symlink too and before the root exists.
+#[test]
+fn a_mount_alias_never_overlaps_the_channel_root() {
+    let socket = owned_socket();
+    let (cache, scratch) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let host = tempfile::tempdir().unwrap();
+    let root = host.path().join("channels"); // not created yet
+    let link = host.path().join("link-to-host");
+    std::os::unix::fs::symlink(host.path(), &link).unwrap();
+    let mut config = base_config(&socket, &cache, &scratch);
+    config.channel_root = Some(root.clone());
+    config.validate().unwrap();
+    config.check_channel_root(&root).unwrap();
+    for overlapping in [
+        root.clone(),
+        host.path().to_owned(),
+        root.join(Uuid::from_u128(3).to_string()),
+        link.clone(),
+        link.join("channels").join("x"),
+    ] {
+        let mut config = base_config(&socket, &cache, &scratch);
+        config.mount_aliases.get_mut("scratch").unwrap().host_path = overlapping.clone();
+        let refused = Err(BackendError::InvalidRequest(
+            "channel root must be absolute, expose no daemon socket and overlap no mount alias",
+        ));
+        assert_eq!(config.check_channel_root(&root), refused, "{overlapping:?}");
+        config.channel_root = Some(root.clone());
+        assert_eq!(config.validate(), refused, "{overlapping:?}");
+    }
+}
+
+/// Finding 1 (PR #43 review): the channel accepts exactly the enrollment
+/// origins the node's own native transport accepts for its credential.
+#[test]
+fn the_channel_accepts_the_origins_the_native_transport_accepts() {
+    for origin in [
+        "https://aq.example.com",
+        "https://10.0.0.5",
+        "http://127.0.0.1:32839",
+        "http://127.0.0.1",
+        "http://127.0.0.2:8080",
+        "http://[::1]:8080",
+        "http://host.docker.internal:32839",
+        "http://localhost:8080",
+        "http://aq-server:8080",
+        "http://192.168.1.5:8080",
+        "http://0.0.0.0:8080",
+        "ftp://aq.example.com",
+        "https://user:pw@aq.example.com",
+    ] {
+        let worker = aq_worker::config::WorkerConfig {
+            server_url: origin.into(),
+            node_id: Uuid::from_u128(1),
+            credential: "node-credential-0123456789abcdef".into(),
+            cf_client_id: None,
+            cf_client_secret: None,
+        };
+        assert_eq!(
+            aq_agent_channel::node_origin(origin).is_ok(),
+            aq_worker::native::http::NativeClient::from_config(&worker).is_ok(),
+            "{origin}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn refuses_unallowlisted_template() {
     let mut h = harness().await;

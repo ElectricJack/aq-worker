@@ -12,6 +12,7 @@ use reqwest::{
 };
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt};
+use zeroize::Zeroizing;
 
 pub const MAX_HEAD: usize = 16384;
 pub const MAX_BODY: usize = 4 * 1024 * 1024;
@@ -29,8 +30,17 @@ pub(crate) enum Origins {
     MachineHostname,
     /// `http://127.0.0.1:<port>` only (fixtures and the local MS1 server).
     NumericLoopback,
-    /// Either of the above.
-    Either,
+    /// The node's own enrollment (`server_url`), under the rule its native
+    /// transport applies (aq-worker `NativeClient::from_config`): `https://`
+    /// with any host, or `http://` to a numeric loopback address. Never
+    /// stricter than the connection the node already makes with its own
+    /// credential, and never looser: no plaintext to a named or remote host.
+    Node,
+}
+
+/// Whether `origin` is a node enrollment the channel can serve ([`Origins::Node`]).
+pub fn node_origin(origin: &str) -> anyhow::Result<()> {
+    Upstream::check(origin, Origins::Node).map(|_| ())
 }
 
 pub(crate) struct Upstream {
@@ -38,21 +48,26 @@ pub(crate) struct Upstream {
     pub client: reqwest::Client,
 }
 impl Upstream {
-    pub fn new(origin: &str, allowed: Origins, timeout: Duration) -> anyhow::Result<Self> {
+    fn check(origin: &str, allowed: Origins) -> anyhow::Result<Url> {
         let url = Url::parse(origin)?;
-        let hostname = url.scheme() == "https"
-            && url.host_str().is_some_and(|host| {
-                !host.starts_with('[') && host.parse::<std::net::IpAddr>().is_err()
-            });
+        let host = url.host_str().unwrap_or_default();
+        let ip = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .ok();
+        let https = url.scheme() == "https" && !host.is_empty();
+        let hostname = https && ip.is_none();
         let loopback =
             url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port().is_some();
+        let node_loopback = url.scheme() == "http" && ip.is_some_and(|ip| ip.is_loopback());
         anyhow::ensure!(
             match allowed {
                 Origins::MachineHostname => hostname,
                 Origins::NumericLoopback => loopback,
-                Origins::Either => hostname || loopback,
+                Origins::Node => https || node_loopback,
             },
-            "AQ upstream must be an HTTPS machine hostname or a numeric loopback fixture"
+            "AQ upstream must be HTTPS, or plain HTTP only to a numeric loopback address"
         );
         anyhow::ensure!(
             url.username().is_empty()
@@ -62,6 +77,10 @@ impl Upstream {
                 && url.fragment().is_none(),
             "AQ proxy requires fixed origin"
         );
+        Ok(url)
+    }
+    pub fn new(origin: &str, allowed: Origins, timeout: Duration) -> anyhow::Result<Self> {
+        let url = Self::check(origin, allowed)?;
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -77,6 +96,38 @@ impl Upstream {
 
 /// Headers a listener injects into every forwarded request.
 pub(crate) type Inject = Vec<(HeaderName, HeaderValue)>;
+
+/// What a listener injects into one upstream send, taken just before it.
+pub(crate) struct Taken {
+    pub headers: Inject,
+    /// Values a response must never echo.
+    pub protected: Vec<Zeroizing<Vec<u8>>>,
+    /// The credential version the headers carry; `None` never retries.
+    pub version: Option<u64>,
+}
+
+/// The injected material, read as late as possible: a rotation that commits
+/// while a caller is still writing its request is picked up by that request.
+pub(crate) trait Credentials: Send + Sync {
+    fn take(&self) -> Option<Taken>;
+    /// The version held now; a change after [`Credentials::take`] means a
+    /// rotation raced the send.
+    fn version(&self) -> Option<u64> {
+        None
+    }
+}
+
+/// Fixed headers (the B6b loopback's Access service token).
+pub(crate) struct Fixed(pub Inject, pub Vec<Zeroizing<Vec<u8>>>);
+impl Credentials for Fixed {
+    fn take(&self) -> Option<Taken> {
+        Some(Taken {
+            headers: self.0.clone(),
+            protected: self.1.clone(),
+            version: None,
+        })
+    }
+}
 
 pub(crate) struct Rules {
     /// Required `Host` value (a TCP listener's authority); `None` accepts any
@@ -101,8 +152,13 @@ pub(crate) enum Failure {
 pub(crate) struct Forwarded {
     pub response: Vec<u8>,
     pub status: u16,
-    /// The upstream answered `session_revoked`: the attempt's credential is gone.
-    pub revoked: bool,
+    /// The `code` of a 401 answer (`session_revoked`, `unauthorized`,
+    /// `session_expired`): the attempt credential was not accepted.
+    pub refused: Option<String>,
+    /// The answer says `effect: not_applied`.
+    pub not_applied: bool,
+    /// The credential version the answered request carried.
+    pub version: Option<u64>,
 }
 
 /// Method and path (no query) of a request, for logs. Never headers or bodies.
@@ -111,6 +167,22 @@ pub(crate) struct Seen {
     pub method: String,
     pub path: String,
 }
+
+/// Request headers a caller may send upstream. Everything else is dropped:
+/// cookies, `Forwarded`/`X-Forwarded-*`/`X-Real-IP` and other proxy identity,
+/// every `cf-*` header, `X-AQ-Dev-Email`, `Origin`. The aq CLI's channel mode
+/// (aq-server `aq-human-http` `Client::channel`) sends `Host`, `Accept`,
+/// `X-AQ-Request`, `Content-Type` and `Content-Length`; the B7 agent client
+/// adds `X-AQ-Agent-API-Version` (and, on B6b, `Authorization`).
+const FORWARDED: &[&str] = &[
+    "accept",
+    "content-type",
+    "user-agent",
+    "x-aq-request",
+    "x-aq-agent-api-version",
+    "x-aq-graph-api-version",
+    "x-aq-refusal-version",
+];
 
 fn check(condition: bool, failure: Failure) -> Result<(), Failure> {
     if condition { Ok(()) } else { Err(failure) }
@@ -179,8 +251,7 @@ fn connection_tokens(headers: &HeaderMap) -> Vec<String> {
 pub(crate) async fn forward<S: AsyncRead + Unpin>(
     upstream: &Upstream,
     rules: &Rules,
-    inject: &[(HeaderName, HeaderValue)],
-    protected: &[&[u8]],
+    credentials: &dyn Credentials,
     socket: &mut S,
     seen: &mut Seen,
 ) -> Result<Forwarded, Failure> {
@@ -250,18 +321,15 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
     let removed: Vec<_> = headers
         .keys()
         .filter(|name| {
-            access_header(name.as_str())
-                || hop_header(name.as_str())
-                || (rules.replace_authorization && name.as_str() == "authorization")
-                || connection.iter().any(|v| v == name.as_str())
+            let name = name.as_str();
+            let allowed = FORWARDED.contains(&name)
+                || (!rules.replace_authorization && name == "authorization");
+            !allowed || connection.iter().any(|v| v == name)
         })
         .cloned()
         .collect();
     for name in removed {
         headers.remove(name);
-    }
-    for (name, value) in inject {
-        headers.insert(name.clone(), value.clone());
     }
     headers.insert(
         reqwest::header::ACCEPT_ENCODING,
@@ -287,14 +355,47 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
             Failure::Refused("the path is not in normal form"),
         )?;
     }
-    let mut response = upstream
-        .client
-        .request(method, url)
-        .headers(headers)
-        .body(body)
-        .send()
-        .await
-        .map_err(|_| Failure::Upstream)?;
+    // The credential is taken here, after the caller's request has been read,
+    // not at accept. A 401 `unauthorized` (`not_applied`: authentication fails
+    // before any handler runs) for a credential a rotation has since replaced
+    // is sent once more with the new one.
+    let mut retried = false;
+    loop {
+        let taken = credentials.take().ok_or(Failure::Upstream)?;
+        let mut sent = headers.clone();
+        for (name, value) in &taken.headers {
+            sent.insert(name.clone(), value.clone());
+        }
+        let response = upstream
+            .client
+            .request(method.clone(), url.clone())
+            .headers(sent)
+            .body(body.clone())
+            .send()
+            .await
+            .map_err(|_| Failure::Upstream)?;
+        let protected: Vec<&[u8]> = taken.protected.iter().map(|v| v.as_slice()).collect();
+        let mut done = respond(response, &protected).await?;
+        done.version = taken.version;
+        if !retried
+            && done.refused.as_deref() == Some("unauthorized")
+            && done.not_applied
+            && taken.version.is_some()
+            && credentials.version() != taken.version
+        {
+            retried = true;
+            continue;
+        }
+        return Ok(done);
+    }
+}
+
+/// The caller-facing answer: no redirects, identity encoding, no hop-by-hop,
+/// Access or cookie headers, nothing that echoes `protected`.
+async fn respond(
+    mut response: reqwest::Response,
+    protected: &[&[u8]],
+) -> Result<Forwarded, Failure> {
     check(!response.status().is_redirection(), Failure::Upstream)?;
     check(
         response
@@ -313,8 +414,10 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
     let response_connection = connection_tokens(response.headers());
     for (name, value) in response.headers() {
         check(!holds(value.as_bytes(), protected), Failure::Upstream)?;
+        // `Set-Cookie` never reaches a sandbox (an Access edge sets `CF_Authorization`).
         if !access_header(name.as_str())
             && !hop_header(name.as_str())
+            && !matches!(name.as_str(), "set-cookie" | "set-cookie2")
             && !response_connection.iter().any(|v| v == name.as_str())
         {
             result.extend_from_slice(name.as_str().as_bytes());
@@ -323,7 +426,7 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
             result.extend_from_slice(b"\r\n");
         }
     }
-    let mut body = zeroize::Zeroizing::new(Vec::new());
+    let mut body = Zeroizing::new(Vec::new());
     while let Some(chunk) = response.chunk().await.map_err(|_| Failure::Upstream)? {
         check(
             body.len().saturating_add(chunk.len()) <= MAX_BODY,
@@ -332,14 +435,19 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
         body.extend_from_slice(&chunk);
     }
     check(!holds(&body, protected), Failure::Upstream)?;
-    let revoked = status == 401
-        && serde_json::from_slice::<serde_json::Value>(&body)
-            .is_ok_and(|v| v["code"] == "session_revoked");
+    let parsed = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or_default();
+    let refused = (status == 401)
+        .then(|| parsed["code"].as_str())
+        .flatten()
+        .filter(|code| code.len() <= 64)
+        .map(str::to_owned);
     result.extend_from_slice(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes());
     result.extend_from_slice(&body);
     Ok(Forwarded {
         response: result,
         status,
-        revoked,
+        refused,
+        not_applied: parsed["effect"] == "not_applied",
+        version: None,
     })
 }

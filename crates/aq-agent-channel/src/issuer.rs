@@ -92,7 +92,7 @@ impl NodeIssuer {
     ) -> anyhow::Result<Self> {
         let upstream = crate::forward::Upstream::new(
             origin,
-            crate::forward::Origins::Either,
+            crate::forward::Origins::Node,
             Duration::from_secs(10),
         )?;
         anyhow::ensure!(
