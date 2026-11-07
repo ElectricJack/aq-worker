@@ -107,3 +107,13 @@ fn pinned_contract_digests_match() {
         assert_eq!(want.as_str().unwrap(), got, "{file}");
     }
 }
+
+/// Reads the file the Windows probe wrote. Run right after
+/// `aq-host-load.ps1 -Once`: `cargo test -p aq-machine-load -- --ignored real_host_file`.
+#[test]
+#[ignore = "needs the Windows probe to have just written the file"]
+fn real_host_file() {
+    let path = std::path::Path::new("/mnt/c/ProgramData/agent-q/host-load.json");
+    let now = crate::now_ms();
+    assert!(matches!(read_host_load(path, now), HostLoad::Fresh(_)));
+}
