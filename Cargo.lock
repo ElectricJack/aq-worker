@@ -124,6 +124,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-agent-channel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "aq-agent-client"
 version = "0.1.0"
 dependencies = [
@@ -384,6 +402,7 @@ dependencies = [
  "anyhow",
  "aq-admission 0.1.12",
  "aq-admission 0.3.2",
+ "aq-agent-channel",
  "aq-agent-client",
  "aq-agent-result-local",
  "aq-codex-mapper",

@@ -15,7 +15,11 @@
 //! 6. submit the AQ result claim through the attempt's local result channel.
 //!
 //! The token never appears in argv, the container create body, labels, logs
-//! or the pane. The driver itself never talks to aq-server.
+//! or the pane. The driver itself never talks to aq-server: with
+//! `agent_channel` the node's per-attempt channel (spec 0006 §5, crate
+//! `aq-agent-channel`) holds the AQ credential, and the driver only mounts its
+//! socket directory at `/aq/channel` and sets `AQ_CHANNEL`. No channel socket,
+//! no launch (`agent_channel_unavailable`).
 use crate::backend::docker_local::tar::{TreeEntry, read_tree, tree_archive};
 use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig};
 use crate::backend::{
@@ -62,6 +66,9 @@ AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run
 The node runner submits your final message as the AQ result claim, so end with exactly one line: \
 Changes: ...; Checks: exact commands and outcomes; Limits: .... Your worktree is retained as is: keep \
 build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
+/// Appended when the attempt has an agent channel.
+pub const CHANNEL_NOTE: &str = "The aq CLI (/opt/aq/bin/aq, where installed) reaches AQ from this \
+sandbox through AQ_CHANNEL; no credential is needed or accepted. `aq commands` lists what you may run.\n";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,6 +91,9 @@ pub struct DriverConfig {
     /// Local result channel (`AQ_AGENT_RESULT_DIR`); absent means no claim.
     pub result_dir: Option<PathBuf>,
     pub max_workspace_bytes: u64,
+    /// Mount the node's channel for this attempt; launch fails without it.
+    #[serde(default)]
+    pub agent_channel: bool,
 }
 
 /// Token file contents to the token: one line, trailing CR/LF trimmed,
@@ -311,7 +321,14 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
                 && !v.contains('\n'),
             "Claude environment refused"
         );
+        let v = match (config.agent_channel, k.as_str()) {
+            (true, "PATH") => aq_agent_channel::with_aq_bin(v),
+            _ => v.clone(),
+        };
         env.push_str(&format!("{k}={v}\n"));
+    }
+    if config.agent_channel {
+        env.push_str(&format!("AQ_CHANNEL={}\n", aq_agent_channel::AQ_CHANNEL));
     }
     let file = |path: &str, data: Vec<u8>| TreeEntry::File {
         path: path.into(),
@@ -322,6 +339,9 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     // the sandbox the node driver submits the claim from the final message.
     let mut prompt = prompt.to_vec();
     prompt.extend_from_slice(RUNNER_NOTE.as_bytes());
+    if config.agent_channel {
+        prompt.extend_from_slice(CHANNEL_NOTE.as_bytes());
+    }
     Ok(vec![
         file("prompt", prompt),
         file("args", (config.arguments.join("\n") + "\n").into_bytes()),
@@ -451,11 +471,9 @@ fn print_logs(bytes: &[u8], partial: &mut Vec<u8>, token: &[u8]) -> bool {
     while let Some(pos) = partial.iter().position(|b| *b == b'\n') {
         let line: Vec<u8> = partial.drain(..=pos).collect();
         let line = &line[..line.len() - 1];
-        if holds_token(line, token) {
+        if holds_secret(line, token) {
             leaked = true;
-            println!(
-                "aq-sandbox-harness: [a runner output line was withheld: it held the login token]"
-            );
+            println!("aq-sandbox-harness: [a runner output line was withheld: it held a secret]");
             continue;
         }
         if line.starts_with(b"{") {
@@ -510,14 +528,18 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let mut docker = config.docker_local.clone();
     docker.runner_command = Some(vec!["/bin/bash".into(), "-c".into(), RUNNER.into()]);
-    let mut backend = DockerLocalBackend::connect_unix(docker).await?;
-    let request = CreateRequest::new(
+    let mut request = CreateRequest::new(
         config.owner.clone(),
         config.template.clone(),
         config.hard_deadline_ms,
         vec![],
     )
     .with_resources(config.resources);
+    if config.agent_channel {
+        channel_ready(&config)?;
+        request = request.with_agent_channel();
+    }
+    let mut backend = DockerLocalBackend::connect_unix(docker).await?;
     let sandbox = match backend.create(&request).await {
         Ok(s) => s,
         Err(_) => {
@@ -621,6 +643,17 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     Ok(if proven.is_ok() { 0 } else { 1 })
 }
 
+/// 0006 §5.4: the node's channel socket must exist before the sandbox does.
+pub fn channel_ready(config: &DriverConfig) -> Result<()> {
+    let root = config.docker_local.channel_root.as_deref();
+    aq_agent_channel::socket_ready(root, config.owner.attempt_id)?;
+    println!(
+        "aq-sandbox-harness: agent channel at {}",
+        aq_agent_channel::AQ_CHANNEL
+    );
+    Ok(())
+}
+
 /// `exit.json` beside the driver config: success means the runner exited 0
 /// (backend-observed) and the workspace was copied back.
 fn write_exit(config_path: &Path, success: bool) {
@@ -677,6 +710,12 @@ pub fn holds_token(haystack: &[u8], token: &[u8]) -> bool {
         && haystack.windows(token.len()).any(|w| w == token)
 }
 
+/// The exact login token, or anything shaped like an AQ agent credential
+/// (`aqa_…`, 0006 §8: no AQ secret exists in the sandbox, so any is a leak).
+pub fn holds_secret(haystack: &[u8], token: &[u8]) -> bool {
+    holds_token(haystack, token) || aq_agent_channel::holds_agent_credential(haystack)
+}
+
 /// MS1 review S3b: the agent's tools can read the token from the claude
 /// process environment. Refuse the copy-back (it would reach central
 /// retention and, under D1, the remote) when any copied-back file or link,
@@ -684,17 +723,17 @@ pub fn holds_token(haystack: &[u8], token: &[u8]) -> bool {
 pub fn token_leak(entries: &[TreeEntry], stream: &[u8], token: &[u8]) -> Option<&'static str> {
     let in_tree = entries.iter().any(|e| match e {
         TreeEntry::File { path, data, .. } => {
-            holds_token(data, token) || holds_token(path.as_bytes(), token)
+            holds_secret(data, token) || holds_secret(path.as_bytes(), token)
         }
         TreeEntry::Symlink { path, target, .. } => {
-            holds_token(target.as_bytes(), token) || holds_token(path.as_bytes(), token)
+            holds_secret(target.as_bytes(), token) || holds_secret(path.as_bytes(), token)
         }
-        TreeEntry::Dir { path, .. } => holds_token(path.as_bytes(), token),
+        TreeEntry::Dir { path, .. } => holds_secret(path.as_bytes(), token),
     });
     if in_tree {
-        Some("the Claude login token appeared in the workspace")
-    } else if holds_token(stream, token) {
-        Some("the Claude login token appeared in the Claude transcript")
+        Some("a secret (login token or AQ credential) appeared in the workspace")
+    } else if holds_secret(stream, token) {
+        Some("a secret (login token or AQ credential) appeared in the Claude transcript")
     } else {
         None
     }
@@ -767,8 +806,8 @@ async fn drive(
         .await
         .context("workspace copy-back")?;
     let entries = read_tree(&archive, config.max_workspace_bytes)?;
-    let leak = token_leak(&entries, &stream, token)
-        .or(pane_leak.then_some("the Claude login token appeared in the runner output"));
+    let leak = token_leak(&entries, &stream, token).or(pane_leak
+        .then_some("a secret (login token or AQ credential) appeared in the runner output"));
     if leak.is_some() {
         // Nothing the sandbox produced is copied back.
         return Ok((rc, Vec::new(), Vec::new(), leak));
@@ -873,6 +912,59 @@ mod tests {
         assert!(!token.exists(), "the leased token must not stay on disk");
     }
 
+    /// 0006 §5.4/§8: no channel socket, no launch; the env names the socket;
+    /// an `aqa_` credential anywhere that leaves the sandbox is a leak.
+    #[test]
+    fn channel_is_required_named_in_env_and_its_credential_guarded() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config: DriverConfig = serde_json::from_value(serde_json::json!({
+            "docker_local": DockerLocalConfig::new("/run/x.sock".into()),
+            "template": format!("sha256:{}", "a".repeat(64)),
+            "owner": {"node_id": uuid::Uuid::from_u128(1), "boot_id": uuid::Uuid::from_u128(2),
+                "attempt_id": uuid::Uuid::from_u128(3)},
+            "hard_deadline_ms": 1, "resources": {"cpu_millis": 1000, "memory_bytes": 1u64 << 30, "pids": 64},
+            "workspace": "/w", "token_file": "/t", "executable": "/e", "arguments": [], "environment": {},
+            "settings_json": "{}", "result_dir": null, "max_workspace_bytes": 1, "agent_channel": true,
+        }))
+        .unwrap();
+        let error = channel_ready(&config).unwrap_err().to_string();
+        assert!(error.starts_with("agent_channel_unavailable"), "{error}");
+        config.docker_local.channel_root = Some(root.path().into());
+        let dir = root.path().join(uuid::Uuid::from_u128(3).to_string());
+        std::fs::create_dir(&dir).unwrap();
+        assert!(
+            channel_ready(&config).is_err(),
+            "a directory without a socket"
+        );
+        let _socket = std::os::unix::net::UnixListener::bind(dir.join("aq.sock")).unwrap();
+        channel_ready(&config).unwrap();
+        config.environment = [("PATH".into(), "/usr/bin:/bin".into())].into();
+        let inputs = input_entries(&config, b"p").unwrap();
+        let text = |name: &str| match inputs.iter().find(|e| e.path() == name) {
+            Some(TreeEntry::File { data, .. }) => String::from_utf8(data.clone()).unwrap(),
+            _ => panic!("{name}"),
+        };
+        let env = "PATH=/opt/aq/bin:/usr/bin:/bin\nAQ_CHANNEL=unix:/aq/channel/aq.sock\n";
+        assert_eq!(text("env"), env);
+
+        assert!(text("prompt").ends_with(CHANNEL_NOTE));
+        let credential = format!("aqa_{}", "Q".repeat(43));
+        let file = |data: &str| TreeEntry::File {
+            path: "f".into(),
+            mode: 0o644,
+            data: data.into(),
+        };
+        let token = b"fixture-login-0123456789abcdef";
+        assert!(token_leak(&[file(&credential)], b"", token).is_some());
+        assert!(token_leak(&[], credential.as_bytes(), token).is_some());
+        assert!(token_leak(&[file("starts_with(\"aqa_\")")], b"", token).is_none());
+        assert!(print_logs(
+            format!("x {credential}\n").as_bytes(),
+            &mut Vec::new(),
+            token
+        ));
+    }
+
     #[test]
     fn token_trims_newlines_and_refuses_bad_shapes() {
         assert_eq!(
@@ -916,6 +1008,7 @@ mod tests {
             settings_json: "{}".into(),
             result_dir: None,
             max_workspace_bytes: 1,
+            agent_channel: false,
         };
         assert!(input_entries(&config, b"p").is_err(), "API key env refused");
     }

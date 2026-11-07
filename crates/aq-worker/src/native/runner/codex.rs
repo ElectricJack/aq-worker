@@ -55,7 +55,7 @@ pub enum ExecutorConfig {
     /// MS1: Claude Code in a docker-local sandbox (`runner::claude_docker`).
     #[serde(rename = "claude-2.1.318-docker-local-result-local-v1")]
     ClaudeDockerLocalResultLocal {
-        settings: super::claude_docker::ClaudeDockerSettings,
+        settings: Box<super::claude_docker::ClaudeDockerSettings>,
         composite_definition: PathBuf,
     },
     #[serde(rename = "codex-0.166-chatgpt-interactive-result-local-v1")]

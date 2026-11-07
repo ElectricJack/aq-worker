@@ -648,6 +648,16 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
                 return Err(BackendError::InvalidRequest("duplicate mount alias"));
             }
         }
+        if request.agent_channel {
+            let source = self.config.channel_root.as_ref().map(|root| {
+                std::fs::symlink_metadata(root.join(request.owner.attempt_id.to_string()))
+            });
+            if !matches!(source, Some(Ok(meta)) if meta.is_dir()) {
+                return Err(BackendError::InvalidRequest(
+                    "agent channel directory absent (agent_channel_unavailable)",
+                ));
+            }
+        }
         let supported = self.capabilities();
         if let Some(capability) = request
             .required_capabilities

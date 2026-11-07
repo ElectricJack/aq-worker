@@ -1,7 +1,7 @@
 //! Fixed launch policy and label identity. Nothing in an offer or request can
 //! widen the create body: limits come from the reservation, mounts only from
 //! the per-attempt volume and operator-declared aliases.
-use super::config::{DockerLocalConfig, WORK_TARGET};
+use super::config::{CHANNEL_TARGET, DockerLocalConfig, WORK_TARGET};
 use crate::backend::{
     BackendError, BackendKind, CreateRequest, InventoryEntry, Ownership, ResourceLimits,
     SandboxIdentity, SandboxState, TemplateDigest, UnconfirmedReason,
@@ -125,6 +125,14 @@ pub fn create_body(
             "Source": declared.host_path,
             "Target": declared.target,
             "ReadOnly": declared.read_only,
+        }));
+    }
+    if let (true, Some(root)) = (request.agent_channel, &config.channel_root) {
+        mounts.push(json!({
+            "Type": "bind",
+            "Source": root.join(request.owner.attempt_id.hyphenated().to_string()),
+            "Target": CHANNEL_TARGET,
+            "ReadOnly": false,
         }));
     }
     let mut body = json!({

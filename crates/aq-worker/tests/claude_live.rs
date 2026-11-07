@@ -13,6 +13,8 @@
 //! The token reaches the sandbox only as controller-delivered private
 //! material: never argv, labels, create env or logs. The runner moves it into
 //! `CLAUDE_CODE_OAUTH_TOKEN`, deletes the file and never writes it back.
+#[path = "claude_live/channel_live.rs"]
+mod channel_live;
 #[path = "support/docker_live.rs"]
 mod docker_live;
 #[path = "claude_live/ms1_live.rs"]
