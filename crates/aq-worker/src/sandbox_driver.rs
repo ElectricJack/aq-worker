@@ -11,8 +11,9 @@
 //!    reads it into `CLAUDE_CODE_OAUTH_TOKEN` for the `claude` process only and
 //!    deletes the file before Claude starts;
 //! 4. stream the runner log to the pane and wait for the runner;
-//! 5. copy `/aq/work` back into the worktree, then stop and destroy;
-//! 6. submit the AQ result claim through the attempt's local result channel.
+//! 5. copy `/aq/work` back into the worktree, then stop the sandbox;
+//! 6. submit the AQ result claim through the attempt's local result channel,
+//!    then destroy the sandbox. A copy-back that fails part way claims nothing.
 //!
 //! The token never appears in argv, the container create body, labels, logs
 //! or the pane. The driver itself never talks to aq-server: with
@@ -196,7 +197,6 @@ pub fn collect_tree(root: &Path, max_bytes: u64) -> Result<Vec<TreeEntry>> {
 /// Make `root` (except `.git`) hold exactly `entries`. Writes never follow an
 /// existing symlink; removed paths are deleted. Returns the changed paths.
 pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
-    let mut changed = Vec::new();
     let mut wanted = BTreeSet::new();
     let git = |p: &str| p == ".git" || p.starts_with(".git/");
     for entry in entries {
@@ -240,6 +240,24 @@ pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
             parent = p.parent();
         }
     }
+    // From here the worktree changes: a failure leaves part of the tree behind.
+    apply_tree(root, entries, &wanted).context(CopyBackIncomplete)
+}
+/// A copy-back that failed after it began writing: the worktree holds part of the sandbox's
+/// tree, so no result may be claimed from it (the preserved sandbox is salvaged instead).
+#[derive(Debug)]
+pub struct CopyBackIncomplete;
+impl std::fmt::Display for CopyBackIncomplete {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("copy-back incomplete")
+    }
+}
+fn apply_tree(
+    root: &Path,
+    entries: &[TreeEntry],
+    wanted: &BTreeSet<String>,
+) -> Result<Vec<String>> {
+    let (mut changed, git) = (Vec::new(), |p: &str| p == ".git" || p.starts_with(".git/"));
     // Remove what the sandbox no longer has (deepest first).
     let current = collect_tree(root, u64::MAX)?;
     let mut stale: Vec<_> = current
@@ -469,16 +487,13 @@ pub async fn run(config_path: &Path) -> Result<i32> {
                 stopped.is_confirmed()
             );
             write_exit(config_path, false);
-            // Always claim: a recorded (failed) result lets settlement send the
-            // task to rework and a replacement attempt run, instead of leaving
-            // a stopped attempt with no report holding the task.
-            submit_claim(
-                &config,
-                format!(
-                    "Changes: unknown; Runner failure: {error:#}; sandbox {} preserved",
-                    sandbox.backend_id
-                ),
-            );
+            let Some(claim) = preserved_claim(&error, &sandbox.backend_id) else {
+                println!(
+                    "aq-sandbox-harness: copy-back incomplete; no claim, salvage copies the preserved sandbox again"
+                );
+                return Ok(5);
+            };
+            submit_claim(&config, claim);
             return Ok(3);
         }
     };
@@ -500,6 +515,9 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             .and_then(|mut f| f.write_all(&stream));
     }
     let stopped = backend.stop(&sandbox).await;
+    // The claim precedes the destroy: a kill in between leaves a stopped sandbox, never an
+    // unclaimed attempt whose sandbox is gone (salvage would hold it as sandbox_absent).
+    let code = claim_outcome(config_path, &config, note, leak, &stream, rc, &changed);
     let destroyed = if stopped.is_confirmed() {
         let authorization = DestroyAuthorization::retained(
             sandbox.clone(),
@@ -522,18 +540,30 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             changed.join(", ")
         }
     );
-    // The exit record precedes the claim: the node may stop this pane as soon
-    // as the claim is recorded.
+    Ok(code)
+}
+
+/// Writes the exit record, then the claim (the node may stop this pane as soon as the claim
+/// is recorded), and returns the driver's exit code.
+fn claim_outcome(
+    config_path: &Path,
+    config: &DriverConfig,
+    note: Option<String>,
+    leak: Option<&'static str>,
+    stream: &[u8],
+    rc: Option<i32>,
+    changed: &[String],
+) -> i32 {
     if let Some(note) = note {
         // The work is in the node worktree; the executor sees a recorded
         // failure and the pipeline checkpoints, retains and reports it.
         write_exit(config_path, false);
-        submit_claim(&config, note);
-        return Ok(4);
+        submit_claim(config, note);
+        return 4;
     }
     let proven = match leak {
         Some(place) => Err(place),
-        None => proven_success(&stream, rc, &changed),
+        None => proven_success(stream, rc, changed),
     };
     if let Err(reason) = proven {
         println!(
@@ -542,16 +572,25 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     }
     write_exit(config_path, proven.is_ok());
     submit_claim(
-        &config,
+        config,
         match leak {
             // Never forward the agent's own text when the token leaked.
             Some(place) => {
                 format!("Changes: none (copy-back refused); Refused: {place}; the attempt failed")
             }
-            None => conclusion(&stream, rc, &changed),
+            None => conclusion(stream, rc, changed),
         },
     );
-    Ok(if proven.is_ok() { 0 } else { 1 })
+    if proven.is_ok() { 0 } else { 1 }
+}
+
+/// The failed claim for a preserved sandbox: a recorded (failed) result lets settlement send the
+/// task to rework instead of a stopped attempt with no report holding it. None after an
+/// incomplete copy-back: the half-synced worktree must never become a result.
+fn preserved_claim(error: &anyhow::Error, sandbox: &str) -> Option<String> {
+    (error.downcast_ref::<CopyBackIncomplete>().is_none()).then(|| {
+        format!("Changes: unknown; Runner failure: {error:#}; sandbox {sandbox} preserved")
+    })
 }
 
 /// 0006 §5.4: the node's channel socket must exist before the sandbox does.
@@ -769,6 +808,34 @@ mod tests {
         )
         .unwrap();
         assert!(root.path().join("b").is_symlink());
+    }
+
+    /// Review #8: a copy-back that fails after it began writing is marked incomplete and
+    /// claims nothing; a refusal before any write still claims the preserved sandbox.
+    #[test]
+    fn partial_copy_back_is_never_claimed() {
+        let root = tempfile::tempdir().unwrap();
+        let file = |path: &str| TreeEntry::File {
+            path: path.into(),
+            mode: 0o644,
+            data: b"x".to_vec(),
+        };
+        let partial = sync_tree(root.path(), &[file("a.txt"), file("missing/b.txt")]).unwrap_err();
+        assert!(
+            root.path().join("a.txt").exists(),
+            "a.txt was already written"
+        );
+        assert_eq!(preserved_claim(&partial, "sb"), None);
+        let link = TreeEntry::Symlink {
+            path: "out".into(),
+            target: "/etc".into(),
+        };
+        let refused = sync_tree(root.path(), &[link]).unwrap_err();
+        assert!(
+            preserved_claim(&refused, "sb")
+                .unwrap()
+                .contains("sandbox sb preserved")
+        );
     }
 
     /// MS1 review S3b: copy-back and success are refused when the token's
