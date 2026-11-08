@@ -8,7 +8,7 @@ use crate::backend::{
         tar::{self, TreeEntry},
     },
 };
-use crate::native::journal::Attempt;
+use crate::native::journal::{Attempt, RecoveryHold};
 use crate::sandbox_driver as driver;
 use aq_admission::result_record;
 use aq_agent_result_local as local;
@@ -24,6 +24,9 @@ pub enum ReconcileDisposition {
     StopReported,
     /// The exact frozen result report is retained by the server.
     ResultRecorded,
+    /// R1: it failed in preparation before its Prepare was journaled. Nothing ran and nothing
+    /// is owed: the server closes its pre-grant claim itself.
+    NeverExecuted,
 }
 
 enum Receipt {
@@ -108,6 +111,9 @@ pub async fn reconcile_native(
         .get(&attempt_id)
         .context("native recovery attempt absent")?
         .clone();
+    if let Some(disposition) = pre_launch(&attempt) {
+        return disposition;
+    }
     // B5b/AQ-08: a granted Frozen-phase launch with no Running history never
     // started. Stop any host it configured, durably close it, and report the
     // closure; never relaunch it.
@@ -222,7 +228,9 @@ pub async fn salvage_interrupted(
 fn settled(reconciled: ReconcileDisposition) -> Option<SalvageDisposition> {
     match reconciled {
         ReconcileDisposition::ResultRecorded => Some(SalvageDisposition::AlreadyReported),
-        ReconcileDisposition::LaunchClosed => Some(SalvageDisposition::NotStarted),
+        ReconcileDisposition::LaunchClosed | ReconcileDisposition::NeverExecuted => {
+            Some(SalvageDisposition::NotStarted)
+        }
         ReconcileDisposition::StopReported => None,
     }
 }
@@ -285,6 +293,36 @@ async fn stop_claude_sandbox(config: &NativeConfig, node: Uuid, attempt: Uuid) -
     Ok(())
 }
 
+/// R1: the disposition of an attempt with no host history (it never launched), or None.
+fn pre_launch(a: &Attempt) -> Option<Result<ReconcileDisposition>> {
+    let hold = |reason, why: &str| {
+        Some(Err(
+            RecoveryHold(reason, anyhow::anyhow!(why.to_owned())).into()
+        ))
+    };
+    if a.native_host.is_some() || a.result.is_some() {
+        return None;
+    }
+    let granted = a.initial_grant.is_some() || a.phase_execution.is_some();
+    let prepared = a.prepared.is_some() || a.phase_prepared.is_some();
+    match (
+        granted || a.refresh_execution.is_some(),
+        prepared || a.refresh_prepared.is_some(),
+    ) {
+        // Failed in preparation before Prepare: the server's pre-grant expiry closes its claim.
+        (false, false) => Some(Ok(ReconcileDisposition::NeverExecuted)),
+        // Prepare was journaled (then sent) but no grant is: the reply may be lost, and the
+        // server's pre-grant expiry never closes a granted claim. Recovery cannot record a
+        // replayed grant (its journal is not live). follow-up: replay the journaled Prepare to
+        // learn its disposition, then close or settle the grant.
+        (false, true) => hold("prepare_disposition_unknown", "Prepare journaled, no grant"),
+        // follow-up: a launch closure for an execution granted before any launch intent.
+        (true, _) => hold(
+            "launch_closure_pending",
+            "execution granted, no launch recorded",
+        ),
+    }
+}
 /// A Frozen-phase launch whose host never recorded Running or a terminal.
 fn unstarted(a: &Attempt) -> bool {
     (a.phase_acceptance.is_some() != a.refresh_acceptance.is_some())
@@ -458,7 +496,9 @@ async fn replay(
     attempt: &Attempt,
     mut retain: impl FnMut(Receipt) -> Result<()>,
 ) -> Result<ReconcileDisposition> {
-    let profile = TerminalProfile::for_attempt(attempt)?;
+    // A missing or mixed history cannot change on retry: the service holds the slot (R1).
+    let profile = TerminalProfile::for_attempt(attempt);
+    let profile = profile.map_err(|e| RecoveryHold("journal_inconsistent", e))?;
     let host = attempt.native_host.as_ref().unwrap();
     ensure!(
         host.stopped.is_some(),

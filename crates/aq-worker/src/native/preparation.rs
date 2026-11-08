@@ -1,4 +1,17 @@
 //! Bounded current input collection, never Prepare or execution permission.
+/// The Legacy, Phase and Refresh entry points of one input operation (`$context`).
+macro_rules! input_entries {
+    ($context:ident $args:tt -> $out:ty {$($name:ident: $kind:ident($prep:ty)),+}) => {
+        $(input_entries!(@one $name, $kind, $prep, $context, $args, $out);)+
+    };
+    (@one $name:ident, $kind:ident, $prep:ty, $context:ident, ($($arg:ident: $ty:ty),*), $out:ty) => {
+        pub async fn $name(&self, id: Uuid, preparation: Arc<$prep>, $($arg: $ty),*) -> Result<$out> {
+            self.$context(id, InputContext::$kind(preparation), $($arg),*).await
+        }
+    };
+}
+type Phase = super::http::preparation_v2::AcceptedPreparation;
+type Refresh = super::http::preparation_refresh_v1::AcceptedPreparation;
 mod context;
 mod runner_prepare;
 mod runner_refresh;
@@ -183,32 +196,11 @@ impl InputPipeline {
         self.storage(|owner| Ok(owner.journal.state().clone()))
             .await
     }
-    /// Collect all original inline inputs with one durable plan and completion.
-    /// Lost payloads are downloaded again under the original IDs and deadlines.
-    pub async fn artifacts(
-        &self,
-        id: Uuid,
-        preparation: Arc<Preparation>,
-    ) -> Result<Vec<VerifiedArtifact>> {
-        self.artifacts_context(id, InputContext::Legacy(preparation))
-            .await
-    }
-    pub async fn artifacts_phase(
-        &self,
-        id: Uuid,
-        preparation: Arc<super::http::preparation_v2::AcceptedPreparation>,
-    ) -> Result<Vec<VerifiedArtifact>> {
-        self.artifacts_context(id, InputContext::Phase(preparation))
-            .await
-    }
-    pub async fn artifacts_refresh(
-        &self,
-        id: Uuid,
-        preparation: Arc<super::http::preparation_refresh_v1::AcceptedPreparation>,
-    ) -> Result<Vec<VerifiedArtifact>> {
-        self.artifacts_context(id, InputContext::Refresh(preparation))
-            .await
-    }
+    // Collect all original inline inputs with one durable plan and completion.
+    // Lost payloads are downloaded again under the original IDs and deadlines.
+    input_entries! { artifacts_context() -> Vec<VerifiedArtifact> {
+        artifacts: Legacy(Preparation), artifacts_phase: Phase(Phase), artifacts_refresh: Refresh(Refresh)
+    } }
     async fn artifacts_context(
         &self,
         id: Uuid,
@@ -252,46 +244,20 @@ impl InputPipeline {
     ) -> Result<VerifiedArtifact> {
         let mut assembly = ArtifactAssembly::new(plan.descriptor.clone())?;
         for request in &plan.requests {
-            ensure!(
-                boot_ns()?
-                    < plan
-                        .preparation
-                        .deadline_ns()
-                        .min(preparation.deadline_ns()),
-                "native artifact batch expired"
-            );
-            let response = self.client.artifact(request, &plan.descriptor).await?;
+            let deadline = plan
+                .preparation
+                .deadline_ns()
+                .min(preparation.deadline_ns());
+            ensure!(boot_ns()? < deadline, "native artifact batch expired");
+            let client = self.client.fetch_until(deadline);
+            let response = client.artifact(request, &plan.descriptor).await?;
             assembly.append(response.offset, &response.bytes)?;
         }
         assembly.finish()
     }
-    pub async fn artifact(
-        &self,
-        id: Uuid,
-        preparation: Arc<Preparation>,
-        reference: ArtifactRef,
-    ) -> Result<VerifiedArtifact> {
-        self.artifact_context(id, InputContext::Legacy(preparation), reference)
-            .await
-    }
-    pub async fn artifact_phase(
-        &self,
-        id: Uuid,
-        preparation: Arc<super::http::preparation_v2::AcceptedPreparation>,
-        reference: ArtifactRef,
-    ) -> Result<VerifiedArtifact> {
-        self.artifact_context(id, InputContext::Phase(preparation), reference)
-            .await
-    }
-    pub async fn artifact_refresh(
-        &self,
-        id: Uuid,
-        preparation: Arc<super::http::preparation_refresh_v1::AcceptedPreparation>,
-        reference: ArtifactRef,
-    ) -> Result<VerifiedArtifact> {
-        self.artifact_context(id, InputContext::Refresh(preparation), reference)
-            .await
-    }
+    input_entries! { artifact_context(reference: ArtifactRef) -> VerifiedArtifact {
+        artifact: Legacy(Preparation), artifact_phase: Phase(Phase), artifact_refresh: Refresh(Refresh)
+    } }
     async fn artifact_context(
         &self,
         id: Uuid,
@@ -314,15 +280,13 @@ impl InputPipeline {
             .await?;
         let mut assembly = ArtifactAssembly::new(plan.descriptor.clone())?;
         for request in &plan.requests {
-            ensure!(
-                boot_ns()?
-                    < plan
-                        .preparation
-                        .deadline_ns()
-                        .min(preparation.deadline_ns()),
-                "native artifact preparation expired"
-            );
-            let response = self.client.artifact(request, &plan.descriptor).await?;
+            let deadline = plan
+                .preparation
+                .deadline_ns()
+                .min(preparation.deadline_ns());
+            ensure!(boot_ns()? < deadline, "native artifact preparation expired");
+            let client = self.client.fetch_until(deadline);
+            let response = client.artifact(request, &plan.descriptor).await?;
             assembly.append(response.offset, &response.bytes)?;
         }
         let verified = assembly.finish()?;
@@ -335,33 +299,9 @@ impl InputPipeline {
         })
         .await
     }
-    pub async fn material(
-        &self,
-        id: Uuid,
-        preparation: Arc<Preparation>,
-        lease_id: Uuid,
-    ) -> Result<MaterialReceipt> {
-        self.material_context(id, InputContext::Legacy(preparation), lease_id)
-            .await
-    }
-    pub async fn material_phase(
-        &self,
-        id: Uuid,
-        preparation: Arc<super::http::preparation_v2::AcceptedPreparation>,
-        lease_id: Uuid,
-    ) -> Result<MaterialReceipt> {
-        self.material_context(id, InputContext::Phase(preparation), lease_id)
-            .await
-    }
-    pub async fn material_refresh(
-        &self,
-        id: Uuid,
-        preparation: Arc<super::http::preparation_refresh_v1::AcceptedPreparation>,
-        lease_id: Uuid,
-    ) -> Result<MaterialReceipt> {
-        self.material_context(id, InputContext::Refresh(preparation), lease_id)
-            .await
-    }
+    input_entries! { material_context(lease_id: Uuid) -> MaterialReceipt {
+        material: Legacy(Preparation), material_phase: Phase(Phase), material_refresh: Refresh(Refresh)
+    } }
     async fn material_context(
         &self,
         id: Uuid,
@@ -388,15 +328,13 @@ impl InputPipeline {
             .iter()
             .find(|l| l.lease_id == lease_id)
             .context("material lease not original")?;
-        ensure!(
-            boot_ns()?
-                < plan
-                    .preparation
-                    .deadline_ns()
-                    .min(preparation.deadline_ns()),
-            "native material preparation expired"
-        );
-        let private = self.client.material(&plan.request, lease).await?;
+        let deadline = plan
+            .preparation
+            .deadline_ns()
+            .min(preparation.deadline_ns());
+        ensure!(boot_ns()? < deadline, "native material preparation expired");
+        let client = self.client.fetch_until(deadline);
+        let private = client.material(&plan.request, lease).await?;
         self.storage(move |owner| {
             preparation.check(&owner.journal, id)?;
             let installed = owner.materials.install_context(private, &preparation)?;

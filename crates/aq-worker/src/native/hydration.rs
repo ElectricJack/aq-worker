@@ -96,36 +96,11 @@ impl HydratedWorkspace {
     }
 }
 impl InputPipeline {
-    pub async fn hydrate_source(
-        &self,
-        id: Uuid,
-        preparation: Arc<Preparation>,
-        spec: VerifiedArtifact,
-        git: GitClient,
-    ) -> Result<HydratedWorkspace> {
-        self.hydrate_source_context(id, InputContext::Legacy(preparation), spec, git)
-            .await
-    }
-    pub async fn hydrate_source_phase(
-        &self,
-        id: Uuid,
-        preparation: Arc<crate::native::http::preparation_v2::AcceptedPreparation>,
-        spec: VerifiedArtifact,
-        git: GitClient,
-    ) -> Result<HydratedWorkspace> {
-        self.hydrate_source_context(id, InputContext::Phase(preparation), spec, git)
-            .await
-    }
-    pub async fn hydrate_source_refresh(
-        &self,
-        id: Uuid,
-        preparation: Arc<crate::native::http::preparation_refresh_v1::AcceptedPreparation>,
-        spec: VerifiedArtifact,
-        git: GitClient,
-    ) -> Result<HydratedWorkspace> {
-        self.hydrate_source_context(id, InputContext::Refresh(preparation), spec, git)
-            .await
-    }
+    input_entries! { hydrate_source_context(spec: VerifiedArtifact, git: GitClient) -> HydratedWorkspace {
+        hydrate_source: Legacy(Preparation),
+        hydrate_source_phase: Phase(super::Phase),
+        hydrate_source_refresh: Refresh(super::Refresh)
+    } }
     async fn hydrate_source_context(
         &self,
         id: Uuid,
@@ -147,10 +122,13 @@ impl InputPipeline {
             })
             .await?;
         let binding = preparation.binding().clone();
-        let manifest = self
-            .client
-            .source_status(&binding, plan.admission(), plan.manifest.as_ref())
-            .await?;
+        let deadline = plan
+            .preparation
+            .deadline_ns()
+            .min(preparation.deadline_ns());
+        let client = self.client.fetch_until(deadline);
+        let manifest =
+            (client.source_status(&binding, plan.admission(), plan.manifest.as_ref())).await?;
         let m = manifest.clone();
         let observed = preparation.clone();
         self.storage(move |owner| {
@@ -187,16 +165,8 @@ impl InputPipeline {
                     owner.journal.source_range(id)
                 })
                 .await?;
-            ensure!(
-                boot_ns()?
-                    < plan
-                        .preparation
-                        .deadline_ns()
-                        .min(preparation.deadline_ns()),
-                "native source preparation expired"
-            );
-            let chunk = self
-                .client
+            ensure!(boot_ns()? < deadline, "native source preparation expired");
+            let chunk = client
                 .source_chunk(
                     &binding,
                     &manifest,

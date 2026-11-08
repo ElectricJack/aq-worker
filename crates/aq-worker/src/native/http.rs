@@ -1,5 +1,6 @@
 //! Existing native machine routes, consumed through the frozen public contract.
-//! No retries, redirects, legacy execution decoder or runnable grant inference.
+//! No redirects, legacy execution decoder or runnable grant inference; only read-only
+//! preparation fetches (artifacts, materials, source) retry transient failures.
 //! Durable request ownership and recovery remain the caller's responsibility.
 use crate::config::WorkerConfig;
 use anyhow::{Result, ensure};
@@ -42,15 +43,80 @@ pub struct NativeClient {
     renewal_slots: Arc<Semaphore>,
     phase_terminal_safety: reqwest::Client,
     phase_terminal_safety_slots: Arc<Semaphore>,
+    /// Boot-clock deadline before which fetch retries must end (`fetch_until`).
+    fetch_deadline_ns: u64,
 }
+/// A refused native request: its status and the `Retry-After` seconds it carried.
 #[derive(Debug)]
-pub struct HttpStatus(pub StatusCode);
+pub struct HttpStatus(pub StatusCode, pub Option<Duration>);
 impl std::fmt::Display for HttpStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "native endpoint returned {}", self.0)
     }
 }
 impl std::error::Error for HttpStatus {}
+/// A send that failed in transport (connect, timeout, reset): its disposition is unknown.
+#[derive(Debug)]
+pub struct TransportFailed(pub &'static str);
+impl std::fmt::Display for TransportFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for TransportFailed {}
+/// Logs a refused response (its body cut to 400 characters) and returns its `HttpStatus`.
+pub(crate) async fn refused(response: Response) -> anyhow::Error {
+    let status = response.status();
+    let path = response.url().path().to_owned();
+    let retry_after = (response.headers().get(header::RETRY_AFTER))
+        .and_then(|v| v.to_str().ok()?.trim().parse().ok())
+        .map(Duration::from_secs);
+    let body = response.text().await.unwrap_or_default();
+    let body: String = body.chars().take(400).collect();
+    tracing::warn!(%path, %status, %body, "native endpoint refused");
+    HttpStatus(status, retry_after).into()
+}
+/// Tries of a read-only preparation fetch, and its backoff (full jitter) start and cap.
+pub const FETCH_TRIES: u32 = 5;
+pub const FETCH_BACKOFF: (Duration, Duration) =
+    (Duration::from_millis(500), Duration::from_secs(8));
+/// The wait before retry `attempt` (0-based) of a read-only fetch that failed with `e`, or None
+/// when `e` is final: only 502/503/504, 408, 429 and transport failures are transient. A
+/// `Retry-After` is waited exactly; one beyond the backoff cap ends the retries.
+pub fn fetch_retry_wait(e: &anyhow::Error, attempt: u32) -> Option<Duration> {
+    let (base, cap) = FETCH_BACKOFF;
+    let after = match e.downcast_ref::<HttpStatus>() {
+        Some(HttpStatus(s, after)) if matches!(s.as_u16(), 408 | 429 | 502 | 503 | 504) => *after,
+        Some(_) => return None,
+        None => {
+            e.downcast_ref::<TransportFailed>()?;
+            None
+        }
+    };
+    let backoff = || crate::backoff::jittered(attempt, base, cap, &mut rand::thread_rng());
+    after.map_or_else(|| Some(backoff()), |d| (d <= cap).then_some(d))
+}
+/// Runs an idempotent read up to `FETCH_TRIES` times while it fails transiently and the next
+/// wait ends before `deadline_ns` (R1: one `503 overloaded` from an artifact download failed
+/// the whole attempt).
+pub(crate) async fn fetch_retried<T, F>(deadline_ns: u64, mut call: impl FnMut() -> F) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    let mut attempt = 0;
+    loop {
+        let e = match call().await {
+            Ok(value) => return Ok(value),
+            Err(e) => e,
+        };
+        let ends = |w: &Duration| boot_ns().is_ok_and(|n| n + (w.as_nanos() as u64) < deadline_ns);
+        let wait = fetch_retry_wait(&e, attempt).filter(|w| attempt + 1 < FETCH_TRIES && ends(w));
+        let Some(wait) = wait else { return Err(e) };
+        attempt += 1;
+        tracing::warn!(attempt, "{e:#}; retrying in {wait:?}");
+        tokio::time::sleep(wait).await;
+    }
+}
 
 /// No Debug/Serialize: private body bytes must not become logs or journal JSON.
 pub struct PrivateMaterial {
@@ -202,7 +268,15 @@ impl NativeClient {
             renewal_slots: Arc::new(Semaphore::new(1)),
             phase_terminal_safety: client()?,
             phase_terminal_safety_slots: Arc::new(Semaphore::new(1)),
+            fetch_deadline_ns: u64::MAX,
         })
+    }
+    /// This client, on the same lanes, with fetch retries that end before `deadline_ns`: the
+    /// boot-clock preparation or retrieval deadline of the inputs it reads.
+    pub fn fetch_until(&self, deadline_ns: u64) -> Self {
+        let mut client = self.clone();
+        client.fetch_deadline_ns = deadline_ns;
+        client
     }
     fn scope(&self, binding: &LaunchBinding) -> Result<()> {
         ensure!(
@@ -227,21 +301,9 @@ impl NativeClient {
             .body(bytes)
             .send()
             .await
-            .map_err(|_| anyhow::anyhow!("native request transport failed; disposition unknown"))?;
+            .map_err(|_| TransportFailed("native request transport failed; disposition unknown"))?;
         if !response.status().is_success() {
-            {
-                let status = response.status();
-                let path = response.url().path().to_owned();
-                let body: String = response
-                    .text()
-                    .await
-                    .unwrap_or_default()
-                    .chars()
-                    .take(400)
-                    .collect();
-                tracing::warn!(%path, %status, %body, "native endpoint refused");
-                return Err(HttpStatus(status).into());
-            }
+            return Err(refused(response).await);
         }
         Ok(response)
     }
@@ -323,7 +385,10 @@ impl NativeClient {
             "expected artifact scope"
         );
         let _slot = self.bulk_slots.try_acquire()?;
-        let response = self.post(&self.bulk, "artifact", request, 16_384).await?;
+        let response = fetch_retried(self.fetch_deadline_ns, || {
+            self.post(&self.bulk, "artifact", request, 16_384)
+        })
+        .await?;
         body_type(&response)?;
         let descriptor: RetainedArtifact = metadata(&response, "aq-artifact-retention")?;
         descriptor.validate()?;
@@ -371,8 +436,15 @@ impl NativeClient {
             "expected material scope"
         );
         let _slot = self.bulk_slots.try_acquire()?;
-        let sent = boot_ns()?;
-        let response = self.post(&self.bulk, "material", request, 16_384).await?;
+        // The material route only reads the admitted lease (no server write), so an overloaded
+        // read is retried with the same request; each try is timed from its own send.
+        let (sent, response) = fetch_retried(self.fetch_deadline_ns, || async move {
+            Ok((
+                boot_ns()?,
+                self.post(&self.bulk, "material", request, 16_384).await?,
+            ))
+        })
+        .await?;
         body_type(&response)?;
         let delivery: MaterialDelivery = metadata(&response, "aq-material-delivery")?;
         ensure!(

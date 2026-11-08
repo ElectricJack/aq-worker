@@ -154,6 +154,22 @@ pub enum WriteFault {
     AfterDirectorySync,
 }
 
+/// Why recovery holds a slot instead of retrying (R1): a journal or history that retrying
+/// cannot change. `.0` is the slot's holding reason (`journal_inconsistent`,
+/// `journal_unreadable: <kind>`, ...); the error itself displays only its cause.
+#[derive(Debug)]
+pub struct RecoveryHold(pub &'static str, pub anyhow::Error);
+impl std::fmt::Display for RecoveryHold {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#}", self.1)
+    }
+}
+impl std::error::Error for RecoveryHold {}
+/// A `RecoveryHold` for `reason` unless `ok`.
+pub(crate) fn hold_unless(ok: bool, reason: &'static str, why: &'static str) -> Result<()> {
+    ok.then_some(())
+        .ok_or_else(|| RecoveryHold(reason, anyhow::anyhow!(why)).into())
+}
 pub struct Journal {
     storage: Storage,
     state: State,
@@ -406,8 +422,8 @@ impl Journal {
             limits,
         )
     }
-    #[cfg(test)]
-    pub(crate) fn create_with_identity_for_test(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn create_with_identity_for_test(
         root: &Path,
         identity: WorkerIdentity,
         limits: Limits,
@@ -452,21 +468,24 @@ impl Journal {
             "native journal missing; capacity unknown"
         );
         let raw = storage.read(c"journal.json", MAX_BYTES)?;
-        let header: serde_json::Value = serde_json::from_slice(&raw)?;
-        ensure!(
-            header["state"]["format"].as_u64() == Some(FORMAT as u64),
-            "unsupported native journal format; preserve original evidence"
-        );
-        let snapshot: Snapshot = serde_json::from_slice(&raw)?;
-        ensure!(
-            snapshot.digest == canonical_digest(&snapshot.state)?,
-            "native journal checksum"
-        );
-        snapshot.state.validate(&limits)?;
-        ensure!(
-            snapshot.state.identity.node_id == node_id,
-            "native journal belongs to another node"
-        );
+        // R1: none of these can change on retry, so recovery holds the slot with the reason.
+        let format = |e: serde_json::Error| RecoveryHold("journal_unreadable: format", e.into());
+        let header: serde_json::Value = serde_json::from_slice(&raw).map_err(format)?;
+        let known = header["state"]["format"].as_u64() == Some(FORMAT as u64);
+        let why = "unsupported native journal format; preserve original evidence";
+        hold_unless(known, "journal_unreadable: format", why)?;
+        let snapshot: Snapshot = serde_json::from_slice(&raw).map_err(format)?;
+        let sealed = snapshot.digest == canonical_digest(&snapshot.state)?;
+        hold_unless(
+            sealed,
+            "journal_unreadable: checksum",
+            "native journal checksum",
+        )?;
+        let valid = snapshot.state.validate(&limits);
+        valid.map_err(|e| RecoveryHold("journal_inconsistent", e))?;
+        let ours = snapshot.state.identity.node_id == node_id;
+        let why = "native journal belongs to another node";
+        hold_unless(ours, "journal_unreadable: node", why)?;
         if names.iter().any(|n| n == "journal.pending") {
             // An unacknowledged pre-rename temp cannot precede a physical effect.
             // Validate the file safety, then keep the last published state. A
