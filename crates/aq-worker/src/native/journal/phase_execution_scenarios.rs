@@ -444,13 +444,11 @@ async fn phase_execution_history_reopen_refuses_changed_runtime_request_and_send
         });
         let mut cap = limits();
         cap.disk_bytes = 64 * 1024 * 1024 * 1024;
-        let refused = Journal::open(&h.root, identity().node_id, cap).err();
-        assert!(
-            refused
-                .unwrap()
-                .downcast_ref::<InconsistentJournal>()
-                .is_some()
-        );
+        let refused = Journal::open(&h.root, identity().node_id, cap)
+            .err()
+            .unwrap();
+        let hold = refused.downcast_ref::<RecoveryHold>().map(|h| h.0);
+        assert_eq!(hold, Some("journal_inconsistent"));
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

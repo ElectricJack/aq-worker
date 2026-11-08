@@ -669,4 +669,16 @@ async fn a_preparation_failed_by_overload_settles_as_never_started() {
         "recovery wrote nothing"
     );
     assert_eq!(retained_attempts(&config, worker.node_id).unwrap(), [p.id]);
+    // A journal that cannot be read for this node holds the slot with a reason (no backoff
+    // loop); `Journal::open` refuses before touching it.
+    use aq_worker::native::journal::{Journal, RecoveryHold};
+    let (root, limits) = (p.dir.path().join("journal"), preparation_failure::limits);
+    let refused = Journal::open(&root, Uuid::new_v4(), limits())
+        .err()
+        .unwrap();
+    let hold = refused.downcast_ref::<RecoveryHold>().map(|h| h.0);
+    assert_eq!(hold, Some("journal_unreadable: node"), "{refused:#}");
+    assert_eq!(std::fs::read(&journal).unwrap(), before);
+    let ours = Journal::open(&root, worker.node_id, limits());
+    assert!(ours.is_ok(), "the same journal opens for its own node");
 }

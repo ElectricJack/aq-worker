@@ -530,6 +530,7 @@ async fn material_digest_scope_and_full_network_interval_are_checked() {
     };
     let server_lease = lease.clone();
     let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
     let server = Server::new(Router::new().route(
         "/v1/worker/profiled/material",
         post(move |headers: HeaderMap| {
@@ -539,6 +540,13 @@ async fn material_digest_scope_and_full_network_interval_are_checked() {
             async move {
                 auth(&headers);
                 let n = calls.fetch_add(1, Ordering::SeqCst);
+                // R1: 3 and 5 are overloaded (5 asks for a wait past the retrieval deadline).
+                if let Some(after) = [(3, "0"), (5, "1")].iter().find(|(i, _)| *i == n) {
+                    let mut busy = (StatusCode::SERVICE_UNAVAILABLE, "overloaded").into_response();
+                    busy.headers_mut()
+                        .insert("retry-after", after.1.parse().unwrap());
+                    return busy;
+                }
                 let server_time = if n == 2 { 1999 } else { 1000 };
                 if n == 2 {
                     tokio::time::sleep(Duration::from_millis(15)).await;
@@ -565,6 +573,30 @@ async fn material_digest_scope_and_full_network_interval_are_checked() {
     assert_eq!(received.bytes(), b"synthetic provider material");
     assert!(client.material(&request, &lease).await.is_err());
     assert!(client.material(&request, &lease).await.is_err()); // expired in transit
+    // The material route only reads the lease: an overloaded read is retried, and each try
+    // is timed from its own send (the 503 took no part of the network interval).
+    let retried = client.material(&request, &lease).await.unwrap();
+    assert_eq!(retried.bytes(), b"synthetic provider material");
+    assert_eq!(seen.load(Ordering::SeqCst), 5, "503 then 200");
+    // A retry whose wait would end past the retrieval deadline is not attempted.
+    let deadline = client.fetch_until(boot_ns() + 200_000_000);
+    let e = deadline.material(&request, &lease).await.err().unwrap();
+    assert_eq!(
+        e.downcast_ref::<HttpStatus>().unwrap().0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(seen.load(Ordering::SeqCst), 6, "no retry past the deadline");
+}
+fn boot_ns() -> u64 {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    assert_eq!(
+        unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut t) },
+        0
+    );
+    t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
 }
 #[test]
 fn incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo() {

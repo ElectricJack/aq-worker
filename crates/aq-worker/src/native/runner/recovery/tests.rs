@@ -197,12 +197,33 @@ async fn mixed_execution_history_is_refused_as_inconsistent() {
     let e = replay(&client, &mixed, |_| panic!("no receipt"))
         .await
         .unwrap_err();
-    assert!(e.downcast_ref::<InconsistentJournal>().is_some(), "{e:#}");
+    let hold = e.downcast_ref::<RecoveryHold>().map(|h| h.0);
+    assert_eq!(hold, Some("journal_inconsistent"), "{e:#}");
     assert_eq!(format!("{e:#}"), "missing or mixed exact phase execution");
     let e = replay(&client, &stopped_attempt(false), |_| Ok(()))
         .await
         .unwrap_err();
-    assert!(e.downcast_ref::<InconsistentJournal>().is_none(), "{e:#}");
+    assert!(e.downcast_ref::<RecoveryHold>().is_none(), "{e:#}");
+}
+/// R1 review: only an attempt that failed before journaling Prepare settles as never started.
+/// A journaled Prepare may have been granted (a lost reply), and a granted execution with no
+/// launch needs its closure: both hold with their reason. A launched attempt is replayed.
+#[test]
+fn only_an_attempt_before_prepare_settles_as_never_started() {
+    let reason = |a: &Attempt| match pre_launch(a) {
+        Some(Err(e)) => e.downcast_ref::<RecoveryHold>().map(|h| h.0),
+        other => panic!("not held: {:?}", other.map(|d| d.ok())),
+    };
+    let mut a = terminal_attempt(false, false);
+    assert!(pre_launch(&a).is_none(), "launched: replayed");
+    (a.native_host, a.result) = (None, None);
+    assert_eq!(reason(&a), Some("launch_closure_pending"));
+    a.phase_execution = None;
+    assert!(a.phase_prepared.is_some());
+    assert_eq!(reason(&a), Some("prepare_disposition_unknown"));
+    a.phase_prepared = None;
+    let settled = pre_launch(&a).unwrap().unwrap();
+    assert_eq!(settled, ReconcileDisposition::NeverExecuted);
 }
 #[tokio::test]
 async fn uncertain_stop_is_preserved_without_reporting_or_admission() {

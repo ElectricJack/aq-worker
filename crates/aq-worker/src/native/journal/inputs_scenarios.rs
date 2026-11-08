@@ -216,7 +216,7 @@ impl Inputs {
                                 .push(serde_json::to_value(&request).unwrap());
                             if mode.load(Ordering::SeqCst) == 1 {
                                 return (
-                                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                                     "synthetic lost read",
                                 )
                                     .into_response();

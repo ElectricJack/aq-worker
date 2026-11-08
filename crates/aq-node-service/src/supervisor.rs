@@ -487,7 +487,12 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         let current = layout.current(slot);
         let ctx = self.ctx(slot, node_id, current.clone());
         if current.join("journal").exists() {
-            if let RecoverOutcome::Held(why) = self.recover(&ctx).await? {
+            let recovered = self.recover(&ctx).await;
+            if recovered.is_err() {
+                // Retried with backoff, so not held: `service status` shows no stale reason.
+                let _ = std::fs::remove_file(layout.slot_held(slot));
+            }
+            if let RecoverOutcome::Held(why) = recovered? {
                 tracing::error!(slot, "slot held until the owner releases it: {why}");
                 if let Err(e) = write_private(&layout.slot_held(slot), why.as_bytes()) {
                     tracing::warn!(slot, "holding reason not recorded: {e:#}");
@@ -1559,6 +1564,8 @@ mod tests {
     async fn transient_recovery_error_retries_then_runs() {
         let rig = rig(1);
         journal(&rig, 1);
+        // R1: a reason left by an earlier hold is not shown while recovery retries.
+        write_private(&rig.layout.slot_held(1), b"journal_unreadable: node: old").unwrap();
         let backend = Arc::new(FakeBackend::default());
         let outcomes = [Err(()), Ok(RecoverOutcome::Salvaged)];
         backend.recovery.lock().unwrap().insert(1, outcomes.into());
@@ -1566,6 +1573,7 @@ mod tests {
         let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
         sleep(Duration::from_secs(29)).await;
         assert_eq!(*backend.calls.lock().unwrap(), ["recover:1"]);
+        assert_eq!(rig.layout.held_reason(1), None, "retrying, not held");
         sleep(Duration::from_secs(2)).await;
         assert_eq!(
             *backend.calls.lock().unwrap(),

@@ -54,7 +54,7 @@ impl NativeClient {
     /// A source GET, retried while it fails transiently (`fetch_retried`).
     async fn source_get(&self, path: &str) -> Result<Response> {
         let url = format!("{}/v1/worker/profiled/source/{path}", self.base);
-        fetch_retried(|| self.source_get_once(&url)).await
+        fetch_retried(self.fetch_deadline_ns, || self.source_get_once(&url)).await
     }
     async fn source_get_once(&self, url: &str) -> Result<Response> {
         let response = (self.bulk.get(url))

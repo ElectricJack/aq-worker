@@ -14,7 +14,7 @@ use aq_protocol::{
 use aq_worker::{
     client::Client,
     config::WorkerConfig,
-    native::journal::InconsistentJournal,
+    native::journal::RecoveryHold,
     native::runner::{
         ClaudeDockerExecutor, ExecutorConfig, NativeConfig, RunDisposition, SalvageDisposition,
         claimed_attempts, destroy_claimed_sandboxes, retained_attempts, run_until_attempt,
@@ -207,15 +207,19 @@ impl NativeSlotBackend {
         Ok(outcome)
     }
 }
-/// R1: a journal whose own content is inconsistent cannot recover by retrying: the slot is
-/// held with the reason (shown by `service status`), not retried with backoff forever.
-fn held_if_inconsistent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome> {
+/// R1: a recovery that retrying cannot change (an unreadable or inconsistent journal, a
+/// Prepare or launch whose disposition recovery cannot settle) holds the slot with its reason,
+/// shown by `service status`, instead of being retried with backoff forever.
+fn held_if_permanent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome> {
     match recovered {
-        Err(e) if e.downcast_ref::<InconsistentJournal>().is_some() => {
-            tracing::error!("recovery held: {e:#}");
-            Ok(RecoverOutcome::Held(format!("journal_inconsistent: {e:#}")))
-        }
-        other => other,
+        Err(e) => match e.downcast_ref::<RecoveryHold>() {
+            Some(RecoveryHold(reason, cause)) => {
+                tracing::error!("recovery held: {reason}: {cause:#}");
+                Ok(RecoverOutcome::Held(format!("{reason}: {cause:#}")))
+            }
+            None => Err(e),
+        },
+        ok => ok,
     }
 }
 /// The native template, pointed at the slot's state (journal, Git) and runtime directory
@@ -413,7 +417,7 @@ impl SlotBackend for NativeSlotBackend {
         )
     }
     async fn recover(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
-        held_if_inconsistent(self.recover_attempts(ctx).await)
+        held_if_permanent(self.recover_attempts(ctx).await)
     }
     async fn release_claimed(&self, ctx: SlotContext) -> Result<usize> {
         let cfg = self.native_config(&ctx)?;
@@ -1672,22 +1676,22 @@ mod tests {
     /// instead of failing every retry; any other recovery error is still retried.
     #[test]
     fn an_inconsistent_journal_holds_the_slot_and_status_names_the_reason() {
-        use aq_worker::native::journal::InconsistentJournal;
+        use aq_worker::native::journal::RecoveryHold;
         let mixed = anyhow::anyhow!("host without actual phase execution");
-        let held = held_if_inconsistent(Err(InconsistentJournal(mixed).into())).unwrap();
+        let held = held_if_permanent(Err(RecoveryHold("journal_inconsistent", mixed).into()));
         let why = "journal_inconsistent: host without actual phase execution";
-        assert_eq!(held, RecoverOutcome::Held(why.into()));
-        let wrapped = Err(anyhow::Error::from(InconsistentJournal(anyhow::anyhow!(
-            "shape"
-        ))));
-        let wrapped = held_if_inconsistent(wrapped.context("recover slot 1")).unwrap();
-        assert!(matches!(wrapped, RecoverOutcome::Held(w) if w.contains("shape")));
-        let transient = held_if_inconsistent(Err(anyhow::anyhow!("server unreachable")));
+        assert_eq!(held.unwrap(), RecoverOutcome::Held(why.into()));
+        let cause = anyhow::anyhow!("Prepare journaled, no grant");
+        let wrapped = anyhow::Error::from(RecoveryHold("prepare_disposition_unknown", cause));
+        let wrapped = held_if_permanent(Err(wrapped.context("recover slot 1"))).unwrap();
+        let unknown = "prepare_disposition_unknown: Prepare journaled, no grant";
+        assert_eq!(wrapped, RecoverOutcome::Held(unknown.into()));
+        let transient = held_if_permanent(Err(anyhow::anyhow!("server unreachable")));
         assert!(
             transient.is_err(),
             "a transient failure is retried, not held"
         );
-        let fine = held_if_inconsistent(Ok(RecoverOutcome::Reported)).unwrap();
+        let fine = held_if_permanent(Ok(RecoverOutcome::Reported)).unwrap();
         assert_eq!(fine, RecoverOutcome::Reported);
 
         let dir = tempfile::tempdir().unwrap();

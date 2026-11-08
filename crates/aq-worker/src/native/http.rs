@@ -1,6 +1,6 @@
 //! Existing native machine routes, consumed through the frozen public contract.
 //! No redirects, legacy execution decoder or runnable grant inference; only read-only
-//! preparation fetches retry transient failures (`fetch_retried`).
+//! preparation fetches (artifacts, materials, source) retry transient failures.
 //! Durable request ownership and recovery remain the caller's responsibility.
 use crate::config::WorkerConfig;
 use anyhow::{Result, ensure};
@@ -43,6 +43,8 @@ pub struct NativeClient {
     renewal_slots: Arc<Semaphore>,
     phase_terminal_safety: reqwest::Client,
     phase_terminal_safety_slots: Arc<Semaphore>,
+    /// Boot-clock deadline before which fetch retries must end (`fetch_until`).
+    fetch_deadline_ns: u64,
 }
 /// A refused native request: its status and the `Retry-After` seconds it carried.
 #[derive(Debug)]
@@ -94,9 +96,10 @@ pub fn fetch_retry_wait(e: &anyhow::Error, attempt: u32) -> Option<Duration> {
     let backoff = || crate::backoff::jittered(attempt, base, cap, &mut rand::thread_rng());
     after.map_or_else(|| Some(backoff()), |d| (d <= cap).then_some(d))
 }
-/// Runs an idempotent read up to `FETCH_TRIES` times while it fails transiently (R1: one
-/// `503 overloaded` from an artifact download failed the whole attempt).
-pub(crate) async fn fetch_retried<T, F>(mut call: impl FnMut() -> F) -> Result<T>
+/// Runs an idempotent read up to `FETCH_TRIES` times while it fails transiently and the next
+/// wait ends before `deadline_ns` (R1: one `503 overloaded` from an artifact download failed
+/// the whole attempt).
+pub(crate) async fn fetch_retried<T, F>(deadline_ns: u64, mut call: impl FnMut() -> F) -> Result<T>
 where
     F: Future<Output = Result<T>>,
 {
@@ -106,7 +109,8 @@ where
             Ok(value) => return Ok(value),
             Err(e) => e,
         };
-        let wait = fetch_retry_wait(&e, attempt).filter(|_| attempt + 1 < FETCH_TRIES);
+        let ends = |w: &Duration| boot_ns().is_ok_and(|n| n + (w.as_nanos() as u64) < deadline_ns);
+        let wait = fetch_retry_wait(&e, attempt).filter(|w| attempt + 1 < FETCH_TRIES && ends(w));
         let Some(wait) = wait else { return Err(e) };
         attempt += 1;
         tracing::warn!(attempt, "{e:#}; retrying in {wait:?}");
@@ -264,7 +268,15 @@ impl NativeClient {
             renewal_slots: Arc::new(Semaphore::new(1)),
             phase_terminal_safety: client()?,
             phase_terminal_safety_slots: Arc::new(Semaphore::new(1)),
+            fetch_deadline_ns: u64::MAX,
         })
+    }
+    /// This client, on the same lanes, with fetch retries that end before `deadline_ns`: the
+    /// boot-clock preparation or retrieval deadline of the inputs it reads.
+    pub fn fetch_until(&self, deadline_ns: u64) -> Self {
+        let mut client = self.clone();
+        client.fetch_deadline_ns = deadline_ns;
+        client
     }
     fn scope(&self, binding: &LaunchBinding) -> Result<()> {
         ensure!(
@@ -373,7 +385,10 @@ impl NativeClient {
             "expected artifact scope"
         );
         let _slot = self.bulk_slots.try_acquire()?;
-        let response = fetch_retried(|| self.post(&self.bulk, "artifact", request, 16_384)).await?;
+        let response = fetch_retried(self.fetch_deadline_ns, || {
+            self.post(&self.bulk, "artifact", request, 16_384)
+        })
+        .await?;
         body_type(&response)?;
         let descriptor: RetainedArtifact = metadata(&response, "aq-artifact-retention")?;
         descriptor.validate()?;
@@ -421,8 +436,15 @@ impl NativeClient {
             "expected material scope"
         );
         let _slot = self.bulk_slots.try_acquire()?;
-        let sent = boot_ns()?;
-        let response = self.post(&self.bulk, "material", request, 16_384).await?;
+        // The material route only reads the admitted lease (no server write), so an overloaded
+        // read is retried with the same request; each try is timed from its own send.
+        let (sent, response) = fetch_retried(self.fetch_deadline_ns, || async move {
+            Ok((
+                boot_ns()?,
+                self.post(&self.bulk, "material", request, 16_384).await?,
+            ))
+        })
+        .await?;
         body_type(&response)?;
         let delivery: MaterialDelivery = metadata(&response, "aq-material-delivery")?;
         ensure!(
