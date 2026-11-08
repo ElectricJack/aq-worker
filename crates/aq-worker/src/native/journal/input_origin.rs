@@ -76,6 +76,25 @@ impl InputOrigin {
         created_ns: u64,
         revision: u64,
     ) -> Result<()> {
+        // The provenance check of a Phase or Refresh input against its attempt's saved receipt.
+        macro_rules! phase_origin {
+            ($p:expr, $acceptance:expr, $preparation:expr) => {{
+                ensure!($acceptance.is_some(), "phase input intent absent");
+                let saved = $preparation
+                    .as_ref()
+                    .context("phase input receipt absent")?;
+                ensure!(
+                    same($p, saved)?
+                        && $p.receipt_digest == $p.delivery.receipt.digest()?
+                        && created_revision >= $p.record_revision
+                        && created_revision < revision
+                        && created_ns >= $p.observed_before_write_ns
+                        && created_ns < $p.deadline_ns,
+                    "phase input provenance"
+                );
+                Ok(())
+            }};
+        }
         match self {
             Self::Legacy(p) => {
                 ensure!(
@@ -84,48 +103,11 @@ impl InputOrigin {
                 );
                 inputs::validate_capture(a, p, created_revision, created_ns, revision)
             }
-            Self::Phase(p) => {
-                ensure!(a.phase_acceptance.is_some(), "phase input intent absent");
-                let saved = a
-                    .phase_preparation
-                    .as_ref()
-                    .context("phase input receipt absent")?;
-                // State::validate already validates this exact saved phase
-                // receipt against the original proposal once per attempt.
-                // Equality below makes every input depend on that checked owner
-                // without revalidating all offer descriptors once per input.
-                ensure!(
-                    same(p, saved)?
-                        && p.receipt_digest == p.delivery.receipt.digest()?
-                        && created_revision >= p.record_revision
-                        && created_revision < revision
-                        && created_ns >= p.observed_before_write_ns
-                        && created_ns < p.deadline_ns,
-                    "phase input provenance"
-                );
-                Ok(())
-            }
-            Self::Refresh(p) => {
-                ensure!(a.refresh_acceptance.is_some(), "phase input intent absent");
-                let saved = a
-                    .refresh_preparation
-                    .as_ref()
-                    .context("phase input receipt absent")?;
-                // State::validate already validates this exact saved phase
-                // receipt against the original proposal once per attempt.
-                // Equality below makes every input depend on that checked owner
-                // without revalidating all offer descriptors once per input.
-                ensure!(
-                    same(p, saved)?
-                        && p.receipt_digest == p.delivery.receipt.digest()?
-                        && created_revision >= p.record_revision
-                        && created_revision < revision
-                        && created_ns >= p.observed_before_write_ns
-                        && created_ns < p.deadline_ns,
-                    "phase input provenance"
-                );
-                Ok(())
-            }
+            // State::validate already validates this exact saved phase receipt against the
+            // original proposal once per attempt. Equality below makes every input depend on that
+            // checked owner without revalidating all offer descriptors once per input.
+            Self::Phase(p) => phase_origin!(p, a.phase_acceptance, a.phase_preparation),
+            Self::Refresh(p) => phase_origin!(p, a.refresh_acceptance, a.refresh_preparation),
         }
     }
 }

@@ -293,43 +293,16 @@ pub(super) fn bootstrap(
         let state = owner.journal.state();
         let a = &state.attempts[&entry.id];
         let offer = a.reservation.offer.clone();
-        let accepted = a.phase_scope()?;
-        let grant = accepted.grant;
-        let (device, inode) = profile.root.identity();
-        let intent = NativeLaunchIntent {
-            execution_digest: scope.digest.clone(),
-            binding: grant.binding.clone(),
-            grant_id: grant.grant_id,
-            logical_guardian_id: accepted.guardian_id,
-            launch_id: accepted.launch_id,
-            reservation_id: accepted.reservation_id,
-            runtime: a.reservation.runtime.clone(),
-            terminal: aq_session_protocol::TerminalIdentity {
-                session: grant.binding.session.clone(),
-                terminal_id: Uuid::new_v4(),
-                epoch: 1,
-            },
-            host_root: profile.config.root.clone(),
-            root_device: device,
-            root_inode: inode,
-            pid_namespace: std::fs::read_link("/proc/self/ns/pid")?
-                .to_str()
-                .context("PID namespace text")?
-                .into(),
+        let c = &profile.config;
+        let [executable, helper, tmux] =
+            [&c.driver, &c.helper, &c.tmux].map(|p| p.artifact.clone());
+        let pins = HostPins {
+            root: (c.root.clone(), profile.root.identity()),
             profile_digest: profile.digest.clone(),
-            executable: profile.config.driver.artifact.clone(),
-            helper: profile.config.helper.artifact.clone(),
-            tmux: profile.config.tmux.artifact.clone(),
-            renderer: profile.config.renderer.clone(),
-            columns: profile.config.columns,
-            rows: profile.config.rows,
-            deadline_ns: scope.deadline,
-            hard_deadline_ns: scope.hard,
-            created_ns: boot_ns()?,
-            created_revision: state.revision,
-            started_operation_id: Uuid::new_v4(),
-            stopped_operation_id: Uuid::new_v4(),
+            programs: [executable, helper, tmux, c.renderer.clone()],
+            size: (c.columns, c.rows),
         };
+        let intent = launch_intent(scope, state.revision, a, pins)?;
         let runtime = a.reservation.runtime.clone();
         owner.journal.begin_native_launch(entry.id, intent)?;
         entry.snapshot(&owner.journal)?;

@@ -165,6 +165,17 @@ impl std::fmt::Display for RecoveryHold {
     }
 }
 impl std::error::Error for RecoveryHold {}
+/// Runs `f` on a scoped thread with an 8 MiB stack (serde's derived visitors keep each journal
+/// record's fields on the stack), so the calling worker's stack is not spent on it.
+fn off_stack<T: Send>(f: impl FnOnce() -> Result<T> + Send) -> Result<T> {
+    let thread = std::thread::Builder::new().name("aq-journal-decode".into());
+    std::thread::scope(
+        |s| match thread.stack_size(8 << 20).spawn_scoped(s, f)?.join() {
+            Ok(decoded) => decoded,
+            Err(panic) => std::panic::resume_unwind(panic),
+        },
+    )
+}
 /// A `RecoveryHold` for `reason` unless `ok`.
 pub(crate) fn hold_unless(ok: bool, reason: &'static str, why: &'static str) -> Result<()> {
     ok.then_some(())
@@ -474,15 +485,17 @@ impl Journal {
         let known = header["state"]["format"].as_u64() == Some(FORMAT as u64);
         let why = "unsupported native journal format; preserve original evidence";
         hold_unless(known, "journal_unreadable: format", why)?;
-        let snapshot: Snapshot = serde_json::from_slice(&raw).map_err(format)?;
-        let sealed = snapshot.digest == canonical_digest(&snapshot.state)?;
-        hold_unless(
-            sealed,
-            "journal_unreadable: checksum",
-            "native journal checksum",
-        )?;
-        let valid = snapshot.state.validate(&limits);
-        valid.map_err(|e| RecoveryHold("journal_inconsistent", e))?;
+        // R4: decoding and checking the ~35 KiB attempts takes about 1.7 MiB of stack in a debug
+        // build (0.45 MiB optimized), most of a 2 MiB tokio worker. Do it on a thread of its own.
+        let snapshot = off_stack(|| {
+            let snapshot: Snapshot = serde_json::from_slice(&raw).map_err(format)?;
+            let sealed = snapshot.digest == canonical_digest(&snapshot.state)?;
+            let why = "native journal checksum";
+            hold_unless(sealed, "journal_unreadable: checksum", why)?;
+            let valid = snapshot.state.validate(&limits);
+            valid.map_err(|e| RecoveryHold("journal_inconsistent", e))?;
+            Ok(snapshot)
+        })?;
         let ours = snapshot.state.identity.node_id == node_id;
         let why = "native journal belongs to another node";
         hold_unless(ours, "journal_unreadable: node", why)?;

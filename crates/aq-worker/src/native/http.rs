@@ -76,13 +76,15 @@ pub(crate) async fn refused(response: Response) -> anyhow::Error {
     tracing::warn!(%path, %status, %body, "native endpoint refused");
     HttpStatus(status, retry_after).into()
 }
-/// Tries of a read-only preparation fetch, and its backoff (full jitter) start and cap.
+/// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
+/// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.
 pub const FETCH_TRIES: u32 = 5;
+pub const FETCH_SPAN: Duration = Duration::from_secs(10);
 pub const FETCH_BACKOFF: (Duration, Duration) =
     (Duration::from_millis(500), Duration::from_secs(8));
 /// The wait before retry `attempt` (0-based) of a read-only fetch that failed with `e`, or None
 /// when `e` is final: only 502/503/504, 408, 429 and transport failures are transient. A
-/// `Retry-After` is waited exactly; one beyond the backoff cap ends the retries.
+/// `Retry-After` longer than the backoff is waited instead; one beyond the cap ends the retries.
 pub fn fetch_retry_wait(e: &anyhow::Error, attempt: u32) -> Option<Duration> {
     let (base, cap) = FETCH_BACKOFF;
     let after = match e.downcast_ref::<HttpStatus>() {
@@ -93,24 +95,25 @@ pub fn fetch_retry_wait(e: &anyhow::Error, attempt: u32) -> Option<Duration> {
             None
         }
     };
-    let backoff = || crate::backoff::jittered(attempt, base, cap, &mut rand::thread_rng());
-    after.map_or_else(|| Some(backoff()), |d| (d <= cap).then_some(d))
+    let backoff = crate::backoff::equal_jittered(attempt, base, cap, &mut rand::thread_rng());
+    after.map_or(Some(backoff), |d| (d <= cap).then_some(d.max(backoff)))
 }
-/// Runs an idempotent read up to `FETCH_TRIES` times while it fails transiently and the next
-/// wait ends before `deadline_ns` (R1: one `503 overloaded` from an artifact download failed
-/// the whole attempt).
-pub(crate) async fn fetch_retried<T, F>(deadline_ns: u64, mut call: impl FnMut() -> F) -> Result<T>
+/// Retries an idempotent read while it fails transiently, until it has had `FETCH_TRIES` tries
+/// and `FETCH_SPAN` has passed, and only while the next wait ends before `deadline_ns` (R1: one
+/// `503 overloaded` failed a whole attempt; R5: five fast tries did not outlast a restart).
+pub async fn fetch_retried<T, F>(deadline_ns: u64, mut call: impl FnMut() -> F) -> Result<T>
 where
     F: Future<Output = Result<T>>,
 {
-    let mut attempt = 0;
+    let (mut attempt, started) = (0, tokio::time::Instant::now());
     loop {
         let e = match call().await {
             Ok(value) => return Ok(value),
             Err(e) => e,
         };
         let ends = |w: &Duration| boot_ns().is_ok_and(|n| n + (w.as_nanos() as u64) < deadline_ns);
-        let wait = fetch_retry_wait(&e, attempt).filter(|w| attempt + 1 < FETCH_TRIES && ends(w));
+        let more = attempt + 1 < FETCH_TRIES || started.elapsed() < FETCH_SPAN;
+        let wait = fetch_retry_wait(&e, attempt).filter(|w| more && ends(w));
         let Some(wait) = wait else { return Err(e) };
         attempt += 1;
         tracing::warn!(attempt, "{e:#}; retrying in {wait:?}");

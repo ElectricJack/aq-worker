@@ -892,6 +892,59 @@ fn bootstrap(owner: &Arc<Mutex<Owned>>, _registry: &Registry, entry: &Arc<Entry>
         Profile::Synthetic(_) => bootstrap_synthetic(owner, _registry, entry),
     }
 }
+/// What a launcher pins of its host profile in a launch intent.
+pub(super) struct HostPins {
+    /// The host root and its device and inode.
+    pub root: (std::path::PathBuf, (u64, u64)),
+    pub profile_digest: Digest,
+    /// Executable, helper, tmux and renderer.
+    pub programs: [aq_session_protocol::ArtifactRef; 4],
+    /// Columns and rows.
+    pub size: (u16, u16),
+}
+/// The durable launch intent of `a`'s granted execution on a host profile (every launcher's).
+pub(super) fn launch_intent(
+    scope: &LaunchExecutionScope,
+    revision: u64,
+    a: &crate::native::journal::Attempt,
+    pins: HostPins,
+) -> Result<NativeLaunchIntent> {
+    let accepted = a.phase_scope()?;
+    let grant = accepted.grant;
+    let [executable, helper, tmux, renderer] = pins.programs;
+    let pid_namespace = std::fs::read_link("/proc/self/ns/pid")?;
+    Ok(NativeLaunchIntent {
+        execution_digest: scope.digest.clone(),
+        binding: grant.binding.clone(),
+        grant_id: grant.grant_id,
+        logical_guardian_id: accepted.guardian_id,
+        launch_id: accepted.launch_id,
+        reservation_id: accepted.reservation_id,
+        runtime: a.reservation.runtime.clone(),
+        terminal: aq_session_protocol::TerminalIdentity {
+            session: grant.binding.session.clone(),
+            terminal_id: Uuid::new_v4(),
+            epoch: 1,
+        },
+        host_root: pins.root.0,
+        root_device: pins.root.1.0,
+        root_inode: pins.root.1.1,
+        pid_namespace: pid_namespace.to_str().context("PID namespace text")?.into(),
+        profile_digest: pins.profile_digest,
+        executable,
+        helper,
+        tmux,
+        renderer,
+        columns: pins.size.0,
+        rows: pins.size.1,
+        deadline_ns: scope.deadline,
+        hard_deadline_ns: scope.hard,
+        created_ns: boot_ns()?,
+        created_revision: revision,
+        started_operation_id: Uuid::new_v4(),
+        stopped_operation_id: Uuid::new_v4(),
+    })
+}
 #[cfg(any(test, feature = "test-support"))]
 fn bootstrap_synthetic(
     owner: &Arc<Mutex<Owned>>,
@@ -908,47 +961,20 @@ fn bootstrap_synthetic(
         entry.current(&owner)?;
         let state = owner.journal.state();
         let a = &state.attempts[&entry.id];
-        let accepted = a.phase_scope()?;
-        let grant = accepted.grant;
         ensure!(
             a.reservation.offer.startup.payload_bytes <= 4096,
             "synthetic startup ceiling"
         );
-        let (device, inode) = profile.root.identity();
-        let intent = NativeLaunchIntent {
-            execution_digest: scope.digest.clone(),
-            binding: grant.binding.clone(),
-            grant_id: grant.grant_id,
-            logical_guardian_id: accepted.guardian_id,
-            launch_id: accepted.launch_id,
-            reservation_id: accepted.reservation_id,
-            runtime: a.reservation.runtime.clone(),
-            terminal: aq_session_protocol::TerminalIdentity {
-                session: grant.binding.session.clone(),
-                terminal_id: Uuid::new_v4(),
-                epoch: 1,
-            },
-            host_root: profile.config.root.clone(),
-            root_device: device,
-            root_inode: inode,
-            pid_namespace: std::fs::read_link("/proc/self/ns/pid")?
-                .to_str()
-                .context("PID namespace text")?
-                .into(),
+        let c = &profile.config;
+        let [executable, helper, tmux] =
+            [&c.program, &c.helper, &c.tmux].map(|p| p.artifact.clone());
+        let pins = HostPins {
+            root: (c.root.clone(), profile.root.identity()),
             profile_digest: profile.digest.clone(),
-            executable: profile.config.program.artifact.clone(),
-            helper: profile.config.helper.artifact.clone(),
-            tmux: profile.config.tmux.artifact.clone(),
-            renderer: profile.config.renderer.clone(),
-            columns: profile.config.columns,
-            rows: profile.config.rows,
-            deadline_ns: scope.deadline,
-            hard_deadline_ns: scope.hard,
-            created_ns: boot_ns()?,
-            created_revision: state.revision,
-            started_operation_id: Uuid::new_v4(),
-            stopped_operation_id: Uuid::new_v4(),
+            programs: [executable, helper, tmux, c.renderer.clone()],
+            size: (c.columns, c.rows),
         };
+        let intent = launch_intent(scope, state.revision, a, pins)?;
         #[cfg(test)]
         entry.hook(Checkpoint::Outer, &mut owner.journal)?;
         owner.journal.begin_native_launch(entry.id, intent)?;

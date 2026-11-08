@@ -381,49 +381,24 @@ pub(super) fn bootstrap(
         let state = owner.journal.state();
         let a = &state.attempts[&entry.id];
         let offer = a.reservation.offer.clone();
-        let accepted = a.phase_scope()?;
-        let grant = accepted.grant;
-        let (device, inode) = profile.root.identity();
         let m = lock(&profile.installation)?.installation().clone();
         ensure!(
             a.reservation.runtime.runtime == m.runtime
                 && a.reservation.runtime.qualification == m.qualification,
             "native runtime installation differs from grant"
         );
-        let intent = NativeLaunchIntent {
-            execution_digest: scope.digest.clone(),
-            binding: grant.binding.clone(),
-            grant_id: grant.grant_id,
-            logical_guardian_id: accepted.guardian_id,
-            launch_id: accepted.launch_id,
-            reservation_id: accepted.reservation_id,
-            runtime: a.reservation.runtime.clone(),
-            terminal: aq_session_protocol::TerminalIdentity {
-                session: grant.binding.session.clone(),
-                terminal_id: Uuid::new_v4(),
-                epoch: 1,
-            },
-            host_root: profile.root_path.clone(),
-            root_device: device,
-            root_inode: inode,
-            pid_namespace: std::fs::read_link("/proc/self/ns/pid")?
-                .to_str()
-                .context("native PID namespace UTF8")?
-                .into(),
+        let pins = HostPins {
+            root: (profile.root_path.clone(), profile.root.identity()),
             profile_digest: profile.digest.clone(),
-            executable: m.executable.artifact,
-            helper: m.helper.artifact,
-            tmux: m.tmux.artifact,
-            renderer: profile.mapper.renderer.clone(),
-            columns: profile.columns,
-            rows: profile.rows,
-            deadline_ns: scope.deadline,
-            hard_deadline_ns: scope.hard,
-            created_ns: boot_ns()?,
-            created_revision: state.revision,
-            started_operation_id: Uuid::new_v4(),
-            stopped_operation_id: Uuid::new_v4(),
+            programs: [
+                m.executable.artifact,
+                m.helper.artifact,
+                m.tmux.artifact,
+                profile.mapper.renderer.clone(),
+            ],
+            size: (profile.columns, profile.rows),
         };
+        let intent = launch_intent(scope, state.revision, a, pins)?;
         #[cfg(test)]
         entry.hook(Checkpoint::Outer, &mut owner.journal)?;
         owner.journal.begin_native_launch(entry.id, intent)?;

@@ -10,6 +10,34 @@ pub(super) struct RetainedOwners {
     phase_bundles: BTreeMap<Uuid, Arc<PreparedPhaseInputs>>,
     refresh_bundles: BTreeMap<Uuid, Arc<PreparedRefreshInputs>>,
 }
+/// Retains one profile's prepared inputs for an admitted attempt, and reads them back.
+macro_rules! retained_profile {
+    ($retain:ident, $get:ident, $map:ident, $inputs:ty) => {
+        pub(super) fn $retain(&mut self, inputs: $inputs) -> Result<Arc<$inputs>> {
+            let id = inputs.request().original.binding.attempt_id;
+            ensure!(
+                self.admitted.contains(&id)
+                    && !self.bundles.contains_key(&id)
+                    && !self.phase_bundles.contains_key(&id)
+                    && !self.refresh_bundles.contains_key(&id),
+                "phase resource owner absent/already retained"
+            );
+            ensure!(
+                inputs.retained_inline_bytes() <= crate::native::MAX_INLINE_SET_BYTES
+                    && inputs.startup_bytes() <= inputs.retained_inline_bytes(),
+                "phase retained byte shape"
+            );
+            let inputs = Arc::new(inputs);
+            self.$map.insert(id, inputs.clone());
+            self.stats()?;
+            Ok(inputs)
+        }
+        pub(super) fn $get(&self, id: Uuid) -> Result<Arc<$inputs>> {
+            let retained = self.$map.get(&id).cloned();
+            retained.context("phase retained owner absent")
+        }
+    };
+}
 impl RetainedOwners {
     pub(super) fn reserve(
         &mut self,
@@ -106,62 +134,13 @@ impl RetainedOwners {
         self.stats()?;
         Ok(bundle)
     }
-    pub(super) fn retain_phase(
-        &mut self,
-        inputs: PreparedPhaseInputs,
-    ) -> Result<Arc<PreparedPhaseInputs>> {
-        let id = inputs.request().original.binding.attempt_id;
-        ensure!(
-            self.admitted.contains(&id)
-                && !self.bundles.contains_key(&id)
-                && !self.phase_bundles.contains_key(&id)
-                && !self.refresh_bundles.contains_key(&id),
-            "phase resource owner absent/already retained"
-        );
-        ensure!(
-            inputs.retained_inline_bytes() <= crate::native::MAX_INLINE_SET_BYTES
-                && inputs.startup_bytes() <= inputs.retained_inline_bytes(),
-            "phase retained byte shape"
-        );
-        let inputs = Arc::new(inputs);
-        self.phase_bundles.insert(id, inputs.clone());
-        self.stats()?;
-        Ok(inputs)
-    }
-    pub(super) fn phase(&self, id: Uuid) -> Result<Arc<PreparedPhaseInputs>> {
-        self.phase_bundles
-            .get(&id)
-            .cloned()
-            .context("phase retained owner absent")
-    }
-    pub(super) fn retain_refresh(
-        &mut self,
-        inputs: PreparedRefreshInputs,
-    ) -> Result<Arc<PreparedRefreshInputs>> {
-        let id = inputs.request().original.binding.attempt_id;
-        ensure!(
-            self.admitted.contains(&id)
-                && !self.bundles.contains_key(&id)
-                && !self.phase_bundles.contains_key(&id)
-                && !self.refresh_bundles.contains_key(&id),
-            "phase resource owner absent/already retained"
-        );
-        ensure!(
-            inputs.retained_inline_bytes() <= crate::native::MAX_INLINE_SET_BYTES
-                && inputs.startup_bytes() <= inputs.retained_inline_bytes(),
-            "phase retained byte shape"
-        );
-        let inputs = Arc::new(inputs);
-        self.refresh_bundles.insert(id, inputs.clone());
-        self.stats()?;
-        Ok(inputs)
-    }
-    pub(super) fn refresh(&self, id: Uuid) -> Result<Arc<PreparedRefreshInputs>> {
-        self.refresh_bundles
-            .get(&id)
-            .cloned()
-            .context("phase retained owner absent")
-    }
+    retained_profile!(retain_phase, phase, phase_bundles, PreparedPhaseInputs);
+    retained_profile!(
+        retain_refresh,
+        refresh,
+        refresh_bundles,
+        PreparedRefreshInputs
+    );
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RetainedInputStats {
