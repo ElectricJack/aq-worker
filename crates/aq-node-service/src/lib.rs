@@ -7,6 +7,7 @@ pub mod enrollment_file;
 pub mod git;
 pub mod layout;
 pub mod link;
+pub mod measure;
 pub mod os_service;
 pub mod supervisor;
 

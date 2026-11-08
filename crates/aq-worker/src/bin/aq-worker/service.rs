@@ -54,6 +54,10 @@ pub enum ServiceCmd {
     Measure {
         #[arg(long)]
         profile: String,
+        /// Write the outputs to <DIR>/measure (for `ms1-profiled.py` `measured()`) and do
+        /// not submit.
+        #[arg(long, hide = true)]
+        output: Option<PathBuf>,
     },
 }
 #[derive(Args)]
@@ -91,17 +95,22 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Install { profile } => install(&profile),
         ServiceCmd::Uninstall { profile, purge } => uninstall(&profile, purge),
         ServiceCmd::Status { profile } => status(&profile),
-        ServiceCmd::Measure { profile } => measure(&profile).await,
+        ServiceCmd::Measure { profile, output } => measure(&profile, output.as_deref()).await,
     }
 }
 
 /// The native pipeline behind the supervisor: one `run_until_attempt` per call.
 pub struct NativeSlotBackend {
     template: PathBuf,
+    /// Slot 1's node: it owns the measurement sandbox.
+    measure_node: Uuid,
 }
 impl NativeSlotBackend {
-    pub fn new(template: PathBuf) -> Self {
-        Self { template }
+    pub fn new(template: PathBuf, measure_node: Uuid) -> Self {
+        Self {
+            template,
+            measure_node,
+        }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
         let mut cfg = NativeConfig::load(&self.template)?;
@@ -189,8 +198,9 @@ impl SlotBackend for NativeSlotBackend {
     fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>> {
         retained_attempts(&self.native_config(ctx)?, ctx.node_id)
     }
-    async fn measure(&self, _token_file: &Path, _model: &str) -> Result<MeasurementSubmission> {
-        bail!("measurement not built")
+    async fn measure(&self, token_file: &Path, model: &str) -> Result<MeasurementSubmission> {
+        let m = crate::measure::run(&self.template, token_file, model, self.measure_node).await?;
+        Ok(m.measured.submission)
     }
 }
 
@@ -379,18 +389,36 @@ fn status(profile: &str) -> Result<()> {
     }
     Ok(())
 }
-async fn measure(profile: &str) -> Result<()> {
+async fn measure(profile: &str, output: Option<&Path>) -> Result<()> {
     let (layout, config) = loaded(profile)?;
     let m = &config.measurement;
     let (Some(file), Some(model)) = (&m.token_file, &m.model) else {
         bail!("measurement is not configured for profile {profile}");
     };
-    let link = ServerLink::from_enrollment(&EnrollmentFile::load(&layout.slot_enrollment(1))?)?;
-    let submission = NativeSlotBackend::new(config.native_template.clone())
-        .measure(file, model)
+    let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
+    let done = crate::measure::run(&config.native_template, file, model, slot1.node_id).await?;
+    for (call, total, out) in &done.measured.totals {
+        println!("{call}: total_input={total} output={out}");
+    }
+    println!(
+        "capacity_tokens={} observed_at_ms={}",
+        done.measured.capacity_tokens, done.measured.observed_at_ms
+    );
+    if let Some(dir) = output {
+        aq_node_service::measure::write_output(dir, &done.files)?;
+        println!(
+            "written to {}; not submitted",
+            dir.join("measure").display()
+        );
+        return Ok(());
+    }
+    let pin = ServerLink::from_enrollment(&slot1)?
+        .submit_measurement(&done.measured.submission)
         .await?;
-    let pin = link.submit_measurement(&submission).await?;
-    println!("qualification accepted until {} ms", pin.expires_at_ms);
+    println!(
+        "qualification accepted: effective at {} ms, until {} ms",
+        pin.effective_at_ms, pin.expires_at_ms
+    );
     Ok(())
 }
 
@@ -404,9 +432,8 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
         config_dir: config_dir.to_path_buf(),
         state_root: config.state_root.clone(),
     };
-    let link = Arc::new(ServerLink::from_enrollment(&EnrollmentFile::load(
-        &layout.slot_enrollment(1),
-    )?)?);
+    let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
+    let link = Arc::new(ServerLink::from_enrollment(&slot1)?);
     let (tx, rx) = watch::channel(false);
     let watcher = tokio::spawn(async move {
         crate::shutdown_signal().await;
@@ -439,7 +466,10 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
             },
         );
     tracing::info!(profile = %config.profile, machine = %config.machine_key, slots = config.slots, "worker service starting");
-    let backend = Arc::new(NativeSlotBackend::new(config.native_template.clone()));
+    let backend = Arc::new(NativeSlotBackend::new(
+        config.native_template.clone(),
+        slot1.node_id,
+    ));
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
     let result = Supervisor::new(config, layout, backend, link, git)
         .run(rx)
