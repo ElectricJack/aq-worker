@@ -12,6 +12,7 @@ aq-admission-sandbox = { package = "aq-admission", path = "../../protocol/aq-adm
 aq-agent-client = { path = "../aq-agent-client", version = "=0.1.0" }
 aq-agent-channel = { path = "../aq-agent-channel", version = "=0.1.0" }
 aq-machine-load = { path = "../aq-machine-load", version = "=0.1.0" }
+aq-node-service = { path = "../aq-node-service", version = "=0.1.0" }
 aq-handoff-note = { path = "../aq-handoff-note", version = "=0.1.0" }
 aq-finite-responses = { path = "../aq-finite-responses", version = "=0.1.0" }
 aq-lifecycle-protocol = { path = "../aq-lifecycle-protocol", version = "=0.1.0" }
