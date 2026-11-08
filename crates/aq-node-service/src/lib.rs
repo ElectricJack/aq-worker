@@ -19,6 +19,6 @@ pub use link::{LinkError, ServerLink, checked_origin, default_machine_key};
 pub use os_service::{Preflight, ServiceManager, ServiceState, UnitSpec, detect, preflight};
 pub use supervisor::{
     AqGitFactory, AttemptOutcome, BACKOFF_MAX, BACKOFF_START, CONTROL_INTERVAL, ControlSource,
-    GitChild, GitFactory, QUIET_WINDOW, RecoverOutcome, SlotBackend, SlotContext, Supervisor,
-    mark_handoff, recorded_handoff, running_attempts,
+    GitChild, GitFactory, MachineLink, QUIET_WINDOW, RecoverOutcome, SlotBackend, SlotContext,
+    Supervisor, mark_handoff, recorded_handoff, running_attempts,
 };

@@ -89,7 +89,31 @@ rerun says so: revoke the machine and enroll again with a new code.
 The machine key is the one name for the machine: the Swarm page shows it, and
 start, stop, drain and revoke act on it. It is `--machine-key`, or else the
 lower-cased host name. It must match `[a-z0-9][a-z0-9-]{0,62}`. Slot 1 claims it
-on the server; the other slots are minted under it.
+on the server; the other slots are minted under it. The machine's label is the
+key too, unless `--name` gives another.
+
+### Where the service keeps its files
+
+- Configuration: `~/.config/agent-q/service/PROFILE/` (`service.toml`,
+  `machine.json`, `native.json`, one `slots/N/worker.toml` per slot).
+- Durable state: `state_root` in `service.toml`, by default
+  `~/.local/state/agent-q/service/PROFILE/`: each slot's journal, Git state,
+  materials and archives.
+- Runtime files: every Unix socket (aq-git's, tmux's, the session host's) and
+  the session host's per-launch directories live under a short runtime root,
+  `$XDG_RUNTIME_DIR/aq/PROFILE/` (for example `/run/user/1000/aq/local/`), or
+  `/tmp/aq-UID/PROFILE/` when `XDG_RUNTIME_DIR` is unset. Each slot has
+  `N/git.sock` and the host root `N/host/` there. The service creates the root
+  0700 and refuses one that is a symlink, belongs to another user or is open to
+  others. These files do not survive a reboot, and need not.
+
+A Unix socket path holds at most 103 bytes here, so `service.toml` is refused
+at load (and `enroll` refuses before it reads the code) when a slot's socket
+path would be longer; the error names the path and its length. With the
+default runtime root this only happens for a long profile name (more than about
+20 characters under `/run/user/1000`). Use a shorter profile, or set
+`runtime_root = "/absolute/short/dir"` in `service.toml`: its parent must be
+owned by you and writable only by you.
 
 ### Allowing the machine
 
@@ -134,6 +158,18 @@ A slot whose recovery is held (for example its sandbox is gone) stays held
 until the owner releases it; the other slots and the service keep running,
 even when every slot is held.
 
+After a crash or `systemctl --user kill`, the slot's aq-git was killed too. The
+restarted service removes the socket it left and clears its ownership fence
+(`aq-git recovery clear-fence`), but only when no process holds the aq-git
+state's `owner.lock`; otherwise the slot retries with backoff. A sandbox an
+attempt preserved (its work was never copied back) is never destroyed by the
+service. Release it once you have looked at it:
+
+```sh
+aq-worker service release-sandbox --profile local --slot 2 \
+  --attempt-id ATTEMPT --reason "inspected; work not needed"
+```
+
 The stop timeout of the unit is the profile's `shutdown_grace_ms` plus 30 s
 (a drop-in, `aq-node@PROFILE.service.d/stop.conf`).
 
@@ -159,6 +195,10 @@ the install script for the binaries skips enrollment.
 aq-worker service uninstall --profile local            # keep configuration and state
 aq-worker service uninstall --profile local --purge    # also delete them
 ```
+
+`--purge` deletes the configuration directory, the `state_root` and
+`runtime_root` that `service.toml` names (custom ones too), and nothing else.
+It does not revoke the machine's nodes: revoke the machine on the Swarm page.
 
 After a revoke, enroll again with a new code from "Add machine": run
 `aq-install.sh` again with the same `--profile` and `--machine-key` and

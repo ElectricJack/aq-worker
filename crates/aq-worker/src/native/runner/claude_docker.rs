@@ -102,12 +102,12 @@ impl NativeExecutor for ClaudeDockerExecutor {
             reserved_client_bytes: definition.reserved_client_bytes,
         };
         pins.validate()?;
+        // The service keeps it outside the state, in a short runtime dir (socket paths).
         ensure!(
             settings.host.renderer == config.renderer
-                && settings.host.root.starts_with(&config.state_dir)
-                && settings.host.root != config.state_dir
+                && !config.state_dir.starts_with(&settings.host.root)
                 && !settings.host.root.starts_with(&config.git_root),
-            "Claude host root must be a separate private state child"
+            "Claude host root must be separate from the state and Git roots"
         );
         self.profile = Some(Arc::new(
             ClaudeDockerHostProfile::new(settings.host.clone())?

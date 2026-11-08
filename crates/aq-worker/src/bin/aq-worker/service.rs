@@ -2,7 +2,7 @@
 //! the glue between `aq-node-service` and the native pipeline.
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::{
-    AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError,
+    AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError, MachineLink,
     MeasurementConfig, RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState,
     SlotBackend, SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff,
     write_machine_json, write_private,
@@ -49,6 +49,19 @@ pub enum ServiceCmd {
     Status {
         #[arg(long)]
         profile: String,
+    },
+    /// Destroy the stopped sandbox an attempt of this slot preserved (its work was never
+    /// copied back, so the service never destroys it). The reason is recorded as the destroy
+    /// evidence.
+    ReleaseSandbox {
+        #[arg(long)]
+        profile: String,
+        #[arg(long)]
+        slot: u32,
+        #[arg(long)]
+        attempt_id: Uuid,
+        #[arg(long)]
+        reason: String,
     },
     /// Run the qualification measurement now and submit it.
     Measure {
@@ -100,6 +113,12 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Uninstall { profile, purge } => uninstall(&profile, purge),
         ServiceCmd::Status { profile } => status(&profile),
         ServiceCmd::Measure { profile, output } => measure(&profile, output.as_deref()).await,
+        ServiceCmd::ReleaseSandbox {
+            profile,
+            slot,
+            attempt_id,
+            reason,
+        } => release_sandbox(&profile, slot, attempt_id, &reason).await,
     }
 }
 
@@ -121,28 +140,29 @@ impl NativeSlotBackend {
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
-        let mut cfg = NativeConfig::load(&self.template)?;
-        cfg.state_dir = ctx.state_dir.clone();
-        cfg.git_socket = ctx.state_dir.join("git.sock");
-        cfg.git_root = ctx.state_dir.join("git");
-        if let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
-            &mut cfg.executor
-        {
-            settings.host.root = ctx.state_dir.join("host");
-            if let Some(pin) = &ctx.renderer {
-                settings.host.renderer = to_artifact_ref(pin)?;
-            }
-        } else {
-            bail!(
-                "the worker service needs the Claude docker-local executor in its native template"
-            );
-        }
-        if let Some(pin) = &ctx.renderer {
-            cfg.renderer = to_artifact_ref(pin)?;
-        }
-        cfg.validate()?;
-        Ok(cfg)
+        slot_native_config(&self.template, ctx)
     }
+}
+/// The native template, pointed at the slot's state (journal, Git) and runtime directory
+/// (aq-git's socket, the session host root), with the slot's renderer.
+fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
+    let mut cfg = NativeConfig::load(template)?;
+    cfg.state_dir = ctx.state_dir.clone();
+    cfg.git_socket = ctx.git_socket.clone();
+    cfg.git_root = ctx.state_dir.join("git");
+    if let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &mut cfg.executor {
+        settings.host.root = ctx.host_root.clone();
+        if let Some(pin) = &ctx.renderer {
+            settings.host.renderer = to_artifact_ref(pin)?;
+        }
+    } else {
+        bail!("the worker service needs the Claude docker-local executor in its native template");
+    }
+    if let Some(pin) = &ctx.renderer {
+        cfg.renderer = to_artifact_ref(pin)?;
+    }
+    cfg.validate()?;
+    Ok(cfg)
 }
 /// Converts a wire pin to the pipeline's artifact reference (same JSON shape).
 fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<T> {
@@ -150,8 +170,8 @@ fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<
 }
 /// What a restarted node tells the server about an interrupted attempt: the reason the service
 /// recorded before the cut (a deliberate stop stays exempt from budgets), else a plain restart.
-fn restart_reason(state_dir: &Path, attempt: Uuid) -> HandoffReason {
-    recorded_handoff(state_dir, attempt).unwrap_or(HandoffReason::Restart)
+fn restart_reason(ctx: &SlotContext, attempt: Uuid) -> HandoffReason {
+    recorded_handoff(&ctx.host_root, &ctx.state_dir, attempt).unwrap_or(HandoffReason::Restart)
 }
 
 #[async_trait::async_trait]
@@ -184,7 +204,7 @@ impl SlotBackend for NativeSlotBackend {
             let notice = HandoffNotice {
                 schema_version: 1,
                 attempt_id: attempt,
-                reason: restart_reason(&ctx.state_dir, attempt),
+                reason: restart_reason(&ctx, attempt),
             };
             if !self.notified.lock().unwrap().contains(&attempt) {
                 match link.handoff(&notice).await {
@@ -318,6 +338,7 @@ async fn enroll_in(
         slots: args.slots,
         native_template: native.clone(),
         state_root: layout.state_root.clone(),
+        runtime_root: None,
         aq_git: AqGitConfig {
             binary: std::fs::canonicalize(&args.aq_git)
                 .with_context(|| format!("aq-git {}", args.aq_git.display()))?,
@@ -332,7 +353,8 @@ async fn enroll_in(
         },
         shutdown_grace_ms: 120_000,
     };
-    // Repository count and format, absolute paths (the token file too) and bounds.
+    // Repository count and format, absolute paths (the token file too), bounds, and the
+    // socket paths under the runtime root.
     config.validate()?;
 
     let pending = pending_enrollment(layout);
@@ -424,7 +446,9 @@ async fn enroll_in(
         std::fs::rename(staged(&path), &path)
             .with_context(|| format!("install {}", path.display()))?;
     }
-    write_machine_json(&layout.machine_json(), &machine_key, &name, wsl)?;
+    // The machine's label on the Swarm page is its key unless --name gives one.
+    let label = args.name.as_deref().unwrap_or(&machine_key);
+    write_machine_json(&layout.machine_json(), &machine_key, label, wsl)?;
     write_private(&native, &template)?;
     config.native_template = std::fs::canonicalize(&native)?;
     config.save(&layout.service_toml())?;
@@ -446,12 +470,16 @@ async fn enroll_in(
     Ok(())
 }
 
+/// The enrolled profile's configuration and the layout it describes (its own state and runtime
+/// roots, not the defaults).
 fn loaded(profile: &str) -> Result<(Layout, ServiceConfig)> {
-    let layout = Layout::for_profile(profile)?;
-    let config = ServiceConfig::load(&layout.service_toml()).with_context(|| {
+    loaded_in(Layout::for_profile(profile)?, profile)
+}
+fn loaded_in(defaults: Layout, profile: &str) -> Result<(Layout, ServiceConfig)> {
+    let config = ServiceConfig::load(&defaults.service_toml()).with_context(|| {
         format!("profile {profile} is not enrolled; run `aq-worker service enroll` first")
     })?;
-    Ok((layout, config))
+    Ok((Layout::for_service(&defaults.config_dir, &config), config))
 }
 fn install(profile: &str) -> Result<()> {
     let (layout, config) = loaded(profile)?;
@@ -479,7 +507,11 @@ fn install(profile: &str) -> Result<()> {
     Ok(())
 }
 fn uninstall(profile: &str, purge: bool) -> Result<()> {
-    let layout = Layout::for_profile(profile)?;
+    // A custom state_root (or runtime_root) in service.toml is purged too.
+    let layout = match loaded(profile) {
+        Ok((layout, _)) => layout,
+        Err(_) => Layout::for_profile(profile)?,
+    };
     let manager = aq_node_service::detect()?;
     if manager.status(profile)? == ServiceState::NotInstalled {
         println!("aq-node@{profile}: not installed");
@@ -488,14 +520,18 @@ fn uninstall(profile: &str, purge: bool) -> Result<()> {
         println!("aq-node@{profile}: removed");
     }
     if purge {
-        for dir in [&layout.config_dir, &layout.state_root] {
-            match std::fs::remove_dir_all(dir) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e).with_context(|| format!("remove {}", dir.display())),
-            }
-        }
+        purge_dirs(&layout)?;
         println!("configuration and state purged");
+    }
+    Ok(())
+}
+fn purge_dirs(layout: &Layout) -> Result<()> {
+    for dir in [&layout.state_root, &layout.runtime_root, &layout.config_dir] {
+        match std::fs::remove_dir_all(dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| format!("remove {}", dir.display())),
+        }
     }
     Ok(())
 }
@@ -569,16 +605,47 @@ async fn measure(profile: &str, output: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+/// `service release-sandbox`: the operator release of a sandbox one of the slot's attempts
+/// preserved, through the slot's own node and the profile's native template.
+async fn release_sandbox(profile: &str, slot: u32, attempt: Uuid, reason: &str) -> Result<()> {
+    let (layout, config) = loaded(profile)?;
+    ensure!(
+        (1..=config.slots).contains(&slot),
+        "profile {profile} has slots 1..={}",
+        config.slots
+    );
+    let node = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
+    // Only the executor settings matter here; the slot's state directory stands in for the
+    // attempt's own (which may be archived).
+    let state_dir = std::fs::canonicalize(layout.slot_state(slot))?;
+    let ctx = SlotContext {
+        slot,
+        node_id: node,
+        enrollment: layout.slot_enrollment(slot),
+        git_socket: layout.git_socket(slot),
+        host_root: state_dir.join("host"),
+        state_dir,
+        renderer: None,
+    };
+    let cfg = slot_native_config(&config.native_template, &ctx)?;
+    let released =
+        aq_worker::native::runner::release_preserved_sandbox(&cfg, node, attempt, reason).await?;
+    println!(
+        "operator release: attempt {attempt} sandbox(es) {} destroyed; reason recorded as destroy evidence",
+        released.join(", ")
+    );
+    Ok(())
+}
+
 /// `aq-worker run --service-config`: supervise every slot until SIGTERM or ctrl-c.
 pub async fn run_service(service_config: &Path) -> Result<()> {
     let config = ServiceConfig::load(service_config)?;
     let config_dir = service_config
         .parent()
         .context("service config has no directory")?;
-    let layout = Layout {
-        config_dir: config_dir.to_path_buf(),
-        state_root: config.state_root.clone(),
-    };
+    let layout = Layout::for_service(config_dir, &config);
+    // Every socket lives under the runtime root (D1): create and check it before any slot.
+    layout.prepare_runtime()?;
     let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
     let link = Arc::new(ServerLink::from_enrollment(&slot1)?);
     // A measurement cut short (kill, crash, reboot) left its sandbox: release it before work.
@@ -619,13 +686,16 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
                 ))
             },
         );
-    tracing::info!(profile = %config.profile, machine = %config.machine_key, slots = config.slots, "worker service starting");
+    tracing::info!(profile = %config.profile, machine = %config.machine_key, slots = config.slots,
+        runtime = %layout.runtime_root.display(), "worker service starting");
+    // Each slot's handoff notices go out under that slot's own credential (D4).
+    let control = Arc::new(MachineLink::new(link.clone(), &layout, config.slots));
     let backend = Arc::new(NativeSlotBackend::new(
         config.native_template.clone(),
         slot1.node_id,
     ));
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
-    let result = Supervisor::new(config, layout, backend, link, git)
+    let result = Supervisor::new(config, layout, backend, control, git)
         .run(rx)
         .await;
     watcher.abort();
@@ -639,18 +709,30 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn slot_ctx(dir: &Path) -> SlotContext {
+        SlotContext {
+            slot: 1,
+            node_id: Uuid::nil(),
+            enrollment: dir.join("worker.toml"),
+            state_dir: dir.join("current"),
+            host_root: dir.join("run/1/host"),
+            git_socket: dir.join("run/1/git.sock"),
+            renderer: None,
+        }
+    }
     #[test]
     fn restart_reason_follows_the_handoff_marker() {
         let dir = tempfile::tempdir().unwrap();
+        let ctx = slot_ctx(dir.path());
         let attempt = Uuid::from_u128(9);
-        let driver = dir.path().join("host/driver-1");
+        let driver = ctx.host_root.join("driver-1");
         std::fs::create_dir_all(&driver).unwrap();
         std::fs::write(
             driver.join("driver.json"),
             serde_json::json!({"owner": {"attempt_id": attempt}}).to_string(),
         )
         .unwrap();
-        assert_eq!(restart_reason(dir.path(), attempt), HandoffReason::Restart);
+        assert_eq!(restart_reason(&ctx, attempt), HandoffReason::Restart);
         for (written, expected) in [
             ("service_stop", HandoffReason::ServiceStop),
             ("owner_stop", HandoffReason::OwnerStop),
@@ -661,10 +743,10 @@ mod tests {
                 format!(r#"{{"schema_version":1,"reason":"{written}"}}"#),
             )
             .unwrap();
-            assert_eq!(restart_reason(dir.path(), attempt), expected);
+            assert_eq!(restart_reason(&ctx, attempt), expected);
         }
         assert_eq!(
-            restart_reason(dir.path(), Uuid::from_u128(10)),
+            restart_reason(&ctx, Uuid::from_u128(10)),
             HandoffReason::Restart
         );
     }
@@ -753,6 +835,7 @@ mod tests {
         let layout = Layout {
             config_dir: dir.path().join("cfg"),
             state_root: dir.path().join("state"),
+            runtime_root: dir.path().join("run/local"),
         };
         Profile { dir, layout }
     }
@@ -979,5 +1062,57 @@ mod tests {
         p.enroll_access(&args, "new-id").await.unwrap();
         assert!(p.slot1().contains("new-id") && p.slot1().contains("aqn_cred1"));
         assert_eq!(count(&server.enrolls), 0);
+    }
+
+    /// D8: the machine label is the machine key unless --name gives one.
+    #[tokio::test]
+    async fn machine_label_defaults_to_the_machine_key() {
+        let server = fake_server(0).await;
+        let p = profile();
+        let mut args = p.args(&server.origin);
+        args.name = None;
+        p.enroll(&args, Some("code-1")).await.unwrap();
+        let machine: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.layout.machine_json()).unwrap()).unwrap();
+        assert_eq!(
+            (machine["key"].as_str(), machine["label"].as_str()),
+            (Some("desk"), Some("desk"))
+        );
+        args.reconfigure = true;
+        args.name = Some("Desk PC".into());
+        p.enroll(&args, Some("code-2")).await.unwrap();
+        let machine: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.layout.machine_json()).unwrap()).unwrap();
+        assert_eq!(machine["label"], "Desk PC");
+    }
+
+    /// D9: the CLI uses service.toml's state and runtime roots, so purge removes a custom
+    /// state root (and `service measure` takes the service's measurement lock).
+    #[tokio::test]
+    async fn purge_and_measure_use_the_configured_state_root() {
+        let server = fake_server(0).await;
+        let p = profile();
+        p.enroll(&p.args(&server.origin), Some("code-1"))
+            .await
+            .unwrap();
+        let custom = p.dir.path().join("aq-state");
+        let mut config = ServiceConfig::load(&p.layout.service_toml()).unwrap();
+        config.state_root = custom.clone();
+        config.runtime_root = Some(p.dir.path().join("run/local"));
+        config.save(&p.layout.service_toml()).unwrap();
+        std::fs::create_dir_all(custom.join("slots/1/current")).unwrap();
+        let defaults = Layout {
+            config_dir: p.layout.config_dir.clone(),
+            state_root: p.dir.path().join("default-state"),
+            runtime_root: p.dir.path().join("default-run"),
+        };
+        let (layout, _) = loaded_in(defaults, "local").unwrap();
+        assert_eq!(layout.state_root, custom);
+        assert_eq!(layout.measure_lock(), custom.join("measure.lock"));
+        assert_eq!(layout.runtime_root, p.dir.path().join("run/local"));
+        layout.prepare_runtime().unwrap();
+        purge_dirs(&layout).unwrap();
+        assert!(!custom.exists() && !layout.runtime_root.exists());
+        assert!(!p.layout.config_dir.exists());
     }
 }

@@ -3,6 +3,10 @@
 use crate::config::{AqGitConfig, RepositoryBinding};
 use anyhow::{Context, Result, bail, ensure};
 use std::{
+    os::{
+        fd::AsRawFd,
+        unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt},
+    },
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
@@ -18,16 +22,134 @@ pub struct AqGit {
     child: Option<Child>,
     socket: PathBuf,
 }
+/// What a SIGKILLed aq-git leaves behind (a crash, or `systemctl kill`): its socket, which a
+/// new aq-git cannot bind, and its ownership fence (`incarnation.json` still active), which
+/// makes a new aq-git refuse the state with `recovery_blocked`. Both are cleared only when no
+/// process holds the state's `owner.lock`: aq-git's guard and engine hold it until they and
+/// every descendant are gone.
+async fn reclaim(config: &AqGitConfig, git_dir: &Path, socket: &Path) -> Result<()> {
+    if let Ok(found) = std::fs::symlink_metadata(socket) {
+        ensure!(
+            found.file_type().is_socket(),
+            "{} is not a socket; refusing to replace it",
+            socket.display()
+        );
+        let probe = tokio::time::timeout(Duration::from_millis(250), UnixStream::connect(socket));
+        match probe.await {
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {}
+            Ok(Ok(_)) => bail!("a live aq-git still listens on {}", socket.display()),
+            _ => bail!(
+                "{} neither accepts nor refuses a connection; kept",
+                socket.display()
+            ),
+        }
+        ensure!(
+            owner_gone(git_dir)?,
+            "the aq-git state {} is still owned by a live process; its socket {} is kept",
+            git_dir.display(),
+            socket.display()
+        );
+        let again = std::fs::symlink_metadata(socket)?;
+        ensure!(
+            (again.dev(), again.ino()) == (found.dev(), found.ino()),
+            "{} changed while it was checked",
+            socket.display()
+        );
+        std::fs::remove_file(socket).with_context(|| format!("remove {}", socket.display()))?;
+        tracing::warn!(socket = %socket.display(), "removed the socket of a killed aq-git");
+    }
+    clear_fence(config, git_dir).await
+}
+/// True when no process holds `<git_dir>/owner.lock` (or it does not exist).
+fn owner_gone(git_dir: &Path) -> Result<bool> {
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(git_dir.join("owner.lock"));
+    let lock = match lock {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+        other => other.context("open the aq-git owner lock")?,
+    };
+    // SAFETY: a non-blocking flock on our own descriptor; released when `lock` drops.
+    Ok(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0)
+}
+/// Clears the ownership fence of a killed aq-git with `recovery clear-fence`, attesting the
+/// free owner lock as the evidence that the old environment stopped.
+async fn clear_fence(config: &AqGitConfig, git_dir: &Path) -> Result<()> {
+    let Ok(bytes) = std::fs::read(git_dir.join("incarnation.json")) else {
+        return Ok(());
+    };
+    let record: serde_json::Value =
+        serde_json::from_slice(&bytes).context("decode aq-git incarnation.json")?;
+    if record["active"] != true {
+        return Ok(());
+    }
+    let incarnation = record["id"].as_str().context("aq-git incarnation id")?;
+    ensure!(
+        owner_gone(git_dir)?,
+        "the aq-git state {} is still owned by a live process",
+        git_dir.display()
+    );
+    let id = Uuid::new_v4().to_string();
+    let request = serde_json::json!({
+        "protocol_version": 1, "request_id": id, "operation_id": id,
+        "operation": "recovery.clear-fence",
+        "params": {"expected_incarnation": incarnation, "old_environment_stopped": true,
+            "reason": "aq-worker service: the previous aq-git of this slot was killed",
+            "evidence": {"owner_lock": "free", "guard_pid": record["guard_pid"],
+                "boot_id": record["boot_id"]}}});
+    let mut child = Command::new(&config.binary)
+        .arg("--state-dir")
+        .arg(git_dir)
+        .arg("--git-executable")
+        .arg(&config.git_executable)
+        .args(["--json", "--input", "-", "recovery", "clear-fence"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .with_context(|| format!("start {}", config.binary.display()))?;
+    let mut stdin = child.stdin.take().context("aq-git stdin")?;
+    stdin.write_all(&serde_json::to_vec(&request)?).await?;
+    drop(stdin);
+    let out = tokio::time::timeout(Duration::from_secs(10), child.wait_with_output())
+        .await
+        .context("aq-git recovery clear-fence did not finish")??;
+    let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    ensure!(
+        out.status.success() && reply["ok"] == true,
+        "aq-git refused to clear the fence of its killed predecessor ({}): {}",
+        out.status,
+        brief(&reply["error"])
+    );
+    tracing::warn!(
+        incarnation,
+        "cleared the ownership fence of a killed aq-git (no process held its owner lock)"
+    );
+    Ok(())
+}
+fn brief(v: &serde_json::Value) -> String {
+    v.to_string().chars().take(500).collect()
+}
+fn matches(binding: &serde_json::Value, repo: &RepositoryBinding) -> bool {
+    binding["mode"] == "worker"
+        && binding["identity"] == repo.identity.as_str()
+        && binding["binding_generation"] == repo.binding_generation
+        && binding["object_format"] == repo.object_format.as_str()
+}
 impl AqGit {
-    /// Spawns `<binary> --state-dir <dir>/git --listen <dir>/git.sock --git-executable <git> serve`
-    /// (stdio null, own process group) and waits up to 10 s for the socket.
-    pub async fn start(config: &AqGitConfig, state_dir: &Path) -> Result<Self> {
-        let socket = state_dir.join("git.sock");
+    /// Spawns `<binary> --state-dir <dir>/git --listen <socket> --git-executable <git> serve`
+    /// (stdio null, own process group) after `reclaim`, and waits up to 10 s until the socket
+    /// accepts a connection.
+    pub async fn start(config: &AqGitConfig, state_dir: &Path, socket: &Path) -> Result<Self> {
+        let git_dir = state_dir.join("git");
+        reclaim(config, &git_dir, socket).await?;
         let mut child = Command::new(&config.binary)
             .arg("--state-dir")
-            .arg(state_dir.join("git"))
+            .arg(&git_dir)
             .arg("--listen")
-            .arg(&socket)
+            .arg(socket)
             .arg("--git-executable")
             .arg(&config.git_executable)
             .arg("serve")
@@ -39,8 +161,14 @@ impl AqGit {
             .spawn()
             .with_context(|| format!("start {}", config.binary.display()))?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while !socket.exists() {
-            if child.try_wait()?.is_some() || tokio::time::Instant::now() > deadline {
+        while UnixStream::connect(socket).await.is_err() {
+            if let Some(status) = child.try_wait()? {
+                bail!(
+                    "worker-side aq-git exited ({status}) before it listened on {}",
+                    socket.display()
+                );
+            }
+            if tokio::time::Instant::now() > deadline {
                 let _ = child.kill().await;
                 bail!("worker-side aq-git did not listen");
             }
@@ -48,7 +176,7 @@ impl AqGit {
         }
         Ok(Self {
             child: Some(child),
-            socket,
+            socket: socket.to_path_buf(),
         })
     }
     #[cfg(test)]
@@ -58,8 +186,10 @@ impl AqGit {
             socket,
         }
     }
-    /// repo.register for each binding (expected_binding_generation 0); refuses unless the
-    /// reply has ok:true, the same request_id and mode "worker".
+    /// repo.register for each binding (expected_binding_generation 0). A repository the state
+    /// already holds (a recovery restarts aq-git on the attempt's state) is answered
+    /// `binding_conflict` "Repository already registered": then its registration is read with
+    /// repo.show and accepted when it is this binding. Refuses unless the binding matches.
     pub async fn register(&self, repos: &[RepositoryBinding]) -> Result<()> {
         for repo in repos {
             let id = Uuid::new_v4().to_string();
@@ -70,21 +200,39 @@ impl AqGit {
                 "params": {"binding": {"identity": repo.identity, "mode": "worker",
                     "binding_generation": repo.binding_generation, "object_format": repo.object_format}}});
             let reply = self.exchange(&request).await?;
+            let error = &reply["error"];
+            let binding = if reply["ok"] == true && reply["request_id"] == id.as_str() {
+                reply["result"].clone()
+            } else if error["code"] == "binding_conflict"
+                && error["message"] == "Repository already registered"
+            {
+                self.show(repo).await?
+            } else {
+                bail!("aq-git refused repo.register: {}", brief(error));
+            };
             ensure!(
-                reply["ok"] == true && reply["request_id"] == id.as_str(),
-                "aq-git refused repo.register: {}",
-                reply["error"]
-                    .to_string()
-                    .chars()
-                    .take(500)
-                    .collect::<String>()
-            );
-            ensure!(
-                reply["result"]["mode"] == "worker",
-                "worker binding mismatch"
+                matches(&binding, repo),
+                "worker binding mismatch for repository {}: {}",
+                repo.repository_id,
+                brief(&binding)
             );
         }
         Ok(())
+    }
+    async fn show(&self, repo: &RepositoryBinding) -> Result<serde_json::Value> {
+        let id = Uuid::new_v4().to_string();
+        let request = serde_json::json!({
+            "protocol_version": 1, "request_id": id, "operation": "repo.show",
+            "repository_id": repo.repository_id,
+            "expected_binding_generation": repo.binding_generation, "params": {}});
+        let reply = self.exchange(&request).await?;
+        ensure!(
+            reply["ok"] == true && reply["request_id"] == id.as_str(),
+            "aq-git refused repo.show of the registered repository {}: {}",
+            repo.repository_id,
+            brief(&reply["error"])
+        );
+        Ok(reply["result"].clone())
     }
     async fn exchange(&self, request: &serde_json::Value) -> Result<serde_json::Value> {
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -104,12 +252,14 @@ impl AqGit {
         .await
         .context("aq-git did not answer")?
     }
-    /// SIGTERM, wait 10 s, then SIGKILL.
+    /// SIGTERM, wait 10 s, then SIGKILL to its whole process group: aq-git's engine is a
+    /// forked child that holds the state's owner lock and the socket.
     pub async fn stop(mut self) -> Result<()> {
         let Some(mut child) = self.child.take() else {
             return Ok(());
         };
-        if let Some(pid) = child.id() {
+        let pid = child.id();
+        if let Some(pid) = pid {
             // SAFETY: plain signal to our own child.
             unsafe { libc::kill(pid as i32, libc::SIGTERM) };
         }
@@ -117,6 +267,10 @@ impl AqGit {
             .await
             .is_err()
         {
+            if let Some(pid) = pid {
+                // SAFETY: the child leads its own process group (`process_group(0)`).
+                unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+            }
             child.kill().await?;
         }
         Ok(())
@@ -124,23 +278,36 @@ impl AqGit {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use tokio::net::UnixListener;
-    #[tokio::test]
-    async fn register_sends_repo_register_frames() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("git.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
-        let server = tokio::spawn(async move {
+    fn repo(identity: &str) -> RepositoryBinding {
+        RepositoryBinding {
+            repository_id: Uuid::from_u128(9),
+            identity: identity.into(),
+            binding_generation: 1,
+            object_format: "sha1".into(),
+        }
+    }
+    fn binding(identity: &str, mode: &str) -> serde_json::Value {
+        serde_json::json!({"identity": identity, "mode": mode, "binding_generation": 1,
+            "object_format": "sha1", "repository_id": Uuid::from_u128(9)})
+    }
+    /// A fake aq-git socket: answers each connection's frame with `answer(request)`.
+    fn serve(
+        socket: &Path,
+        answers: Vec<fn(&serde_json::Value) -> serde_json::Value>,
+    ) -> tokio::task::JoinHandle<Vec<serde_json::Value>> {
+        let listener = UnixListener::bind(socket).unwrap();
+        tokio::spawn(async move {
             let mut seen = Vec::new();
-            for mode in ["worker", "other"] {
+            for answer in answers {
                 let (stream, _) = listener.accept().await.unwrap();
                 let mut stream = BufReader::new(stream);
                 let mut line = String::new();
                 stream.read_line(&mut line).await.unwrap();
                 let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-                let reply = serde_json::json!({"ok": true, "request_id": request["request_id"], "result": {"mode": mode}});
+                let reply = answer(&request);
                 stream
                     .get_mut()
                     .write_all(format!("{reply}\n").as_bytes())
@@ -149,14 +316,28 @@ mod tests {
                 seen.push(request);
             }
             seen
-        });
+        })
+    }
+    fn ok(r: &serde_json::Value, result: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({"ok": true, "request_id": r["request_id"], "result": result})
+    }
+    fn refused(r: &serde_json::Value, code: &str, message: &str) -> serde_json::Value {
+        serde_json::json!({"ok": false, "request_id": r["request_id"],
+            "error": {"code": code, "message": message, "details": null}})
+    }
+    const ALREADY: &str = "Repository already registered";
+    #[tokio::test]
+    async fn register_sends_repo_register_frames() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("git.sock");
+        let server = serve(
+            &socket,
+            vec![|r| ok(r, binding("e0-development", "worker")), |r| {
+                ok(r, binding("e0-development", "other"))
+            }],
+        );
         let git = AqGit::over_socket(socket);
-        let repo = RepositoryBinding {
-            repository_id: Uuid::from_u128(9),
-            identity: "e0-development".into(),
-            binding_generation: 1,
-            object_format: "sha1".into(),
-        };
+        let repo = repo("e0-development");
         git.register(std::slice::from_ref(&repo)).await.unwrap();
         let refused = git.register(&[repo]).await.unwrap_err();
         assert!(refused.to_string().contains("mismatch"), "{refused:#}");
@@ -165,6 +346,165 @@ mod tests {
         assert_eq!(seen[0]["expected_binding_generation"], 0);
         assert_eq!(seen[0]["params"]["binding"]["mode"], "worker");
         assert_eq!(seen[0]["params"]["binding"]["identity"], "e0-development");
+        git.stop().await.unwrap();
+    }
+    /// D2 (a): recovery restarts aq-git on the attempt's state, where the repository is
+    /// registered: the existing registration is read and accepted when it is this binding.
+    #[tokio::test]
+    async fn register_accepts_the_existing_registration_of_this_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("git.sock");
+        let server = serve(
+            &socket,
+            vec![
+                |r| refused(r, "binding_conflict", ALREADY),
+                |r| ok(r, binding("e0", "worker")),
+                |r| refused(r, "binding_conflict", ALREADY),
+                |r| ok(r, binding("another", "worker")),
+                |r| {
+                    refused(
+                        r,
+                        "binding_conflict",
+                        "Registration requires generation zero",
+                    )
+                },
+            ],
+        );
+        let git = AqGit::over_socket(socket);
+        git.register(&[repo("e0")]).await.unwrap();
+        let e = git.register(&[repo("e0")]).await.unwrap_err();
+        assert!(e.to_string().contains("worker binding mismatch"), "{e:#}");
+        let e = git.register(&[repo("e0")]).await.unwrap_err();
+        assert!(e.to_string().contains("generation zero"), "{e:#}");
+        let seen = server.await.unwrap();
+        assert_eq!(seen[1]["operation"], "repo.show");
+        assert_eq!(seen[1]["repository_id"], Uuid::from_u128(9).to_string());
+        assert_eq!(seen[1]["expected_binding_generation"], 1);
+    }
+
+    /// A stand-in aq-git: `serve` listens on `--listen` (python3), `recovery clear-fence`
+    /// saves its request beside the script and answers ok; `AQ_FAKE_EXIT` exits at once.
+    pub(crate) fn fake_aq_git(dir: &Path, exit: Option<u8>) -> AqGitConfig {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("aq-git");
+        let body = match exit {
+            Some(code) => format!("#!/bin/sh\nexit {code}\n"),
+            None => r#"#!/bin/sh
+for a; do [ "$prev" = --listen ] && listen=$a; prev=$a; done
+case " $* " in
+*" clear-fence "*) cat > "$(dirname "$0")/clear-fence.json"; echo '{"ok":true,"result":{}}' ;;
+*" serve "*) exec python3 -c 'import socket,sys,time
+s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(8); time.sleep(60)' "$listen" ;;
+esac
+"#
+            .to_owned(),
+        };
+        std::fs::write(&script, body).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        AqGitConfig {
+            binary: script,
+            git_executable: "/usr/bin/git".into(),
+        }
+    }
+    /// The state of an aq-git that was SIGKILLed: a socket nobody listens on and an active
+    /// incarnation whose owner lock is free.
+    fn killed(state: &Path, socket: &Path) {
+        std::fs::create_dir_all(state.join("git")).unwrap();
+        std::fs::write(state.join("git/owner.lock"), b"").unwrap();
+        let record = serde_json::json!({"active": true, "id": "inc-1", "guard_pid": 1,
+            "boot_id": "b", "version": 1});
+        std::fs::write(state.join("git/incarnation.json"), record.to_string()).unwrap();
+        drop(std::os::unix::net::UnixListener::bind(socket).unwrap());
+    }
+    /// D2 (b): after a SIGKILL the stale socket is removed and the fence cleared (the owner
+    /// lock is free), and start waits for the new aq-git to accept a connection.
+    #[tokio::test]
+    async fn start_reclaims_the_socket_and_fence_of_a_killed_aq_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, socket) = (dir.path().join("current"), dir.path().join("git.sock"));
+        killed(&state, &socket);
+        let config = fake_aq_git(dir.path(), None);
+        let git = AqGit::start(&config, &state, &socket).await.unwrap();
+        UnixStream::connect(&socket)
+            .await
+            .expect("the new aq-git listens");
+        let request: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("clear-fence.json")).unwrap())
+                .unwrap();
+        assert_eq!(request["operation"], "recovery.clear-fence");
+        assert_eq!(request["params"]["expected_incarnation"], "inc-1");
+        assert_eq!(request["params"]["old_environment_stopped"], true);
+        assert_eq!(request["params"]["evidence"]["owner_lock"], "free");
+        git.stop().await.unwrap();
+    }
+    /// Nothing is removed while a process holds the owner lock or listens on the socket, and
+    /// an aq-git that exits before it listens is reported at once.
+    #[tokio::test]
+    async fn start_keeps_what_a_live_owner_holds_and_reports_an_early_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, socket) = (dir.path().join("current"), dir.path().join("git.sock"));
+        killed(&state, &socket);
+        let config = fake_aq_git(dir.path(), None);
+        let held = std::fs::File::open(state.join("git/owner.lock")).unwrap();
+        // SAFETY: flock on our own descriptor.
+        assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let e = format!(
+            "{:#}",
+            AqGit::start(&config, &state, &socket).await.err().unwrap()
+        );
+        assert!(e.contains("still owned by a live process"), "{e}");
+        assert!(socket.exists());
+        drop(held);
+        std::fs::remove_file(&socket).unwrap();
+        let live = UnixListener::bind(&socket).unwrap();
+        let e = format!(
+            "{:#}",
+            AqGit::start(&config, &state, &socket).await.err().unwrap()
+        );
+        assert!(e.contains("a live aq-git still listens"), "{e}");
+        drop(live);
+        assert!(
+            !dir.path().join("clear-fence.json").exists(),
+            "the fence is kept"
+        );
+        std::fs::remove_file(state.join("git/incarnation.json")).unwrap();
+        let exits = fake_aq_git(dir.path(), Some(3));
+        let e = format!(
+            "{:#}",
+            AqGit::start(&exits, &state, &socket).await.err().unwrap()
+        );
+        assert!(
+            e.contains("exited (exit status: 3) before it listened"),
+            "{e}"
+        );
+    }
+    /// D2 against the real aq-git: register, SIGKILL its process group (as `systemctl kill`
+    /// does), start again on the same state and register again.
+    #[tokio::test]
+    #[ignore = "requires AQ_GIT_TEST_BINARY (an aq-git build)"]
+    async fn real_aq_git_restarts_after_a_sigkill() {
+        let binary = std::env::var_os("AQ_GIT_TEST_BINARY").expect("set AQ_GIT_TEST_BINARY");
+        let dir = tempfile::tempdir().unwrap();
+        let (state, socket) = (dir.path().join("current"), dir.path().join("git.sock"));
+        std::fs::create_dir_all(state.join("git")).unwrap();
+        let config = AqGitConfig {
+            binary: binary.into(),
+            git_executable: "/usr/bin/git".into(),
+        };
+        let repo = repo("e0-development");
+        let mut git = AqGit::start(&config, &state, &socket).await.unwrap();
+        git.register(std::slice::from_ref(&repo)).await.unwrap();
+        let pgid = git.child.as_ref().unwrap().id().unwrap() as i32;
+        // SAFETY: the test's own aq-git process group.
+        unsafe { libc::kill(-pgid, libc::SIGKILL) };
+        git.child.take().unwrap().wait().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(socket.exists(), "the killed aq-git left its socket");
+        let git = AqGit::start(&config, &state, &socket).await.unwrap();
+        git.register(std::slice::from_ref(&repo)).await.unwrap();
+        git.stop().await.unwrap();
+        let git = AqGit::start(&config, &state, &socket).await.unwrap();
+        git.register(&[repo]).await.unwrap();
         git.stop().await.unwrap();
     }
 }
