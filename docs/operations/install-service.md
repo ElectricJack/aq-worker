@@ -193,6 +193,12 @@ aq-worker service release-sandbox --profile local --slot 2 \
   --attempt-id ATTEMPT --reason "inspected; work not needed"
 ```
 
+It refuses an attempt the slot's recovery still holds for salvage (its sandbox
+holds the unsaved work), unless you pass `--force`. A lost attempt's record
+(`lost-ATTEMPT.json`) marks its sandbox as kept; the service never destroys
+it, even when the attempt had recorded a claim (`claim_unreported`: its work
+is then in the archived worktree).
+
 The stop timeout of the unit is the profile's `shutdown_grace_ms` plus 30 s
 (a drop-in, `aq-node@PROFILE.service.d/stop.conf`).
 
