@@ -47,6 +47,7 @@ container_args() {
     -v "$(cfg_dir "$p"):/config" \
     -v "$(state_dir "$p"):/state" \
     -v "$SANDBOX_DIR:/run/aq-sandbox"
+  if grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null && [[ -d /mnt/c/ProgramData/agent-q ]]; then printf '%s\n' -v "/mnt/c/ProgramData/agent-q:/run/aq-host-load:ro"; fi
 }
 
 cmd_build() {
@@ -115,6 +116,26 @@ cmd_node_config() {
     "capacity": { "memory_bytes": 8589934592, "cpu_millis": 4000, "disk_bytes": 53687091200, "max_preparing": 1 }
   }
 }
+JSON
+  echo "wrote $f"
+}
+
+# machine.json: identity and host-load source for the swarm page (spec 0007).
+cmd_machine_config() {
+  local p="$1" key="${2:-}" f label host_load
+  profile_ok "$p"
+  ensure_dirs "$p"
+  f="$(cfg_dir "$p")/agent-q/machine.json"
+  [[ -e "$f" ]] && die "$f exists; edit it instead"
+  [[ -n "$key" ]] || key="$(hostname | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-\n' '-' | cut -c1-63)"
+  [[ "$key" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] \
+    || die "machine key '$key' is invalid: use 1-63 characters of [a-z0-9-], starting with a letter or digit"
+  label="$(hostname)"
+  host_load=null
+  if grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then host_load='"/run/aq-host-load/host-load.json"'; fi
+  umask 077
+  cat > "$f" <<JSON
+{"key": "$key", "label": "$label", "kind": "local", "host_load_file": $host_load}
 JSON
   echo "wrote $f"
 }
@@ -195,6 +216,8 @@ usage: aq-worker-ctl <command>
   enroll <profile> --server URL [--name N] [--cf-service-token] [--runner-access-token]
                                 secrets are prompted (TTY) or read from stdin lines
   node-config <profile>         write a default node.json for the profile
+  machine-config <profile> [key]
+                                write a default machine.json (swarm identity, Windows host load)
   use <profile>                 enable this profile's worker, disable every other one
   status                        units, linger, profiles
   container-run <profile>       foreground container (the unit's ExecStart)
@@ -207,6 +230,7 @@ case "${1:-}" in
   install) cmd_install ;;
   enroll) shift; cmd_enroll "$@" ;;
   node-config) cmd_node_config "${2:-}" ;;
+  machine-config) cmd_machine_config "${2:-}" "${3:-}" ;;
   use) cmd_use "${2:-}" ;;
   status) cmd_status ;;
   container-run) cmd_container_run "${2:-}" ;;

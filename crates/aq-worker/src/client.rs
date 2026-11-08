@@ -134,8 +134,8 @@ impl Client {
         }
         Ok(())
     }
-
-    async fn post<B: Serialize, T: DeserializeOwned>(
+    /// Authenticated JSON POST for routes that have no dedicated method.
+    pub async fn post<B: Serialize, T: DeserializeOwned>(
         &self,
         path: &str,
         body: &B,

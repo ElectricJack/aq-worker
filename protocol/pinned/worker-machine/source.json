@@ -1,0 +1,11 @@
+{
+  "repository": "ElectricJack/aq-server",
+  "commit": "f68684fbc289bd0ae70092b2bc7f11318e8daa49",
+  "sha256": {
+    "v1/README.md": "2a1b1be8b6c429741779121eb6208e5654a9e0bda5f16a59ff2c74f02622329a",
+    "v1/schema.json": "57e053d390f807db881f59fedb672c314b41d588ad5747cd2bdd894d38e653a3",
+    "v1/check.py": "93a8456b11331285bf8f16b25c18e4244cf0e3404e986b8397fb07d640479f32",
+    "v1/fixtures/report-linux.json": "81f8a46afe989dacc2ba3163b00227cb166dd3143699e4720b8b065c69244019",
+    "v1/fixtures/report-windows-host.json": "606b3d422615a1af3edc2f8ed21f6618289ccf428848535ff030305e35394e39"
+  }
+}

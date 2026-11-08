@@ -276,3 +276,35 @@ async fn not_found_hints_at_the_worker_port() {
         assert!(m.contains("worker port (8081)"), "{m}");
     }
 }
+
+#[tokio::test]
+async fn machine_report_posts_with_bearer() {
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let sink = seen.clone();
+    let app = Router::new().route(
+        "/v1/worker/machine",
+        post(move |h: HeaderMap, body: axum::Json<serde_json::Value>| {
+            let sink = sink.clone();
+            async move {
+                *sink.lock().unwrap() =
+                    Some((h["authorization"].to_str().unwrap().to_owned(), body.0));
+                json_resp(StatusCode::OK, r#"{"recorded":true}"#)
+            }
+        }),
+    );
+    let url = serve(app).await;
+    let text = include_str!(
+        "../../../protocol/pinned/worker-machine/v1/fixtures/report-windows-host.json"
+    );
+    let report: aq_machine_load::MachineReport = serde_json::from_str(text).unwrap();
+    client(&url)
+        .post::<_, serde_json::Value>("/v1/worker/machine", &report, true)
+        .await
+        .unwrap();
+    let (auth, body) = seen.lock().unwrap().take().unwrap();
+    assert_eq!(auth, "Bearer aqn_x");
+    assert_eq!(
+        body,
+        serde_json::from_str::<serde_json::Value>(text).unwrap()
+    );
+}

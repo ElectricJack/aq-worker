@@ -195,6 +195,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-machine-load"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aq-observation"
 version = "0.1.0"
 dependencies = [
@@ -407,6 +421,7 @@ dependencies = [
  "aq-agent-result-local",
  "aq-codex-mapper",
  "aq-lifecycle-protocol",
+ "aq-machine-load",
  "aq-observation",
  "aq-observation-engine",
  "aq-observation-redb-prototype",

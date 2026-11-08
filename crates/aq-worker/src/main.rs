@@ -806,11 +806,18 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     _ => anyhow::bail!("configure exactly one placement backend"),
                 };
                 let mut controller = Controller::open(&config.state_dir, worker.node_id, config.node, backend, UnavailableProvider)?;
+                let machine_reporting = aq_machine_load::sampler_from_file(&controller_config.with_file_name("machine.json"), config.state_dir.clone());
+                let machine_client = client.clone();
                 let (tx, rx) = tokio::sync::watch::channel(false);
                 let watcher = tokio::spawn(async move {
                     shutdown_signal().await;
                     let _ = tx.send(true);
                 });
+                let mut machine_shutdown = rx.clone();
+                let machine = machine_reporting.map(|(sampler, interval)| tokio::spawn(aq_machine_load::report_loop(sampler, interval,
+                    move |report| { let c = machine_client.clone(); async move {
+                        c.post::<_, serde_json::Value>("/v1/worker/machine", &report, true).await.map(|_| ()).map_err(|e| e.to_string()) } },
+                    async move { while !*machine_shutdown.borrow() { if machine_shutdown.changed().await.is_err() { break; } } })));
                 let mut heartbeat_shutdown = rx.clone();
                 tracing::info!(node_id = %controller.identity().node_id, boot_id = %controller.identity().boot_id, "node controller starting");
                 let result = controller.run_with_heartbeat(rx, run_loop(&client, async move {
@@ -819,6 +826,7 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                         }
                     })).await;
                 watcher.abort();
+                if let Some(machine) = machine { machine.abort(); }
                 result
             }.await;
             match result {

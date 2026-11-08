@@ -192,6 +192,43 @@ packaging/worker/drill-restart.sh before local http://<server>/api/workers
 packaging/worker/drill-restart.sh after local http://<server>/api/workers
 ```
 
+## Windows host load (WSL2)
+
+The worker reports machine CPU and RAM to the Swarm page every 15 s. On WSL2
+the VM only sees its own load, so a small Windows-side probe writes the host
+load to a file that the worker reads.
+
+1. Install the probe once, from Windows PowerShell or from WSL (see the
+   `cd /mnt/c` note under Autostart):
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\aq-host-load.ps1 -Install -StartNow
+   ```
+
+   This registers a per-user logon task named "AQ host load probe". It needs no
+   elevation.
+2. Write the machine identity for the profile:
+
+   ```sh
+   aq-worker-ctl machine-config <profile> [key]
+   ```
+
+   The key defaults to the lower-cased host name. On WSL2 the file points
+   `host_load_file` at `/run/aq-host-load/host-load.json`, the read-only mount
+   of `C:\ProgramData\agent-q` that `aq-worker-ctl` adds when the directory
+   exists. For a host-native worker use `/mnt/c/ProgramData/agent-q/host-load.json`.
+3. Restart the worker unit so the container gets the mount.
+
+The probe writes `C:\ProgramData\agent-q\host-load.json` every 5 s
+(`schema: "aq-host-load-1"`, CPU in basis points, memory and disk in bytes).
+The worker uses the file when it is at most 30 s old. Without a fresh file the
+report carries the WSL VM load and the page says "Windows host probe stale:
+showing WSL VM load" (or that the probe is missing).
+
+The task runs a copy of the script kept in `%LOCALAPPDATA%\agent-q`, which only
+your user can write. `-Status` shows the task state and the age of the file.
+`-Uninstall` removes the task and the copied script.
+
 ## What happens on restart, sleep and WSL shutdown
 
 Enrollment (`node_id` and credentials) lives in `/config/agent-q/worker.toml`;

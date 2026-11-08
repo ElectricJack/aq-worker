@@ -164,3 +164,14 @@ def test_restart_drill_requires_new_boot_with_same_node_and_online_server(host, 
     after = run(host, "after", "home", api.as_uri(), script=DRILL)
     assert after.returncode == expected, after.stderr
     assert ("DRILL PASS" if new_boot else "FAIL new boot_id") in after.stdout
+
+
+def test_machine_config_validates_key_before_writing(host):
+    bad = run(host, "machine-config", "local", "Bad_Key")
+    assert bad.returncode != 0
+    assert "invalid" in bad.stderr
+    path = Path(host[1]["AQ_WORKER_CONFIG_ROOT"]) / "local" / "agent-q" / "machine.json"
+    assert not path.exists()
+    good = run(host, "machine-config", "local", "desk-1")
+    assert good.returncode == 0, good.stderr
+    assert json.loads(path.read_text())["key"] == "desk-1"
