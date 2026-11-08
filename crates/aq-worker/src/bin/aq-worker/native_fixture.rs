@@ -12,7 +12,7 @@ use serde::Deserialize;
 use std::{io::Write, path::Path, sync::Arc, time::Instant};
 use tokio::sync::watch;
 
-#[path = "native/journal/codex_process_guard.rs"]
+#[path = "../../native/journal/codex_process_guard.rs"]
 mod confinement;
 mod replay;
 

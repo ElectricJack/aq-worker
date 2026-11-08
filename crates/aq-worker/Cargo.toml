@@ -64,6 +64,10 @@ backend-conformance = ["aq-responses-transport/test-support"]
 test-support = ["synthetic-runtime","backend-conformance", "aq-responses-transport/test-support","aq-terminal-bridge/test-support","aq-worker-protocol/test-support", "aq-session-host/test-support"]
 
 [[bin]]
+name = "aq-worker"
+path = "src/bin/aq-worker/main.rs"
+
+[[bin]]
 name = "aq-worker-test-host"
 path = "src/bin/aq-worker-test-host.rs"
 required-features = ["test-support"]
