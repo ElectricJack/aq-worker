@@ -34,6 +34,25 @@ impl Receipt {
     }
 }
 
+/// Attempt ids in an existing state dir's journal (empty when no journal exists). Takes the
+/// state-dir lock, so it fails while a running node owns the scope.
+pub fn retained_attempts(config: &NativeConfig, node: Uuid) -> Result<Vec<Uuid>> {
+    let root = config.state_dir.join("journal");
+    if std::fs::symlink_metadata(&root).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+        return Ok(vec![]);
+    }
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&config.state_dir)?;
+    fs2::FileExt::try_lock_exclusive(&held).context("native state scope already owned")?;
+    check_root(config, &held)?;
+    let journal = Journal::open(&root, node, config.capacity.clone())?;
+    let mut ids: Vec<Uuid> = journal.state().attempts.keys().copied().collect();
+    ids.sort();
+    Ok(ids)
+}
+
 /// Reconcile one preserved, physically stopped attempt using its original IDs
 /// and outboxes. Repeated calls are safe after partial delivery/response loss.
 /// A successful call does not authorize new execution or release local holds.

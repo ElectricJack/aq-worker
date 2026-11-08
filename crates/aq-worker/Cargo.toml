@@ -56,6 +56,7 @@ aq-worker = { path = ".", features = ["backend-conformance", "synthetic-runtime"
 aq-responses-transport = { workspace = true, features = ["test-support"] }
 aq-worker-protocol = { workspace = true, features = ["test-support"] }
 axum.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 # Historical M2/M3 synthetic execution harness; never enabled by production builds.
