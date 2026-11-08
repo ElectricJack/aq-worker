@@ -289,12 +289,13 @@ async fn release_lost(
             "the server refused the lost-attempt release: {e:#}; {why}"
         )),
     };
-    // Written on every outcome: the record also marks the sandbox as kept.
-    if let Err(e) = write_private(
-        &lost_record(state_dir, attempt),
-        record.to_string().as_bytes(),
-    ) {
-        tracing::warn!(%attempt, "lost-attempt record not written: {e:#}");
+    // Written on every outcome: the record also marks the sandbox as kept, so without it the
+    // slot is held (settle would otherwise release, and destroy, a claimed attempt's sandbox).
+    let path = lost_record(state_dir, attempt);
+    if let Err(e) = write_private(&path, record.to_string().as_bytes()) {
+        return held(format!(
+            "the lost-attempt record was not written: {e:#}; {why}"
+        ));
     }
     match &outcome {
         RecoverOutcome::Lost => tracing::warn!(%attempt, %record,
@@ -1704,5 +1705,29 @@ mod tests {
             "kept for the operator"
         );
         assert_eq!(states[&other], SandboxState::Running);
+    }
+
+    /// #51 re-review: when the lost-attempt record (the kept-sandbox marker) cannot be written,
+    /// the slot is held, never freed, even though the server released the attempt.
+    #[tokio::test]
+    async fn an_unwritten_lost_record_holds_the_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        let attempt = Uuid::from_u128(86);
+        // A directory where the record goes: the write fails.
+        std::fs::create_dir(lost_record(dir.path(), attempt)).unwrap();
+        let outcome = release_lost(
+            async || Ok(()),
+            async |r| Ok(answer(&r, true)),
+            dir.path(),
+            attempt,
+            teardown("a"),
+            true,
+            "lost",
+        )
+        .await;
+        assert!(
+            matches!(&outcome, RecoverOutcome::Held(why) if why.contains("record was not written")),
+            "{outcome:?}"
+        );
     }
 }

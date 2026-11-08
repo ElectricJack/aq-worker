@@ -20,6 +20,9 @@ use uuid::Uuid;
 
 pub struct AqGit {
     child: Option<Child>,
+    /// The leader's pid, taken at spawn: `Child::id` is gone once the leader is reaped, and
+    /// the group (the engine) may outlive it.
+    leader: Option<u32>,
     socket: PathBuf,
 }
 /// What a SIGKILLed aq-git leaves behind (a crash, or `systemctl kill`): its socket, which a
@@ -183,6 +186,7 @@ impl AqGit {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         Ok(Self {
+            leader: child.id(),
             child: Some(child),
             socket: socket.to_path_buf(),
         })
@@ -191,6 +195,7 @@ impl AqGit {
     pub(crate) fn over_socket(socket: PathBuf) -> Self {
         Self {
             child: None,
+            leader: None,
             socket,
         }
     }
@@ -266,8 +271,8 @@ impl AqGit {
         let Some(mut child) = self.child.take() else {
             return Ok(());
         };
-        let pid = child.id();
-        if let Some(pid) = pid {
+        let pid = self.leader;
+        if let Some(pid) = child.id() {
             // SAFETY: plain signal to our own child.
             unsafe { libc::kill(pid as i32, libc::SIGTERM) };
         }
@@ -282,17 +287,22 @@ impl AqGit {
     }
 }
 /// SIGKILL to the process group `pid` leads (`process_group(0)`); ESRCH when it is gone.
+/// Skipped when the group is already gone (the pid-recycle window is accepted).
 fn kill_group(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        // SAFETY: a signal to the group of our own child.
-        unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+    if let Some(group) = pid.map(|p| -(p as i32)) {
+        // SAFETY: probing, then signalling, the group of our own child.
+        if unsafe { libc::kill(group, 0) } == 0 {
+            unsafe { libc::kill(group, libc::SIGKILL) };
+        }
     }
 }
 /// A dropped `AqGit` (the slot's task was cancelled) takes its whole process group with it, so
 /// no engine survives holding the owner lock; `kill_on_drop` alone signals only the leader.
 impl Drop for AqGit {
     fn drop(&mut self) {
-        kill_group(self.child.as_ref().and_then(Child::id));
+        if self.child.is_some() {
+            kill_group(self.leader);
+        }
     }
 }
 
@@ -572,5 +582,33 @@ esac
                 if drop_it { "dropped" } else { "stopped" }
             );
         }
+    }
+    /// #51 re-review: the group kill uses the leader pid taken at spawn, so it still fires
+    /// when the leader exited and was reaped before the stop (its engine still running).
+    #[tokio::test]
+    async fn the_group_kill_fires_after_the_leader_was_reaped() {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, socket) = (dir.path().join("current"), dir.path().join("git.sock"));
+        std::fs::create_dir_all(state.join("git")).unwrap();
+        let config = fake_aq_git(dir.path(), None);
+        let mut git = AqGit::start(&config, &state, &socket).await.unwrap();
+        let engine: i32 = std::fs::read_to_string(dir.path().join("engine.pid"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // The leader exits on its own and is reaped: its `Child::id` is gone.
+        let child = git.child.as_mut().unwrap();
+        child.start_kill().unwrap();
+        child.wait().await.unwrap();
+        assert!(child.id().is_none());
+        git.stop().await.unwrap();
+        let gone = (0..200).any(|_| {
+            std::thread::sleep(Duration::from_millis(10));
+            std::fs::read_to_string(format!("/proc/{engine}/stat")).map_or(true, |s| {
+                s.rsplit_once(") ").is_some_and(|(_, t)| t.starts_with('Z'))
+            })
+        });
+        assert!(gone, "the engine is gone after the stop");
     }
 }
