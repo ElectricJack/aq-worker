@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "MachineReport",
+  "description": "One machine load report. Load and memory are the machine's own (the\nWindows host's when `source` is `windows_host`); `cpu_busy_bps` is 0-10000.",
   "type": "object",
   "properties": {
     "cpu_busy_bps": {
@@ -122,4 +123,3 @@
     }
   }
 }
-
