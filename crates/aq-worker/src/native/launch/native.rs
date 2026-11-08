@@ -381,6 +381,7 @@ pub(super) fn bootstrap(
         let state = owner.journal.state();
         let a = &state.attempts[&entry.id];
         let offer = a.reservation.offer.clone();
+        a.phase_scope()?; // Its refusal precedes the installation check, as it always did.
         let m = lock(&profile.installation)?.installation().clone();
         ensure!(
             a.reservation.runtime.runtime == m.runtime
@@ -398,7 +399,7 @@ pub(super) fn bootstrap(
             ],
             size: (profile.columns, profile.rows),
         };
-        let intent = launch_intent(scope, state.revision, a, pins)?;
+        let intent = launch_intent(scope, state.revision, a, pins, "native PID namespace UTF8")?;
         #[cfg(test)]
         entry.hook(Checkpoint::Outer, &mut owner.journal)?;
         owner.journal.begin_native_launch(entry.id, intent)?;

@@ -101,7 +101,7 @@ pub fn fetch_retry_wait(e: &anyhow::Error, attempt: u32) -> Option<Duration> {
 /// Retries an idempotent read while it fails transiently, until it has had `FETCH_TRIES` tries
 /// and `FETCH_SPAN` has passed, and only while the next wait ends before `deadline_ns` (R1: one
 /// `503 overloaded` failed a whole attempt; R5: five fast tries did not outlast a restart).
-pub async fn fetch_retried<T, F>(deadline_ns: u64, mut call: impl FnMut() -> F) -> Result<T>
+pub(crate) async fn fetch_retried<T, F>(deadline_ns: u64, mut call: impl FnMut() -> F) -> Result<T>
 where
     F: Future<Output = Result<T>>,
 {
@@ -121,6 +121,14 @@ where
     }
 }
 
+/// `fetch_retried`, for the integration tests.
+#[cfg(feature = "test-support")]
+pub async fn fetch_retried_for_test<T, F>(deadline_ns: u64, call: impl FnMut() -> F) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    fetch_retried(deadline_ns, call).await
+}
 /// No Debug/Serialize: private body bytes must not become logs or journal JSON.
 pub struct PrivateMaterial {
     pub(super) delivery: MaterialDelivery,

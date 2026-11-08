@@ -302,7 +302,7 @@ pub(super) fn bootstrap(
             programs: [executable, helper, tmux, c.renderer.clone()],
             size: (c.columns, c.rows),
         };
-        let intent = launch_intent(scope, state.revision, a, pins)?;
+        let intent = launch_intent(scope, state.revision, a, pins, "PID namespace text")?;
         let runtime = a.reservation.runtime.clone();
         owner.journal.begin_native_launch(entry.id, intent)?;
         entry.snapshot(&owner.journal)?;

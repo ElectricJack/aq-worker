@@ -539,7 +539,7 @@ async fn production_request_retains_prepared_owners_before_http_and_on_unknown_o
             .unwrap()
     );
     // R1 review: a journaled Prepare with no grant may have been granted, so recovery holds the
-    // slot. R4: that real recovery runs on tokio's default 2 MiB worker stack.
+    // slot. R4: that recovery fits half a 2 MiB worker stack (the base needed 1.99 MiB here).
     drop(h.pipeline.take());
     let (_pins, mut config) = crate::native::runner::tests::config();
     config.state_dir = h._dir.path().canonicalize().unwrap();

@@ -1691,16 +1691,10 @@ mod tests {
         }));
         let path = PathBuf::from("/nonexistent");
         let backend: &'static NativeSlotBackend =
-            Box::leak(Box::new(NativeSlotBackend::new(path.clone(), Uuid::nil())));
-        let ctx = SlotContext {
-            slot: 1,
-            node_id: Uuid::nil(),
-            enrollment: path.clone(),
-            state_dir: path.clone(),
-            host_root: path.clone(),
-            git_socket: path,
-            renderer: None,
-        };
+            Box::leak(Box::new(NativeSlotBackend::new(path, Uuid::nil())));
+        // `recover_attempts` is the body the async_trait `recover` boxes. It awaits
+        // `release_lost` with the real closures (a docker backend and the server link), so the
+        // lost-guardian release is measured inside it as instantiated in the service.
         let sizes = [
             (
                 "recover_attempts",
@@ -1716,20 +1710,6 @@ mod tests {
                     aq_worker::native::runner::reconcile_native(worker, c, Uuid::nil())
                 }),
             ),
-            (
-                "release_lost",
-                size(|d: &'static Path| {
-                    release_lost(
-                        async || Ok(()),
-                        async |_| anyhow::bail!("refused"),
-                        d,
-                        Uuid::nil(),
-                        teardown("a"),
-                        false,
-                        "lost",
-                    )
-                }),
-            ),
         ];
         for (name, bytes) in sizes {
             assert!(
@@ -1737,18 +1717,16 @@ mod tests {
                 "{name} future is {bytes} bytes (limit {LIMIT})"
             );
         }
-        // The boxed entry point the supervisor polls holds only its box.
-        assert!(std::mem::size_of_val(&SlotBackend::recover(backend, ctx)) <= 16);
     }
-    /// R4 (b): the lost-guardian release, on tokio's default 2 MiB worker stack: the sandbox
+    /// R4 (b): the lost-guardian release, within half a 2 MiB tokio worker stack: the sandbox
     /// stop, the stored proof, the release post and the lost record, then a freed slot.
     #[test]
-    fn a_lost_guardian_release_runs_on_a_two_mib_worker() {
+    fn a_lost_guardian_release_fits_half_a_worker_stack() {
         let dir = tempfile::tempdir().unwrap();
         let state = dir.path().to_owned();
         let run = move || {
             let mut rt = tokio::runtime::Builder::new_multi_thread();
-            let rt = rt.worker_threads(1).thread_stack_size(2 << 20);
+            let rt = rt.worker_threads(1).thread_stack_size(1 << 20);
             let rt = rt.enable_all().build().unwrap();
             rt.block_on(rt.spawn(async move {
                 let attempt = Uuid::from_u128(80);

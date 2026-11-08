@@ -65,6 +65,13 @@ fn rewrite(root: &Path, mutate: impl FnOnce(&mut State)) {
     s.digest = canonical_digest(&s.state).unwrap();
     fs::write(file, canonical_bytes(&s).unwrap()).unwrap();
 }
+/// R4: a panic while decoding a journal off the worker's stack is an error, not a crash.
+#[test]
+fn a_panicking_journal_decode_is_an_error() {
+    let e = off_stack(|| -> Result<()> { panic!("synthetic decode panic") }).unwrap_err();
+    assert_eq!(e.to_string(), "journal decode thread panicked");
+    assert_eq!(off_stack(|| Ok(7)).unwrap(), 7);
+}
 #[test]
 fn reservation_acceptance_survive_restart_without_restoring_live_authority() {
     let dir = tempfile::tempdir().unwrap();

@@ -675,7 +675,9 @@ fn native_transport_ignores_ambient_proxy_configuration() {
 /// `FETCH_SPAN` have passed, every wait at least half its equal-jitter ceiling (paused clock).
 #[tokio::test(start_paused = true)]
 async fn fetch_retries_span_five_tries_and_ten_seconds() {
-    use aq_worker::native::http::{FETCH_SPAN, FETCH_TRIES, TransportFailed, fetch_retried};
+    use aq_worker::native::http::{
+        FETCH_SPAN, FETCH_TRIES, TransportFailed, fetch_retried_for_test as fetch_retried,
+    };
     let started = tokio::time::Instant::now();
     let tries = std::sync::Mutex::new(vec![]);
     let failing = || async {
@@ -689,14 +691,14 @@ async fn fetch_retries_span_five_tries_and_ten_seconds() {
         "five tries span less than 10 s: {tries:?}"
     );
     assert!(*tries.last().unwrap() >= FETCH_SPAN, "{tries:?}");
+    // And no more than that: 250 ms + 500 ms + 1 s + 2 s + 4 s + 4 s already passes 10 s.
+    assert!(tries.len() <= 8, "{tries:?}");
     // Waits never fall under half their ceiling: 250 ms, 500 ms, 1 s, 2 s, 4 s, then 4 s.
     for (n, pair) in tries.windows(2).enumerate() {
         let floor = Duration::from_millis(250 << n.min(4));
-        assert!(
-            pair[1] - pair[0] >= floor,
-            "wait {n}: {:?} < {floor:?}",
-            pair[1] - pair[0]
-        );
+        let wait = pair[1] - pair[0];
+        let ceiling = Duration::from_secs(8);
+        assert!(wait >= floor && wait <= ceiling, "wait {n}: {wait:?}");
     }
     // A deadline still ends it early: no wait may end past it.
     let calls = std::sync::atomic::AtomicUsize::new(0);

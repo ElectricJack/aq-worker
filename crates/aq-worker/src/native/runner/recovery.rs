@@ -302,11 +302,7 @@ fn attempt_of(journal: &Journal, id: Uuid) -> Result<Box<Attempt>> {
 }
 /// R1: the disposition of an attempt with no host history (it never launched), or None.
 fn pre_launch(a: &Attempt) -> Option<Result<ReconcileDisposition>> {
-    let hold = |reason, why: &str| {
-        Some(Err(
-            RecoveryHold(reason, anyhow::anyhow!(why.to_owned())).into()
-        ))
-    };
+    let hold = |r, why: &'static str| Some(Err(RecoveryHold(r, anyhow::anyhow!(why)).into()));
     if a.native_host.is_some() || a.result.is_some() {
         return None;
     }

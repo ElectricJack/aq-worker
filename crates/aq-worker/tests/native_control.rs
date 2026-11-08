@@ -560,14 +560,15 @@ mod preparation_failure {
             address,
         }
     }
-    /// Runs `f` on a tokio worker with tokio's default 2 MiB stack (R4: slot recovery
-    /// overflowed it in the service), from a thread outside any runtime.
+    /// Runs `f` on a tokio worker with a 1 MiB stack, from a thread outside any runtime. R4: the
+    /// recovery below the slot task must leave half of tokio's 2 MiB default to the supervisor
+    /// and service layers above it (with them, the base needed 2.17 MiB).
     pub fn on_worker_stack<T: Send + 'static>(
         f: impl std::future::Future<Output = T> + Send + 'static,
     ) -> T {
         let run = move || {
             let mut rt = tokio::runtime::Builder::new_multi_thread();
-            let rt = rt.worker_threads(1).thread_stack_size(2 << 20);
+            let rt = rt.worker_threads(1).thread_stack_size(1 << 20);
             let rt = rt.enable_all().build().unwrap();
             rt.block_on(rt.spawn(f)).unwrap()
         };
@@ -677,7 +678,7 @@ async fn a_preparation_failed_by_overload_settles_as_never_started() {
 
     let config = preparation_failure::native_config(p.dir.path());
     let worker = preparation_failure::worker("http://127.0.0.1:9");
-    // R4: the real recovery runs on tokio's default 2 MiB worker stack.
+    // R4: the real recovery fits half a 2 MiB tokio worker stack; it overflowed that on 44060750.
     let (state, id) = (p.dir.path().to_owned(), p.id);
     let salvage = || {
         let state = state.clone();

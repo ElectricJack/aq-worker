@@ -892,14 +892,12 @@ fn bootstrap(owner: &Arc<Mutex<Owned>>, _registry: &Registry, entry: &Arc<Entry>
         Profile::Synthetic(_) => bootstrap_synthetic(owner, _registry, entry),
     }
 }
-/// What a launcher pins of its host profile in a launch intent.
+/// What a launcher pins of its host profile in a launch intent: the root (with its device and
+/// inode), the profile, the executable, helper, tmux and renderer, and the columns and rows.
 pub(super) struct HostPins {
-    /// The host root and its device and inode.
     pub root: (std::path::PathBuf, (u64, u64)),
     pub profile_digest: Digest,
-    /// Executable, helper, tmux and renderer.
     pub programs: [aq_session_protocol::ArtifactRef; 4],
-    /// Columns and rows.
     pub size: (u16, u16),
 }
 /// The durable launch intent of `a`'s granted execution on a host profile (every launcher's).
@@ -908,6 +906,7 @@ pub(super) fn launch_intent(
     revision: u64,
     a: &crate::native::journal::Attempt,
     pins: HostPins,
+    pid_context: &'static str,
 ) -> Result<NativeLaunchIntent> {
     let accepted = a.phase_scope()?;
     let grant = accepted.grant;
@@ -929,7 +928,7 @@ pub(super) fn launch_intent(
         host_root: pins.root.0,
         root_device: pins.root.1.0,
         root_inode: pins.root.1.1,
-        pid_namespace: pid_namespace.to_str().context("PID namespace text")?.into(),
+        pid_namespace: pid_namespace.to_str().context(pid_context)?.into(),
         profile_digest: pins.profile_digest,
         executable,
         helper,
@@ -974,7 +973,7 @@ fn bootstrap_synthetic(
             programs: [executable, helper, tmux, c.renderer.clone()],
             size: (c.columns, c.rows),
         };
-        let intent = launch_intent(scope, state.revision, a, pins)?;
+        let intent = launch_intent(scope, state.revision, a, pins, "PID namespace text")?;
         #[cfg(test)]
         entry.hook(Checkpoint::Outer, &mut owner.journal)?;
         owner.journal.begin_native_launch(entry.id, intent)?;

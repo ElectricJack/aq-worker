@@ -167,14 +167,16 @@ impl std::fmt::Display for RecoveryHold {
 impl std::error::Error for RecoveryHold {}
 /// Runs `f` on a scoped thread with an 8 MiB stack (serde's derived visitors keep each journal
 /// record's fields on the stack), so the calling worker's stack is not spent on it.
-fn off_stack<T: Send>(f: impl FnOnce() -> Result<T> + Send) -> Result<T> {
+pub(crate) fn off_stack<T: Send>(f: impl FnOnce() -> Result<T> + Send) -> Result<T> {
     let thread = std::thread::Builder::new().name("aq-journal-decode".into());
-    std::thread::scope(
-        |s| match thread.stack_size(8 << 20).spawn_scoped(s, f)?.join() {
-            Ok(decoded) => decoded,
-            Err(panic) => std::panic::resume_unwind(panic),
-        },
-    )
+    let panicked = |_| anyhow::anyhow!("journal decode thread panicked");
+    std::thread::scope(|s| {
+        thread
+            .stack_size(8 << 20)
+            .spawn_scoped(s, f)?
+            .join()
+            .map_err(panicked)?
+    })
 }
 /// A `RecoveryHold` for `reason` unless `ok`.
 pub(crate) fn hold_unless(ok: bool, reason: &'static str, why: &'static str) -> Result<()> {
@@ -485,8 +487,7 @@ impl Journal {
         let known = header["state"]["format"].as_u64() == Some(FORMAT as u64);
         let why = "unsupported native journal format; preserve original evidence";
         hold_unless(known, "journal_unreadable: format", why)?;
-        // R4: decoding and checking the ~35 KiB attempts takes about 1.7 MiB of stack in a debug
-        // build (0.45 MiB optimized), most of a 2 MiB tokio worker. Do it on a thread of its own.
+        // R4: decoding the ~35 KiB attempts takes 1.7 MiB of stack in a dev build (0.45 optimized).
         let snapshot = off_stack(|| {
             let snapshot: Snapshot = serde_json::from_slice(&raw).map_err(format)?;
             let sealed = snapshot.digest == canonical_digest(&snapshot.state)?;
@@ -687,6 +688,31 @@ impl Journal {
         self.persist(state)?;
         Ok(id)
     }
+    /// The Accept of reservation `r` (its original ids) with `remaining_ns` left on it.
+    pub(crate) fn accept_for(
+        &self,
+        r: &Reservation,
+        acceptance: ProfiledAcceptance,
+        remaining_ns: u64,
+    ) -> Result<Accept> {
+        let reservation = NoLaunchReservation {
+            reservation_id: r.reservation_id,
+            reservation_operation_id: r.reservation_operation_id,
+            reservation_journal_digest: canonical_digest(r)?,
+        };
+        Ok(Accept {
+            schema_version: 1,
+            operation_id: r.accept_operation_id,
+            identity: self.state.identity.clone(),
+            acceptance,
+            reservation,
+            guardian_id: r.guardian_id,
+            launch_id: r.launch_id,
+            journal_revision: self.state.revision,
+            journal_digest: canonical_digest(&self.state)?,
+            reservation_remaining_ms: remaining_ns / 1_000_000,
+        })
+    }
     /// Persist before sending. Retries return the original typed bytes/IDs and
     /// original remaining-time claim; physical sends use separate fresh nonces.
     pub fn begin_accept(
@@ -718,22 +744,7 @@ impl Journal {
             );
             return Ok(request.clone());
         }
-        let request = Accept {
-            schema_version: 1,
-            operation_id: r.accept_operation_id,
-            identity: self.state.identity.clone(),
-            acceptance,
-            reservation: NoLaunchReservation {
-                reservation_id: r.reservation_id,
-                reservation_operation_id: r.reservation_operation_id,
-                reservation_journal_digest: canonical_digest(r)?,
-            },
-            guardian_id: r.guardian_id,
-            launch_id: r.launch_id,
-            journal_revision: self.state.revision,
-            journal_digest: canonical_digest(&self.state)?,
-            reservation_remaining_ms: (r.deadline_ns - now) / 1_000_000,
-        };
+        let request = self.accept_for(r, acceptance, r.deadline_ns - now)?;
         TransportDocument::Accept(request.clone()).validate()?;
         let mut state = self.next()?;
         let attempt = state.attempts.get_mut(&id).unwrap();
