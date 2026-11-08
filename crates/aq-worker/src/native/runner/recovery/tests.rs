@@ -430,6 +430,41 @@ async fn salvage_is_idempotent_after_report() {
     assert!(error.to_string().contains("report intent"), "{error:#}");
 }
 
+/// Review M8, the widened gate: a claim the driver already recorded is kept (no second
+/// claim), a Failed stop anchor is added only when none exists, and two claims are refused.
+#[tokio::test]
+async fn salvage_keeps_a_claim_already_recorded() {
+    let (_dir, h, a) = salvage_fixture();
+    let note = claim(&h, &[]).await.unwrap();
+    let mut claimed = h.clone();
+    salvage_history(&a, &mut claimed, Some(note.clone()), 5).unwrap();
+    let mut driver = claimed.clone();
+    (driver.salvaged, driver.stop) = (None, None);
+    let mut kept = driver.clone();
+    salvage_history(&a, &mut kept, None, 6).unwrap();
+    let bytes = |h: &ResultHistory| h.claim.as_ref().map(|c| c.bytes.clone());
+    assert_eq!(bytes(&kept), bytes(&driver), "the driver's claim is kept");
+    let outcome = kept.stop.as_ref().unwrap().outcome;
+    assert!(matches!(
+        outcome,
+        aq_admission::transport::ProcessOutcome::Failed
+    ));
+    assert_eq!(kept.salvaged, Some(6));
+    let mut live = driver.clone();
+    live.stop = claimed.stop.clone().map(|mut s| {
+        s.outcome = aq_admission::transport::ProcessOutcome::Success;
+        s
+    });
+    salvage_history(&a, &mut live, None, 6).unwrap();
+    let outcome = live.stop.as_ref().unwrap().outcome;
+    assert!(matches!(
+        outcome,
+        aq_admission::transport::ProcessOutcome::Success
+    ));
+    let e = salvage_history(&a, &mut driver, Some(note), 6).unwrap_err();
+    assert!(e.to_string().contains("exactly one claim"), "{e:#}");
+}
+
 #[tokio::test]
 async fn salvage_without_sandbox_is_unsalvageable() {
     let (dir, mut h, a) = salvage_fixture();

@@ -454,3 +454,40 @@ mod physical_fixture;
 #[allow(dead_code)] // Shared finite fixture exposes legacy fault controls unused by this focused slice.
 #[path = "refresh_physical_scenarios.rs"]
 mod refresh_physical_scenarios;
+
+/// Review M8: salvage_result is for a restarted owner only, and after a restart
+/// update_result continues only a salvaged history.
+#[test]
+fn salvage_and_restarted_update_gates() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("native");
+    let mut live = create(&root);
+    let id = Uuid::new_v4();
+    let e = live.salvage_result(id, None).err().unwrap();
+    assert!(e.to_string().contains("restarted owner only"), "{e:#}");
+    drop(live);
+    let mut restarted = Journal::open(&root, identity().node_id, limits()).unwrap();
+    assert!(restarted.recovery_required());
+    let e = restarted.salvage_result(id, None).err().unwrap();
+    assert!(
+        e.to_string().contains("salvage attempt absent"),
+        "past the gate: {e:#}"
+    );
+    let mut a = crate::native::test_support::profile_history::terminal_attempt(false, false);
+    let wrong = Digest::of(b"not the history");
+    for salvaged in [None, Some(3)] {
+        let mut h = crate::native::result::tests::history();
+        h.salvaged = salvaged;
+        a.result = Some(h);
+        restarted.state.attempts.insert(id, a.clone());
+        let e = restarted
+            .update_result(id, &wrong, |_, _| Ok(()))
+            .err()
+            .unwrap();
+        let expected = match salvaged {
+            None => "requires stop-and-preserve recovery",
+            Some(_) => "result CAS changed",
+        };
+        assert!(e.to_string().contains(expected), "{salvaged:?}: {e:#}");
+    }
+}
