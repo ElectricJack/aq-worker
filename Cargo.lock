@@ -483,6 +483,7 @@ dependencies = [
  "aq-terminal-renderer",
  "aq-worker",
  "aq-worker-protocol",
+ "async-trait",
  "axum",
  "base64 0.22.1",
  "bytes",

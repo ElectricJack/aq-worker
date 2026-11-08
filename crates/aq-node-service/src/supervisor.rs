@@ -143,28 +143,39 @@ pub fn running_attempts(layout: &Layout, slots: u32) -> Result<Vec<Uuid>> {
         .collect())
 }
 fn driver_dirs(layout: &Layout, slots: u32) -> Vec<(PathBuf, Uuid)> {
+    (1..=slots)
+        .flat_map(|slot| driver_dirs_in(&layout.current(slot).join("host")))
+        .collect()
+}
+fn driver_dirs_in(host: &Path) -> Vec<(PathBuf, Uuid)> {
     let mut found = Vec::new();
-    for slot in 1..=slots {
-        let Ok(entries) = std::fs::read_dir(layout.current(slot).join("host")) else {
+    let Ok(entries) = std::fs::read_dir(host) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !entry.file_name().to_string_lossy().starts_with("driver-") {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(dir.join("driver.json")) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let dir = entry.path();
-            if !entry.file_name().to_string_lossy().starts_with("driver-") {
-                continue;
-            }
-            let Ok(bytes) = std::fs::read(dir.join("driver.json")) else {
-                continue;
-            };
-            let id = serde_json::from_slice::<serde_json::Value>(&bytes)
-                .ok()
-                .and_then(|v| v["owner"]["attempt_id"].as_str()?.parse().ok());
-            if let Some(id) = id {
-                found.push((dir, id));
-            }
+        let id = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()
+            .and_then(|v| v["owner"]["attempt_id"].as_str()?.parse().ok());
+        if let Some(id) = id {
+            found.push((dir, id));
         }
     }
     found
+}
+/// The reason the service recorded for `attempt` before the cut (the handoff marker in its driver
+/// directory under `state_dir/host`); None when no marker exists.
+pub fn recorded_handoff(state_dir: &Path, attempt: Uuid) -> Option<HandoffReason> {
+    let (dir, _) = driver_dirs_in(&state_dir.join("host"))
+        .into_iter()
+        .find(|(_, id)| *id == attempt)?;
+    aq_handoff_note::read_handoff_marker(&dir.join(aq_handoff_note::HANDOFF_MARKER))
 }
 
 /// Why polling is paused; slots poll only while no flag is set.
@@ -811,6 +822,23 @@ mod tests {
         )
         .unwrap();
         dir
+    }
+
+    #[test]
+    fn recorded_handoff_reads_the_marker_of_the_attempt() {
+        let rig = rig(1);
+        let (a, b) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let (da, _db) = (driver(&rig, 1, a), driver(&rig, 1, b));
+        let state = rig.layout.current(1);
+        assert_eq!(recorded_handoff(&state, a), None);
+        assert!(mark_handoff(&rig.layout, 1, a, HandoffReason::ServiceStop).unwrap());
+        assert!(da.join("handoff").exists());
+        assert_eq!(
+            recorded_handoff(&state, a),
+            Some(HandoffReason::ServiceStop)
+        );
+        assert_eq!(recorded_handoff(&state, b), None);
+        assert_eq!(recorded_handoff(&state, Uuid::from_u128(3)), None);
     }
 
     #[tokio::test(start_paused = true)]

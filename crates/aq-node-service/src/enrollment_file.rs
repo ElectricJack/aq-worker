@@ -61,7 +61,7 @@ pub(crate) fn read_private(path: &Path) -> Result<String> {
 }
 
 /// Directory 0700, file 0600: a create-new temp file in the same directory, then a rename.
-pub(crate) fn write_private(path: &Path, body: &[u8]) -> Result<()> {
+pub fn write_private(path: &Path, body: &[u8]) -> Result<()> {
     let dir = match path.parent() {
         Some(d) if !d.as_os_str().is_empty() => d,
         _ => Path::new("."),
