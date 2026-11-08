@@ -44,7 +44,7 @@ async fn reclaim(config: &AqGitConfig, git_dir: &Path, socket: &Path) -> Result<
             ),
         }
         ensure!(
-            owner_gone(git_dir)?,
+            owner_gone(git_dir).await?,
             "the aq-git state {} is still owned by a live process; its socket {} is kept",
             git_dir.display(),
             socket.display()
@@ -60,8 +60,10 @@ async fn reclaim(config: &AqGitConfig, git_dir: &Path, socket: &Path) -> Result<
     }
     clear_fence(config, git_dir).await
 }
-/// True when no process holds `<git_dir>/owner.lock` (or it does not exist).
-fn owner_gone(git_dir: &Path) -> Result<bool> {
+/// True when no process holds `<git_dir>/owner.lock` (or it does not exist). Tried for up to
+/// 250 ms: a child forked elsewhere in this process holds a copy of a lock descriptor until it
+/// execs.
+async fn owner_gone(git_dir: &Path) -> Result<bool> {
     let lock = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -70,8 +72,14 @@ fn owner_gone(git_dir: &Path) -> Result<bool> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(true),
         other => other.context("open the aq-git owner lock")?,
     };
-    // SAFETY: a non-blocking flock on our own descriptor; released when `lock` drops.
-    Ok(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0)
+    for _ in 0..25 {
+        // SAFETY: a non-blocking flock on our own descriptor; released when `lock` drops.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(true);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Ok(false)
 }
 /// Clears the ownership fence of a killed aq-git with `recovery clear-fence`, attesting the
 /// free owner lock as the evidence that the old environment stopped.
@@ -86,7 +94,7 @@ async fn clear_fence(config: &AqGitConfig, git_dir: &Path) -> Result<()> {
     }
     let incarnation = record["id"].as_str().context("aq-git incarnation id")?;
     ensure!(
-        owner_gone(git_dir)?,
+        owner_gone(git_dir).await?,
         "the aq-git state {} is still owned by a live process",
         git_dir.display()
     );
@@ -401,6 +409,16 @@ esac
         };
         std::fs::write(&script, body).unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // A thread forking elsewhere in the test process can briefly hold the write
+        // descriptor (ETXTBSY on exec): wait until the script runs.
+        for _ in 0..200 {
+            match std::process::Command::new(&script).arg("--probe").status() {
+                Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) => {
+                    std::thread::sleep(Duration::from_millis(10))
+                }
+                _ => break,
+            }
+        }
         AqGitConfig {
             binary: script,
             git_executable: "/usr/bin/git".into(),

@@ -325,10 +325,15 @@ mod tests {
         let held = measure_lock(&path, false).unwrap().expect("free");
         assert!(measure_lock(&path, false).unwrap().is_none(), "held");
         drop(held);
-        assert!(
-            measure_lock(&path, false).unwrap().is_some(),
-            "released on drop"
-        );
+        // A child forked by another test holds a copy of the descriptor until it execs.
+        let released = (0..100).any(|_| {
+            let free = measure_lock(&path, false).unwrap().is_some();
+            free || {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                false
+            }
+        });
+        assert!(released, "released on drop");
     }
 
     fn result(model: &str, window: u64, input: u64) -> Value {
