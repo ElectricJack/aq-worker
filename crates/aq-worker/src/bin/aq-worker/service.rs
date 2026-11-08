@@ -396,6 +396,12 @@ async fn enroll_in(
             .collect::<Vec<_>>()
             .join(" ")
     );
+    if args.reconfigure {
+        println!(
+            "run `aq-worker service install --profile {}` to restart the service with this enrollment",
+            args.profile
+        );
+    }
     Ok(())
 }
 
