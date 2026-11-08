@@ -73,7 +73,14 @@ pub fn valid_profile(p: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// What systemd allows beyond the shutdown grace before it kills the service: the forced stop
+/// and the measurement release fit inside it (asserted in the supervisor).
+pub const STOP_MARGIN: std::time::Duration = std::time::Duration::from_secs(30);
 impl ServiceConfig {
+    /// The unit's TimeoutStopSec: the grace, rounded up to seconds, plus `STOP_MARGIN`.
+    pub fn stop_timeout_secs(&self) -> u64 {
+        self.shutdown_grace_ms.div_ceil(1000) + STOP_MARGIN.as_secs()
+    }
     pub fn load(path: &Path) -> Result<Self> {
         let config: Self = toml::from_str(&read_private(path)?)
             .with_context(|| format!("parse {}", path.display()))?;
@@ -210,6 +217,12 @@ git_executable = "/usr/bin/git"
             (c.shutdown_grace_ms, c.measurement.renew_before_ms),
             (120_000, 14_400_000)
         );
+        assert_eq!(c.stop_timeout_secs(), 150, "the template's default");
+        let longest = ServiceConfig {
+            shutdown_grace_ms: 600_000,
+            ..c.clone()
+        };
+        assert_eq!(longest.stop_timeout_secs(), 630);
         assert!(!c.measurement.enabled && c.repositories.is_empty());
     }
 }

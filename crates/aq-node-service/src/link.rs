@@ -23,26 +23,43 @@ pub struct LinkError {
     pub status: u16,
     pub code: Option<String>,
 }
+impl LinkError {
+    /// AQ itself refused the credential: 401 or 403 in AQ's own error schema.
+    pub fn revoked(&self) -> bool {
+        matches!(self.status, 401 | 403) && self.code.is_some()
+    }
+    /// A redirect, or a 401/403 without AQ's schema: an edge in front of AQ (Cloudflare
+    /// Access) refused the request. That is a misconfigured Access token, never a revoke.
+    pub fn edge_refused(&self) -> bool {
+        (300..400).contains(&self.status)
+            || (matches!(self.status, 401 | 403) && self.code.is_none())
+    }
+}
+/// The node's server-origin rule: https to any host, plain http only to 127.0.0.1 or ::1;
+/// no userinfo, query, fragment or path.
+pub fn checked_origin(origin: &str) -> Result<url::Url> {
+    let origin = url::Url::parse(origin).map_err(|_| anyhow::anyhow!("invalid server origin"))?;
+    let loopback = matches!(origin.host(), Some(url::Host::Ipv4(ip)) if ip.is_loopback() && ip.octets() == [127, 0, 0, 1])
+        || matches!(origin.host(), Some(url::Host::Ipv6(ip)) if ip.is_loopback());
+    ensure!(
+        origin.scheme() == "https" || (origin.scheme() == "http" && loopback),
+        "the server origin must be https (plain http only to 127.0.0.1 or ::1)"
+    );
+    ensure!(
+        origin.host_str().is_some()
+            && origin.username().is_empty()
+            && origin.password().is_none()
+            && origin.path() == "/"
+            && origin.query().is_none()
+            && origin.fragment().is_none(),
+        "the server origin must be a bare scheme://host[:port]"
+    );
+    Ok(origin)
+}
 impl ServerLink {
-    /// Refuses http:// unless the host is 127.0.0.1 or ::1; refuses userinfo, query, fragment, non-root path.
+    /// Refuses an origin outside `checked_origin`'s rule and an empty or non-ASCII credential.
     pub fn new(origin: &str, credential: &str, access: Option<(&str, &str)>) -> Result<Self> {
-        let origin =
-            url::Url::parse(origin).map_err(|_| anyhow::anyhow!("invalid server origin"))?;
-        let loopback = matches!(origin.host(), Some(url::Host::Ipv4(ip)) if ip.is_loopback() && ip.octets() == [127, 0, 0, 1])
-            || matches!(origin.host(), Some(url::Host::Ipv6(ip)) if ip.is_loopback());
-        ensure!(
-            origin.scheme() == "https" || (origin.scheme() == "http" && loopback),
-            "the server origin must be https (plain http only to 127.0.0.1 or ::1)"
-        );
-        ensure!(
-            origin.host_str().is_some()
-                && origin.username().is_empty()
-                && origin.password().is_none()
-                && origin.path() == "/"
-                && origin.query().is_none()
-                && origin.fragment().is_none(),
-            "the server origin must be a bare scheme://host[:port]"
-        );
+        let origin = checked_origin(origin)?;
         ensure!(
             !credential.is_empty() && credential.bytes().all(|b| b.is_ascii_graphic()),
             "invalid node credential"
@@ -248,6 +265,65 @@ mod tests {
         let e = error.downcast_ref::<LinkError>().unwrap();
         assert_eq!((e.status, e.code.as_deref()), (401, Some("unauthorized")));
         assert!(!format!("{error:#}").contains("very-secret"));
+    }
+    /// Review M5: only AQ's own 401/403 is a revoke; an edge's redirect or bare 403 is not.
+    #[tokio::test]
+    async fn edge_refusals_are_not_revocations() {
+        use axum::http::{StatusCode, header::LOCATION};
+        let app = Router::new()
+            .route(
+                "/v1/worker/control",
+                post(|| async {
+                    (
+                        StatusCode::FOUND,
+                        [(LOCATION, "https://team.cloudflareaccess.com/login")],
+                        "",
+                    )
+                }),
+            )
+            .route(
+                "/v1/worker/handoffs",
+                post(|| async {
+                    (
+                        StatusCode::FORBIDDEN,
+                        "<html>Forbidden. You don't have permission</html>",
+                    )
+                }),
+            )
+            .route(
+                "/v1/worker/machine",
+                post(|| async {
+                    (
+                        StatusCode::FORBIDDEN,
+                        Json(serde_json::json!({"error": "revoked", "message": "no"})),
+                    )
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let link = ServerLink::new(&origin, "c", None).unwrap();
+        let notice = HandoffNotice {
+            schema_version: 1,
+            attempt_id: uuid::Uuid::nil(),
+            reason: aq_protocol::HandoffReason::Restart,
+        };
+        let errors = [
+            link.control().await.map(drop).unwrap_err(),
+            link.handoff(&notice).await.unwrap_err(),
+            link.machine_report(&serde_json::json!({}))
+                .await
+                .unwrap_err(),
+        ];
+        server.abort();
+        let kinds: Vec<_> = (errors.iter())
+            .map(|e| e.downcast_ref::<LinkError>().unwrap())
+            .map(|l| (l.status, l.revoked(), l.edge_refused()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [(302, false, true), (403, false, true), (403, true, false)]
+        );
     }
     #[test]
     fn default_machine_key_follows_the_ctl_rule() {

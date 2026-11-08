@@ -9,6 +9,8 @@ pub struct UnitSpec {
     pub aq_worker: PathBuf,
     pub service_toml: PathBuf,
     pub requires_sandbox_unit: bool,
+    /// systemd's TimeoutStopSec for this instance (`ServiceConfig::stop_timeout_secs`).
+    pub stop_timeout_secs: u64,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum ServiceState {
@@ -20,7 +22,9 @@ pub enum ServiceState {
 }
 pub trait ServiceManager {
     fn kind(&self) -> &'static str;
-    /// Writes the unit, reloads, and enables `aq-node@<profile>.service` now.
+    /// Writes the unit and the instance's stop timeout, reloads, and enables
+    /// `aq-node@<profile>.service`: started now, or restarted when already active (a new
+    /// enrollment's credentials take effect).
     fn install(&self, spec: &UnitSpec) -> Result<()>;
     /// Disables and stops the instance; the template stays while other instances use it.
     fn uninstall(&self, profile: &str) -> Result<()>;
@@ -96,22 +100,20 @@ pub struct SystemdUser<H: HostProbe> {
     pub unit_dir: PathBuf,
     pub host: H,
 }
-/// The template unit; `%i` is the profile.
+/// The template unit; `%i` is the profile. A user unit cannot order itself after the system's
+/// network-online.target, so none is named: the slots retry the server with backoff instead.
+/// TimeoutStopSec is per instance (`render_stop_dropin`); 150 s is the default grace's.
 pub fn render_unit(spec: &UnitSpec) -> String {
-    let (requires, after) = if spec.requires_sandbox_unit {
-        (
-            "Requires=aq-sandbox-podman.service\n",
-            "aq-sandbox-podman.service network-online.target",
-        )
+    let sandbox = if spec.requires_sandbox_unit {
+        "Requires=aq-sandbox-podman.service\nAfter=aq-sandbox-podman.service\n"
     } else {
-        ("", "network-online.target")
+        ""
     };
     format!(
         "# AQ worker service (spec 0007 §7.2). Installed by `aq-worker service install`.\n\
 [Unit]\n\
 Description=AQ worker service (%i)\n\
-{requires}After={after}\n\
-StartLimitIntervalSec=0\n\
+{sandbox}StartLimitIntervalSec=0\n\
 \n\
 [Service]\n\
 Type=exec\n\
@@ -127,7 +129,17 @@ WantedBy=default.target\n",
         spec.aq_worker.display()
     )
 }
+/// `aq-node@<profile>.service.d/stop.conf`: the profile's shutdown grace plus the margin.
+pub fn render_stop_dropin(spec: &UnitSpec) -> String {
+    format!(
+        "# Installed by `aq-worker service install`: shutdown_grace_ms plus the stop margin.\n[Service]\nTimeoutStopSec={}\n",
+        spec.stop_timeout_secs
+    )
+}
 impl<H: HostProbe> SystemdUser<H> {
+    fn dropin_dir(&self, instance: &str) -> PathBuf {
+        self.unit_dir.join(format!("{instance}.d"))
+    }
     fn systemctl(&self, args: &[&str]) -> Result<String> {
         let argv: Vec<&str> = ["systemctl", "--user"]
             .into_iter()
@@ -168,12 +180,23 @@ impl<H: HostProbe> ServiceManager for SystemdUser<H> {
             "the aq-worker path must be absolute"
         );
         write_unit(&self.unit_dir.join(TEMPLATE), render_unit(spec).as_bytes())?;
+        let dropin = self.dropin_dir(&instance).join("stop.conf");
+        write_unit(&dropin, render_stop_dropin(spec).as_bytes())?;
         self.systemctl(&["daemon-reload"])?;
+        if self.status(&spec.profile)? == ServiceState::Active {
+            self.systemctl(&["enable", &instance])?;
+            return self.systemctl(&["restart", &instance]).map(drop);
+        }
         self.systemctl(&["enable", "--now", &instance]).map(drop)
     }
     fn uninstall(&self, profile: &str) -> Result<()> {
         let instance = Self::instance(profile)?;
         self.systemctl(&["disable", "--now", &instance])?;
+        match std::fs::remove_dir_all(self.dropin_dir(&instance)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).context("remove the instance drop-in"),
+        }
         if !self.others_enabled() {
             match std::fs::remove_file(self.unit_dir.join(TEMPLATE)) {
                 Ok(()) => {}
@@ -273,6 +296,7 @@ mod tests {
             aq_worker: "/opt/aq/aq-worker".into(),
             service_toml: "/c/service.toml".into(),
             requires_sandbox_unit: requires,
+            stop_timeout_secs: 150,
         }
     }
 
@@ -283,7 +307,7 @@ mod tests {
 [Unit]
 Description=AQ worker service (%i)
 Requires=aq-sandbox-podman.service
-After=aq-sandbox-podman.service network-online.target
+After=aq-sandbox-podman.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -301,10 +325,9 @@ WantedBy=default.target
         assert_eq!(render_unit(&spec(true)), golden);
         let bare = render_unit(&spec(false));
         assert!(
-            bare.contains("After=network-online.target\n")
-                && !bare.contains("Requires=")
-                && !bare.contains("podman")
+            !bare.contains("After=") && !bare.contains("Requires=") && !bare.contains("podman")
         );
+        assert!(!render_unit(&spec(true)).contains("network-online"));
     }
     #[test]
     fn preflight_explains_wsl_without_systemd() {
@@ -373,6 +396,7 @@ WantedBy=default.target
             *manager.host.ran.borrow(),
             [
                 vec!["systemctl", "--user", "daemon-reload"],
+                vec!["systemctl", "--user", "is-active", "aq-node@local.service"],
                 vec![
                     "systemctl",
                     "--user",
@@ -408,6 +432,46 @@ WantedBy=default.target
                 })
                 .is_err()
         );
+    }
+    /// Review 9a and M3: a re-enrolled, already active instance is restarted (enable --now
+    /// alone would keep the old credentials running); the stop timeout follows the grace.
+    #[test]
+    fn install_restarts_an_active_instance_and_writes_its_stop_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = SystemdUser {
+            unit_dir: dir.path().to_path_buf(),
+            host: FakeHost {
+                replies: [("is-active", (0, "active"))].into(),
+                ..Default::default()
+            },
+        };
+        std::fs::write(dir.path().join(TEMPLATE), b"old").unwrap();
+        let spec = UnitSpec {
+            stop_timeout_secs: 630,
+            ..spec(false)
+        };
+        manager.install(&spec).unwrap();
+        let ran: Vec<String> = (manager.host.ran.borrow().iter())
+            .map(|a| a[2..].join(" "))
+            .collect();
+        assert_eq!(
+            ran,
+            [
+                "daemon-reload",
+                "is-active aq-node@local.service",
+                "enable aq-node@local.service",
+                "restart aq-node@local.service"
+            ]
+        );
+        let dropin = dir.path().join("aq-node@local.service.d/stop.conf");
+        assert!(
+            std::fs::read_to_string(&dropin)
+                .unwrap()
+                .contains("[Service]\nTimeoutStopSec=630\n")
+        );
+        assert!(!render_unit(&spec).contains("TimeoutStopSec=630"));
+        manager.uninstall("local").unwrap();
+        assert!(!dropin.exists());
     }
     #[test]
     fn uninstall_keeps_the_template_while_other_instances_exist() {

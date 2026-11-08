@@ -15,7 +15,7 @@ pub use config::{AqGitConfig, MeasurementConfig, RepositoryBinding, ServiceConfi
 pub use enrollment_file::{EnrollmentFile, write_private};
 pub use git::AqGit;
 pub use layout::{Layout, write_machine_json};
-pub use link::{LinkError, ServerLink, default_machine_key};
+pub use link::{LinkError, ServerLink, checked_origin, default_machine_key};
 pub use os_service::{Preflight, ServiceManager, ServiceState, UnitSpec, detect, preflight};
 pub use supervisor::{
     AqGitFactory, AttemptOutcome, BACKOFF_MAX, BACKOFF_START, CONTROL_INTERVAL, ControlSource,

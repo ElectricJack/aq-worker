@@ -2,7 +2,10 @@
 //! markers, the renderer switch, measurement renewal and the graceful stop.
 use crate::{
     EnrollmentFile, Layout, LinkError, RepositoryBinding, ServerLink, ServiceConfig,
-    config::AqGitConfig, enrollment_file::write_private, git::AqGit,
+    config::{AqGitConfig, STOP_MARGIN},
+    enrollment_file::write_private,
+    git::AqGit,
+    measure::measure_lock,
 };
 use anyhow::{Context, Result};
 use aq_protocol::{
@@ -16,7 +19,11 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{sync::watch, task::JoinSet, time::Instant};
+use tokio::{
+    sync::watch,
+    task::{JoinHandle, JoinSet},
+    time::Instant,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -50,7 +57,14 @@ pub trait SlotBackend: Send + Sync + 'static {
     ) -> Result<AttemptOutcome>;
     async fn recover(&self, ctx: SlotContext) -> Result<RecoverOutcome>;
     fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>>;
-    async fn measure(&self, token_file: &Path, model: &str) -> Result<MeasurementSubmission>;
+    /// Runs one measurement. When `cancel` turns true it stops, releases its sandbox and
+    /// returns an error.
+    async fn measure(
+        &self,
+        token_file: &Path,
+        model: &str,
+        cancel: watch::Receiver<bool>,
+    ) -> Result<MeasurementSubmission>;
 }
 #[async_trait::async_trait]
 pub trait ControlSource: Send + Sync + 'static {
@@ -102,9 +116,35 @@ pub const QUIET_WINDOW: Duration = Duration::from_secs(30);
 pub const BACKOFF_START: Duration = Duration::from_secs(30);
 pub const BACKOFF_MAX: Duration = Duration::from_secs(300);
 const REVOKED_INTERVAL: Duration = Duration::from_secs(60);
+/// After a failed measurement: this long, doubled after each further failure while the
+/// machine has no pin, up to `MEASURE_RETRY_MAX`.
 const MEASURE_RETRY: Duration = Duration::from_secs(600);
+const MEASURE_RETRY_MAX: Duration = Duration::from_secs(7200);
 const FORCE_WAIT: Duration = Duration::from_secs(20);
+/// How long the stop waits for a cancelled measurement to release its sandbox.
+const MEASURE_STOP_WAIT: Duration = Duration::from_secs(5);
+// systemd's TimeoutStopSec is the grace plus STOP_MARGIN: the forced stop and the measurement
+// release must fit in the margin.
+const _: () = assert!(FORCE_WAIT.as_secs() + MEASURE_STOP_WAIT.as_secs() < STOP_MARGIN.as_secs());
+/// Written in a slot's `current` when the service stops, so an attempt that had no driver
+/// directory yet (still preparing) is still handed off as a service stop, not a crash.
+pub const SERVICE_STOP_MARKER: &str = "service-stop";
 
+fn write_marker(path: &Path, reason: HandoffReason) -> Result<()> {
+    let body = serde_json::json!({"schema_version": 1, "reason": reason}).to_string();
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+    {
+        Ok(mut f) => {
+            std::io::Write::write_all(&mut f, body.as_bytes()).context("write handoff marker")
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e).context("create handoff marker"),
+    }
+}
 /// Writes <driver dir>/handoff (create-new, 0600) for the driver whose driver.json names `attempt`,
 /// searching every slot's current/host/driver-*/driver.json. True when written or already present.
 pub fn mark_handoff(
@@ -114,23 +154,9 @@ pub fn mark_handoff(
     reason: HandoffReason,
 ) -> Result<bool> {
     for (dir, id) in driver_dirs(layout, slots) {
-        if id != attempt {
-            continue;
+        if id == attempt {
+            return write_marker(&dir.join(aq_handoff_note::HANDOFF_MARKER), reason).map(|()| true);
         }
-        let body = serde_json::json!({"schema_version": 1, "reason": reason}).to_string();
-        let marker = dir.join(aq_handoff_note::HANDOFF_MARKER);
-        return match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&marker)
-        {
-            Ok(mut f) => std::io::Write::write_all(&mut f, body.as_bytes())
-                .map(|()| true)
-                .context("write handoff marker"),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(true),
-            Err(e) => Err(e).context("create handoff marker"),
-        };
     }
     Ok(false)
 }
@@ -169,13 +195,22 @@ fn driver_dirs_in(host: &Path) -> Vec<(PathBuf, Uuid)> {
     }
     found
 }
-/// The reason the service recorded for `attempt` before the cut (the handoff marker in its driver
-/// directory under `state_dir/host`); None when no marker exists.
+/// The reason the service recorded for `attempt` before the cut: the handoff marker in its
+/// driver directory under `state_dir/host`, else the slot's service-stop marker; None when
+/// neither exists.
 pub fn recorded_handoff(state_dir: &Path, attempt: Uuid) -> Option<HandoffReason> {
-    let (dir, _) = driver_dirs_in(&state_dir.join("host"))
+    let driver = driver_dirs_in(&state_dir.join("host"))
         .into_iter()
-        .find(|(_, id)| *id == attempt)?;
-    aq_handoff_note::read_handoff_marker(&dir.join(aq_handoff_note::HANDOFF_MARKER))
+        .find(|(_, id)| *id == attempt)
+        .and_then(|(dir, _)| {
+            aq_handoff_note::read_handoff_marker(&dir.join(aq_handoff_note::HANDOFF_MARKER))
+        });
+    let slot = state_dir.join(SERVICE_STOP_MARKER);
+    driver.or_else(|| {
+        slot.exists()
+            .then(|| aq_handoff_note::read_handoff_marker(&slot))
+            .flatten()
+    })
 }
 
 /// Why polling is paused; slots poll only while no flag is set.
@@ -187,16 +222,40 @@ struct Pause {
     flags: Mutex<[bool; 3]>,
 }
 impl Pause {
+    /// Notifies the slots only when the combined value changes: every notification wakes a
+    /// slot's idle wait, which then polls again at once.
     fn set(&self, which: usize, on: bool) {
         let mut flags = self.flags.lock().unwrap();
         flags[which] = on;
-        self.tx.send_replace(flags.iter().any(|f| *f));
+        let paused = flags.iter().any(|f| *f);
+        self.tx
+            .send_if_modified(|v| std::mem::replace(v, paused) != paused);
     }
 }
 #[derive(Default)]
 struct ControlState {
     unauthorized: u32,
     revoked: bool,
+    /// Consecutive refusals by an edge in front of AQ (Cloudflare Access).
+    edge: u32,
+}
+impl ControlState {
+    fn interval(&self) -> Duration {
+        if self.revoked {
+            REVOKED_INTERVAL
+        } else if self.edge > 0 {
+            (CONTROL_INTERVAL * 2u32.saturating_pow(self.edge.min(16))).min(BACKOFF_MAX)
+        } else {
+            CONTROL_INTERVAL
+        }
+    }
+}
+#[derive(Default)]
+struct Measuring {
+    busy: bool,
+    /// No new measurement before this.
+    not_before: Option<Instant>,
+    failures: u32,
 }
 
 pub struct Supervisor<B: SlotBackend, C: ControlSource> {
@@ -213,7 +272,10 @@ struct Shared<B: SlotBackend, C: ControlSource> {
     force: watch::Sender<bool>,
     renderer: Mutex<Option<ArtifactPin>>,
     latest: Mutex<Option<QualificationPin>>,
-    measuring: Mutex<(bool, Option<Instant>)>,
+    measuring: Mutex<Measuring>,
+    measurement: Mutex<Option<JoinHandle<()>>>,
+    /// Slots inside `attempt` (their `current` belongs to a live attempt).
+    active: Mutex<HashSet<u32>>,
     started: (Instant, u64),
 }
 impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
@@ -232,6 +294,8 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
             git,
         }
     }
+    /// Supervises every slot until `shutdown`. It returns only then: a slot that cannot run
+    /// (held, or no enrollment) never ends the service, which would restart it in a loop.
     pub async fn run(self, mut shutdown: watch::Receiver<bool>) -> Result<()> {
         let wall = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -248,41 +312,56 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
             force: watch::channel(false).0,
             renderer: Mutex::new(renderer),
             latest: Mutex::new(None),
-            measuring: Mutex::new((false, None)),
+            measuring: Mutex::default(),
+            measurement: Mutex::new(None),
+            active: Mutex::default(),
             started: (Instant::now(), wall),
             sup: self,
         });
-        let enabled = shared.startup().await;
         let control_task = tokio::spawn(shared.clone().control_loop());
         let mut loops = JoinSet::new();
-        for (slot, node_id) in enabled {
-            loops.spawn(shared.clone().slot_loop(slot, node_id));
+        for slot in 1..=shared.sup.config.slots {
+            loops.spawn(shared.clone().slot_loop(slot));
         }
-        let finished = async { while loops.join_next().await.is_some() {} };
-        tokio::pin!(finished);
-        tokio::select! {
-            () = &mut finished => {}
-            () = signalled(&mut shutdown) => {
-                shared.stopping.send_replace(true);
-                shared.pause.set(STOPPING, true);
-                let grace = tokio::time::sleep(Duration::from_millis(shared.sup.config.shutdown_grace_ms));
-                tokio::pin!(grace);
-                let mut posted = HashSet::new();
-                loop {
-                    shared.hand_off_running(&mut posted).await;
-                    tokio::select! {
-                        () = &mut finished => break,
-                        () = &mut grace => {
-                            shared.force.send_replace(true);
-                            if tokio::time::timeout(FORCE_WAIT, &mut finished).await.is_err() {
-                                tracing::error!("slots did not stop after the forced shutdown");
-                            }
-                            break;
-                        }
-                        () = tokio::time::sleep(CONTROL_INTERVAL) => {}
+        let signalled_first = tokio::select! {
+            () = drain(&mut loops) => false,
+            () = signalled(&mut shutdown) => true,
+        };
+        if !signalled_first {
+            tracing::warn!(
+                "no slot is running; the service stays up (control poll, measurement) until it is stopped"
+            );
+            signalled(&mut shutdown).await;
+        }
+        shared.stopping.send_replace(true);
+        shared.pause.set(STOPPING, true);
+        let grace = tokio::time::sleep(Duration::from_millis(shared.sup.config.shutdown_grace_ms));
+        tokio::pin!(grace);
+        let mut posted = HashSet::new();
+        while !loops.is_empty() {
+            shared.hand_off_running(&mut posted).await;
+            tokio::select! {
+                () = drain(&mut loops) => {}
+                () = &mut grace => {
+                    shared.force.send_replace(true);
+                    if tokio::time::timeout(FORCE_WAIT, drain(&mut loops)).await.is_err() {
+                        tracing::error!("slots did not stop after the forced shutdown");
                     }
+                    break;
                 }
+                () = tokio::time::sleep(CONTROL_INTERVAL) => {}
             }
+        }
+        let measurement = shared.measurement.lock().unwrap().take();
+        if let Some(mut task) = measurement
+            && tokio::time::timeout(MEASURE_STOP_WAIT, &mut task)
+                .await
+                .is_err()
+        {
+            tracing::error!(
+                "the measurement did not release its sandbox in time; the next start sweeps it"
+            );
+            task.abort();
         }
         control_task.abort();
         Ok(())
@@ -292,6 +371,19 @@ async fn signalled(rx: &mut watch::Receiver<bool>) {
     if rx.wait_for(|v| *v).await.is_err() {
         std::future::pending::<()>().await;
     }
+}
+/// Waits for every slot loop; cancel-safe, so it can be raced and called again.
+async fn drain(loops: &mut JoinSet<()>) {
+    while loops.join_next().await.is_some() {}
+}
+/// Waits `backoff` (false when the service stops first), then doubles it up to `BACKOFF_MAX`.
+async fn back_off(stopping: &mut watch::Receiver<bool>, backoff: &mut Duration) -> bool {
+    let waited = tokio::select! {
+        () = tokio::time::sleep(*backoff) => true,
+        _ = stopping.wait_for(|v| *v) => false,
+    };
+    *backoff = (*backoff * 2).min(BACKOFF_MAX);
+    waited
 }
 
 impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
@@ -325,39 +417,23 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             tracing::warn!(slot = ctx.slot, "archive failed: {e:#}");
         }
     }
-    /// Recovers each slot's leftover state; returns the slots that may poll.
-    async fn startup(&self) -> Vec<(u32, Uuid)> {
-        let mut enabled = Vec::new();
-        for slot in 1..=self.sup.config.slots {
-            let layout = &self.sup.layout;
-            let node_id = match EnrollmentFile::load(&layout.slot_enrollment(slot)) {
-                Ok(f) => f.node_id,
-                Err(e) => {
-                    tracing::error!(slot, "slot disabled, enrollment unreadable: {e:#}");
-                    continue;
-                }
-            };
-            let current = layout.current(slot);
-            let ctx = self.ctx(slot, node_id, current.clone());
-            if current.join("journal").exists() {
-                match self.recover(&ctx).await {
-                    Ok(RecoverOutcome::Held(why)) => {
-                        tracing::error!(slot, "slot disabled, recovery held: {why}");
-                        continue;
-                    }
-                    Ok(_) => self.archive(&ctx),
-                    Err(e) => {
-                        tracing::error!(slot, "slot disabled, recovery failed: {e:#}");
-                        continue;
-                    }
-                }
-            } else if current.exists() {
-                self.archive(&ctx);
+    /// Recovers or archives what the last attempt left in `current`. False when recovery is
+    /// held for the owner; an error is retried by the caller with backoff.
+    async fn settle(&self, slot: u32, node_id: Uuid) -> Result<bool> {
+        let layout = &self.sup.layout;
+        let current = layout.current(slot);
+        let ctx = self.ctx(slot, node_id, current.clone());
+        if current.join("journal").exists() {
+            if let RecoverOutcome::Held(why) = self.recover(&ctx).await? {
+                tracing::error!(slot, "slot held until the owner releases it: {why}");
+                return Ok(false);
             }
-            let _ = layout.prune_empty(slot);
-            enabled.push((slot, node_id));
+            self.archive(&ctx);
+        } else if current.exists() {
+            self.archive(&ctx);
         }
-        enabled
+        let _ = layout.prune_empty(slot);
+        Ok(true)
     }
     async fn recover(&self, ctx: &SlotContext) -> Result<RecoverOutcome> {
         let git = self.sup.git.start(&ctx.state_dir).await?;
@@ -369,11 +445,43 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         let _ = git.stop().await;
         out
     }
-    async fn slot_loop(self: Arc<Self>, slot: u32, node_id: Uuid) {
+    async fn slot_loop(self: Arc<Self>, slot: u32) {
         let mut backoff = BACKOFF_START;
         let mut stopping = self.stopping.subscribe();
         let mut pause = self.pause.tx.subscribe();
+        let enrollment = self.sup.layout.slot_enrollment(slot);
+        let node_id = loop {
+            match EnrollmentFile::load(&enrollment) {
+                Ok(f) => break f.node_id,
+                Err(e) => tracing::error!(slot, "slot waits for its enrollment: {e:#}"),
+            }
+            if !back_off(&mut stopping, &mut backoff).await {
+                return;
+            }
+        };
         loop {
+            if *stopping.borrow() {
+                return;
+            }
+            match self.settle(slot, node_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    // Held: nothing more runs here, but the service stays up.
+                    let _ = stopping.wait_for(|v| *v).await;
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        slot,
+                        "recovery failed, retrying in {}s: {e:#}",
+                        backoff.as_secs()
+                    );
+                    if !back_off(&mut stopping, &mut backoff).await {
+                        return;
+                    }
+                    continue;
+                }
+            }
             loop {
                 if *stopping.borrow() {
                     return;
@@ -393,11 +501,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                         "attempt failed, retrying in {}s: {e:#}",
                         backoff.as_secs()
                     );
-                    tokio::select! {
-                        () = tokio::time::sleep(backoff) => {}
-                        _ = stopping.wait_for(|v| *v) => return,
+                    if !back_off(&mut stopping, &mut backoff).await {
+                        return;
                     }
-                    backoff = (backoff * 2).min(BACKOFF_MAX);
                 }
             }
         }
@@ -405,6 +511,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
     async fn attempt(&self, slot: u32, node_id: Uuid) -> Result<AttemptOutcome> {
         let dir = self.sup.layout.fresh_current(slot)?;
         let ctx = self.ctx(slot, node_id, dir.clone());
+        self.active.lock().unwrap().insert(slot);
         let result = async {
             let git = self.sup.git.start(&dir).await?;
             let run = async {
@@ -425,12 +532,35 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             run
         }
         .await;
-        self.archive(&ctx);
+        self.active.lock().unwrap().remove(&slot);
+        // An attempt that failed after admission keeps its state for recovery (handoff
+        // notice and salvage); only a finished or never-admitted attempt is archived.
+        let admitted = || {
+            self.sup
+                .backend
+                .retained_attempts(&ctx)
+                .map_or(true, |a| !a.is_empty())
+        };
+        if result.is_err() && admitted() {
+            tracing::warn!(slot, "the failed attempt stays in current for recovery");
+        } else {
+            self.archive(&ctx);
+        }
         result
     }
     async fn hand_off_running(&self, posted: &mut HashSet<Uuid>) {
         let layout = &self.sup.layout;
         let slots = self.sup.config.slots;
+        let active: Vec<u32> = self.active.lock().unwrap().iter().copied().collect();
+        for slot in active {
+            let current = layout.current(slot);
+            if let Err(e) = write_marker(
+                &current.join(SERVICE_STOP_MARKER),
+                HandoffReason::ServiceStop,
+            ) {
+                tracing::warn!(slot, "service-stop marker: {e:#}");
+            }
+        }
         for id in running_attempts(layout, slots).unwrap_or_default() {
             if posted.insert(id) {
                 let notice = HandoffNotice {
@@ -451,18 +581,13 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         let mut state = ControlState::default();
         loop {
             self.tick(&mut state).await;
-            tokio::time::sleep(if state.revoked {
-                REVOKED_INTERVAL
-            } else {
-                CONTROL_INTERVAL
-            })
-            .await;
+            tokio::time::sleep(state.interval()).await;
         }
     }
     async fn tick(self: &Arc<Self>, state: &mut ControlState) {
         match self.sup.control.control().await {
             Ok(resp) => {
-                state.unauthorized = 0;
+                (state.unauthorized, state.edge) = (0, 0);
                 if std::mem::take(&mut state.revoked) {
                     tracing::info!(
                         "the server accepts this machine's credential again; slots resume"
@@ -473,9 +598,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             }
             Err(e)
                 if e.downcast_ref::<LinkError>()
-                    .is_some_and(|l| l.status == 401) =>
+                    .is_some_and(LinkError::revoked) =>
             {
-                state.unauthorized += 1;
+                (state.unauthorized, state.edge) = (state.unauthorized + 1, 0);
                 if state.unauthorized >= 3 && !state.revoked {
                     state.revoked = true;
                     self.pause.set(REVOKED, true);
@@ -483,6 +608,16 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                         "the server refused this machine's credential (revoked from the Swarm page?); all slots are paused. Uninstall the service or enroll the machine again"
                     );
                 }
+            }
+            Err(e)
+                if e.downcast_ref::<LinkError>()
+                    .is_some_and(LinkError::edge_refused) =>
+            {
+                (state.unauthorized, state.edge) = (0, state.edge + 1);
+                tracing::error!(
+                    "{e:#} without an AQ answer: an edge in front of the server (Cloudflare Access?) refused this machine's service token. Check the Access application and the token; this is not a revoke, so slots are not paused. Next control poll in {}s",
+                    state.interval().as_secs()
+                );
             }
             Err(e) => {
                 state.unauthorized = 0;
@@ -505,6 +640,10 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         }
         self.maybe_measure();
     }
+    /// A new renderer takes effect at `effective_at_ms`. The slots pause in the quiet window
+    /// before it and on every switch, including the first pin after a start, so a poll that
+    /// is already running cannot take an offer under the old renderer. The next tick that
+    /// sees the active pin resumes them.
     fn switch_renderer(&self, pin: &QualificationPin) {
         let now = self.now_ms();
         let mut active = self.renderer.lock().unwrap();
@@ -518,7 +657,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 tracing::warn!("renderer pin not saved: {e:#}");
             }
             *active = Some(pin.renderer.clone());
-            self.pause.set(QUIET, false);
+            self.pause.set(QUIET, true);
         } else if now + QUIET_WINDOW.as_millis() as u64 >= pin.effective_at_ms {
             self.pause.set(QUIET, true);
         }
@@ -530,38 +669,65 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             return;
         };
         let now = self.now_ms();
-        let due = self
-            .latest
-            .lock()
-            .unwrap()
+        let pinned = self.latest.lock().unwrap().clone();
+        let due = pinned
             .as_ref()
             .is_none_or(|p| p.expires_at_ms.saturating_sub(now) <= m.renew_before_ms);
-        {
-            let mut busy = self.measuring.lock().unwrap();
-            if !due || busy.0 || busy.1.is_some_and(|t| t.elapsed() < MEASURE_RETRY) {
+        let lock = {
+            let state = self.measuring.lock().unwrap();
+            if !due || state.busy || state.not_before.is_some_and(|t| Instant::now() < t) {
                 return;
             }
-            *busy = (true, Some(Instant::now()));
-        }
+            // `aq-worker service measure` (the install script) may hold it: skip this tick.
+            match measure_lock(&self.sup.layout.measure_lock(), false) {
+                Ok(Some(lock)) => lock,
+                Ok(None) => return,
+                Err(e) => {
+                    tracing::warn!("measurement lock: {e:#}");
+                    return;
+                }
+            }
+        };
+        self.measuring.lock().unwrap().busy = true;
         let shared = self.clone();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
+            let _lock = lock;
+            let cancel = shared.stopping.subscribe();
             let done = async {
-                let submission = shared.sup.backend.measure(&file, &model).await?;
+                let submission = shared.sup.backend.measure(&file, &model, cancel).await?;
                 shared.sup.control.submit_measurement(&submission).await
             }
             .await;
-            match done {
+            let mut state = shared.measuring.lock().unwrap();
+            let wait = match done {
                 Ok(pin) => {
                     tracing::info!(
                         expires_at_ms = pin.expires_at_ms,
                         "qualification measurement submitted"
                     );
                     *shared.latest.lock().unwrap() = Some(pin);
+                    state.failures = 0;
+                    MEASURE_RETRY
                 }
-                Err(e) => tracing::warn!("qualification measurement failed: {e:#}"),
-            }
-            shared.measuring.lock().unwrap().0 = false;
+                Err(e) => {
+                    state.failures += 1;
+                    let wait = if pinned.is_none() {
+                        MEASURE_RETRY
+                            .saturating_mul(2u32.saturating_pow(state.failures.min(16) - 1))
+                            .min(MEASURE_RETRY_MAX)
+                    } else {
+                        MEASURE_RETRY
+                    };
+                    tracing::warn!(
+                        "qualification measurement failed, next try in {} min: {e:#}",
+                        wait.as_secs() / 60
+                    );
+                    wait
+                }
+            };
+            (state.busy, state.not_before) = (false, Some(Instant::now() + wait));
         });
+        *self.measurement.lock().unwrap() = Some(task);
     }
 }
 
@@ -576,6 +742,8 @@ mod tests {
     enum Step {
         Outcome(AttemptOutcome),
         Error,
+        /// Fails after admission: the journal holds the attempt.
+        ErrorAdmitted,
         /// Waits for the forced shutdown.
         Hang,
         /// Keeps the pause receiver, returns Paused when polling pauses.
@@ -584,14 +752,18 @@ mod tests {
     #[derive(Default)]
     struct FakeBackend {
         script: Mutex<HashMap<u32, VecDeque<Step>>>,
-        recovery: Mutex<HashMap<u32, RecoverOutcome>>,
+        recovery: Mutex<HashMap<u32, VecDeque<Result<RecoverOutcome, ()>>>>,
         calls: Mutex<Vec<String>>,
         run_times: Mutex<Vec<Instant>>,
         renderers: Mutex<Vec<Option<ArtifactPin>>>,
         observed: Mutex<Option<watch::Receiver<bool>>>,
         released: Mutex<Option<Instant>>,
         retained_empty: bool,
-        measured: Mutex<u32>,
+        measured: Mutex<Vec<Instant>>,
+        /// Measurements fail; or wait for the cancel and record the release.
+        measure_fails: bool,
+        measure_hangs: bool,
+        measure_released: Mutex<bool>,
     }
     #[async_trait::async_trait]
     impl SlotBackend for FakeBackend {
@@ -614,6 +786,10 @@ mod tests {
                 None => Ok(AttemptOutcome::ShutdownBeforeAdmission),
                 Some(Step::Outcome(o)) => Ok(o),
                 Some(Step::Error) => anyhow::bail!("boom"),
+                Some(Step::ErrorAdmitted) => {
+                    std::fs::write(ctx.state_dir.join("journal"), b"j").unwrap();
+                    anyhow::bail!("source transfer failed")
+                }
                 Some(Step::Hang) => {
                     let _ = shutdown.wait_for(|v| *v).await;
                     *self.released.lock().unwrap() = Some(Instant::now());
@@ -631,22 +807,35 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(format!("recover:{}", ctx.slot));
-            Ok(self
-                .recovery
-                .lock()
-                .unwrap()
-                .remove(&ctx.slot)
-                .unwrap_or(RecoverOutcome::Clean))
+            let next = (self.recovery.lock().unwrap())
+                .get_mut(&ctx.slot)
+                .and_then(VecDeque::pop_front);
+            match next.unwrap_or(Ok(RecoverOutcome::Clean)) {
+                Ok(outcome) => Ok(outcome),
+                Err(()) => anyhow::bail!("server unreachable"),
+            }
         }
-        fn retained_attempts(&self, _: &SlotContext) -> Result<Vec<Uuid>> {
-            Ok(if self.retained_empty {
+        fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>> {
+            let journal = ctx.state_dir.join("journal").exists();
+            Ok(if self.retained_empty && !journal {
                 vec![]
             } else {
                 vec![Uuid::nil()]
             })
         }
-        async fn measure(&self, _: &Path, _: &str) -> Result<MeasurementSubmission> {
-            *self.measured.lock().unwrap() += 1;
+        async fn measure(
+            &self,
+            _: &Path,
+            _: &str,
+            mut cancel: watch::Receiver<bool>,
+        ) -> Result<MeasurementSubmission> {
+            self.measured.lock().unwrap().push(Instant::now());
+            if self.measure_hangs {
+                let _ = cancel.wait_for(|v| *v).await;
+                *self.measure_released.lock().unwrap() = true;
+                anyhow::bail!("cancelled");
+            }
+            anyhow::ensure!(!self.measure_fails, "no sandbox");
             Ok(MeasurementSubmission {
                 schema_version: 1,
                 calls: vec![],
@@ -654,7 +843,8 @@ mod tests {
         }
     }
     struct FakeControl {
-        replies: Mutex<VecDeque<Result<ControlResponse, u16>>>,
+        /// An error is (status, whether the body is AQ's error schema).
+        replies: Mutex<VecDeque<Result<ControlResponse, (u16, bool)>>>,
         polls: Mutex<Vec<Instant>>,
         handoffs: Mutex<Vec<HandoffNotice>>,
         submissions: Mutex<u32>,
@@ -670,7 +860,10 @@ mod tests {
             } else {
                 q.front().unwrap().clone()
             };
-            reply.map_err(|status| LinkError { status, code: None }.into())
+            reply.map_err(|(status, aq)| {
+                let code = aq.then(|| "unauthorized".to_owned());
+                LinkError { status, code }.into()
+            })
         }
         async fn handoff(&self, n: &HandoffNotice) -> Result<()> {
             self.handoffs.lock().unwrap().push(n.clone());
@@ -709,7 +902,7 @@ mod tests {
             expires_at_ms: expires,
         }
     }
-    fn control(replies: Vec<Result<ControlResponse, u16>>) -> Arc<FakeControl> {
+    fn control(replies: Vec<Result<ControlResponse, (u16, bool)>>) -> Arc<FakeControl> {
         Arc::new(FakeControl {
             replies: Mutex::new(replies.into()),
             polls: Mutex::default(),
@@ -721,7 +914,7 @@ mod tests {
     fn reply(
         handoff: Vec<Uuid>,
         qualification: Option<QualificationPin>,
-    ) -> Result<ControlResponse, u16> {
+    ) -> Result<ControlResponse, (u16, bool)> {
         Ok(ControlResponse {
             schema_version: 1,
             machine_key: "desk".into(),
@@ -855,8 +1048,10 @@ mod tests {
                 ],
             );
         }
-        let (handle, _tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
-        handle.await.unwrap().unwrap();
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(60)).await;
+        assert!(!handle.is_finished(), "the service outlives its slot loops");
+        stop(handle, tx).await;
         for slot in 1..=2 {
             assert_eq!(count(rig.layout.archive_dir(slot)), 2);
             assert!(!rig.layout.current(slot).exists());
@@ -874,8 +1069,9 @@ mod tests {
             1,
             vec![Step::Outcome(AttemptOutcome::ShutdownBeforeAdmission)],
         );
-        let (handle, _tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
-        handle.await.unwrap().unwrap();
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        stop(handle, tx).await;
         assert_eq!(*backend.calls.lock().unwrap(), ["recover:1", "run:1"]);
     }
 
@@ -887,13 +1083,13 @@ mod tests {
             std::fs::write(rig.layout.current(slot).join("journal"), b"j").unwrap();
         }
         let backend = Arc::new(FakeBackend::default());
-        backend
-            .recovery
-            .lock()
-            .unwrap()
-            .insert(1, RecoverOutcome::Held("sandbox_absent".into()));
-        let (handle, _tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
-        handle.await.unwrap().unwrap();
+        backend.recovery.lock().unwrap().insert(
+            1,
+            [Ok(RecoverOutcome::Held("sandbox_absent".into()))].into(),
+        );
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        stop(handle, tx).await;
         let calls = backend.calls.lock().unwrap().clone();
         assert!(
             calls.contains(&"run:2".to_string()) && !calls.contains(&"run:1".to_string()),
@@ -954,7 +1150,7 @@ mod tests {
         sleep(Duration::from_secs(8)).await;
         assert!(*paused.borrow(), "inside the quiet window");
         assert_eq!(backend.calls.lock().unwrap().len(), 1);
-        sleep(Duration::from_secs(30)).await;
+        sleep(Duration::from_secs(35)).await;
         assert!(!*paused.borrow(), "after the switch");
         assert_eq!(
             backend
@@ -1062,13 +1258,13 @@ mod tests {
         sleep(Duration::from_secs(12)).await;
         assert_eq!(
             (
-                *backend.measured.lock().unwrap(),
+                backend.measured.lock().unwrap().len(),
                 *ctl.submissions.lock().unwrap()
             ),
             (1, 1)
         );
         sleep(Duration::from_secs(1200)).await;
-        assert_eq!(*backend.measured.lock().unwrap(), 1);
+        assert_eq!(backend.measured.lock().unwrap().len(), 1);
         stop(handle, tx).await;
     }
 
@@ -1077,7 +1273,7 @@ mod tests {
         let rig = rig(1);
         let backend = Arc::new(FakeBackend::default());
         script(&backend, 1, vec![Step::Observe, Step::Hang]);
-        let ctl = control(vec![Err(401)]);
+        let ctl = control(vec![Err((401, true))]);
         let (handle, tx) = start(&rig, &backend, &ctl);
         sleep(Duration::from_secs(11)).await;
         assert_eq!(ctl.polls.lock().unwrap().len(), 3);
@@ -1096,5 +1292,248 @@ mod tests {
             "no attempt starts while paused"
         );
         stop(handle, tx).await;
+    }
+
+    fn journal(rig: &Rig, slot: u32) {
+        std::fs::create_dir_all(rig.layout.current(slot)).unwrap();
+        std::fs::write(rig.layout.current(slot).join("journal"), b"j").unwrap();
+    }
+    fn measuring(rig: &mut Rig) {
+        rig.config.measurement = MeasurementConfig {
+            enabled: true,
+            token_file: Some("/tmp/token".into()),
+            model: Some("m".into()),
+            renew_before_ms: 14_400_000,
+        };
+    }
+
+    /// Review #1: an attempt that fails after admission keeps current/journal, and the next
+    /// round recovers it (handoff notice and salvage) before new work.
+    #[tokio::test(start_paused = true)]
+    async fn failed_admitted_attempt_stays_for_recovery() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend {
+            retained_empty: true,
+            ..Default::default()
+        });
+        script(&backend, 1, vec![Step::ErrorAdmitted, Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        assert!(rig.layout.current(1).join("journal").exists());
+        assert_eq!(count(rig.layout.archive_dir(1)), 0, "not archived");
+        sleep(Duration::from_secs(30)).await;
+        assert_eq!(
+            *backend.calls.lock().unwrap(),
+            ["run:1", "recover:1", "run:1"]
+        );
+        assert_eq!(
+            count(rig.layout.archive_dir(1)),
+            1,
+            "archived after recovery"
+        );
+        stop(handle, tx).await;
+    }
+
+    /// Review #2: with every slot held the service does not return (systemd would restart it
+    /// every 10 s); it keeps polling control and never recovers the held slots again.
+    #[tokio::test(start_paused = true)]
+    async fn all_slots_held_keeps_the_service_running() {
+        let rig = rig(2);
+        let backend = Arc::new(FakeBackend::default());
+        for slot in 1..=2 {
+            journal(&rig, slot);
+            let held = Ok(RecoverOutcome::Held("sandbox_absent".into()));
+            backend.recovery.lock().unwrap().insert(slot, [held].into());
+        }
+        let ctl = control(vec![reply(vec![], None)]);
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(3600)).await;
+        assert!(!handle.is_finished());
+        let mut calls = backend.calls.lock().unwrap().clone();
+        calls.sort();
+        assert_eq!(calls, ["recover:1", "recover:2"]);
+        assert!(
+            ctl.polls.lock().unwrap().len() > 700,
+            "control keeps polling"
+        );
+        assert!(ctl.handoffs.lock().unwrap().is_empty());
+        stop(handle, tx).await;
+    }
+
+    /// Review #3: a recovery error other than Held is retried with backoff; the slot then runs.
+    #[tokio::test(start_paused = true)]
+    async fn transient_recovery_error_retries_then_runs() {
+        let rig = rig(1);
+        journal(&rig, 1);
+        let backend = Arc::new(FakeBackend::default());
+        let outcomes = [Err(()), Ok(RecoverOutcome::Salvaged)];
+        backend.recovery.lock().unwrap().insert(1, outcomes.into());
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(29)).await;
+        assert_eq!(*backend.calls.lock().unwrap(), ["recover:1"]);
+        sleep(Duration::from_secs(2)).await;
+        assert_eq!(
+            *backend.calls.lock().unwrap(),
+            ["recover:1", "recover:1", "run:1"]
+        );
+        stop(handle, tx).await;
+    }
+
+    /// Review #4: the first pin after a start switches the renderer; the running poll is
+    /// paused, and the next attempt runs under the new renderer.
+    #[tokio::test(start_paused = true)]
+    async fn first_pin_pauses_a_running_poll() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend::default());
+        script(&backend, 1, vec![Step::Observe, Step::Hang]);
+        let now = wall();
+        let pinned = reply(vec![], Some(pin("2", now - 1000, now + 86_400_000)));
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None), pinned]));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(*backend.renderers.lock().unwrap(), [None]);
+        sleep(Duration::from_secs(5)).await;
+        let paused = backend.observed.lock().unwrap().clone().unwrap();
+        assert!(
+            *paused.borrow(),
+            "the switch pauses the poll that runs under no pin"
+        );
+        assert_eq!(backend.calls.lock().unwrap().len(), 1);
+        sleep(Duration::from_secs(5)).await;
+        let renderers = backend.renderers.lock().unwrap().clone();
+        assert_eq!(renderers.len(), 2);
+        assert_eq!(renderers[1].as_ref().unwrap().version, "2");
+        stop(handle, tx).await;
+    }
+
+    /// Review M1: setting a flag to its current value wakes nobody.
+    #[test]
+    fn pause_notifies_only_on_change() {
+        let pause = Pause {
+            tx: watch::channel(false).0,
+            flags: Mutex::new([false; 3]),
+        };
+        let mut rx = pause.tx.subscribe();
+        pause.set(QUIET, false);
+        assert!(!rx.has_changed().unwrap());
+        pause.set(QUIET, true);
+        assert!(rx.has_changed().unwrap() && *rx.borrow_and_update());
+        pause.set(QUIET, true);
+        pause.set(REVOKED, true);
+        pause.set(QUIET, false);
+        assert!(!rx.has_changed().unwrap(), "still paused by REVOKED");
+        pause.set(REVOKED, false);
+        assert!(rx.has_changed().unwrap() && !*rx.borrow_and_update());
+    }
+
+    /// Review M5: an edge's redirect or bare 403 backs the control poll off without pausing;
+    /// AQ's own 403 is a revoke.
+    #[tokio::test(start_paused = true)]
+    async fn edge_refusal_backs_off_without_pausing() {
+        for (status, aq) in [(302, false), (403, false)] {
+            let rig = rig(1);
+            let backend = Arc::new(FakeBackend::default());
+            script(&backend, 1, vec![Step::Observe, Step::Hang]);
+            let ctl = control(vec![Err((status, aq))]);
+            let (handle, tx) = start(&rig, &backend, &ctl);
+            sleep(Duration::from_secs(1000)).await;
+            assert!(
+                !*backend.observed.lock().unwrap().clone().unwrap().borrow(),
+                "{status}"
+            );
+            let times = ctl.polls.lock().unwrap().clone();
+            let gaps: Vec<u64> = times.windows(2).map(|w| (w[1] - w[0]).as_secs()).collect();
+            assert_eq!(gaps[..6], [10, 20, 40, 80, 160, 300], "{status}");
+            stop(handle, tx).await;
+        }
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend::default());
+        script(&backend, 1, vec![Step::Observe, Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![Err((403, true))]));
+        sleep(Duration::from_secs(11)).await;
+        assert!(*backend.observed.lock().unwrap().clone().unwrap().borrow());
+        stop(handle, tx).await;
+    }
+
+    /// Review 9b: without a pin, failed measurements back off from 10 min to 2 h; and the
+    /// service skips its measurement while `service measure` holds the lock.
+    #[tokio::test(start_paused = true)]
+    async fn measurement_backs_off_without_a_pin_and_yields_to_the_lock() {
+        let mut rig = rig(1);
+        measuring(&mut rig);
+        let held = measure_lock(&rig.layout.measure_lock(), false)
+            .unwrap()
+            .unwrap();
+        let backend = Arc::new(FakeBackend {
+            measure_fails: true,
+            ..Default::default()
+        });
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(60)).await;
+        assert!(
+            backend.measured.lock().unwrap().is_empty(),
+            "the lock is held"
+        );
+        drop(held);
+        sleep(Duration::from_secs(400 * 60)).await;
+        let times = backend.measured.lock().unwrap().clone();
+        let gaps: Vec<u64> = times
+            .windows(2)
+            .map(|w| (w[1] - w[0]).as_secs() / 60)
+            .collect();
+        assert_eq!(gaps, [10, 20, 40, 80, 120, 120]);
+        stop(handle, tx).await;
+    }
+
+    /// Review #7: a stop cancels a running measurement and waits for its release.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_cancels_the_measurement_and_waits_for_its_release() {
+        let mut rig = rig(1);
+        measuring(&mut rig);
+        let backend = Arc::new(FakeBackend {
+            measure_hangs: true,
+            ..Default::default()
+        });
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(10)).await;
+        assert_eq!(backend.measured.lock().unwrap().len(), 1);
+        stop(handle, tx).await;
+        assert!(*backend.measure_released.lock().unwrap());
+    }
+
+    /// Review M4: a SIGTERM while an attempt prepares (no driver.json yet) marks the slot, so
+    /// the restarted node reports the attempt as a service stop, not a crash.
+    #[tokio::test(start_paused = true)]
+    async fn stop_during_preparation_marks_the_slot_as_service_stop() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend::default());
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        let current = rig.layout.current(1);
+        assert_eq!(recorded_handoff(&current, Uuid::from_u128(9)), None);
+        tx.send_replace(true);
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(
+            recorded_handoff(&current, Uuid::from_u128(9)),
+            Some(HandoffReason::ServiceStop)
+        );
+        handle.await.unwrap().unwrap();
+    }
+
+    /// A held slot's state is not marked as a service stop: it was not interrupted by this stop.
+    #[tokio::test(start_paused = true)]
+    async fn held_slot_is_not_marked_on_stop() {
+        let rig = rig(1);
+        journal(&rig, 1);
+        let backend = Arc::new(FakeBackend::default());
+        let held = Ok(RecoverOutcome::Held("sandbox_absent".into()));
+        backend.recovery.lock().unwrap().insert(1, [held].into());
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        stop(handle, tx).await;
+        assert!(!rig.layout.current(1).join(SERVICE_STOP_MARKER).exists());
     }
 }

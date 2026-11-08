@@ -18,6 +18,7 @@ use aq_worker::{
     sandbox_driver::parse_token,
 };
 use std::{collections::BTreeMap, path::Path};
+use tokio::sync::watch;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -29,19 +30,17 @@ pub struct Measurement {
 
 /// Runs the three calls in a fresh sandbox owned by `node_id` (slot 1) and builds the
 /// submission. The token is read from the 0600 `token_file` and reaches the sandbox only
-/// as private material; it is never in argv, a container's env or config, or a log.
+/// as private material; it is never in argv, a container's env or config, or a log. When
+/// `cancel` turns true, or the sandbox deadline passes, the sandbox is killed and released.
 pub async fn run(
     template: &Path,
     token_file: &Path,
     model: &str,
     node_id: Uuid,
+    cancel: watch::Receiver<bool>,
 ) -> Result<Measurement> {
     let config = NativeConfig::load(template)?;
-    let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &config.executor
-    else {
-        bail!("the measurement needs the Claude docker-local executor in the native template");
-    };
-    let host = &settings.host;
+    let host = &docker_settings(&config)?.host;
     ensure!(
         host.docker_local.material_path == MATERIAL_PATH,
         "the measurement runner reads its token from {MATERIAL_PATH}"
@@ -55,7 +54,54 @@ pub async fn run(
     let mut docker = host.docker_local.clone();
     docker.runner_command = Some(vec!["/bin/bash".into(), format!("{IN_DIR}/run.sh")]);
     let backend = DockerLocalBackend::connect_unix(docker).await?;
-    run_on(backend, &host.template, &script, &token, model, node_id).await
+    run_on(
+        backend,
+        &host.template,
+        &script,
+        &token,
+        model,
+        node_id,
+        cancel,
+    )
+    .await
+}
+
+fn docker_settings(
+    config: &NativeConfig,
+) -> Result<&aq_worker::native::runner::ClaudeDockerSettings> {
+    let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &config.executor
+    else {
+        bail!("the measurement needs the Claude docker-local executor in the native template");
+    };
+    Ok(settings)
+}
+
+/// Destroys every measurement sandbox (boot `MEASUREMENT_BOOT`) of `node_id` that a cut-short
+/// run left behind; returns how many. The service runs it at start.
+pub async fn sweep(template: &Path, node_id: Uuid) -> Result<usize> {
+    let config = NativeConfig::load(template)?;
+    let docker = docker_settings(&config)?.host.docker_local.clone();
+    sweep_on(
+        &mut DockerLocalBackend::connect_unix(docker).await?,
+        node_id,
+    )
+    .await
+}
+
+pub(crate) async fn sweep_on<T: DockerTransport>(
+    backend: &mut DockerLocalBackend<T>,
+    node_id: Uuid,
+) -> Result<usize> {
+    let mut released = 0;
+    for entry in backend.list_owned(node_id).await? {
+        if entry.sandbox.owner.boot_id == m::MEASUREMENT_BOOT
+            && entry.state != aq_worker::backend::SandboxState::Destroyed
+        {
+            release(backend, &entry.sandbox).await?;
+            released += 1;
+        }
+    }
+    Ok(released)
 }
 
 fn now_ms() -> u64 {
@@ -71,10 +117,11 @@ pub(crate) async fn run_on<T: DockerTransport>(
     token: &Zeroizing<Vec<u8>>,
     model: &str,
     node_id: Uuid,
+    mut cancel: watch::Receiver<bool>,
 ) -> Result<Measurement> {
     let owner = Ownership {
         node_id,
-        boot_id: Uuid::new_v4(),
+        boot_id: m::MEASUREMENT_BOOT,
         attempt_id: Uuid::new_v4(),
     };
     let deadline = now_ms() + m::SANDBOX_DEADLINE.as_millis() as u64;
@@ -93,7 +140,17 @@ pub(crate) async fn run_on<T: DockerTransport>(
             backend.create(&request).await?
         }
     };
-    let driven = drive(&mut backend, &sandbox, script, token).await;
+    // The sandbox is released on every path from here: success, error, the deadline (the
+    // sandbox's own hard deadline, enforced here too) and a cancel.
+    let until = tokio::time::Instant::now() + m::SANDBOX_DEADLINE;
+    let driven = tokio::select! {
+        files = drive(&mut backend, &sandbox, script, token) => files,
+        () = tokio::time::sleep_until(until) => Err(anyhow::anyhow!(
+            "the measurement passed its {} min deadline; its sandbox is killed",
+            m::SANDBOX_DEADLINE.as_secs() / 60
+        )),
+        _ = cancel.wait_for(|v| *v) => Err(anyhow::anyhow!("the measurement was cancelled")),
+    };
     let released = release(&mut backend, &sandbox).await;
     let files = driven?;
     released?;
@@ -203,6 +260,8 @@ mod tests {
         requests: Arc<Mutex<Vec<Recorded>>>,
         outputs: Arc<BTreeMap<String, Vec<u8>>>,
         seen_at_start: Arc<Mutex<AtStart>>,
+        /// The runner start never answers (a wedged sandbox).
+        hang_start: bool,
     }
     impl DockerTransport for FakeClaude {
         async fn send(&self, request: DockerRequest) -> Result<DockerResponse, TransportError> {
@@ -212,6 +271,9 @@ mod tests {
                 .unwrap()
                 .push((method, path.clone(), request.body.to_vec()));
             let start = method == DockerMethod::Post && path.ends_with("/start");
+            if start && self.hang_start {
+                std::future::pending::<()>().await;
+            }
             let name = path.split('/').nth(3).unwrap_or_default().to_owned();
             if start && let Some(c) = self.docker.container(&name) {
                 let read = |p: &str| c.layer.get(p).map(|f| f.data.clone()).unwrap_or_default();
@@ -266,6 +328,7 @@ mod tests {
             requests: Default::default(),
             outputs: Arc::new(outputs),
             seen_at_start: Default::default(),
+            hang_start: false,
         };
         let backend = DockerLocalBackend::connect(config, fake.clone())
             .await
@@ -280,6 +343,9 @@ mod tests {
     }
     impl Rig {
         async fn run(&mut self) -> Result<Measurement> {
+            self.run_until(watch::channel(false).1).await
+        }
+        async fn run_until(&mut self, cancel: watch::Receiver<bool>) -> Result<Measurement> {
             let script = m::run_script("/opt/aq/bin/claude", MODEL).unwrap();
             let token = Zeroizing::new(TOKEN.to_vec());
             let backend = self.backend.take().unwrap();
@@ -290,6 +356,7 @@ mod tests {
                 &token,
                 MODEL,
                 Uuid::from_u128(1),
+                cancel,
             )
             .await
         }
@@ -368,5 +435,69 @@ mod tests {
         let e = format!("{:#}", rig.run().await.err().unwrap());
         assert!(e.contains("mixed.jsonl"), "{e}");
         assert!(rig.fake.docker.container_names().is_empty());
+    }
+
+    /// Review #7: a wedged measurement is killed and released at its 15-minute deadline, and
+    /// a cancelled one (service stop) is released at once.
+    #[tokio::test(start_paused = true)]
+    async fn deadline_and_cancel_release_the_sandbox() {
+        let mut rig = rig_hanging().await;
+        let started = tokio::time::Instant::now();
+        let e = format!("{:#}", rig.run().await.err().unwrap());
+        assert!(e.contains("deadline"), "{e}");
+        assert_eq!(started.elapsed(), m::SANDBOX_DEADLINE);
+        assert!(rig.fake.docker.container_names().is_empty());
+        assert!(rig.fake.docker.volume_names().is_empty());
+
+        let mut rig = rig_hanging().await;
+        let (tx, rx) = watch::channel(false);
+        let cancel = async {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            tx.send_replace(true);
+        };
+        let (result, ()) = tokio::join!(rig.run_until(rx), cancel);
+        assert!(format!("{:#}", result.err().unwrap()).contains("cancelled"));
+        assert!(rig.fake.docker.container_names().is_empty());
+    }
+    async fn rig_hanging() -> Rig {
+        let mut rig = rig(outputs(b"")).await;
+        rig.fake.hang_start = true;
+        let mut config = rig.backend.take().unwrap().config().clone();
+        // A daemon call that takes longer than the whole measurement may (a wedged daemon).
+        config.api_timeout_ms = 3_600_000;
+        rig.backend = Some(
+            DockerLocalBackend::connect(config, rig.fake.clone())
+                .await
+                .unwrap(),
+        );
+        rig
+    }
+
+    /// Review #7: the start sweep destroys this node's leftover measurement sandboxes only.
+    #[tokio::test]
+    async fn sweep_destroys_only_measurement_sandboxes() {
+        let mut rig = rig(outputs(b"")).await;
+        let mut backend = rig.backend.take().unwrap();
+        let node = Uuid::from_u128(1);
+        for boot in [m::MEASUREMENT_BOOT, Uuid::new_v4()] {
+            let owner = Ownership {
+                node_id: node,
+                boot_id: boot,
+                attempt_id: Uuid::new_v4(),
+            };
+            let limits = ResourceLimits {
+                cpu_millis: m::CPU_MILLIS,
+                memory_bytes: m::MEMORY_BYTES,
+                pids: m::PIDS,
+                disk_bytes: None,
+            };
+            let request = CreateRequest::new(owner, rig.template.clone(), u64::MAX / 2, vec![])
+                .with_resources(limits);
+            backend.create(&request).await.unwrap();
+        }
+        assert_eq!(rig.fake.docker.container_names().len(), 2);
+        assert_eq!(sweep_on(&mut backend, node).await.unwrap(), 1);
+        assert_eq!(rig.fake.docker.container_names().len(), 1);
+        assert_eq!(sweep_on(&mut backend, node).await.unwrap(), 0);
     }
 }

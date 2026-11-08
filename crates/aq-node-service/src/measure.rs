@@ -51,6 +51,10 @@ pub const RUNNER_POLL: Duration = Duration::from_secs(2);
 pub const CPU_MILLIS: u32 = 1000;
 pub const MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub const PIDS: u32 = 512;
+/// The boot id every measurement sandbox carries: the service sweeps sandboxes of its slot-1
+/// node with this boot at start, so a measurement cut short never leaves one behind.
+pub const MEASUREMENT_BOOT: uuid::Uuid =
+    uuid::Uuid::from_u128(0x6d656173_7572_4000_8000_000000000001);
 /// Bound on each output file read back from the sandbox.
 pub const MAX_OUTPUT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_TOKEN_FILE_BYTES: u64 = 64 * 1024;
@@ -137,6 +141,38 @@ pub fn read_token_file(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
         "measurement token file {shown} grew"
     );
     Ok(bytes)
+}
+
+/// The profile's measurement lock (flock on `path`): one measurement at a time, whether the
+/// service or `aq-worker service measure` runs it. Released on drop.
+pub struct MeasureLock(#[allow(dead_code)] std::fs::File);
+/// Takes the lock; None when another process or task holds it and `wait` is false.
+pub fn measure_lock(path: &Path, wait: bool) -> Result<Option<MeasureLock>> {
+    use std::os::fd::AsRawFd;
+    if let Some(dir) = path.parent() {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .with_context(|| format!("measurement lock {}", path.display()))?;
+    let flags = libc::LOCK_EX | if wait { 0 } else { libc::LOCK_NB };
+    if unsafe { libc::flock(file.as_raw_fd(), flags) } == 0 {
+        return Ok(Some(MeasureLock(file)));
+    }
+    let e = std::io::Error::last_os_error();
+    if !wait && e.kind() == std::io::ErrorKind::WouldBlock {
+        return Ok(None);
+    }
+    Err(e).with_context(|| format!("lock {}", path.display()))
 }
 
 /// The first output file holding the token's exact bytes. Nothing from such a run is kept.
@@ -281,6 +317,19 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn measurement_lock_admits_one_holder() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state/measure.lock");
+        let held = measure_lock(&path, false).unwrap().expect("free");
+        assert!(measure_lock(&path, false).unwrap().is_none(), "held");
+        drop(held);
+        assert!(
+            measure_lock(&path, false).unwrap().is_some(),
+            "released on drop"
+        );
+    }
 
     fn result(model: &str, window: u64, input: u64) -> Value {
         json!({"type": "result", "subtype": "success", "is_error": false, "session_id": "s",
