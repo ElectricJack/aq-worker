@@ -426,3 +426,40 @@ async fn saturated_output_lane_keeps_metadata_control_available() {
     held.await.unwrap().unwrap();
     server.abort();
 }
+
+#[tokio::test]
+async fn access_headers_reach_every_relay_request() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let (origin, server) = serve(Router::new().route(
+        "/v1/terminal-relay/control-upload",
+        post(move |h: HeaderMap, Json(r): Json<PeerUpload>| {
+            let log = log.clone();
+            async move {
+                authorize(&h);
+                log.lock().unwrap().push((
+                    h.get("cf-access-client-id").map(|v| v.as_bytes().to_vec()),
+                    h.get("cf-access-client-secret")
+                        .map(|v| v.as_bytes().to_vec()),
+                ));
+                Json(ack(&r))
+            }
+        }),
+    ))
+    .await;
+    client(&origin).control_upload(&upload()).await.unwrap();
+    let with = client(&origin)
+        .with_access("id.access", "secret-value")
+        .unwrap();
+    with.control_upload(&upload()).await.unwrap();
+    with.control_upload(&upload()).await.unwrap();
+    server.abort();
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 3);
+    assert_eq!(seen[0], (None, None));
+    for s in &seen[1..] {
+        assert_eq!(s.0.as_deref(), Some(&b"id.access"[..]));
+        assert_eq!(s.1.as_deref(), Some(&b"secret-value"[..]));
+    }
+    assert!(client(&origin).with_access("bad\nid", "x").is_err());
+}

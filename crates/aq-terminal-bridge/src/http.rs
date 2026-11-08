@@ -32,6 +32,7 @@ pub struct RelayHttp {
     client: reqwest::Client,
     origin: Url,
     authorization: header::HeaderValue,
+    access: Option<(header::HeaderValue, header::HeaderValue)>,
     poll: Arc<Semaphore>,
     output_poll: Arc<Semaphore>,
     control: Arc<Semaphore>,
@@ -95,11 +96,23 @@ impl RelayHttp {
             client,
             origin,
             authorization,
+            access: None,
             poll: Arc::new(Semaphore::new(1)),
             output_poll: Arc::new(Semaphore::new(1)),
             control: Arc::new(Semaphore::new(1)),
             output: Arc::new(Semaphore::new(1)),
         })
+    }
+    /// Adds Cloudflare Access service-token headers to every request.
+    pub fn with_access(mut self, client_id: &str, client_secret: &str) -> Result<Self> {
+        let value = |v: &str| {
+            let mut h = header::HeaderValue::from_str(v)
+                .map_err(|_| anyhow::anyhow!("invalid relay Access value"))?;
+            h.set_sensitive(true);
+            Ok::<_, anyhow::Error>(h)
+        };
+        self.access = Some((value(client_id)?, value(client_secret)?));
+        Ok(self)
     }
     /// Caller owns the immutable registration operation ID and expected sealed
     /// policy. A lost response is returned as uncertainty, never auto-retried.
@@ -327,10 +340,16 @@ impl RelayHttp {
             .origin
             .join(path)
             .map_err(|_| anyhow::anyhow!("terminal relay route invalid"))?;
-        let mut response = self
+        let mut request = self
             .client
             .post(url)
-            .header(header::AUTHORIZATION, self.authorization.clone())
+            .header(header::AUTHORIZATION, self.authorization.clone());
+        if let Some((id, secret)) = &self.access {
+            request = request
+                .header("cf-access-client-id", id.clone())
+                .header("cf-access-client-secret", secret.clone());
+        }
+        let mut response = request
             .header(header::CONTENT_TYPE, "application/json")
             .body(bytes)
             .timeout(timeout)

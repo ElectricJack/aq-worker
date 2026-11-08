@@ -35,19 +35,24 @@ pub struct ClaudeDockerExecutor {
 }
 impl ClaudeDockerExecutor {
     pub fn configured(worker: &WorkerConfig) -> Result<Self> {
-        ensure!(
-            worker.cf_client_id.is_none() && worker.cf_client_secret.is_none(),
-            "local Claude docker-local node does not use proxy credentials"
-        );
+        let access = match (&worker.cf_client_id, &worker.cf_client_secret) {
+            (Some(id), Some(secret)) => Some((id, secret)),
+            (None, None) => None,
+            _ => anyhow::bail!("Access client id and secret must both be set"),
+        };
         let credential = NodeCredential::new(worker.credential.clone())?;
         let local = reqwest::Url::parse(&worker.server_url).is_ok_and(|u| u.scheme() == "http");
+        let mut relay = if local {
+            RelayHttp::trusted_local_node(&worker.server_url, &credential)?
+        } else {
+            RelayHttp::new(&worker.server_url, &credential)?
+        };
+        if let Some((id, secret)) = access {
+            relay = relay.with_access(id, secret)?;
+        }
         Ok(Self {
             node_id: worker.node_id,
-            relay: if local {
-                RelayHttp::trusted_local_node(&worker.server_url, &credential)?
-            } else {
-                RelayHttp::new(&worker.server_url, &credential)?
-            },
+            relay,
             transfer: crate::transfer_client::TransferClient::from_config(worker, 1)?,
             profile: None,
             pins: None,
@@ -386,5 +391,28 @@ mod sandbox_stop_tests {
             backend.inspect(&theirs).await.unwrap().state,
             SandboxState::Running
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn worker(id: Option<&str>, secret: Option<&str>) -> WorkerConfig {
+        WorkerConfig {
+            server_url: "https://aq.example.com".into(),
+            node_id: uuid::Uuid::from_u128(1),
+            credential: "node-credential".into(),
+            cf_client_id: id.map(Into::into),
+            cf_client_secret: secret.map(Into::into),
+        }
+    }
+    #[test]
+    fn claude_executor_accepts_access_enrollment_and_refuses_half() {
+        assert!(ClaudeDockerExecutor::configured(&worker(Some("id"), Some("s3cret"))).is_ok());
+        assert!(ClaudeDockerExecutor::configured(&worker(None, None)).is_ok());
+        for half in [worker(Some("id"), None), worker(None, Some("s"))] {
+            let e = ClaudeDockerExecutor::configured(&half).err().unwrap();
+            assert!(e.to_string().contains("must both be set"), "{e:#}");
+        }
     }
 }
