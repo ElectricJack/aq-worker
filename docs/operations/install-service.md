@@ -78,7 +78,11 @@ token file path) before it reads the code, so a typo never uses it up. The
 server must be `https`; plain `http` is accepted only to `127.0.0.1` or `::1`.
 If the machine key claim fails after the code was redeemed (for example the key
 is in use), run the same command again: it resumes at the claim and needs no
-new code. The slot credentials are written only once the claim succeeds.
+new code. If Cloudflare Access refused the stored token at the claim, resume
+with `--reconfigure --cf-service-token` and the new Access client id and secret.
+The slot credentials are written only once the claim succeeds, all of them
+together. If a run stopped after the claim but before it saved the slots, the
+rerun says so: revoke the machine and enroll again with a new code.
 
 ### The machine key
 

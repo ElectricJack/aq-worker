@@ -247,8 +247,8 @@ struct Secrets {
     runner: Option<RunnerAccess>,
 }
 
-fn read_secrets(cf: bool, runner: bool) -> anyhow::Result<Secrets> {
-    let next: Reader = if std::io::stdin().is_terminal() {
+fn secret_reader() -> Reader {
+    if std::io::stdin().is_terminal() {
         Box::new(|prompt| Ok(rpassword::prompt_password(prompt)?))
     } else {
         let mut lines = std::io::stdin().lock().lines();
@@ -256,8 +256,25 @@ fn read_secrets(cf: bool, runner: bool) -> anyhow::Result<Secrets> {
             Some(l) => Ok(l?),
             None => anyhow::bail!("stdin ended before the {what}"),
         })
-    };
-    read_secrets_from(next, cf, runner)
+    }
+}
+
+fn read_secrets(cf: bool, runner: bool) -> anyhow::Result<Secrets> {
+    read_secrets_from(secret_reader(), cf, runner)
+}
+
+/// Only the node's Access client id and secret (a resumed enrollment needs no code).
+fn read_access() -> anyhow::Result<(String, String)> {
+    let mut next = secret_reader();
+    let id = next("Cloudflare Access client id: ")?.trim().to_string();
+    let secret = next("Cloudflare Access client secret: ")?
+        .trim()
+        .to_string();
+    anyhow::ensure!(
+        !id.is_empty() && !secret.is_empty(),
+        "Access client id and secret must not be empty"
+    );
+    Ok((id, secret))
 }
 
 fn read_secrets_from(mut next: Reader, cf: bool, runner: bool) -> anyhow::Result<Secrets> {

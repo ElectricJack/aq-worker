@@ -2,8 +2,10 @@
 //! the driver (or a restarted node's salvage) claims for a stopped attempt.
 use serde::Deserialize;
 use std::path::Path;
+mod secret_file;
 mod stream;
-pub use stream::{conclusion, pane_line, proven_success};
+pub use secret_file::{parse_token, read_private};
+pub use stream::{conclusion, pane_line, print_logs, proven_success};
 
 /// Folds whitespace and bounds a claim to 500 bytes.
 pub fn fold_claim(text: String) -> String {

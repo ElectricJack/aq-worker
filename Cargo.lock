@@ -195,11 +195,14 @@ dependencies = [
 name = "aq-handoff-note"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "aq-agent-channel",
  "aq-protocol",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]

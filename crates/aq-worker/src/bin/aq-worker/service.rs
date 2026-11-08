@@ -16,7 +16,7 @@ use aq_worker::{
     config::WorkerConfig,
     native::runner::{
         ClaudeDockerExecutor, ExecutorConfig, NativeConfig, RunDisposition, SalvageDisposition,
-        retained_attempts, run_until_attempt, salvage_interrupted,
+        release_claimed_sandboxes, retained_attempts, run_until_attempt, salvage_interrupted,
     },
 };
 use clap::{Args, Subcommand};
@@ -206,6 +206,9 @@ impl SlotBackend for NativeSlotBackend {
         }
         Ok(outcome)
     }
+    async fn release_claimed(&self, ctx: SlotContext) -> Result<usize> {
+        release_claimed_sandboxes(&self.native_config(&ctx)?, ctx.node_id).await
+    }
     fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>> {
         retained_attempts(&self.native_config(ctx)?, ctx.node_id)
     }
@@ -229,15 +232,20 @@ fn is_wsl() -> bool {
 pub async fn enroll(args: ServiceEnrollArgs) -> Result<()> {
     let layout = Layout::for_profile(&args.profile)?;
     let cf = args.cf_service_token;
-    let secrets = move || {
-        crate::read_secrets(cf, false).map(|s| Enrollment {
+    let secrets = move |code: bool| match code {
+        true => crate::read_secrets(cf, false).map(|s| Enrollment {
             code: s.code,
             cf: s.cf,
-        })
+        }),
+        false => crate::read_access().map(|access| Enrollment {
+            code: String::new(),
+            cf: Some(access),
+        }),
     };
     enroll_in(&args, &layout, crate::hostname(), is_wsl(), secrets).await
 }
-/// What the operator types (or pipes) at enrollment.
+/// What the operator types (or pipes) at enrollment: the code, or (resuming with
+/// `--reconfigure --cf-service-token`) only the Access client id and secret.
 struct Enrollment {
     code: String,
     cf: Option<(String, String)>,
@@ -248,6 +256,19 @@ fn pending_enrollment(layout: &Layout) -> PathBuf {
     layout.config_dir.join("enroll-pending.toml")
 }
 
+fn staged(path: &Path) -> PathBuf {
+    path.with_extension("toml.new")
+}
+/// The slot file an earlier run of this enrollment saved (staged or installed), when it is the
+/// server's node for that slot.
+fn saved_slot(layout: &Layout, slot: u32, node_id: Uuid, server: &str) -> Option<EnrollmentFile> {
+    let path = layout.slot_enrollment(slot);
+    [staged(&path), path]
+        .iter()
+        .filter_map(|p| EnrollmentFile::load(p).ok())
+        .find(|f| f.node_id == node_id && f.server_url == server)
+}
+
 /// Enrollment, in this order: every input is checked before a secret is read or the server
 /// is called; an enrolled profile is refused without `--reconfigure`; an unfinished one resumes
 /// at the claim; slot 1's file is written only once the machine key claim succeeds.
@@ -256,7 +277,7 @@ async fn enroll_in(
     layout: &Layout,
     hostname: Option<String>,
     wsl: bool,
-    secrets: impl FnOnce() -> Result<Enrollment>,
+    secrets: impl FnOnce(bool) -> Result<Enrollment>,
 ) -> Result<()> {
     let machine_key = match &args.machine_key {
         Some(key) => {
@@ -316,7 +337,7 @@ async fn enroll_in(
 
     let pending = pending_enrollment(layout);
     let first = if pending.exists() {
-        let first = EnrollmentFile::load(&pending)?;
+        let mut first = EnrollmentFile::load(&pending)?;
         ensure!(
             first.server_url == args.server,
             "an unfinished enrollment for {} is in {}; pass that --server, or delete the file to start over with a new code",
@@ -324,6 +345,11 @@ async fn enroll_in(
             pending.display()
         );
         println!("resuming the unfinished enrollment at the machine key claim; no code is needed");
+        if args.reconfigure && args.cf_service_token {
+            let (id, secret) = secrets(false)?.cf.context("Access credentials")?;
+            (first.cf_client_id, first.cf_client_secret) = (Some(id), Some(secret));
+            first.save(&pending)?;
+        }
         first
     } else {
         if layout.service_toml().exists() && !args.reconfigure {
@@ -332,7 +358,7 @@ async fn enroll_in(
                 args.profile
             );
         }
-        let typed = secrets()?;
+        let typed = secrets(true)?;
         let (cf_id, cf_secret) = typed.cf.map_or((None, None), |(i, s)| (Some(i), Some(s)));
         let client = Client::new(&args.server, None, cf_id.clone(), cf_secret.clone())?;
         let enrolled = client
@@ -360,6 +386,7 @@ async fn enroll_in(
         .map_err(|e| match e.downcast_ref::<LinkError>() {
             Some(l) if l.status == 409 => anyhow::anyhow!("machine key {machine_key} is in use by another machine; revoke it from the Swarm page or pass --machine-key (rerun this command: the code is not needed again)"),
             Some(l) if l.revoked() => anyhow::anyhow!("the server refused the unfinished enrollment's credential; delete {} and enroll with a new code", pending.display()),
+            Some(l) if l.edge_refused() => anyhow::anyhow!("Cloudflare Access refused the stored token at the machine key claim; run enroll with --reconfigure --cf-service-token and new Access credentials (the code is not needed again)"),
             _ => e.context("the machine key claim failed; rerun this command to resume it (the code is not needed again)"),
         })?;
     let mut files = vec![first.clone()];
@@ -369,19 +396,31 @@ async fn enroll_in(
             .iter()
             .find(|s| s.slot == slot)
             .with_context(|| format!("the server did not return slot {slot}"))?;
-        let Some(credential) = &entry.credential else {
-            bail!(
-                "slot {slot} exists on the server but its credential is not on this machine; revoke the machine from the Swarm page and enroll again"
-            );
+        let file = match &entry.credential {
+            Some(credential) => EnrollmentFile {
+                node_id: entry.node_id,
+                credential: credential.clone(),
+                ..first.clone()
+            },
+            // Minted by an earlier run of this enrollment: the server returns a credential
+            // only once, so it must be the one that run saved here.
+            None => saved_slot(layout, slot, entry.node_id, &first.server_url).with_context(|| {
+                format!(
+                    "slot {slot} was minted by an earlier run of this enrollment, which stopped before it saved the slot's credential; it cannot be recovered. Revoke the machine from the Swarm page, then run enroll with --reconfigure and a new code"
+                )
+            })?,
         };
-        files.push(EnrollmentFile {
-            node_id: entry.node_id,
-            credential: credential.clone(),
-            ..first.clone()
-        });
+        files.push(file);
     }
+    // Every slot file is written beside its final path first, then all are renamed, so a cut
+    // leaves either the old set or a complete new one (which a rerun finds and keeps).
     for (slot, file) in (1..).zip(&files) {
-        file.save(&layout.slot_enrollment(slot))?;
+        file.save(&staged(&layout.slot_enrollment(slot)))?;
+    }
+    for slot in 1..=args.slots {
+        let path = layout.slot_enrollment(slot);
+        std::fs::rename(staged(&path), &path)
+            .with_context(|| format!("install {}", path.display()))?;
     }
     write_machine_json(&layout.machine_json(), &machine_key, &name, wsl)?;
     write_private(&native, &template)?;
@@ -541,7 +580,8 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
     let link = Arc::new(ServerLink::from_enrollment(&slot1)?);
     // A measurement cut short (kill, crash, reboot) left its sandbox: release it before work.
-    match crate::measure::sweep(&config.native_template, slot1.node_id).await {
+    let lock = layout.measure_lock();
+    match crate::measure::sweep(&config.native_template, slot1.node_id, &lock).await {
         Ok(0) => {}
         Ok(n) => tracing::info!("released {n} leftover measurement sandbox(es)"),
         Err(e) => tracing::warn!("measurement sandbox sweep: {e:#}"),
@@ -653,24 +693,41 @@ mod tests {
         _server: tokio::task::AbortHandle,
     }
     async fn fake_server(refuse_claims: u32) -> FakeServer {
-        use axum::{Json, Router, http::StatusCode, routing::post};
+        fake_server_with(refuse_claims, None).await
+    }
+    /// Like aq-server: a slot's credential is returned only by the claim that minted it (one
+    /// per slot-1 credential here). With `access`, the slots route sits behind an edge that
+    /// answers a bare 403 unless that Access client id is sent.
+    async fn fake_server_with(refuse_claims: u32, access: Option<&'static str>) -> FakeServer {
+        use axum::{
+            Json, Router, http::HeaderMap, http::StatusCode, response::IntoResponse, routing::post,
+        };
         use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
         let (enrolls, claims) = (Arc::new(AtomicU32::new(0)), Arc::new(AtomicU32::new(0)));
         let (e, c) = (enrolls.clone(), claims.clone());
+        let minted = Arc::new(std::sync::Mutex::new(
+            std::collections::HashSet::<String>::new(),
+        ));
         let app = Router::new()
             .route("/v1/worker/enroll", post(move || async move {
                 let n = e.fetch_add(1, SeqCst) + 1;
                 Json(serde_json::json!({"node_id": Uuid::from_u128(n.into()),
                     "credential": format!("aqn_cred{n}"), "heartbeat_interval_secs": 30}))
             }))
-            .route("/v1/worker/slots", post(move || async move {
+            .route("/v1/worker/slots", post(move |h: HeaderMap| async move {
+                let header = |k: &str| h.get(k).and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+                if let Some(id) = access && header("cf-access-client-id") != id {
+                    return (StatusCode::FORBIDDEN, "<html>Forbidden</html>").into_response();
+                }
                 if c.fetch_add(1, SeqCst) < refuse_claims {
                     let body = serde_json::json!({"error": "conflict", "message": "in use"});
-                    return (StatusCode::CONFLICT, Json(body));
+                    return (StatusCode::CONFLICT, Json(body)).into_response();
                 }
+                let new = minted.lock().unwrap().insert(header("authorization"));
+                let credential = new.then_some("aqn_slot2");
                 let body = serde_json::json!({"schema_version": 1, "machine_key": "desk", "slots": [
-                    {"slot": 2, "node_id": Uuid::from_u128(99), "credential": "aqn_slot2"}]});
-                (StatusCode::OK, Json(body))
+                    {"slot": 2, "node_id": Uuid::from_u128(99), "credential": credential}]});
+                (StatusCode::OK, Json(body)).into_response()
             }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -718,11 +775,36 @@ mod tests {
         }
         async fn enroll(&self, args: &ServiceEnrollArgs, code: Option<&str>) -> Result<()> {
             let code = code.map(str::to_owned);
-            let secrets = move || {
+            let secrets = move |wanted: bool| {
+                assert!(wanted, "only the code is typed here");
                 let code = code.expect("no secret may be read here");
                 Ok(Enrollment { code, cf: None })
             };
             enroll_in(args, &self.layout, Some("desk".into()), false, secrets).await
+        }
+        /// A resumed enrollment that types only new Access credentials.
+        async fn enroll_access(&self, args: &ServiceEnrollArgs, id: &str) -> Result<()> {
+            let id = id.to_owned();
+            let secrets = move |wanted: bool| {
+                assert!(!wanted, "a resume needs no code");
+                Ok(Enrollment {
+                    code: String::new(),
+                    cf: Some((id, "new-secret".into())),
+                })
+            };
+            enroll_in(args, &self.layout, Some("desk".into()), false, secrets).await
+        }
+        /// Slot 1's redeemed credential, saved before the claim (as a cut run leaves it).
+        fn pending(&self, server: &str) -> EnrollmentFile {
+            let first = EnrollmentFile {
+                server_url: server.into(),
+                node_id: Uuid::from_u128(1),
+                credential: "aqn_cred1".into(),
+                cf_client_id: Some("old-id".into()),
+                cf_client_secret: Some("old-secret".into()),
+            };
+            first.save(&pending_enrollment(&self.layout)).unwrap();
+            first
         }
         fn slot1(&self) -> String {
             std::fs::read_to_string(self.layout.slot_enrollment(1)).unwrap_or_default()
@@ -826,5 +908,74 @@ mod tests {
                 .to_string()
                 .contains("--reconfigure")
         );
+    }
+
+    /// Round 2, D: the claim succeeded but the run died before the slot files were written. The
+    /// server returns slot 2's credential only once, so the rerun names the precise remedy; and
+    /// a run that died after the files were installed (pending not yet removed) completes.
+    #[tokio::test]
+    async fn resume_after_a_successful_claim_is_done_or_names_the_remedy() {
+        let server = fake_server(0).await;
+        let p = profile();
+        let first = p.pending(&server.origin);
+        let request = SlotsRequest {
+            schema_version: 1,
+            machine_key: "desk".into(),
+            slots: 2,
+        };
+        let lost = ServerLink::from_enrollment(&first)
+            .unwrap()
+            .slots(&request)
+            .await
+            .unwrap();
+        assert!(
+            lost.slots[0].credential.is_some(),
+            "minted, then the run died"
+        );
+        let e = format!(
+            "{:#}",
+            p.enroll(&p.args(&server.origin), None).await.unwrap_err()
+        );
+        assert!(
+            e.contains("Revoke the machine") && e.contains("--reconfigure"),
+            "{e}"
+        );
+        assert!(!e.contains("rerun"), "{e}");
+        assert_eq!(p.slot1(), "", "nothing installed");
+        // The earlier run had staged (or installed) every slot file before it died.
+        for (slot, node, credential) in [(1, 1, "aqn_cred1"), (2, 99, "aqn_slot2")] {
+            let file = EnrollmentFile {
+                node_id: Uuid::from_u128(node),
+                credential: credential.into(),
+                ..first.clone()
+            };
+            file.save(&staged(&p.layout.slot_enrollment(slot))).unwrap();
+        }
+        p.enroll(&p.args(&server.origin), None).await.unwrap();
+        let slot2 = std::fs::read_to_string(p.layout.slot_enrollment(2)).unwrap();
+        assert!(slot2.contains("aqn_slot2"));
+        assert!(!staged(&p.layout.slot_enrollment(2)).exists());
+        assert!(!pending_enrollment(&p.layout).exists() && p.layout.service_toml().exists());
+        assert_eq!(count(&server.enrolls), 0, "no code was redeemed");
+    }
+
+    /// Round 2, E: an Access refusal at a resumed claim says so, and --reconfigure on the
+    /// resume replaces the stored Access token without a new code.
+    #[tokio::test]
+    async fn resume_refused_by_access_takes_new_access_credentials() {
+        let server = fake_server_with(0, Some("new-id")).await;
+        let p = profile();
+        p.pending(&server.origin);
+        let mut args = p.args(&server.origin);
+        let e = format!("{:#}", p.enroll(&args, None).await.unwrap_err());
+        assert!(
+            e.contains("Cloudflare Access refused the stored token"),
+            "{e}"
+        );
+        assert!(e.contains("--reconfigure"), "{e}");
+        (args.reconfigure, args.cf_service_token) = (true, true);
+        p.enroll_access(&args, "new-id").await.unwrap();
+        assert!(p.slot1().contains("new-id") && p.slot1().contains("aqn_cred1"));
+        assert_eq!(count(&server.enrolls), 0);
     }
 }

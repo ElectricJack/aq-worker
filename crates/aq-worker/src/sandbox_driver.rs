@@ -12,8 +12,8 @@
 //!    deletes the file before Claude starts;
 //! 4. stream the runner log to the pane and wait for the runner;
 //! 5. copy `/aq/work` back into the worktree, then stop the sandbox;
-//! 6. submit the AQ result claim through the attempt's local result channel,
-//!    then destroy the sandbox. A copy-back that fails part way claims nothing.
+//! 6. submit the AQ result claim through the attempt's local result channel; the node then
+//!    destroys the stopped sandbox. A copy-back that fails part way claims nothing.
 //!
 //! The token never appears in argv, the container create body, labels, logs
 //! or the pane. The driver itself never talks to aq-server: with
@@ -24,14 +24,15 @@
 use crate::backend::docker_local::tar::{TreeEntry, read_tree, tree_archive};
 use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig};
 use crate::backend::{
-    Confirmation, CreateRequest, DestroyAuthorization, Ownership, PlacementBackend,
-    PrivateMaterial, ResourceLimits, RunnerExit, SandboxIdentity, TemplateDigest,
+    CreateRequest, Ownership, PlacementBackend, PrivateMaterial, ResourceLimits, RunnerExit,
+    SandboxIdentity, TemplateDigest,
 };
 use anyhow::{Context, Result, bail, ensure};
-use aq_handoff_note::pane_line;
+use aq_handoff_note::print_logs;
+use aq_handoff_note::read_private;
 pub use aq_handoff_note::{
     HANDOFF_MARKER, HandoffMarker, conclusion, fold_claim, handoff_note, holds_secret, holds_token,
-    proven_success, read_handoff_marker,
+    parse_token, proven_success, read_handoff_marker,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -100,43 +101,6 @@ pub struct DriverConfig {
     /// Mount the node's channel for this attempt; launch fails without it.
     #[serde(default)]
     pub agent_channel: bool,
-}
-
-/// Token file contents to the token: one line, trailing CR/LF trimmed,
-/// ASCII-graphic only (C6b install rule).
-pub fn parse_token(bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-    let mut end = bytes.len();
-    while end > 0 && matches!(bytes[end - 1], b'\n' | b'\r') {
-        end -= 1;
-    }
-    let token = Zeroizing::new(bytes[..end].to_vec());
-    ensure!(
-        (16..=4096).contains(&token.len()) && token.iter().all(u8::is_ascii_graphic),
-        "Claude login token shape refused"
-    );
-    Ok(token)
-}
-
-fn read_private(path: &Path, max: u64) -> Result<Zeroizing<Vec<u8>>> {
-    use std::io::Read;
-    use std::os::unix::fs::MetadataExt;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
-        .context("private input unavailable")?;
-    let meta = file.metadata()?;
-    ensure!(
-        meta.is_file()
-            && meta.mode() & 0o077 == 0
-            && meta.uid() == unsafe { libc::geteuid() }
-            && meta.len() <= max,
-        "private input owner/mode/bound"
-    );
-    let mut bytes = Zeroizing::new(Vec::new());
-    file.take(max + 1).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() as u64 <= max, "private input grew");
-    Ok(bytes)
 }
 
 fn relative(path: &Path, root: &Path) -> Result<String> {
@@ -374,31 +338,6 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     ])
 }
 
-/// Prints complete runner lines to the pane. A line holding the token is
-/// never printed (a note is); returns whether that happened.
-fn print_logs(bytes: &[u8], partial: &mut Vec<u8>, token: &[u8]) -> bool {
-    let mut leaked = false;
-    partial.extend_from_slice(bytes);
-    while let Some(pos) = partial.iter().position(|b| *b == b'\n') {
-        let line: Vec<u8> = partial.drain(..=pos).collect();
-        let line = &line[..line.len() - 1];
-        if holds_secret(line, token) {
-            leaked = true;
-            println!("aq-sandbox-harness: [a runner output line was withheld: it held a secret]");
-            continue;
-        }
-        if line.starts_with(b"{") {
-            if let Some(text) = pane_line(line) {
-                println!("{text}");
-            }
-        } else {
-            println!("{}", String::from_utf8_lossy(line));
-        }
-    }
-    let _ = std::io::stdout().flush();
-    leaked
-}
-
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -515,23 +454,11 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             .and_then(|mut f| f.write_all(&stream));
     }
     let stopped = backend.stop(&sandbox).await;
-    // The claim precedes the destroy: a kill in between leaves a stopped sandbox, never an
-    // unclaimed attempt whose sandbox is gone (salvage would hold it as sandbox_absent).
+    // The node destroys the stopped sandbox once it sees the claim: the host stop may kill
+    // this driver right after the claim, and an unclaimed attempt keeps its sandbox for salvage.
     let code = claim_outcome(config_path, &config, note, leak, &stream, rc, &changed);
-    let destroyed = if stopped.is_confirmed() {
-        let authorization = DestroyAuthorization::retained(
-            sandbox.clone(),
-            format!("node-worktree:{}", config.owner.attempt_id),
-        )?;
-        matches!(
-            backend.destroy(&sandbox, &authorization).await,
-            Confirmation::Confirmed(_)
-        )
-    } else {
-        false
-    };
     println!(
-        "aq-sandbox-harness: sandbox {} stopped={} destroyed={destroyed}; changed: {}",
+        "aq-sandbox-harness: sandbox {} stopped={}; changed: {}",
         sandbox.backend_id,
         stopped.is_confirmed(),
         if changed.is_empty() {
@@ -948,17 +875,6 @@ mod tests {
             &mut Vec::new(),
             token
         ));
-    }
-
-    #[test]
-    fn token_trims_newlines_and_refuses_bad_shapes() {
-        assert_eq!(
-            &parse_token(b"fixture-login-abcdefghijklmnop\r\n").unwrap()[..],
-            b"fixture-login-abcdefghijklmnop"
-        );
-        assert!(parse_token(b"short\n").is_err());
-        assert!(parse_token(b"fixture-login-abc defghijklmnop\n").is_err());
-        assert!(parse_token(b"fixture-login-abcdefghijklmnop\nsecond\n").is_err());
     }
 
     #[test]

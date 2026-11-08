@@ -77,21 +77,24 @@ fn docker_settings(
 }
 
 /// Destroys every measurement sandbox (boot `MEASUREMENT_BOOT`) of `node_id` that a cut-short
-/// run left behind; returns how many. The service runs it at start.
-pub async fn sweep(template: &Path, node_id: Uuid) -> Result<usize> {
+/// run left behind; returns how many. The service runs it at start. It holds the profile's
+/// measurement `lock` while it sweeps and does nothing while a `service measure` holds it.
+pub async fn sweep(template: &Path, node_id: Uuid, lock: &Path) -> Result<usize> {
     let config = NativeConfig::load(template)?;
     let docker = docker_settings(&config)?.host.docker_local.clone();
-    sweep_on(
-        &mut DockerLocalBackend::connect_unix(docker).await?,
-        node_id,
-    )
-    .await
+    let mut backend = DockerLocalBackend::connect_unix(docker).await?;
+    sweep_on(&mut backend, node_id, lock).await
 }
 
 pub(crate) async fn sweep_on<T: DockerTransport>(
     backend: &mut DockerLocalBackend<T>,
     node_id: Uuid,
+    lock: &Path,
 ) -> Result<usize> {
+    let Some(_held) = m::measure_lock(lock, false)? else {
+        tracing::info!("a measurement is running; its sandbox is not swept");
+        return Ok(0);
+    };
     let mut released = 0;
     for entry in backend.list_owned(node_id).await? {
         if entry.sandbox.owner.boot_id == m::MEASUREMENT_BOOT
@@ -496,8 +499,64 @@ mod tests {
             backend.create(&request).await.unwrap();
         }
         assert_eq!(rig.fake.docker.container_names().len(), 2);
-        assert_eq!(sweep_on(&mut backend, node).await.unwrap(), 1);
+        // Round 2, B: while `service measure` holds the lock, its sandbox is left alone.
+        let lock = rig._dir.path().join("measure.lock");
+        let held = m::measure_lock(&lock, false).unwrap().unwrap();
+        assert_eq!(sweep_on(&mut backend, node, &lock).await.unwrap(), 0);
+        assert_eq!(rig.fake.docker.container_names().len(), 2);
+        drop(held);
+        assert_eq!(sweep_on(&mut backend, node, &lock).await.unwrap(), 1);
         assert_eq!(rig.fake.docker.container_names().len(), 1);
-        assert_eq!(sweep_on(&mut backend, node).await.unwrap(), 0);
+        assert_eq!(sweep_on(&mut backend, node, &lock).await.unwrap(), 0);
+    }
+
+    /// Round 2, A: the node destroys a claimed attempt's stopped sandbox even when the driver
+    /// was killed right after its claim; unclaimed and running sandboxes stay.
+    #[tokio::test]
+    async fn node_destroys_claimed_stopped_sandboxes_only() {
+        use aq_worker::backend::{FakeBackend, PrivateMaterial, SandboxState};
+        let mut backend = FakeBackend::default();
+        let node = Uuid::from_u128(1);
+        let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
+        let (claimed, unclaimed, running) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        for attempt_id in [claimed, unclaimed, running] {
+            let owner = Ownership {
+                node_id: node,
+                boot_id: Uuid::new_v4(),
+                attempt_id,
+            };
+            let request = CreateRequest::new(owner, template.clone(), 1 << 40, vec![]);
+            let sandbox = backend.create(&request).await.unwrap();
+            let material = PrivateMaterial::new(b"fixture".to_vec());
+            backend
+                .deliver_private_material(&sandbox, material)
+                .await
+                .unwrap();
+            backend.start_runner(&sandbox).await.unwrap();
+            if attempt_id != running {
+                // The driver claimed and was killed before any destroy: stopped, not destroyed.
+                assert!(backend.stop(&sandbox).await.is_confirmed());
+            }
+        }
+        let destroyed = aq_worker::native::runner::destroy_claimed_sandboxes(
+            &mut backend,
+            node,
+            &[claimed, running],
+        )
+        .await
+        .unwrap();
+        assert_eq!(destroyed, 1);
+        let states: BTreeMap<Uuid, SandboxState> = (backend.list_owned(node).await.unwrap())
+            .into_iter()
+            .map(|e| (e.sandbox.owner.attempt_id, e.state))
+            .collect();
+        assert!(
+            states
+                .get(&claimed)
+                .is_none_or(|s| *s == SandboxState::Destroyed),
+            "{states:?}"
+        );
+        assert_eq!(states[&unclaimed], SandboxState::Stopped);
+        assert_eq!(states[&running], SandboxState::Running);
     }
 }

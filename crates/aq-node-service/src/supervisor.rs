@@ -57,6 +57,9 @@ pub trait SlotBackend: Send + Sync + 'static {
     ) -> Result<AttemptOutcome>;
     async fn recover(&self, ctx: SlotContext) -> Result<RecoverOutcome>;
     fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>>;
+    /// Destroys the leftover stopped sandboxes of the slot's claimed attempts (their work is in
+    /// the worktree): the driver can be killed between its claim and the node's destroy.
+    async fn release_claimed(&self, ctx: SlotContext) -> Result<usize>;
     /// Runs one measurement. When `cancel` turns true it stops, releases its sandbox and
     /// returns an error.
     async fn measure(
@@ -123,9 +126,15 @@ const MEASURE_RETRY_MAX: Duration = Duration::from_secs(7200);
 const FORCE_WAIT: Duration = Duration::from_secs(20);
 /// How long the stop waits for a cancelled measurement to release its sandbox.
 const MEASURE_STOP_WAIT: Duration = Duration::from_secs(5);
+/// Bound on one handoff notice post during the stop (the posts also end with the grace).
+const HANDOFF_POST_WAIT: Duration = Duration::from_secs(4);
 // systemd's TimeoutStopSec is the grace plus STOP_MARGIN: the forced stop and the measurement
 // release must fit in the margin.
-const _: () = assert!(FORCE_WAIT.as_secs() + MEASURE_STOP_WAIT.as_secs() < STOP_MARGIN.as_secs());
+// A post started just before the grace ends is the most the handoff can add.
+const _: () = assert!(
+    FORCE_WAIT.as_secs() + MEASURE_STOP_WAIT.as_secs() + HANDOFF_POST_WAIT.as_secs()
+        < STOP_MARGIN.as_secs()
+);
 /// Written in a slot's `current` when the service stops, so an attempt that had no driver
 /// directory yet (still preparing) is still handed off as a service stop, not a crash.
 pub const SERVICE_STOP_MARKER: &str = "service-stop";
@@ -146,10 +155,11 @@ fn write_marker(path: &Path, reason: HandoffReason) -> Result<()> {
     }
 }
 /// Writes <driver dir>/handoff (create-new, 0600) for the driver whose driver.json names `attempt`,
-/// searching every slot's current/host/driver-*/driver.json. True when written or already present.
+/// searching current/host/driver-*/driver.json of `slots`: the slots whose attempt is still
+/// running (a kept-for-recovery or held `current` is not). True when written or already present.
 pub fn mark_handoff(
     layout: &Layout,
-    slots: u32,
+    slots: &[u32],
     attempt: Uuid,
     reason: HandoffReason,
 ) -> Result<bool> {
@@ -160,17 +170,18 @@ pub fn mark_handoff(
     }
     Ok(false)
 }
-/// Attempt ids of drivers that are running: driver.json present, exit.json absent.
-pub fn running_attempts(layout: &Layout, slots: u32) -> Result<Vec<Uuid>> {
+/// Attempt ids of drivers that are running in `slots`: driver.json present, exit.json absent.
+pub fn running_attempts(layout: &Layout, slots: &[u32]) -> Result<Vec<Uuid>> {
     Ok(driver_dirs(layout, slots)
         .into_iter()
         .filter(|(d, _)| !d.join("exit.json").exists())
         .map(|(_, id)| id)
         .collect())
 }
-fn driver_dirs(layout: &Layout, slots: u32) -> Vec<(PathBuf, Uuid)> {
-    (1..=slots)
-        .flat_map(|slot| driver_dirs_in(&layout.current(slot).join("host")))
+fn driver_dirs(layout: &Layout, slots: &[u32]) -> Vec<(PathBuf, Uuid)> {
+    slots
+        .iter()
+        .flat_map(|slot| driver_dirs_in(&layout.current(*slot).join("host")))
         .collect()
 }
 fn driver_dirs_in(host: &Path) -> Vec<(PathBuf, Uuid)> {
@@ -338,8 +349,10 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
         let grace = tokio::time::sleep(Duration::from_millis(shared.sup.config.shutdown_grace_ms));
         tokio::pin!(grace);
         let mut posted = HashSet::new();
+        let grace_end = grace.deadline();
         while !loops.is_empty() {
-            shared.hand_off_running(&mut posted).await;
+            // Bounded by the grace, so the stop stays inside systemd's TimeoutStopSec.
+            let _ = tokio::time::timeout_at(grace_end, shared.hand_off_running(&mut posted)).await;
             tokio::select! {
                 () = drain(&mut loops) => {}
                 () = &mut grace => {
@@ -428,6 +441,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 tracing::error!(slot, "slot held until the owner releases it: {why}");
                 return Ok(false);
             }
+            self.sup.backend.release_claimed(ctx.clone()).await?;
             self.archive(&ctx);
         } else if current.exists() {
             self.archive(&ctx);
@@ -533,6 +547,12 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         }
         .await;
         self.active.lock().unwrap().remove(&slot);
+        // A claimed attempt's sandbox the node did not destroy (a killed driver, a failed
+        // transfer): on failure `current` stays, and `settle` releases it before archiving.
+        let released = self.sup.backend.release_claimed(ctx.clone()).await;
+        if let Err(e) = &released {
+            tracing::warn!(slot, "claimed sandbox release: {e:#}");
+        }
         // An attempt that failed after admission keeps its state for recovery (handoff
         // notice and salvage); only a finished or never-admitted attempt is archived.
         let admitted = || {
@@ -541,18 +561,24 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 .retained_attempts(&ctx)
                 .map_or(true, |a| !a.is_empty())
         };
-        if result.is_err() && admitted() {
-            tracing::warn!(slot, "the failed attempt stays in current for recovery");
+        if (result.is_err() || released.is_err()) && admitted() {
+            tracing::warn!(slot, "the attempt stays in current for recovery");
         } else {
             self.archive(&ctx);
         }
         result
     }
+    /// Slots inside `attempt`: only their drivers are live. A failed attempt kept for recovery
+    /// and a held slot's attempt ended before this stop, so they are never marked by it.
+    fn active_slots(&self) -> Vec<u32> {
+        self.active.lock().unwrap().iter().copied().collect()
+    }
+    /// Marks and announces the running attempts. Each notice post is bounded by
+    /// `HANDOFF_POST_WAIT`; the caller bounds the whole call by the grace.
     async fn hand_off_running(&self, posted: &mut HashSet<Uuid>) {
         let layout = &self.sup.layout;
-        let slots = self.sup.config.slots;
-        let active: Vec<u32> = self.active.lock().unwrap().iter().copied().collect();
-        for slot in active {
+        let slots = self.active_slots();
+        for &slot in &slots {
             let current = layout.current(slot);
             if let Err(e) = write_marker(
                 &current.join(SERVICE_STOP_MARKER),
@@ -561,19 +587,24 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 tracing::warn!(slot, "service-stop marker: {e:#}");
             }
         }
-        for id in running_attempts(layout, slots).unwrap_or_default() {
+        for id in running_attempts(layout, &slots).unwrap_or_default() {
+            // The marker first: it is what the driver acts on, the notice only informs.
+            if let Err(e) = mark_handoff(layout, &slots, id, HandoffReason::ServiceStop) {
+                tracing::warn!(%id, "handoff marker: {e:#}");
+            }
             if posted.insert(id) {
                 let notice = HandoffNotice {
                     schema_version: 1,
                     attempt_id: id,
                     reason: HandoffReason::ServiceStop,
                 };
-                if let Err(e) = self.sup.control.handoff(&notice).await {
-                    tracing::warn!(%id, "handoff notice: {e:#}");
+                let sent =
+                    tokio::time::timeout(HANDOFF_POST_WAIT, self.sup.control.handoff(&notice));
+                match sent.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => tracing::warn!(%id, "handoff notice: {e:#}"),
+                    Err(_) => tracing::warn!(%id, "handoff notice timed out"),
                 }
-            }
-            if let Err(e) = mark_handoff(layout, slots, id, HandoffReason::ServiceStop) {
-                tracing::warn!(%id, "handoff marker: {e:#}");
             }
         }
     }
@@ -628,8 +659,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
     fn apply(self: &Arc<Self>, resp: ControlResponse) {
         let layout = &self.sup.layout;
         for id in resp.handoff {
-            if let Err(e) =
-                mark_handoff(layout, self.sup.config.slots, id, HandoffReason::OwnerStop)
+            if let Err(e) = mark_handoff(layout, &self.active_slots(), id, HandoffReason::OwnerStop)
             {
                 tracing::warn!(%id, "handoff marker: {e:#}");
             }
@@ -744,6 +774,8 @@ mod tests {
         Error,
         /// Fails after admission: the journal holds the attempt.
         ErrorAdmitted,
+        /// Finishes an admitted attempt (its journal holds it).
+        Finished,
         /// Waits for the forced shutdown.
         Hang,
         /// Keeps the pause receiver, returns Paused when polling pauses.
@@ -764,6 +796,9 @@ mod tests {
         measure_fails: bool,
         measure_hangs: bool,
         measure_released: Mutex<bool>,
+        /// release_claimed fails this many times; the slots it was called for.
+        release_failures: Mutex<u32>,
+        releases: Mutex<Vec<u32>>,
     }
     #[async_trait::async_trait]
     impl SlotBackend for FakeBackend {
@@ -786,8 +821,17 @@ mod tests {
                 None => Ok(AttemptOutcome::ShutdownBeforeAdmission),
                 Some(Step::Outcome(o)) => Ok(o),
                 Some(Step::Error) => anyhow::bail!("boom"),
+                Some(Step::Finished) => {
+                    std::fs::write(ctx.state_dir.join("journal"), b"j").unwrap();
+                    Ok(AttemptOutcome::AttemptStopped)
+                }
                 Some(Step::ErrorAdmitted) => {
                     std::fs::write(ctx.state_dir.join("journal"), b"j").unwrap();
+                    // Its driver never wrote exit.json (the pane was cut).
+                    let dir = ctx.state_dir.join("host/driver-1");
+                    std::fs::create_dir_all(&dir).unwrap();
+                    let owner = serde_json::json!({"owner": {"attempt_id": Uuid::from_u128(42)}});
+                    std::fs::write(dir.join("driver.json"), owner.to_string()).unwrap();
                     anyhow::bail!("source transfer failed")
                 }
                 Some(Step::Hang) => {
@@ -814,6 +858,15 @@ mod tests {
                 Ok(outcome) => Ok(outcome),
                 Err(()) => anyhow::bail!("server unreachable"),
             }
+        }
+        async fn release_claimed(&self, ctx: SlotContext) -> Result<usize> {
+            self.releases.lock().unwrap().push(ctx.slot);
+            let mut failures = self.release_failures.lock().unwrap();
+            if *failures > 0 {
+                *failures -= 1;
+                anyhow::bail!("docker down");
+            }
+            Ok(0)
         }
         fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>> {
             let journal = ctx.state_dir.join("journal").exists();
@@ -847,6 +900,7 @@ mod tests {
         replies: Mutex<VecDeque<Result<ControlResponse, (u16, bool)>>>,
         polls: Mutex<Vec<Instant>>,
         handoffs: Mutex<Vec<HandoffNotice>>,
+        hang_handoffs: Mutex<bool>,
         submissions: Mutex<u32>,
         renewed: QualificationPin,
     }
@@ -867,6 +921,10 @@ mod tests {
         }
         async fn handoff(&self, n: &HandoffNotice) -> Result<()> {
             self.handoffs.lock().unwrap().push(n.clone());
+            let hang = *self.hang_handoffs.lock().unwrap();
+            if hang {
+                std::future::pending::<()>().await;
+            }
             Ok(())
         }
         async fn submit_measurement(&self, _: &MeasurementSubmission) -> Result<QualificationPin> {
@@ -907,6 +965,7 @@ mod tests {
             replies: Mutex::new(replies.into()),
             polls: Mutex::default(),
             handoffs: Mutex::default(),
+            hang_handoffs: Mutex::default(),
             submissions: Mutex::default(),
             renewed: pin("1", 0, wall() + 86_400_000),
         })
@@ -1024,7 +1083,7 @@ mod tests {
         let (da, _db) = (driver(&rig, 1, a), driver(&rig, 1, b));
         let state = rig.layout.current(1);
         assert_eq!(recorded_handoff(&state, a), None);
-        assert!(mark_handoff(&rig.layout, 1, a, HandoffReason::ServiceStop).unwrap());
+        assert!(mark_handoff(&rig.layout, &[1], a, HandoffReason::ServiceStop).unwrap());
         assert!(da.join("handoff").exists());
         assert_eq!(
             recorded_handoff(&state, a),
@@ -1535,5 +1594,94 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
         stop(handle, tx).await;
         assert!(!rig.layout.current(1).join(SERVICE_STOP_MARKER).exists());
+    }
+
+    /// Round 2, A: claimed sandboxes are released after every attempt; when that fails the
+    /// attempt stays in current and the next round's settle releases it before archiving.
+    #[tokio::test(start_paused = true)]
+    async fn claimed_sandboxes_are_released_after_the_attempt_or_by_settle() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend::default());
+        *backend.release_failures.lock().unwrap() = 1;
+        script(&backend, 1, vec![Step::ErrorAdmitted, Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(
+            *backend.releases.lock().unwrap(),
+            [1],
+            "after the attempt (failed)"
+        );
+        assert!(rig.layout.current(1).join("journal").exists());
+        sleep(Duration::from_secs(30)).await;
+        assert_eq!(
+            *backend.releases.lock().unwrap(),
+            [1, 1],
+            "settle, then archive"
+        );
+        assert_eq!(
+            *backend.calls.lock().unwrap(),
+            ["run:1", "recover:1", "run:1"]
+        );
+        assert_eq!(count(rig.layout.archive_dir(1)), 1);
+        stop(handle, tx).await;
+        // A finished attempt whose release fails is kept too.
+        let rig = self::rig(1);
+        let backend = Arc::new(FakeBackend::default());
+        *backend.release_failures.lock().unwrap() = 1;
+        script(&backend, 1, vec![Step::Finished, Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        // Kept, then settled at once (a finished attempt resets the backoff).
+        assert_eq!(
+            *backend.calls.lock().unwrap(),
+            ["run:1", "recover:1", "run:1"]
+        );
+        assert_eq!(*backend.releases.lock().unwrap(), [1, 1]);
+        assert_eq!(count(rig.layout.archive_dir(1)), 1);
+        stop(handle, tx).await;
+    }
+
+    /// Round 2, C: a stop during the recovery backoff does not mark the attempt that already
+    /// failed: it was not stopped by the service, so its crash stays charged.
+    #[tokio::test(start_paused = true)]
+    async fn stop_during_recovery_backoff_does_not_mark_the_failed_attempt() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend::default());
+        script(&backend, 1, vec![Step::ErrorAdmitted, Step::Hang]);
+        let ctl = control(vec![reply(vec![Uuid::from_u128(42)], None)]);
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(6)).await;
+        stop(handle, tx).await;
+        let current = rig.layout.current(1);
+        assert!(current.join("journal").exists());
+        assert!(
+            !current.join("host/driver-1/handoff").exists(),
+            "no owner or service marker"
+        );
+        assert!(!current.join(SERVICE_STOP_MARKER).exists());
+        assert!(ctl.handoffs.lock().unwrap().is_empty());
+        assert_eq!(recorded_handoff(&current, Uuid::from_u128(42)), None);
+    }
+
+    /// Round 2, F: a notice post that never answers cannot hold the stop past the grace plus
+    /// the stop margin (systemd's TimeoutStopSec).
+    #[tokio::test(start_paused = true)]
+    async fn a_hanging_handoff_post_stays_inside_the_stop_budget() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend::default());
+        script(&backend, 1, vec![Step::Hang]);
+        let ctl = control(vec![reply(vec![], None)]);
+        *ctl.hang_handoffs.lock().unwrap() = true;
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(1)).await;
+        driver(&rig, 1, Uuid::from_u128(5));
+        let signalled = Instant::now();
+        stop(handle, tx).await;
+        let budget = Duration::from_millis(rig.config.shutdown_grace_ms) + STOP_MARGIN;
+        assert!(signalled.elapsed() < budget, "{:?}", signalled.elapsed());
+        assert!(
+            backend.released.lock().unwrap().is_some(),
+            "the slot was forced"
+        );
     }
 }

@@ -160,7 +160,7 @@ impl NativeExecutor for ClaudeDockerExecutor {
             // stop is confirmed BEFORE the host stop; else Stopped is withheld.
             let driver_dir = host.claude_driver_dir();
             let docker_local = profile.config().docker_local.clone();
-            let node = self.node_id;
+            let (docker, node) = (docker_local.clone(), self.node_id);
             let pre_stop: super::codex::PreStop = Box::new(move || {
                 Box::pin(async move { stop_attempt_sandbox(&docker_local, node, id).await })
             });
@@ -178,6 +178,19 @@ impl NativeExecutor for ClaudeDockerExecutor {
             .await;
             if let Some(dir) = driver_dir {
                 crate::native::launch::wipe_claude_driver_secrets(&dir);
+            }
+            // Retained and reported, so claimed: the work is in the worktree and the stopped
+            // sandbox goes (the host stop may have killed the driver before it could).
+            if driven.is_ok()
+                && let Err(e) = async {
+                    let mut backend =
+                        crate::backend::docker_local::DockerLocalBackend::connect_unix(docker)
+                            .await?;
+                    destroy_claimed_sandboxes(&mut backend, node, &[id]).await
+                }
+                .await
+            {
+                tracing::warn!(attempt_id = %id, "claimed sandbox kept: {e:#}");
             }
             driven
         })
@@ -223,6 +236,50 @@ pub(crate) async fn stop_owned_sandboxes<B: crate::backend::PlacementBackend>(
         );
     }
     Ok(())
+}
+
+/// Destroys the stopped sandboxes of `attempts`, whose result claims are recorded (the work
+/// is in the worktree). Running or unknown sandboxes are left alone. Returns how many went.
+pub async fn destroy_claimed_sandboxes<B: crate::backend::PlacementBackend>(
+    backend: &mut B,
+    node: uuid::Uuid,
+    attempts: &[uuid::Uuid],
+) -> Result<usize> {
+    use crate::backend::{Confirmation, DestroyAuthorization, SandboxState};
+    let mut destroyed = 0;
+    for entry in backend.list_owned(node).await? {
+        let id = entry.sandbox.owner.attempt_id;
+        if !attempts.contains(&id) || entry.state != SandboxState::Stopped {
+            continue;
+        }
+        let evidence = format!("node-worktree:{id}");
+        let authorization = DestroyAuthorization::retained(entry.sandbox.clone(), evidence)?;
+        match backend.destroy(&entry.sandbox, &authorization).await {
+            Confirmation::Confirmed(_) => destroyed += 1,
+            other => anyhow::bail!(
+                "destroy of {} not confirmed: {other:?}",
+                entry.sandbox.backend_id
+            ),
+        }
+    }
+    Ok(destroyed)
+}
+/// The service's safety net: destroys the leftover stopped sandboxes of this state dir's
+/// claimed attempts. Takes the state-dir lock (`claimed_attempts`).
+pub async fn release_claimed_sandboxes(config: &NativeConfig, node: uuid::Uuid) -> Result<usize> {
+    let claimed = super::claimed_attempts(config, node)?;
+    let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+        &config.executor
+    else {
+        return Ok(0);
+    };
+    if claimed.is_empty() {
+        return Ok(0);
+    }
+    let docker = settings.host.docker_local.clone();
+    let mut backend =
+        crate::backend::docker_local::DockerLocalBackend::connect_unix(docker).await?;
+    destroy_claimed_sandboxes(&mut backend, node, &claimed).await
 }
 
 /// Operator release of a preserved (stopped, never running) docker-local

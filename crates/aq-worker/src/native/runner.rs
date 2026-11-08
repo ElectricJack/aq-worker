@@ -5,7 +5,8 @@ mod codex;
 mod config;
 pub mod sandbox;
 pub use claude_docker::{
-    ClaudeDockerExecutor, ClaudeDockerSettings, InstalledExecutor, release_preserved_sandbox,
+    ClaudeDockerExecutor, ClaudeDockerSettings, InstalledExecutor, destroy_claimed_sandboxes,
+    release_claimed_sandboxes, release_preserved_sandbox,
 };
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) use codex::drive_running;
@@ -19,8 +20,8 @@ pub(crate) use prepare::collect as test_collect;
 mod profile;
 mod recovery;
 pub use recovery::{
-    ReconcileDisposition, SalvageDisposition, reconcile_native, retained_attempts,
-    salvage_interrupted,
+    ReconcileDisposition, SalvageDisposition, claimed_attempts, reconcile_native,
+    retained_attempts, salvage_interrupted,
 };
 pub(super) mod publish_output;
 use super::{
