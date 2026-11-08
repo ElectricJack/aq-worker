@@ -511,15 +511,34 @@ mod tests {
     }
 
     /// Round 2, A: the node destroys a claimed attempt's stopped sandbox even when the driver
-    /// was killed right after its claim; unclaimed and running sandboxes stay.
+    /// was killed right after its claim; unclaimed and running sandboxes stay. Round 3: a
+    /// sandbox its driver preserved (work never copied back) stays too. The executor (after the
+    /// claim), `release_claimed` and settle all go through this one function.
     #[tokio::test]
     async fn node_destroys_claimed_stopped_sandboxes_only() {
         use aq_worker::backend::{FakeBackend, PrivateMaterial, SandboxState};
         let mut backend = FakeBackend::default();
         let node = Uuid::from_u128(1);
         let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
-        let (claimed, unclaimed, running) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-        for attempt_id in [claimed, unclaimed, running] {
+        let ids = [
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        ];
+        let [claimed, unclaimed, running, preserved] = ids;
+        let host = tempfile::tempdir().unwrap();
+        for (n, attempt) in [claimed, preserved].iter().enumerate() {
+            let dir = host.path().join(format!("driver-{n}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            let owner = serde_json::json!({"owner": {"attempt_id": attempt}}).to_string();
+            std::fs::write(dir.join("driver.json"), owner).unwrap();
+        }
+        // The preserved attempt's driver failed before its copy-back and claimed "preserved".
+        let config = host.path().join("driver-1/driver.json");
+        let failure = anyhow::anyhow!("workspace copy-back: over its bound");
+        assert!(aq_handoff_note::preserved_claim(&failure, "sb", &config).is_some());
+        for attempt_id in ids {
             let owner = Ownership {
                 node_id: node,
                 boot_id: Uuid::new_v4(),
@@ -540,8 +559,9 @@ mod tests {
         }
         let destroyed = aq_worker::native::runner::destroy_claimed_sandboxes(
             &mut backend,
+            host.path(),
             node,
-            &[claimed, running],
+            &[claimed, running, preserved],
         )
         .await
         .unwrap();
@@ -557,6 +577,11 @@ mod tests {
             "{states:?}"
         );
         assert_eq!(states[&unclaimed], SandboxState::Stopped);
+        assert_eq!(
+            states[&preserved],
+            SandboxState::Stopped,
+            "kept for the operator"
+        );
         assert_eq!(states[&running], SandboxState::Running);
     }
 }

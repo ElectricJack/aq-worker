@@ -2,7 +2,9 @@
 //! the driver (or a restarted node's salvage) claims for a stopped attempt.
 use serde::Deserialize;
 use std::path::Path;
+mod preserve;
 mod secret_file;
+pub use preserve::{CopyBackIncomplete, PRESERVED_MARKER, preserved, preserved_claim, write_exit};
 mod stream;
 pub use secret_file::{parse_token, read_private};
 pub use stream::{conclusion, pane_line, print_logs, proven_success};

@@ -406,14 +406,16 @@ async fn enroll_in(
             // only once, so it must be the one that run saved here.
             None => saved_slot(layout, slot, entry.node_id, &first.server_url).with_context(|| {
                 format!(
-                    "slot {slot} was minted by an earlier run of this enrollment, which stopped before it saved the slot's credential; it cannot be recovered. Revoke the machine from the Swarm page, then run enroll with --reconfigure and a new code"
+                    "slot {slot} was minted by an earlier run of this enrollment, which stopped before it saved the slot's credential; it cannot be recovered. Revoke the machine from the Swarm page, delete {}, then run enroll with --reconfigure and a new code",
+                    pending.display()
                 )
             })?,
         };
         files.push(file);
     }
-    // Every slot file is written beside its final path first, then all are renamed, so a cut
-    // leaves either the old set or a complete new one (which a rerun finds and keeps).
+    // Every slot file is staged beside its final path first, then all are renamed. A cut
+    // during the renames leaves some staged and some installed files; the rerun (pending is
+    // still there) finds each one, staged or installed, and finishes the renames.
     for (slot, file) in (1..).zip(&files) {
         file.save(&staged(&layout.slot_enrollment(slot)))?;
     }

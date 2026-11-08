@@ -176,21 +176,31 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 Some(pre_stop),
             )
             .await;
-            if let Some(dir) = driver_dir {
-                crate::native::launch::wipe_claude_driver_secrets(&dir);
+            if let Some(dir) = &driver_dir {
+                crate::native::launch::wipe_claude_driver_secrets(dir);
             }
-            // Retained and reported, so claimed: the work is in the worktree and the stopped
-            // sandbox goes (the host stop may have killed the driver before it could).
-            if driven.is_ok()
-                && let Err(e) = async {
-                    let mut backend =
-                        crate::backend::docker_local::DockerLocalBackend::connect_unix(docker)
+            // Retained and reported, so claimed: the stopped sandbox goes unless the driver
+            // preserved it (work never copied back). One retry; a service slot's settle
+            // (release_claimed_sandboxes) or the operator releases what is left.
+            let host_root = driver_dir.as_deref().and_then(std::path::Path::parent);
+            if let (Ok(()), Some(root)) = (&driven, host_root) {
+                for round in 1..=2 {
+                    let released = async {
+                        let mut backend =
+                            crate::backend::docker_local::DockerLocalBackend::connect_unix(
+                                docker.clone(),
+                            )
                             .await?;
-                    destroy_claimed_sandboxes(&mut backend, node, &[id]).await
+                        destroy_claimed_sandboxes(&mut backend, root, node, &[id]).await
+                    };
+                    match released.await {
+                        Ok(_) => break,
+                        Err(e) => {
+                            tracing::warn!(attempt_id = %id, round, "claimed sandbox kept: {e:#}")
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(round)).await;
                 }
-                .await
-            {
-                tracing::warn!(attempt_id = %id, "claimed sandbox kept: {e:#}");
             }
             driven
         })
@@ -239,9 +249,11 @@ pub(crate) async fn stop_owned_sandboxes<B: crate::backend::PlacementBackend>(
 }
 
 /// Destroys the stopped sandboxes of `attempts`, whose result claims are recorded (the work
-/// is in the worktree). Running or unknown sandboxes are left alone. Returns how many went.
+/// is in the worktree). Running or unknown sandboxes, and those a driver under `host_root`
+/// preserved (`aq_handoff_note::preserved`), are left alone. Returns how many went.
 pub async fn destroy_claimed_sandboxes<B: crate::backend::PlacementBackend>(
     backend: &mut B,
+    host_root: &std::path::Path,
     node: uuid::Uuid,
     attempts: &[uuid::Uuid],
 ) -> Result<usize> {
@@ -249,7 +261,10 @@ pub async fn destroy_claimed_sandboxes<B: crate::backend::PlacementBackend>(
     let mut destroyed = 0;
     for entry in backend.list_owned(node).await? {
         let id = entry.sandbox.owner.attempt_id;
-        if !attempts.contains(&id) || entry.state != SandboxState::Stopped {
+        if !attempts.contains(&id)
+            || entry.state != SandboxState::Stopped
+            || aq_handoff_note::preserved(host_root, &id.to_string())
+        {
             continue;
         }
         let evidence = format!("node-worktree:{id}");
@@ -279,7 +294,7 @@ pub async fn release_claimed_sandboxes(config: &NativeConfig, node: uuid::Uuid) 
     let docker = settings.host.docker_local.clone();
     let mut backend =
         crate::backend::docker_local::DockerLocalBackend::connect_unix(docker).await?;
-    destroy_claimed_sandboxes(&mut backend, node, &claimed).await
+    destroy_claimed_sandboxes(&mut backend, &settings.host.root, node, &claimed).await
 }
 
 /// Operator release of a preserved (stopped, never running) docker-local

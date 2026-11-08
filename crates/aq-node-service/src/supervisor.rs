@@ -587,11 +587,15 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 tracing::warn!(slot, "service-stop marker: {e:#}");
             }
         }
-        for id in running_attempts(layout, &slots).unwrap_or_default() {
-            // The marker first: it is what the driver acts on, the notice only informs.
+        // Every marker first: the driver acts on it, the notice only informs, so a hung
+        // server can never delay another slot's marker.
+        let running = running_attempts(layout, &slots).unwrap_or_default();
+        for &id in &running {
             if let Err(e) = mark_handoff(layout, &slots, id, HandoffReason::ServiceStop) {
                 tracing::warn!(%id, "handoff marker: {e:#}");
             }
+        }
+        for id in running {
             if posted.insert(id) {
                 let notice = HandoffNotice {
                     schema_version: 1,
@@ -1683,5 +1687,36 @@ mod tests {
             backend.released.lock().unwrap().is_some(),
             "the slot was forced"
         );
+    }
+
+    /// Round 3: every running attempt is marked before any notice is posted, so a hung post
+    /// for one slot does not delay another slot's marker.
+    #[tokio::test(start_paused = true)]
+    async fn every_stop_marker_precedes_the_first_post() {
+        let rig = rig(2);
+        let backend = Arc::new(FakeBackend::default());
+        for slot in 1..=2 {
+            script(&backend, slot, vec![Step::Hang]);
+        }
+        let ctl = control(vec![reply(vec![], None)]);
+        *ctl.hang_handoffs.lock().unwrap() = true;
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(1)).await;
+        let dirs = [
+            driver(&rig, 1, Uuid::from_u128(1)),
+            driver(&rig, 2, Uuid::from_u128(2)),
+        ];
+        tx.send_replace(true);
+        sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            ctl.handoffs.lock().unwrap().len(),
+            1,
+            "the first post hangs"
+        );
+        assert!(
+            dirs.iter().all(|d| d.join("handoff").exists()),
+            "both marked"
+        );
+        handle.await.unwrap().unwrap();
     }
 }

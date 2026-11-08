@@ -29,11 +29,11 @@ use crate::backend::{
 };
 use anyhow::{Context, Result, bail, ensure};
 use aq_handoff_note::print_logs;
-use aq_handoff_note::read_private;
 pub use aq_handoff_note::{
-    HANDOFF_MARKER, HandoffMarker, conclusion, fold_claim, handoff_note, holds_secret, holds_token,
-    parse_token, proven_success, read_handoff_marker,
+    CopyBackIncomplete, HANDOFF_MARKER, HandoffMarker, PRESERVED_MARKER, conclusion, fold_claim,
+    handoff_note, holds_secret, holds_token, parse_token, proven_success, read_handoff_marker,
 };
+use aq_handoff_note::{preserved_claim, read_private, write_exit};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -206,15 +206,6 @@ pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
     }
     // From here the worktree changes: a failure leaves part of the tree behind.
     apply_tree(root, entries, &wanted).context(CopyBackIncomplete)
-}
-/// A copy-back that failed after it began writing: the worktree holds part of the sandbox's
-/// tree, so no result may be claimed from it (the preserved sandbox is salvaged instead).
-#[derive(Debug)]
-pub struct CopyBackIncomplete;
-impl std::fmt::Display for CopyBackIncomplete {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("copy-back incomplete")
-    }
 }
 fn apply_tree(
     root: &Path,
@@ -426,9 +417,10 @@ pub async fn run(config_path: &Path) -> Result<i32> {
                 stopped.is_confirmed()
             );
             write_exit(config_path, false);
-            let Some(claim) = preserved_claim(&error, &sandbox.backend_id) else {
+            // The marker precedes the claim: the node never destroys a preserved sandbox.
+            let Some(claim) = preserved_claim(&error, &sandbox.backend_id, config_path) else {
                 println!(
-                    "aq-sandbox-harness: copy-back incomplete; no claim, salvage copies the preserved sandbox again"
+                    "aq-sandbox-harness: no claim (incomplete copy-back or no preserved marker); salvage copies the preserved sandbox again"
                 );
                 return Ok(5);
             };
@@ -511,15 +503,6 @@ fn claim_outcome(
     if proven.is_ok() { 0 } else { 1 }
 }
 
-/// The failed claim for a preserved sandbox: a recorded (failed) result lets settlement send the
-/// task to rework instead of a stopped attempt with no report holding it. None after an
-/// incomplete copy-back: the half-synced worktree must never become a result.
-fn preserved_claim(error: &anyhow::Error, sandbox: &str) -> Option<String> {
-    (error.downcast_ref::<CopyBackIncomplete>().is_none()).then(|| {
-        format!("Changes: unknown; Runner failure: {error:#}; sandbox {sandbox} preserved")
-    })
-}
-
 /// 0006 §5.4: the node's channel socket must exist before the sandbox does.
 pub fn channel_ready(config: &DriverConfig) -> Result<()> {
     let root = config.docker_local.channel_root.as_deref();
@@ -529,25 +512,6 @@ pub fn channel_ready(config: &DriverConfig) -> Result<()> {
         aq_agent_channel::AQ_CHANNEL
     );
     Ok(())
-}
-
-/// `exit.json` beside the driver config: success means the runner exited 0
-/// (backend-observed) and the workspace was copied back.
-fn write_exit(config_path: &Path, success: bool) {
-    if let Some(dir) = config_path.parent() {
-        let _ = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(dir.join("exit.json"))
-            .and_then(|mut f| {
-                f.write_all(
-                    serde_json::json!({ "success": success })
-                        .to_string()
-                        .as_bytes(),
-                )
-            });
-    }
 }
 
 fn submit_claim(config: &DriverConfig, text: String) {
@@ -752,14 +716,16 @@ mod tests {
             root.path().join("a.txt").exists(),
             "a.txt was already written"
         );
-        assert_eq!(preserved_claim(&partial, "sb"), None);
+        let config = tempfile::tempdir().unwrap();
+        let config = config.path().join("driver.json");
+        assert_eq!(preserved_claim(&partial, "sb", &config), None);
         let link = TreeEntry::Symlink {
             path: "out".into(),
             target: "/etc".into(),
         };
         let refused = sync_tree(root.path(), &[link]).unwrap_err();
         assert!(
-            preserved_claim(&refused, "sb")
+            preserved_claim(&refused, "sb", &config)
                 .unwrap()
                 .contains("sandbox sb preserved")
         );
