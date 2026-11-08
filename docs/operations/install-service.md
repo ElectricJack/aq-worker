@@ -159,19 +159,25 @@ until the owner releases it; the other slots and the service keep running,
 even when every slot is held.
 
 After a crash, `systemctl --user kill` or a reboot, the attempt's session host
-(its guardian) died too and cannot prove its own stop. The stopped report the
-server accepts carries only a guardian's own evidence, so such an attempt is
-not reported stopped: its slot is held for the owner, and the reason names the
-outside proof that every process of the lost guardian is dead when one holds:
+(its guardian) died too and cannot prove its own stop. The restarted service
+looks for an outside proof that every process of the lost host is dead:
 
 - `boot_changed`: the machine rebooted since the attempt started (the recorded
-  boot id differs from `/proc/sys/kernel/random/boot_id`), with both boot ids;
+  boot id differs from `/proc/sys/kernel/random/boot_id`);
 - `cgroup_teardown`: the service runs under systemd and, when it started, its
   unit's cgroup held only itself, and the lost guardian started before it on
-  this boot (kernel start times), with the invocation id and the unit.
+  this boot (kernel start times).
 
-Salvaging on such a proof needs a stop report with an explicit proof kind
-(aq-protocol `StopProof`), which the server does not accept yet.
+With a proof, the service stops the attempt's sandbox (it is kept, never
+destroyed) and asks the server to release the attempt
+(`POST /v1/worker/lost-attempts`, with the proof). The server fails it as
+`lost_after_reboot` (not charged to the retry, lineage-time or sandbox-minute
+budgets) or `lost_after_crash` (charged, like any crash) and retries the task
+from its original input: the attempt's unsaved work is not salvaged.
+`lost-ATTEMPT.json` in the slot's archived state records this, and the slot is
+free again. Release the kept sandbox with `service release-sandbox` (below).
+Without a proof, or if the server refuses the release, the slot is held for
+the owner and the reason is logged.
 
 The slot's aq-git was killed too. The restarted service removes the socket it
 left and clears its ownership fence (`aq-git recovery clear-fence`), but only

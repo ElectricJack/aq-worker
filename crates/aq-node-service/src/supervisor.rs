@@ -49,6 +49,9 @@ pub enum RecoverOutcome {
     Clean,
     Reported,
     Salvaged,
+    /// Its host was lost: the server failed it and retries the task (D2 ruling C). Its unsaved
+    /// work was not salvaged; its sandbox is kept for `release-sandbox`. The slot is free.
+    Lost,
     Held(String),
 }
 #[async_trait::async_trait]
@@ -1999,6 +2002,26 @@ mod tests {
             "released before the archive"
         );
         assert_eq!(count(rig.layout.archive_dir(1)), 1);
+        stop(handle, tx).await;
+    }
+
+    /// D2 ruling C: a lost attempt released to the server frees its slot: it is archived (its
+    /// record kept) and the slot takes new work.
+    #[tokio::test(start_paused = true)]
+    async fn a_released_lost_attempt_frees_the_slot() {
+        let rig = rig(1);
+        journal(&rig, 1);
+        let backend = Arc::new(FakeBackend::default());
+        backend
+            .recovery
+            .lock()
+            .unwrap()
+            .insert(1, [Ok(RecoverOutcome::Lost)].into());
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(*backend.calls.lock().unwrap(), ["recover:1", "run:1"]);
+        assert_eq!(count(rig.layout.archive_dir(1)), 1, "kept in the archive");
         stop(handle, tx).await;
     }
 }

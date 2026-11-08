@@ -168,14 +168,80 @@ fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig
 fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<T> {
     serde_json::from_value(serde_json::to_value(pin)?).context("invalid renderer pin")
 }
-/// D2: a lost guardian holds the slot for the operator (instead of retrying forever). The
-/// stopped contract carries only a guardian's own evidence, so even when an outside proof holds
-/// (named in the reason) the stop is not reported yet.
-fn held_when_unproven<T>(result: &Result<T>) -> Option<RecoverOutcome> {
+/// D2: a recovery that failed because the guardian was lost: the outside proof that its
+/// processes are dead, if one holds, and the reason. (The stopped contract carries only a
+/// guardian's own evidence, so the stop itself is never reported.)
+fn unproven<T>(result: &Result<T>) -> Option<(Option<aq_protocol::StopProof>, String)> {
     let e = result.as_ref().err()?;
-    e.downcast_ref::<aq_session_host::StopUnproven>()?;
-    tracing::error!("recovery held: {e:#}");
-    Some(RecoverOutcome::Held(format!("{e:#}")))
+    let lost = e.downcast_ref::<aq_session_host::StopUnproven>()?;
+    Some((lost.proof.clone(), format!("{e:#}")))
+}
+/// Stops (never destroys) every sandbox of `attempt` that may still run; a stop must be
+/// confirmed. The stopped sandbox stays for the operator (`service release-sandbox`).
+async fn stop_attempt_sandboxes(
+    backend: &mut impl aq_worker::backend::PlacementBackend,
+    node: Uuid,
+    attempt: Uuid,
+) -> Result<()> {
+    use aq_worker::backend::SandboxState;
+    for entry in backend.list_owned(node).await? {
+        let done = matches!(
+            entry.state,
+            SandboxState::Stopped | SandboxState::Archived | SandboxState::Destroyed
+        );
+        if entry.sandbox.owner.attempt_id == attempt && !done {
+            let stopped = backend.stop(&entry.sandbox).await;
+            ensure!(
+                stopped.is_confirmed(),
+                "sandbox {} stop unconfirmed",
+                entry.sandbox.backend_id
+            );
+        }
+    }
+    Ok(())
+}
+/// D2 ruling C: a lost attempt with an outside stop proof. Its sandboxes are stopped (kept),
+/// then the server is asked to fail it and retry its task (`LostAttemptRelease`). On success
+/// `lost-<attempt>.json` in `state_dir` records that its unsaved work was not salvaged, and the
+/// slot is freed (`Lost`); otherwise the slot is held for the operator.
+async fn release_lost(
+    stop: impl AsyncFnOnce() -> Result<()>,
+    post: impl AsyncFnOnce(aq_protocol::LostAttemptRelease) -> Result<aq_protocol::LostAttemptReleased>,
+    state_dir: &Path,
+    attempt: Uuid,
+    proof: aq_protocol::StopProof,
+    why: &str,
+) -> RecoverOutcome {
+    if let Err(e) = stop().await {
+        let why = format!("the lost attempt's sandbox could not be stopped: {e:#}; {why}");
+        tracing::error!(%attempt, "recovery held: {why}");
+        return RecoverOutcome::Held(why);
+    }
+    let request = aq_protocol::LostAttemptRelease {
+        schema_version: 1,
+        attempt_id: attempt,
+        proof: proof.clone(),
+    };
+    let released = match post(request).await {
+        Ok(released) => released,
+        Err(e) => {
+            let why = format!("the server refused the lost-attempt release: {e:#}; {why}");
+            tracing::error!(%attempt, "recovery held: {why}");
+            return RecoverOutcome::Held(why);
+        }
+    };
+    let record = serde_json::json!({"schema_version": 1, "attempt_id": attempt, "proof": proof,
+        "reason": released.reason, "charged": released.charged, "released": released.released,
+        "held": released.held, "salvaged": false,
+        "sandbox": "stopped and kept; release it with `aq-worker service release-sandbox`"});
+    let path = state_dir.join(format!("lost-{attempt}.json"));
+    if let Err(e) = write_private(&path, record.to_string().as_bytes()) {
+        tracing::warn!(%attempt, "lost-attempt record not written: {e:#}");
+    }
+    tracing::warn!(%attempt, ?proof, reason = ?released.reason, charged = released.charged,
+        retried = released.released, held = ?released.held,
+        "lost attempt released: its unsaved work was not salvaged; its sandbox is kept for release-sandbox");
+    RecoverOutcome::Lost
 }
 /// What a restarted node tells the server about an interrupted attempt: the reason the service
 /// recorded before the cut (a deliberate stop stays exempt from budgets), else a plain restart.
@@ -222,8 +288,29 @@ impl SlotBackend for NativeSlotBackend {
                 }
             }
             let salvaged = salvage_interrupted(&worker, &cfg, attempt).await;
-            if let Some(held) = held_when_unproven(&salvaged) {
-                return Ok(held);
+            if let Some((proof, why)) = unproven(&salvaged) {
+                let Some(proof) = proof else {
+                    tracing::error!(%attempt, "recovery held: {why}");
+                    return Ok(RecoverOutcome::Held(why));
+                };
+                let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+                    &cfg.executor
+                else {
+                    return Ok(RecoverOutcome::Held(why));
+                };
+                let docker = settings.host.docker_local.clone();
+                let stop = async || {
+                    let mut backend =
+                        aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(docker)
+                            .await?;
+                    stop_attempt_sandboxes(&mut backend, worker.node_id, attempt).await
+                };
+                let post = async |r| link.lost_attempt(&r).await;
+                match release_lost(stop, post, &ctx.state_dir, attempt, proof, &why).await {
+                    RecoverOutcome::Lost => outcome = RecoverOutcome::Lost,
+                    held => return Ok(held),
+                }
+                continue;
             }
             match salvaged? {
                 SalvageDisposition::Unsalvageable(why) => {
@@ -1202,10 +1289,13 @@ mod tests {
         let gone = dir.path().join("runtime-wiped");
         let held = |last: &aq_session_host::HostObservation, prior: Option<&PriorGone>| {
             let result = recover_stopped_with(&gone, &last.guardian.intent, Some(last), NOW, prior);
-            match held_when_unproven(&result) {
-                Some(RecoverOutcome::Held(why)) => why,
-                other => panic!("{other:?}"),
-            }
+            let (proof, why) = unproven(&result).unwrap();
+            assert_eq!(
+                proof.is_some(),
+                !why.contains("host stop unproven"),
+                "{why}"
+            );
+            why
         };
         let unit_dir = dir.path().join("app.slice/aq-node@t.service");
         std::fs::create_dir_all(&unit_dir).unwrap();
@@ -1236,8 +1326,127 @@ mod tests {
         assert!(torn.contains("aq-node@t.service"), "{torn}");
         let foreign = attested(&format!("{own}\n1\n"));
         assert!(foreign.is_none(), "a foreign pid: no attestation");
-        let unproven = held(&running(NOW), foreign.as_ref());
-        assert!(unproven.contains("host stop unproven"), "{unproven}");
-        assert!(held_when_unproven(&Ok::<_, anyhow::Error>(())).is_none());
+        let none = held(&running(NOW), foreign.as_ref());
+        assert!(none.contains("host stop unproven"), "{none}");
+        assert!(unproven(&Ok::<_, anyhow::Error>(())).is_none());
+    }
+
+    /// D2 ruling C: with an outside proof, the lost attempt's sandbox is stopped (kept), the
+    /// release is posted with the proof, the record says nothing was salvaged, and the slot
+    /// is freed. A refused release or a sandbox that cannot be stopped holds the slot.
+    #[tokio::test]
+    async fn a_proven_lost_attempt_is_released_and_frees_the_slot() {
+        use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+        let dir = tempfile::tempdir().unwrap();
+        let attempt = Uuid::from_u128(77);
+        let proof = aq_protocol::StopProof::CgroupTeardown {
+            invocation_id: "0123456789abcdef0123456789abcdef".into(),
+            unit: "aq-node@t.service".into(),
+        };
+        let answer = |r: &aq_protocol::LostAttemptRelease| aq_protocol::LostAttemptReleased {
+            schema_version: 1,
+            attempt_id: r.attempt_id,
+            reason: aq_protocol::LostReason::of(&r.proof).unwrap(),
+            charged: true,
+            released: true,
+            held: None,
+        };
+        let stopped = AtomicBool::new(false);
+        let posted = std::sync::Mutex::new(None);
+        let outcome = release_lost(
+            async || {
+                stopped.store(true, SeqCst);
+                Ok(())
+            },
+            async |r| {
+                anyhow::ensure!(stopped.load(SeqCst), "stopped before the post");
+                *posted.lock().unwrap() = Some(r.clone());
+                Ok(answer(&r))
+            },
+            dir.path(),
+            attempt,
+            proof.clone(),
+            "lost",
+        )
+        .await;
+        assert_eq!(outcome, RecoverOutcome::Lost);
+        let sent = posted.lock().unwrap().clone().unwrap();
+        assert_eq!((sent.attempt_id, &sent.proof), (attempt, &proof));
+        let record: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join(format!("lost-{attempt}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(record["salvaged"], false);
+        assert_eq!(record["reason"], "lost_after_crash");
+        assert!(
+            record["sandbox"]
+                .as_str()
+                .unwrap()
+                .contains("release-sandbox")
+        );
+        let refused = release_lost(
+            async || Ok(()),
+            async |_| anyhow::bail!("409 lost_attempt_effects_present"),
+            dir.path(),
+            Uuid::from_u128(78),
+            proof.clone(),
+            "lost",
+        )
+        .await;
+        assert!(matches!(refused, RecoverOutcome::Held(why) if why.contains("refused")));
+        let unstoppable = release_lost(
+            async || anyhow::bail!("docker down"),
+            async |_| panic!("never posted while the sandbox may run"),
+            dir.path(),
+            Uuid::from_u128(79),
+            proof,
+            "lost",
+        )
+        .await;
+        assert!(
+            matches!(unstoppable, RecoverOutcome::Held(why) if why.contains("could not be stopped"))
+        );
+    }
+
+    /// The lost attempt's running sandbox is stopped, not destroyed; others are untouched.
+    #[tokio::test]
+    async fn a_lost_attempts_sandbox_is_stopped_and_kept() {
+        use aq_worker::backend::{
+            CreateRequest, FakeBackend, Ownership, PlacementBackend, PrivateMaterial, SandboxState,
+            TemplateDigest,
+        };
+        let mut backend = FakeBackend::default();
+        let node = Uuid::from_u128(1);
+        let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
+        let (lost, other) = (Uuid::new_v4(), Uuid::new_v4());
+        for attempt_id in [lost, other] {
+            let owner = Ownership {
+                node_id: node,
+                boot_id: Uuid::new_v4(),
+                attempt_id,
+            };
+            let request = CreateRequest::new(owner, template.clone(), 1 << 40, vec![]);
+            let sandbox = backend.create(&request).await.unwrap();
+            let material = PrivateMaterial::new(b"fixture".to_vec());
+            backend
+                .deliver_private_material(&sandbox, material)
+                .await
+                .unwrap();
+            backend.start_runner(&sandbox).await.unwrap();
+        }
+        stop_attempt_sandboxes(&mut backend, node, lost)
+            .await
+            .unwrap();
+        let states: std::collections::BTreeMap<Uuid, SandboxState> =
+            (backend.list_owned(node).await.unwrap())
+                .into_iter()
+                .map(|e| (e.sandbox.owner.attempt_id, e.state))
+                .collect();
+        assert_eq!(
+            states[&lost],
+            SandboxState::Stopped,
+            "kept for the operator"
+        );
+        assert_eq!(states[&other], SandboxState::Running);
     }
 }
