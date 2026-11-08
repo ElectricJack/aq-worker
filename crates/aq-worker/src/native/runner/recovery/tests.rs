@@ -53,6 +53,17 @@ fn stopped_attempt(refresh: bool) -> Attempt {
     }
     a
 }
+const DOWN: &str = "http://127.0.0.1:9";
+fn worker(url: &str, node_id: Uuid) -> WorkerConfig {
+    let (server_url, credential) = (url.into(), "synthetic".into());
+    WorkerConfig {
+        server_url,
+        node_id,
+        credential,
+        cf_client_id: None,
+        cf_client_secret: None,
+    }
+}
 struct Peer {
     fixture: Value,
     calls: Mutex<Vec<(String, Value)>>,
@@ -128,14 +139,8 @@ async fn preserved_stopped_attempt_reconciles_without_a_new_seeded_task() {
         else {
             panic!()
         };
-        let client = NativeClient::from_config(&WorkerConfig {
-            server_url: format!("http://{}", listener.local_addr().unwrap()),
-            node_id,
-            credential: "synthetic-recovery".into(),
-            cf_client_id: None,
-            cf_client_secret: None,
-        })
-        .unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let client = NativeClient::from_config(&worker(&url, node_id)).unwrap();
         // There is no registration, offer/poll or task-seeding route at this peer.
         let app = Router::new()
             .route("/v1/worker/profiled-v2/{path}", post(report))
@@ -183,14 +188,7 @@ async fn preserved_stopped_attempt_reconciles_without_a_new_seeded_task() {
 
 #[tokio::test]
 async fn uncertain_stop_is_preserved_without_reporting_or_admission() {
-    let client = NativeClient::from_config(&WorkerConfig {
-        server_url: "http://127.0.0.1:9".into(),
-        node_id: Uuid::from_u128(1),
-        credential: "synthetic".into(),
-        cf_client_id: None,
-        cf_client_secret: None,
-    })
-    .unwrap();
+    let client = NativeClient::from_config(&worker(DOWN, Uuid::from_u128(1))).unwrap();
     let a = terminal_attempt(false, false);
     let error = replay(&client, &a, |_| panic!("no receipt without stop proof"))
         .await
@@ -201,13 +199,7 @@ async fn uncertain_stop_is_preserved_without_reporting_or_admission() {
 #[tokio::test]
 async fn recovery_never_creates_missing_history_or_replaces_original_identity() {
     let (dir, c) = super::super::tests::config();
-    let worker = WorkerConfig {
-        server_url: "http://127.0.0.1:9".into(),
-        node_id: Uuid::new_v4(),
-        credential: "synthetic".into(),
-        cf_client_id: None,
-        cf_client_secret: None,
-    };
+    let worker = worker(DOWN, Uuid::new_v4());
     assert!(reconcile_native(&worker, &c, Uuid::new_v4()).await.is_err());
     assert!(!dir.path().join("journal").exists());
     let journal = Journal::create(
@@ -327,4 +319,201 @@ fn refresh_profile_unstarted_launch_closes_with_the_refresh_envelope() {
         q.original().evidence,
         aq_admission::granted_closure::Evidence::Suppressed { .. }
     ));
+}
+
+// W4 salvage. A coherent result journal needs a live launch, so these pin each
+// seam: the copy-back and claim, the journal salvage record and the dispositions.
+use crate::native::{journal::salvage_history, result::history::ResultHistory};
+use {ReconcileDisposition as R, SalvageDisposition as S};
+fn salvage_fixture() -> (tempfile::TempDir, ResultHistory, Attempt) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("kept.txt"), b"base").unwrap();
+    let mut h = crate::native::result::tests::history();
+    h.scope.workspace.path = dir.path().to_path_buf();
+    let mut a = stopped_attempt(false);
+    let t = a.native_host.as_mut().unwrap().terminal.as_mut().unwrap();
+    let receipt = fixture(false)["stopped_receipt"].clone();
+    t.stopped.as_mut().unwrap().receipt = Some(serde_json::from_value(receipt).unwrap());
+    (dir, h, a)
+}
+type Files<'a> = &'a [(&'a str, &'a [u8])];
+/// salvage_claim over one FakeBackend sandbox, stopped after it ran, whose /aq/work holds `files`.
+async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission, &'static str> {
+    use crate::backend::{CreateRequest, FakeBackend, Ownership, PlacementBackend, TemplateDigest};
+    let (node_id, boot_id, attempt_id) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    let mut backend = FakeBackend::default();
+    let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
+    let owner = Ownership {
+        node_id,
+        boot_id,
+        attempt_id,
+    };
+    let request = CreateRequest::new(owner, template, 1 << 40, vec![]);
+    let sandbox = backend.create(&request).await.unwrap();
+    let material = crate::backend::PrivateMaterial::new(b"fixture".to_vec());
+    backend
+        .deliver_private_material(&sandbox, material)
+        .await
+        .unwrap();
+    backend.start_runner(&sandbox).await.unwrap();
+    let running = stopped_sandboxes(&mut backend, node_id, attempt_id).await;
+    assert!(running.unwrap().is_empty() && backend.stop(&sandbox).await.is_confirmed());
+    let other = stopped_sandboxes(&mut backend, node_id, Uuid::new_v4()).await;
+    assert!(other.unwrap().is_empty());
+    let sandboxes = stopped_sandboxes(&mut backend, node_id, attempt_id)
+        .await
+        .unwrap();
+    let file = |&(path, data): &(&str, &[u8])| (path.to_string(), data.to_vec());
+    let entry = |(path, data)| TreeEntry::File {
+        path,
+        mode: 0o644,
+        data,
+    };
+    let entries: Vec<_> = files.iter().map(file).map(entry).collect();
+    let archive = tar::tree_archive("work", &entries).unwrap(); // members are work/...
+    let restart = aq_protocol::HandoffReason::Restart;
+    let claimed = salvage_claim(h, restart, &sandboxes, 1 << 20, async |_| Ok(archive));
+    claimed.await.unwrap()
+}
+
+#[tokio::test]
+async fn salvage_reports_failed_result_with_saved_workspace() {
+    let (dir, mut h, a) = salvage_fixture();
+    // Histories written before W4 serialize (and digest) exactly as before.
+    assert!(serde_json::to_value(&h).unwrap().get("salvaged").is_none());
+    let note = claim(&h, &[("kept.txt", b"base"), ("notes.txt", b"saved")]).await;
+    // The checkpoint and export read this workspace: it now holds the sandbox's file.
+    assert_eq!(
+        std::fs::read(dir.path().join("notes.txt")).unwrap(),
+        b"saved"
+    );
+    salvage_history(&a, &mut h, Some(note.unwrap()), 5).unwrap();
+    let conclusion = h.claim.as_ref().unwrap().submission().unwrap().conclusion;
+    let c = conclusion.as_str();
+    assert!(
+        c.starts_with("Handoff (node restart)") && c.contains("Changed: notes.txt."),
+        "{c}"
+    );
+    // The report's outcome must equal this anchor's (ResultHistory::validate).
+    let outcome = h.stop.as_ref().unwrap().outcome;
+    assert!(matches!(
+        outcome,
+        aq_admission::transport::ProcessOutcome::Failed
+    ));
+    assert!(h.intake_closed && h.salvaged == Some(5));
+}
+
+/// Review Focus 2: a recorded report gives AlreadyReported; a resumed salvage keeps its
+/// claim and stop; a report intent refuses a new salvage record.
+#[tokio::test]
+async fn salvage_is_idempotent_after_report() {
+    assert_eq!(settled(R::ResultRecorded), Some(S::AlreadyReported));
+    assert_eq!(settled(R::StopReported), None);
+    let (_dir, mut h, a) = salvage_fixture();
+    let note = claim(&h, &[]).await.unwrap();
+    let mut first = h.clone();
+    salvage_history(&a, &mut first, Some(note.clone()), 5).unwrap();
+    let mut again = first.clone();
+    salvage_history(&a, &mut again, Some(note.clone()), 6).unwrap();
+    assert_eq!(again.digest().unwrap(), first.digest().unwrap());
+    let fixture: Value = serde_json::from_slice(include_bytes!(
+        "../../../../../../vendor/aq-admission-0.1.10/artifacts/result-record.fixture.json"
+    ))
+    .unwrap();
+    h.report = Some(crate::native::result::history::ReportIntent {
+        request: serde_json::from_value(fixture["report"].clone()).unwrap(),
+        bytes: vec![],
+        digest: aq_session_protocol::Digest::of(b"report"),
+        recorded_revision: 4,
+    });
+    let error = salvage_history(&a, &mut h, Some(note), 5).unwrap_err();
+    assert!(error.to_string().contains("report intent"), "{error:#}");
+}
+
+/// Review M8, the widened gate: a claim the driver already recorded is kept (no second
+/// claim), a Failed stop anchor is added only when none exists, and two claims are refused.
+#[tokio::test]
+async fn salvage_keeps_a_claim_already_recorded() {
+    let (_dir, h, a) = salvage_fixture();
+    let note = claim(&h, &[]).await.unwrap();
+    let mut claimed = h.clone();
+    salvage_history(&a, &mut claimed, Some(note.clone()), 5).unwrap();
+    let mut driver = claimed.clone();
+    (driver.salvaged, driver.stop) = (None, None);
+    let mut kept = driver.clone();
+    salvage_history(&a, &mut kept, None, 6).unwrap();
+    let bytes = |h: &ResultHistory| h.claim.as_ref().map(|c| c.bytes.clone());
+    assert_eq!(bytes(&kept), bytes(&driver), "the driver's claim is kept");
+    let outcome = kept.stop.as_ref().unwrap().outcome;
+    assert!(matches!(
+        outcome,
+        aq_admission::transport::ProcessOutcome::Failed
+    ));
+    assert_eq!(kept.salvaged, Some(6));
+    let mut live = driver.clone();
+    live.stop = claimed.stop.clone().map(|mut s| {
+        s.outcome = aq_admission::transport::ProcessOutcome::Success;
+        s
+    });
+    salvage_history(&a, &mut live, None, 6).unwrap();
+    let outcome = live.stop.as_ref().unwrap().outcome;
+    assert!(matches!(
+        outcome,
+        aq_admission::transport::ProcessOutcome::Success
+    ));
+    let e = salvage_history(&a, &mut driver, Some(note), 6).unwrap_err();
+    assert!(e.to_string().contains("exactly one claim"), "{e:#}");
+}
+
+#[tokio::test]
+async fn salvage_without_sandbox_is_unsalvageable() {
+    let (dir, mut h, a) = salvage_fixture();
+    let restart = aq_protocol::HandoffReason::Restart;
+    let never = async |_: &SandboxIdentity| -> Result<Vec<u8>> { panic!("no sandbox to archive") };
+    let refused = salvage_claim(&h, restart, &[], 1 << 20, never).await;
+    assert_eq!(refused.unwrap().err(), Some("sandbox_absent"));
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    // Nor can the journal record a salvage without a claim or without a stop proof.
+    assert!(salvage_history(&a, &mut h, None, 5).is_err());
+    let mut no_stop = a.clone();
+    no_stop.native_host.as_mut().unwrap().stopped = None;
+    let note = claim(&h, &[]).await.unwrap();
+    assert!(salvage_history(&no_stop, &mut h, Some(note), 5).is_err());
+}
+
+#[tokio::test]
+async fn salvage_refuses_workspace_holding_agent_credential() {
+    let (dir, h, _) = salvage_fixture();
+    let secret = format!("token=aqa_{}", "x".repeat(40));
+    let refused = claim(
+        &h,
+        &[("kept.txt", b"changed"), ("leak.env", secret.as_bytes())],
+    )
+    .await;
+    assert_eq!(refused.err(), Some("credential_in_workspace"));
+    // Nothing the sandbox produced reaches the workspace.
+    assert_eq!(std::fs::read(dir.path().join("kept.txt")).unwrap(), b"base");
+    assert!(!dir.path().join("leak.env").exists());
+}
+
+#[tokio::test]
+async fn salvage_refuses_workspace_holding_claude_token_shape() {
+    let (dir, h, _) = salvage_fixture();
+    let secret = format!("export T=sk-ant-oat01-{}", "Ab_9-".repeat(8));
+    let refused = claim(&h, &[("notes.sh", secret.as_bytes())]).await;
+    assert_eq!(refused.err(), Some("credential_in_workspace"));
+    assert!(!dir.path().join("notes.sh").exists());
+}
+
+#[test]
+fn salvage_of_unstarted_launch_is_not_started() {
+    assert_eq!(settled(R::LaunchClosed), Some(S::NotStarted));
+    let mut a = terminal_attempt(false, false);
+    let h = a.native_host.as_mut().unwrap();
+    (h.running, h.terminal, h.start_intended) = (None, None, false);
+    assert!(unstarted(&a), "reconcile_native closes it: NotStarted");
+    let (_dir, c) = super::super::tests::config();
+    let worker = worker(DOWN, Uuid::new_v4());
+    fn send<T: Send>(_: T) {}
+    send(salvage_interrupted(&worker, &c, Uuid::new_v4())); // the service runs it on its tasks
 }

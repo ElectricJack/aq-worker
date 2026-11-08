@@ -1,0 +1,30 @@
+[package]
+name = "aq-node-service"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+aq-handoff-note = { path = "../aq-handoff-note" }
+aq-protocol.workspace = true
+async-trait = "0.1"
+chrono.workspace = true
+libc.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+url = "2"
+uuid.workspace = true
+zeroize = "1"
+
+[dev-dependencies]
+aq-machine-load = { path = "../aq-machine-load" }
+axum.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

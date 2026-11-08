@@ -1,6 +1,6 @@
 //! Pure finite-fixture data adapter. No network, execution, config or live owner.
 use anyhow::{Result, ensure};
-use aq_worker::finite_responses_fixture as shared;
+use aq_finite_responses as shared;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{Read, Write};

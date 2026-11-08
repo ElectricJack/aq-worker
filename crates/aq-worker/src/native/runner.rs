@@ -5,7 +5,8 @@ mod codex;
 mod config;
 pub mod sandbox;
 pub use claude_docker::{
-    ClaudeDockerExecutor, ClaudeDockerSettings, InstalledExecutor, release_preserved_sandbox,
+    ClaudeDockerExecutor, ClaudeDockerSettings, InstalledExecutor, destroy_claimed_sandboxes,
+    release_claimed_sandboxes, release_preserved_sandbox,
 };
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) use codex::drive_running;
@@ -18,7 +19,10 @@ mod prepare;
 pub(crate) use prepare::collect as test_collect;
 mod profile;
 mod recovery;
-pub use recovery::{ReconcileDisposition, reconcile_native};
+pub use recovery::{
+    ReconcileDisposition, SalvageDisposition, claimed_attempts, reconcile_native,
+    retained_attempts, salvage_interrupted,
+};
 pub(super) mod publish_output;
 use super::{
     http::NativeClient,
@@ -80,6 +84,44 @@ pub enum RunDisposition {
     ShutdownBeforeAdmission,
     NoOffer,
     AttemptStopped,
+    PollingPaused,
+}
+/// Delay between polls of `run_until_attempt` while no offer is available.
+pub const IDLE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+pub enum PollLoop<T> {
+    Offer(T),
+    Paused,
+    Shutdown,
+}
+/// Calls `poll` until it yields `Some`, sleeping `interval` between calls. `pause` and
+/// `shutdown` are checked before every call and during the sleep; an `Err` ends the loop.
+pub async fn poll_until_offer<T, F, Fut>(
+    mut poll: F,
+    interval: std::time::Duration,
+    shutdown: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<bool>,
+) -> Result<PollLoop<T>>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<Option<T>>>,
+{
+    loop {
+        if *pause.borrow() {
+            return Ok(PollLoop::Paused);
+        }
+        if *shutdown.borrow() {
+            return Ok(PollLoop::Shutdown);
+        }
+        if let Some(offer) = poll().await? {
+            return Ok(PollLoop::Offer(offer));
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            changed = shutdown.changed() => if changed.is_err() { return Ok(PollLoop::Shutdown) },
+            // A dropped pause sender never pauses; the sleep still ends the wait.
+            _ = async { if pause.changed().await.is_err() { std::future::pending::<()>().await } } => {}
+        }
+    }
 }
 
 pub async fn run_once<E: NativeExecutor>(
@@ -87,6 +129,26 @@ pub async fn run_once<E: NativeExecutor>(
     config: NativeConfig,
     executor: &mut E,
     shutdown: watch::Receiver<bool>,
+) -> Result<RunDisposition> {
+    run_admitted(worker, config, executor, shutdown, None).await
+}
+/// Same admission path as `run_once`, but after one Register it republishes the inventory and
+/// polls (limit 1) until an offer, `pause` (`PollingPaused`) or `shutdown`.
+pub async fn run_until_attempt<E: NativeExecutor>(
+    worker: &WorkerConfig,
+    config: NativeConfig,
+    executor: &mut E,
+    shutdown: watch::Receiver<bool>,
+    pause: watch::Receiver<bool>,
+) -> Result<RunDisposition> {
+    run_admitted(worker, config, executor, shutdown, Some(pause)).await
+}
+async fn run_admitted<E: NativeExecutor>(
+    worker: &WorkerConfig,
+    config: NativeConfig,
+    executor: &mut E,
+    shutdown: watch::Receiver<bool>,
+    pause: Option<watch::Receiver<bool>>,
 ) -> Result<RunDisposition> {
     config.validate()?;
     // No network or state-directory publication precedes this implementation gate.
@@ -135,39 +197,66 @@ pub async fn run_once<E: NativeExecutor>(
     let producer = pipeline
         .scoped_presence(profile, config.harness_qualifications.clone(), 0)
         .await?;
-    let inventory = producer.begin_inventory(config.inventory_ttl_ms)?;
-    let acknowledged = producer.publish_inventory(&inventory).await?;
-    pipeline.record_inventory_sequence(inventory.request().sequence);
-    ensure!(
-        super::http::boot_ns()? < acknowledged.deadline_ns(),
-        "native inventory expired before poll"
-    );
-    if *shutdown.borrow() {
-        return Ok(RunDisposition::ShutdownBeforeAdmission);
-    }
-    let available = pipeline.available().await?;
-    let mut page = client
-        .poll(&Poll {
-            schema_version: 1,
-            operation_id: Uuid::new_v4(),
-            identity,
-            inventory_sequence: inventory.request().sequence,
-            available: Resources {
-                slots: available.slots,
-                memory_bytes: available.memory_bytes,
-                cpu_millis: available.cpu_millis,
-                disk_bytes: available.disk_bytes,
-            },
-            limit: 1,
-            after_offer: None,
-        })
-        .await?;
-    ensure!(
-        page.page.offers.len() <= 1 && page.page.offers.len() == page.offer_deadlines_ns.len(),
-        "native poll cardinality"
-    );
-    let Some(offer) = page.page.offers.pop() else {
-        return Ok(RunDisposition::NoOffer);
+    let mut poll_shutdown = shutdown.clone();
+    let poll_once = || async {
+        heartbeat.check()?;
+        let inventory = producer.begin_inventory(config.inventory_ttl_ms)?;
+        let acknowledged = producer.publish_inventory(&inventory).await?;
+        pipeline.record_inventory_sequence(inventory.request().sequence);
+        ensure!(
+            super::http::boot_ns()? < acknowledged.deadline_ns(),
+            "native inventory expired before poll"
+        );
+        if *shutdown.borrow() {
+            return Ok(None);
+        }
+        let available = pipeline.available().await?;
+        let mut page = client
+            .poll(&Poll {
+                schema_version: 1,
+                operation_id: Uuid::new_v4(),
+                identity: identity.clone(),
+                inventory_sequence: inventory.request().sequence,
+                available: Resources {
+                    slots: available.slots,
+                    memory_bytes: available.memory_bytes,
+                    cpu_millis: available.cpu_millis,
+                    disk_bytes: available.disk_bytes,
+                },
+                limit: 1,
+                after_offer: None,
+            })
+            .await?;
+        ensure!(
+            page.page.offers.len() <= 1 && page.page.offers.len() == page.offer_deadlines_ns.len(),
+            "native poll cardinality"
+        );
+        Ok(page
+            .page
+            .offers
+            .pop()
+            .map(|offer| (offer, page.offer_deadlines_ns[0])))
+    };
+    let (offer, offer_deadline) = match pause {
+        None => match poll_once().await? {
+            Some(found) => found,
+            None if *poll_shutdown.borrow() => return Ok(RunDisposition::ShutdownBeforeAdmission),
+            None => return Ok(RunDisposition::NoOffer),
+        },
+        Some(mut pause) => {
+            match poll_until_offer(
+                poll_once,
+                IDLE_POLL_INTERVAL,
+                &mut poll_shutdown,
+                &mut pause,
+            )
+            .await?
+            {
+                PollLoop::Offer(found) => found,
+                PollLoop::Paused => return Ok(RunDisposition::PollingPaused),
+                PollLoop::Shutdown => return Ok(RunDisposition::ShutdownBeforeAdmission),
+            }
+        }
     };
     check_root(&config, &held)?;
     if *shutdown.borrow() {
@@ -182,7 +271,7 @@ pub async fn run_once<E: NativeExecutor>(
                 .context("native reservation overflow")?,
         )
         .context("native reservation overflow")?;
-    let deadline = maximum.min(page.offer_deadlines_ns[0]);
+    let deadline = maximum.min(offer_deadline);
     let id = pipeline
         .reserve(offer.clone(), config.runtime.clone(), deadline, disk)
         .await?;

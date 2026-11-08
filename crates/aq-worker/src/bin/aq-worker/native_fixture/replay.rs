@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn frozen_report_guard_rejects_changed_bytes_digest_and_typed_stop() {
         let fixture: serde_json::Value = serde_json::from_slice(include_bytes!(
-            "../../../../vendor/aq-admission-0.1.10/artifacts/result-record.fixture.json"
+            "../../../../../../vendor/aq-admission-0.1.10/artifacts/result-record.fixture.json"
         ))
         .unwrap();
         let request: aq_admission::transport::ResultReport =

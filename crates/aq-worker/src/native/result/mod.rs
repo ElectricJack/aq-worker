@@ -15,11 +15,16 @@ pub mod history;
 mod pins;
 mod report;
 mod roots;
+mod salvage;
 mod source;
 mod stopped;
 mod storage;
 use history::*;
 pub use pins::ResultInstallationPins;
+use salvage::{Live, ResultJournal, StoppedOwner};
+pub use salvage::{SalvageRoots, finish_salvage, salvage_roots};
+use source::snapshot;
+pub(crate) use source::transfer_bound;
 pub use stopped::{DurableStoppedResult, ResultStopCause};
 use storage::ChannelStorage;
 #[derive(Default)]
@@ -42,7 +47,7 @@ struct Custody {
     pipeline: Weak<InputPipeline>,
     scope: LaunchExecutionScope,
     storage: ChannelStorage,
-    roots: roots::SourceRoots,
+    roots: Arc<roots::SourceRoots>,
     binding: wire::Binding,
     pins: ResultInstallationPins,
     presence: wire::Presence,
@@ -303,6 +308,7 @@ impl InputPipeline {
                     report: None,
                     receipt: None,
                     failure: None,
+                    salvaged: None,
                 };
                 owner.journal.begin_result(id, history)?;
                 Ok((binding, presence, definition, workspace, roots))
@@ -334,7 +340,7 @@ impl InputPipeline {
             pipeline: Arc::downgrade(self),
             scope,
             storage,
-            roots,
+            roots: Arc::new(roots),
             binding,
             pins,
             presence,
@@ -482,7 +488,7 @@ impl InputPipeline {
     }
 }
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 fn counted_startup(offer: &aq_admission::startup::NativeOffer) -> bool {
     let startup = wire::startup_artifact();

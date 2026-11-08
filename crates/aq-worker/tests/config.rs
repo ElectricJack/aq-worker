@@ -59,3 +59,25 @@ fn debug_redacts_secrets() {
     assert!(!s.contains("aqn_secret"));
     assert!(!s.contains("cfsecret"));
 }
+
+#[test]
+fn node_service_enrollment_file_is_a_worker_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("slots/1/worker.toml");
+    let id = Uuid::new_v4();
+    aq_node_service::EnrollmentFile {
+        server_url: "https://worker.example.com".into(),
+        node_id: id,
+        credential: "aqn_secret".into(),
+        cf_client_id: Some("id".into()),
+        cf_client_secret: None,
+    }
+    .save(&path)
+    .unwrap();
+    let back = WorkerConfig::load(&path).unwrap();
+    assert_eq!(
+        (back.node_id, back.server_url.as_str()),
+        (id, "https://worker.example.com")
+    );
+    assert_eq!(back.cf_client_id.as_deref(), Some("id"));
+}

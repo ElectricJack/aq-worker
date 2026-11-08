@@ -1,8 +1,15 @@
+/// The scripted Docker API double, for the measurement tests.
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../../../tests/support/docker_double.rs"]
+mod docker_double;
 #[cfg(feature = "test-support")]
 mod fixture_responses_cli;
+mod measure;
 mod native_diagnostics;
 #[cfg(feature = "test-support")]
 mod native_fixture;
+mod service;
 use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -48,9 +55,21 @@ enum Cmd {
     },
     /// Own node identity, capacity and sandbox lifecycle until stopped.
     Run {
-        /// Operator JSON configuration; B2 transport must be installed for admission.
+        /// Legacy B5b controller configuration (admission stays fenced).
+        #[arg(
+            long,
+            conflicts_with = "service_config",
+            required_unless_present = "service_config"
+        )]
+        controller_config: Option<PathBuf>,
+        /// Spec 0007 service: multi-slot docker-local work from service.toml.
         #[arg(long)]
-        controller_config: PathBuf,
+        service_config: Option<PathBuf>,
+    },
+    /// Install, enroll and inspect the worker service (spec 0007 phase 1).
+    Service {
+        #[command(subcommand)]
+        command: service::ServiceCmd,
     },
     /// Claim and run server check attempts (aq.check.sandbox/v1) on the
     /// Docker-local sandbox, reporting exactly one stop each.
@@ -228,8 +247,8 @@ struct Secrets {
     runner: Option<RunnerAccess>,
 }
 
-fn read_secrets(cf: bool, runner: bool) -> anyhow::Result<Secrets> {
-    let next: Reader = if std::io::stdin().is_terminal() {
+fn secret_reader() -> Reader {
+    if std::io::stdin().is_terminal() {
         Box::new(|prompt| Ok(rpassword::prompt_password(prompt)?))
     } else {
         let mut lines = std::io::stdin().lock().lines();
@@ -237,8 +256,25 @@ fn read_secrets(cf: bool, runner: bool) -> anyhow::Result<Secrets> {
             Some(l) => Ok(l?),
             None => anyhow::bail!("stdin ended before the {what}"),
         })
-    };
-    read_secrets_from(next, cf, runner)
+    }
+}
+
+fn read_secrets(cf: bool, runner: bool) -> anyhow::Result<Secrets> {
+    read_secrets_from(secret_reader(), cf, runner)
+}
+
+/// Only the node's Access client id and secret (a resumed enrollment needs no code).
+fn read_access() -> anyhow::Result<(String, String)> {
+    let mut next = secret_reader();
+    let id = next("Cloudflare Access client id: ")?.trim().to_string();
+    let secret = next("Cloudflare Access client secret: ")?
+        .trim()
+        .to_string();
+    anyhow::ensure!(
+        !id.is_empty() && !secret.is_empty(),
+        "Access client id and secret must not be empty"
+    );
+    Ok((id, secret))
 }
 
 fn read_secrets_from(mut next: Reader, cf: bool, runner: bool) -> anyhow::Result<Secrets> {
@@ -789,7 +825,29 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                 }
             }
         }
-        Cmd::Run { controller_config } => {
+        Cmd::Service { command } => match service::dispatch(command).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => usage_err(format!("{e:#}")),
+        },
+        Cmd::Run {
+            service_config: Some(service_config),
+            ..
+        } => match service::run_service(&service_config).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                let (message, code) = run_error(&e);
+                eprintln!("error: {message}");
+                code
+            }
+        },
+        Cmd::Run {
+            controller_config: None,
+            ..
+        } => usage_err("pass --controller-config or --service-config"),
+        Cmd::Run {
+            controller_config: Some(controller_config),
+            ..
+        } => {
             let result: anyhow::Result<()> = async {
                 use aq_worker::controller::{Controller, RunConfig, UnavailableProvider};
                 use aq_worker::backend::{SelectedBackend, boat::{BoatBackend, BoatKey}, docker_local::DockerLocalBackend};
@@ -961,6 +1019,18 @@ fn reconcile_native_requires_an_explicit_preserved_attempt() {
 fn run_requires_explicit_controller_configuration() {
     assert!(Cli::try_parse_from(["aq-worker", "run"]).is_err());
     assert!(Cli::try_parse_from(["aq-worker", "run", "--controller-config", "/node.json"]).is_ok());
+    assert!(Cli::try_parse_from(["aq-worker", "run", "--service-config", "/service.toml"]).is_ok());
+    assert!(
+        Cli::try_parse_from([
+            "aq-worker",
+            "run",
+            "--controller-config",
+            "/node.json",
+            "--service-config",
+            "/service.toml"
+        ])
+        .is_err()
+    );
 }
 
 #[cfg(test)]

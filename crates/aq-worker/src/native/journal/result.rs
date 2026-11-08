@@ -96,6 +96,49 @@ pub(super) fn validate(a: &Attempt, state: &State, ids: &mut BTreeSet<Uuid>) -> 
     }
     Ok(())
 }
+/// Restart salvage (W4): records the claim (unless one is retained), the actual stop anchor
+/// as Failed (unless the live owner recorded one) and the marker that lets the source and
+/// report steps continue. Needs the retained stop proof and an acknowledged Stopped;
+/// refused once a report intent exists. A salvaged history is returned unchanged.
+pub(crate) fn salvage_history(
+    a: &Attempt,
+    h: &mut ResultHistory,
+    claim: Option<aq_agent_result_local::Submission>,
+    revision: u64,
+) -> Result<()> {
+    use crate::native::result::history::{ClaimRecord, StopAnchor};
+    if h.salvaged.is_some() {
+        return Ok(());
+    }
+    ensure!(h.report.is_none(), "salvage after a result report intent");
+    let stopped = a.native_host.as_ref().and_then(|h| h.stopped.clone());
+    let stopped = stopped.context("salvage requires a retained stop proof")?;
+    let (_, receipt) = terminal_stop(a)?;
+    match (&h.claim, claim) {
+        (None, Some(s)) if s.binding == h.scope.binding => {
+            let bytes = aq_agent_result_local::encode(&s)?;
+            let (bytes_digest, submission_digest) = (Digest::of(&bytes), s.digest()?);
+            h.claim = Some(ClaimRecord {
+                bytes,
+                bytes_digest,
+                submission_digest,
+                recorded_revision: revision,
+            });
+        }
+        (Some(_), None) => {}
+        _ => anyhow::bail!("salvage needs exactly one claim of this scope"),
+    }
+    h.intake_closed = true;
+    h.stop.get_or_insert(StopAnchor {
+        proof_digest: stopped.proof_digest,
+        native_stopped_revision: stopped.recorded_revision,
+        recorded_revision: revision,
+        stopped_receipt: receipt,
+        outcome: aq_admission::transport::ProcessOutcome::Failed,
+    });
+    h.salvaged = Some(revision);
+    h.validate()
+}
 pub(crate) fn terminal_stop(
     a: &Attempt,
 ) -> Result<(aq_admission::transport::WorkerStopEvidence, ArtifactRef)> {
@@ -160,7 +203,13 @@ impl Journal {
         expected: &Digest,
         update: impl FnOnce(&mut ResultHistory, u64) -> Result<()>,
     ) -> Result<ResultHistory> {
-        self.live()?;
+        // After a restart only a salvaged history (salvage_result) may continue.
+        let salvaged = self.state.attempts.get(&id).and_then(|a| a.result.as_ref());
+        if salvaged.is_some_and(|h| h.salvaged.is_some()) && self.recovery_required() {
+            self.storage.check_owner()?;
+        } else {
+            self.live()?;
+        }
         let old = self
             .state
             .attempts
@@ -181,6 +230,28 @@ impl Journal {
     }
 }
 impl Journal {
+    /// Restart salvage (W4) for a restarted owner only; see `salvage_history`.
+    pub(crate) fn salvage_result(
+        &mut self,
+        id: Uuid,
+        claim: Option<aq_agent_result_local::Submission>,
+    ) -> Result<ResultHistory> {
+        self.storage.check_owner()?;
+        ensure!(
+            !self.poisoned && self.recovery_required(),
+            "salvage is for a restarted owner only"
+        );
+        let mut next = self.next()?;
+        let a = next
+            .attempts
+            .get_mut(&id)
+            .context("salvage attempt absent")?;
+        let mut h = a.result.take().context("salvage result scope absent")?;
+        salvage_history(a, &mut h, claim, self.state.revision)?;
+        a.result = Some(h.clone());
+        self.persist(next)?;
+        Ok(h)
+    }
     /// Safety/history-only reconciliation: does not refresh clocks, inputs,
     /// intake, execution or source custody after this invocation is gone.
     pub(crate) fn retain_result_receipt(

@@ -51,7 +51,17 @@ pub const MIN_CREDENTIAL_TAIL: usize = 32;
 /// at least [`MIN_CREDENTIAL_TAIL`] base64url characters. The guard needs no
 /// copy of the credential, so it also runs where the credential never is.
 pub fn holds_agent_credential(bytes: &[u8]) -> bool {
-    let prefix = CREDENTIAL_PREFIX.as_bytes();
+    holds_token_shape(bytes, CREDENTIAL_PREFIX, MIN_CREDENTIAL_TAIL)
+}
+
+/// True when `bytes` hold the Claude subscription token shape `sk-ant-[A-Za-z0-9_-]{20,}`.
+/// Salvage after a restart no longer has the leased token, so it checks the shape.
+pub fn holds_claude_token_shape(bytes: &[u8]) -> bool {
+    holds_token_shape(bytes, "sk-ant-", 20)
+}
+
+fn holds_token_shape(bytes: &[u8], prefix: &str, min_tail: usize) -> bool {
+    let prefix = prefix.as_bytes();
     let token = |b: &u8| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_';
     bytes.windows(prefix.len()).enumerate().any(|(at, w)| {
         w == prefix
@@ -59,7 +69,7 @@ pub fn holds_agent_credential(bytes: &[u8]) -> bool {
                 .iter()
                 .take_while(|b| token(b))
                 .count()
-                >= MIN_CREDENTIAL_TAIL
+                >= min_tail
     })
 }
 

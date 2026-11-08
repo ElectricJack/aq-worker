@@ -35,19 +35,24 @@ pub struct ClaudeDockerExecutor {
 }
 impl ClaudeDockerExecutor {
     pub fn configured(worker: &WorkerConfig) -> Result<Self> {
-        ensure!(
-            worker.cf_client_id.is_none() && worker.cf_client_secret.is_none(),
-            "local Claude docker-local node does not use proxy credentials"
-        );
+        let access = match (&worker.cf_client_id, &worker.cf_client_secret) {
+            (Some(id), Some(secret)) => Some((id, secret)),
+            (None, None) => None,
+            _ => anyhow::bail!("Access client id and secret must both be set"),
+        };
         let credential = NodeCredential::new(worker.credential.clone())?;
         let local = reqwest::Url::parse(&worker.server_url).is_ok_and(|u| u.scheme() == "http");
+        let mut relay = if local {
+            RelayHttp::trusted_local_node(&worker.server_url, &credential)?
+        } else {
+            RelayHttp::new(&worker.server_url, &credential)?
+        };
+        if let Some((id, secret)) = access {
+            relay = relay.with_access(id, secret)?;
+        }
         Ok(Self {
             node_id: worker.node_id,
-            relay: if local {
-                RelayHttp::trusted_local_node(&worker.server_url, &credential)?
-            } else {
-                RelayHttp::new(&worker.server_url, &credential)?
-            },
+            relay,
             transfer: crate::transfer_client::TransferClient::from_config(worker, 1)?,
             profile: None,
             pins: None,
@@ -155,7 +160,7 @@ impl NativeExecutor for ClaudeDockerExecutor {
             // stop is confirmed BEFORE the host stop; else Stopped is withheld.
             let driver_dir = host.claude_driver_dir();
             let docker_local = profile.config().docker_local.clone();
-            let node = self.node_id;
+            let (docker, node) = (docker_local.clone(), self.node_id);
             let pre_stop: super::codex::PreStop = Box::new(move || {
                 Box::pin(async move { stop_attempt_sandbox(&docker_local, node, id).await })
             });
@@ -171,8 +176,31 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 Some(pre_stop),
             )
             .await;
-            if let Some(dir) = driver_dir {
-                crate::native::launch::wipe_claude_driver_secrets(&dir);
+            if let Some(dir) = &driver_dir {
+                crate::native::launch::wipe_claude_driver_secrets(dir);
+            }
+            // Retained and reported, so claimed: the stopped sandbox goes unless the driver
+            // preserved it (work never copied back). One retry; a service slot's settle
+            // (release_claimed_sandboxes) or the operator releases what is left.
+            let host_root = driver_dir.as_deref().and_then(std::path::Path::parent);
+            if let (Ok(()), Some(root)) = (&driven, host_root) {
+                for round in 1..=2 {
+                    let released = async {
+                        let mut backend =
+                            crate::backend::docker_local::DockerLocalBackend::connect_unix(
+                                docker.clone(),
+                            )
+                            .await?;
+                        destroy_claimed_sandboxes(&mut backend, root, node, &[id]).await
+                    };
+                    match released.await {
+                        Ok(_) => break,
+                        Err(e) => {
+                            tracing::warn!(attempt_id = %id, round, "claimed sandbox kept: {e:#}")
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(round)).await;
+                }
             }
             driven
         })
@@ -218,6 +246,55 @@ pub(crate) async fn stop_owned_sandboxes<B: crate::backend::PlacementBackend>(
         );
     }
     Ok(())
+}
+
+/// Destroys the stopped sandboxes of `attempts`, whose result claims are recorded (the work
+/// is in the worktree). Running or unknown sandboxes, and those a driver under `host_root`
+/// preserved (`aq_handoff_note::preserved`), are left alone. Returns how many went.
+pub async fn destroy_claimed_sandboxes<B: crate::backend::PlacementBackend>(
+    backend: &mut B,
+    host_root: &std::path::Path,
+    node: uuid::Uuid,
+    attempts: &[uuid::Uuid],
+) -> Result<usize> {
+    use crate::backend::{Confirmation, DestroyAuthorization, SandboxState};
+    let mut destroyed = 0;
+    for entry in backend.list_owned(node).await? {
+        let id = entry.sandbox.owner.attempt_id;
+        if !attempts.contains(&id)
+            || entry.state != SandboxState::Stopped
+            || aq_handoff_note::preserved(host_root, &id.to_string())
+        {
+            continue;
+        }
+        let evidence = format!("node-worktree:{id}");
+        let authorization = DestroyAuthorization::retained(entry.sandbox.clone(), evidence)?;
+        match backend.destroy(&entry.sandbox, &authorization).await {
+            Confirmation::Confirmed(_) => destroyed += 1,
+            other => anyhow::bail!(
+                "destroy of {} not confirmed: {other:?}",
+                entry.sandbox.backend_id
+            ),
+        }
+    }
+    Ok(destroyed)
+}
+/// The service's safety net: destroys the leftover stopped sandboxes of this state dir's
+/// claimed attempts. Takes the state-dir lock (`claimed_attempts`).
+pub async fn release_claimed_sandboxes(config: &NativeConfig, node: uuid::Uuid) -> Result<usize> {
+    let claimed = super::claimed_attempts(config, node)?;
+    let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+        &config.executor
+    else {
+        return Ok(0);
+    };
+    if claimed.is_empty() {
+        return Ok(0);
+    }
+    let docker = settings.host.docker_local.clone();
+    let mut backend =
+        crate::backend::docker_local::DockerLocalBackend::connect_unix(docker).await?;
+    destroy_claimed_sandboxes(&mut backend, &settings.host.root, node, &claimed).await
 }
 
 /// Operator release of a preserved (stopped, never running) docker-local
@@ -386,5 +463,28 @@ mod sandbox_stop_tests {
             backend.inspect(&theirs).await.unwrap().state,
             SandboxState::Running
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn worker(id: Option<&str>, secret: Option<&str>) -> WorkerConfig {
+        WorkerConfig {
+            server_url: "https://aq.example.com".into(),
+            node_id: uuid::Uuid::from_u128(1),
+            credential: "node-credential".into(),
+            cf_client_id: id.map(Into::into),
+            cf_client_secret: secret.map(Into::into),
+        }
+    }
+    #[test]
+    fn claude_executor_accepts_access_enrollment_and_refuses_half() {
+        assert!(ClaudeDockerExecutor::configured(&worker(Some("id"), Some("s3cret"))).is_ok());
+        assert!(ClaudeDockerExecutor::configured(&worker(None, None)).is_ok());
+        for half in [worker(Some("id"), None), worker(None, Some("s"))] {
+            let e = ClaudeDockerExecutor::configured(&half).err().unwrap();
+            assert!(e.to_string().contains("must both be set"), "{e:#}");
+        }
     }
 }

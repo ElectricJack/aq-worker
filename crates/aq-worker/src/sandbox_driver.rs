@@ -11,8 +11,9 @@
 //!    reads it into `CLAUDE_CODE_OAUTH_TOKEN` for the `claude` process only and
 //!    deletes the file before Claude starts;
 //! 4. stream the runner log to the pane and wait for the runner;
-//! 5. copy `/aq/work` back into the worktree, then stop and destroy;
-//! 6. submit the AQ result claim through the attempt's local result channel.
+//! 5. copy `/aq/work` back into the worktree, then stop the sandbox;
+//! 6. submit the AQ result claim through the attempt's local result channel; the node then
+//!    destroys the stopped sandbox. A copy-back that fails part way claims nothing.
 //!
 //! The token never appears in argv, the container create body, labels, logs
 //! or the pane. The driver itself never talks to aq-server: with
@@ -23,10 +24,16 @@
 use crate::backend::docker_local::tar::{TreeEntry, read_tree, tree_archive};
 use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig};
 use crate::backend::{
-    Confirmation, CreateRequest, DestroyAuthorization, Ownership, PlacementBackend,
-    PrivateMaterial, ResourceLimits, RunnerExit, SandboxIdentity, TemplateDigest,
+    CreateRequest, Ownership, PlacementBackend, PrivateMaterial, ResourceLimits, RunnerExit,
+    SandboxIdentity, TemplateDigest,
 };
 use anyhow::{Context, Result, bail, ensure};
+use aq_handoff_note::print_logs;
+pub use aq_handoff_note::{
+    CopyBackIncomplete, HANDOFF_MARKER, HandoffMarker, PRESERVED_MARKER, conclusion, fold_claim,
+    handoff_note, holds_secret, holds_token, parse_token, proven_success, read_handoff_marker,
+};
+use aq_handoff_note::{preserved_claim, read_private, write_exit};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -96,43 +103,6 @@ pub struct DriverConfig {
     pub agent_channel: bool,
 }
 
-/// Token file contents to the token: one line, trailing CR/LF trimmed,
-/// ASCII-graphic only (C6b install rule).
-pub fn parse_token(bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-    let mut end = bytes.len();
-    while end > 0 && matches!(bytes[end - 1], b'\n' | b'\r') {
-        end -= 1;
-    }
-    let token = Zeroizing::new(bytes[..end].to_vec());
-    ensure!(
-        (16..=4096).contains(&token.len()) && token.iter().all(u8::is_ascii_graphic),
-        "Claude login token shape refused"
-    );
-    Ok(token)
-}
-
-fn read_private(path: &Path, max: u64) -> Result<Zeroizing<Vec<u8>>> {
-    use std::io::Read;
-    use std::os::unix::fs::MetadataExt;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
-        .context("private input unavailable")?;
-    let meta = file.metadata()?;
-    ensure!(
-        meta.is_file()
-            && meta.mode() & 0o077 == 0
-            && meta.uid() == unsafe { libc::geteuid() }
-            && meta.len() <= max,
-        "private input owner/mode/bound"
-    );
-    let mut bytes = Zeroizing::new(Vec::new());
-    file.take(max + 1).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() as u64 <= max, "private input grew");
-    Ok(bytes)
-}
-
 fn relative(path: &Path, root: &Path) -> Result<String> {
     let rel = path.strip_prefix(root)?;
     let text = rel.to_str().context("workspace path UTF-8")?;
@@ -191,7 +161,6 @@ pub fn collect_tree(root: &Path, max_bytes: u64) -> Result<Vec<TreeEntry>> {
 /// Make `root` (except `.git`) hold exactly `entries`. Writes never follow an
 /// existing symlink; removed paths are deleted. Returns the changed paths.
 pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
-    let mut changed = Vec::new();
     let mut wanted = BTreeSet::new();
     let git = |p: &str| p == ".git" || p.starts_with(".git/");
     for entry in entries {
@@ -235,6 +204,15 @@ pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
             parent = p.parent();
         }
     }
+    // From here the worktree changes: a failure leaves part of the tree behind.
+    apply_tree(root, entries, &wanted).context(CopyBackIncomplete)
+}
+fn apply_tree(
+    root: &Path,
+    entries: &[TreeEntry],
+    wanted: &BTreeSet<String>,
+) -> Result<Vec<String>> {
+    let (mut changed, git) = (Vec::new(), |p: &str| p == ".git" || p.starts_with(".git/"));
     // Remove what the sandbox no longer has (deepest first).
     let current = collect_tree(root, u64::MAX)?;
     let mut stale: Vec<_> = current
@@ -351,143 +329,6 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     ])
 }
 
-/// The last stream-json `result` event Claude printed, if any.
-fn last_result(stream: &[u8]) -> Option<serde_json::Value> {
-    stream
-        .split(|b| *b == b'\n')
-        .rev()
-        .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
-        .find(|v| v["type"] == "result")
-}
-
-/// MS1 review B1: a Claude exit 0 alone never proves the work was done
-/// (Claude can end its turn with a question, a refusal or "couldn't find X").
-/// The driver records success only when all of these hold; otherwise the
-/// executor reports Failed and D3 sends the task to rework.
-///
-/// - the runner exited 0 (backend-observed);
-/// - the last stream-json `result` event has `subtype == "success"` and
-///   `is_error == false` (auth failures, max-turns, budget and errors set
-///   `is_error`);
-/// - the agent's final text contains its own `Changes:` line;
-/// - the copied-back change set is non-empty.
-pub fn proven_success(
-    stream: &[u8],
-    rc: Option<i32>,
-    changed: &[String],
-) -> std::result::Result<(), &'static str> {
-    if rc != Some(0) {
-        return Err("runner exit not 0");
-    }
-    let result = last_result(stream).ok_or("no final result event")?;
-    if result["subtype"] != "success" || result["is_error"] != false {
-        return Err("final result is not a success");
-    }
-    let text = result["result"].as_str().ok_or("no final message")?;
-    if !text
-        .lines()
-        .any(|line| line.trim_start().starts_with("Changes:"))
-    {
-        return Err("final message has no Changes: line");
-    }
-    if changed.is_empty() {
-        return Err("no workspace change was copied back");
-    }
-    Ok(())
-}
-
-/// One-line, bounded conclusion from Claude's stream-json `result` event.
-pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String]) -> String {
-    let mut text = None;
-    for line in stream.split(|b| *b == b'\n') {
-        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(line)
-            && v["type"] == "result"
-        {
-            text = v["result"].as_str().map(str::to_owned);
-        }
-    }
-    let text = text.unwrap_or_else(|| "no final message".into());
-    let summary = text
-        .lines()
-        .rev()
-        .find(|l| l.trim_start().starts_with("Changes:"))
-        .map(|l| l.trim_start().trim_start_matches("Changes:").to_string())
-        .unwrap_or(text.clone());
-    let summary = summary.split_whitespace().collect::<Vec<_>>().join(" ");
-    let files = if changed.is_empty() {
-        "none".to_string()
-    } else {
-        changed.join(",")
-    };
-    let rc = rc.map_or("unknown".to_string(), |c| c.to_string());
-    let mut line = format!("Changes: {files}; Claude exit {rc}; Summary: {summary}");
-    if line.len() > 500 {
-        let mut cut = 497;
-        while !line.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        line.truncate(cut);
-        line.push_str("...");
-    }
-    line
-}
-
-/// Human-readable pane line for one stream-json event (never tool inputs).
-fn pane_line(line: &[u8]) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_slice(line).ok()?;
-    match v["type"].as_str()? {
-        "assistant" => {
-            let parts: Vec<String> = v["message"]["content"]
-                .as_array()?
-                .iter()
-                .filter_map(|c| match c["type"].as_str()? {
-                    "text" => Some(format!("claude: {}", c["text"].as_str()?)),
-                    "tool_use" => Some(format!("claude tool: {}", c["name"].as_str()?)),
-                    _ => None,
-                })
-                .collect();
-            (!parts.is_empty()).then(|| parts.join("\n"))
-        }
-        "result" => Some(format!(
-            "claude result: {} turns={} cost_usd={}",
-            v["subtype"].as_str().unwrap_or("?"),
-            v["num_turns"],
-            v["total_cost_usd"]
-        )),
-        "system" => Some(format!(
-            "claude session {} model {}",
-            v["session_id"].as_str().unwrap_or("?"),
-            v["model"].as_str().unwrap_or("?")
-        )),
-        _ => None,
-    }
-}
-
-/// Prints complete runner lines to the pane. A line holding the token is
-/// never printed (a note is); returns whether that happened.
-fn print_logs(bytes: &[u8], partial: &mut Vec<u8>, token: &[u8]) -> bool {
-    let mut leaked = false;
-    partial.extend_from_slice(bytes);
-    while let Some(pos) = partial.iter().position(|b| *b == b'\n') {
-        let line: Vec<u8> = partial.drain(..=pos).collect();
-        let line = &line[..line.len() - 1];
-        if holds_secret(line, token) {
-            leaked = true;
-            println!("aq-sandbox-harness: [a runner output line was withheld: it held a secret]");
-            continue;
-        }
-        if line.starts_with(b"{") {
-            if let Some(text) = pane_line(line) {
-                println!("{text}");
-            }
-        } else {
-            println!("{}", String::from_utf8_lossy(line));
-        }
-    }
-    let _ = std::io::stdout().flush();
-    leaked
-}
-
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -556,9 +397,16 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         &token,
         &mut term,
         &mut hup,
+        &config_path.with_file_name(HANDOFF_MARKER),
     )
     .await;
-    let (rc, changed, stream, leak) = match outcome {
+    let Drove {
+        rc,
+        changed,
+        stream,
+        leak,
+        handoff,
+    } = match outcome {
         Ok(v) => v,
         Err(error) => {
             // Keep the disk: stop and preserve, never destroy unretained work.
@@ -569,18 +417,20 @@ pub async fn run(config_path: &Path) -> Result<i32> {
                 stopped.is_confirmed()
             );
             write_exit(config_path, false);
-            // Always claim: a recorded (failed) result lets settlement send the
-            // task to rework and a replacement attempt run, instead of leaving
-            // a stopped attempt with no report holding the task.
-            submit_claim(
-                &config,
-                format!(
-                    "Changes: unknown; Runner failure: {error:#}; sandbox {} preserved",
-                    sandbox.backend_id
-                ),
-            );
+            // The marker precedes the claim: the node never destroys a preserved sandbox.
+            let Some(claim) = preserved_claim(&error, &sandbox.backend_id, config_path) else {
+                println!(
+                    "aq-sandbox-harness: no claim (incomplete copy-back or no preserved marker); salvage copies the preserved sandbox again"
+                );
+                return Ok(5);
+            };
+            submit_claim(&config, claim);
             return Ok(3);
         }
+    };
+    let note = match (handoff, leak) {
+        (Some(reason), None) => Some(handoff_note(reason, &changed, &stream, &token)),
+        _ => None,
     };
     drop(token);
     // Non-secret transcript beside the driver config (evidence, measurement),
@@ -596,20 +446,11 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             .and_then(|mut f| f.write_all(&stream));
     }
     let stopped = backend.stop(&sandbox).await;
-    let destroyed = if stopped.is_confirmed() {
-        let authorization = DestroyAuthorization::retained(
-            sandbox.clone(),
-            format!("node-worktree:{}", config.owner.attempt_id),
-        )?;
-        matches!(
-            backend.destroy(&sandbox, &authorization).await,
-            Confirmation::Confirmed(_)
-        )
-    } else {
-        false
-    };
+    // The node destroys the stopped sandbox once it sees the claim: the host stop may kill
+    // this driver right after the claim, and an unclaimed attempt keeps its sandbox for salvage.
+    let code = claim_outcome(config_path, &config, note, leak, &stream, rc, &changed);
     println!(
-        "aq-sandbox-harness: sandbox {} stopped={} destroyed={destroyed}; changed: {}",
+        "aq-sandbox-harness: sandbox {} stopped={}; changed: {}",
         sandbox.backend_id,
         stopped.is_confirmed(),
         if changed.is_empty() {
@@ -618,11 +459,30 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             changed.join(", ")
         }
     );
-    // The exit record precedes the claim: the node may stop this pane as soon
-    // as the claim is recorded.
+    Ok(code)
+}
+
+/// Writes the exit record, then the claim (the node may stop this pane as soon as the claim
+/// is recorded), and returns the driver's exit code.
+fn claim_outcome(
+    config_path: &Path,
+    config: &DriverConfig,
+    note: Option<String>,
+    leak: Option<&'static str>,
+    stream: &[u8],
+    rc: Option<i32>,
+    changed: &[String],
+) -> i32 {
+    if let Some(note) = note {
+        // The work is in the node worktree; the executor sees a recorded
+        // failure and the pipeline checkpoints, retains and reports it.
+        write_exit(config_path, false);
+        submit_claim(config, note);
+        return 4;
+    }
     let proven = match leak {
         Some(place) => Err(place),
-        None => proven_success(&stream, rc, &changed),
+        None => proven_success(stream, rc, changed),
     };
     if let Err(reason) = proven {
         println!(
@@ -631,16 +491,16 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     }
     write_exit(config_path, proven.is_ok());
     submit_claim(
-        &config,
+        config,
         match leak {
             // Never forward the agent's own text when the token leaked.
             Some(place) => {
                 format!("Changes: none (copy-back refused); Refused: {place}; the attempt failed")
             }
-            None => conclusion(&stream, rc, &changed),
+            None => conclusion(stream, rc, changed),
         },
     );
-    Ok(if proven.is_ok() { 0 } else { 1 })
+    if proven.is_ok() { 0 } else { 1 }
 }
 
 /// 0006 §5.4: the node's channel socket must exist before the sandbox does.
@@ -654,38 +514,11 @@ pub fn channel_ready(config: &DriverConfig) -> Result<()> {
     Ok(())
 }
 
-/// `exit.json` beside the driver config: success means the runner exited 0
-/// (backend-observed) and the workspace was copied back.
-fn write_exit(config_path: &Path, success: bool) {
-    if let Some(dir) = config_path.parent() {
-        let _ = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(dir.join("exit.json"))
-            .and_then(|mut f| {
-                f.write_all(
-                    serde_json::json!({ "success": success })
-                        .to_string()
-                        .as_bytes(),
-                )
-            });
-    }
-}
-
 fn submit_claim(config: &DriverConfig, text: String) {
     let Some(dir) = &config.result_dir else {
         return;
     };
-    let mut text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if text.len() > 500 {
-        let mut cut = 497;
-        while !text.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        text.truncate(cut);
-        text.push_str("...");
-    }
+    let text = fold_claim(text);
     let result = (|| -> Result<u8> {
         let input = aq_agent_result_local::SubmissionInput {
             schema_version: 1,
@@ -700,20 +533,14 @@ fn submit_claim(config: &DriverConfig, text: String) {
     }
 }
 
-/// Return code, copied-back changes, transcript, and where the token leaked.
-type Drove = (Option<i32>, Vec<String>, Vec<u8>, Option<&'static str>);
-
-/// Whether `haystack` contains the token's exact bytes.
-pub fn holds_token(haystack: &[u8], token: &[u8]) -> bool {
-    !token.is_empty()
-        && haystack.len() >= token.len()
-        && haystack.windows(token.len()).any(|w| w == token)
-}
-
-/// The exact login token, or anything shaped like an AQ agent credential
-/// (`aqa_…`, 0006 §8: no AQ secret exists in the sandbox, so any is a leak).
-pub fn holds_secret(haystack: &[u8], token: &[u8]) -> bool {
-    holds_token(haystack, token) || aq_agent_channel::holds_agent_credential(haystack)
+/// Return code, copied-back changes, transcript, where the token leaked, and
+/// the reason when the service asked for a handoff.
+struct Drove {
+    rc: Option<i32>,
+    changed: Vec<String>,
+    stream: Vec<u8>,
+    leak: Option<&'static str>,
+    handoff: Option<aq_protocol::HandoffReason>,
 }
 
 /// MS1 review S3b: the agent's tools can read the token from the claude
@@ -739,6 +566,7 @@ pub fn token_leak(entries: &[TreeEntry], stream: &[u8], token: &[u8]) -> Option<
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn drive(
     backend: &mut DockerLocalBackend,
     config: &DriverConfig,
@@ -747,6 +575,7 @@ async fn drive(
     token: &Zeroizing<Vec<u8>>,
     term: &mut tokio::signal::unix::Signal,
     hup: &mut tokio::signal::unix::Signal,
+    handoff: &Path,
 ) -> Result<Drove> {
     let workspace = collect_tree(&config.workspace, config.max_workspace_bytes)?;
     backend
@@ -766,6 +595,7 @@ async fn drive(
     let mut since = now_ms() / 1000;
     let mut partial = Vec::new();
     let mut pane_leak = false;
+    let mut handoff_reason = None;
     let exit = loop {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(2)) => {},
@@ -776,6 +606,12 @@ async fn drive(
         if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
             pane_leak |= print_logs(&bytes, &mut partial, token);
             since = poll;
+        }
+        if let Some(reason) = read_handoff_marker(handoff) {
+            handoff_reason = Some(reason);
+            // A stopped container still serves get_archive for the copy-back.
+            let _ = backend.stop(sandbox).await;
+            break RunnerExit::Signalled;
         }
         if let Ok(exit) = backend.runner_exit(sandbox).await {
             if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
@@ -810,10 +646,22 @@ async fn drive(
         .then_some("a secret (login token or AQ credential) appeared in the runner output"));
     if leak.is_some() {
         // Nothing the sandbox produced is copied back.
-        return Ok((rc, Vec::new(), Vec::new(), leak));
+        return Ok(Drove {
+            rc,
+            changed: Vec::new(),
+            stream: Vec::new(),
+            leak,
+            handoff: None,
+        });
     }
     let changed = sync_tree(&config.workspace, &entries)?;
-    Ok((rc, changed, stream, None))
+    Ok(Drove {
+        rc,
+        changed,
+        stream,
+        leak: None,
+        handoff: handoff_reason,
+    })
 }
 
 fn read_tree_file(archive: &[u8]) -> Option<Vec<u8>> {
@@ -851,6 +699,36 @@ mod tests {
         )
         .unwrap();
         assert!(root.path().join("b").is_symlink());
+    }
+
+    /// Review #8: a copy-back that fails after it began writing is marked incomplete and
+    /// claims nothing; a refusal before any write still claims the preserved sandbox.
+    #[test]
+    fn partial_copy_back_is_never_claimed() {
+        let root = tempfile::tempdir().unwrap();
+        let file = |path: &str| TreeEntry::File {
+            path: path.into(),
+            mode: 0o644,
+            data: b"x".to_vec(),
+        };
+        let partial = sync_tree(root.path(), &[file("a.txt"), file("missing/b.txt")]).unwrap_err();
+        assert!(
+            root.path().join("a.txt").exists(),
+            "a.txt was already written"
+        );
+        let config = tempfile::tempdir().unwrap();
+        let config = config.path().join("driver.json");
+        assert_eq!(preserved_claim(&partial, "sb", &config), None);
+        let link = TreeEntry::Symlink {
+            path: "out".into(),
+            target: "/etc".into(),
+        };
+        let refused = sync_tree(root.path(), &[link]).unwrap_err();
+        assert!(
+            preserved_claim(&refused, "sb", &config)
+                .unwrap()
+                .contains("sandbox sb preserved")
+        );
     }
 
     /// MS1 review S3b: copy-back and success are refused when the token's
@@ -966,17 +844,6 @@ mod tests {
     }
 
     #[test]
-    fn token_trims_newlines_and_refuses_bad_shapes() {
-        assert_eq!(
-            &parse_token(b"fixture-login-abcdefghijklmnop\r\n").unwrap()[..],
-            b"fixture-login-abcdefghijklmnop"
-        );
-        assert!(parse_token(b"short\n").is_err());
-        assert!(parse_token(b"fixture-login-abc defghijklmnop\n").is_err());
-        assert!(parse_token(b"fixture-login-abcdefghijklmnop\nsecond\n").is_err());
-    }
-
-    #[test]
     fn runner_keeps_the_token_out_of_argv_and_wipes_material_first() {
         let read = RUNNER.find("token=\"$(cat \"$m\")\"").unwrap();
         let wipe = RUNNER.find("rm -f \"$m\"").unwrap();
@@ -1049,80 +916,5 @@ mod tests {
         assert!(!root.join("gone.txt").exists());
         assert_eq!(std::fs::read(root.join(".git/HEAD")).unwrap(), b"ref");
         assert!(sync_tree(root, &entries).unwrap().is_empty(), "idempotent");
-    }
-
-    #[test]
-    fn success_requires_exit_zero_a_successful_result_a_changes_line_and_changes() {
-        let result = |subtype: &str, is_error: bool, text: &str| {
-            format!(
-                "{{\"type\":\"system\"}}\n{}\n",
-                serde_json::json!({"type":"result","subtype":subtype,"is_error":is_error,"result":text})
-            )
-            .into_bytes()
-        };
-        let done = result(
-            "success",
-            false,
-            "Did it.\nChanges: src/lib.rs; Checks: cargo test; Limits: none",
-        );
-        let files = vec!["src/lib.rs".to_string()];
-        assert_eq!(proven_success(&done, Some(0), &files), Ok(()));
-        // Each refusal case alone keeps the attempt failed.
-        assert_eq!(
-            proven_success(&done, Some(1), &files),
-            Err("runner exit not 0")
-        );
-        assert_eq!(
-            proven_success(&done, None, &files),
-            Err("runner exit not 0")
-        );
-        assert_eq!(
-            proven_success(b"{\"type\":\"assistant\"}\n", Some(0), &files),
-            Err("no final result event")
-        );
-        for (subtype, is_error) in [
-            ("success", true),
-            ("error_max_turns", true),
-            ("error_during_execution", false),
-        ] {
-            assert_eq!(
-                proven_success(&result(subtype, is_error, "Changes: x"), Some(0), &files),
-                Err("final result is not a success"),
-                "{subtype} {is_error}"
-            );
-        }
-        // A clarifying question or refusal ends the turn without a Changes line.
-        let question = result(
-            "success",
-            false,
-            "Which file should I edit? I could not find src/lib.rs.",
-        );
-        assert_eq!(
-            proven_success(&question, Some(0), &files),
-            Err("final message has no Changes: line")
-        );
-        assert_eq!(
-            proven_success(&done, Some(0), &[]),
-            Err("no workspace change was copied back")
-        );
-        // Only the LAST result event counts.
-        let mut later = done.clone();
-        later.extend(result("error_during_execution", true, "Changes: none"));
-        assert_eq!(
-            proven_success(&later, Some(0), &files),
-            Err("final result is not a success")
-        );
-    }
-
-    #[test]
-    fn conclusion_is_one_bounded_line() {
-        let stream = b"{\"type\":\"system\"}\n{\"type\":\"result\",\"result\":\"Added hello.\\nAll good.\"}\n";
-        let line = conclusion(stream, Some(0), &["src/lib.rs".into()]);
-        assert_eq!(
-            line,
-            "Changes: src/lib.rs; Claude exit 0; Summary: Added hello. All good."
-        );
-        let long = format!("{{\"type\":\"result\",\"result\":\"{}\"}}", "é".repeat(400));
-        assert!(conclusion(long.as_bytes(), None, &[]).len() <= 512);
     }
 }

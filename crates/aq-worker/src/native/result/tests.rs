@@ -144,7 +144,7 @@ fn result_ack_is_projection_and_unknown_pending_is_preserved() {
         b"unknown prior write"
     );
 }
-pub(super) fn history() -> ResultHistory {
+pub(crate) fn history() -> ResultHistory {
     use aq_worker_protocol::{ObjectAlgorithm, ObjectId};
     let b = binding();
     let source = aq_worker_protocol::SourceBinding {
@@ -227,6 +227,7 @@ pub(super) fn history() -> ResultHistory {
         report: None,
         receipt: None,
         failure: None,
+        salvaged: None,
     }
 }
 #[test]
