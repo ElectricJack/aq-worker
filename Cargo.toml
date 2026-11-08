@@ -21,7 +21,7 @@ aq-agent-result-local = { path = "crates/aq-agent-result-local", version = "=0.1
 aq-responses-transport = { path = "crates/aq-responses-transport", version = "=0.1.0" }
 aq-session-host = { path = "crates/aq-session-host", version = "=0.1.7" }
 aq-session-protocol = { path = "crates/aq-session-protocol", version = "=0.1.0" }
-aq-protocol = { path = "crates/aq-protocol", version = "=0.1.1" }
+aq-protocol = { path = "crates/aq-protocol", version = "=0.1.2" }
 aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.2.0" }
 anyhow = "1"
 axum = "0.8"

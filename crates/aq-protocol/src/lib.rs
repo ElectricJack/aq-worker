@@ -224,9 +224,106 @@ pub struct MeasurementSubmission {
     pub calls: Vec<MeasuredCall>,
 }
 
+/// How a stopped host's stop is proven when its guardian could not prove it itself (swarm
+/// phase 1, D2 ruling). Absent (or `guardian`) means the guardian's own kernel evidence. The
+/// other kinds carry only the outside facts that prove every process of the lost guardian is
+/// dead; a stopped observation proven by one carries no guardian evidence (no ECHILD flag,
+/// reap count or root status).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "proof_kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum StopProof {
+    /// The guardian's own kernel evidence (the default when absent).
+    Guardian,
+    /// The machine rebooted after the launch: the guardian's boot (`old_boot_id`) is not the
+    /// boot that recorded the proof (`new_boot_id`).
+    BootChanged { old_boot_id: Uuid, new_boot_id: Uuid },
+    /// The service's systemd unit was torn down before this invocation: when invocation
+    /// `invocation_id` of `unit` started, its cgroup held only that invocation's processes,
+    /// and the guardian started before it on the same boot.
+    CgroupTeardown { invocation_id: String, unit: String },
+}
+impl StopProof {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Guardian => "guardian",
+            Self::BootChanged { .. } => "boot_changed",
+            Self::CgroupTeardown { .. } => "cgroup_teardown",
+        }
+    }
+    pub fn is_guardian(&self) -> bool {
+        matches!(self, Self::Guardian)
+    }
+    /// The facts' shape: a reboot names the guardian's boot and a different one; a teardown
+    /// names a systemd invocation id (32 lowercase hex) and a `.service` unit.
+    pub fn validate(&self, guardian_boot_id: &str) -> Result<(), &'static str> {
+        match self {
+            Self::Guardian => Ok(()),
+            Self::BootChanged {
+                old_boot_id,
+                new_boot_id,
+            } => {
+                let named = Uuid::parse_str(guardian_boot_id).ok() == Some(*old_boot_id);
+                (named && old_boot_id != new_boot_id && !new_boot_id.is_nil())
+                    .then_some(())
+                    .ok_or("boot_changed proof must name the guardian's boot and another")
+            }
+            Self::CgroupTeardown {
+                invocation_id,
+                unit,
+            } => {
+                let id = invocation_id.len() == 32
+                    && invocation_id
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+                let unit_ok = unit.len() <= 256
+                    && unit.ends_with(".service")
+                    && unit.len() > ".service".len()
+                    && !unit.contains('/')
+                    && !unit.chars().any(char::is_control);
+                (id && unit_ok)
+                    .then_some(())
+                    .ok_or("cgroup_teardown proof needs a systemd invocation id and unit")
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_proof_kinds_round_trip_and_validate() {
+        let old = Uuid::from_u128(1);
+        let boot = StopProof::BootChanged {
+            old_boot_id: old,
+            new_boot_id: Uuid::from_u128(2),
+        };
+        let json = serde_json::to_value(&boot).unwrap();
+        assert_eq!(json["proof_kind"], "boot_changed");
+        assert_eq!(serde_json::from_value::<StopProof>(json).unwrap(), boot);
+        assert_eq!(boot.validate(&old.to_string()), Ok(()));
+        assert!(boot.validate(&Uuid::from_u128(3).to_string()).is_err());
+        let same = StopProof::BootChanged {
+            old_boot_id: old,
+            new_boot_id: old,
+        };
+        assert!(same.validate(&old.to_string()).is_err());
+        let teardown = StopProof::CgroupTeardown {
+            invocation_id: "0123456789abcdef0123456789abcdef".into(),
+            unit: "aq-node@ms1.service".into(),
+        };
+        assert_eq!(teardown.kind(), "cgroup_teardown");
+        assert_eq!(teardown.validate("any"), Ok(()));
+        let bad = StopProof::CgroupTeardown {
+            invocation_id: "x".into(),
+            unit: "../aq-node@ms1.service".into(),
+        };
+        assert!(bad.validate("any").is_err());
+        let guardian: StopProof = serde_json::from_str(r#"{"proof_kind":"guardian"}"#).unwrap();
+        assert!(guardian.is_guardian());
+        assert!(serde_json::from_str::<StopProof>(r#"{"proof_kind":"boot_changed"}"#).is_err());
+    }
 
     #[test]
     fn api_error_round_trips() {
