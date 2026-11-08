@@ -50,8 +50,35 @@ pub fn preserved_claim(error: &anyhow::Error, sandbox: &str, config_path: &Path)
         Err(_) => return None,
     }
     Some(format!(
-        "Changes: unknown; Runner failure: {error:#}; sandbox {sandbox} preserved"
+        "{PRESERVED_PREFIX}{sandbox} preserved; Changes: unknown; Runner failure: {error:#}"
     ))
+}
+/// How a preserved claim's conclusion starts (before any folding can cut it).
+const PRESERVED_PREFIX: &str = "Sandbox ";
+/// [`preserved_conclusion`] of a recorded claim's bytes (a result submission). Bytes that do
+/// not decode count as preserved: the sandbox is kept.
+pub fn preserved_claim_bytes(submission: &[u8]) -> bool {
+    let value: Option<serde_json::Value> = serde_json::from_slice(submission).ok();
+    value
+        .as_ref()
+        .and_then(|v| v["conclusion"].as_str())
+        .is_none_or(preserved_conclusion)
+}
+/// Whether a recorded claim's conclusion is the driver's claim for a preserved sandbox. The
+/// journal keeps the claim durably, so this survives the loss of the driver dir's marker (the
+/// runtime dir is gone after a reboot). An agent's conclusion that reads the same way keeps a
+/// sandbox (safe); it can never make a preserved one destroyable.
+pub fn preserved_conclusion(conclusion: &str) -> bool {
+    let current = conclusion
+        .strip_prefix(PRESERVED_PREFIX)
+        .is_some_and(|rest| {
+            rest.split_once(' ')
+                .is_some_and(|(_, tail)| tail.starts_with("preserved;"))
+        });
+    // Earlier drivers put the statement last.
+    let earlier = conclusion.starts_with("Changes: unknown; Runner failure: ")
+        && (conclusion.ends_with(" preserved") || conclusion.ends_with("..."));
+    current || earlier
 }
 
 /// Whether a driver of `attempt` under `host_root` (`driver-*/driver.json`) preserved its
@@ -91,12 +118,48 @@ mod tests {
             "an unclaimed copy-back is not preserved"
         );
         let refused = anyhow::anyhow!("copy-back symlink target must stay inside");
-        assert!(
-            preserved_claim(&refused, "sb", &config)
-                .unwrap()
-                .contains("sandbox sb preserved")
-        );
+        let claim = preserved_claim(&refused, "sb", &config).unwrap();
+        assert!(claim.starts_with("Sandbox sb preserved; "), "{claim}");
+        assert!(preserved_conclusion(&claim));
+        let long = anyhow::anyhow!("{}", "x".repeat(900));
+        let folded = crate::fold_claim(preserved_claim(&long, "sb", &config).unwrap());
+        assert!(preserved_conclusion(&folded), "the prefix survives folding");
         assert!(preserved(host.path(), "a-1") && !preserved(host.path(), "a-2"));
         assert!(!preserved(&host.path().join("absent"), "a-1"));
+    }
+    /// The preserved rule from durable state: after the runtime dir (and every driver
+    /// marker) is wiped, a preserved claim still keeps its sandbox and an ordinary claim
+    /// still releases its sandbox.
+    #[test]
+    fn preserved_claims_are_known_without_the_runtime_dir() {
+        let host = tempfile::tempdir().unwrap();
+        let dir = host.path().join("driver-1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("driver.json");
+        std::fs::write(&config, r#"{"owner":{"attempt_id":"a-1"}}"#).unwrap();
+        let kept = preserved_claim(&anyhow::anyhow!("copy-back refused"), "sb", &config).unwrap();
+        let done = crate::handoff_note(aq_protocol::HandoffReason::Restart, &[], &[], &[]);
+        std::fs::remove_dir_all(host.path()).unwrap();
+        assert!(
+            !preserved(host.path(), "a-1"),
+            "the marker went with the runtime dir"
+        );
+        assert!(preserved_conclusion(&crate::fold_claim(kept)));
+        assert!(!preserved_conclusion(&done));
+        assert!(!preserved_conclusion(
+            "All steps written; sandbox sb preserved for review? no."
+        ));
+        let earlier = "Changes: unknown; Runner failure: copy-back refused; sandbox sb preserved";
+        assert!(preserved_conclusion(earlier));
+        let claim = |text: &str| serde_json::json!({"schema_version": 1, "conclusion": text});
+        let bytes = |text: &str| serde_json::to_vec(&claim(text)).unwrap();
+        assert!(preserved_claim_bytes(&bytes(
+            "Sandbox sb preserved; Changes: unknown"
+        )));
+        assert!(!preserved_claim_bytes(&bytes(&done)));
+        assert!(
+            preserved_claim_bytes(b"not json"),
+            "unreadable keeps the sandbox"
+        );
     }
 }

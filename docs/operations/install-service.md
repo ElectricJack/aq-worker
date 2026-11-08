@@ -158,12 +158,27 @@ A slot whose recovery is held (for example its sandbox is gone) stays held
 until the owner releases it; the other slots and the service keep running,
 even when every slot is held.
 
-After a crash or `systemctl --user kill`, the slot's aq-git was killed too. The
-restarted service removes the socket it left and clears its ownership fence
-(`aq-git recovery clear-fence`), but only when no process holds the aq-git
-state's `owner.lock`; otherwise the slot retries with backoff. A sandbox an
-attempt preserved (its work was never copied back) is never destroyed by the
-service. Release it once you have looked at it:
+After a crash, `systemctl --user kill` or a reboot, the attempt's session host
+(its guardian) died too and cannot prove its own stop. The restarted service
+takes the stop as proven, and salvages the attempt, only when:
+
+- the machine rebooted since the attempt started (the recorded boot id differs
+  from `/proc/sys/kernel/random/boot_id`), or
+- the service runs under systemd and, when it started, its unit's cgroup held
+  only itself (no process of the previous invocation survived), and the lost
+  guardian is older than this invocation.
+
+The proof is recorded in the attempt's stopped report and in the handoff note
+("Host stop: ..."), and logged. Without either, the slot is held for the owner.
+
+The slot's aq-git was killed too. The restarted service removes the socket it
+left and clears its ownership fence (`aq-git recovery clear-fence`), but only
+when no process holds the aq-git state's `owner.lock`; otherwise the slot
+retries with backoff. Which claimed sandboxes were preserved is read from the
+recorded claims (durable state), so a reboot that empties the runtime directory
+changes nothing: a preserved sandbox (its work was never copied back) is never
+destroyed by the service, and other claimed sandboxes are still released.
+Release a preserved one once you have looked at it:
 
 ```sh
 aq-worker service release-sandbox --profile local --slot 2 \

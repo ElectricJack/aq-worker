@@ -168,6 +168,14 @@ fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig
 fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<T> {
     serde_json::from_value(serde_json::to_value(pin)?).context("invalid renderer pin")
 }
+/// Ruling B (D2): a lost guardian whose stop no reboot or empty unit cgroup proves holds the
+/// slot for the operator (instead of retrying forever).
+fn held_when_unproven<T>(result: &Result<T>) -> Option<RecoverOutcome> {
+    let e = result.as_ref().err()?;
+    e.downcast_ref::<aq_session_host::StopUnproven>()?;
+    tracing::error!("recovery held: {e:#}");
+    Some(RecoverOutcome::Held(format!("{e:#}")))
+}
 /// What a restarted node tells the server about an interrupted attempt: the reason the service
 /// recorded before the cut (a deliberate stop stays exempt from budgets), else a plain restart.
 fn restart_reason(ctx: &SlotContext, attempt: Uuid) -> HandoffReason {
@@ -212,7 +220,11 @@ impl SlotBackend for NativeSlotBackend {
                     Err(e) => tracing::warn!(%attempt, "handoff notice: {e:#}"),
                 }
             }
-            match salvage_interrupted(&worker, &cfg, attempt).await? {
+            let salvaged = salvage_interrupted(&worker, &cfg, attempt).await;
+            if let Some(held) = held_when_unproven(&salvaged) {
+                return Ok(held);
+            }
+            match salvaged? {
                 SalvageDisposition::Unsalvageable(why) => {
                     return Ok(RecoverOutcome::Held(why.to_owned()));
                 }
@@ -637,6 +649,27 @@ async fn release_sandbox(profile: &str, slot: u32, attempt: Uuid, reason: &str) 
     Ok(())
 }
 
+/// Ruling B (D2), proof (b): before any slot starts a process, check that the unit's cgroup
+/// holds only this invocation; then a lost guardian older than this process is known dead.
+fn attest_prior_invocation() {
+    let attested = aq_node_service::invocation::prior_invocation_gone().and_then(|gone| {
+        if gone {
+            let own = aq_session_host::ownership::process_evidence(std::process::id())?;
+            aq_session_host::lost_guardian::attest_prior_invocation_gone(own.start_ticks)?;
+        }
+        Ok(gone)
+    });
+    match attested {
+        Ok(true) => tracing::info!(
+            "the unit's cgroup holds no process of a previous invocation: their hosts are known stopped"
+        ),
+        Ok(false) => tracing::info!(
+            "not under systemd, or the unit's cgroup holds other processes: a lost host's stop is proven only by a reboot"
+        ),
+        Err(e) => tracing::warn!("previous invocation check: {e:#}"),
+    }
+}
+
 /// `aq-worker run --service-config`: supervise every slot until SIGTERM or ctrl-c.
 pub async fn run_service(service_config: &Path) -> Result<()> {
     let config = ServiceConfig::load(service_config)?;
@@ -646,6 +679,7 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     let layout = Layout::for_service(config_dir, &config);
     // Every socket lives under the runtime root (D1): create and check it before any slot.
     layout.prepare_runtime()?;
+    attest_prior_invocation();
     let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
     let link = Arc::new(ServerLink::from_enrollment(&slot1)?);
     // A measurement cut short (kill, crash, reboot) left its sandbox: release it before work.
@@ -1114,5 +1148,100 @@ mod tests {
         purge_dirs(&layout).unwrap();
         assert!(!custom.exists() && !layout.runtime_root.exists());
         assert!(!p.layout.config_dir.exists());
+    }
+
+    /// Ruling B (D2), end to end in the service's terms: a lost guardian's stop is proven by a
+    /// changed boot id, or by a unit cgroup holding only this process (a fake cgroup file); the
+    /// proven stop passes the server's stopped-proof checks and names its proof. With a foreign
+    /// pid in the cgroup nothing is attested, and the slot is held.
+    #[test]
+    fn a_lost_guardian_is_salvaged_on_proof_and_held_without() {
+        use aq_node_service::invocation::{holds_only, own_cgroup_procs};
+        use aq_session_host::lost_guardian::{StopProof, recover_stopped_with};
+        // Boot ids are UUIDs (the server's stopped proof checks the shape).
+        const OLD: &str = "00000000-0000-4000-8000-00000000000a";
+        const NOW: &str = "00000000-0000-4000-8000-00000000000b";
+        let id = Uuid::from_u128(1);
+        let process = |pid, start_ticks| aq_session_host::ProcessEvidence { pid, start_ticks };
+        let running = |boot: &str| aq_session_host::HostObservation {
+            guardian: aq_session_host::GuardianIdentity {
+                intent: aq_session_host::LaunchIntent {
+                    launch_id: id,
+                    session: aq_session_protocol::SessionIdentity::Remote {
+                        node_id: id,
+                        boot_id: id,
+                        attempt_id: id,
+                        assignment_generation: 1,
+                        session_id: id,
+                    },
+                    manifest_digest: aq_session_protocol::Digest::of(b"m"),
+                    configuration_digest: aq_session_protocol::Digest::of(b"c"),
+                },
+                nonce: id,
+                process: process(4_000_000, 500),
+                machine_boot_id: boot.into(),
+                pid_namespace: "pid:[4026531836]".into(),
+            },
+            phase: aq_session_host::HostPhase::Running,
+            pane: Some(aq_session_host::PaneIdentity {
+                server: process(4_000_001, 501),
+                pane: process(4_000_002, 502),
+                pane_id: "%1".into(),
+                session_name: "aq".into(),
+            }),
+            permit_sequence: 3,
+            permit_deadline_boot_ms: 90_000,
+            observed_boot_ms: 60_000,
+            reaped_count: 0,
+            kernel_wait_echild: false,
+            root_status: None,
+            stop_reason: None,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("runtime-wiped");
+        let recover = |last: &aq_session_host::HostObservation, prior: Option<&(String, u64)>| {
+            recover_stopped_with(&gone, &last.guardian.intent, Some(last), NOW, prior)
+        };
+        // The cgroup check the service runs at its start, on a fake cgroup.
+        let unit = dir.path().join("app.slice/aq-node@t.service");
+        std::fs::create_dir_all(&unit).unwrap();
+        let procs = own_cgroup_procs("0::/app.slice/aq-node@t.service\n", dir.path()).unwrap();
+        let own = std::process::id();
+        let attested = |listed: &str| {
+            std::fs::write(&procs, listed).unwrap();
+            let read = std::fs::read_to_string(&procs).unwrap();
+            holds_only(&read, own, |pid| (pid == own + 1).then_some(own))
+                .then(|| (NOW.to_owned(), 900))
+        };
+        for (last, prior, proof) in [
+            (running(OLD), None, StopProof::BootChanged),
+            (
+                running(NOW),
+                attested(&format!("{own}\n{}\n", own + 1)),
+                StopProof::PriorInvocationGone,
+            ),
+        ] {
+            let stopped = recover(&last, prior.as_ref()).unwrap();
+            assert!(held_when_unproven(&Ok::<_, anyhow::Error>(())).is_none());
+            let wire: aq_admission::stopped::HostStoppedProof =
+                serde_json::from_value(serde_json::to_value(&stopped).unwrap()).unwrap();
+            wire.digest()
+                .expect("the server's stopped-proof checks pass");
+            let reason = wire.observation.stop_reason.as_ref().unwrap();
+            assert_eq!(reason.as_str(), proof.label());
+            let note = aq_handoff_note::salvage_note(
+                HandoffReason::Restart,
+                &[],
+                Some(&Some(proof.label().into())),
+            );
+            assert!(note.contains("Host stop: guardian lost"), "{note}");
+        }
+        let foreign = attested(&format!("{own}\n1\n"));
+        assert!(foreign.is_none(), "a foreign pid: no attestation");
+        let unproven = recover(&running(NOW), foreign.as_ref());
+        match held_when_unproven(&unproven) {
+            Some(RecoverOutcome::Held(why)) => assert!(why.contains("host stop unproven"), "{why}"),
+            other => panic!("{other:?}"),
+        }
     }
 }

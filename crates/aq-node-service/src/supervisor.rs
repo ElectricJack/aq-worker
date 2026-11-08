@@ -487,17 +487,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 tracing::error!(slot, "slot held until the owner releases it: {why}");
                 return Ok(false);
             }
-            // The host root holds the drivers' preserved markers. When it is gone (the runtime
-            // directory does not survive a reboot) a preserved sandbox cannot be told apart, so
-            // none is destroyed: they are left for the owner.
-            if ctx.host_root.is_dir() {
-                self.sup.backend.release_claimed(ctx.clone()).await?;
-            } else {
-                tracing::warn!(
-                    slot,
-                    "the host root is gone; claimed sandboxes are left for the owner"
-                );
-            }
+            // Which claims preserved their sandbox is read from the journal (durable), so this
+            // holds after a reboot emptied the runtime dir and its driver markers.
+            self.sup.backend.release_claimed(ctx.clone()).await?;
             self.archive(&ctx);
         } else if current.exists() {
             self.archive(&ctx);
@@ -1981,5 +1973,32 @@ mod tests {
         );
         tx.send_replace(true);
         handle.await.unwrap().unwrap();
+    }
+
+    /// After a reboot the runtime dir (the host root and its driver markers) is gone: settle
+    /// still releases the claimed sandboxes (the backend reads which are preserved from the
+    /// journal), then archives.
+    #[tokio::test(start_paused = true)]
+    async fn settle_releases_claimed_sandboxes_after_the_runtime_dir_is_wiped() {
+        let rig = rig(1);
+        journal(&rig, 1);
+        assert!(
+            !rig.layout.host_root(1).exists(),
+            "no runtime dir (after a reboot)"
+        );
+        let backend = Arc::new(FakeBackend::default());
+        let salvaged = [Ok(RecoverOutcome::Salvaged)];
+        backend.recovery.lock().unwrap().insert(1, salvaged.into());
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(*backend.calls.lock().unwrap(), ["recover:1", "run:1"]);
+        assert_eq!(
+            backend.releases.lock().unwrap()[0],
+            1,
+            "released before the archive"
+        );
+        assert_eq!(count(rig.layout.archive_dir(1)), 1);
+        stop(handle, tx).await;
     }
 }

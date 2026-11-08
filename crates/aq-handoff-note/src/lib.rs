@@ -4,7 +4,10 @@ use serde::Deserialize;
 use std::path::Path;
 mod preserve;
 mod secret_file;
-pub use preserve::{CopyBackIncomplete, PRESERVED_MARKER, preserved, preserved_claim, write_exit};
+pub use preserve::{
+    CopyBackIncomplete, PRESERVED_MARKER, preserved, preserved_claim, preserved_claim_bytes,
+    preserved_conclusion, write_exit,
+};
 mod stream;
 pub use secret_file::{parse_token, read_private};
 pub use stream::{conclusion, pane_line, print_logs, proven_success};
@@ -100,6 +103,20 @@ pub fn handoff_note(
         ));
     }
     fold_claim(note)
+}
+
+/// A salvaged handoff's note, with how the interrupted host was proven stopped: the stopped
+/// observation's reason (a lost guardian's stop is proven by an outside fact, which says so).
+pub fn salvage_note(
+    reason: aq_protocol::HandoffReason,
+    changed: &[String],
+    stopped: Option<&Option<String>>,
+) -> String {
+    let note = handoff_note(reason, changed, &[], &[]);
+    match stopped.and_then(Option::as_deref) {
+        Some(proof) => fold_claim(format!("{note} Host stop: {proof}.")),
+        None => note,
+    }
 }
 
 /// Whether `haystack` contains the token's exact bytes.

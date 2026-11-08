@@ -5,6 +5,7 @@
 pub mod config;
 pub mod enrollment_file;
 pub mod git;
+pub mod invocation;
 pub mod layout;
 pub mod link;
 pub mod measure;
