@@ -43,10 +43,14 @@ packaging/service/aq-install.sh --server https://aq.example --bundle ~/aq-bundle
   --profile local --slots 4 --machine-key my-box
 ```
 
-Options: `--profile` (default `local`), `--slots` (default 1, at most 8),
-`--name`, `--machine-key`, `--cf-service-token`, `--native-template`,
-`--repositories`, `--measurement-token-file` with `--measurement-model`, and
-`--sandbox-bundle`.
+Options: `--profile` (default `local`; lower-case letters, digits and `-`, at
+most 32 characters), `--slots` (default 1, at most 8), `--name`,
+`--machine-key`, `--cf-service-token`, `--native-template`, `--repositories`,
+`--measurement-token-file` (an absolute path) with `--measurement-model`,
+`--sandbox-bundle` and `--reconfigure`.
+
+The script refuses to replace a `~/.local/bin/aq-worker` that is not its own
+link, and warns when the container worker `aq-worker@local` is running too.
 
 The script, in order:
 
@@ -54,10 +58,13 @@ The script, in order:
 2. makes sure the sandbox daemon is running;
 3. installs the five binaries into `~/.local/share/agent-q/runtime/` and links
    `~/.local/bin/aq-worker`;
-4. runs `aq-worker service enroll`, which prompts for the code;
-5. runs `aq-worker service install` (writes and starts the user unit
-   `aq-node@PROFILE`);
-6. runs `aq-worker service measure` when a measurement token file was given;
+4. runs `aq-worker service enroll`, which prompts for the code. A profile that
+   is already enrolled is skipped (pass `--reconfigure` to enroll it again);
+5. runs `aq-worker service install` (writes the user unit `aq-node@PROFILE`
+   and starts it, or restarts it when it is already running);
+6. runs `aq-worker service measure` when a measurement token file was given.
+   It holds the profile's measurement lock, so the service does not start a
+   second measurement meanwhile;
 7. prints the Windows probe command on WSL2 if needed;
 8. prints `aq-worker service status`.
 
@@ -65,6 +72,13 @@ The enrollment code is typed at the prompt, or piped as the first stdin line.
 With `--cf-service-token` the next two prompts (or lines) are the node's Access
 client id and secret. Nothing secret is ever put in an argument, the
 environment, a log or a unit file. The code works once.
+
+`enroll` checks every argument (the server origin, the repositories file, the
+token file path) before it reads the code, so a typo never uses it up. The
+server must be `https`; plain `http` is accepted only to `127.0.0.1` or `::1`.
+If the machine key claim fails after the code was redeemed (for example the key
+is in use), run the same command again: it resumes at the claim and needs no
+new code. The slot credentials are written only once the claim succeeds.
 
 ### The machine key
 
@@ -107,8 +121,17 @@ restart is still charged, so a crash loop stays bounded.
 After a service restart, a reboot or `wsl --shutdown`, the service recovers
 each slot's interrupted attempt: it saves what the attempt had, reports it
 once (a second recovery reports nothing new), and the server gives the task a
-fresh attempt from the saved work. Idle slots start polling again. If every poll
-is refused, a slot backs off from 30 s up to 300 s instead of looping.
+fresh attempt from the saved work. An attempt that fails while the service
+runs is recovered the same way before the slot takes new work. Idle slots
+start polling again. If every poll is refused, or recovery cannot reach the
+server, a slot backs off from 30 s up to 300 s instead of looping.
+
+A slot whose recovery is held (for example its sandbox is gone) stays held
+until the owner releases it; the other slots and the service keep running,
+even when every slot is held.
+
+The stop timeout of the unit is the profile's `shutdown_grace_ms` plus 30 s
+(a drop-in, `aq-node@PROFILE.service.d/stop.conf`).
 
 ## Upgrade
 
@@ -121,9 +144,10 @@ done
 systemctl --user restart aq-node@local
 ```
 
-Replace `native.json` too if the build changed its digests, by re-running the
-install script's enroll step with a new code, or by editing the profile's
-config.
+Replace `native.json` too if the build changed its digests: copy the new
+bundle's file over `~/.config/agent-q/service/PROFILE/native.json` before the
+restart. Do not enroll an enrolled machine again for an upgrade; re-running
+the install script for the binaries skips enrollment.
 
 ## Uninstall and re-enroll
 
@@ -132,6 +156,8 @@ aq-worker service uninstall --profile local            # keep configuration and 
 aq-worker service uninstall --profile local --purge    # also delete them
 ```
 
-After a revoke (or a purge), enroll again with a new code from "Add machine":
-run `aq-install.sh` again with the same `--profile` and `--machine-key`. The
-key can be claimed again only by a fresh enrollment.
+After a revoke, enroll again with a new code from "Add machine": run
+`aq-install.sh` again with the same `--profile` and `--machine-key` and
+`--reconfigure`. The service is restarted with the new credentials. After a
+purge, `--reconfigure` is not needed. The key can be claimed again only by a
+fresh enrollment.

@@ -11,17 +11,18 @@ usage: aq-install.sh --server URL --bundle DIR [--profile NAME=local] [--slots N
                      [--machine-key KEY] [--cf-service-token]
                      [--native-template FILE=DIR/native.json] [--repositories FILE=DIR/repositories.json]
                      [--measurement-token-file FILE --measurement-model MODEL]
-                     [--sandbox-bundle podman-linux-amd64.tar.gz]
+                     [--sandbox-bundle podman-linux-amd64.tar.gz] [--reconfigure]
 USAGE
   exit 2
 }
 
-KEY_GIVEN=0
+KEY_GIVEN=0 RECONFIGURE=0
 SERVER="" BUNDLE="" PROFILE="local" SLOTS="1" NAME="" MACHINE_KEY="" CF=0
 TEMPLATE="" REPOS="" MTOKEN="" MMODEL="" SANDBOX_BUNDLE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cf-service-token) CF=1; shift; continue ;;
+    --reconfigure) RECONFIGURE=1; shift; continue ;;
     --server|--bundle|--profile|--slots|--name|--machine-key|--native-template|--repositories|\
     --measurement-token-file|--measurement-model|--sandbox-bundle)
       [[ $# -ge 2 ]] || usage ;;
@@ -47,7 +48,8 @@ done
 [[ -z "$MMODEL" || -n "$MTOKEN" ]] || { echo "--measurement-model needs --measurement-token-file." >&2; exit 2; }
 [[ -d "$BUNDLE" ]] || { echo "bundle directory $BUNDLE not found." >&2; exit 2; }
 [[ "$SLOTS" =~ ^[0-9]+$ ]] || { echo "--slots must be a number." >&2; exit 2; }
-[[ "$PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$ ]] || { echo "invalid --profile." >&2; exit 2; }
+# The service config's rule (aq-node-service valid_profile).
+[[ "$PROFILE" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo "invalid --profile: lower-case letters, digits and '-', at most 32 characters." >&2; exit 2; }
 TEMPLATE="${TEMPLATE:-$BUNDLE/native.json}"
 REPOS="${REPOS:-$BUNDLE/repositories.json}"
 
@@ -55,6 +57,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SANDBOX_DIR="${AQ_SANDBOX_DAEMON_DIR:-$ROOT/scripts/sandbox-daemon}"
 RUNTIME_DIR="$HOME/.local/share/agent-q/runtime"
 USER_NAME="${USER:-$(id -un)}"
+LINK="$HOME/.local/bin/aq-worker"
+PROFILE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/service/$PROFILE"
 
 # 1. Preflight.
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -68,7 +72,8 @@ fi
 OSRELEASE="${AQ_OSRELEASE_FILE:-/proc/sys/kernel/osrelease}"
 IS_WSL=0
 if [[ -r "$OSRELEASE" ]] && grep -qi microsoft "$OSRELEASE"; then IS_WSL=1; fi
-if [[ "$IS_WSL" == 1 && "$(ps -p 1 -o comm= | tr -d ' ')" != "systemd" ]]; then
+PID1="$(tr -d ' \n' < "${AQ_PROC1_COMM_FILE:-/proc/1/comm}" 2>/dev/null || true)"
+if [[ "$IS_WSL" == 1 && "$PID1" != "systemd" ]]; then
   cat >&2 <<'WSL'
 systemd is not running in this WSL distro. Put this in /etc/wsl.conf:
 
@@ -85,6 +90,13 @@ systemctl --user show-environment >/dev/null || {
 }
 if [[ "$(loginctl show-user "$USER_NAME" -p Linger --value 2>/dev/null || true)" != "yes" ]]; then
   echo "Lingering is off, so the service would stop at logout. Run: sudo loginctl enable-linger $USER_NAME"
+fi
+if [[ ( -e "$LINK" || -L "$LINK" ) && "$(readlink "$LINK" || true)" != "$RUNTIME_DIR/aq-worker" ]]; then
+  echo "$LINK exists and is not the link this script installs; move it away and run again." >&2
+  exit 2
+fi
+if systemctl --user is-active --quiet aq-worker@local.service; then
+  echo "warning: the container worker aq-worker@local is running too. Two workers on one machine compete for it; stop it with: systemctl --user disable --now aq-worker@local" >&2
 fi
 
 # 2. Sandbox runtime.
@@ -111,22 +123,28 @@ for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
   install -D -m 0755 "$BUNDLE/$f" "$RUNTIME_DIR/$f"
 done
 mkdir -p "$HOME/.local/bin"
-ln -sf "$RUNTIME_DIR/aq-worker" "$HOME/.local/bin/aq-worker"
+ln -sfn "$RUNTIME_DIR/aq-worker" "$LINK"
 WORKER="$RUNTIME_DIR/aq-worker"
 
 # 4. Enroll. stdin and the terminal go straight to aq-worker, which prompts for the code.
-ENROLL=("$WORKER" service enroll --profile "$PROFILE" --server "$SERVER" --slots "$SLOTS")
-[[ -n "$NAME" ]] && ENROLL+=(--name "$NAME")
-[[ -n "$MACHINE_KEY" ]] && ENROLL+=(--machine-key "$MACHINE_KEY")
-[[ "$CF" == 1 ]] && ENROLL+=(--cf-service-token)
-ENROLL+=(--native-template "$TEMPLATE" --aq-git "$RUNTIME_DIR/aq-git" --repositories "$REPOS")
-[[ -n "$MTOKEN" ]] && ENROLL+=(--measurement-token-file "$MTOKEN" --measurement-model "$MMODEL")
-"${ENROLL[@]}"
+# An enrolled profile keeps its enrollment (an upgrade); an unfinished one resumes its claim.
+if [[ -f "$PROFILE_DIR/service.toml" && ! -f "$PROFILE_DIR/enroll-pending.toml" && "$RECONFIGURE" == 0 ]]; then
+  echo "Profile $PROFILE is already enrolled; enrollment skipped. Pass --reconfigure to enroll it again (after a revoke)."
+else
+  ENROLL=("$WORKER" service enroll --profile "$PROFILE" --server "$SERVER" --slots "$SLOTS")
+  [[ -n "$NAME" ]] && ENROLL+=(--name "$NAME")
+  [[ -n "$MACHINE_KEY" ]] && ENROLL+=(--machine-key "$MACHINE_KEY")
+  [[ "$CF" == 1 ]] && ENROLL+=(--cf-service-token)
+  [[ "$RECONFIGURE" == 1 ]] && ENROLL+=(--reconfigure)
+  ENROLL+=(--native-template "$TEMPLATE" --aq-git "$RUNTIME_DIR/aq-git" --repositories "$REPOS")
+  [[ -n "$MTOKEN" ]] && ENROLL+=(--measurement-token-file "$MTOKEN" --measurement-model "$MMODEL")
+  "${ENROLL[@]}"
+fi
 
-# 5. Install and start.
+# 5. Install and start (or restart, so a new enrollment takes effect).
 "$WORKER" service install --profile "$PROFILE"
 
-# 6. Measure.
+# 6. Measure. It holds the profile's measurement lock: the service skips its own meanwhile.
 if [[ -n "$MTOKEN" ]]; then
   "$WORKER" service measure --profile "$PROFILE"
 fi

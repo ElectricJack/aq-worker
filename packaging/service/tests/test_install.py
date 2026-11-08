@@ -30,6 +30,8 @@ if name == "loginctl":
     print(os.environ.get("STUB_LINGER", "yes"))
 if name == "systemctl" and "show-environment" in args:
     sys.exit(int(os.environ.get("STUB_SYSTEMD_USER_RC", "0")))
+if name == "systemctl" and "is-active" in args:
+    sys.exit(0 if args[-1] in os.environ.get("STUB_ACTIVE", "").split() else 3)
 """
 
 
@@ -61,6 +63,8 @@ def host(tmp_path):
     (sandbox_dir / "aq-sandbox-podman.service").write_text("[Service]\n")
     osrelease = tmp_path / "osrelease"
     osrelease.write_text("6.18.0-generic\n")
+    pid1 = tmp_path / "comm"
+    pid1.write_text("systemd\n")
     env = {
         "USER": "worker",
         "LANG": "C.UTF-8",
@@ -68,16 +72,18 @@ def host(tmp_path):
         "HOME": str(home),
         "XDG_RUNTIME_DIR": str(runtime),
         "AQ_OSRELEASE_FILE": str(osrelease),
+        "AQ_PROC1_COMM_FILE": str(pid1),
         "AQ_SANDBOX_DAEMON_DIR": str(sandbox_dir),
         "CALLS": str(tmp_path / "calls.jsonl"),
         "CALLS_SANDBOX": str(tmp_path / "sandbox-calls"),
     }
     return {"tmp": tmp_path, "env": env, "bundle": bundle, "runtime": runtime,
-            "osrelease": osrelease}
+            "osrelease": osrelease, "pid1": pid1, "home": home}
 
 
 def with_socket(host):
     path = host["runtime"] / "aq-sandbox/podman.sock"
+    path.unlink(missing_ok=True)
     daemon = socket.socket(socket.AF_UNIX)
     daemon.bind(str(path))
     return daemon
@@ -109,10 +115,16 @@ def test_shellcheck_when_present():
 
 def test_refuses_wsl_without_systemd(host):
     host["osrelease"].write_text("5.15.0-microsoft-standard-WSL2\n")
-    result = run(host, env={"STUB_PID1": "init"})
+    host["pid1"].write_text("init\n")
+    result = run(host)
     assert result.returncode == 3
     assert "systemd=true" in result.stderr and "/etc/wsl.conf" in result.stderr
     assert worker_calls(host) == []
+    # PID 1 comes from /proc/1/comm, not from ps.
+    assert not [c for c in calls(host) if c["name"] == "ps"]
+    host["pid1"].write_text("systemd\n")
+    with with_socket(host):
+        assert run(host).returncode == 0
 
 
 def test_refuses_macos_with_a_clear_message(host):
@@ -128,7 +140,10 @@ def test_never_passes_secrets_in_argv(host):
     enroll = next(c for c in worker_calls(host) if c["args"][:2] == ["service", "enroll"])
     assert enroll["stdin"] == CODE + "\n"
     assert "--cf-service-token" in enroll["args"]
-    assert CODE not in json.dumps(calls(host)).replace(enroll["stdin"].strip(), "")
+    # The code reaches only the enroll call's stdin: no argv, and no other call's stdin.
+    for c in calls(host):
+        assert CODE not in json.dumps(c["args"]), c
+        assert c == enroll or CODE not in c["stdin"], c
     assert CODE not in result.stdout + result.stderr
 
 
@@ -200,3 +215,58 @@ def test_sandbox_bundle_installs_and_enables_the_daemon(host):
     assert Path(host["env"]["CALLS_SANDBOX"]).read_text().strip() == f"install {tarball}"
     systemctl = [c["args"] for c in calls(host) if c["name"] == "systemctl"]
     assert ["--user", "enable", "--now", "aq-sandbox-podman.service"] in systemctl
+
+
+@pytest.mark.parametrize("profile", ["Bad", "a_b", "a.b", "-x", "a" * 33])
+def test_profile_follows_the_service_config_rule(host, profile):
+    with with_socket(host):
+        result = run(host, "--profile", profile)
+    assert result.returncode == 2
+    assert worker_calls(host) == []
+
+
+def test_refuses_to_replace_a_foreign_aq_worker(host):
+    link = host["home"] / ".local/bin/aq-worker"
+    link.parent.mkdir(parents=True)
+    link.write_text("#!/bin/sh\n")
+    with with_socket(host):
+        result = run(host)
+    assert result.returncode == 2 and "not the link" in result.stderr
+    assert link.read_text() == "#!/bin/sh\n" and worker_calls(host) == []
+    link.unlink()
+    link.symlink_to(host["tmp"] / "elsewhere")
+    with with_socket(host):
+        assert run(host).returncode == 2
+    link.unlink()
+    with with_socket(host):
+        assert run(host).returncode == 0
+        assert run(host, "--reconfigure").returncode == 0, "our own link is replaced"
+
+
+def test_warns_when_the_container_worker_is_active(host):
+    with with_socket(host):
+        quiet = run(host)
+        loud = run(host, env={"STUB_ACTIVE": "aq-worker@local.service"})
+    assert quiet.returncode == 0 and "aq-worker@local" not in quiet.stderr
+    assert loud.returncode == 0 and "aq-worker@local is running" in loud.stderr
+
+
+def test_an_enrolled_profile_is_not_enrolled_again_without_reconfigure(host):
+    profile = host["home"] / ".config/agent-q/service/local"
+    profile.mkdir(parents=True)
+    (profile / "service.toml").write_text("")
+    with with_socket(host):
+        result = run(host)
+    assert result.returncode == 0, result.stderr
+    assert "already enrolled" in result.stdout
+    steps = [c["args"][:2] for c in worker_calls(host)]
+    assert steps == [["service", "install"], ["service", "status"]]
+    with with_socket(host):
+        assert run(host, "--reconfigure").returncode == 0
+    enroll = [c["args"] for c in worker_calls(host) if c["args"][:2] == ["service", "enroll"]]
+    assert len(enroll) == 1 and "--reconfigure" in enroll[0]
+    (profile / "enroll-pending.toml").write_text("")
+    with with_socket(host):
+        assert run(host).returncode == 0
+    assert len([c for c in worker_calls(host) if c["args"][:2] == ["service", "enroll"]]) == 2, \
+        "an unfinished enrollment resumes"
