@@ -161,6 +161,10 @@ pub struct ResultHistory {
     pub report: Option<ReportIntent>,
     pub receipt: Option<result_record::Receipt>,
     pub failure: Option<local::RecoveryCode>,
+    /// Revision of the restart salvage (`Journal::salvage_result`). Absent in
+    /// every history written before W4, so their digests are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub salvaged: Option<u64>,
 }
 impl ResultHistory {
     pub fn digest(&self) -> Result<Digest> {
@@ -234,6 +238,10 @@ impl ResultHistory {
                 "result claimed scope changed"
             );
         }
+        ensure!(
+            self.salvaged.is_none() || (self.claim.is_some() && self.stop.is_some()),
+            "result salvage without claim and stop"
+        );
         if let Some(stop) = &self.stop {
             ensure!(
                 self.intake_closed

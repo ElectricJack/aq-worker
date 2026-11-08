@@ -1,7 +1,17 @@
 //! Historical reporting only. No executor, Git custody or admission is recovered.
+use super::codex::ExecutorConfig;
 use super::*;
+use crate::backend::{
+    SandboxIdentity, SandboxState,
+    docker_local::{
+        DockerLocalBackend,
+        tar::{self, TreeEntry},
+    },
+};
 use crate::native::journal::Attempt;
+use crate::sandbox_driver as driver;
 use aq_admission::result_record;
+use aq_agent_result_local as local;
 use profile::TerminalProfile;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -34,6 +44,16 @@ impl Receipt {
     }
 }
 
+/// The state-dir lock, so a running node never shares the scope with recovery.
+fn lock_scope(config: &NativeConfig) -> Result<std::fs::File> {
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&config.state_dir)?;
+    fs2::FileExt::try_lock_exclusive(&held).context("native state scope already owned")?;
+    check_root(config, &held)?;
+    Ok(held)
+}
 /// Attempt ids in an existing state dir's journal (empty when no journal exists). Takes the
 /// state-dir lock, so it fails while a running node owns the scope.
 pub fn retained_attempts(config: &NativeConfig, node: Uuid) -> Result<Vec<Uuid>> {
@@ -41,12 +61,7 @@ pub fn retained_attempts(config: &NativeConfig, node: Uuid) -> Result<Vec<Uuid>>
     if std::fs::symlink_metadata(&root).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
         return Ok(vec![]);
     }
-    let held = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&config.state_dir)?;
-    fs2::FileExt::try_lock_exclusive(&held).context("native state scope already owned")?;
-    check_root(config, &held)?;
+    let _held = lock_scope(config)?;
     let journal = Journal::open(&root, node, config.capacity.clone())?;
     let mut ids: Vec<Uuid> = journal.state().attempts.keys().copied().collect();
     ids.sort();
@@ -62,12 +77,7 @@ pub async fn reconcile_native(
     attempt_id: Uuid,
 ) -> Result<ReconcileDisposition> {
     config.validate()?;
-    let held = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&config.state_dir)?;
-    fs2::FileExt::try_lock_exclusive(&held).context("native state scope already owned")?;
-    check_root(config, &held)?;
+    let held = lock_scope(config)?;
     // Unlike run_once, never create a journal or a new boot/attempt identity.
     let mut journal = Journal::open(
         &config.state_dir.join("journal"),
@@ -122,6 +132,125 @@ pub async fn reconcile_native(
         receipt.retain(&mut journal, attempt_id)
     })
     .await
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SalvageDisposition {
+    AlreadyReported,
+    NotStarted,
+    Salvaged,
+    Unsalvageable(&'static str),
+}
+/// W4: after a crash or reboot, reports an interrupted docker-local attempt as a
+/// Failed handoff result carrying the workspace its stopped sandbox saved, so its
+/// successor starts from that work. Never invents a success; repeated calls are
+/// safe (a recorded report gives AlreadyReported and posts nothing). The sandbox
+/// is left stopped: releasing it stays an operator action.
+pub async fn salvage_interrupted(
+    worker: &WorkerConfig,
+    config: &NativeConfig,
+    attempt: Uuid,
+) -> Result<SalvageDisposition> {
+    if let Some(done) = settled(reconcile_native(worker, config, attempt).await?) {
+        return Ok(done);
+    }
+    let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &config.executor
+    else {
+        return Ok(SalvageDisposition::Unsalvageable("no_sandbox_executor"));
+    };
+    let held = lock_scope(config)?;
+    let root = config.state_dir.join("journal");
+    let journal = Journal::open(&root, worker.node_id, config.capacity.clone())?;
+    let a = journal
+        .state()
+        .attempts
+        .get(&attempt)
+        .context("native recovery attempt absent")?;
+    let (Some(h), Some(host)) = (a.result.clone(), a.native_host.as_ref()) else {
+        return Ok(SalvageDisposition::Unsalvageable("result_scope_absent"));
+    };
+    let roots = crate::native::result::salvage_roots(&h)?;
+    // A handoff the service requested before the cut keeps its reason.
+    let dir =
+        crate::native::launch::claude_driver_dir(&host.intent.host_root, host.intent.launch_id);
+    let reason = driver::read_handoff_marker(&dir.join(driver::HANDOFF_MARKER));
+    let reason = reason.unwrap_or(aq_protocol::HandoffReason::Restart);
+    // A retained claim was submitted by the driver after its copy-back: keep it.
+    let claim = if h.claim.is_some() {
+        None
+    } else {
+        let mut backend =
+            DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
+        let sandboxes = stopped_sandboxes(&mut backend, worker.node_id, attempt).await?;
+        let max = settings.host.max_workspace_bytes;
+        let bound = usize::try_from(max)?.saturating_mul(2);
+        let archive =
+            async |s: &SandboxIdentity| Ok(backend.get_archive(s, "/aq/work", bound).await?);
+        match salvage_claim(&h, reason, &sandboxes, max, archive).await? {
+            Ok(claim) => Some(claim),
+            Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
+        }
+    };
+    let git = GitClient::new(&config.git_socket, &config.git_root)?;
+    let transfer = crate::transfer_client::TransferClient::from_config(worker, 1)?;
+    let client = NativeClient::from_config(worker)?;
+    check_root(config, &held)?;
+    crate::native::result::finish_salvage(journal, attempt, claim, roots, git, &transfer, &client)
+        .await?;
+    tracing::warn!(%attempt, ?reason, "interrupted attempt salvaged as a failed handoff result");
+    Ok(SalvageDisposition::Salvaged)
+}
+/// A reconciled attempt that needs no salvage: its report is recorded, or it never started.
+fn settled(reconciled: ReconcileDisposition) -> Option<SalvageDisposition> {
+    match reconciled {
+        ReconcileDisposition::ResultRecorded => Some(SalvageDisposition::AlreadyReported),
+        ReconcileDisposition::LaunchClosed => Some(SalvageDisposition::NotStarted),
+        ReconcileDisposition::StopReported => None,
+    }
+}
+/// The attempt's stopped sandboxes (reconcile_native stopped any still running).
+async fn stopped_sandboxes(
+    backend: &mut impl crate::backend::PlacementBackend,
+    node: Uuid,
+    attempt: Uuid,
+) -> Result<Vec<SandboxIdentity>> {
+    let owned = backend.list_owned(node).await?.into_iter();
+    let mine =
+        owned.filter(|e| e.sandbox.owner.attempt_id == attempt && e.state == SandboxState::Stopped);
+    Ok(mine.map(|e| e.sandbox).collect())
+}
+/// Copies the stopped sandbox's `/aq/work` into the attempt's workspace and returns the
+/// handoff claim, or why the work cannot be salvaged.
+async fn salvage_claim(
+    h: &crate::native::result::history::ResultHistory,
+    reason: aq_protocol::HandoffReason,
+    sandboxes: &[SandboxIdentity],
+    max_workspace_bytes: u64,
+    archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<u8>>,
+) -> Result<Result<local::Submission, &'static str>> {
+    let [sandbox] = sandboxes else {
+        return Ok(Err(if sandboxes.is_empty() {
+            "sandbox_absent"
+        } else {
+            "sandbox_ambiguous"
+        }));
+    };
+    let entries = tar::read_tree(&archive(sandbox).await?, max_workspace_bytes)?;
+    let secret = |bytes: &[u8]| aq_agent_channel::holds_agent_credential(bytes);
+    if entries.iter().any(|e| {
+        secret(e.path().as_bytes())
+            || matches!(e, TreeEntry::File { data, .. } if secret(data))
+            || matches!(e, TreeEntry::Symlink { target, .. } if secret(target.as_bytes()))
+    }) {
+        return Ok(Err("credential_in_workspace"));
+    }
+    let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;
+    let conclusion = local::Conclusion::new(driver::handoff_note(reason, &changed, &[], &[]))?;
+    let input = local::SubmissionInput {
+        schema_version: 1,
+        conclusion,
+    };
+    Ok(Ok(local::Submission::new(h.scope.binding.clone(), input)?))
 }
 
 /// Stops any still-running docker-local sandbox of a Claude docker attempt

@@ -839,22 +839,12 @@ pub(super) async fn drive_running_owned(
             // Original source limits also bound the number of chunks. Each
             // finite request preserves the exact original operation on error.
             let snapshot = pipeline.snapshot().await?;
-            let export = snapshot.attempts[&id]
-                .result
-                .as_ref()
-                .and_then(|h| h.source.export.as_ref())
-                .context("actual result export absent")?;
-            let max_steps = export
-                .manifest_bytes
-                .div_ceil(aq_worker_protocol::MAX_CHUNK_BYTES as u64)
-                .checked_add(
-                    export
-                        .manifest
-                        .bundle_size
-                        .div_ceil(aq_worker_protocol::MAX_CHUNK_BYTES as u64),
-                )
-                .and_then(|n| n.checked_add(2))
-                .context("result transfer finite bound overflow")?;
+            let max_steps = crate::native::result::transfer_bound(
+                snapshot.attempts[&id]
+                    .result
+                    .as_ref()
+                    .context("result history absent")?,
+            )?;
             for _ in 0..max_steps {
                 if pipeline
                     .transfer_result_source_step(&result, &transfer)

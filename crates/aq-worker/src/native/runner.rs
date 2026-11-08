@@ -18,7 +18,10 @@ mod prepare;
 pub(crate) use prepare::collect as test_collect;
 mod profile;
 mod recovery;
-pub use recovery::{ReconcileDisposition, reconcile_native, retained_attempts};
+pub use recovery::{
+    ReconcileDisposition, SalvageDisposition, reconcile_native, retained_attempts,
+    salvage_interrupted,
+};
 pub(super) mod publish_output;
 use super::{
     http::NativeClient,

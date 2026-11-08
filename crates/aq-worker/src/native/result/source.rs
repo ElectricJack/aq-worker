@@ -12,170 +12,6 @@ use aq_worker_protocol::{AttemptRef, NodeIdentity, SourceRole, TransferManifest,
 use sha2::{Digest as _, Sha256};
 use std::io::Read;
 impl InputPipeline {
-    pub(super) async fn result_snapshot(
-        &self,
-        stopped: &DurableStoppedResult,
-    ) -> Result<ResultHistory> {
-        stopped.verify(self)?;
-        let id = stopped.attempt_id();
-        self.storage(move |owner| {
-            Ok(owner.journal.state().attempts[&id]
-                .result
-                .as_ref()
-                .context("result history absent")?
-                .clone())
-        })
-        .await
-    }
-    async fn result_git_effect(
-        &self,
-        stopped: &DurableStoppedResult,
-        key: &'static str,
-    ) -> Result<()> {
-        stopped.verify(self)?;
-        let id = stopped.attempt_id();
-        let c = stopped.custody.clone();
-        let expected = self.result_snapshot(stopped).await?;
-        if expected
-            .source
-            .operations
-            .get(key)
-            .is_some_and(|op| op.result.is_some())
-        {
-            return Ok(());
-        }
-        let git = c.scope.inputs.workspace().git().clone();
-        let prepared = if expected.source.operations.contains_key(key) {
-            expected
-        } else {
-            let observed = expected.clone();
-            let c = c.clone();
-            // Query/census before freezing ONLY the first checkpoint intent.
-            // A retry always uses the original expected head/generation/UUID.
-            let (head, size) = if key == "checkpoint" {
-                let git = git.clone();
-                let binding = expected.scope.source.clone();
-                let workspace = expected.scope.workspace.clone();
-                let roots = c.clone();
-                // The original complete allocation receipt is retained by this
-                // same journal owner. It is a comparison pin, not current proof.
-                let original = self
-                    .storage(move |owner| {
-                        owner.journal.state().attempts[&id]
-                            .source
-                            .as_ref()
-                            .and_then(|s| s.operations.get("create"))
-                            .and_then(|o| o.result.clone())
-                            .context("result original workspace allocation absent")
-                    })
-                    .await?;
-                let scope = expected.scope.clone();
-                tokio::task::spawn_blocking(move || -> Result<_> {
-                    roots.roots.verify()?;
-                    let bytes = crate::source::workspace_bytes(&workspace.path)?;
-                    let value = git.query(
-                        &binding,
-                        "workspace.inspect",
-                        serde_json::json!({"workspace_id":workspace.workspace_id}),
-                    )?;
-                    let head = inspect_checkpoint_workspace(&value, &original, &scope)?;
-                    roots.roots.verify()?;
-                    Ok((Some(head), Some(bytes)))
-                })
-                .await??
-            } else {
-                (None, None)
-            };
-            stopped.verify(self)?;
-            self.storage(move |owner| {
-                let digest = observed.digest()?;
-                owner.journal.update_result(id, &digest, |h, _| {
-                    let (operation, action) = match key {
-                        "checkpoint" => {
-                            h.source.head = head;
-                            h.source.workspace_bytes = size;
-                            ensure!(
-                                size.is_some_and(|n| n <= h.scope.workspace_limit_bytes),
-                                "stopped workspace exceeds original reservation"
-                            );
-                            (
-                                h.scope.operations.checkpoint,
-                                GitAction::Checkpoint {
-                                    workspace_id: h.scope.workspace.workspace_id,
-                                    generation: h.scope.workspace.generation,
-                                    head: h.source.head.clone().unwrap(),
-                                },
-                            )
-                        }
-                        "export" => {
-                            let checkpoint = h
-                                .source
-                                .checkpoint
-                                .as_ref()
-                                .context("result checkpoint absent")?;
-                            (
-                                h.scope.operations.export,
-                                GitAction::Export {
-                                    source: checkpoint.source.clone(),
-                                    retention_handle: checkpoint.retention_handle,
-                                },
-                            )
-                        }
-                        _ => anyhow::bail!("unsupported result source action"),
-                    };
-                    h.source.operations.insert(
-                        key.into(),
-                        PendingGitOperation {
-                            operation_id: operation,
-                            request: action.request(&h.scope.source, operation),
-                            result: None,
-                        },
-                    );
-                    Ok(())
-                })
-            })
-            .await?
-        };
-        let operation = prepared.source.operations[key].clone();
-        let expected_digest = prepared.digest()?;
-        let c = stopped.custody.clone();
-        let (value, export) = tokio::task::spawn_blocking(move || -> Result<_> {
-            c.roots.verify()?;
-            let value = git.exchange(&operation.request)?;
-            ensure!(
-                serde_json::to_vec(&value)?.len() <= MAX_GIT_REPLY_BYTES,
-                "oversized result source reply; original operation retained"
-            );
-            let export = if key == "export" {
-                Some(verify_export(git.root(), &value, &prepared)?)
-            } else {
-                None
-            };
-            c.roots.verify()?;
-            Ok((value, export))
-        })
-        .await??;
-        stopped.verify(self)?;
-        self.storage(move |owner| {
-            owner.journal.update_result(id, &expected_digest, |h, _| {
-                let op = h
-                    .source
-                    .operations
-                    .get_mut(key)
-                    .context("result source intent absent")?;
-                ensure!(op.result.is_none(), "result source effect raced");
-                op.result = Some(value.clone());
-                if key == "checkpoint" {
-                    h.source.checkpoint = Some(serde_json::from_value(value)?)
-                } else {
-                    h.source.export = export
-                }
-                Ok(())
-            })?;
-            Ok(())
-        })
-        .await
-    }
     /// Only an actual stopped owner can checkpoint/export. Fresh current grant
     /// is intentionally unnecessary for preserving already-produced source.
     pub async fn capture_result_source(&self, stopped: &DurableStoppedResult) -> Result<()> {
@@ -184,8 +20,7 @@ impl InputPipeline {
             .clone()
             .try_acquire_owned()
             .context("native source capture overloaded")?;
-        self.result_git_effect(stopped, "checkpoint").await?;
-        self.result_git_effect(stopped, "export").await
+        capture(&Live(self, stopped)).await
     }
     /// One bounded authenticated transfer step; intent precedes I/O and the
     /// original pending chunk/finalize is reused after response loss.
@@ -199,121 +34,297 @@ impl InputPipeline {
             .clone()
             .try_acquire_owned()
             .context("native result transfer overloaded")?;
-        let id = stopped.attempt_id();
-        let mut history = self.result_snapshot(stopped).await?;
-        if history.source.receipt.is_some() {
-            return Ok(true);
-        }
-        if history.source.transfer.is_none() {
-            let old = history.clone();
-            history = self
-                .storage(move |owner| {
-                    let digest = old.digest()?;
-                    owner.journal.update_result(id, &digest, |h, _| {
-                        let e = h.source.export.as_ref().context("result export absent")?;
-                        let b = &h.scope.binding.launch;
-                        let aq_session_protocol::SessionIdentity::Remote {
-                            node_id,
-                            boot_id,
-                            session_id,
-                            ..
-                        } = b.session
-                        else {
-                            anyhow::bail!("result remote session absent")
-                        };
-                        let manifest = TransferManifest {
-                            transfer_id: h.scope.operations.transfer,
-                            role: SourceRole::Checkpoint,
-                            checkpoint: e.manifest.source.clone(),
-                            attempt: AttemptRef {
-                                attempt_id: b.attempt_id,
-                                session_id,
-                                generation: b.assignment_generation,
-                            },
-                            resolved_spec_digest: b.execution_spec_digest.as_str().into(),
-                            source: h.scope.source.clone(),
-                            artifact_id: e.artifact,
-                            manifest_digest: e.manifest_digest.clone(),
-                            bundle_digest: e.manifest.bundle_sha256.clone(),
-                            manifest_bytes: e.manifest_bytes,
-                            bundle_bytes: e.manifest.bundle_size,
-                        };
-                        manifest.validate()?;
-                        h.source.transfer = Some(manifest);
-                        h.source.upload = Some(UploadState {
-                            identity: NodeIdentity { node_id, boot_id },
-                            begin_operation: h.scope.operations.upload_begin,
-                            finalize_operation: h.scope.operations.upload_finalize,
-                            begun: false,
-                            manifest_offset: 0,
-                            bundle_offset: 0,
-                            pending: None,
-                        });
-                        Ok(())
-                    })
+        transfer_step(&Live(self, stopped), client).await
+    }
+}
+pub(super) async fn snapshot<O: StoppedOwner>(o: &O) -> Result<ResultHistory> {
+    o.verify()?;
+    let id = o.attempt_id();
+    o.journal(move |journal| {
+        Ok(journal.state().attempts[&id]
+            .result
+            .as_ref()
+            .context("result history absent")?
+            .clone())
+    })
+    .await
+}
+pub(super) async fn capture<O: StoppedOwner>(o: &O) -> Result<()> {
+    git_effect(o, "checkpoint").await?;
+    git_effect(o, "export").await
+}
+/// Finite transfer bound: every manifest and bundle chunk, plus begin and finalize.
+pub(crate) fn transfer_bound(h: &ResultHistory) -> Result<u64> {
+    let export = h
+        .source
+        .export
+        .as_ref()
+        .context("actual result export absent")?;
+    let chunk = aq_worker_protocol::MAX_CHUNK_BYTES as u64;
+    export
+        .manifest_bytes
+        .div_ceil(chunk)
+        .checked_add(export.manifest.bundle_size.div_ceil(chunk))
+        .and_then(|n| n.checked_add(2))
+        .context("result transfer finite bound overflow")
+}
+async fn git_effect<O: StoppedOwner>(o: &O, key: &'static str) -> Result<()> {
+    o.verify()?;
+    let id = o.attempt_id();
+    let expected = snapshot(o).await?;
+    if expected
+        .source
+        .operations
+        .get(key)
+        .is_some_and(|op| op.result.is_some())
+    {
+        return Ok(());
+    }
+    let git = o.git();
+    let prepared = if expected.source.operations.contains_key(key) {
+        expected
+    } else {
+        let observed = expected.clone();
+        // Query/census before freezing ONLY the first checkpoint intent.
+        // A retry always uses the original expected head/generation/UUID.
+        let (head, size) = if key == "checkpoint" {
+            let git = git.clone();
+            let binding = expected.scope.source.clone();
+            let workspace = expected.scope.workspace.clone();
+            let roots = o.roots();
+            // The original complete allocation receipt is retained by this
+            // same journal owner. It is a comparison pin, not current proof.
+            let original = o
+                .journal(move |journal| {
+                    journal.state().attempts[&id]
+                        .source
+                        .as_ref()
+                        .and_then(|s| s.operations.get("create"))
+                        .and_then(|o| o.result.clone())
+                        .context("result original workspace allocation absent")
                 })
                 .await?;
-        }
-        let manifest = history.source.transfer.as_ref().unwrap().clone();
-        let upload = history.source.upload.as_ref().unwrap();
-        let node = upload.identity.node_id;
-        let plan =
-            steps::propose_upload(upload, &manifest, Some(&history.scope.managed_root), node)?;
-        // Persist even the original pending request before any network exchange.
-        let observed = history.digest()?;
-        let state = plan.state;
-        let action = plan.action;
-        history = self
-            .storage(move |owner| {
-                owner.journal.update_result(id, &observed, |h, _| {
-                    h.source.upload = Some(state);
+            let scope = expected.scope.clone();
+            tokio::task::spawn_blocking(move || -> Result<_> {
+                roots.verify()?;
+                let bytes = crate::source::workspace_bytes(&workspace.path)?;
+                let value = git.query(
+                    &binding,
+                    "workspace.inspect",
+                    serde_json::json!({"workspace_id":workspace.workspace_id}),
+                )?;
+                let head = inspect_checkpoint_workspace(&value, &original, &scope)?;
+                roots.verify()?;
+                Ok((Some(head), Some(bytes)))
+            })
+            .await??
+        } else {
+            (None, None)
+        };
+        o.verify()?;
+        o.journal(move |journal| {
+            let digest = observed.digest()?;
+            journal.update_result(id, &digest, |h, _| {
+                let (operation, action) = match key {
+                    "checkpoint" => {
+                        h.source.head = head;
+                        h.source.workspace_bytes = size;
+                        ensure!(
+                            size.is_some_and(|n| n <= h.scope.workspace_limit_bytes),
+                            "stopped workspace exceeds original reservation"
+                        );
+                        (
+                            h.scope.operations.checkpoint,
+                            GitAction::Checkpoint {
+                                workspace_id: h.scope.workspace.workspace_id,
+                                generation: h.scope.workspace.generation,
+                                head: h.source.head.clone().unwrap(),
+                            },
+                        )
+                    }
+                    "export" => {
+                        let checkpoint = h
+                            .source
+                            .checkpoint
+                            .as_ref()
+                            .context("result checkpoint absent")?;
+                        (
+                            h.scope.operations.export,
+                            GitAction::Export {
+                                source: checkpoint.source.clone(),
+                                retention_handle: checkpoint.retention_handle,
+                            },
+                        )
+                    }
+                    _ => anyhow::bail!("unsupported result source action"),
+                };
+                h.source.operations.insert(
+                    key.into(),
+                    PendingGitOperation {
+                        operation_id: operation,
+                        request: action.request(&h.scope.source, operation),
+                        result: None,
+                    },
+                );
+                Ok(())
+            })
+        })
+        .await?
+    };
+    let operation = prepared.source.operations[key].clone();
+    let expected_digest = prepared.digest()?;
+    let roots = o.roots();
+    let (value, export) = tokio::task::spawn_blocking(move || -> Result<_> {
+        roots.verify()?;
+        let value = git.exchange(&operation.request)?;
+        ensure!(
+            serde_json::to_vec(&value)?.len() <= MAX_GIT_REPLY_BYTES,
+            "oversized result source reply; original operation retained"
+        );
+        let export = if key == "export" {
+            Some(verify_export(git.root(), &value, &prepared)?)
+        } else {
+            None
+        };
+        roots.verify()?;
+        Ok((value, export))
+    })
+    .await??;
+    o.verify()?;
+    o.journal(move |journal| {
+        journal.update_result(id, &expected_digest, |h, _| {
+            let op = h
+                .source
+                .operations
+                .get_mut(key)
+                .context("result source intent absent")?;
+            ensure!(op.result.is_none(), "result source effect raced");
+            op.result = Some(value.clone());
+            if key == "checkpoint" {
+                h.source.checkpoint = Some(serde_json::from_value(value)?)
+            } else {
+                h.source.export = export
+            }
+            Ok(())
+        })?;
+        Ok(())
+    })
+    .await
+}
+pub(super) async fn transfer_step<O: StoppedOwner>(o: &O, client: &TransferClient) -> Result<bool> {
+    let id = o.attempt_id();
+    let mut history = snapshot(o).await?;
+    if history.source.receipt.is_some() {
+        return Ok(true);
+    }
+    if history.source.transfer.is_none() {
+        let old = history.clone();
+        history = o
+            .journal(move |journal| {
+                let digest = old.digest()?;
+                journal.update_result(id, &digest, |h, _| {
+                    let e = h.source.export.as_ref().context("result export absent")?;
+                    let b = &h.scope.binding.launch;
+                    let aq_session_protocol::SessionIdentity::Remote {
+                        node_id,
+                        boot_id,
+                        session_id,
+                        ..
+                    } = b.session
+                    else {
+                        anyhow::bail!("result remote session absent")
+                    };
+                    let manifest = TransferManifest {
+                        transfer_id: h.scope.operations.transfer,
+                        role: SourceRole::Checkpoint,
+                        checkpoint: e.manifest.source.clone(),
+                        attempt: AttemptRef {
+                            attempt_id: b.attempt_id,
+                            session_id,
+                            generation: b.assignment_generation,
+                        },
+                        resolved_spec_digest: b.execution_spec_digest.as_str().into(),
+                        source: h.scope.source.clone(),
+                        artifact_id: e.artifact,
+                        manifest_digest: e.manifest_digest.clone(),
+                        bundle_digest: e.manifest.bundle_sha256.clone(),
+                        manifest_bytes: e.manifest_bytes,
+                        bundle_bytes: e.manifest.bundle_size,
+                    };
+                    manifest.validate()?;
+                    h.source.transfer = Some(manifest);
+                    h.source.upload = Some(UploadState {
+                        identity: NodeIdentity { node_id, boot_id },
+                        begin_operation: h.scope.operations.upload_begin,
+                        finalize_operation: h.scope.operations.upload_finalize,
+                        begun: false,
+                        manifest_offset: 0,
+                        bundle_offset: 0,
+                        pending: None,
+                    });
                     Ok(())
                 })
             })
             .await?;
-        stopped.verify(self)?;
-        let status = match &action {
-            UploadAction::Begin {
-                identity,
-                operation_id,
-                manifest,
-            } => client.begin(identity, *operation_id, manifest).await?,
-            UploadAction::Chunk { request, bytes } => client.upload(request, bytes.clone()).await?,
-            UploadAction::Finalize(request) => client.finalize(request).await?,
-        };
-        stopped.verify(self)?;
-        let next = steps::acknowledge_upload(
-            history.source.upload.as_ref().unwrap(),
-            &manifest,
-            &action,
-            status,
-            node,
-        )?;
-        let digest = history.digest()?;
-        let done = self
-            .storage(move |owner| {
-                let updated = owner.journal.update_result(id, &digest, |h, _| {
-                    match next {
-                        UploadAcknowledgment::Progress(state) => h.source.upload = Some(state),
-                        UploadAcknowledgment::RetentionClaim(receipt) => {
-                            let e = h.source.export.as_ref().unwrap();
-                            steps::validate_retention_claim(
-                                &receipt,
-                                &manifest,
-                                &e.manifest,
-                                &h.scope.source,
-                                &e.manifest.source,
-                            )?;
-                            h.source.receipt = Some(receipt);
-                        }
-                    }
-                    Ok(())
-                })?;
-                Ok(updated.source.receipt.is_some())
-            })
-            .await?;
-        Ok(done)
     }
+    let manifest = history.source.transfer.as_ref().unwrap().clone();
+    let upload = history.source.upload.as_ref().unwrap();
+    let node = upload.identity.node_id;
+    let plan = steps::propose_upload(upload, &manifest, Some(&history.scope.managed_root), node)?;
+    // Persist even the original pending request before any network exchange.
+    let observed = history.digest()?;
+    let state = plan.state;
+    let action = plan.action;
+    history = o
+        .journal(move |journal| {
+            journal.update_result(id, &observed, |h, _| {
+                h.source.upload = Some(state);
+                Ok(())
+            })
+        })
+        .await?;
+    o.verify()?;
+    let status = match &action {
+        UploadAction::Begin {
+            identity,
+            operation_id,
+            manifest,
+        } => client.begin(identity, *operation_id, manifest).await?,
+        UploadAction::Chunk { request, bytes } => client.upload(request, bytes.clone()).await?,
+        UploadAction::Finalize(request) => client.finalize(request).await?,
+    };
+    o.verify()?;
+    let next = steps::acknowledge_upload(
+        history.source.upload.as_ref().unwrap(),
+        &manifest,
+        &action,
+        status,
+        node,
+    )?;
+    let digest = history.digest()?;
+    let done = o
+        .journal(move |journal| {
+            let updated = journal.update_result(id, &digest, |h, _| {
+                match next {
+                    UploadAcknowledgment::Progress(state) => h.source.upload = Some(state),
+                    UploadAcknowledgment::RetentionClaim(receipt) => {
+                        let e = h.source.export.as_ref().unwrap();
+                        steps::validate_retention_claim(
+                            &receipt,
+                            &manifest,
+                            &e.manifest,
+                            &h.scope.source,
+                            &e.manifest.source,
+                        )?;
+                        h.source.receipt = Some(receipt);
+                    }
+                }
+                Ok(())
+            })?;
+            Ok(updated.source.receipt.is_some())
+        })
+        .await?;
+    Ok(done)
 }
 /// aq-git's active inspection is an envelope containing the complete workspace
 /// record. Compare it with the original allocation, then use the current HEAD;

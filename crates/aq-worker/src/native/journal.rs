@@ -28,6 +28,8 @@ mod prepared;
 pub use phase_prepared::PhasePreparedIntent;
 mod result;
 mod source;
+#[cfg(test)]
+pub(crate) use result::salvage_history;
 pub(crate) use result::terminal_stop as result_terminal_stop;
 mod storage;
 use super::http::{boot_ns, control::Preparation};
