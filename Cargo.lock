@@ -184,6 +184,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-finite-responses"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+]
+
+[[package]]
 name = "aq-lifecycle-protocol"
 version = "0.1.0"
 dependencies = [
@@ -420,6 +428,7 @@ dependencies = [
  "aq-agent-client",
  "aq-agent-result-local",
  "aq-codex-mapper",
+ "aq-finite-responses",
  "aq-lifecycle-protocol",
  "aq-machine-load",
  "aq-observation",

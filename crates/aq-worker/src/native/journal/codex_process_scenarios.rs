@@ -33,10 +33,10 @@ impl Drop for Provider {
     }
 }
 fn completed(model: &str) -> String {
-    crate::finite_responses_fixture::completed(model, FINAL_TEXT)
+    aq_finite_responses::completed(model, FINAL_TEXT)
 }
 fn tool_call(model: &str) -> String {
-    crate::finite_responses_fixture::exec_command(
+    aq_finite_responses::exec_command(
         model,
         "resp_aq_tool",
         "fc_aq_local",
@@ -67,7 +67,7 @@ async fn provider_mode(tool_flow: bool) -> Provider {
                     !headers.contains_key("content-encoding"),
                     "fixture expects uncompressed JSON"
                 );
-                let request = crate::finite_responses_fixture::request(
+                let request = aq_finite_responses::request(
                     &body,
                     None,
                     4096,
