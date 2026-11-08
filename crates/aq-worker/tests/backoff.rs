@@ -19,3 +19,21 @@ fn attempt_zero_has_one_second_ceiling() {
     // Huge attempts must not overflow.
     assert!(delay(u32::MAX, &mut rng) <= Duration::from_secs(60));
 }
+
+#[test]
+fn jittered_is_bounded_by_base_doubling_and_cap() {
+    use aq_worker::backoff::jittered;
+    let mut rng = StdRng::seed_from_u64(3);
+    let (base, cap) = (Duration::from_millis(500), Duration::from_secs(8));
+    for attempt in [0, 1, 2, 3, 4, 5, 31, u32::MAX] {
+        let ceiling = Duration::from_millis(500u64.saturating_mul(1 << attempt.min(31))).min(cap);
+        let samples: Vec<_> = (0..200)
+            .map(|_| jittered(attempt, base, cap, &mut rng))
+            .collect();
+        assert!(samples.iter().all(|d| *d <= ceiling), "{attempt}");
+        assert!(
+            samples.iter().any(|d| *d != samples[0]),
+            "{attempt}: jittered"
+        );
+    }
+}

@@ -184,6 +184,15 @@ impl Layout {
     pub fn archive_dir(&self, slot: u32) -> PathBuf {
         self.slot_state(slot).join("archive")
     }
+    /// Present only while the slot's recovery is held for the owner: the reason, which
+    /// `service status` reports for the slot.
+    pub fn slot_held(&self, slot: u32) -> PathBuf {
+        self.slot_state(slot).join("held")
+    }
+    /// Why the slot is held, if it is.
+    pub fn held_reason(&self, slot: u32) -> Option<String> {
+        std::fs::read_to_string(self.slot_held(slot)).ok()
+    }
     pub fn renderer_pin(&self) -> PathBuf {
         self.state_root.join("renderer.json")
     }

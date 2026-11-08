@@ -14,49 +14,28 @@ pub(crate) struct PhaseScope<'a> {
 }
 impl Attempt {
     pub(crate) fn phase_scope(&self) -> Result<PhaseScope<'_>> {
+        // One scope for either profile: its execution and the lease its preparation accepted.
+        macro_rules! scope {
+            ($e:expr, $preparation:expr, $absent:literal) => {{
+                let a = &$preparation.as_ref().context($absent)?;
+                let a = &a.delivery.receipt.lease;
+                Ok(PhaseScope {
+                    grant: &$e.delivery.receipt.grant,
+                    digest: $e.digest()?,
+                    record_revision: $e.record_revision,
+                    observed_before_write_ns: $e.observed_before_write_ns,
+                    deadline_ns: $e.deadline_ns,
+                    hard_deadline_ns: $e.hard_deadline_ns,
+                    kernel_boot_id: $e.kernel_boot_id,
+                    guardian_id: a.guardian_id,
+                    launch_id: a.launch_id,
+                    reservation_id: a.hold.reservation.reservation_id,
+                })
+            }};
+        }
         match (&self.phase_execution, &self.refresh_execution) {
-            (Some(e), None) => {
-                let a = &self
-                    .phase_preparation
-                    .as_ref()
-                    .context("Frozen Accepted absent")?
-                    .delivery
-                    .receipt
-                    .lease;
-                Ok(PhaseScope {
-                    grant: &e.delivery.receipt.grant,
-                    digest: e.digest()?,
-                    record_revision: e.record_revision,
-                    observed_before_write_ns: e.observed_before_write_ns,
-                    deadline_ns: e.deadline_ns,
-                    hard_deadline_ns: e.hard_deadline_ns,
-                    kernel_boot_id: e.kernel_boot_id,
-                    guardian_id: a.guardian_id,
-                    launch_id: a.launch_id,
-                    reservation_id: a.hold.reservation.reservation_id,
-                })
-            }
-            (None, Some(e)) => {
-                let a = &self
-                    .refresh_preparation
-                    .as_ref()
-                    .context("Refresh Accepted absent")?
-                    .delivery
-                    .receipt
-                    .lease;
-                Ok(PhaseScope {
-                    grant: &e.delivery.receipt.grant,
-                    digest: e.digest()?,
-                    record_revision: e.record_revision,
-                    observed_before_write_ns: e.observed_before_write_ns,
-                    deadline_ns: e.deadline_ns,
-                    hard_deadline_ns: e.hard_deadline_ns,
-                    kernel_boot_id: e.kernel_boot_id,
-                    guardian_id: a.guardian_id,
-                    launch_id: a.launch_id,
-                    reservation_id: a.hold.reservation.reservation_id,
-                })
-            }
+            (Some(e), None) => scope!(e, self.phase_preparation, "Frozen Accepted absent"),
+            (None, Some(e)) => scope!(e, self.refresh_preparation, "Refresh Accepted absent"),
             _ => anyhow::bail!("missing or mixed exact phase execution"),
         }
     }

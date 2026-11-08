@@ -14,6 +14,7 @@ use aq_protocol::{
 use aq_worker::{
     client::Client,
     config::WorkerConfig,
+    native::journal::InconsistentJournal,
     native::runner::{
         ClaudeDockerExecutor, ExecutorConfig, NativeConfig, RunDisposition, SalvageDisposition,
         claimed_attempts, destroy_claimed_sandboxes, retained_attempts, run_until_attempt,
@@ -146,6 +147,75 @@ impl NativeSlotBackend {
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
         slot_native_config(&self.template, ctx)
+    }
+    async fn recover_attempts(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
+        let worker = WorkerConfig::load(&ctx.enrollment)?;
+        let cfg = self.native_config(&ctx)?;
+        let link = ServerLink::from_enrollment(&EnrollmentFile::load(&ctx.enrollment)?)?;
+        let mut outcome = RecoverOutcome::Clean;
+        for attempt in retained_attempts(&cfg, worker.node_id)? {
+            let notice = HandoffNotice {
+                schema_version: 1,
+                attempt_id: attempt,
+                reason: restart_reason(&ctx, attempt),
+            };
+            if !self.notified.lock().unwrap().contains(&attempt) {
+                match link.handoff(&notice).await {
+                    Ok(()) => drop(self.notified.lock().unwrap().insert(attempt)),
+                    Err(e) => tracing::warn!(%attempt, "handoff notice: {e:#}"),
+                }
+            }
+            let salvaged = salvage_interrupted(&worker, &cfg, attempt).await;
+            if let Some((proof, why)) = unproven(&salvaged) {
+                let Some(proof) = proof else {
+                    tracing::error!(%attempt, "recovery held: {why}");
+                    return Ok(RecoverOutcome::Held(why));
+                };
+                let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+                    &cfg.executor
+                else {
+                    return Ok(RecoverOutcome::Held(why));
+                };
+                let docker = settings.host.docker_local.clone();
+                let stop = async || {
+                    let mut backend =
+                        aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(docker)
+                            .await?;
+                    stop_attempt_sandboxes(&mut backend, worker.node_id, attempt).await
+                };
+                let post = async |r| link.lost_attempt(&r).await;
+                let claimed = claimed_attempts(&cfg, worker.node_id)?.contains(&attempt);
+                let dir = &ctx.state_dir;
+                match release_lost(stop, post, dir, attempt, proof, claimed, &why).await {
+                    RecoverOutcome::Lost => outcome = RecoverOutcome::Lost,
+                    held => return Ok(held),
+                }
+                continue;
+            }
+            match salvaged? {
+                SalvageDisposition::Unsalvageable(why) => {
+                    return Ok(RecoverOutcome::Held(why.to_owned()));
+                }
+                SalvageDisposition::Salvaged => outcome = RecoverOutcome::Salvaged,
+                SalvageDisposition::AlreadyReported | SalvageDisposition::NotStarted => {
+                    if outcome == RecoverOutcome::Clean {
+                        outcome = RecoverOutcome::Reported;
+                    }
+                }
+            }
+        }
+        Ok(outcome)
+    }
+}
+/// R1: a journal whose own content is inconsistent cannot recover by retrying: the slot is
+/// held with the reason (shown by `service status`), not retried with backoff forever.
+fn held_if_inconsistent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome> {
+    match recovered {
+        Err(e) if e.downcast_ref::<InconsistentJournal>().is_some() => {
+            tracing::error!("recovery held: {e:#}");
+            Ok(RecoverOutcome::Held(format!("journal_inconsistent: {e:#}")))
+        }
+        other => other,
     }
 }
 /// The native template, pointed at the slot's state (journal, Git) and runtime directory
@@ -343,62 +413,7 @@ impl SlotBackend for NativeSlotBackend {
         )
     }
     async fn recover(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
-        let worker = WorkerConfig::load(&ctx.enrollment)?;
-        let cfg = self.native_config(&ctx)?;
-        let link = ServerLink::from_enrollment(&EnrollmentFile::load(&ctx.enrollment)?)?;
-        let mut outcome = RecoverOutcome::Clean;
-        for attempt in retained_attempts(&cfg, worker.node_id)? {
-            let notice = HandoffNotice {
-                schema_version: 1,
-                attempt_id: attempt,
-                reason: restart_reason(&ctx, attempt),
-            };
-            if !self.notified.lock().unwrap().contains(&attempt) {
-                match link.handoff(&notice).await {
-                    Ok(()) => drop(self.notified.lock().unwrap().insert(attempt)),
-                    Err(e) => tracing::warn!(%attempt, "handoff notice: {e:#}"),
-                }
-            }
-            let salvaged = salvage_interrupted(&worker, &cfg, attempt).await;
-            if let Some((proof, why)) = unproven(&salvaged) {
-                let Some(proof) = proof else {
-                    tracing::error!(%attempt, "recovery held: {why}");
-                    return Ok(RecoverOutcome::Held(why));
-                };
-                let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
-                    &cfg.executor
-                else {
-                    return Ok(RecoverOutcome::Held(why));
-                };
-                let docker = settings.host.docker_local.clone();
-                let stop = async || {
-                    let mut backend =
-                        aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(docker)
-                            .await?;
-                    stop_attempt_sandboxes(&mut backend, worker.node_id, attempt).await
-                };
-                let post = async |r| link.lost_attempt(&r).await;
-                let claimed = claimed_attempts(&cfg, worker.node_id)?.contains(&attempt);
-                let dir = &ctx.state_dir;
-                match release_lost(stop, post, dir, attempt, proof, claimed, &why).await {
-                    RecoverOutcome::Lost => outcome = RecoverOutcome::Lost,
-                    held => return Ok(held),
-                }
-                continue;
-            }
-            match salvaged? {
-                SalvageDisposition::Unsalvageable(why) => {
-                    return Ok(RecoverOutcome::Held(why.to_owned()));
-                }
-                SalvageDisposition::Salvaged => outcome = RecoverOutcome::Salvaged,
-                SalvageDisposition::AlreadyReported | SalvageDisposition::NotStarted => {
-                    if outcome == RecoverOutcome::Clean {
-                        outcome = RecoverOutcome::Reported;
-                    }
-                }
-            }
-        }
-        Ok(outcome)
+        held_if_inconsistent(self.recover_attempts(ctx).await)
     }
     async fn release_claimed(&self, ctx: SlotContext) -> Result<usize> {
         let cfg = self.native_config(&ctx)?;
@@ -732,10 +747,23 @@ fn status(profile: &str) -> Result<()> {
         ServiceState::Other(s) => s,
     };
     println!("aq-node@{profile} ({}): {state}", manager.kind());
-    if let Ok((_, config)) = loaded(profile) {
+    if let Ok((layout, config)) = loaded(profile) {
         println!("machine {}: {} slot(s)", config.machine_key, config.slots);
+        for slot in 1..=config.slots {
+            println!("{}", slot_line(&layout, slot));
+        }
     }
     Ok(())
+}
+/// One slot of `service status`: held with its reason, or not held.
+fn slot_line(layout: &Layout, slot: u32) -> String {
+    match layout.held_reason(slot) {
+        Some(why) => format!(
+            "slot {slot}: held until the owner releases it: {}",
+            why.trim()
+        ),
+        None => format!("slot {slot}: not held"),
+    }
 }
 async fn measure(profile: &str, output: Option<&Path>) -> Result<()> {
     let (layout, config) = loaded(profile)?;
@@ -1640,6 +1668,43 @@ mod tests {
         assert_eq!(destroyable(dir.path(), vec![lost, claimed]), [claimed]);
     }
 
+    /// R1: an inconsistent journal (missing or mixed history) holds the slot with its reason
+    /// instead of failing every retry; any other recovery error is still retried.
+    #[test]
+    fn an_inconsistent_journal_holds_the_slot_and_status_names_the_reason() {
+        use aq_worker::native::journal::InconsistentJournal;
+        let mixed = anyhow::anyhow!("host without actual phase execution");
+        let held = held_if_inconsistent(Err(InconsistentJournal(mixed).into())).unwrap();
+        let why = "journal_inconsistent: host without actual phase execution";
+        assert_eq!(held, RecoverOutcome::Held(why.into()));
+        let wrapped = Err(anyhow::Error::from(InconsistentJournal(anyhow::anyhow!(
+            "shape"
+        ))));
+        let wrapped = held_if_inconsistent(wrapped.context("recover slot 1")).unwrap();
+        assert!(matches!(wrapped, RecoverOutcome::Held(w) if w.contains("shape")));
+        let transient = held_if_inconsistent(Err(anyhow::anyhow!("server unreachable")));
+        assert!(
+            transient.is_err(),
+            "a transient failure is retried, not held"
+        );
+        let fine = held_if_inconsistent(Ok(RecoverOutcome::Reported)).unwrap();
+        assert_eq!(fine, RecoverOutcome::Reported);
+
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout {
+            config_dir: dir.path().join("config"),
+            state_root: dir.path().join("state"),
+            runtime_root: dir.path().join("run"),
+        };
+        assert_eq!(slot_line(&layout, 1), "slot 1: not held");
+        write_private(&layout.slot_held(1), why.as_bytes()).unwrap();
+        let line = slot_line(&layout, 1);
+        assert_eq!(
+            line,
+            format!("slot 1: held until the owner releases it: {why}")
+        );
+        assert_eq!(slot_line(&layout, 2), "slot 2: not held");
+    }
     /// #51 review M4: `release-sandbox` refuses a sandbox whose attempt the slot's recovery still
     /// holds for salvage (or cannot tell: the service owns the journal), unless it went through
     /// the lost path or the slot has no journal.

@@ -444,7 +444,13 @@ async fn phase_execution_history_reopen_refuses_changed_runtime_request_and_send
         });
         let mut cap = limits();
         cap.disk_bytes = 64 * 1024 * 1024 * 1024;
-        assert!(Journal::open(&h.root, identity().node_id, cap).is_err());
+        let refused = Journal::open(&h.root, identity().node_id, cap).err();
+        assert!(
+            refused
+                .unwrap()
+                .downcast_ref::<InconsistentJournal>()
+                .is_some()
+        );
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -6,7 +6,10 @@ use aq_admission::{
 };
 use aq_worker::{
     config::WorkerConfig,
-    native::{ArtifactAssembly, http::NativeClient},
+    native::{
+        ArtifactAssembly,
+        http::{HttpStatus, NativeClient},
+    },
 };
 use axum::{
     Json, Router,
@@ -297,6 +300,148 @@ async fn artifact_headers_ranges_and_exact_assembly_are_checked() {
                 .is_err()
         );
     }
+}
+/// A synthetic artifact route that answers the scripted refusals (status, `Retry-After`) in
+/// order, then the artifact; returns the server and its request count.
+async fn scripted_artifact(script: Vec<(u16, Option<&'static str>)>) -> (Server, Arc<AtomicUsize>) {
+    let (_, descriptor, bytes) = artifact_fixture();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let server = Server::new(Router::new().route(
+        "/v1/worker/profiled/artifact",
+        post(move |headers: HeaderMap, Json(r): Json<ArtifactFetch>| {
+            let (d, bytes, calls) = (descriptor.clone(), bytes.clone(), calls.clone());
+            let script = script.clone();
+            async move {
+                auth(&headers);
+                let n = calls.fetch_add(1, Ordering::SeqCst);
+                if let Some(&(status, after)) = script.get(n) {
+                    let mut refused =
+                        (StatusCode::from_u16(status).unwrap(), "overloaded").into_response();
+                    if let Some(after) = after {
+                        refused
+                            .headers_mut()
+                            .insert("retry-after", after.parse().unwrap());
+                    }
+                    return refused;
+                }
+                let mut response = octets("aq-artifact-retention", &d, bytes);
+                let offset = r.offset.to_string().parse().unwrap();
+                response.headers_mut().insert("aq-artifact-offset", offset);
+                response
+            }
+        }),
+    ))
+    .await;
+    (server, seen)
+}
+/// R1: a transient refusal of an artifact download (the live `503 overloaded`) is retried
+/// with the same request until it succeeds; a persistent one fails after `FETCH_TRIES`.
+#[tokio::test]
+async fn transient_artifact_refusals_are_retried_then_succeed_or_fail_bounded() {
+    let (request, descriptor, bytes) = artifact_fixture();
+    let (server, calls) = scripted_artifact(vec![(503, None), (503, Some("0"))]).await;
+    let chunk = server
+        .client()
+        .artifact(&request, &descriptor)
+        .await
+        .unwrap();
+    assert_eq!(chunk.bytes, bytes);
+    assert_eq!(calls.load(Ordering::SeqCst), 3, "503, 503, then 200");
+
+    let (server, calls) = scripted_artifact(vec![(503, Some("0")); 9]).await;
+    let e = server
+        .client()
+        .artifact(&request, &descriptor)
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(
+        e.downcast_ref::<HttpStatus>().unwrap().0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let tries = aq_worker::native::http::FETCH_TRIES as usize;
+    assert_eq!(calls.load(Ordering::SeqCst), tries, "bounded");
+}
+/// Only 502/503/504, 408 and 429 are retried, a `Retry-After` is waited exactly, and one past
+/// the backoff cap ends the retries; any other 4xx (or 500) is final at once.
+#[tokio::test]
+async fn artifact_retry_honors_retry_after_and_never_retries_other_refusals() {
+    let (request, descriptor, _) = artifact_fixture();
+    for status in [429, 408, 502, 504] {
+        let (server, calls) = scripted_artifact(vec![(status, Some("0"))]).await;
+        server
+            .client()
+            .artifact(&request, &descriptor)
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "{status} retried");
+    }
+    let (server, calls) = scripted_artifact(vec![(429, Some("1"))]).await;
+    let started = std::time::Instant::now();
+    server
+        .client()
+        .artifact(&request, &descriptor)
+        .await
+        .unwrap();
+    assert!(
+        started.elapsed() >= Duration::from_secs(1),
+        "Retry-After waited"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    for (status, after) in [
+        (400, None),
+        (404, None),
+        (409, None),
+        (500, None),
+        (429, Some("60")),
+    ] {
+        let (server, calls) = scripted_artifact(vec![(status, after); 2]).await;
+        let e = server
+            .client()
+            .artifact(&request, &descriptor)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(e.downcast_ref::<HttpStatus>().unwrap().0.as_u16(), status);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "{status} {after:?} is final"
+        );
+    }
+}
+/// The retry classification: transport failures are transient and back off within
+/// [0, 500 ms * 2^n] capped at 8 s; a refusal's `Retry-After` overrides the backoff.
+#[test]
+fn fetch_retry_wait_classifies_and_bounds() {
+    use aq_worker::native::http::{TransportFailed, fetch_retry_wait};
+    let transport: anyhow::Error = TransportFailed("native request transport failed").into();
+    for attempt in 0..8 {
+        let cap = Duration::from_millis(500 << attempt).min(Duration::from_secs(8));
+        let wait = fetch_retry_wait(&transport, attempt).expect("transient");
+        assert!(wait <= cap, "{attempt}: {wait:?} > {cap:?}");
+    }
+    let wait = |status: StatusCode, after: Option<u64>| {
+        let e: anyhow::Error = HttpStatus(status, after.map(Duration::from_secs)).into();
+        fetch_retry_wait(&e, 0)
+    };
+    assert_eq!(
+        wait(StatusCode::TOO_MANY_REQUESTS, Some(3)),
+        Some(Duration::from_secs(3))
+    );
+    assert_eq!(
+        wait(StatusCode::SERVICE_UNAVAILABLE, Some(9)),
+        None,
+        "past the cap"
+    );
+    assert!(wait(StatusCode::BAD_GATEWAY, None).is_some());
+    assert_eq!(wait(StatusCode::FORBIDDEN, None), None);
+    assert_eq!(wait(StatusCode::INTERNAL_SERVER_ERROR, None), None);
+    assert_eq!(
+        fetch_retry_wait(&anyhow::anyhow!("artifact response range"), 0),
+        None
+    );
 }
 #[tokio::test]
 async fn two_stalled_downloads_do_not_consume_started_reporting_lane() {

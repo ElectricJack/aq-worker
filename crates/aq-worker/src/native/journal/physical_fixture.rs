@@ -691,7 +691,7 @@ impl Inputs {
                     && request.artifact.id.as_str() == "instructions"
                 {
                     return (
-                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                         "synthetic partial inline batch",
                     )
                         .into_response();
@@ -747,7 +747,7 @@ impl Inputs {
                     entered.store(true, Ordering::SeqCst);
                     if mode.load(Ordering::SeqCst) == 1 {
                         return (
-                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                             "synthetic lost source read",
                         )
                             .into_response();

@@ -144,19 +144,7 @@ impl NativeClient {
             .await
             .map_err(|_| anyhow::anyhow!("native control transport failed; disposition unknown"))?;
         if !response.status().is_success() {
-            {
-                let status = response.status();
-                let path = response.url().path().to_owned();
-                let body: String = response
-                    .text()
-                    .await
-                    .unwrap_or_default()
-                    .chars()
-                    .take(400)
-                    .collect();
-                tracing::warn!(%path, %status, %body, "native endpoint refused");
-                return Err(HttpStatus(status).into());
-            }
+            return Err(refused(response).await);
         }
         let bytes = body(response, wire::MAX_REPLY_BYTES).await?;
         let received_ns = boot_ns()?;

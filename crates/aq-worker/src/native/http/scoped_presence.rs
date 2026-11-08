@@ -1,4 +1,5 @@
-//! Exact scoped-fact routes on existing control capacity, never execution replies.
+//! Exact scoped-fact routes on existing control capacity, never execution replies (sent by
+//! `post`, never retried: an unknown disposition stays the caller's).
 use super::*;
 use crate::native::preparation::{AcknowledgedInventory, InventoryOperation, PresenceOperation};
 use aq_admission::scoped_presence as wire;
@@ -14,35 +15,8 @@ impl NativeClient {
             request.identity.node_id == self.node,
             "inventory node scope"
         );
-        let bytes = serde_json::to_vec(&request)?;
-        ensure!(
-            bytes.len() <= wire::MAX_REQUEST_BYTES,
-            "inventory request bound"
-        );
-        let response = self
-            .control
-            .post(format!("{}/v1/worker/profiled/inventory-v2", self.base))
-            .header(header::AUTHORIZATION, self.credential.clone())
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(bytes)
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("inventory publication failed; disposition unknown"))?;
-        if !response.status().is_success() {
-            {
-                let status = response.status();
-                let path = response.url().path().to_owned();
-                let body: String = response
-                    .text()
-                    .await
-                    .unwrap_or_default()
-                    .chars()
-                    .take(400)
-                    .collect();
-                tracing::warn!(%path, %status, %body, "native endpoint refused");
-                return Err(HttpStatus(status).into());
-            }
-        }
+        let path = "inventory-v2";
+        let response = (self.post(&self.control, path, &request, wire::MAX_REQUEST_BYTES)).await?;
         let bytes = body(response, wire::MAX_RECEIPT_BYTES).await?;
         let received = boot_ns()?;
         let receipt: wire::InventoryReceipt = serde_json::from_slice(&bytes)
@@ -57,38 +31,8 @@ impl NativeClient {
         let (request, _flight) = operation.begin_send(boot_ns()?)?;
         request.validate()?;
         self.scope(&request.binding)?;
-        let bytes = serde_json::to_vec(&request)?;
-        ensure!(
-            bytes.len() <= wire::MAX_REQUEST_BYTES,
-            "presence request bound"
-        );
-        let response = self
-            .control
-            .post(format!(
-                "{}/v1/worker/profiled/material-presence",
-                self.base
-            ))
-            .header(header::AUTHORIZATION, self.credential.clone())
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(bytes)
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("presence publication failed; disposition unknown"))?;
-        if !response.status().is_success() {
-            {
-                let status = response.status();
-                let path = response.url().path().to_owned();
-                let body: String = response
-                    .text()
-                    .await
-                    .unwrap_or_default()
-                    .chars()
-                    .take(400)
-                    .collect();
-                tracing::warn!(%path, %status, %body, "native endpoint refused");
-                return Err(HttpStatus(status).into());
-            }
-        }
+        let path = "material-presence";
+        let response = (self.post(&self.control, path, &request, wire::MAX_REQUEST_BYTES)).await?;
         let bytes = body(response, wire::MAX_RECEIPT_BYTES).await?;
         let receipt: wire::PresenceReceipt = serde_json::from_slice(&bytes)
             .map_err(|_| anyhow::anyhow!("invalid presence receipt"))?;

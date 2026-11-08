@@ -51,29 +51,20 @@ pub(crate) fn transfer(binding: &LaunchBinding, manifest: &TransferManifest) -> 
     Ok(())
 }
 impl NativeClient {
+    /// A source GET, retried while it fails transiently (`fetch_retried`).
     async fn source_get(&self, path: &str) -> Result<Response> {
-        let response = self
-            .bulk
-            .get(format!("{}/v1/worker/profiled/source/{path}", self.base))
+        let url = format!("{}/v1/worker/profiled/source/{path}", self.base);
+        fetch_retried(|| self.source_get_once(&url)).await
+    }
+    async fn source_get_once(&self, url: &str) -> Result<Response> {
+        let response = (self.bulk.get(url))
             .header(header::AUTHORIZATION, self.credential.clone())
             .header("aq-source-api-version", "1")
             .send()
             .await
-            .map_err(|_| anyhow::anyhow!("native source transport failed"))?;
+            .map_err(|_| TransportFailed("native source transport failed"))?;
         if !response.status().is_success() {
-            {
-                let status = response.status();
-                let path = response.url().path().to_owned();
-                let body: String = response
-                    .text()
-                    .await
-                    .unwrap_or_default()
-                    .chars()
-                    .take(400)
-                    .collect();
-                tracing::warn!(%path, %status, %body, "native endpoint refused");
-                return Err(HttpStatus(status).into());
-            }
+            return Err(refused(response).await);
         }
         version(&response)?;
         Ok(response)

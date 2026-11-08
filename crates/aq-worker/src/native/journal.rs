@@ -154,6 +154,16 @@ pub enum WriteFault {
     AfterDirectorySync,
 }
 
+/// A journal whose own content is invalid or cannot be replayed (missing or mixed history).
+/// Retrying cannot change it, so the service holds the slot with this reason (R1).
+#[derive(Debug)]
+pub struct InconsistentJournal(pub anyhow::Error);
+impl std::fmt::Display for InconsistentJournal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#}", self.0)
+    }
+}
+impl std::error::Error for InconsistentJournal {}
 pub struct Journal {
     storage: Storage,
     state: State,
@@ -406,8 +416,8 @@ impl Journal {
             limits,
         )
     }
-    #[cfg(test)]
-    pub(crate) fn create_with_identity_for_test(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn create_with_identity_for_test(
         root: &Path,
         identity: WorkerIdentity,
         limits: Limits,
@@ -462,7 +472,8 @@ impl Journal {
             snapshot.digest == canonical_digest(&snapshot.state)?,
             "native journal checksum"
         );
-        snapshot.state.validate(&limits)?;
+        let valid = snapshot.state.validate(&limits);
+        valid.map_err(InconsistentJournal)?;
         ensure!(
             snapshot.state.identity.node_id == node_id,
             "native journal belongs to another node"

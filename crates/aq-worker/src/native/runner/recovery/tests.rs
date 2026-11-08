@@ -186,6 +186,24 @@ async fn preserved_stopped_attempt_reconciles_without_a_new_seeded_task() {
     }
 }
 
+/// R1: a genuinely mixed execution history (Frozen and Refresh) is refused as an inconsistent
+/// journal, which the service holds with that reason instead of retrying it forever; the
+/// consistent history passes the profile check (and fails only on the down server).
+#[tokio::test]
+async fn mixed_execution_history_is_refused_as_inconsistent() {
+    let client = NativeClient::from_config(&worker(DOWN, Uuid::from_u128(1))).unwrap();
+    let mut mixed = stopped_attempt(false);
+    mixed.refresh_execution = stopped_attempt(true).refresh_execution;
+    let e = replay(&client, &mixed, |_| panic!("no receipt"))
+        .await
+        .unwrap_err();
+    assert!(e.downcast_ref::<InconsistentJournal>().is_some(), "{e:#}");
+    assert_eq!(format!("{e:#}"), "missing or mixed exact phase execution");
+    let e = replay(&client, &stopped_attempt(false), |_| Ok(()))
+        .await
+        .unwrap_err();
+    assert!(e.downcast_ref::<InconsistentJournal>().is_none(), "{e:#}");
+}
 #[tokio::test]
 async fn uncertain_stop_is_preserved_without_reporting_or_admission() {
     let client = NativeClient::from_config(&worker(DOWN, Uuid::from_u128(1))).unwrap();

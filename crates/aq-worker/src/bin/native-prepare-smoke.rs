@@ -978,9 +978,10 @@ mod tests {
     }
     #[test]
     fn history_probe_accepts_only_explicit503_and_never_success_or_other_errors() {
-        let expected: anyhow::Error = HttpStatus(reqwest::StatusCode::SERVICE_UNAVAILABLE).into();
+        let expected: anyhow::Error =
+            HttpStatus(reqwest::StatusCode::SERVICE_UNAVAILABLE, None).into();
         expected_lost_execution_reply(Some(&expected)).unwrap();
-        let other: anyhow::Error = HttpStatus(reqwest::StatusCode::CONFLICT).into();
+        let other: anyhow::Error = HttpStatus(reqwest::StatusCode::CONFLICT, None).into();
         assert!(expected_lost_execution_reply(Some(&other)).is_err());
         let transport = anyhow::anyhow!("transport unknown");
         assert!(expected_lost_execution_reply(Some(&transport)).is_err());

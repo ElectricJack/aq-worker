@@ -480,7 +480,8 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         }
     }
     /// Recovers or archives what the last attempt left in `current`. False when recovery is
-    /// held for the owner; an error is retried by the caller with backoff.
+    /// held for the owner (its reason is recorded for `service status`); an error is retried
+    /// by the caller with backoff.
     async fn settle(&self, slot: u32, node_id: Uuid) -> Result<bool> {
         let layout = &self.sup.layout;
         let current = layout.current(slot);
@@ -488,6 +489,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         if current.join("journal").exists() {
             if let RecoverOutcome::Held(why) = self.recover(&ctx).await? {
                 tracing::error!(slot, "slot held until the owner releases it: {why}");
+                if let Err(e) = write_private(&layout.slot_held(slot), why.as_bytes()) {
+                    tracing::warn!(slot, "holding reason not recorded: {e:#}");
+                }
                 return Ok(false);
             }
             // Which claims preserved their sandbox is read from the journal (durable), so this
@@ -498,6 +502,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             self.archive(&ctx);
         }
         let _ = layout.prune_empty(slot);
+        let _ = std::fs::remove_file(layout.slot_held(slot));
         Ok(true)
     }
     async fn recover(&self, ctx: &SlotContext) -> Result<RecoverOutcome> {
@@ -1248,6 +1253,45 @@ mod tests {
             rig.layout.current(1).join("journal").exists(),
             "a held slot keeps its state"
         );
+        // R1: the holding reason is recorded for `service status`, only for the held slot.
+        assert_eq!(rig.layout.held_reason(1).as_deref(), Some("sandbox_absent"));
+        assert_eq!(rig.layout.held_reason(2), None);
+    }
+
+    /// R1: an attempt that failed in preparation stays for recovery; recovery settles it (the
+    /// backend reports it never started), the slot is archived, polls again, and a holding
+    /// reason left by an earlier hold is cleared once the slot settles.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_preparation_is_settled_and_the_slot_polls_again() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend {
+            retained_empty: true,
+            ..Default::default()
+        });
+        write_private(&rig.layout.slot_held(1), b"journal_inconsistent: old").unwrap();
+        script(&backend, 1, vec![Step::ErrorAdmitted, Step::Hang]);
+        let settled = [Ok(RecoverOutcome::Reported)];
+        backend.recovery.lock().unwrap().insert(1, settled.into());
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(
+            rig.layout.held_reason(1),
+            None,
+            "cleared when the slot settles"
+        );
+        assert!(
+            rig.layout.current(1).join("journal").exists(),
+            "kept for recovery"
+        );
+        sleep(Duration::from_secs(30)).await;
+        assert_eq!(
+            *backend.calls.lock().unwrap(),
+            ["run:1", "recover:1", "run:1"],
+            "recovered once, then the next poll"
+        );
+        assert_eq!(count(rig.layout.archive_dir(1)), 1, "settled and archived");
+        assert_eq!(rig.layout.held_reason(1), None);
+        stop(handle, tx).await;
     }
 
     #[tokio::test(start_paused = true)]
