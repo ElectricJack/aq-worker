@@ -2,7 +2,7 @@
 //! the glue between `aq-node-service` and the native pipeline.
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::{
-    AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError,
+    AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError, MachineLink,
     MeasurementConfig, RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState,
     SlotBackend, SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff,
     write_machine_json, write_private,
@@ -16,7 +16,8 @@ use aq_worker::{
     config::WorkerConfig,
     native::runner::{
         ClaudeDockerExecutor, ExecutorConfig, NativeConfig, RunDisposition, SalvageDisposition,
-        release_claimed_sandboxes, retained_attempts, run_until_attempt, salvage_interrupted,
+        claimed_attempts, destroy_claimed_sandboxes, retained_attempts, run_until_attempt,
+        salvage_interrupted,
     },
 };
 use clap::{Args, Subcommand};
@@ -49,6 +50,22 @@ pub enum ServiceCmd {
     Status {
         #[arg(long)]
         profile: String,
+    },
+    /// Destroy the stopped sandbox an attempt of this slot preserved (its work was never
+    /// copied back, so the service never destroys it). The reason is recorded as the destroy
+    /// evidence.
+    ReleaseSandbox {
+        #[arg(long)]
+        profile: String,
+        #[arg(long)]
+        slot: u32,
+        #[arg(long)]
+        attempt_id: Uuid,
+        #[arg(long)]
+        reason: String,
+        /// Release it even while the slot's recovery still holds the attempt for salvage.
+        #[arg(long)]
+        force: bool,
     },
     /// Run the qualification measurement now and submit it.
     Measure {
@@ -100,6 +117,13 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Uninstall { profile, purge } => uninstall(&profile, purge),
         ServiceCmd::Status { profile } => status(&profile),
         ServiceCmd::Measure { profile, output } => measure(&profile, output.as_deref()).await,
+        ServiceCmd::ReleaseSandbox {
+            profile,
+            slot,
+            attempt_id,
+            reason,
+            force,
+        } => release_sandbox(&profile, slot, attempt_id, &reason, force).await,
     }
 }
 
@@ -121,37 +145,180 @@ impl NativeSlotBackend {
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
-        let mut cfg = NativeConfig::load(&self.template)?;
-        cfg.state_dir = ctx.state_dir.clone();
-        cfg.git_socket = ctx.state_dir.join("git.sock");
-        cfg.git_root = ctx.state_dir.join("git");
-        if let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
-            &mut cfg.executor
-        {
-            settings.host.root = ctx.state_dir.join("host");
-            if let Some(pin) = &ctx.renderer {
-                settings.host.renderer = to_artifact_ref(pin)?;
-            }
-        } else {
-            bail!(
-                "the worker service needs the Claude docker-local executor in its native template"
-            );
-        }
-        if let Some(pin) = &ctx.renderer {
-            cfg.renderer = to_artifact_ref(pin)?;
-        }
-        cfg.validate()?;
-        Ok(cfg)
+        slot_native_config(&self.template, ctx)
     }
+}
+/// The native template, pointed at the slot's state (journal, Git) and runtime directory
+/// (aq-git's socket, the session host root), with the slot's renderer.
+fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
+    let mut cfg = NativeConfig::load(template)?;
+    cfg.state_dir = ctx.state_dir.clone();
+    cfg.git_socket = ctx.git_socket.clone();
+    cfg.git_root = ctx.state_dir.join("git");
+    if let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &mut cfg.executor {
+        settings.host.root = ctx.host_root.clone();
+        if let Some(pin) = &ctx.renderer {
+            settings.host.renderer = to_artifact_ref(pin)?;
+        }
+    } else {
+        bail!("the worker service needs the Claude docker-local executor in its native template");
+    }
+    if let Some(pin) = &ctx.renderer {
+        cfg.renderer = to_artifact_ref(pin)?;
+    }
+    cfg.validate()?;
+    Ok(cfg)
 }
 /// Converts a wire pin to the pipeline's artifact reference (same JSON shape).
 fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<T> {
     serde_json::from_value(serde_json::to_value(pin)?).context("invalid renderer pin")
 }
+/// D2: a recovery that failed because the guardian was lost: the outside proof that its
+/// processes are dead, if one holds, and the reason. (The stopped contract carries only a
+/// guardian's own evidence, so the stop itself is never reported.)
+fn unproven<T>(result: &Result<T>) -> Option<(Option<aq_protocol::StopProof>, String)> {
+    let e = result.as_ref().err()?;
+    let lost = e.downcast_ref::<aq_session_host::StopUnproven>()?;
+    Some((lost.proof.clone(), format!("{e:#}")))
+}
+/// Stops (never destroys) every sandbox of `attempt` that may still run; a stop must be
+/// confirmed. The stopped sandbox stays for the operator (`service release-sandbox`).
+async fn stop_attempt_sandboxes(
+    backend: &mut impl aq_worker::backend::PlacementBackend,
+    node: Uuid,
+    attempt: Uuid,
+) -> Result<()> {
+    use aq_worker::backend::SandboxState;
+    for entry in backend.list_owned(node).await? {
+        let done = matches!(
+            entry.state,
+            SandboxState::Stopped | SandboxState::Archived | SandboxState::Destroyed
+        );
+        if entry.sandbox.owner.attempt_id == attempt && !done {
+            let stopped = backend.stop(&entry.sandbox).await;
+            ensure!(
+                stopped.is_confirmed(),
+                "sandbox {} stop unconfirmed",
+                entry.sandbox.backend_id
+            );
+        }
+    }
+    Ok(())
+}
+/// The marker of an attempt that went through the lost path (`lost-<attempt>.json` in its
+/// state dir): its sandbox is kept, never destroyed by the service.
+fn lost_record(state_dir: &Path, attempt: Uuid) -> PathBuf {
+    state_dir.join(format!("lost-{attempt}.json"))
+}
+/// The proof first sent for a lost attempt (`lost-proof-<attempt>.json`), written before the
+/// first post and reused by every retry and restart: the server accepts one proof per attempt.
+fn sent_proof(
+    state_dir: &Path,
+    attempt: Uuid,
+    found: aq_protocol::StopProof,
+) -> Result<aq_protocol::StopProof> {
+    let path = state_dir.join(format!("lost-proof-{attempt}.json"));
+    match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).context("stored lost-attempt proof"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            write_private(&path, &serde_json::to_vec(&found)?)?;
+            Ok(found)
+        }
+        Err(e) => Err(e).context("read the stored lost-attempt proof"),
+    }
+}
+/// D2 ruling C: a lost attempt with an outside stop proof. Its sandboxes are stopped (kept),
+/// the proof is stored, then the server is asked to fail it and retry its task
+/// (`LostAttemptRelease`). `lost-<attempt>.json` in `state_dir` then records that its unsaved
+/// work was not salvaged (and whether a claim recorded before the cut left its work in the
+/// archived worktree) and marks its sandbox as kept. The slot is freed (`Lost`) once the
+/// server released the task for its retry (or had released it with an earlier proof); while
+/// the server holds the task (an exhausted budget) or refuses, the slot is held.
+async fn release_lost(
+    stop: impl AsyncFnOnce() -> Result<()>,
+    post: impl AsyncFnOnce(aq_protocol::LostAttemptRelease) -> Result<aq_protocol::LostAttemptReleased>,
+    state_dir: &Path,
+    attempt: Uuid,
+    proof: aq_protocol::StopProof,
+    claim_unreported: bool,
+    why: &str,
+) -> RecoverOutcome {
+    let held = |why: String| {
+        tracing::error!(%attempt, "recovery held: {why}");
+        RecoverOutcome::Held(why)
+    };
+    if let Err(e) = stop().await {
+        return held(format!(
+            "the lost attempt's sandbox could not be stopped: {e:#}; {why}"
+        ));
+    }
+    let proof = match sent_proof(state_dir, attempt, proof) {
+        Ok(proof) => proof,
+        Err(e) => return held(format!("{e:#}; {why}")),
+    };
+    let request = aq_protocol::LostAttemptRelease {
+        schema_version: 1,
+        attempt_id: attempt,
+        proof: proof.clone(),
+    };
+    let mut record = serde_json::json!({"schema_version": 1, "attempt_id": attempt, "proof": proof,
+        "salvaged": false, "claim_unreported": claim_unreported,
+        "sandbox": "stopped and kept; release it with `aq-worker service release-sandbox`"});
+    if claim_unreported {
+        record["note"] =
+            "a result claim was recorded but never reported: its work is in the archived worktree"
+                .into();
+    }
+    let outcome = match post(request).await {
+        Ok(r) => {
+            (record["reason"], record["charged"]) = (json_of(&r.reason), r.charged.into());
+            (record["released"], record["held"]) = (r.released.into(), json_of(&r.held));
+            match (r.released, &r.held) {
+                (true, _) => RecoverOutcome::Lost,
+                (false, held) => RecoverOutcome::Held(format!(
+                    "the server failed the lost attempt but holds its task: {}",
+                    held.as_deref().unwrap_or("unknown")
+                )),
+            }
+        }
+        Err(e) if format!("{e:#}").contains("lost_attempt_released_with_another_proof") => {
+            record["released"] = "earlier, with another proof".into();
+            RecoverOutcome::Lost
+        }
+        Err(e) => RecoverOutcome::Held(format!(
+            "the server refused the lost-attempt release: {e:#}; {why}"
+        )),
+    };
+    // Written on every outcome: the record also marks the sandbox as kept, so without it the
+    // slot is held (settle would otherwise release, and destroy, a claimed attempt's sandbox).
+    let path = lost_record(state_dir, attempt);
+    if let Err(e) = write_private(&path, record.to_string().as_bytes()) {
+        return held(format!(
+            "the lost-attempt record was not written: {e:#}; {why}"
+        ));
+    }
+    match &outcome {
+        RecoverOutcome::Lost => tracing::warn!(%attempt, %record,
+            "lost attempt released: its unsaved work was not salvaged; its sandbox is kept for release-sandbox"),
+        _ => tracing::error!(%attempt, %record, "lost attempt not released; the slot is held"),
+    }
+    outcome
+}
+fn json_of<T: serde::Serialize>(v: &T) -> serde_json::Value {
+    serde_json::to_value(v).unwrap_or_default()
+}
+/// The claimed attempts whose sandboxes the service may destroy: not those that went through
+/// the lost path (their sandboxes are kept for the operator).
+fn destroyable(state_dir: &Path, claimed: Vec<Uuid>) -> Vec<Uuid> {
+    claimed
+        .into_iter()
+        .filter(|a| !lost_record(state_dir, *a).exists())
+        .collect()
+}
 /// What a restarted node tells the server about an interrupted attempt: the reason the service
 /// recorded before the cut (a deliberate stop stays exempt from budgets), else a plain restart.
-fn restart_reason(state_dir: &Path, attempt: Uuid) -> HandoffReason {
-    recorded_handoff(state_dir, attempt).unwrap_or(HandoffReason::Restart)
+fn restart_reason(ctx: &SlotContext, attempt: Uuid) -> HandoffReason {
+    recorded_handoff(&ctx.host_root, &ctx.state_dir, attempt).unwrap_or(HandoffReason::Restart)
 }
 
 #[async_trait::async_trait]
@@ -184,7 +351,7 @@ impl SlotBackend for NativeSlotBackend {
             let notice = HandoffNotice {
                 schema_version: 1,
                 attempt_id: attempt,
-                reason: restart_reason(&ctx.state_dir, attempt),
+                reason: restart_reason(&ctx, attempt),
             };
             if !self.notified.lock().unwrap().contains(&attempt) {
                 match link.handoff(&notice).await {
@@ -192,7 +359,34 @@ impl SlotBackend for NativeSlotBackend {
                     Err(e) => tracing::warn!(%attempt, "handoff notice: {e:#}"),
                 }
             }
-            match salvage_interrupted(&worker, &cfg, attempt).await? {
+            let salvaged = salvage_interrupted(&worker, &cfg, attempt).await;
+            if let Some((proof, why)) = unproven(&salvaged) {
+                let Some(proof) = proof else {
+                    tracing::error!(%attempt, "recovery held: {why}");
+                    return Ok(RecoverOutcome::Held(why));
+                };
+                let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+                    &cfg.executor
+                else {
+                    return Ok(RecoverOutcome::Held(why));
+                };
+                let docker = settings.host.docker_local.clone();
+                let stop = async || {
+                    let mut backend =
+                        aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(docker)
+                            .await?;
+                    stop_attempt_sandboxes(&mut backend, worker.node_id, attempt).await
+                };
+                let post = async |r| link.lost_attempt(&r).await;
+                let claimed = claimed_attempts(&cfg, worker.node_id)?.contains(&attempt);
+                let dir = &ctx.state_dir;
+                match release_lost(stop, post, dir, attempt, proof, claimed, &why).await {
+                    RecoverOutcome::Lost => outcome = RecoverOutcome::Lost,
+                    held => return Ok(held),
+                }
+                continue;
+            }
+            match salvaged? {
                 SalvageDisposition::Unsalvageable(why) => {
                     return Ok(RecoverOutcome::Held(why.to_owned()));
                 }
@@ -207,7 +401,20 @@ impl SlotBackend for NativeSlotBackend {
         Ok(outcome)
     }
     async fn release_claimed(&self, ctx: SlotContext) -> Result<usize> {
-        release_claimed_sandboxes(&self.native_config(&ctx)?, ctx.node_id).await
+        let cfg = self.native_config(&ctx)?;
+        let claimed = destroyable(&ctx.state_dir, claimed_attempts(&cfg, ctx.node_id)?);
+        let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &cfg.executor
+        else {
+            return Ok(0);
+        };
+        if claimed.is_empty() {
+            return Ok(0);
+        }
+        let docker = settings.host.docker_local.clone();
+        let mut backend =
+            aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(docker).await?;
+        let root = &settings.host.root;
+        destroy_claimed_sandboxes(&mut backend, root, ctx.node_id, &claimed).await
     }
     fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>> {
         retained_attempts(&self.native_config(ctx)?, ctx.node_id)
@@ -318,6 +525,7 @@ async fn enroll_in(
         slots: args.slots,
         native_template: native.clone(),
         state_root: layout.state_root.clone(),
+        runtime_root: None,
         aq_git: AqGitConfig {
             binary: std::fs::canonicalize(&args.aq_git)
                 .with_context(|| format!("aq-git {}", args.aq_git.display()))?,
@@ -332,7 +540,8 @@ async fn enroll_in(
         },
         shutdown_grace_ms: 120_000,
     };
-    // Repository count and format, absolute paths (the token file too) and bounds.
+    // Repository count and format, absolute paths (the token file too), bounds, and the
+    // socket paths under the runtime root.
     config.validate()?;
 
     let pending = pending_enrollment(layout);
@@ -424,7 +633,9 @@ async fn enroll_in(
         std::fs::rename(staged(&path), &path)
             .with_context(|| format!("install {}", path.display()))?;
     }
-    write_machine_json(&layout.machine_json(), &machine_key, &name, wsl)?;
+    // The machine's label on the Swarm page is its key unless --name gives one.
+    let label = args.name.as_deref().unwrap_or(&machine_key);
+    write_machine_json(&layout.machine_json(), &machine_key, label, wsl)?;
     write_private(&native, &template)?;
     config.native_template = std::fs::canonicalize(&native)?;
     config.save(&layout.service_toml())?;
@@ -446,12 +657,16 @@ async fn enroll_in(
     Ok(())
 }
 
+/// The enrolled profile's configuration and the layout it describes (its own state and runtime
+/// roots, not the defaults).
 fn loaded(profile: &str) -> Result<(Layout, ServiceConfig)> {
-    let layout = Layout::for_profile(profile)?;
-    let config = ServiceConfig::load(&layout.service_toml()).with_context(|| {
+    loaded_in(Layout::for_profile(profile)?, profile)
+}
+fn loaded_in(defaults: Layout, profile: &str) -> Result<(Layout, ServiceConfig)> {
+    let config = ServiceConfig::load(&defaults.service_toml()).with_context(|| {
         format!("profile {profile} is not enrolled; run `aq-worker service enroll` first")
     })?;
-    Ok((layout, config))
+    Ok((Layout::for_service(&defaults.config_dir, &config), config))
 }
 fn install(profile: &str) -> Result<()> {
     let (layout, config) = loaded(profile)?;
@@ -479,7 +694,11 @@ fn install(profile: &str) -> Result<()> {
     Ok(())
 }
 fn uninstall(profile: &str, purge: bool) -> Result<()> {
-    let layout = Layout::for_profile(profile)?;
+    // A custom state_root (or runtime_root) in service.toml is purged too.
+    let layout = match loaded(profile) {
+        Ok((layout, _)) => layout,
+        Err(_) => Layout::for_profile(profile)?,
+    };
     let manager = aq_node_service::detect()?;
     if manager.status(profile)? == ServiceState::NotInstalled {
         println!("aq-node@{profile}: not installed");
@@ -488,14 +707,18 @@ fn uninstall(profile: &str, purge: bool) -> Result<()> {
         println!("aq-node@{profile}: removed");
     }
     if purge {
-        for dir in [&layout.config_dir, &layout.state_root] {
-            match std::fs::remove_dir_all(dir) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e).with_context(|| format!("remove {}", dir.display())),
-            }
-        }
+        purge_dirs(&layout)?;
         println!("configuration and state purged");
+    }
+    Ok(())
+}
+fn purge_dirs(layout: &Layout) -> Result<()> {
+    for dir in [&layout.state_root, &layout.runtime_root, &layout.config_dir] {
+        match std::fs::remove_dir_all(dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| format!("remove {}", dir.display())),
+        }
     }
     Ok(())
 }
@@ -569,16 +792,105 @@ async fn measure(profile: &str, output: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+/// `service release-sandbox`: the operator release of a sandbox one of the slot's attempts
+/// preserved, through the slot's own node and the profile's native template.
+/// Whether the slot's recovery still holds `attempt` for salvage: its `current` journal retains
+/// it and it did not go through the lost path. An unreadable journal (a running service owns the
+/// state) counts as held.
+fn held_for_salvage(
+    current: &Path,
+    attempt: Uuid,
+    retained: impl FnOnce() -> Result<Vec<Uuid>>,
+) -> bool {
+    current.join("journal").exists()
+        && !lost_record(current, attempt).exists()
+        && retained().map_or(true, |r| r.contains(&attempt))
+}
+async fn release_sandbox(
+    profile: &str,
+    slot: u32,
+    attempt: Uuid,
+    reason: &str,
+    force: bool,
+) -> Result<()> {
+    let (layout, config) = loaded(profile)?;
+    ensure!(
+        (1..=config.slots).contains(&slot),
+        "profile {profile} has slots 1..={}",
+        config.slots
+    );
+    let node = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
+    // Only the executor settings matter here; the slot's state directory stands in for the
+    // attempt's own (which may be archived).
+    let state_dir = std::fs::canonicalize(layout.slot_state(slot))?;
+    let ctx = SlotContext {
+        slot,
+        node_id: node,
+        enrollment: layout.slot_enrollment(slot),
+        git_socket: layout.git_socket(slot),
+        host_root: state_dir.join("host"),
+        state_dir,
+        renderer: None,
+    };
+    let cfg = slot_native_config(&config.native_template, &ctx)?;
+    let current = layout.current(slot);
+    let retained = || {
+        let at = SlotContext {
+            state_dir: std::fs::canonicalize(&current)?,
+            ..ctx.clone()
+        };
+        retained_attempts(&slot_native_config(&config.native_template, &at)?, node)
+    };
+    ensure!(
+        force || !held_for_salvage(&current, attempt, retained),
+        "attempt {attempt} is still held for salvage by slot {slot}'s recovery; its sandbox holds unsaved work. Pass --force to release it anyway"
+    );
+    let released =
+        aq_worker::native::runner::release_preserved_sandbox(&cfg, node, attempt, reason).await?;
+    println!(
+        "operator release: attempt {attempt} sandbox(es) {} destroyed; reason recorded as destroy evidence",
+        released.join(", ")
+    );
+    Ok(())
+}
+
+/// D2, proof (b): before any slot starts a process, check that the unit's cgroup holds only
+/// this invocation; then a lost guardian older than this process is known dead. The proof is
+/// named when such a slot is held (the stopped contract cannot carry it yet).
+fn attest_prior_invocation() {
+    let attested = aq_node_service::invocation::prior_invocation_gone().and_then(|gone| {
+        if let Some((invocation, unit)) = &gone {
+            let own = aq_session_host::ownership::process_evidence(std::process::id())?;
+            aq_session_host::lost_guardian::attest_prior_invocation_gone(
+                own.start_ticks,
+                invocation.clone(),
+                unit.clone(),
+            )?;
+        }
+        Ok(gone)
+    });
+    match attested {
+        Ok(Some((invocation, unit))) => tracing::info!(
+            %invocation, %unit,
+            "the unit's cgroup holds no process of a previous invocation"
+        ),
+        Ok(None) => tracing::info!(
+            "not under systemd, or the unit's cgroup holds other processes: no teardown proof"
+        ),
+        Err(e) => tracing::warn!("previous invocation check: {e:#}"),
+    }
+}
+
 /// `aq-worker run --service-config`: supervise every slot until SIGTERM or ctrl-c.
 pub async fn run_service(service_config: &Path) -> Result<()> {
     let config = ServiceConfig::load(service_config)?;
     let config_dir = service_config
         .parent()
         .context("service config has no directory")?;
-    let layout = Layout {
-        config_dir: config_dir.to_path_buf(),
-        state_root: config.state_root.clone(),
-    };
+    let layout = Layout::for_service(config_dir, &config);
+    // Every socket lives under the runtime root (D1): create and check it before any slot.
+    layout.prepare_runtime()?;
+    attest_prior_invocation();
     let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
     let link = Arc::new(ServerLink::from_enrollment(&slot1)?);
     // A measurement cut short (kill, crash, reboot) left its sandbox: release it before work.
@@ -619,13 +931,16 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
                 ))
             },
         );
-    tracing::info!(profile = %config.profile, machine = %config.machine_key, slots = config.slots, "worker service starting");
+    tracing::info!(profile = %config.profile, machine = %config.machine_key, slots = config.slots,
+        runtime = %layout.runtime_root.display(), "worker service starting");
+    // Each slot's handoff notices go out under that slot's own credential (D4).
+    let control = Arc::new(MachineLink::new(link.clone(), &layout, config.slots));
     let backend = Arc::new(NativeSlotBackend::new(
         config.native_template.clone(),
         slot1.node_id,
     ));
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
-    let result = Supervisor::new(config, layout, backend, link, git)
+    let result = Supervisor::new(config, layout, backend, control, git)
         .run(rx)
         .await;
     watcher.abort();
@@ -639,18 +954,30 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn slot_ctx(dir: &Path) -> SlotContext {
+        SlotContext {
+            slot: 1,
+            node_id: Uuid::nil(),
+            enrollment: dir.join("worker.toml"),
+            state_dir: dir.join("current"),
+            host_root: dir.join("run/1/host"),
+            git_socket: dir.join("run/1/git.sock"),
+            renderer: None,
+        }
+    }
     #[test]
     fn restart_reason_follows_the_handoff_marker() {
         let dir = tempfile::tempdir().unwrap();
+        let ctx = slot_ctx(dir.path());
         let attempt = Uuid::from_u128(9);
-        let driver = dir.path().join("host/driver-1");
+        let driver = ctx.host_root.join("driver-1");
         std::fs::create_dir_all(&driver).unwrap();
         std::fs::write(
             driver.join("driver.json"),
             serde_json::json!({"owner": {"attempt_id": attempt}}).to_string(),
         )
         .unwrap();
-        assert_eq!(restart_reason(dir.path(), attempt), HandoffReason::Restart);
+        assert_eq!(restart_reason(&ctx, attempt), HandoffReason::Restart);
         for (written, expected) in [
             ("service_stop", HandoffReason::ServiceStop),
             ("owner_stop", HandoffReason::OwnerStop),
@@ -661,10 +988,10 @@ mod tests {
                 format!(r#"{{"schema_version":1,"reason":"{written}"}}"#),
             )
             .unwrap();
-            assert_eq!(restart_reason(dir.path(), attempt), expected);
+            assert_eq!(restart_reason(&ctx, attempt), expected);
         }
         assert_eq!(
-            restart_reason(dir.path(), Uuid::from_u128(10)),
+            restart_reason(&ctx, Uuid::from_u128(10)),
             HandoffReason::Restart
         );
     }
@@ -753,6 +1080,7 @@ mod tests {
         let layout = Layout {
             config_dir: dir.path().join("cfg"),
             state_root: dir.path().join("state"),
+            runtime_root: dir.path().join("run/local"),
         };
         Profile { dir, layout }
     }
@@ -979,5 +1307,427 @@ mod tests {
         p.enroll_access(&args, "new-id").await.unwrap();
         assert!(p.slot1().contains("new-id") && p.slot1().contains("aqn_cred1"));
         assert_eq!(count(&server.enrolls), 0);
+    }
+
+    /// D8: the machine label is the machine key unless --name gives one.
+    #[tokio::test]
+    async fn machine_label_defaults_to_the_machine_key() {
+        let server = fake_server(0).await;
+        let p = profile();
+        let mut args = p.args(&server.origin);
+        args.name = None;
+        p.enroll(&args, Some("code-1")).await.unwrap();
+        let machine: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.layout.machine_json()).unwrap()).unwrap();
+        assert_eq!(
+            (machine["key"].as_str(), machine["label"].as_str()),
+            (Some("desk"), Some("desk"))
+        );
+        args.reconfigure = true;
+        args.name = Some("Desk PC".into());
+        p.enroll(&args, Some("code-2")).await.unwrap();
+        let machine: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.layout.machine_json()).unwrap()).unwrap();
+        assert_eq!(machine["label"], "Desk PC");
+    }
+
+    /// D9: the CLI uses service.toml's state and runtime roots, so purge removes a custom
+    /// state root (and `service measure` takes the service's measurement lock).
+    #[tokio::test]
+    async fn purge_and_measure_use_the_configured_state_root() {
+        let server = fake_server(0).await;
+        let p = profile();
+        p.enroll(&p.args(&server.origin), Some("code-1"))
+            .await
+            .unwrap();
+        let custom = p.dir.path().join("aq-state");
+        let mut config = ServiceConfig::load(&p.layout.service_toml()).unwrap();
+        config.state_root = custom.clone();
+        config.runtime_root = Some(p.dir.path().join("run/local"));
+        config.save(&p.layout.service_toml()).unwrap();
+        std::fs::create_dir_all(custom.join("slots/1/current")).unwrap();
+        let defaults = Layout {
+            config_dir: p.layout.config_dir.clone(),
+            state_root: p.dir.path().join("default-state"),
+            runtime_root: p.dir.path().join("default-run"),
+        };
+        let (layout, _) = loaded_in(defaults, "local").unwrap();
+        assert_eq!(layout.state_root, custom);
+        assert_eq!(layout.measure_lock(), custom.join("measure.lock"));
+        assert_eq!(layout.runtime_root, p.dir.path().join("run/local"));
+        layout.prepare_runtime().unwrap();
+        purge_dirs(&layout).unwrap();
+        assert!(!custom.exists() && !layout.runtime_root.exists());
+        assert!(!p.layout.config_dir.exists());
+    }
+
+    /// D2 under the proof-format ruling, in the service's terms: a lost guardian is held,
+    /// never reported stopped. The reason names the outside proof found from real facts: a
+    /// changed boot id, or the unit teardown attested from a cgroup holding only this process
+    /// (a fake cgroup file); with a foreign pid there is no teardown proof.
+    #[test]
+    fn a_lost_guardian_is_held_and_names_its_outside_proof() {
+        use aq_node_service::invocation::{holds_only, own_cgroup_procs, unit_of};
+        use aq_session_host::lost_guardian::{PriorGone, recover_stopped_with};
+        const OLD: &str = "00000000-0000-4000-8000-00000000000a";
+        const NOW: &str = "00000000-0000-4000-8000-00000000000b";
+        let id = Uuid::from_u128(1);
+        let process = |pid, start_ticks| aq_session_host::ProcessEvidence { pid, start_ticks };
+        let running = |boot: &str| aq_session_host::HostObservation {
+            guardian: aq_session_host::GuardianIdentity {
+                intent: aq_session_host::LaunchIntent {
+                    launch_id: id,
+                    session: aq_session_protocol::SessionIdentity::Remote {
+                        node_id: id,
+                        boot_id: id,
+                        attempt_id: id,
+                        assignment_generation: 1,
+                        session_id: id,
+                    },
+                    manifest_digest: aq_session_protocol::Digest::of(b"m"),
+                    configuration_digest: aq_session_protocol::Digest::of(b"c"),
+                },
+                nonce: id,
+                process: process(4_000_000, 500),
+                machine_boot_id: boot.into(),
+                pid_namespace: "pid:[4026531836]".into(),
+            },
+            phase: aq_session_host::HostPhase::Running,
+            pane: None,
+            permit_sequence: 3,
+            permit_deadline_boot_ms: 90_000,
+            observed_boot_ms: 60_000,
+            reaped_count: 0,
+            kernel_wait_echild: false,
+            root_status: None,
+            stop_reason: None,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("runtime-wiped");
+        let held = |last: &aq_session_host::HostObservation, prior: Option<&PriorGone>| {
+            let result = recover_stopped_with(&gone, &last.guardian.intent, Some(last), NOW, prior);
+            let (proof, why) = unproven(&result).unwrap();
+            assert_eq!(
+                proof.is_some(),
+                !why.contains("host stop unproven"),
+                "{why}"
+            );
+            why
+        };
+        let unit_dir = dir.path().join("app.slice/aq-node@t.service");
+        std::fs::create_dir_all(&unit_dir).unwrap();
+        let procs = own_cgroup_procs("0::/app.slice/aq-node@t.service\n", dir.path()).unwrap();
+        let own = std::process::id();
+        let attested = |listed: &str| {
+            std::fs::write(&procs, listed).unwrap();
+            let read = std::fs::read_to_string(&procs).unwrap();
+            let gone = holds_only(&read, own, |pid| (pid == own + 1).then_some(own));
+            gone.then(|| PriorGone {
+                boot: NOW.into(),
+                start_ticks: 900,
+                invocation_id: "0123456789abcdef0123456789abcdef".into(),
+                unit: unit_of(&procs).unwrap(),
+            })
+        };
+        let rebooted = held(&running(OLD), None);
+        assert!(
+            rebooted.contains("\"proof_kind\":\"boot_changed\""),
+            "{rebooted}"
+        );
+        let ours = attested(&format!("{own}\n{}\n", own + 1));
+        let torn = held(&running(NOW), ours.as_ref());
+        assert!(
+            torn.contains("\"proof_kind\":\"cgroup_teardown\""),
+            "{torn}"
+        );
+        assert!(torn.contains("aq-node@t.service"), "{torn}");
+        let foreign = attested(&format!("{own}\n1\n"));
+        assert!(foreign.is_none(), "a foreign pid: no attestation");
+        let none = held(&running(NOW), foreign.as_ref());
+        assert!(none.contains("host stop unproven"), "{none}");
+        assert!(unproven(&Ok::<_, anyhow::Error>(())).is_none());
+    }
+
+    fn teardown(invocation: &str) -> aq_protocol::StopProof {
+        aq_protocol::StopProof::CgroupTeardown {
+            invocation_id: invocation.repeat(32 / invocation.len()),
+            unit: "aq-node@t.service".into(),
+        }
+    }
+    fn answer(
+        r: &aq_protocol::LostAttemptRelease,
+        released: bool,
+    ) -> aq_protocol::LostAttemptReleased {
+        aq_protocol::LostAttemptReleased {
+            schema_version: 1,
+            attempt_id: r.attempt_id,
+            reason: aq_protocol::LostReason::of(&r.proof).unwrap(),
+            charged: true,
+            released,
+            held: (!released).then(|| "lineage_retry_budget_exhausted".into()),
+        }
+    }
+    fn record(dir: &Path, attempt: Uuid) -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(lost_record(dir, attempt)).unwrap()).unwrap()
+    }
+
+    /// D2 ruling C: with an outside proof, the lost attempt's sandbox is stopped (kept), the
+    /// release is posted with the proof, the record says nothing was salvaged, and the slot
+    /// is freed. A refused release or a sandbox that cannot be stopped holds the slot.
+    #[tokio::test]
+    async fn a_proven_lost_attempt_is_released_and_frees_the_slot() {
+        use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+        let dir = tempfile::tempdir().unwrap();
+        let attempt = Uuid::from_u128(77);
+        let proof = teardown("a");
+        let stopped = AtomicBool::new(false);
+        let posted = std::sync::Mutex::new(None);
+        let outcome = release_lost(
+            async || {
+                stopped.store(true, SeqCst);
+                Ok(())
+            },
+            async |r| {
+                anyhow::ensure!(stopped.load(SeqCst), "stopped before the post");
+                *posted.lock().unwrap() = Some(r.clone());
+                Ok(answer(&r, true))
+            },
+            dir.path(),
+            attempt,
+            proof.clone(),
+            false,
+            "lost",
+        )
+        .await;
+        assert_eq!(outcome, RecoverOutcome::Lost);
+        let sent = posted.lock().unwrap().clone().unwrap();
+        assert_eq!((sent.attempt_id, &sent.proof), (attempt, &proof));
+        let record = record(dir.path(), attempt);
+        assert_eq!(record["salvaged"], false);
+        assert_eq!(record["reason"], "lost_after_crash");
+        assert!(
+            record["sandbox"]
+                .as_str()
+                .unwrap()
+                .contains("release-sandbox")
+        );
+        let refused = release_lost(
+            async || Ok(()),
+            async |_| anyhow::bail!("409 lost_attempt_effects_present"),
+            dir.path(),
+            Uuid::from_u128(78),
+            proof.clone(),
+            false,
+            "lost",
+        )
+        .await;
+        assert!(matches!(refused, RecoverOutcome::Held(why) if why.contains("refused")));
+        let unstoppable = release_lost(
+            async || anyhow::bail!("docker down"),
+            async |_| panic!("never posted while the sandbox may run"),
+            dir.path(),
+            Uuid::from_u128(79),
+            proof,
+            false,
+            "lost",
+        )
+        .await;
+        assert!(
+            matches!(unstoppable, RecoverOutcome::Held(why) if why.contains("could not be stopped"))
+        );
+    }
+
+    /// #51 review I1: the first proof is stored before the post and reused by every retry and
+    /// restart (the attestation is new after each restart), and a refusal for "another proof"
+    /// means the attempt was already released: the slot is freed.
+    #[tokio::test]
+    async fn a_lost_release_retry_reuses_its_first_proof() {
+        let dir = tempfile::tempdir().unwrap();
+        let attempt = Uuid::from_u128(80);
+        let sent = std::sync::Mutex::new(vec![]);
+        let refused = release_lost(
+            async || Ok(()),
+            async |r| {
+                sent.lock().unwrap().push(r.proof.clone());
+                anyhow::bail!("server unreachable")
+            },
+            dir.path(),
+            attempt,
+            teardown("a"),
+            false,
+            "lost",
+        )
+        .await;
+        assert!(matches!(refused, RecoverOutcome::Held(_)));
+        // After a restart the service attests a new invocation: the first proof is still sent.
+        let again = release_lost(
+            async || Ok(()),
+            async |r| {
+                sent.lock().unwrap().push(r.proof.clone());
+                Ok(answer(&r, true))
+            },
+            dir.path(),
+            attempt,
+            teardown("b"),
+            false,
+            "lost",
+        )
+        .await;
+        assert_eq!(again, RecoverOutcome::Lost);
+        assert_eq!(*sent.lock().unwrap(), [teardown("a"), teardown("a")]);
+        let other = release_lost(
+            async || Ok(()),
+            async |_| anyhow::bail!("409 conflict: lost_attempt_released_with_another_proof"),
+            dir.path(),
+            Uuid::from_u128(81),
+            teardown("c"),
+            false,
+            "lost",
+        )
+        .await;
+        assert_eq!(other, RecoverOutcome::Lost, "already released");
+    }
+
+    /// #117 review I1, worker side: a release the server answers with the task still held
+    /// (an exhausted budget) keeps the slot held, with the server's reason.
+    #[tokio::test]
+    async fn a_budget_held_lost_release_keeps_the_slot_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let attempt = Uuid::from_u128(82);
+        let outcome = release_lost(
+            async || Ok(()),
+            async |r| Ok(answer(&r, false)),
+            dir.path(),
+            attempt,
+            teardown("a"),
+            false,
+            "lost",
+        )
+        .await;
+        assert!(
+            matches!(&outcome, RecoverOutcome::Held(why) if why.contains("lineage_retry_budget_exhausted")),
+            "{outcome:?}"
+        );
+        assert_eq!(record(dir.path(), attempt)["released"], false);
+    }
+
+    /// #51 review I2: a lost attempt whose result claim was recorded before the cut keeps its
+    /// sandbox (settle's release skips every lost-path attempt), and its record tells the
+    /// operator the work is in the archived worktree.
+    #[tokio::test]
+    async fn a_lost_attempt_with_a_claim_keeps_its_sandbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let (lost, claimed) = (Uuid::from_u128(83), Uuid::from_u128(84));
+        let outcome = release_lost(
+            async || Ok(()),
+            async |r| Ok(answer(&r, true)),
+            dir.path(),
+            lost,
+            teardown("a"),
+            true,
+            "lost",
+        )
+        .await;
+        assert_eq!(outcome, RecoverOutcome::Lost);
+        let record = record(dir.path(), lost);
+        assert_eq!(record["claim_unreported"], true);
+        assert!(
+            record["note"]
+                .as_str()
+                .unwrap()
+                .contains("archived worktree")
+        );
+        assert_eq!(destroyable(dir.path(), vec![lost, claimed]), [claimed]);
+    }
+
+    /// #51 review M4: `release-sandbox` refuses a sandbox whose attempt the slot's recovery still
+    /// holds for salvage (or cannot tell: the service owns the journal), unless it went through
+    /// the lost path or the slot has no journal.
+    #[test]
+    fn release_sandbox_refuses_an_attempt_held_for_salvage() {
+        let dir = tempfile::tempdir().unwrap();
+        let current = dir.path();
+        let attempt = Uuid::from_u128(85);
+        assert!(
+            !held_for_salvage(current, attempt, || Ok(vec![attempt])),
+            "no journal"
+        );
+        std::fs::write(current.join("journal"), b"").unwrap();
+        assert!(held_for_salvage(current, attempt, || Ok(vec![attempt])));
+        assert!(!held_for_salvage(current, attempt, || Ok(vec![])));
+        assert!(held_for_salvage(current, attempt, || anyhow::bail!(
+            "owned"
+        )));
+        std::fs::write(lost_record(current, attempt), b"{}").unwrap();
+        assert!(
+            !held_for_salvage(current, attempt, || Ok(vec![attempt])),
+            "lost path"
+        );
+    }
+
+    /// The lost attempt's running sandbox is stopped, not destroyed; others are untouched.
+    #[tokio::test]
+    async fn a_lost_attempts_sandbox_is_stopped_and_kept() {
+        use aq_worker::backend::{
+            CreateRequest, FakeBackend, Ownership, PlacementBackend, PrivateMaterial, SandboxState,
+            TemplateDigest,
+        };
+        let mut backend = FakeBackend::default();
+        let node = Uuid::from_u128(1);
+        let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
+        let (lost, other) = (Uuid::new_v4(), Uuid::new_v4());
+        for attempt_id in [lost, other] {
+            let owner = Ownership {
+                node_id: node,
+                boot_id: Uuid::new_v4(),
+                attempt_id,
+            };
+            let request = CreateRequest::new(owner, template.clone(), 1 << 40, vec![]);
+            let sandbox = backend.create(&request).await.unwrap();
+            let material = PrivateMaterial::new(b"fixture".to_vec());
+            backend
+                .deliver_private_material(&sandbox, material)
+                .await
+                .unwrap();
+            backend.start_runner(&sandbox).await.unwrap();
+        }
+        stop_attempt_sandboxes(&mut backend, node, lost)
+            .await
+            .unwrap();
+        let states: std::collections::BTreeMap<Uuid, SandboxState> =
+            (backend.list_owned(node).await.unwrap())
+                .into_iter()
+                .map(|e| (e.sandbox.owner.attempt_id, e.state))
+                .collect();
+        assert_eq!(
+            states[&lost],
+            SandboxState::Stopped,
+            "kept for the operator"
+        );
+        assert_eq!(states[&other], SandboxState::Running);
+    }
+
+    /// #51 re-review: when the lost-attempt record (the kept-sandbox marker) cannot be written,
+    /// the slot is held, never freed, even though the server released the attempt.
+    #[tokio::test]
+    async fn an_unwritten_lost_record_holds_the_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        let attempt = Uuid::from_u128(86);
+        // A directory where the record goes: the write fails.
+        std::fs::create_dir(lost_record(dir.path(), attempt)).unwrap();
+        let outcome = release_lost(
+            async || Ok(()),
+            async |r| Ok(answer(&r, true)),
+            dir.path(),
+            attempt,
+            teardown("a"),
+            true,
+            "lost",
+        )
+        .await;
+        assert!(
+            matches!(&outcome, RecoverOutcome::Held(why) if why.contains("record was not written")),
+            "{outcome:?}"
+        );
     }
 }

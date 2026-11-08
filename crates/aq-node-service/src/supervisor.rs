@@ -32,6 +32,10 @@ pub struct SlotContext {
     pub node_id: Uuid,
     pub enrollment: PathBuf,
     pub state_dir: PathBuf,
+    /// The session host root (`Layout::host_root`) and aq-git's socket, in the slot's runtime
+    /// directory.
+    pub host_root: PathBuf,
+    pub git_socket: PathBuf,
     pub renderer: Option<ArtifactPin>,
 }
 #[derive(Debug, PartialEq, Eq)]
@@ -45,6 +49,9 @@ pub enum RecoverOutcome {
     Clean,
     Reported,
     Salvaged,
+    /// Its host was lost: the server failed it and retries the task (D2 ruling C). Its unsaved
+    /// work was not salvaged; its sandbox is kept for `release-sandbox`. The slot is free.
+    Lost,
     Held(String),
 }
 #[async_trait::async_trait]
@@ -72,24 +79,51 @@ pub trait SlotBackend: Send + Sync + 'static {
 #[async_trait::async_trait]
 pub trait ControlSource: Send + Sync + 'static {
     async fn control(&self) -> Result<ControlResponse>;
-    async fn handoff(&self, notice: &HandoffNotice) -> Result<()>;
+    /// Posts the notice for an attempt of `slot`, under that slot's node credential.
+    async fn handoff(&self, slot: u32, notice: &HandoffNotice) -> Result<()>;
     async fn submit_measurement(&self, s: &MeasurementSubmission) -> Result<QualificationPin>;
 }
-#[async_trait::async_trait]
-impl ControlSource for ServerLink {
-    async fn control(&self) -> Result<ControlResponse> {
-        ServerLink::control(self).await
+/// The machine's server calls. The control poll and measurements use slot 1's credential (the
+/// server groups the slots by machine key). A handoff notice uses its own slot's: the server
+/// refuses a notice for an attempt the posting node does not own.
+pub struct MachineLink {
+    primary: Arc<ServerLink>,
+    enrollments: Vec<PathBuf>,
+}
+impl MachineLink {
+    pub fn new(primary: Arc<ServerLink>, layout: &Layout, slots: u32) -> Self {
+        let enrollments = (1..=slots).map(|s| layout.slot_enrollment(s)).collect();
+        Self {
+            primary,
+            enrollments,
+        }
     }
-    async fn handoff(&self, notice: &HandoffNotice) -> Result<()> {
-        ServerLink::handoff(self, notice).await
+    /// The link of `slot`'s node, from its enrollment file.
+    pub fn slot(&self, slot: u32) -> Result<ServerLink> {
+        let path = (slot.checked_sub(1))
+            .and_then(|i| self.enrollments.get(i as usize))
+            .with_context(|| format!("no slot {slot}"))?;
+        ServerLink::from_enrollment(&EnrollmentFile::load(path)?)
+    }
+}
+#[async_trait::async_trait]
+impl ControlSource for MachineLink {
+    async fn control(&self) -> Result<ControlResponse> {
+        self.primary.control().await
+    }
+    async fn handoff(&self, slot: u32, notice: &HandoffNotice) -> Result<()> {
+        if slot == 1 {
+            return self.primary.handoff(notice).await;
+        }
+        self.slot(slot)?.handoff(notice).await
     }
     async fn submit_measurement(&self, s: &MeasurementSubmission) -> Result<QualificationPin> {
-        ServerLink::submit_measurement(self, s).await
+        self.primary.submit_measurement(s).await
     }
 }
 #[async_trait::async_trait]
 pub trait GitFactory: Send + Sync {
-    async fn start(&self, state_dir: &Path) -> Result<Box<dyn GitChild>>;
+    async fn start(&self, state_dir: &Path, socket: &Path) -> Result<Box<dyn GitChild>>;
 }
 #[async_trait::async_trait]
 pub trait GitChild: Send + Sync {
@@ -100,8 +134,8 @@ pub trait GitChild: Send + Sync {
 pub struct AqGitFactory(pub AqGitConfig);
 #[async_trait::async_trait]
 impl GitFactory for AqGitFactory {
-    async fn start(&self, state_dir: &Path) -> Result<Box<dyn GitChild>> {
-        Ok(Box::new(AqGit::start(&self.0, state_dir).await?))
+    async fn start(&self, state_dir: &Path, socket: &Path) -> Result<Box<dyn GitChild>> {
+        Ok(Box::new(AqGit::start(&self.0, state_dir, socket).await?))
     }
 }
 #[async_trait::async_trait]
@@ -170,18 +204,23 @@ pub fn mark_handoff(
     }
     Ok(false)
 }
-/// Attempt ids of drivers that are running in `slots`: driver.json present, exit.json absent.
-pub fn running_attempts(layout: &Layout, slots: &[u32]) -> Result<Vec<Uuid>> {
-    Ok(driver_dirs(layout, slots)
-        .into_iter()
-        .filter(|(d, _)| !d.join("exit.json").exists())
-        .map(|(_, id)| id)
+/// The slot and attempt id of each driver running in `slots`: driver.json present, exit.json
+/// absent.
+pub fn running_attempts(layout: &Layout, slots: &[u32]) -> Result<Vec<(u32, Uuid)>> {
+    Ok(slots
+        .iter()
+        .flat_map(|&slot| {
+            let dirs = driver_dirs_in(&layout.host_root(slot));
+            dirs.into_iter()
+                .filter(|(d, _)| !d.join("exit.json").exists())
+                .map(move |(_, id)| (slot, id))
+        })
         .collect())
 }
 fn driver_dirs(layout: &Layout, slots: &[u32]) -> Vec<(PathBuf, Uuid)> {
     slots
         .iter()
-        .flat_map(|slot| driver_dirs_in(&layout.current(*slot).join("host")))
+        .flat_map(|slot| driver_dirs_in(&layout.host_root(*slot)))
         .collect()
 }
 fn driver_dirs_in(host: &Path) -> Vec<(PathBuf, Uuid)> {
@@ -207,10 +246,14 @@ fn driver_dirs_in(host: &Path) -> Vec<(PathBuf, Uuid)> {
     found
 }
 /// The reason the service recorded for `attempt` before the cut: the handoff marker in its
-/// driver directory under `state_dir/host`, else the slot's service-stop marker; None when
-/// neither exists.
-pub fn recorded_handoff(state_dir: &Path, attempt: Uuid) -> Option<HandoffReason> {
-    let driver = driver_dirs_in(&state_dir.join("host"))
+/// driver directory under `host_root`, else the slot's service-stop marker in `state_dir`;
+/// None when neither exists.
+pub fn recorded_handoff(
+    host_root: &Path,
+    state_dir: &Path,
+    attempt: Uuid,
+) -> Option<HandoffReason> {
+    let driver = driver_dirs_in(host_root)
         .into_iter()
         .find(|(_, id)| *id == attempt)
         .and_then(|(dir, _)| {
@@ -228,9 +271,12 @@ pub fn recorded_handoff(state_dir: &Path, attempt: Uuid) -> Option<HandoffReason
 const QUIET: usize = 0;
 const REVOKED: usize = 1;
 const STOPPING: usize = 2;
+/// Set from the start until a control reply showed the current pin and its renderer was
+/// applied (or showed that there is none), so no slot polls under a stale renderer.
+const UNPINNED: usize = 3;
 struct Pause {
     tx: watch::Sender<bool>,
-    flags: Mutex<[bool; 3]>,
+    flags: Mutex<[bool; 4]>,
 }
 impl Pause {
     /// Notifies the slots only when the combined value changes: every notification wakes a
@@ -316,8 +362,8 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
             .and_then(|b| serde_json::from_slice(&b).ok());
         let shared = Arc::new(Shared {
             pause: Pause {
-                tx: watch::channel(false).0,
-                flags: Mutex::new([false; 3]),
+                tx: watch::channel(true).0,
+                flags: Mutex::new([false, false, false, true]),
             },
             stopping: watch::channel(false).0,
             force: watch::channel(false).0,
@@ -404,11 +450,14 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         self.started.1 + self.started.0.elapsed().as_millis() as u64
     }
     fn ctx(&self, slot: u32, node_id: Uuid, state_dir: PathBuf) -> SlotContext {
+        let layout = &self.sup.layout;
         SlotContext {
             slot,
             node_id,
-            enrollment: self.sup.layout.slot_enrollment(slot),
+            enrollment: layout.slot_enrollment(slot),
             state_dir,
+            host_root: layout.host_root(slot),
+            git_socket: layout.git_socket(slot),
             renderer: self.renderer.lock().unwrap().clone(),
         }
     }
@@ -441,6 +490,8 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 tracing::error!(slot, "slot held until the owner releases it: {why}");
                 return Ok(false);
             }
+            // Which claims preserved their sandbox is read from the journal (durable), so this
+            // holds after a reboot emptied the runtime dir and its driver markers.
             self.sup.backend.release_claimed(ctx.clone()).await?;
             self.archive(&ctx);
         } else if current.exists() {
@@ -450,7 +501,8 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         Ok(true)
     }
     async fn recover(&self, ctx: &SlotContext) -> Result<RecoverOutcome> {
-        let git = self.sup.git.start(&ctx.state_dir).await?;
+        self.sup.layout.slot_runtime_for_recovery(ctx.slot)?;
+        let git = self.sup.git.start(&ctx.state_dir, &ctx.git_socket).await?;
         let out = async {
             git.register(&self.sup.config.repositories).await?;
             self.sup.backend.recover(ctx.clone()).await
@@ -527,7 +579,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         let ctx = self.ctx(slot, node_id, dir.clone());
         self.active.lock().unwrap().insert(slot);
         let result = async {
-            let git = self.sup.git.start(&dir).await?;
+            let git = self.sup.git.start(&dir, &ctx.git_socket).await?;
             let run = async {
                 git.register(&self.sup.config.repositories).await?;
                 self.sup
@@ -590,20 +642,20 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         // Every marker first: the driver acts on it, the notice only informs, so a hung
         // server can never delay another slot's marker.
         let running = running_attempts(layout, &slots).unwrap_or_default();
-        for &id in &running {
-            if let Err(e) = mark_handoff(layout, &slots, id, HandoffReason::ServiceStop) {
+        for &(slot, id) in &running {
+            if let Err(e) = mark_handoff(layout, &[slot], id, HandoffReason::ServiceStop) {
                 tracing::warn!(%id, "handoff marker: {e:#}");
             }
         }
-        for id in running {
+        for (slot, id) in running {
             if posted.insert(id) {
                 let notice = HandoffNotice {
                     schema_version: 1,
                     attempt_id: id,
                     reason: HandoffReason::ServiceStop,
                 };
-                let sent =
-                    tokio::time::timeout(HANDOFF_POST_WAIT, self.sup.control.handoff(&notice));
+                let post = self.sup.control.handoff(slot, &notice);
+                let sent = tokio::time::timeout(HANDOFF_POST_WAIT, post);
                 match sent.await {
                     Ok(Ok(())) => {}
                     Ok(Err(e)) => tracing::warn!(%id, "handoff notice: {e:#}"),
@@ -669,8 +721,19 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             }
         }
         *self.latest.lock().unwrap() = resp.qualification.clone();
-        if let Some(pin) = &resp.qualification {
-            self.switch_renderer(pin);
+        // A pin not yet effective says nothing of the one the server offers with now.
+        let current = match &resp.qualification {
+            Some(pin) => {
+                self.switch_renderer(pin);
+                self.now_ms() >= pin.effective_at_ms
+            }
+            None => {
+                self.pause.set(QUIET, false);
+                true
+            }
+        };
+        if current {
+            self.pause.set(UNPINNED, false);
         }
         self.maybe_measure();
     }
@@ -692,8 +755,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             }
             *active = Some(pin.renderer.clone());
             self.pause.set(QUIET, true);
-        } else if now + QUIET_WINDOW.as_millis() as u64 >= pin.effective_at_ms {
-            self.pause.set(QUIET, true);
+        } else {
+            let quiet = now + QUIET_WINDOW.as_millis() as u64 >= pin.effective_at_ms;
+            self.pause.set(QUIET, quiet);
         }
     }
     fn maybe_measure(self: &Arc<Self>) {
@@ -784,6 +848,8 @@ mod tests {
         Hang,
         /// Keeps the pause receiver, returns Paused when polling pauses.
         Observe,
+        /// Admitted and running (journal and driver.json written) until the task is aborted.
+        Running,
     }
     #[derive(Default)]
     struct FakeBackend {
@@ -832,7 +898,7 @@ mod tests {
                 Some(Step::ErrorAdmitted) => {
                     std::fs::write(ctx.state_dir.join("journal"), b"j").unwrap();
                     // Its driver never wrote exit.json (the pane was cut).
-                    let dir = ctx.state_dir.join("host/driver-1");
+                    let dir = ctx.host_root.join("driver-1");
                     std::fs::create_dir_all(&dir).unwrap();
                     let owner = serde_json::json!({"owner": {"attempt_id": Uuid::from_u128(42)}});
                     std::fs::write(dir.join("driver.json"), owner.to_string()).unwrap();
@@ -842,6 +908,14 @@ mod tests {
                     let _ = shutdown.wait_for(|v| *v).await;
                     *self.released.lock().unwrap() = Some(Instant::now());
                     Ok(AttemptOutcome::ShutdownBeforeAdmission)
+                }
+                Some(Step::Running) => {
+                    std::fs::write(ctx.state_dir.join("journal"), b"j").unwrap();
+                    let dir = ctx.host_root.join("driver-1");
+                    std::fs::create_dir_all(&dir).unwrap();
+                    let owner = serde_json::json!({"owner": {"attempt_id": Uuid::from_u128(43)}});
+                    std::fs::write(dir.join("driver.json"), owner.to_string()).unwrap();
+                    std::future::pending().await
                 }
                 Some(Step::Observe) => {
                     *self.observed.lock().unwrap() = Some(pause.clone());
@@ -903,7 +977,8 @@ mod tests {
         /// An error is (status, whether the body is AQ's error schema).
         replies: Mutex<VecDeque<Result<ControlResponse, (u16, bool)>>>,
         polls: Mutex<Vec<Instant>>,
-        handoffs: Mutex<Vec<HandoffNotice>>,
+        /// Each notice with the slot it was posted for.
+        handoffs: Mutex<Vec<(u32, HandoffNotice)>>,
         hang_handoffs: Mutex<bool>,
         submissions: Mutex<u32>,
         renewed: QualificationPin,
@@ -923,8 +998,8 @@ mod tests {
                 LinkError { status, code }.into()
             })
         }
-        async fn handoff(&self, n: &HandoffNotice) -> Result<()> {
-            self.handoffs.lock().unwrap().push(n.clone());
+        async fn handoff(&self, slot: u32, n: &HandoffNotice) -> Result<()> {
+            self.handoffs.lock().unwrap().push((slot, n.clone()));
             let hang = *self.hang_handoffs.lock().unwrap();
             if hang {
                 std::future::pending::<()>().await;
@@ -939,7 +1014,11 @@ mod tests {
     struct FakeGit;
     #[async_trait::async_trait]
     impl GitFactory for FakeGit {
-        async fn start(&self, _: &Path) -> Result<Box<dyn GitChild>> {
+        async fn start(&self, _: &Path, socket: &Path) -> Result<Box<dyn GitChild>> {
+            assert!(
+                socket.parent().unwrap().is_dir(),
+                "the slot runtime dir exists"
+            );
             Ok(Box::new(FakeGit))
         }
     }
@@ -1003,6 +1082,7 @@ mod tests {
         let layout = Layout {
             config_dir: dir.path().join("cfg"),
             state_root: dir.path().join("state"),
+            runtime_root: dir.path().join("run/t"),
         };
         for slot in 1..=slots {
             EnrollmentFile {
@@ -1022,6 +1102,7 @@ mod tests {
             slots,
             native_template: "/n.json".into(),
             state_root: layout.state_root.clone(),
+            runtime_root: Some(layout.runtime_root.clone()),
             aq_git: AqGitConfig {
                 binary: "/g".into(),
                 git_executable: "/usr/bin/git".into(),
@@ -1045,16 +1126,21 @@ mod tests {
         backend: &Arc<FakeBackend>,
         control: &Arc<FakeControl>,
     ) -> (Handle, watch::Sender<bool>) {
-        let layout = Layout {
-            config_dir: rig.layout.config_dir.clone(),
-            state_root: rig.layout.state_root.clone(),
-        };
+        start_with(rig, backend, control, Arc::new(FakeGit))
+    }
+    fn start_with(
+        rig: &Rig,
+        backend: &Arc<FakeBackend>,
+        control: &Arc<FakeControl>,
+        git: Arc<dyn GitFactory>,
+    ) -> (Handle, watch::Sender<bool>) {
+        let layout = Layout::for_service(&rig.layout.config_dir, &rig.config);
         let sup = Supervisor::new(
             rig.config.clone(),
             layout,
             backend.clone(),
             control.clone(),
-            Arc::new(FakeGit),
+            git,
         );
         let (tx, rx) = watch::channel(false);
         (tokio::spawn(sup.run(rx)), tx)
@@ -1069,8 +1155,8 @@ mod tests {
     fn driver(rig: &Rig, slot: u32, attempt: Uuid) -> PathBuf {
         let dir = rig
             .layout
-            .current(slot)
-            .join(format!("host/driver-{}", Uuid::new_v4()));
+            .host_root(slot)
+            .join(format!("driver-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("driver.json"),
@@ -1085,16 +1171,16 @@ mod tests {
         let rig = rig(1);
         let (a, b) = (Uuid::from_u128(1), Uuid::from_u128(2));
         let (da, _db) = (driver(&rig, 1, a), driver(&rig, 1, b));
-        let state = rig.layout.current(1);
-        assert_eq!(recorded_handoff(&state, a), None);
+        let (host, state) = (rig.layout.host_root(1), rig.layout.current(1));
+        assert_eq!(recorded_handoff(&host, &state, a), None);
         assert!(mark_handoff(&rig.layout, &[1], a, HandoffReason::ServiceStop).unwrap());
         assert!(da.join("handoff").exists());
         assert_eq!(
-            recorded_handoff(&state, a),
+            recorded_handoff(&host, &state, a),
             Some(HandoffReason::ServiceStop)
         );
-        assert_eq!(recorded_handoff(&state, b), None);
-        assert_eq!(recorded_handoff(&state, Uuid::from_u128(3)), None);
+        assert_eq!(recorded_handoff(&host, &state, b), None);
+        assert_eq!(recorded_handoff(&host, &state, Uuid::from_u128(3)), None);
     }
 
     #[tokio::test(start_paused = true)]
@@ -1173,12 +1259,7 @@ mod tests {
         let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![attempt], None)]));
         sleep(Duration::from_secs(1)).await;
         assert!(
-            !rig.layout
-                .current(1)
-                .join("host")
-                .read_dir()
-                .unwrap()
-                .any(|_| true),
+            !rig.layout.host_root(1).read_dir().unwrap().any(|_| true),
             "no driver dir yet"
         );
         let dir = driver(&rig, 1, attempt);
@@ -1198,14 +1279,14 @@ mod tests {
         let rig = rig(1);
         let backend = Arc::new(FakeBackend::default());
         script(&backend, 1, vec![Step::Observe, Step::Hang]);
-        let effective = wall() + 40_000;
+        let (now, effective) = (wall(), wall() + 40_000);
         let (handle, tx) = start(
             &rig,
             &backend,
-            &control(vec![reply(
-                vec![],
-                Some(pin("2", effective, effective + 86_400_000)),
-            )]),
+            &control(vec![
+                reply(vec![], Some(pin("1", now - 1000, now + 86_400_000))),
+                reply(vec![], Some(pin("2", effective, effective + 86_400_000))),
+            ]),
         );
         sleep(Duration::from_secs(7)).await;
         let paused = backend.observed.lock().unwrap().clone().unwrap();
@@ -1227,7 +1308,13 @@ mod tests {
                 .version,
             "2"
         );
-        assert!(backend.renderers.lock().unwrap()[0].is_none());
+        assert_eq!(
+            backend.renderers.lock().unwrap()[0]
+                .as_ref()
+                .unwrap()
+                .version,
+            "1"
+        );
         let saved: ArtifactPin =
             serde_json::from_slice(&std::fs::read(rig.layout.renderer_pin()).unwrap()).unwrap();
         assert_eq!(saved.version, "2");
@@ -1285,9 +1372,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|n| (n.attempt_id, n.reason))
+                .map(|(slot, n)| (*slot, n.attempt_id, n.reason))
                 .collect::<Vec<_>>(),
-            [(attempt, HandoffReason::ServiceStop)]
+            [(1, attempt, HandoffReason::ServiceStop)]
         );
         let marker: serde_json::Value =
             serde_json::from_slice(&std::fs::read(dir.join("handoff")).unwrap()).unwrap();
@@ -1336,19 +1423,19 @@ mod tests {
         let rig = rig(1);
         let backend = Arc::new(FakeBackend::default());
         script(&backend, 1, vec![Step::Observe, Step::Hang]);
-        let ctl = control(vec![Err((401, true))]);
+        let ctl = control(vec![reply(vec![], None), Err((401, true))]);
         let (handle, tx) = start(&rig, &backend, &ctl);
-        sleep(Duration::from_secs(11)).await;
-        assert_eq!(ctl.polls.lock().unwrap().len(), 3);
+        sleep(Duration::from_secs(16)).await;
+        assert_eq!(ctl.polls.lock().unwrap().len(), 4);
         assert!(*backend.observed.lock().unwrap().clone().unwrap().borrow());
         sleep(Duration::from_secs(49)).await;
         assert_eq!(
             ctl.polls.lock().unwrap().len(),
-            3,
+            4,
             "the next poll waits 60 s"
         );
         sleep(Duration::from_secs(11)).await;
-        assert_eq!(ctl.polls.lock().unwrap().len(), 4);
+        assert_eq!(ctl.polls.lock().unwrap().len(), 5);
         assert_eq!(
             backend.calls.lock().unwrap().len(),
             1,
@@ -1474,7 +1561,7 @@ mod tests {
     fn pause_notifies_only_on_change() {
         let pause = Pause {
             tx: watch::channel(false).0,
-            flags: Mutex::new([false; 3]),
+            flags: Mutex::new([false; 4]),
         };
         let mut rx = pause.tx.subscribe();
         pause.set(QUIET, false);
@@ -1497,7 +1584,7 @@ mod tests {
             let rig = rig(1);
             let backend = Arc::new(FakeBackend::default());
             script(&backend, 1, vec![Step::Observe, Step::Hang]);
-            let ctl = control(vec![Err((status, aq))]);
+            let ctl = control(vec![reply(vec![], None), Err((status, aq))]);
             let (handle, tx) = start(&rig, &backend, &ctl);
             sleep(Duration::from_secs(1000)).await;
             assert!(
@@ -1506,14 +1593,15 @@ mod tests {
             );
             let times = ctl.polls.lock().unwrap().clone();
             let gaps: Vec<u64> = times.windows(2).map(|w| (w[1] - w[0]).as_secs()).collect();
-            assert_eq!(gaps[..6], [10, 20, 40, 80, 160, 300], "{status}");
+            assert_eq!(gaps[..7], [5, 10, 20, 40, 80, 160, 300], "{status}");
             stop(handle, tx).await;
         }
         let rig = rig(1);
         let backend = Arc::new(FakeBackend::default());
         script(&backend, 1, vec![Step::Observe, Step::Hang]);
-        let (handle, tx) = start(&rig, &backend, &control(vec![Err((403, true))]));
-        sleep(Duration::from_secs(11)).await;
+        let ctl = control(vec![reply(vec![], None), Err((403, true))]);
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(16)).await;
         assert!(*backend.observed.lock().unwrap().clone().unwrap().borrow());
         stop(handle, tx).await;
     }
@@ -1575,12 +1663,12 @@ mod tests {
         script(&backend, 1, vec![Step::Hang]);
         let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
         sleep(Duration::from_secs(1)).await;
-        let current = rig.layout.current(1);
-        assert_eq!(recorded_handoff(&current, Uuid::from_u128(9)), None);
+        let (host, current) = (rig.layout.host_root(1), rig.layout.current(1));
+        assert_eq!(recorded_handoff(&host, &current, Uuid::from_u128(9)), None);
         tx.send_replace(true);
         sleep(Duration::from_secs(1)).await;
         assert_eq!(
-            recorded_handoff(&current, Uuid::from_u128(9)),
+            recorded_handoff(&host, &current, Uuid::from_u128(9)),
             Some(HandoffReason::ServiceStop)
         );
         handle.await.unwrap().unwrap();
@@ -1656,15 +1744,16 @@ mod tests {
         let (handle, tx) = start(&rig, &backend, &ctl);
         sleep(Duration::from_secs(6)).await;
         stop(handle, tx).await;
-        let current = rig.layout.current(1);
+        let (host, current) = (rig.layout.host_root(1), rig.layout.current(1));
         assert!(current.join("journal").exists());
+        assert!(host.join("driver-1/driver.json").exists());
         assert!(
-            !current.join("host/driver-1/handoff").exists(),
+            !host.join("driver-1/handoff").exists(),
             "no owner or service marker"
         );
         assert!(!current.join(SERVICE_STOP_MARKER).exists());
         assert!(ctl.handoffs.lock().unwrap().is_empty());
-        assert_eq!(recorded_handoff(&current, Uuid::from_u128(42)), None);
+        assert_eq!(recorded_handoff(&host, &current, Uuid::from_u128(42)), None);
     }
 
     /// Round 2, F: a notice post that never answers cannot hold the stop past the grace plus
@@ -1718,5 +1807,221 @@ mod tests {
             "both marked"
         );
         handle.await.unwrap().unwrap();
+    }
+
+    /// D3: a fresh state root has no renderer, so the slots do not poll before a control reply
+    /// shows the current pin and its renderer is applied. A failed control poll does not count,
+    /// nor does a pin that is not effective yet (the server offers with an earlier one).
+    #[tokio::test(start_paused = true)]
+    async fn fresh_slots_wait_for_the_current_pin() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend::default());
+        script(&backend, 1, vec![Step::Hang]);
+        let effective = wall() + 20_000;
+        let pending = reply(vec![], Some(pin("2", effective, effective + 86_400_000)));
+        let ctl = control(vec![Err((500, false)), pending]);
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(19)).await;
+        assert!(
+            backend.calls.lock().unwrap().is_empty(),
+            "no poll before the pin"
+        );
+        sleep(Duration::from_secs(12)).await;
+        assert_eq!(*backend.calls.lock().unwrap(), ["run:1"]);
+        let renderers = backend.renderers.lock().unwrap().clone();
+        assert_eq!(renderers[0].as_ref().unwrap().version, "2");
+        stop(handle, tx).await;
+    }
+
+    /// D4: each slot's stop notice is posted for its own slot.
+    #[tokio::test(start_paused = true)]
+    async fn each_stop_notice_is_posted_for_its_own_slot() {
+        let rig = rig(2);
+        let backend = Arc::new(FakeBackend::default());
+        for slot in 1..=2 {
+            script(&backend, slot, vec![Step::Hang]);
+        }
+        let ctl = control(vec![reply(vec![], None)]);
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(1)).await;
+        let (a1, a2) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        driver(&rig, 1, a1);
+        driver(&rig, 2, a2);
+        tx.send_replace(true);
+        sleep(Duration::from_secs(1)).await;
+        let mut posted: Vec<_> = (ctl.handoffs.lock().unwrap().iter())
+            .map(|(slot, n)| (*slot, n.attempt_id))
+            .collect();
+        posted.sort();
+        assert_eq!(posted, [(1, a1), (2, a2)]);
+        handle.await.unwrap().unwrap();
+    }
+
+    /// D4: `MachineLink` posts a slot's notice with that slot's node credential, and the
+    /// control poll with slot 1's.
+    #[tokio::test]
+    async fn machine_link_posts_each_notice_with_its_slots_credential() {
+        use axum::{Json, Router, http::HeaderMap, routing::post};
+        let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let record = |route: &'static str, seen: Arc<Mutex<Vec<(String, String)>>>| {
+            post(
+                move |h: HeaderMap, Json(body): Json<serde_json::Value>| async move {
+                    let bearer = h["authorization"].to_str().unwrap().to_owned();
+                    seen.lock().unwrap().push((route.to_owned(), bearer));
+                    Json(match route {
+                        "control" => serde_json::json!({"schema_version": 1, "machine_key": "desk",
+                        "desired": "running", "generation": 1, "handoff": []}),
+                        _ => body,
+                    })
+                },
+            )
+        };
+        let app = Router::new()
+            .route("/v1/worker/handoffs", record("handoffs", seen.clone()))
+            .route("/v1/worker/control", record("control", seen.clone()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let rig = rig(2);
+        for slot in 1..=2 {
+            EnrollmentFile {
+                server_url: origin.clone(),
+                node_id: Uuid::from_u128(slot as u128),
+                credential: format!("aqn_slot{slot}"),
+                cf_client_id: None,
+                cf_client_secret: None,
+            }
+            .save(&rig.layout.slot_enrollment(slot))
+            .unwrap();
+        }
+        let first = EnrollmentFile::load(&rig.layout.slot_enrollment(1)).unwrap();
+        let primary = Arc::new(ServerLink::from_enrollment(&first).unwrap());
+        let link = MachineLink::new(primary, &rig.layout, 2);
+        let notice = |id| HandoffNotice {
+            schema_version: 1,
+            attempt_id: Uuid::from_u128(id),
+            reason: HandoffReason::ServiceStop,
+        };
+        link.handoff(2, &notice(2)).await.unwrap();
+        link.handoff(1, &notice(1)).await.unwrap();
+        link.control().await.unwrap();
+        assert!(link.handoff(3, &notice(3)).await.is_err(), "no slot 3");
+        server.abort();
+        let seen = seen.lock().unwrap().clone();
+        let expected = [
+            ("handoffs", "Bearer aqn_slot2"),
+            ("handoffs", "Bearer aqn_slot1"),
+            ("control", "Bearer aqn_slot1"),
+        ];
+        assert_eq!(seen, expected.map(|(r, b)| (r.to_owned(), b.to_owned())));
+    }
+
+    /// D2: the service is killed while an attempt runs (no stop marker, no archive, its aq-git
+    /// killed and its socket left behind). The restarted service starts aq-git again on the
+    /// slot's state, recovers (salvages) the attempt, archives it and takes new work.
+    #[tokio::test]
+    async fn a_killed_service_salvages_the_running_attempt_on_restart() {
+        let mut rig = rig(1);
+        let scripts = tempfile::tempdir().unwrap();
+        rig.config.aq_git = crate::git::tests::fake_aq_git(scripts.path(), None);
+        let git = || Arc::new(AqGitFactory(rig.config.aq_git.clone()));
+        async fn until(what: &str, done: impl Fn() -> bool) {
+            for _ in 0..400 {
+                if done() {
+                    return;
+                }
+                sleep(Duration::from_millis(25)).await;
+            }
+            panic!("timed out waiting for {what}");
+        }
+        let backend = Arc::new(FakeBackend::default());
+        script(&backend, 1, vec![Step::Running]);
+        let ctl = control(vec![reply(vec![], None)]);
+        let (handle, _tx) = start_with(&rig, &backend, &ctl, git());
+        let socket = rig.layout.git_socket(1);
+        until("the attempt", || backend.calls.lock().unwrap().len() == 1).await;
+        until("its driver", || {
+            rig.layout.host_root(1).join("driver-1").exists()
+        })
+        .await;
+        assert!(std::os::unix::net::UnixStream::connect(&socket).is_ok());
+        // SIGKILL: nothing of the graceful stop runs; the aq-git child dies with the service.
+        handle.abort();
+        let _ = handle.await;
+        until("aq-git to die", || {
+            std::os::unix::net::UnixStream::connect(&socket).is_err()
+        })
+        .await;
+        assert!(socket.exists(), "the killed aq-git left its socket");
+        assert!(rig.layout.current(1).join("journal").exists());
+
+        let backend = Arc::new(FakeBackend::default());
+        let salvaged = [Ok(RecoverOutcome::Salvaged)];
+        backend.recovery.lock().unwrap().insert(1, salvaged.into());
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start_with(&rig, &backend, &ctl, git());
+        until("recovery and new work", || {
+            backend.calls.lock().unwrap().len() == 2
+        })
+        .await;
+        assert_eq!(*backend.calls.lock().unwrap(), ["recover:1", "run:1"]);
+        assert_eq!(
+            count(rig.layout.archive_dir(1)),
+            1,
+            "archived after salvage"
+        );
+        assert!(
+            !rig.layout.host_root(1).join("driver-1").exists(),
+            "a fresh runtime dir"
+        );
+        tx.send_replace(true);
+        handle.await.unwrap().unwrap();
+    }
+
+    /// After a reboot the runtime dir (the host root and its driver markers) is gone: settle
+    /// still releases the claimed sandboxes (the backend reads which are preserved from the
+    /// journal), then archives.
+    #[tokio::test(start_paused = true)]
+    async fn settle_releases_claimed_sandboxes_after_the_runtime_dir_is_wiped() {
+        let rig = rig(1);
+        journal(&rig, 1);
+        assert!(
+            !rig.layout.host_root(1).exists(),
+            "no runtime dir (after a reboot)"
+        );
+        let backend = Arc::new(FakeBackend::default());
+        let salvaged = [Ok(RecoverOutcome::Salvaged)];
+        backend.recovery.lock().unwrap().insert(1, salvaged.into());
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(*backend.calls.lock().unwrap(), ["recover:1", "run:1"]);
+        assert_eq!(
+            backend.releases.lock().unwrap()[0],
+            1,
+            "released before the archive"
+        );
+        assert_eq!(count(rig.layout.archive_dir(1)), 1);
+        stop(handle, tx).await;
+    }
+
+    /// D2 ruling C: a lost attempt released to the server frees its slot: it is archived (its
+    /// record kept) and the slot takes new work.
+    #[tokio::test(start_paused = true)]
+    async fn a_released_lost_attempt_frees_the_slot() {
+        let rig = rig(1);
+        journal(&rig, 1);
+        let backend = Arc::new(FakeBackend::default());
+        backend
+            .recovery
+            .lock()
+            .unwrap()
+            .insert(1, [Ok(RecoverOutcome::Lost)].into());
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(*backend.calls.lock().unwrap(), ["recover:1", "run:1"]);
+        assert_eq!(count(rig.layout.archive_dir(1)), 1, "kept in the archive");
+        stop(handle, tx).await;
     }
 }

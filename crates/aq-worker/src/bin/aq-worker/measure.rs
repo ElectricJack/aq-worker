@@ -584,4 +584,78 @@ mod tests {
         );
         assert_eq!(states[&running], SandboxState::Running);
     }
+
+    /// Ruling (preserved markers): after a reboot wiped the runtime dir, and with it every
+    /// driver marker, the release still reads which claims preserved their sandbox from the
+    /// claims themselves (the journal keeps them): the preserved sandbox is kept and the
+    /// claimed one destroyed. `claimed_attempts` applies `preserved_claim_bytes` to each
+    /// journaled claim the same way.
+    #[tokio::test]
+    async fn after_a_runtime_wipe_preserved_stays_and_claimed_goes() {
+        use aq_worker::backend::{FakeBackend, PrivateMaterial, SandboxState};
+        let mut backend = FakeBackend::default();
+        let node = Uuid::from_u128(1);
+        let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
+        let (claimed, preserved) = (Uuid::new_v4(), Uuid::new_v4());
+        let host = tempfile::tempdir().unwrap();
+        let dir = host.path().join("driver-1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let owner = json!({"owner": {"attempt_id": preserved}}).to_string();
+        std::fs::write(dir.join("driver.json"), owner).unwrap();
+        let failure = anyhow::anyhow!("workspace copy-back: over its bound");
+        let kept = aq_handoff_note::preserved_claim(&failure, "sb", &dir.join("driver.json"));
+        let done =
+            aq_handoff_note::handoff_note(aq_protocol::HandoffReason::Restart, &[], &[], &[]);
+        // Each attempt's claim as the journal records it (a result submission).
+        let bytes = |text: String| {
+            let conclusion = aq_agent_result_local::Conclusion::new(text).unwrap();
+            serde_json::to_vec(&json!({"schema_version": 1, "conclusion": conclusion})).unwrap()
+        };
+        let claims = [(claimed, bytes(done)), (preserved, bytes(kept.unwrap()))];
+        for (attempt_id, _) in &claims {
+            let owner = Ownership {
+                node_id: node,
+                boot_id: Uuid::new_v4(),
+                attempt_id: *attempt_id,
+            };
+            let request = CreateRequest::new(owner, template.clone(), 1 << 40, vec![]);
+            let sandbox = backend.create(&request).await.unwrap();
+            let material = PrivateMaterial::new(b"fixture".to_vec());
+            backend
+                .deliver_private_material(&sandbox, material)
+                .await
+                .unwrap();
+            backend.start_runner(&sandbox).await.unwrap();
+            assert!(backend.stop(&sandbox).await.is_confirmed());
+        }
+        std::fs::remove_dir_all(host.path()).unwrap();
+        let release: Vec<Uuid> = (claims.iter())
+            .filter(|(_, claim)| !aq_handoff_note::preserved_claim_bytes(claim))
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(release, [claimed]);
+        let destroyed = aq_worker::native::runner::destroy_claimed_sandboxes(
+            &mut backend,
+            host.path(),
+            node,
+            &release,
+        )
+        .await
+        .unwrap();
+        assert_eq!(destroyed, 1);
+        let states: BTreeMap<Uuid, SandboxState> = (backend.list_owned(node).await.unwrap())
+            .into_iter()
+            .map(|e| (e.sandbox.owner.attempt_id, e.state))
+            .collect();
+        assert!(
+            states
+                .get(&claimed)
+                .is_none_or(|s| *s == SandboxState::Destroyed)
+        );
+        assert_eq!(
+            states[&preserved],
+            SandboxState::Stopped,
+            "kept for the operator"
+        );
+    }
 }

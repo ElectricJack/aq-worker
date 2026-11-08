@@ -371,7 +371,7 @@ async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission,
     };
     let entries: Vec<_> = files.iter().map(file).map(entry).collect();
     let archive = tar::tree_archive("work", &entries).unwrap(); // members are work/...
-    let restart = aq_protocol::HandoffReason::Restart;
+    let restart = (aq_protocol::HandoffReason::Restart, None);
     let claimed = salvage_claim(h, restart, &sandboxes, 1 << 20, async |_| Ok(archive));
     claimed.await.unwrap()
 }
@@ -468,7 +468,7 @@ async fn salvage_keeps_a_claim_already_recorded() {
 #[tokio::test]
 async fn salvage_without_sandbox_is_unsalvageable() {
     let (dir, mut h, a) = salvage_fixture();
-    let restart = aq_protocol::HandoffReason::Restart;
+    let restart = (aq_protocol::HandoffReason::Restart, None);
     let never = async |_: &SandboxIdentity| -> Result<Vec<u8>> { panic!("no sandbox to archive") };
     let refused = salvage_claim(&h, restart, &[], 1 << 20, never).await;
     assert_eq!(refused.unwrap().err(), Some("sandbox_absent"));

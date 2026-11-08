@@ -15,6 +15,9 @@ pub struct ServiceConfig {
     pub slots: u32,
     pub native_template: PathBuf,
     pub state_root: PathBuf,
+    /// Where the slots' Unix sockets live; `layout::default_runtime_root` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_root: Option<PathBuf>,
     pub aq_git: AqGitConfig,
     #[serde(default)]
     pub repositories: Vec<RepositoryBinding>,
@@ -78,6 +81,10 @@ pub fn valid_profile(p: &str) -> bool {
 pub const STOP_MARGIN: std::time::Duration = std::time::Duration::from_secs(30);
 impl ServiceConfig {
     /// The unit's TimeoutStopSec: the grace, rounded up to seconds, plus `STOP_MARGIN`.
+    pub fn runtime_root(&self) -> PathBuf {
+        (self.runtime_root.clone())
+            .unwrap_or_else(|| crate::layout::default_runtime_root(&self.profile))
+    }
     pub fn stop_timeout_secs(&self) -> u64 {
         self.shutdown_grace_ms.div_ceil(1000) + STOP_MARGIN.as_secs()
     }
@@ -117,6 +124,10 @@ impl ServiceConfig {
         ] {
             ensure!(path.is_absolute(), "{name} must be an absolute path");
         }
+        if let Some(root) = &self.runtime_root {
+            ensure!(root.is_absolute(), "runtime_root must be an absolute path");
+        }
+        crate::layout::check_socket_paths(&self.runtime_root(), self.slots)?;
         ensure!(self.repositories.len() <= 16, "at most 16 repositories");
         for r in &self.repositories {
             ensure!(
@@ -162,6 +173,7 @@ mod tests {
             slots: 2,
             native_template: "/etc/aq/native.json".into(),
             state_root: "/var/aq".into(),
+            runtime_root: Some("/run/user/1000/aq/local".into()),
             aq_git: AqGitConfig {
                 binary: "/opt/aq-git".into(),
                 git_executable: "/usr/bin/git".into(),
@@ -177,13 +189,14 @@ mod tests {
         let path = dir.path().join("service.toml");
         valid().save(&path).unwrap();
         assert_eq!(ServiceConfig::load(&path).unwrap().slots, 2);
-        let bad: [fn(&mut ServiceConfig); 7] = [
+        let bad: [fn(&mut ServiceConfig); 8] = [
             |c| c.slots = 0,
             |c| c.slots = 9,
             |c| c.native_template = "native.json".into(),
             |c| c.profile = "Bad_Name".into(),
             |c| c.machine_key = "Desk".into(),
             |c| c.measurement.enabled = true,
+            |c| c.runtime_root = Some("run/aq".into()),
             |c| {
                 c.repositories = vec![RepositoryBinding {
                     repository_id: Uuid::nil(),
@@ -224,5 +237,52 @@ git_executable = "/usr/bin/git"
         };
         assert_eq!(longest.stop_timeout_secs(), 630);
         assert!(!c.measurement.enabled && c.repositories.is_empty());
+        assert!(c.runtime_root.is_none());
+        assert!(!toml::to_string(&c).unwrap().contains("runtime_root"));
+    }
+    /// D1: with a long home, the default state root holds no socket; the runtime root keeps
+    /// every socket path under the limit, and a runtime root whose paths cannot fit is refused
+    /// when the configuration is loaded, naming the path and its length.
+    #[test]
+    fn socket_paths_fit_or_the_config_is_refused() {
+        let home = format!("/home/{}", "u".repeat(60));
+        let mut c = valid();
+        c.slots = 8;
+        c.state_root = format!("{home}/.local/state/agent-q/service/{}", c.profile).into();
+        c.runtime_root = None;
+        let layout = crate::Layout::for_service(Path::new("/c"), &c);
+        for slot in 1..=8 {
+            for socket in [
+                layout.git_socket(slot),
+                layout
+                    .host_root(slot)
+                    .join(format!("{}/tmux.sock", Uuid::nil())),
+            ] {
+                assert!(!socket.starts_with(&c.state_root), "{}", socket.display());
+            }
+        }
+        c.validate().unwrap();
+        // The longest uid and the longest profile each fallback root allows.
+        c.runtime_root = Some(format!("/run/user/4294967294/aq/{}", "a".repeat(14)).into());
+        c.validate().unwrap();
+        c.runtime_root = Some(format!("/run/user/4294967294/aq/{}", "a".repeat(15)).into());
+        assert!(c.validate().is_err());
+        let fallback = PathBuf::from("/tmp/aq-1000").join("a".repeat(25));
+        crate::layout::check_socket_paths(&fallback, 8).unwrap();
+        // The live failure: the state root of a normal home cannot hold the sockets.
+        let live = Path::new("/home/jkern/.local/state/agent-q/service/ms1/slots/1/current");
+        assert!(crate::layout::check_socket_paths(live, 1).is_err());
+        c.runtime_root = Some(format!("{home}/run").into());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("service.toml");
+        let text = toml::to_string(&c).unwrap();
+        crate::enrollment_file::write_private(&path, text.as_bytes()).unwrap();
+        let e = format!("{:#}", ServiceConfig::load(&path).unwrap_err());
+        let long = format!("{home}/run/8/host/{}/terminal-", Uuid::nil());
+        assert!(e.contains(&long), "{e}");
+        assert!(
+            e.contains("would be 135 bytes, over the 103-byte limit"),
+            "{e}"
+        );
     }
 }

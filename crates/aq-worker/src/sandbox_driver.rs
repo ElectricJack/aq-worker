@@ -727,7 +727,7 @@ mod tests {
         assert!(
             preserved_claim(&refused, "sb", &config)
                 .unwrap()
-                .contains("sandbox sb preserved")
+                .starts_with("Sandbox sb preserved;")
         );
     }
 

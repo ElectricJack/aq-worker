@@ -13,11 +13,13 @@ pub use private_inputs::reconciliation::{
 pub use private_inputs::{
     OriginalPrivateMaterial, PrivateCleanup, PrivateLaunchInput, ScopedCodexAuthBinding,
 };
+pub mod lost_guardian;
 pub mod observed;
 pub mod ownership;
 mod reader_lease;
 mod reaper;
 mod supervisor;
+pub use lost_guardian::{StopUnproven, recover_stopped};
 pub mod terminal_io;
 pub mod terminal_output;
 pub mod terminal_viewer;

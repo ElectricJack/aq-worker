@@ -12,6 +12,7 @@ use crate::native::journal::Attempt;
 use crate::sandbox_driver as driver;
 use aq_admission::result_record;
 use aq_agent_result_local as local;
+use aq_handoff_note::{preserved_claim_bytes as preserved, salvage_note};
 use profile::TerminalProfile;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,8 +62,9 @@ pub fn retained_attempts(config: &NativeConfig, node: Uuid) -> Result<Vec<Uuid>>
 }
 /// The retained attempts whose result claim is recorded: their work is in the worktree.
 pub fn claimed_attempts(config: &NativeConfig, node: Uuid) -> Result<Vec<Uuid>> {
+    // A preserved sandbox's claim says so, durably (its driver-dir marker is runtime): kept.
     attempts_where(config, node, |a| {
-        a.result.as_ref().is_some_and(|h| h.claim.is_some())
+        (a.result.as_ref().and_then(|h| h.claim.as_ref())).is_some_and(|c| !preserved(&c.bytes))
     })
 }
 fn attempts_where(
@@ -119,12 +121,11 @@ pub async fn reconcile_native(
         && h.stopped.is_none()
         && let Some(intent) = h.host_intent.as_ref()
     {
-        let mut handle = aq_session_host::SessionHost::recover(&h.intent.host_root, intent)?;
-        handle.stop()?;
-        handle.wait_stopped(std::time::Duration::from_secs(10))?;
-        let proof = handle.stopped_proof()?;
+        let last = h.running.as_ref().map(|r| &r.observation);
+        let proof = aq_session_host::recover_stopped(&h.intent.host_root, intent, last)?;
         journal.native_stopped(attempt_id, &proof)?;
-        tracing::warn!(%attempt_id, "recovered physical host stop after node restart");
+        let how = proof.observation().stop_reason.clone();
+        tracing::warn!(%attempt_id, ?how, "recovered physical host stop after node restart");
 
         attempt = journal
             .state()
@@ -202,7 +203,8 @@ pub async fn salvage_interrupted(
         let bound = usize::try_from(max)?.saturating_mul(2);
         let archive =
             async |s: &SandboxIdentity| Ok(backend.get_archive(s, "/aq/work", bound).await?);
-        match salvage_claim(&h, reason, &sandboxes, max, archive).await? {
+        let proof = host.stopped.as_ref().map(|s| &s.observation.stop_reason);
+        match salvage_claim(&h, (reason, proof), &sandboxes, max, archive).await? {
             Ok(claim) => Some(claim),
             Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
         }
@@ -239,7 +241,7 @@ async fn stopped_sandboxes(
 /// handoff claim, or why the work cannot be salvaged.
 async fn salvage_claim(
     h: &crate::native::result::history::ResultHistory,
-    reason: aq_protocol::HandoffReason,
+    (reason, proof): (aq_protocol::HandoffReason, Option<&Option<String>>),
     sandboxes: &[SandboxIdentity],
     max_workspace_bytes: u64,
     archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<u8>>,
@@ -263,7 +265,7 @@ async fn salvage_claim(
         return Ok(Err("credential_in_workspace"));
     }
     let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;
-    let conclusion = local::Conclusion::new(driver::handoff_note(reason, &changed, &[], &[]))?;
+    let conclusion = local::Conclusion::new(salvage_note(reason, &changed, proof))?;
     let input = local::SubmissionInput {
         schema_version: 1,
         conclusion,
@@ -418,10 +420,7 @@ async fn close_unstarted(
         && let (Some(_), Some(intent)) = (&h.guardian, &h.host_intent)
     {
         // A guardian was started: stop it and retain its actual kernel proof.
-        let mut handle = aq_session_host::SessionHost::recover(&h.intent.host_root, intent)?;
-        handle.stop()?;
-        handle.wait_stopped(std::time::Duration::from_secs(10))?;
-        let proof = handle.stopped_proof()?;
+        let proof = aq_session_host::recover_stopped(&h.intent.host_root, intent, None)?;
         check_root(config, held)?;
         journal.native_stopped(attempt_id, &proof)?;
         tracing::warn!(%attempt_id, "stopped the unstarted launch's host before closure");

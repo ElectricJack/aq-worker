@@ -99,6 +99,13 @@ impl ServerLink {
             .await
             .map(drop)
     }
+    /// D2 ruling C: releases an attempt whose host was lost, with an outside stop proof.
+    pub async fn lost_attempt(
+        &self,
+        r: &aq_protocol::LostAttemptRelease,
+    ) -> Result<aq_protocol::LostAttemptReleased> {
+        self.post("/v1/worker/lost-attempts", r).await
+    }
     pub async fn submit_measurement(&self, s: &MeasurementSubmission) -> Result<QualificationPin> {
         self.post("/v1/worker/qualifications", s).await
     }
