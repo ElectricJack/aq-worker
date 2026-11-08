@@ -192,6 +192,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-handoff-note"
+version = "0.1.0"
+dependencies = [
+ "aq-agent-channel",
+ "aq-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "aq-lifecycle-protocol"
 version = "0.1.0"
 dependencies = [
@@ -429,6 +440,7 @@ dependencies = [
  "aq-agent-result-local",
  "aq-codex-mapper",
  "aq-finite-responses",
+ "aq-handoff-note",
  "aq-lifecycle-protocol",
  "aq-machine-load",
  "aq-observation",
