@@ -291,6 +291,50 @@ impl StopProof {
     }
 }
 
+/// POST /v1/worker/lost-attempts (swarm phase 1, D2 ruling C). A restarted node asks the
+/// server to release the hold on one of its attempts whose host was lost (its guardian cannot
+/// prove the stop) and to retry the task. `proof` is the outside fact that every process of the
+/// lost host is dead: `boot_changed` or `cgroup_teardown`, never `guardian`. The attempt's
+/// unsaved work is not salvaged; its preserved sandbox stays for the operator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LostAttemptRelease {
+    pub schema_version: u32,
+    pub attempt_id: Uuid,
+    pub proof: StopProof,
+}
+/// Why a lost attempt failed: its host was lost with the machine (a reboot, not charged to the
+/// lineage budgets) or with the service (a crash, charged).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LostReason {
+    LostAfterReboot,
+    LostAfterCrash,
+}
+impl LostReason {
+    /// `boot_changed` is a reboot; `cgroup_teardown` a crash; a guardian proof is no loss.
+    pub fn of(proof: &StopProof) -> Option<Self> {
+        match proof {
+            StopProof::Guardian => None,
+            StopProof::BootChanged { .. } => Some(Self::LostAfterReboot),
+            StopProof::CgroupTeardown { .. } => Some(Self::LostAfterCrash),
+        }
+    }
+}
+/// The answer to `LostAttemptRelease`: the attempt failed for `reason`; `released` when its
+/// task claim was released for a retry, else `held` names what still blocks the retry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LostAttemptReleased {
+    pub schema_version: u32,
+    pub attempt_id: Uuid,
+    pub reason: LostReason,
+    pub charged: bool,
+    pub released: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,6 +370,24 @@ mod tests {
         let guardian: StopProof = serde_json::from_str(r#"{"proof_kind":"guardian"}"#).unwrap();
         assert!(guardian.is_guardian());
         assert!(serde_json::from_str::<StopProof>(r#"{"proof_kind":"boot_changed"}"#).is_err());
+        let release = LostAttemptRelease {
+            schema_version: 1,
+            attempt_id: Uuid::from_u128(5),
+            proof: teardown.clone(),
+        };
+        let json = serde_json::to_value(&release).unwrap();
+        assert_eq!(json["proof"]["proof_kind"], "cgroup_teardown");
+        assert_eq!(
+            serde_json::from_value::<LostAttemptRelease>(json).unwrap(),
+            release
+        );
+        assert_eq!(LostReason::of(&boot), Some(LostReason::LostAfterReboot));
+        assert_eq!(LostReason::of(&teardown), Some(LostReason::LostAfterCrash));
+        assert_eq!(LostReason::of(&StopProof::Guardian), None);
+        assert_eq!(
+            serde_json::to_value(LostReason::LostAfterCrash).unwrap(),
+            "lost_after_crash"
+        );
     }
 
     #[test]
