@@ -461,6 +461,15 @@ async fn salvage_refuses_workspace_holding_agent_credential() {
     assert!(!dir.path().join("leak.env").exists());
 }
 
+#[tokio::test]
+async fn salvage_refuses_workspace_holding_claude_token_shape() {
+    let (dir, h, _) = salvage_fixture();
+    let secret = format!("export T=sk-ant-oat01-{}", "Ab_9-".repeat(8));
+    let refused = claim(&h, &[("notes.sh", secret.as_bytes())]).await;
+    assert_eq!(refused.err(), Some("credential_in_workspace"));
+    assert!(!dir.path().join("notes.sh").exists());
+}
+
 #[test]
 fn salvage_of_unstarted_launch_is_not_started() {
     assert_eq!(settled(R::LaunchClosed), Some(S::NotStarted));

@@ -236,7 +236,9 @@ async fn salvage_claim(
         }));
     };
     let entries = tar::read_tree(&archive(sandbox).await?, max_workspace_bytes)?;
-    let secret = |bytes: &[u8]| aq_agent_channel::holds_agent_credential(bytes);
+    let secret = |b: &[u8]| {
+        aq_agent_channel::holds_agent_credential(b) || aq_agent_channel::holds_claude_token_shape(b)
+    };
     if entries.iter().any(|e| {
         secret(e.path().as_bytes())
             || matches!(e, TreeEntry::File { data, .. } if secret(data))
