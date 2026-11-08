@@ -7,6 +7,7 @@ pub mod enrollment_file;
 pub mod git;
 pub mod layout;
 pub mod link;
+pub mod os_service;
 pub mod supervisor;
 
 pub use config::{AqGitConfig, MeasurementConfig, RepositoryBinding, ServiceConfig};
@@ -14,6 +15,7 @@ pub use enrollment_file::EnrollmentFile;
 pub use git::AqGit;
 pub use layout::{Layout, write_machine_json};
 pub use link::{LinkError, ServerLink, default_machine_key};
+pub use os_service::{Preflight, ServiceManager, ServiceState, UnitSpec, detect, preflight};
 pub use supervisor::{
     AqGitFactory, AttemptOutcome, BACKOFF_MAX, BACKOFF_START, CONTROL_INTERVAL, ControlSource,
     GitChild, GitFactory, QUIET_WINDOW, RecoverOutcome, SlotBackend, SlotContext, Supervisor,
