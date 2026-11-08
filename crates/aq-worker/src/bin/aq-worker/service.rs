@@ -168,8 +168,9 @@ fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig
 fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<T> {
     serde_json::from_value(serde_json::to_value(pin)?).context("invalid renderer pin")
 }
-/// Ruling B (D2): a lost guardian whose stop no reboot or empty unit cgroup proves holds the
-/// slot for the operator (instead of retrying forever).
+/// D2: a lost guardian holds the slot for the operator (instead of retrying forever). The
+/// stopped contract carries only a guardian's own evidence, so even when an outside proof holds
+/// (named in the reason) the stop is not reported yet.
 fn held_when_unproven<T>(result: &Result<T>) -> Option<RecoverOutcome> {
     let e = result.as_ref().err()?;
     e.downcast_ref::<aq_session_host::StopUnproven>()?;
@@ -649,22 +650,28 @@ async fn release_sandbox(profile: &str, slot: u32, attempt: Uuid, reason: &str) 
     Ok(())
 }
 
-/// Ruling B (D2), proof (b): before any slot starts a process, check that the unit's cgroup
-/// holds only this invocation; then a lost guardian older than this process is known dead.
+/// D2, proof (b): before any slot starts a process, check that the unit's cgroup holds only
+/// this invocation; then a lost guardian older than this process is known dead. The proof is
+/// named when such a slot is held (the stopped contract cannot carry it yet).
 fn attest_prior_invocation() {
     let attested = aq_node_service::invocation::prior_invocation_gone().and_then(|gone| {
-        if gone {
+        if let Some((invocation, unit)) = &gone {
             let own = aq_session_host::ownership::process_evidence(std::process::id())?;
-            aq_session_host::lost_guardian::attest_prior_invocation_gone(own.start_ticks)?;
+            aq_session_host::lost_guardian::attest_prior_invocation_gone(
+                own.start_ticks,
+                invocation.clone(),
+                unit.clone(),
+            )?;
         }
         Ok(gone)
     });
     match attested {
-        Ok(true) => tracing::info!(
-            "the unit's cgroup holds no process of a previous invocation: their hosts are known stopped"
+        Ok(Some((invocation, unit))) => tracing::info!(
+            %invocation, %unit,
+            "the unit's cgroup holds no process of a previous invocation"
         ),
-        Ok(false) => tracing::info!(
-            "not under systemd, or the unit's cgroup holds other processes: a lost host's stop is proven only by a reboot"
+        Ok(None) => tracing::info!(
+            "not under systemd, or the unit's cgroup holds other processes: no teardown proof"
         ),
         Err(e) => tracing::warn!("previous invocation check: {e:#}"),
     }
@@ -1150,15 +1157,14 @@ mod tests {
         assert!(!p.layout.config_dir.exists());
     }
 
-    /// Ruling B (D2), end to end in the service's terms: a lost guardian's stop is proven by a
-    /// changed boot id, or by a unit cgroup holding only this process (a fake cgroup file); the
-    /// proven stop passes the server's stopped-proof checks and names its proof. With a foreign
-    /// pid in the cgroup nothing is attested, and the slot is held.
+    /// D2 under the proof-format ruling, in the service's terms: a lost guardian is held,
+    /// never reported stopped. The reason names the outside proof found from real facts: a
+    /// changed boot id, or the unit teardown attested from a cgroup holding only this process
+    /// (a fake cgroup file); with a foreign pid there is no teardown proof.
     #[test]
-    fn a_lost_guardian_is_salvaged_on_proof_and_held_without() {
-        use aq_node_service::invocation::{holds_only, own_cgroup_procs};
-        use aq_session_host::lost_guardian::{StopProof, recover_stopped_with};
-        // Boot ids are UUIDs (the server's stopped proof checks the shape).
+    fn a_lost_guardian_is_held_and_names_its_outside_proof() {
+        use aq_node_service::invocation::{holds_only, own_cgroup_procs, unit_of};
+        use aq_session_host::lost_guardian::{PriorGone, recover_stopped_with};
         const OLD: &str = "00000000-0000-4000-8000-00000000000a";
         const NOW: &str = "00000000-0000-4000-8000-00000000000b";
         let id = Uuid::from_u128(1);
@@ -1183,12 +1189,7 @@ mod tests {
                 pid_namespace: "pid:[4026531836]".into(),
             },
             phase: aq_session_host::HostPhase::Running,
-            pane: Some(aq_session_host::PaneIdentity {
-                server: process(4_000_001, 501),
-                pane: process(4_000_002, 502),
-                pane_id: "%1".into(),
-                session_name: "aq".into(),
-            }),
+            pane: None,
             permit_sequence: 3,
             permit_deadline_boot_ms: 90_000,
             observed_boot_ms: 60_000,
@@ -1199,49 +1200,44 @@ mod tests {
         };
         let dir = tempfile::tempdir().unwrap();
         let gone = dir.path().join("runtime-wiped");
-        let recover = |last: &aq_session_host::HostObservation, prior: Option<&(String, u64)>| {
-            recover_stopped_with(&gone, &last.guardian.intent, Some(last), NOW, prior)
+        let held = |last: &aq_session_host::HostObservation, prior: Option<&PriorGone>| {
+            let result = recover_stopped_with(&gone, &last.guardian.intent, Some(last), NOW, prior);
+            match held_when_unproven(&result) {
+                Some(RecoverOutcome::Held(why)) => why,
+                other => panic!("{other:?}"),
+            }
         };
-        // The cgroup check the service runs at its start, on a fake cgroup.
-        let unit = dir.path().join("app.slice/aq-node@t.service");
-        std::fs::create_dir_all(&unit).unwrap();
+        let unit_dir = dir.path().join("app.slice/aq-node@t.service");
+        std::fs::create_dir_all(&unit_dir).unwrap();
         let procs = own_cgroup_procs("0::/app.slice/aq-node@t.service\n", dir.path()).unwrap();
         let own = std::process::id();
         let attested = |listed: &str| {
             std::fs::write(&procs, listed).unwrap();
             let read = std::fs::read_to_string(&procs).unwrap();
-            holds_only(&read, own, |pid| (pid == own + 1).then_some(own))
-                .then(|| (NOW.to_owned(), 900))
+            let gone = holds_only(&read, own, |pid| (pid == own + 1).then_some(own));
+            gone.then(|| PriorGone {
+                boot: NOW.into(),
+                start_ticks: 900,
+                invocation_id: "0123456789abcdef0123456789abcdef".into(),
+                unit: unit_of(&procs).unwrap(),
+            })
         };
-        for (last, prior, proof) in [
-            (running(OLD), None, StopProof::BootChanged),
-            (
-                running(NOW),
-                attested(&format!("{own}\n{}\n", own + 1)),
-                StopProof::PriorInvocationGone,
-            ),
-        ] {
-            let stopped = recover(&last, prior.as_ref()).unwrap();
-            assert!(held_when_unproven(&Ok::<_, anyhow::Error>(())).is_none());
-            let wire: aq_admission::stopped::HostStoppedProof =
-                serde_json::from_value(serde_json::to_value(&stopped).unwrap()).unwrap();
-            wire.digest()
-                .expect("the server's stopped-proof checks pass");
-            let reason = wire.observation.stop_reason.as_ref().unwrap();
-            assert_eq!(reason.as_str(), proof.label());
-            let note = aq_handoff_note::salvage_note(
-                HandoffReason::Restart,
-                &[],
-                Some(&Some(proof.label().into())),
-            );
-            assert!(note.contains("Host stop: guardian lost"), "{note}");
-        }
+        let rebooted = held(&running(OLD), None);
+        assert!(
+            rebooted.contains("\"proof_kind\":\"boot_changed\""),
+            "{rebooted}"
+        );
+        let ours = attested(&format!("{own}\n{}\n", own + 1));
+        let torn = held(&running(NOW), ours.as_ref());
+        assert!(
+            torn.contains("\"proof_kind\":\"cgroup_teardown\""),
+            "{torn}"
+        );
+        assert!(torn.contains("aq-node@t.service"), "{torn}");
         let foreign = attested(&format!("{own}\n1\n"));
         assert!(foreign.is_none(), "a foreign pid: no attestation");
-        let unproven = recover(&running(NOW), foreign.as_ref());
-        match held_when_unproven(&unproven) {
-            Some(RecoverOutcome::Held(why)) => assert!(why.contains("host stop unproven"), "{why}"),
-            other => panic!("{other:?}"),
-        }
+        let unproven = held(&running(NOW), foreign.as_ref());
+        assert!(unproven.contains("host stop unproven"), "{unproven}");
+        assert!(held_when_unproven(&Ok::<_, anyhow::Error>(())).is_none());
     }
 }

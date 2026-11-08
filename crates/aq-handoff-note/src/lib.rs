@@ -105,8 +105,7 @@ pub fn handoff_note(
     fold_claim(note)
 }
 
-/// A salvaged handoff's note, with how the interrupted host was proven stopped: the stopped
-/// observation's reason (a lost guardian's stop is proven by an outside fact, which says so).
+/// A salvaged handoff's note, with the interrupted host's recorded stop reason, if any.
 pub fn salvage_note(
     reason: aq_protocol::HandoffReason,
     changed: &[String],

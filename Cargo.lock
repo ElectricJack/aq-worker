@@ -372,6 +372,7 @@ name = "aq-session-host"
 version = "0.1.7"
 dependencies = [
  "anyhow",
+ "aq-protocol",
  "aq-responses-transport",
  "aq-session-protocol",
  "aq-terminal-relay-protocol",

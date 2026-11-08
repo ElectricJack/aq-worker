@@ -159,17 +159,19 @@ until the owner releases it; the other slots and the service keep running,
 even when every slot is held.
 
 After a crash, `systemctl --user kill` or a reboot, the attempt's session host
-(its guardian) died too and cannot prove its own stop. The restarted service
-takes the stop as proven, and salvages the attempt, only when:
+(its guardian) died too and cannot prove its own stop. The stopped report the
+server accepts carries only a guardian's own evidence, so such an attempt is
+not reported stopped: its slot is held for the owner, and the reason names the
+outside proof that every process of the lost guardian is dead when one holds:
 
-- the machine rebooted since the attempt started (the recorded boot id differs
-  from `/proc/sys/kernel/random/boot_id`), or
-- the service runs under systemd and, when it started, its unit's cgroup held
-  only itself (no process of the previous invocation survived), and the lost
-  guardian is older than this invocation.
+- `boot_changed`: the machine rebooted since the attempt started (the recorded
+  boot id differs from `/proc/sys/kernel/random/boot_id`), with both boot ids;
+- `cgroup_teardown`: the service runs under systemd and, when it started, its
+  unit's cgroup held only itself, and the lost guardian started before it on
+  this boot (kernel start times), with the invocation id and the unit.
 
-The proof is recorded in the attempt's stopped report and in the handoff note
-("Host stop: ..."), and logged. Without either, the slot is held for the owner.
+Salvaging on such a proof needs a stop report with an explicit proof kind
+(aq-protocol `StopProof`), which the server does not accept yet.
 
 The slot's aq-git was killed too. The restarted service removes the socket it
 left and clears its ownership fence (`aq-git recovery clear-fence`), but only

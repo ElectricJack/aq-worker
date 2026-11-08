@@ -45,18 +45,28 @@ fn parent_of(pid: u32) -> Option<u32> {
         .parse()
         .ok()
 }
-/// Proof (b): under systemd (`INVOCATION_ID` set), the unit's cgroup holds only this process
-/// and its descendants. False when not under systemd or when any other process is there.
-pub fn prior_invocation_gone() -> Result<bool> {
-    if std::env::var_os("INVOCATION_ID").is_none_or(|v| v.is_empty()) {
-        return Ok(false);
-    }
+/// The unit a cgroup.procs path belongs to: its directory's name, when it is a `.service`.
+pub fn unit_of(procs: &Path) -> Option<String> {
+    let name = procs.parent()?.file_name()?.to_str()?;
+    name.ends_with(".service").then(|| name.to_owned())
+}
+/// Proof (b): under systemd, the unit's cgroup holds only this process and its descendants.
+/// Some((`INVOCATION_ID`, unit name)) then; None when not under systemd or any other process
+/// is there.
+pub fn prior_invocation_gone() -> Result<Option<(String, String)>> {
+    let Some(invocation) = std::env::var("INVOCATION_ID")
+        .ok()
+        .filter(|v| !v.is_empty())
+    else {
+        return Ok(None);
+    };
     let own = std::fs::read_to_string("/proc/self/cgroup").context("read /proc/self/cgroup")?;
     let procs = own_cgroup_procs(&own, Path::new("/sys/fs/cgroup"))
         .context("no cgroup v2 entry in /proc/self/cgroup")?;
+    let unit = unit_of(&procs).context("the service's cgroup is not a .service unit")?;
     let listed =
         std::fs::read_to_string(&procs).with_context(|| format!("read {}", procs.display()))?;
-    Ok(holds_only(&listed, std::process::id(), parent_of))
+    Ok(holds_only(&listed, std::process::id(), parent_of).then_some((invocation, unit)))
 }
 
 #[cfg(test)]
@@ -74,6 +84,12 @@ mod tests {
         );
         assert_eq!(
             own_cgroup_procs("12:cpu:/x\n", Path::new("/sys/fs/cgroup")),
+            None
+        );
+        let procs = own_cgroup_procs(cgroup, Path::new("/sys/fs/cgroup")).unwrap();
+        assert_eq!(unit_of(&procs).as_deref(), Some("aq-node@ms1.service"));
+        assert_eq!(
+            unit_of(Path::new("/sys/fs/cgroup/user.slice/cgroup.procs")),
             None
         );
     }

@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 description = "Linux guarded tmux session host with independent expiring authority"
 [dependencies]
+aq-protocol = { path = "../aq-protocol", version = "=0.1.2" }
 aq-session-protocol = { path = "../aq-session-protocol", version = "=0.1.0" }
 aq-terminal-relay-protocol = { path = "../../vendor/aq-terminal-relay-protocol-0.1.0", version = "=0.1.0" }
 anyhow = "1"

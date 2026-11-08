@@ -236,7 +236,10 @@ pub enum StopProof {
     Guardian,
     /// The machine rebooted after the launch: the guardian's boot (`old_boot_id`) is not the
     /// boot that recorded the proof (`new_boot_id`).
-    BootChanged { old_boot_id: Uuid, new_boot_id: Uuid },
+    BootChanged {
+        old_boot_id: Uuid,
+        new_boot_id: Uuid,
+    },
     /// The service's systemd unit was torn down before this invocation: when invocation
     /// `invocation_id` of `unit` started, its cgroup held only that invocation's processes,
     /// and the guardian started before it on the same boot.
