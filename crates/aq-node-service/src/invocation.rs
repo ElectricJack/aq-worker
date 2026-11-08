@@ -53,6 +53,13 @@ pub fn unit_of(procs: &Path) -> Option<String> {
 /// Proof (b): under systemd, the unit's cgroup holds only this process and its descendants.
 /// Some((`INVOCATION_ID`, unit name)) then; None when not under systemd or any other process
 /// is there.
+///
+/// Scope (#51 review M1): `INVOCATION_ID` is read from this process's own environment. The
+/// children that matter here are started with a cleared environment (the session host and its
+/// driver, `env_clear`), so they neither see nor pass it on; the check relies only on systemd
+/// keeping every descendant in the unit's cgroup (no `Delegate=`, no scope escape), which is
+/// what makes a process outside our descendants a survivor of an earlier invocation. A child
+/// that moved itself to another cgroup would not be seen: no AQ child does.
 pub fn prior_invocation_gone() -> Result<Option<(String, String)>> {
     let Some(invocation) = std::env::var("INVOCATION_ID")
         .ok()

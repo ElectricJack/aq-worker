@@ -271,17 +271,28 @@ impl AqGit {
             // SAFETY: plain signal to our own child.
             unsafe { libc::kill(pid as i32, libc::SIGTERM) };
         }
-        if tokio::time::timeout(Duration::from_secs(10), child.wait())
-            .await
-            .is_err()
-        {
-            if let Some(pid) = pid {
-                // SAFETY: the child leads its own process group (`process_group(0)`).
-                unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
-            }
+        let stopped = tokio::time::timeout(Duration::from_secs(10), child.wait()).await;
+        // Whatever remains of the group (an engine that outlived its guard) holds the owner
+        // lock and the socket: SIGKILL the whole group, on a graceful exit too.
+        kill_group(pid);
+        if stopped.is_err() {
             child.kill().await?;
         }
         Ok(())
+    }
+}
+/// SIGKILL to the process group `pid` leads (`process_group(0)`); ESRCH when it is gone.
+fn kill_group(pid: Option<u32>) {
+    if let Some(pid) = pid {
+        // SAFETY: a signal to the group of our own child.
+        unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+    }
+}
+/// A dropped `AqGit` (the slot's task was cancelled) takes its whole process group with it, so
+/// no engine survives holding the owner lock; `kill_on_drop` alone signals only the leader.
+impl Drop for AqGit {
+    fn drop(&mut self) {
+        kill_group(self.child.as_ref().and_then(Child::id));
     }
 }
 
@@ -401,7 +412,8 @@ pub(crate) mod tests {
 for a; do [ "$prev" = --listen ] && listen=$a; prev=$a; done
 case " $* " in
 *" clear-fence "*) cat > "$(dirname "$0")/clear-fence.json"; echo '{"ok":true,"result":{}}' ;;
-*" serve "*) exec python3 -c 'import socket,sys,time
+*" serve "*) sleep 60 & echo $! > "$(dirname "$0")/engine.pid"
+  exec python3 -c 'import socket,sys,time
 s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(8); time.sleep(60)' "$listen" ;;
 esac
 "#
@@ -524,5 +536,41 @@ esac
         let git = AqGit::start(&config, &state, &socket).await.unwrap();
         git.register(&[repo]).await.unwrap();
         git.stop().await.unwrap();
+    }
+    /// #51 review M3: a stopped or dropped aq-git takes its whole process group (the forked
+    /// engine holds the owner lock), not only its leader.
+    #[tokio::test]
+    async fn stop_and_drop_kill_the_whole_process_group() {
+        for drop_it in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let (state, socket) = (dir.path().join("current"), dir.path().join("git.sock"));
+            std::fs::create_dir_all(state.join("git")).unwrap();
+            let config = fake_aq_git(dir.path(), None);
+            let git = AqGit::start(&config, &state, &socket).await.unwrap();
+            let engine: i32 = std::fs::read_to_string(dir.path().join("engine.pid"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            // SAFETY: probing a process the test started.
+            assert_eq!(unsafe { libc::kill(engine, 0) }, 0, "the engine runs");
+            if drop_it {
+                drop(git);
+            } else {
+                git.stop().await.unwrap();
+            }
+            let gone = (0..200).any(|_| {
+                std::thread::sleep(Duration::from_millis(10));
+                // A killed child of the shell is a zombie until reaped: check its state.
+                std::fs::read_to_string(format!("/proc/{engine}/stat")).map_or(true, |s| {
+                    s.rsplit_once(") ").is_some_and(|(_, t)| t.starts_with('Z'))
+                })
+            });
+            assert!(
+                gone,
+                "the engine of a {} aq-git is gone",
+                if drop_it { "dropped" } else { "stopped" }
+            );
+        }
     }
 }
