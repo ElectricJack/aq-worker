@@ -1,0 +1,18 @@
+warning: the container worker aq-worker@local is running too. Two workers on one machine compete for it; stop it with: systemctl --user disable --now aq-worker@local
+machine desktop: slots bc162c83-8695-48e0-b175-934eeae45eb8 31ba7e6d-8a63-4a22-bb9a-03494c115dfa
+installed aq-node@ms1 (systemd-user)
+minimal: total_input=18827 output=4
+mixed: total_input=20115 output=4
+adversarial: total_input=24090 output=4
+capacity_tokens=1000000 observed_at_ms=1794135075655
+qualification accepted: effective at 1794135151375 ms, until 1794221551375 ms
+
+Windows host load is not reported yet. To install the probe, run this from Windows
+PowerShell in the repository (it is not run for you):
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\aq-host-load.ps1 -Install -StartNow
+aq-node@ms1 (systemd-user): active
+machine desktop: 2 slot(s)
+
+This machine is allowed automatically on credentials and projects that allow enrolled machines (allow_enrolled_nodes). Start, stop, drain or revoke it from its pane on the Swarm page.
+rc=0

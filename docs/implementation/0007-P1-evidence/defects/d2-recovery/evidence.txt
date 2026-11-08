@@ -1,0 +1,11 @@
+# install 1 (documented layout): an attempt that fails before Running stays in current; recovery re-registers the repository and aq-git refuses
+2026-11-08T10:45:11.182268Z  WARN aq_node_service::supervisor: the attempt stays in current for recovery slot=2
+2026-11-08T10:45:15.592019Z  WARN aq_node_service::supervisor: the attempt stays in current for recovery slot=1
+2026-11-08T10:46:14.930518Z  WARN aq_node_service::supervisor: recovery failed, retrying in 120s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=2
+2026-11-08T10:46:19.336871Z  WARN aq_node_service::supervisor: recovery failed, retrying in 120s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=1
+
+# install 4, after SIGKILL (Step 3b): stale git.sock, the new aq-git never listens
+2026-11-08T11:30:26.512571Z  WARN aq_node_service::supervisor: recovery failed, retrying in 30s: connect to aq-git: Connection refused (os error 111) slot=1
+2026-11-08T11:30:26.512632Z  WARN aq_node_service::supervisor: recovery failed, retrying in 30s: connect to aq-git: Connection refused (os error 111) slot=2
+2026-11-08T11:30:56.710197Z  WARN aq_node_service::supervisor: recovery failed, retrying in 60s: connect to aq-git: Connection refused (os error 111) slot=1
+2026-11-08T11:30:56.710325Z  WARN aq_node_service::supervisor: recovery failed, retrying in 60s: connect to aq-git: Connection refused (os error 111) slot=2

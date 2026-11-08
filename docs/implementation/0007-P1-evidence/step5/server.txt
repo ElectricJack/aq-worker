@@ -1,0 +1,1 @@
+2026-11-08T11:26:39.156594Z  INFO aq_server::profiled_execution::producer::workflow: replacement attempt admitted within the lineage budget task_id=e0a20000-0000-4000-8000-0000000007a7 predecessor=62b9e5a7-bcb0-5957-bfa6-db04ed55a5e6 attempts_started=1 lineage_elapsed_ms=0 sandbox_ms_charged=0 max_attempts=3 max_sandbox_ms=14400

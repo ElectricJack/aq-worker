@@ -1,0 +1,16 @@
+Starting aq-node@ms1.service - AQ worker service (ms1)...
+Started aq-node@ms1.service - AQ worker service (ms1).
+2026-11-08T10:51:14.067758Z  INFO aq_worker::measure: a measurement is running; its sandbox is not swept
+2026-11-08T10:51:14.068213Z  INFO aq_worker::service: worker service starting profile=ms1 machine=desktop slots=2
+2026-11-08T10:51:19.783722Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:51:24.091462Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:51:25.136786Z  WARN aq_node_service::supervisor: the attempt stays in current for recovery slot=1
+2026-11-08T10:51:25.136853Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: unsupported startup renderer qualification slot=1
+2026-11-08T10:51:29.845296Z  WARN aq_node_service::supervisor: the attempt stays in current for recovery slot=2
+2026-11-08T10:51:29.845351Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: unsupported startup renderer qualification slot=2
+2026-11-08T10:51:57.034759Z  WARN aq_node_service::supervisor: recovery failed, retrying in 60s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=1
+2026-11-08T10:52:01.775700Z  WARN aq_node_service::supervisor: recovery failed, retrying in 60s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=2
+2026-11-08T10:53:00.849998Z  WARN aq_node_service::supervisor: recovery failed, retrying in 120s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=1
+2026-11-08T10:53:05.588699Z  WARN aq_node_service::supervisor: recovery failed, retrying in 120s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=2
+2026-11-08T10:55:08.305192Z  WARN aq_node_service::supervisor: recovery failed, retrying in 240s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=1
+2026-11-08T10:55:13.057017Z  WARN aq_node_service::supervisor: recovery failed, retrying in 240s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=2

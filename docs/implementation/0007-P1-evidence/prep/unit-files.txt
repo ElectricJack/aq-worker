@@ -1,0 +1,21 @@
+# AQ worker service (spec 0007 §7.2). Installed by `aq-worker service install`.
+[Unit]
+Description=AQ worker service (%i)
+Requires=aq-sandbox-podman.service
+After=aq-sandbox-podman.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+ExecStart=~/.local/share/agent-q/runtime/aq-worker run --service-config %h/.config/agent-q/service/%i/service.toml
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=150
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target
+# Installed by `aq-worker service install`: shutdown_grace_ms plus the stop margin.
+[Service]
+TimeoutStopSec=150

@@ -1,0 +1,68 @@
+
+== MS1 profiled execution: central base, config, catalog/binding revision 2  [10:41:36Z]
+drwx------ 4 aq aq 4096 Nov  6 02:22 /var/lib/aq/result-media
+ Container aq-ms1-postgres-1 Running 
+ Container aq-ms1-dev-state-init-1 Recreate 
+ Container aq-ms1-playbook-db-init-1 Recreate 
+ Container aq-ms1-graph-db-init-1 Recreate 
+ Container aq-ms1-playbook-db-init-1 Recreated 
+ Container aq-ms1-graph-db-init-1 Recreated 
+ Container aq-ms1-aq-graph-1 Running 
+ Container aq-ms1-dev-state-init-1 Recreated 
+ Container aq-ms1-aq-git-1 Recreate 
+ Container aq-ms1-aq-git-1 Recreated 
+ Container aq-ms1-server-1 Recreate 
+ Container aq-ms1-server-1 Recreated 
+ Container aq-ms1-dev-state-init-1 Starting 
+ Container aq-ms1-postgres-socket-init-1 Starting 
+ Container aq-ms1-postgres-socket-init-1 Started 
+ Container aq-ms1-postgres-socket-init-1 Waiting 
+ Container aq-ms1-dev-state-init-1 Started 
+ Container aq-ms1-dev-state-init-1 Waiting 
+ Container aq-ms1-postgres-socket-init-1 Exited 
+ Container aq-ms1-postgres-1 Waiting 
+ Container aq-ms1-postgres-1 Waiting 
+ Container aq-ms1-dev-state-init-1 Exited 
+ Container aq-ms1-aq-git-1 Starting 
+ Container aq-ms1-aq-git-1 Started 
+ Container aq-ms1-postgres-1 Healthy 
+ Container aq-ms1-playbook-db-init-1 Starting 
+ Container aq-ms1-postgres-1 Healthy 
+ Container aq-ms1-graph-db-init-1 Starting 
+ Container aq-ms1-playbook-db-init-1 Started 
+ Container aq-ms1-graph-db-init-1 Started 
+ Container aq-ms1-graph-db-init-1 Waiting 
+ Container aq-ms1-graph-db-init-1 Exited 
+ Container aq-ms1-aq-git-1 Waiting 
+ Container aq-ms1-playbook-db-init-1 Waiting 
+ Container aq-ms1-dev-state-init-1 Waiting 
+ Container aq-ms1-aq-graph-1 Waiting 
+ Container aq-ms1-dev-state-init-1 Exited 
+ Container aq-ms1-aq-graph-1 Healthy 
+ Container aq-ms1-playbook-db-init-1 Exited 
+ Container aq-ms1-aq-git-1 Healthy 
+ Container aq-ms1-server-1 Starting 
+ Container aq-ms1-server-1 Started 
+ Container aq-ms1-server-1 Waiting 
+ Container aq-ms1-aq-graph-1 Waiting 
+ Container aq-ms1-playbook-db-init-1 Waiting 
+ Container aq-ms1-aq-git-1 Waiting 
+ Container aq-ms1-dev-state-init-1 Waiting 
+ Container aq-ms1-postgres-socket-init-1 Waiting 
+ Container aq-ms1-graph-db-init-1 Waiting 
+ Container aq-ms1-postgres-1 Waiting 
+ Container aq-ms1-graph-db-init-1 Exited 
+ Container aq-ms1-aq-git-1 Healthy 
+ Container aq-ms1-postgres-socket-init-1 Exited 
+ Container aq-ms1-dev-state-init-1 Exited 
+ Container aq-ms1-playbook-db-init-1 Exited 
+ Container aq-ms1-aq-graph-1 Healthy 
+ Container aq-ms1-postgres-1 Healthy 
+ Container aq-ms1-server-1 Healthy 
+{
+ "binding_revision": 8,
+ "catalog": {
+  "active_digest": "1e0e8110f20e62bcd3f957f4137874b538bbbc17f62a22b8041d07dc6e673c2e",
+  "revision": 9
+ }
+}

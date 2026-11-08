@@ -1,0 +1,64 @@
+2026-11-08T11:10:44.017617Z  INFO aq_agent_channel: agent credential rotated attempt_id=c941f5ef-edd6-552b-8a80-616d3a992e39 version=2
+Stopping aq-node@ms1.service - AQ worker service (ms1)...
+2026-11-08T11:10:47.107649Z  WARN aq_node_service::supervisor: handoff notice: server answered 400 (bad_request) id=78e22d4b-85a6-5db0-b0b2-cf08e21da9cd
+2026-11-08T11:11:01.406424Z  INFO aq_agent_channel: agent channel closed attempt_id=78e22d4b-85a6-5db0-b0b2-cf08e21da9cd reason="stopped by the node"
+2026-11-08T11:11:02.636378Z  INFO aq_agent_channel: agent channel closed attempt_id=c941f5ef-edd6-552b-8a80-616d3a992e39 reason="stopped by the node"
+Stopped aq-node@ms1.service - AQ worker service (ms1).
+aq-node@ms1.service: Consumed 1min 50.013s CPU time.
+Starting aq-node@ms1.service - AQ worker service (ms1)...
+Started aq-node@ms1.service - AQ worker service (ms1).
+2026-11-08T11:11:11.440260Z  INFO aq_worker::service: worker service starting profile=ms1 machine=desktop slots=2
+2026-11-08T11:11:16.589811Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:11:22.777115Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:11:23.424145Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:11:23.454381Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 409 Conflict slot=2
+2026-11-08T11:11:27.425639Z  INFO aq_agent_channel: agent channel open attempt_id=82230851-85fd-5939-81f2-9c4103a500e9
+2026-11-08T11:11:59.961897Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:12:00.112313Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:12:00.140224Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: native endpoint returned 409 Conflict slot=2
+2026-11-08T11:12:51.190644Z  INFO aq_agent_channel: agent credential rotated attempt_id=82230851-85fd-5939-81f2-9c4103a500e9 version=2
+2026-11-08T11:13:08.889055Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:13:09.063390Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:13:09.102317Z  WARN aq_node_service::supervisor: attempt failed, retrying in 120s: native endpoint returned 409 Conflict slot=2
+2026-11-08T11:14:16.832206Z  INFO aq_agent_channel: agent credential rotated attempt_id=82230851-85fd-5939-81f2-9c4103a500e9 version=3
+2026-11-08T11:15:21.509729Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:15:21.731459Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:15:21.762520Z  WARN aq_node_service::supervisor: attempt failed, retrying in 240s: native endpoint returned 409 Conflict slot=2
+2026-11-08T11:15:42.487535Z  INFO aq_agent_channel: agent credential rotated attempt_id=82230851-85fd-5939-81f2-9c4103a500e9 version=4
+2026-11-08T11:16:03.900334Z  WARN aq_worker::client: error sending request: client error (Connect): tcp connect error: Connection refused (os error 111); retrying attempt=1 delay_ms=228
+2026-11-08T11:16:03.979707Z  WARN aq_node_service::supervisor: control poll failed: request to /v1/worker/control failed: error sending request
+2026-11-08T11:16:04.130401Z  WARN aq_worker::client: error sending request: client error (Connect): tcp connect error: Connection refused (os error 111); retrying attempt=2 delay_ms=96
+2026-11-08T11:16:04.227872Z  WARN aq_worker::client: error sending request: client error (Connect): tcp connect error: Connection refused (os error 111); retrying attempt=3 delay_ms=1589
+2026-11-08T11:17:03.482534Z  INFO aq_agent_channel: agent channel closed attempt_id=82230851-85fd-5939-81f2-9c4103a500e9 reason="stopped by the node"
+2026-11-08T11:17:19.221397Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:17:19.480010Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:17:19.509654Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 409 Conflict slot=1
+2026-11-08T11:17:56.254135Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:17:56.409547Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:17:56.452435Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: native endpoint returned 409 Conflict slot=1
+2026-11-08T11:19:04.976195Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:19:05.223895Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:19:05.260801Z  WARN aq_node_service::supervisor: attempt failed, retrying in 120s: native endpoint returned 409 Conflict slot=1
+2026-11-08T11:19:40.605590Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:19:40.744571Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:19:40.777335Z  WARN aq_node_service::supervisor: attempt failed, retrying in 300s: native endpoint returned 409 Conflict slot=2
+2026-11-08T11:20:58.744175Z  WARN aq_machine_load: machine report failed error=request to /v1/worker/machine failed: error sending request failures=1
+2026-11-08T11:20:58.766411Z  WARN aq_node_service::supervisor: control poll failed: request to /v1/worker/control failed: error sending request
+Stopping aq-node@ms1.service - AQ worker service (ms1)...
+Stopped aq-node@ms1.service - AQ worker service (ms1).
+aq-node@ms1.service: Consumed 1min 27.843s CPU time.
+Starting aq-node@ms1.service - AQ worker service (ms1)...
+Started aq-node@ms1.service - AQ worker service (ms1).
+2026-11-08T11:21:07.458235Z  INFO aq_worker::service: worker service starting profile=ms1 machine=desktop slots=2
+2026-11-08T11:21:12.572123Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:21:12.906493Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:21:12.933220Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 409 Conflict slot=1
+2026-11-08T11:21:17.018725Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:21:17.197064Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:21:17.224304Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 409 Conflict slot=2
+2026-11-08T11:21:48.555763Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:21:48.738251Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:21:48.774512Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: native endpoint returned 409 Conflict slot=1
+2026-11-08T11:21:54.007927Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:21:54.144648Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:21:54.172675Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: native endpoint returned 409 Conflict slot=2

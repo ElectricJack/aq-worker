@@ -1,0 +1,5 @@
+102 ~/.s/agent-q/service/ms1/slots/1/current/host/eb117a6a-b809-43e0-b02c-d48ead4259d1/tmux.sock
+111 ~/.s/agent-q/service/ms1/slots/1/current/host/eb117a6a-b809-43e0-b02c-d48ead4259d1/observed-gate.sock
+113 ~/.s/agent-q/service/ms1/slots/1/current/host/eb117a6a-b809-43e0-b02c-d48ead4259d1/terminal-reader.sock
+113 ~/.s/agent-q/service/ms1/slots/1/current/host/eb117a6a-b809-43e0-b02c-d48ead4259d1/terminal-viewer.sock
+host root length: 55

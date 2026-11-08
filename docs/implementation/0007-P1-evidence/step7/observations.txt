@@ -1,0 +1,3 @@
+1||1794097999941
+available|
+1794097999941|2026-11-08 00:33:19.941+00|{"scope": {"model": "claude-sonnet-5-5", "node_id": null, "provider": "anthropic", "account_reference": "owner-claude-subscription", "credential_profile": {"id": "owner-claude-subscription", "digest": "fc885eb50952cac215bd5e4485e4774ba8b21202e7750ed079d67dbcf43cb1c8", "version": "2"}, "endpoint_reference": "claude-code", "credential_revision": 2}, "state": 

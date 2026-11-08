@@ -1,0 +1,19 @@
+Sun Nov  8 11:10:10 UTC 2026
+systemctl --user is-active aq-node@ms1: active
+aq-node@ms1 (systemd-user): active
+machine desktop: 2 slot(s)
+{"id": "desktop", "state": "holding", "control": {"desired": "running", "generation": "1", "since": "2026-11-08T10:51:12.576Z", "pending_handoffs": 0}, "services": [{"node": "37d67aa8-d3d6-47ae-bd95-0a4ac36449fe", "name": "DESKTOP-EB8UOME", "health": "online", "service": {"state": "running", "since": "2026-11-08T11:07:19.693Z"}}, {"node": "3763fb5f-501e-45d1-b7cc-93b729b6098c", "name": "DESKTOP-EB8UOME#2", "health": "online", "service": {"state": "running", "since": "2026-11-08T11:07:19.713Z"}}]}
+{"id": "node:b1225fe8-604a-46a9-a88d-3b040cc6ba4e", "state": "offline", "control": null, "services": [{"node": "b1225fe8-604a-46a9-a88d-3b040cc6ba4e", "name": "ms1-desktop", "health": "offline", "service": {"state": "unreported", "since": null}}]}
+{"id": "node:9975d20c-6a26-497a-95b0-128b16c3f494", "state": "offline", "control": null, "services": [{"node": "9975d20c-6a26-497a-95b0-128b16c3f494", "name": "e0-local-development", "health": "offline", "service": {"state": "unreported", "since": null}}]}
+{"id": "node:188de335-4fc9-4e85-b15b-138f01999775", "state": "offline", "control": null, "services": [{"node": "188de335-4fc9-4e85-b15b-138f01999775", "name": "ms1-node", "health": "offline", "service": {"state": "unreported", "since": null}}]}
+{"id": "node:085affc7-71d7-417c-8978-d5b18c1e51fe", "state": "offline", "control": null, "services": [{"node": "085affc7-71d7-417c-8978-d5b18c1e51fe", "name": "ms1-node-spare", "health": "offline", "service": {"state": "unreported", "since": null}}]}
+                         renderer_digest                          | observed_at_ms | expires_at_ms |               node_id                
+------------------------------------------------------------------+----------------+---------------+--------------------------------------
+ 5c675e6432955b19ac856f0128de65060761e355aa463bd886b526e4c17e019b |  1794136111814 | 1794222511814 | 37d67aa8-d3d6-47ae-bd95-0a4ac36449fe
+ 040e3adbb4748f7372608e9563b1c006164dc7513fbbaa2fddad99603dcec25b |  1794135700952 | 1794222100952 | d94b6dd7-5daa-4189-b953-9200f754b6c6
+ e5f7183f8fc20c8ed5de3902ab320fd7f94a4db396b0abf87000484f8807e920 |  1794135151375 | 1794221551375 | bc162c83-8695-48e0-b175-934eeae45eb8
+ 8bcf3577ee45c8129646f11cabeb0013036156cdf056ac55378b59104a1e06b3 |  1794134682145 | 1794221082145 | 9fff722b-49ec-41e9-ac72-560c990988c1
+(4 rows)
+
+aq-3763fb5f501e45d1b7cc93b729b6098c-78e22d4b85a65db0b0b2cf08e21da9cd Up 52 seconds
+aq-37d67aa8d3d647aebd950a4ac36449fe-c941f5efedd6552b8a80616d3a992e39 Up 46 seconds

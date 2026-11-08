@@ -1,0 +1,9 @@
+total 28
+drwx------  7 jkern jkern 4096 Nov  8 03:28 .
+drwx------  4 jkern jkern 4096 Nov  8 03:28 ..
+drwx------ 10 jkern jkern 4096 Nov  8 03:28 git
+srw-------  1 jkern jkern    0 Nov  8 03:28 git.sock
+drwx------  5 jkern jkern 4096 Nov  8 03:29 host
+drwx------  2 jkern jkern 4096 Nov  8 03:29 journal
+drwx------  3 jkern jkern 4096 Nov  8 03:28 materials
+drwx------  3 jkern jkern 4096 Nov  8 03:28 result

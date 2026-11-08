@@ -1,0 +1,5 @@
+minimal: total_input=18827 output=4
+mixed: total_input=20115 output=4
+adversarial: total_input=24090 output=4
+capacity_tokens=1000000 observed_at_ms=1794137254785
+written to <scratch>/w10out/measure/measure; not submitted
