@@ -232,6 +232,7 @@ name = "aq-node-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aq-handoff-note",
  "aq-machine-load",
  "aq-protocol",
  "async-trait",
