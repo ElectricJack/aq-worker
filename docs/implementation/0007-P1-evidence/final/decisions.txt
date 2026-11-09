@@ -1,0 +1,6 @@
+$ up.sh decisions   (2026-11-08T11:39:45Z)
+ count 
+-------
+    64
+(1 row)
+

@@ -1,0 +1,2 @@
+kill issued 2026-11-08T11:30:16.141Z
+restarted 2026-11-08T11:30:26Z NRestarts=1

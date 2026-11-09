@@ -1,0 +1,26 @@
+2026-11-08T11:00:05.116008Z ERROR aq_node_service::supervisor: the server refused this machine's credential (revoked from the Swarm page?); all slots are paused. Uninstall the service or enroll the machine again
+Stopping aq-node@ms1.service - AQ worker service (ms1)...
+Stopped aq-node@ms1.service - AQ worker service (ms1).
+aq-node@ms1.service: Consumed 16.464s CPU time, 33.9M memory peak, 0B memory swap peak.
+Starting aq-node@ms1.service - AQ worker service (ms1)...
+Started aq-node@ms1.service - AQ worker service (ms1).
+2026-11-08T11:00:30.605667Z  INFO aq_worker::measure: a measurement is running; its sandbox is not swept
+2026-11-08T11:00:30.605974Z  INFO aq_worker::service: worker service starting profile=ms1 machine=desktop slots=2
+2026-11-08T11:00:35.771733Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:00:39.984746Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:02:01.163274Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:02:05.318219Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:02:31.457131Z  INFO aq_agent_channel: agent channel open attempt_id=12e45106-f321-5746-ae98-c5ef2b73868f
+2026-11-08T11:02:33.737935Z  WARN aq_worker::native::preparation::launch: native host bootstrap refused: guardian exited before identity attempt_id=12e45106-f321-5746-ae98-c5ef2b73868f
+2026-11-08T11:02:33.738087Z  INFO aq_agent_channel: agent channel closed attempt_id=12e45106-f321-5746-ae98-c5ef2b73868f reason="stopped by the node"
+2026-11-08T11:02:34.408654Z  WARN aq_node_service::supervisor: the attempt stays in current for recovery slot=1
+2026-11-08T11:02:34.408710Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: Claude driver host did not establish Running; retained closure requires reconciliation slot=1
+2026-11-08T11:02:35.844713Z  INFO aq_agent_channel: agent channel open attempt_id=8bde3123-5800-50da-8bbb-3898d944bd0c
+2026-11-08T11:02:38.251655Z  WARN aq_worker::native::preparation::launch: native host bootstrap refused: guardian exited before identity attempt_id=8bde3123-5800-50da-8bbb-3898d944bd0c
+2026-11-08T11:02:38.251793Z  INFO aq_agent_channel: agent channel closed attempt_id=8bde3123-5800-50da-8bbb-3898d944bd0c reason="stopped by the node"
+2026-11-08T11:02:38.892297Z  WARN aq_node_service::supervisor: the attempt stays in current for recovery slot=2
+2026-11-08T11:02:38.892353Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: Claude driver host did not establish Running; retained closure requires reconciliation slot=2
+2026-11-08T11:03:06.378317Z  WARN aq_node_service::supervisor: recovery failed, retrying in 60s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=1
+2026-11-08T11:03:10.859974Z  WARN aq_node_service::supervisor: recovery failed, retrying in 60s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=2
+2026-11-08T11:04:10.247272Z  WARN aq_node_service::supervisor: recovery failed, retrying in 120s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=1
+2026-11-08T11:04:14.724315Z  WARN aq_node_service::supervisor: recovery failed, retrying in 120s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=2

@@ -1,0 +1,26 @@
+{
+  "what": "aq-worker service measure (W10) on the WSL2 desktop, profile ms1, run by packaging/service/aq-install.sh step 6; the server's response pin and the renewal rows it stored",
+  "command": "aq-worker service measure --profile ms1 (token from the 0600 file ~/.config/aq-secrets/claude-oauth-token, model claude-sonnet-5-5)",
+  "configured_fact": {
+    "renderer_digest": "49bb7a2b906a241943421bc69f25a3f450eb074cb108a3a6bd14ecc62d43c9d5",
+    "observed_at_ms": 1794089390110,
+    "expires_at_ms": 1794175790110,
+    "note": "the remeasure.sh fact loaded at profiled revision 18 (expires 2026-11-08T22:09:50Z, about 11 h left at the start)"
+  },
+  "responses": [
+    {"install": 1, "measured_observed_at_ms": 1794134610370, "pin_effective_at_ms": 1794134682145, "pin_expires_at_ms": 1794221082145,
+     "renderer_digest": "8bcf3577ee45c8129646f11cabeb0013036156cdf056ac55378b59104a1e06b3", "node_id": "9fff722b-49ec-41e9-ac72-560c990988c1"},
+    {"install": 2, "measured_observed_at_ms": 1794135075655, "pin_effective_at_ms": 1794135151375, "pin_expires_at_ms": 1794221551375,
+     "renderer_digest": "e5f7183f8fc20c8ed5de3902ab320fd7f94a4db396b0abf87000484f8807e920", "node_id": "bc162c83-8695-48e0-b175-934eeae45eb8"},
+    {"install": 3, "measured_observed_at_ms": 1794135631761, "pin_effective_at_ms": 1794135700952, "pin_expires_at_ms": 1794222100952,
+     "renderer_digest": "040e3adbb4748f7372608e9563b1c006164dc7513fbbaa2fddad99603dcec25b", "node_id": "d94b6dd7-5daa-4189-b953-9200f754b6c6"},
+    {"install": 4, "measured_observed_at_ms": 1794136042370, "pin_effective_at_ms": 1794136111814, "pin_expires_at_ms": 1794222511814,
+     "renderer_digest": "5c675e6432955b19ac856f0128de65060761e355aa463bd886b526e4c17e019b", "node_id": "37d67aa8-d3d6-47ae-bd95-0a4ac36449fe"},
+    {"install": 5, "measured_observed_at_ms": 1794137618948, "pin_effective_at_ms": 1794137870294, "pin_expires_at_ms": 1794224270294,
+     "renderer_digest": "ce78139504e91b520f6abcc60e04fc180c01e20d88bb9fea2be2aee3c7b0b1ad", "node_id": "06b87ad1-2750-4acf-82bf-05fac118265b"}
+  ],
+  "measured_calls_each_run": {"minimal": {"total_input_tokens": 18827, "bound_tokens": 32835}, "mixed": {"total_input_tokens": 20115, "bound_tokens": 35506},
+                              "adversarial": {"total_input_tokens": 24090, "bound_tokens": 38612}, "capacity_tokens": 1000000},
+  "takeover": "Every offer made to the service carried the latest effective renewal, not the configured fact (w10/offers-renderer.txt): 78e22d4b, 62b9e5a7 and 5553adca pinned 5c675e64; 5d26db92 pinned ce781395. All renewals have base_renderer_digest 49bb7a2b (w10/renewals-all.txt). The service persisted the pin it received from /v1/worker/control (w10/renderer-pin-after-first-control.json).",
+  "validator": "W10 step 2: `aq-worker service measure --profile ms1 --output DIR` then ms1-profiled.py measured() on DIR: every bound passes, prompts equal packaging/measure/*.txt, no token in any output (w10/measured-validation.txt)"
+}

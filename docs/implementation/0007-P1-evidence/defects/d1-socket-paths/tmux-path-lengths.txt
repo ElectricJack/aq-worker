@@ -1,0 +1,6 @@
+112 ~/.local/state/agent-q/service/ms1/slots/1/current/host/7b66f2ea-007e-4c90-8e59-ac9af72cc127/tmux.sock
+84 ~/.local/state/agent-q/service/ms1/slots/1/current/host/channels/tmux.sock
+119 ~/.local/state/agent-q/service/ms1/slots/1/current/host/driver-7b66f2ea-007e-4c90-8e59-ac9af72cc127/tmux.sock
+112 ~/.local/state/agent-q/service/ms1/slots/2/current/host/0bf92916-e208-4a62-ab68-5943239e84a3/tmux.sock
+84 ~/.local/state/agent-q/service/ms1/slots/2/current/host/channels/tmux.sock
+119 ~/.local/state/agent-q/service/ms1/slots/2/current/host/driver-0bf92916-e208-4a62-ab68-5943239e84a3/tmux.sock

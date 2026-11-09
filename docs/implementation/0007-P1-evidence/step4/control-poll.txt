@@ -1,0 +1,12 @@
+{"server_time": "2026-11-08T11:24:21.635Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 2}, "agents_per_node": [1, 1]}
+{"server_time": "2026-11-08T11:24:25.731Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 2}, "agents_per_node": [1, 1]}
+{"server_time": "2026-11-08T11:24:30.378Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 2}, "agents_per_node": [1, 1]}
+{"server_time": "2026-11-08T11:24:34.472Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}
+{"server_time": "2026-11-08T11:24:38.615Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}
+{"server_time": "2026-11-08T11:24:42.702Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}
+{"server_time": "2026-11-08T11:24:46.783Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}
+{"server_time": "2026-11-08T11:24:50.869Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}
+{"server_time": "2026-11-08T11:24:54.952Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}
+{"server_time": "2026-11-08T11:24:59.565Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}
+{"server_time": "2026-11-08T11:25:03.658Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}
+{"server_time": "2026-11-08T11:25:07.742Z", "control": {"desired": "stopped", "generation": "2", "since": "2026-11-08T11:24:17.931Z", "pending_handoffs": 0}, "agents_per_node": [0, 0]}

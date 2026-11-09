@@ -1,0 +1,10 @@
+2026-11-08T11:25:27.058917Z  WARN aq_worker::native::http::scoped_presence: native endpoint refused path=/v1/worker/profiled/inventory-v2 status=500 Internal Server Error body={"error":"internal","message":"internal server error"}
+2026-11-08T11:25:27.628906Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 500 Internal Server Error slot=2
+2026-11-08T11:26:03.118272Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:26:03.298301Z  WARN aq_worker::native::http::scoped_presence: native endpoint refused path=/v1/worker/profiled/inventory-v2 status=500 Internal Server Error body={"error":"internal","message":"internal server error"}
+2026-11-08T11:26:03.341308Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 500 Internal Server Error slot=1
+2026-11-08T11:26:14.811484Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:26:14.848397Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: native endpoint returned 409 Conflict slot=2
+2026-11-08T11:26:39.078580Z  INFO aq_worker::client: probe succeeded
+2026-11-08T11:26:39.244460Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T11:26:39.276265Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: native endpoint returned 409 Conflict slot=1

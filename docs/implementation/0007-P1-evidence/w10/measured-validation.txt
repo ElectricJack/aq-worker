@@ -1,0 +1,5 @@
+minimal: prompt_sha256=a78f9c326a23fcfc total_input=18827 bound=32835 output=4
+mixed: prompt_sha256=32fc7efa5bd4826a total_input=20115 bound=35506 output=4
+adversarial: prompt_sha256=02ad9cd0c86ee535 total_input=24090 bound=38612 output=4
+capacity_tokens=1000000 observed_at_ms=1794137254785
+measured(): every bound passes; token not present in any output file

@@ -1,0 +1,8 @@
+$ up.sh service-status   (2026-11-08T11:39:45Z)
+aq-node@ms1 (systemd-user): active
+machine desktop: 2 slot(s)
+{"id": "desktop", "state": "online", "control": {"desired": "running", "generation": "1", "since": "2026-11-08T10:51:12.576Z", "pending_handoffs": 0}, "services": [{"node": "06b87ad1-2750-4acf-82bf-05fac118265b", "name": "DESKTOP-EB8UOME", "health": "online", "service": {"state": "running", "since": "2026-11-08T11:33:36.336Z"}}, {"node": "666dc53a-17c5-4ed2-858e-994bb53f5965", "name": "DESKTOP-EB8UOME#2", "health": "online", "service": {"state": "running", "since": "2026-11-08T11:33:36.355Z"}}]}
+{"id": "node:b1225fe8-604a-46a9-a88d-3b040cc6ba4e", "state": "offline", "control": null, "services": [{"node": "b1225fe8-604a-46a9-a88d-3b040cc6ba4e", "name": "ms1-desktop", "health": "offline", "service": {"state": "unreported", "since": null}}]}
+{"id": "node:9975d20c-6a26-497a-95b0-128b16c3f494", "state": "offline", "control": null, "services": [{"node": "9975d20c-6a26-497a-95b0-128b16c3f494", "name": "e0-local-development", "health": "offline", "service": {"state": "unreported", "since": null}}]}
+{"id": "node:188de335-4fc9-4e85-b15b-138f01999775", "state": "offline", "control": null, "services": [{"node": "188de335-4fc9-4e85-b15b-138f01999775", "name": "ms1-node", "health": "offline", "service": {"state": "unreported", "since": null}}]}
+{"id": "node:085affc7-71d7-417c-8978-d5b18c1e51fe", "state": "offline", "control": null, "services": [{"node": "085affc7-71d7-417c-8978-d5b18c1e51fe", "name": "ms1-node-spare", "health": "offline", "service": {"state": "unreported", "since": null}}]}

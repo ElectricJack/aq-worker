@@ -1,0 +1,44 @@
+Starting aq-node@ms1.service - AQ worker service (ms1)...
+Started aq-node@ms1.service - AQ worker service (ms1).
+2026-11-08T10:43:28.354819Z  INFO aq_worker::measure: a measurement is running; its sandbox is not swept
+2026-11-08T10:43:28.355213Z  INFO aq_worker::service: worker service starting profile=ms1 machine=desktop slots=2
+2026-11-08T10:43:36.077192Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:43:36.317707Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T10:43:36.348877Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 409 Conflict slot=1
+2026-11-08T10:43:41.938681Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:43:42.062542Z  WARN aq_worker::native::http::control: native endpoint refused path=/v1/worker/profiled/poll status=409 Conflict body={"kind":"failure","body":{"schema_version":1,"code":"conflict","operation_id":null}}
+2026-11-08T10:43:42.113217Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 409 Conflict slot=2
+2026-11-08T10:44:14.253923Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:44:22.640651Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:44:59.401470Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:45:03.870979Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:45:08.359709Z  INFO aq_agent_channel: agent channel open attempt_id=d0e7abca-fce4-56a6-bb33-54520539908d
+2026-11-08T10:45:10.457235Z  WARN aq_worker::native::preparation::launch: native host bootstrap refused: tmux socket path too long attempt_id=d0e7abca-fce4-56a6-bb33-54520539908d
+2026-11-08T10:45:10.457368Z  INFO aq_agent_channel: agent channel closed attempt_id=d0e7abca-fce4-56a6-bb33-54520539908d reason="stopped by the node"
+2026-11-08T10:45:11.182268Z  WARN aq_node_service::supervisor: the attempt stays in current for recovery slot=2
+2026-11-08T10:45:11.182329Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: Claude driver host did not establish Running; retained closure requires reconciliation slot=2
+2026-11-08T10:45:12.736241Z  INFO aq_agent_channel: agent channel open attempt_id=99648cf7-70cd-5168-b651-841919d7da48
+2026-11-08T10:45:14.946001Z  WARN aq_worker::native::preparation::launch: native host bootstrap refused: tmux socket path too long attempt_id=99648cf7-70cd-5168-b651-841919d7da48
+2026-11-08T10:45:14.946141Z  INFO aq_agent_channel: agent channel closed attempt_id=99648cf7-70cd-5168-b651-841919d7da48 reason="stopped by the node"
+2026-11-08T10:45:15.592019Z  WARN aq_node_service::supervisor: the attempt stays in current for recovery slot=1
+2026-11-08T10:45:15.592083Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: Claude driver host did not establish Running; retained closure requires reconciliation slot=1
+2026-11-08T10:46:14.930518Z  WARN aq_node_service::supervisor: recovery failed, retrying in 120s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=2
+2026-11-08T10:46:19.336871Z  WARN aq_node_service::supervisor: recovery failed, retrying in 120s: aq-git refused repo.register: {"code":"binding_conflict","details":null,"message":"Repository already registered","retry":"refresh_inputs"} slot=1
+Stopping aq-node@ms1.service - AQ worker service (ms1)...
+Stopped aq-node@ms1.service - AQ worker service (ms1).
+aq-node@ms1.service: Consumed 55.757s CPU time.
+Starting aq-node@ms1.service - AQ worker service (ms1)...
+Started aq-node@ms1.service - AQ worker service (ms1).
+2026-11-08T10:47:36.139877Z  INFO aq_worker::service: worker service starting profile=ms1 machine=desktop slots=2
+2026-11-08T10:47:41.167125Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:47:41.170236Z  WARN aq_worker::native::http: native endpoint refused path=/v1/worker/profiled/register status=409 Conflict body={"error":"conflict","message":"prior execution claims remain held"}
+2026-11-08T10:47:41.211680Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:47:41.214727Z  WARN aq_worker::native::http: native endpoint refused path=/v1/worker/profiled/register status=409 Conflict body={"error":"conflict","message":"prior execution claims remain held"}
+2026-11-08T10:47:41.241648Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 409 Conflict slot=2
+2026-11-08T10:47:41.274803Z  WARN aq_node_service::supervisor: attempt failed, retrying in 30s: native endpoint returned 409 Conflict slot=1
+2026-11-08T10:48:18.026538Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:48:18.029435Z  WARN aq_worker::native::http: native endpoint refused path=/v1/worker/profiled/register status=409 Conflict body={"error":"conflict","message":"prior execution claims remain held"}
+2026-11-08T10:48:18.062449Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: native endpoint returned 409 Conflict slot=2
+2026-11-08T10:48:22.672229Z  INFO aq_worker::client: probe succeeded
+2026-11-08T10:48:22.683432Z  WARN aq_worker::native::http: native endpoint refused path=/v1/worker/profiled/register status=409 Conflict body={"error":"conflict","message":"prior execution claims remain held"}
+2026-11-08T10:48:22.723964Z  WARN aq_node_service::supervisor: attempt failed, retrying in 60s: native endpoint returned 409 Conflict slot=1

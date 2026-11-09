@@ -1,0 +1,12 @@
+● aq-worker@local.service - AQ worker container (local)
+     Loaded: loaded (~/.config/systemd/user/aq-worker@.service; enabled; preset: enabled)
+     Active: active (running) since Wed 2026-11-04 22:06:52 PST; 3 days ago
+   Main PID: 2282089 (docker)
+      Tasks: 17 (limit: 38499)
+     Memory: 13.7M (peak: 22.7M swap: 4.7M swap peak: 5.0M)
+        CPU: 13.292s
+     CGroup: /user.slice/user-1000.slice/user@1000.service/app.slice/app-aq\x2dworker.slice/aq-worker@local.service
+             └─2282089 docker run --rm --name aq-worker-local --stop-timeout 30 --label aq.e6a.profile=local --init --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m --add-host host.docker.internal:host-gateway -v ~/.config/agent-q/servers/local:/config -v ~/.local/state/agent-q/workers/local:/state -v /run/user/1000/aq-sandbox:/run/aq-sandbox aq-worker:dev run --controller-config /config/agent-q/node.json
+
+Nov 08 02:36:29 DESKTOP-EB8UOME aq-worker-ctl[2282089]: 2026-11-08T10:36:29.575187Z  WARN aq_worker::client: error sending request: client error (Connect): tcp connect error: Network is unreachable (os error 101); retrying attempt=8882 delay_ms=45701
+Nov 08 02:37:17 DESKTOP-EB8UOME aq-worker-ctl[2282089]: 2026-11-08T10:37:17.076307Z  WARN aq_worker::client: error sending request: client error (Connect): tcp connect error: Network is unreachable (os error 101); retrying attempt=8883 delay_ms=29655

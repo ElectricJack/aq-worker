@@ -1,0 +1,23 @@
+schema_version = 1
+profile = "ms1"
+machine_key = "desktop"
+slots = 2
+native_template = "~/.config/agent-q/service/ms1/native.json"
+state_root = "~/.local/state/agent-q/service/ms1"
+shutdown_grace_ms = 120000
+
+[aq_git]
+binary = "~/.local/share/agent-q/runtime/aq-git"
+git_executable = "/usr/bin/git"
+
+[[repositories]]
+repository_id = "e0000000-0000-4000-8000-000000000003"
+identity = "e0-development"
+binding_generation = 1
+object_format = "sha1"
+
+[measurement]
+enabled = true
+token_file = "~/.config/aq-secrets/claude-oauth-token"
+model = "claude-sonnet-5-5"
+renew_before_ms = 14400000

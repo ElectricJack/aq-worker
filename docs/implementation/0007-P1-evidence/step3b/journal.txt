@@ -1,0 +1,19 @@
+aq-node@ms1.service: Sent signal SIGKILL to main process 578960 (aq-worker) on client request.
+aq-node@ms1.service: Sending signal SIGKILL to process 579030 (aq-git) on client request.
+aq-node@ms1.service: Sending signal SIGKILL to process 579032 (aq-git) on client request.
+aq-node@ms1.service: Sending signal SIGKILL to process 581537 (aq-session-host) on client request.
+aq-node@ms1.service: Sending signal SIGKILL to process 581578 (tmux: server) on client request.
+aq-node@ms1.service: Sending signal SIGKILL to process 581582 (memfd:aq-observ) on client request.
+aq-node@ms1.service: Sending signal SIGKILL to process 583812 (aq-git) on client request.
+aq-node@ms1.service: Sending signal SIGKILL to process 583813 (aq-git) on client request.
+aq-node@ms1.service: Main process exited, code=killed, status=9/KILL
+aq-node@ms1.service: Failed with result 'signal'.
+aq-node@ms1.service: Consumed 44.907s CPU time, 137.6M memory peak, 0B memory swap peak.
+aq-node@ms1.service: Scheduled restart job, restart counter is at 1.
+Starting aq-node@ms1.service - AQ worker service (ms1)...
+Started aq-node@ms1.service - AQ worker service (ms1).
+2026-11-08T11:30:26.511409Z  INFO aq_worker::service: worker service starting profile=ms1 machine=desktop slots=2
+2026-11-08T11:30:26.512571Z  WARN aq_node_service::supervisor: recovery failed, retrying in 30s: connect to aq-git: Connection refused (os error 111) slot=1
+2026-11-08T11:30:26.512632Z  WARN aq_node_service::supervisor: recovery failed, retrying in 30s: connect to aq-git: Connection refused (os error 111) slot=2
+2026-11-08T11:30:56.710197Z  WARN aq_node_service::supervisor: recovery failed, retrying in 60s: connect to aq-git: Connection refused (os error 111) slot=1
+2026-11-08T11:30:56.710325Z  WARN aq_node_service::supervisor: recovery failed, retrying in 60s: connect to aq-git: Connection refused (os error 111) slot=2

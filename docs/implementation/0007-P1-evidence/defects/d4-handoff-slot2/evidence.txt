@@ -1,0 +1,18 @@
+# service journal (graceful restart 2026-11-08T11:10:47Z): slot 2's notice posted with slot 1's credential
+Stopping aq-node@ms1.service - AQ worker service (ms1)...
+2026-11-08T11:10:47.107649Z  WARN aq_node_service::supervisor: handoff notice: server answered 400 (bad_request) id=78e22d4b-85a6-5db0-b0b2-cf08e21da9cd
+Stopped aq-node@ms1.service - AQ worker service (ms1).
+Stopping aq-node@ms1.service - AQ worker service (ms1)...
+Stopped aq-node@ms1.service - AQ worker service (ms1).
+
+# attempt_handoffs after the restart: only slot 1's attempt c941f5ef has a row; slot 2's 78e22d4b has none
+ c941f5ef-edd6-552b-8a80-616d3a992e39 | 37d67aa8-d3d6-47ae-bd95-0a4ac36449fe | service_stop | 2026-11-08 11:10:47.097549+00 | 3f16de3d-3bac-5a5f-8918-b37fa89eab52 | 8e192abf51134990b3748675a36e3bd8fa387a88 | 64e4a728-6894-50b7-bd41-d6d1e150345a
+
+# server: replacement for 78e22d4b charged (no exempt handoff row)
+2026-11-08T11:11:16.951659Z  INFO aq_server::profiled_execution::producer::workflow: replacement attempt admitted within the lineage budget task_id=e0a20000-0000-4000-8000-0000000007a5 predecessor=78e22d4b-85a6-5db0-b0b2-cf08e21da9cd attempts_started=1 lineage_elapsed_ms=133147 sandbox_ms_charged=905447 max_attempts=3 max_sandbox_ms=14400000
+(quoted from the live session's `docker logs aq-ms1-server-1`; the container was recreated at 11:16Z for debug logging, which dropped this line.)
+For comparison, slot 1's recorded service_stop handoff (c941f5ef, task 7a6): attempts_started=1 lineage_elapsed_ms=0 sandbox_ms_charged=0 (defects/d5-successor-409/server-log.txt).
+
+# successor 82230851 reused the predecessor's export (original base) - saved step files not carried over
+e0a20000-0000-4000-8000-0000000007a5|78e22d4b-85a6-5db0-b0b2-cf08e21da9cd|3763fb5f-501e-45d1-b7cc-93b729b6098c|fc8adab5ca6a1183528f61c9aeabe59f1b2e76f2|2a49ec48-b9c2-5cbb-9b8a-1d7a44f33d06
+e0a20000-0000-4000-8000-0000000007a5|82230851-85fd-5939-81f2-9c4103a500e9|37d67aa8-d3d6-47ae-bd95-0a4ac36449fe|fc8adab5ca6a1183528f61c9aeabe59f1b2e76f2|2a49ec48-b9c2-5cbb-9b8a-1d7a44f33d06

@@ -1,0 +1,5 @@
+aq-node@ms1: is-active=inactive is-enabled=disabled
+● aq-worker@local.service - AQ worker container (local)
+     Loaded: loaded (~/.config/systemd/user/aq-worker@.service; enabled; preset: enabled)
+     Active: active (running) since Wed 2026-11-04 22:06:52 PST; 3 days ago
+   Main PID: 2282089 (docker)
