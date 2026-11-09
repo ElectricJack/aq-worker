@@ -1,6 +1,7 @@
 //! Reuse the enrolled connector heartbeat; fatal transport refusal requests stop.
 use super::*;
-use crate::client::{Client, run_loop};
+use crate::client::{CallError, Client, run_loop};
+use crate::native::http::{FETCH_SPAN, TransportFailed, boot_ns, fetch_retried};
 use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) struct Heartbeat {
     tasks: [tokio::task::JoinHandle<()>; 2],
@@ -26,11 +27,21 @@ impl Heartbeat {
         mut external: watch::Receiver<bool>,
     ) -> Result<(Self, watch::Receiver<bool>)> {
         let client = Client::from_config(worker)?;
-        client
-            .heartbeat(&aq_protocol::HeartbeatRequest {
-                worker_version: env!("CARGO_PKG_VERSION").into(),
-                protocol_version: aq_protocol::PROTOCOL_VERSION,
+        let request = aq_protocol::HeartbeatRequest {
+            worker_version: env!("CARGO_PKG_VERSION").into(),
+            protocol_version: aq_protocol::PROTOCOL_VERSION,
+        };
+        // #121 answers lock timeouts with 503: a heartbeat only records liveness, so it is resent.
+        let beat = || async {
+            client.heartbeat(&request).await.map_err(|e| match e {
+                CallError::Transient(why) => {
+                    anyhow::anyhow!(why).context(TransportFailed("heartbeat refused transiently"))
+                }
+                other => other.into(),
             })
+        };
+        let deadline = boot_ns()? + FETCH_SPAN.as_nanos() as u64;
+        fetch_retried(deadline, beat)
             .await
             .context("native enrollment heartbeat refused")?;
         let (tx, rx) = watch::channel(false);

@@ -171,7 +171,8 @@ async fn formatted_definition_is_accepted_and_pipeline_publisher_cannot_be_reset
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn inventory_lost_ack_keeps_original_operation_seed_and_conservative_deadline() {
     let (h, _git, producer, _grant) = setup().await;
-    h.scoped_mode.store(1, Ordering::SeqCst);
+    // A 400 is final, not retried: one send fails, the retry of the same operation succeeds.
+    h.scoped_mode.store(6, Ordering::SeqCst);
     let operation = producer.begin_inventory(1000).unwrap();
     assert_eq!(operation.request().sequence, 2);
     assert!(producer.publish_inventory(&operation).await.is_err());
@@ -191,6 +192,33 @@ async fn inventory_lost_ack_keeps_original_operation_seed_and_conservative_deadl
     drop(calls);
     let next = producer.begin_inventory(1000).unwrap();
     assert_eq!(next.request().sequence, 3);
+}
+/// #121 answers lock timeouts with 503: an inventory report is resent until acknowledged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn overloaded_inventory_report_is_resent_then_acknowledged_or_fails_bounded() {
+    let (h, _git, producer, _grant) = setup().await;
+    let calls = || h.scoped_calls.lock().unwrap().clone();
+    let sent = || calls().iter().filter(|(p, _)| p == "inventory").count();
+    let before = sent();
+    h.scoped_mode.store(1, Ordering::SeqCst);
+    let operation = producer.begin_inventory(5000).unwrap();
+    producer.publish_inventory(&operation).await.unwrap();
+    assert_eq!(sent() - before, 3, "503, 503, then acknowledged");
+    let last = calls();
+    assert!(last[last.len() - 3..].windows(2).all(|w| w[0] == w[1]));
+    // Persistently overloaded: it fails as before, within its 1 s TTL.
+    h.scoped_mode.store(7, Ordering::SeqCst);
+    let (started, operation) = (std::time::Instant::now(), producer.begin_inventory(1000));
+    let e = producer
+        .publish_inventory(&operation.unwrap())
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        format!("{e:#}").contains("503") && started.elapsed().as_secs() < 2,
+        "{e:#}"
+    );
+    assert!(sent() - before > 4, "resent before failing");
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exact_presence_retry_never_recaptures_private_bytes_or_extends_observation() {

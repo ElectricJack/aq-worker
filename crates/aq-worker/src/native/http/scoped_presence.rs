@@ -15,8 +15,11 @@ impl NativeClient {
             request.identity.node_id == self.node,
             "inventory node scope"
         );
-        let path = "inventory-v2";
-        let response = (self.post(&self.control, path, &request, wire::MAX_REQUEST_BYTES)).await?;
+        // #121 answers lock timeouts with 503; a report replays by operation id: resent for 10 s.
+        let bound = boot_ns()? + request.ttl_ms.min(10_000) * 1_000_000;
+        let (path, limit) = ("inventory-v2", wire::MAX_REQUEST_BYTES);
+        let response =
+            fetch_retried(bound, || self.post(&self.control, path, &request, limit)).await?;
         let bytes = body(response, wire::MAX_RECEIPT_BYTES).await?;
         let received = boot_ns()?;
         let receipt: wire::InventoryReceipt = serde_json::from_slice(&bytes)

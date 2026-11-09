@@ -717,3 +717,40 @@ async fn fetch_retries_span_five_tries_and_ten_seconds() {
         "the first wait would pass the deadline"
     );
 }
+/// #121 answers lock timeouts with 503: a registration (replayed by operation id) is resent
+/// until acknowledged; a 400 is final.
+#[tokio::test]
+async fn overloaded_registration_is_resent_and_a_refusal_is_final() {
+    for (status, sends) in [(503, 3), (400, 1)] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let route = post(
+            move |headers: HeaderMap, Json(r): Json<aq_admission::transport::TransportDocument>| {
+                let calls = seen.clone();
+                async move {
+                    auth(&headers);
+                    if calls.fetch_add(1, Ordering::SeqCst) < 2 {
+                        let mut busy =
+                            (StatusCode::from_u16(status).unwrap(), "busy").into_response();
+                        busy.headers_mut()
+                            .insert("retry-after", "0".parse().unwrap());
+                        return busy;
+                    }
+                    Json(r).into_response()
+                }
+            },
+        );
+        let server = Server::new(Router::new().route("/v1/worker/profiled/register", route)).await;
+        let registered = aq_admission::transport::Register {
+            schema_version: 1,
+            operation_id: Uuid::new_v4(),
+            identity: identity(),
+            runtime: started_request().runtime,
+            capabilities: vec![],
+            features: vec![aq_admission::transport::Feature::ArtifactTransferV1],
+        };
+        let result = server.client().register(&registered).await;
+        assert_eq!(result.is_ok(), status == 503, "{status}");
+        assert_eq!(calls.load(Ordering::SeqCst), sends, "{status}");
+    }
+}
