@@ -114,7 +114,10 @@ where
         let ends = |w: &Duration| boot_ns().is_ok_and(|n| n + (w.as_nanos() as u64) < deadline_ns);
         let more = attempt + 1 < FETCH_TRIES || started.elapsed() < FETCH_SPAN;
         let wait = fetch_retry_wait(&e, attempt).filter(|w| more && ends(w));
-        let Some(wait) = wait else { return Err(e) };
+        let Some(wait) = wait else {
+            (attempt > 0).then(|| tracing::warn!(tries = attempt + 1, "{e:#}; not retried again"));
+            return Err(e);
+        };
         attempt += 1;
         tracing::warn!(attempt, "{e:#}; retrying in {wait:?}");
         tokio::time::sleep(wait).await;
@@ -323,9 +326,9 @@ impl NativeClient {
         document.validate()?;
         ensure!(request.identity.node_id == self.node, "native node scope");
         let _slot = self.control_slots.try_acquire()?;
-        let response = self
-            .post(&self.control, "register", &document, 65_536)
-            .await?;
+        // #121 answers lock timeouts with 503; the server replays a registration by operation id.
+        let send = || self.post(&self.control, "register", &document, 65_536);
+        let response = fetch_retried(boot_ns()? + FETCH_SPAN.as_nanos() as u64, send).await?;
         let response = transport::decode_transport(&body(response, 65_536).await?)?;
         ensure!(
             serde_json::to_value(&response)? == serde_json::to_value(&document)?,

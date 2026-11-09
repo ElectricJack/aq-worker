@@ -852,12 +852,13 @@ impl Inputs {
                             (receipt, true)
                         }
                     };
-                    if first && mode.load(Ordering::SeqCst) == 1 {
-                        return (
-                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                            "synthetic lost inventory acknowledgement",
-                        )
-                            .into_response();
+                    // 1: overloaded for an operation's first two sends; 7: always; 6: refused once.
+                    let op = json!(request.operation_id);
+                    let sends = calls.lock().unwrap().iter().filter(|(_, r)| r["operation_id"] == op).count();
+                    let (mode, status) = (mode.load(Ordering::SeqCst), axum::http::StatusCode::from_u16);
+                    if (mode == 1 && sends <= 2) || mode == 7 || (mode == 6 && first) {
+                        let status = status(if mode == 6 { 400 } else { 503 }).unwrap();
+                        return (status, [("retry-after", "0")], "synthetic inventory refusal").into_response();
                     }
                     Json(receipt).into_response()
                 }

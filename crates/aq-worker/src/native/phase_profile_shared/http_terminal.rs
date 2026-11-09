@@ -1,5 +1,5 @@
 macro_rules! http_terminal {
-    ($wire:path,$started:ident,$stopped:ident) => {
+    ($wire:path,$started:ident,$stopped:ident,$closure:ident) => {
         use $wire as wire;
         impl NativeClient {
             pub async fn $started(&self, q: &wire::StartedRequest) -> Result<wire::StartedReceipt> {
@@ -20,6 +20,18 @@ macro_rules! http_terminal {
                 let _slot = self.phase_terminal_safety_slots.try_acquire()?;
                 let response = self.phase_terminal_post("stopped", q, true).await?;
                 Ok(wire::decode_stopped_receipt(
+                    &body(response, wire::MAX_BYTES).await?,
+                    q,
+                )?)
+            }
+            /// No-Started launch closure on the single safety lane (B5b/AQ-08); the
+            /// negotiation selects the profile on the shared route.
+            pub async fn $closure(&self, q: &wire::ClosureRequest) -> Result<wire::ClosureReceipt> {
+                q.validate()?;
+                self.scope(&q.original.binding)?;
+                let _slot = self.phase_terminal_safety_slots.try_acquire()?;
+                let response = self.phase_terminal_post("launch-closure", q, true).await?;
+                Ok(wire::decode_closure_receipt(
                     &body(response, wire::MAX_BYTES).await?,
                     q,
                 )?)
