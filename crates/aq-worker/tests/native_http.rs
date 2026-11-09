@@ -349,9 +349,11 @@ async fn transient_artifact_refusals_are_retried_then_succeed_or_fail_bounded() 
     assert_eq!(chunk.bytes, bytes);
     assert_eq!(calls.load(Ordering::SeqCst), 3, "503, 503, then 200");
 
-    let (server, calls) = scripted_artifact(vec![(503, Some("0")); 9]).await;
+    // Bounded by the preparation deadline (2 s here; the 10 s span is tested on a paused clock).
+    let (server, calls) = scripted_artifact(vec![(503, Some("0")); 99]).await;
     let e = server
         .client()
+        .fetch_until(boot_ns() + 2_000_000_000)
         .artifact(&request, &descriptor)
         .await
         .err()
@@ -360,10 +362,13 @@ async fn transient_artifact_refusals_are_retried_then_succeed_or_fail_bounded() 
         e.downcast_ref::<HttpStatus>().unwrap().0,
         StatusCode::SERVICE_UNAVAILABLE
     );
-    let tries = aq_worker::native::http::FETCH_TRIES as usize;
-    assert_eq!(calls.load(Ordering::SeqCst), tries, "bounded");
+    let (calls, tries) = (
+        calls.load(Ordering::SeqCst),
+        aq_worker::native::http::FETCH_TRIES,
+    );
+    assert!((2..=tries as usize).contains(&calls), "bounded: {calls}");
 }
-/// Only 502/503/504, 408 and 429 are retried, a `Retry-After` is waited exactly, and one past
+/// Only 502/503/504, 408 and 429 are retried, a longer `Retry-After` is waited, and one past
 /// the backoff cap ends the retries; any other 4xx (or 500) is final at once.
 #[tokio::test]
 async fn artifact_retry_honors_retry_after_and_never_retries_other_refusals() {
@@ -412,7 +417,7 @@ async fn artifact_retry_honors_retry_after_and_never_retries_other_refusals() {
     }
 }
 /// The retry classification: transport failures are transient and back off within
-/// [0, 500 ms * 2^n] capped at 8 s; a refusal's `Retry-After` overrides the backoff.
+/// [c/2, c] for c = 500 ms * 2^n capped at 8 s (equal jitter); a longer `Retry-After` wins.
 #[test]
 fn fetch_retry_wait_classifies_and_bounds() {
     use aq_worker::native::http::{TransportFailed, fetch_retry_wait};
@@ -420,7 +425,10 @@ fn fetch_retry_wait_classifies_and_bounds() {
     for attempt in 0..8 {
         let cap = Duration::from_millis(500 << attempt).min(Duration::from_secs(8));
         let wait = fetch_retry_wait(&transport, attempt).expect("transient");
-        assert!(wait <= cap, "{attempt}: {wait:?} > {cap:?}");
+        assert!(
+            wait <= cap && wait >= cap / 2,
+            "{attempt}: {wait:?} vs {cap:?}"
+        );
     }
     let wait = |status: StatusCode, after: Option<u64>| {
         let e: anyhow::Error = HttpStatus(status, after.map(Duration::from_secs)).into();
@@ -661,5 +669,51 @@ fn native_transport_ignores_ambient_proxy_configuration() {
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stdout)
+    );
+}
+/// R5: a fetch failing transiently gives up only after both `FETCH_TRIES` tries and
+/// `FETCH_SPAN` have passed, every wait at least half its equal-jitter ceiling (paused clock).
+#[tokio::test(start_paused = true)]
+async fn fetch_retries_span_five_tries_and_ten_seconds() {
+    use aq_worker::native::http::{
+        FETCH_SPAN, FETCH_TRIES, TransportFailed, fetch_retried_for_test as fetch_retried,
+    };
+    let started = tokio::time::Instant::now();
+    let tries = std::sync::Mutex::new(vec![]);
+    let failing = || async {
+        tries.lock().unwrap().push(started.elapsed());
+        Err::<(), _>(TransportFailed("native request transport failed").into())
+    };
+    assert!(fetch_retried(u64::MAX, failing).await.is_err());
+    let tries = tries.into_inner().unwrap();
+    assert!(
+        tries.len() > FETCH_TRIES as usize,
+        "five tries span less than 10 s: {tries:?}"
+    );
+    assert!(*tries.last().unwrap() >= FETCH_SPAN, "{tries:?}");
+    // And no more than that: 250 ms + 500 ms + 1 s + 2 s + 4 s + 4 s already passes 10 s.
+    assert!(tries.len() <= 8, "{tries:?}");
+    // Waits never fall under half their ceiling: 250 ms, 500 ms, 1 s, 2 s, 4 s, then 4 s.
+    for (n, pair) in tries.windows(2).enumerate() {
+        let floor = Duration::from_millis(250 << n.min(4));
+        let wait = pair[1] - pair[0];
+        let ceiling = Duration::from_secs(8);
+        assert!(wait >= floor && wait <= ceiling, "wait {n}: {wait:?}");
+    }
+    // A deadline still ends it early: no wait may end past it.
+    let calls = std::sync::atomic::AtomicUsize::new(0);
+    let failing = || async {
+        calls.fetch_add(1, Ordering::SeqCst);
+        Err::<(), _>(TransportFailed("native request transport failed").into())
+    };
+    assert!(
+        fetch_retried(boot_ns() + 100_000_000, failing)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the first wait would pass the deadline"
     );
 }

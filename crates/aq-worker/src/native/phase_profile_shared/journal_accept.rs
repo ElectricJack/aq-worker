@@ -163,22 +163,7 @@ macro_rules! journal_accept {
                     a.acceptance.is_none() && now < cap,
                     "legacy intent or expired phase proposal"
                 );
-                let original = Accept {
-                    schema_version: 1,
-                    operation_id: r.accept_operation_id,
-                    identity: self.state.identity.clone(),
-                    acceptance,
-                    reservation: NoLaunchReservation {
-                        reservation_id: r.reservation_id,
-                        reservation_operation_id: r.reservation_operation_id,
-                        reservation_journal_digest: canonical_digest(r)?,
-                    },
-                    guardian_id: r.guardian_id,
-                    launch_id: r.launch_id,
-                    journal_revision: self.state.revision,
-                    journal_digest: canonical_digest(&self.state)?,
-                    reservation_remaining_ms: (cap - now) / 1_000_000,
-                };
+                let original = self.accept_for(r, acceptance, cap - now)?;
                 let request = AcceptRequest {
                     schema_version: 2,
                     negotiation: proposed.proposal().negotiation.clone(),

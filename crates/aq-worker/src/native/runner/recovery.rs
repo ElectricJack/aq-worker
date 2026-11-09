@@ -105,12 +105,8 @@ pub async fn reconcile_native(
         worker.node_id,
         config.capacity.clone(),
     )?;
-    let mut attempt = journal
-        .state()
-        .attempts
-        .get(&attempt_id)
-        .context("native recovery attempt absent")?
-        .clone();
+    // R4: boxed, as are the inner futures below: an Attempt is about 35 KiB.
+    let mut attempt = attempt_of(&journal, attempt_id)?;
     if let Some(disposition) = pre_launch(&attempt) {
         return disposition;
     }
@@ -118,7 +114,14 @@ pub async fn reconcile_native(
     // started. Stop any host it configured, durably close it, and report the
     // closure; never relaunch it.
     if unstarted(&attempt) {
-        return close_unstarted(worker, config, &held, &mut journal, attempt_id).await;
+        return Box::pin(close_unstarted(
+            worker,
+            config,
+            &held,
+            &mut journal,
+            attempt_id,
+        ))
+        .await;
     }
     // MS1 restart drill: a node that died while its host ran left no stop in
     // the journal. Recover the host owner from its sealed intent, request a
@@ -133,12 +136,7 @@ pub async fn reconcile_native(
         let how = proof.observation().stop_reason.clone();
         tracing::warn!(%attempt_id, ?how, "recovered physical host stop after node restart");
 
-        attempt = journal
-            .state()
-            .attempts
-            .get(&attempt_id)
-            .context("native recovery attempt absent")?
-            .clone();
+        attempt = attempt_of(&journal, attempt_id)?;
     }
     // MS1 review: a host stop kills the node-side driver, not its docker-local
     // sandbox, where Claude would keep running with the attempt's token. Stop
@@ -174,7 +172,7 @@ pub async fn salvage_interrupted(
     config: &NativeConfig,
     attempt: Uuid,
 ) -> Result<SalvageDisposition> {
-    if let Some(done) = settled(reconcile_native(worker, config, attempt).await?) {
+    if let Some(done) = settled(Box::pin(reconcile_native(worker, config, attempt)).await?) {
         return Ok(done);
     }
     let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &config.executor
@@ -189,7 +187,7 @@ pub async fn salvage_interrupted(
         .attempts
         .get(&attempt)
         .context("native recovery attempt absent")?;
-    let (Some(h), Some(host)) = (a.result.clone(), a.native_host.as_ref()) else {
+    let (Some(h), Some(host)) = (a.result.clone().map(Box::new), a.native_host.as_ref()) else {
         return Ok(SalvageDisposition::Unsalvageable("result_scope_absent"));
     };
     let roots = crate::native::result::salvage_roots(&h)?;
@@ -210,7 +208,7 @@ pub async fn salvage_interrupted(
         let archive =
             async |s: &SandboxIdentity| Ok(backend.get_archive(s, "/aq/work", bound).await?);
         let proof = host.stopped.as_ref().map(|s| &s.observation.stop_reason);
-        match salvage_claim(&h, (reason, proof), &sandboxes, max, archive).await? {
+        match Box::pin(salvage_claim(&h, (reason, proof), &sandboxes, max, archive)).await? {
             Ok(claim) => Some(claim),
             Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
         }
@@ -219,8 +217,10 @@ pub async fn salvage_interrupted(
     let transfer = crate::transfer_client::TransferClient::from_config(worker, 1)?;
     let client = NativeClient::from_config(worker)?;
     check_root(config, &held)?;
-    crate::native::result::finish_salvage(journal, attempt, claim, roots, git, &transfer, &client)
-        .await?;
+    let finish = crate::native::result::finish_salvage(
+        journal, attempt, claim, roots, git, &transfer, &client,
+    );
+    Box::pin(finish).await?;
     tracing::warn!(%attempt, ?reason, "interrupted attempt salvaged as a failed handoff result");
     Ok(SalvageDisposition::Salvaged)
 }
@@ -293,13 +293,16 @@ async fn stop_claude_sandbox(config: &NativeConfig, node: Uuid, attempt: Uuid) -
     Ok(())
 }
 
+/// A boxed copy of the attempt's history, made off the async frames (about 35 KiB).
+fn attempt_of(journal: &Journal, id: Uuid) -> Result<Box<Attempt>> {
+    let a = journal.state().attempts.get(&id);
+    Ok(Box::new(
+        a.context("native recovery attempt absent")?.clone(),
+    ))
+}
 /// R1: the disposition of an attempt with no host history (it never launched), or None.
 fn pre_launch(a: &Attempt) -> Option<Result<ReconcileDisposition>> {
-    let hold = |reason, why: &str| {
-        Some(Err(
-            RecoveryHold(reason, anyhow::anyhow!(why.to_owned())).into()
-        ))
-    };
+    let hold = |r, why: &'static str| Some(Err(RecoveryHold(r, anyhow::anyhow!(why)).into()));
     if a.native_host.is_some() || a.result.is_some() {
         return None;
     }
@@ -446,12 +449,7 @@ async fn close_unstarted(
     journal: &mut Journal,
     attempt_id: Uuid,
 ) -> Result<ReconcileDisposition> {
-    let attempt = journal
-        .state()
-        .attempts
-        .get(&attempt_id)
-        .context("native recovery attempt absent")?
-        .clone();
+    let attempt = attempt_of(journal, attempt_id)?;
     let h = attempt.native_host.as_ref().unwrap();
     if h.closure.is_none()
         && h.stopped.is_none()

@@ -1,5 +1,6 @@
 //! Actual HTTP/fsync/private byte/current Git owners, synthetic issuer facts.
 use super::*;
+use crate::native::runner::salvage_interrupted;
 use crate::native::{
     http::preparation_v2::ExecutionObservation,
     preparation::{PhaseExecutionCommit, PreparedPhaseInputs},
@@ -537,4 +538,27 @@ async fn production_request_retains_prepared_owners_before_http_and_on_unknown_o
             .digest()
             .unwrap()
     );
+    // R1 review: a journaled Prepare with no grant may have been granted, so recovery holds the
+    // slot. R4: that recovery fits half a 2 MiB worker stack (the base needed 1.99 MiB here).
+    drop(h.pipeline.take());
+    let (_pins, mut config) = crate::native::runner::tests::config();
+    config.state_dir = h._dir.path().canonicalize().unwrap();
+    fs::set_permissions(&config.state_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    config.git_root = config.state_dir.join("git");
+    let mut capacity = limits();
+    (capacity.slots, capacity.disk_bytes) = (1, 64 << 30);
+    config.capacity = capacity;
+    let worker = crate::config::WorkerConfig {
+        server_url: "http://127.0.0.1:9".into(),
+        node_id: identity().node_id,
+        credential: "synthetic-node-secret".into(),
+        cf_client_id: None,
+        cf_client_secret: None,
+    };
+    let id = h.id;
+    let salvage = async move { salvage_interrupted(&worker, &config, id).await };
+    let held = crate::native::test_support::on_worker_stack(salvage);
+    let held = held.err().unwrap();
+    let hold = held.downcast_ref::<RecoveryHold>().map(|h| h.0);
+    assert_eq!(hold, Some("prepare_disposition_unknown"), "{held:#}");
 }

@@ -401,7 +401,7 @@ async fn slow_poll_reply_keeps_the_stated_offer_window_after_receipt() {
 
 /// R1 fixtures: a journal holding one attempt accepted and prepared against a loopback
 /// server whose artifact route answers `overloaded` 503s (`Retry-After: 0`) for its first
-/// `refusals` reads, then the startup payload.
+/// `refusals` reads, then the startup payload. Preparation's window is `window_ms`.
 #[cfg(feature = "test-support")]
 mod preparation_failure {
     use super::*;
@@ -427,7 +427,10 @@ mod preparation_failure {
         pub id: Uuid,
         pub payload: ArtifactRef,
         pub reads: Arc<AtomicUsize>,
-        task: tokio::task::JoinHandle<()>,
+        pub task: tokio::task::JoinHandle<()>,
+        /// The loopback server's routes and address, to bring it back after an outage.
+        pub router: Router,
+        pub address: std::net::SocketAddr,
     }
     impl Drop for Prepared {
         fn drop(&mut self) {
@@ -463,7 +466,7 @@ mod preparation_failure {
             .as_bytes()
             .to_vec()
     }
-    pub async fn prepared(refusals: usize) -> Prepared {
+    pub async fn prepared(refusals: usize, window_ms: u64) -> Prepared {
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let root = dir.path().join("journal");
@@ -471,7 +474,7 @@ mod preparation_failure {
             Journal::create_with_identity_for_test(&root, identity(), limits()).unwrap();
         let mut offer: NativeOffer =
             serde_json::from_value(fixture()["native_offer"].clone()).unwrap();
-        offer.offered.reservation_ttl_ms = 5000;
+        offer.offered.reservation_ttl_ms = window_ms + 1000;
         let payload = offer.startup.payload.clone();
         let descriptor: RetainedArtifact = (offer.offered.artifacts.iter())
             .find(|d| d.artifact == payload)
@@ -482,7 +485,12 @@ mod preparation_failure {
             qualification: reference("synthetic.qualification"),
         };
         let id = journal
-            .reserve(offer, runtime, boot_ns() + 4_500_000_000, 1024)
+            .reserve(
+                offer,
+                runtime,
+                boot_ns() + (window_ms + 500) * 1_000_000,
+                1024,
+            )
             .unwrap();
         let caps = request::<Accept>("accept")
             .acceptance
@@ -491,9 +499,9 @@ mod preparation_failure {
         let cap = journal.state().attempts[&id].reservation.deadline_ns;
         let mut delivery: PreparationDelivery =
             serde_json::from_value(fixture()["replies"][1]["body"].clone()).unwrap();
-        delivery.original.clock = DeliveryClock::new(1500, 5500).unwrap();
-        delivery.delivery.clock = DeliveryClock::new(1600, 5500).unwrap();
-        delivery.original.materials[0].expires_at_ms = 8000;
+        delivery.original.clock = DeliveryClock::new(1500, 1500 + window_ms).unwrap();
+        delivery.delivery.clock = DeliveryClock::new(1600, 1500 + window_ms).unwrap();
+        delivery.original.materials[0].expires_at_ms = window_ms + 6500;
         let reads = Arc::new(AtomicUsize::new(0));
         let seen = reads.clone();
         let accept_route = post(move |headers: HeaderMap, Json(r): Json<Accept>| {
@@ -529,9 +537,10 @@ mod preparation_failure {
             .route("/v1/worker/profiled/accept", accept_route)
             .route("/v1/worker/profiled/artifact", artifact_route);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        let client = NativeClient::from_config(&worker(&url)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let served = router.clone();
+        let task = tokio::spawn(async move { axum::serve(listener, served).await.unwrap() });
+        let client = NativeClient::from_config(&worker(&format!("http://{address}"))).unwrap();
         let preparation = Arc::new(client.accept(&accept, cap, None).await.unwrap());
         journal.record_preparation(id, &preparation).unwrap();
         let materials = dir.path().join("materials");
@@ -547,7 +556,23 @@ mod preparation_failure {
             payload,
             reads,
             task,
+            router,
+            address,
         }
+    }
+    /// Runs `f` on a tokio worker with a 1 MiB stack, from a thread outside any runtime. R4: the
+    /// recovery below the slot task must leave half of tokio's 2 MiB default to the supervisor
+    /// and service layers above it (with them, the base needed 2.17 MiB).
+    pub fn on_worker_stack<T: Send + 'static>(
+        f: impl std::future::Future<Output = T> + Send + 'static,
+    ) -> T {
+        let run = move || {
+            let mut rt = tokio::runtime::Builder::new_multi_thread();
+            let rt = rt.worker_threads(1).thread_stack_size(1 << 20);
+            let rt = rt.enable_all().build().unwrap();
+            rt.block_on(rt.spawn(f)).unwrap()
+        };
+        std::thread::spawn(run).join().unwrap()
     }
     pub fn worker(url: &str) -> WorkerConfig {
         WorkerConfig {
@@ -601,7 +626,7 @@ mod preparation_failure {
 #[cfg(feature = "test-support")]
 #[tokio::test]
 async fn overloaded_artifact_download_is_retried_and_preparation_continues() {
-    let p = preparation_failure::prepared(2).await;
+    let p = preparation_failure::prepared(2, 4000).await;
     let pipeline = p.pipeline.as_ref().unwrap();
     let verified = pipeline
         .artifact(p.id, p.preparation.clone(), p.payload.clone())
@@ -625,7 +650,7 @@ async fn overloaded_artifact_download_is_retried_and_preparation_continues() {
 #[tokio::test]
 async fn a_preparation_failed_by_overload_settles_as_never_started() {
     use aq_worker::native::runner::{SalvageDisposition, retained_attempts, salvage_interrupted};
-    let mut p = preparation_failure::prepared(usize::MAX).await;
+    let mut p = preparation_failure::prepared(usize::MAX, 4000).await;
     let pipeline = p.pipeline.as_ref().unwrap();
     let failed = pipeline
         .artifact(p.id, p.preparation.clone(), p.payload.clone())
@@ -635,8 +660,15 @@ async fn a_preparation_failed_by_overload_settles_as_never_started() {
         e.to_string(),
         "native endpoint returned 503 Service Unavailable"
     );
-    let tries = aq_worker::native::http::FETCH_TRIES as usize;
-    assert_eq!(p.reads.load(Ordering::SeqCst), tries, "bounded retries");
+    // Equal-jitter waits (>= 250 ms, 500 ms, 1 s, ...) until the 4 s preparation deadline.
+    let (reads, tries) = (
+        p.reads.load(Ordering::SeqCst),
+        aq_worker::native::http::FETCH_TRIES,
+    );
+    assert!(
+        (3..=tries as usize).contains(&reads),
+        "bounded by the deadline: {reads}"
+    );
     let a = pipeline.snapshot().await.unwrap().attempts[&p.id].clone();
     assert!(a.acceptance.is_some() && a.preparation.is_some());
     assert!(!a.downloads.is_empty() && a.downloads.values().all(|d| d.receipt.is_none()));
@@ -646,18 +678,14 @@ async fn a_preparation_failed_by_overload_settles_as_never_started() {
 
     let config = preparation_failure::native_config(p.dir.path());
     let worker = preparation_failure::worker("http://127.0.0.1:9");
-    // The debug-build recovery futures outgrow the 2 MiB test thread: run them on a larger one.
+    // R4: the real recovery fits half a 2 MiB tokio worker stack; it overflowed that on 44060750.
+    let (state, id) = (p.dir.path().to_owned(), p.id);
     let salvage = || {
-        let run = || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
-            rt.unwrap()
-                .block_on(salvage_interrupted(&worker, &config, p.id))
-        };
-        std::thread::scope(|s| {
-            let big = std::thread::Builder::new().stack_size(16 << 20);
-            big.spawn_scoped(s, run).unwrap().join().unwrap()
+        let state = state.clone();
+        preparation_failure::on_worker_stack(async move {
+            let config = preparation_failure::native_config(&state);
+            let worker = preparation_failure::worker("http://127.0.0.1:9");
+            salvage_interrupted(&worker, &config, id).await
         })
     };
     let journal = p.dir.path().join("journal/journal.json");
@@ -681,4 +709,35 @@ async fn a_preparation_failed_by_overload_settles_as_never_started() {
     assert_eq!(std::fs::read(&journal).unwrap(), before);
     let ours = Journal::open(&root, worker.node_id, limits());
     assert!(ours.is_ok(), "the same journal opens for its own node");
+}
+
+/// R5 (live rerun): the server is down (connection refused) for 3 s, as in a brief restart,
+/// then serves. Equal-jitter retries (at least 250 ms + 500 ms + 1 s + 2 s before the fifth
+/// try) outlast it, and the preparation's artifact download completes.
+#[cfg(feature = "test-support")]
+#[tokio::test]
+async fn preparation_outlasts_a_three_second_server_outage() {
+    let mut p = preparation_failure::prepared(0, 20_000).await;
+    p.task.abort();
+    let (router, address) = (p.router.clone(), p.address);
+    let down = std::time::Instant::now();
+    let revived = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+        axum::serve(listener, router).await.unwrap()
+    });
+    let pipeline = p.pipeline.as_ref().unwrap();
+    let artifact = pipeline.artifact(p.id, p.preparation.clone(), p.payload.clone());
+    let verified = artifact.await.unwrap();
+    assert!(
+        down.elapsed() >= Duration::from_secs(3),
+        "served only after the outage"
+    );
+    assert_eq!(verified.bytes(), preparation_failure::payload_bytes());
+    assert_eq!(
+        p.reads.load(Ordering::SeqCst),
+        1,
+        "no read reached the server while down"
+    );
+    p.task = revived;
 }

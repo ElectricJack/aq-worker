@@ -527,25 +527,11 @@ impl NativeExecutor for CodexExecutor {
                 );
                 pipeline.launch_phase_native(&grant, profile).await?
             };
-            let host = match launched {
-                NativeHostLaunchResult::Running(host) => host,
-                NativeHostLaunchResult::StoppedBeforeStarted(_)
-                | NativeHostLaunchResult::Unknown(_) => {
-                    match pipeline.stop_phase_host(id).await? {
-                        NativeStopOutcome::StoppedPendingJournal(_) => {
-                            pipeline.persist_phase_host_stop(id).await?
-                        }
-                        NativeStopOutcome::Unknown => {
-                            pipeline.persist_phase_host_uncertain(id).await?
-                        }
-                    }
-                    // No Started publication is invented. The retained closure
-                    // requires its own no-Started reconciliation owner.
-                    anyhow::bail!(
-                        "native host did not establish Running; retained closure requires reconciliation"
-                    )
-                }
-            };
+            // No Started publication is invented. The retained closure requires its own
+            // no-Started reconciliation owner.
+            let what =
+                "native host did not establish Running; retained closure requires reconciliation";
+            let host = running_or_stopped(&pipeline, id, launched, what).await?;
             drive_running_owned(
                 pipeline,
                 host,
@@ -564,6 +550,24 @@ impl NativeExecutor for CodexExecutor {
 
 /// Shared actual-host lifecycle used by the concrete executor and pinned local
 /// physical-host fault tests. Opaque LocalPhaseHost cannot be reconstructed.
+/// The Running host of a launch, or (after stopping and persisting what did start) `what`.
+pub(super) async fn running_or_stopped(
+    pipeline: &InputPipeline,
+    id: Uuid,
+    launched: NativeHostLaunchResult,
+    what: &'static str,
+) -> Result<crate::native::launch::LocalPhaseHost> {
+    let NativeHostLaunchResult::Running(host) = launched else {
+        match pipeline.stop_phase_host(id).await? {
+            NativeStopOutcome::StoppedPendingJournal(_) => {
+                pipeline.persist_phase_host_stop(id).await?
+            }
+            NativeStopOutcome::Unknown => pipeline.persist_phase_host_uncertain(id).await?,
+        }
+        anyhow::bail!(what)
+    };
+    Ok(host)
+}
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) async fn drive_running_with_pre_stop(
     pipeline: Arc<InputPipeline>,

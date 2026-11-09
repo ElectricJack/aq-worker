@@ -4,10 +4,7 @@
 use super::*;
 use crate::native::{
     adapter::result_profile::{ExpectedResultAdapter, ResultAdapterDefinition},
-    launch::{
-        NativeHostLaunchResult, NativeStopOutcome,
-        claude_docker::{ClaudeDockerHostConfig, ClaudeDockerHostProfile},
-    },
+    launch::claude_docker::{ClaudeDockerHostConfig, ClaudeDockerHostProfile},
     result::ResultInstallationPins,
 };
 use aq_session_protocol::{ArtifactRef, Digest};
@@ -138,23 +135,8 @@ impl NativeExecutor for ClaudeDockerExecutor {
             let launched = pipeline
                 .launch_phase_claude_docker_result(&grant, profile.clone(), channel)
                 .await?;
-            let host = match launched {
-                NativeHostLaunchResult::Running(host) => host,
-                NativeHostLaunchResult::StoppedBeforeStarted(_)
-                | NativeHostLaunchResult::Unknown(_) => {
-                    match pipeline.stop_phase_host(id).await? {
-                        NativeStopOutcome::StoppedPendingJournal(_) => {
-                            pipeline.persist_phase_host_stop(id).await?
-                        }
-                        NativeStopOutcome::Unknown => {
-                            pipeline.persist_phase_host_uncertain(id).await?
-                        }
-                    }
-                    anyhow::bail!(
-                        "Claude driver host did not establish Running; retained closure requires reconciliation"
-                    )
-                }
-            };
+            let what = "Claude driver host did not establish Running; retained closure requires reconciliation";
+            let host = super::codex::running_or_stopped(&pipeline, id, launched, what).await?;
             // MS1 review S2: the host's stop proof does not cover the sandbox,
             // and its short stop grace kills the driver first. So the sandbox
             // stop is confirmed BEFORE the host stop; else Stopped is withheld.

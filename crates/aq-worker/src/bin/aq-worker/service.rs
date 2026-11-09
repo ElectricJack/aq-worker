@@ -165,7 +165,8 @@ impl NativeSlotBackend {
                     Err(e) => tracing::warn!(%attempt, "handoff notice: {e:#}"),
                 }
             }
-            let salvaged = salvage_interrupted(&worker, &cfg, attempt).await;
+            // R4: boxed (as are the recovery futures inside): about 78 KiB inline.
+            let salvaged = Box::pin(salvage_interrupted(&worker, &cfg, attempt)).await;
             if let Some((proof, why)) = unproven(&salvaged) {
                 let Some(proof) = proof else {
                     tracing::error!(%attempt, "recovery held: {why}");
@@ -417,7 +418,7 @@ impl SlotBackend for NativeSlotBackend {
         )
     }
     async fn recover(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
-        held_if_permanent(self.recover_attempts(ctx).await)
+        held_if_permanent(Box::pin(self.recover_attempts(ctx)).await)
     }
     async fn release_claimed(&self, ctx: SlotContext) -> Result<usize> {
         let cfg = self.native_config(&ctx)?;
@@ -1672,6 +1673,75 @@ mod tests {
         assert_eq!(destroyable(dir.path(), vec![lost, claimed]), [claimed]);
     }
 
+    /// R4: slot recovery overflowed tokio's 2 MiB worker stack (a debug build needed about
+    /// 2.2 MiB). Every future on the recovery path is boxed below 16 KiB, so a regression
+    /// that inlines a large one again fails here.
+    #[test]
+    fn recovery_futures_stay_small() {
+        fn size<A, F>(_: impl FnOnce(A) -> F) -> usize {
+            std::mem::size_of::<F>()
+        }
+        const LIMIT: usize = 16 << 10;
+        let worker: &'static WorkerConfig = Box::leak(Box::new(WorkerConfig {
+            server_url: "http://127.0.0.1:9".into(),
+            node_id: Uuid::nil(),
+            credential: "c".into(),
+            cf_client_id: None,
+            cf_client_secret: None,
+        }));
+        let path = PathBuf::from("/nonexistent");
+        let backend: &'static NativeSlotBackend =
+            Box::leak(Box::new(NativeSlotBackend::new(path, Uuid::nil())));
+        // `recover_attempts` is the body the async_trait `recover` boxes. It awaits
+        // `release_lost` with the real closures (a docker backend and the server link), so the
+        // lost-guardian release is measured inside it as instantiated in the service.
+        let sizes = [
+            (
+                "recover_attempts",
+                size(|c: SlotContext| backend.recover_attempts(c)),
+            ),
+            (
+                "salvage_interrupted",
+                size(|c: &'static NativeConfig| salvage_interrupted(worker, c, Uuid::nil())),
+            ),
+            (
+                "reconcile_native",
+                size(|c: &'static NativeConfig| {
+                    aq_worker::native::runner::reconcile_native(worker, c, Uuid::nil())
+                }),
+            ),
+        ];
+        for (name, bytes) in sizes {
+            assert!(
+                bytes < LIMIT,
+                "{name} future is {bytes} bytes (limit {LIMIT})"
+            );
+        }
+    }
+    /// R4 (b): the lost-guardian release, within half a 2 MiB tokio worker stack: the sandbox
+    /// stop, the stored proof, the release post and the lost record, then a freed slot.
+    #[test]
+    fn a_lost_guardian_release_fits_half_a_worker_stack() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().to_owned();
+        let run = move || {
+            let mut rt = tokio::runtime::Builder::new_multi_thread();
+            let rt = rt.worker_threads(1).thread_stack_size(1 << 20);
+            let rt = rt.enable_all().build().unwrap();
+            rt.block_on(rt.spawn(async move {
+                let attempt = Uuid::from_u128(80);
+                let post = async |r: aq_protocol::LostAttemptRelease| Ok(answer(&r, true));
+                let proof = teardown("b");
+                let released =
+                    release_lost(async || Ok(()), post, &state, attempt, proof, false, "lost");
+                (Box::pin(released).await, record(&state, attempt))
+            }))
+            .unwrap()
+        };
+        let (outcome, record) = std::thread::spawn(run).join().unwrap();
+        assert_eq!(outcome, RecoverOutcome::Lost);
+        assert_eq!(record["released"], true);
+    }
     /// R1: an inconsistent journal (missing or mixed history) holds the slot with its reason
     /// instead of failing every retry; any other recovery error is still retried.
     #[test]
