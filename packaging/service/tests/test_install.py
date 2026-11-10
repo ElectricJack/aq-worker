@@ -270,3 +270,11 @@ def test_an_enrolled_profile_is_not_enrolled_again_without_reconfigure(host):
         assert run(host).returncode == 0
     assert len([c for c in worker_calls(host) if c["args"][:2] == ["service", "enroll"]]) == 2, \
         "an unfinished enrollment resumes"
+
+
+def test_deferred_install_enrolls_without_starting_a_service(host):
+    with with_socket(host):
+        result = run(host, "--defer-start")
+    assert result.returncode == 0, result.stderr
+    assert [call["args"][:2] for call in worker_calls(host)] == [["service", "enroll"]]
+    assert worker_calls(host)[0]["stdin"] == CODE + "\n"
