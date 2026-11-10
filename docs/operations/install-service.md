@@ -234,3 +234,67 @@ After a revoke, enroll again with a new code from "Add machine": run
 `--reconfigure`. The service is restarted with the new credentials. After a
 purge, `--reconfigure` is not needed. The key can be claimed again only by a
 fresh enrollment.
+
+## Install from Add machine
+
+The hosted command targets Ubuntu 24.04 on x86-64, including WSL2 with systemd
+enabled. In **Settings → Framework connection → Add machine** or **Agents →
+Swarm**, copy the command into the new PC's WSL terminal. Paste the one-time
+code when the worker asks for it. The command downloads the pinned worker
+bundle, prepares the rootless sandbox and matching image, then starts one slot.
+It can request sudo for missing Ubuntu packages or systemd linger. A fresh WSL
+distro needs curl and a running systemd user session.
+
+Enrollment establishes the AQ connection. Model subscriptions stay on the
+machines that use them. For a Claude worker, provision its subscription file
+before installing at `~/.config/aq-secrets/claude-oauth-token` (mode 0600), or
+set `AQ_CLAUDE_TOKEN_FILE` to a different absolute file path before running the
+command. The worker uses that file for qualification with the bundled measurement
+model. Runtimes configured for manual sessions also use it for Claude sessions.
+For Codex manual sessions, sign into Codex on the worker so its private
+`~/.codex/auth.json` is available. The install download includes the pinned
+runtime helpers when the operator packages them. On first install without a
+Claude token, the worker still enrolls. To configure Claude later, set
+`enabled = true`, `token_file` and `model` in the worker's `[measurement]`
+settings, then restart the service.
+
+The command can be rerun with the same bundle after an interrupted image pull.
+It resumes an unfinished enrollment or reuses the saved enrollment. Use a fresh
+distro or the regular upgrade procedure if another worker runtime already owns
+the installation paths.
+
+### Prepare the download on the server
+
+Run `packaging/service/prepare-worker-install.py --help`. Give it the active
+service TOML, the matching worker binary and runtime directory, and the
+installed Podman distribution directory. Optionally supply the pinned Codex
+helper directory with `--codex-helpers`. The builder copies an explicit set of
+binaries and configuration files and verifies the pinned host tools and image
+manifest. It does not distribute enrollment files or subscription logins.
+The output contains the checksummed installer, checksummed bundle and an nginx
+configuration.
+
+Start nginx using the generated file as an unprivileged service. For example,
+`nginx -p /absolute/output/ -c nginx.conf -g 'daemon off;'`. The default
+configuration listens at `127.0.0.1:28443` and proxies the worker API on
+`127.0.0.1:28081`. It serves only the pinned registry manifest and its blobs,
+using the existing loopback registry as source. Leave the AQ admin listener
+separate.
+
+- **Tailscale**. Run `tailscale serve --bg --https=8443 http://127.0.0.1:28443`
+  on the server host. On Windows, use its PowerShell and the Windows Tailscale
+  client. Complete the tailnet HTTPS approval if prompted. Copy the private
+  HTTPS address reported by Serve.
+- **LAN**. On a host with an address reachable from the LAN, generate the config
+  with `--listen PRIVATE_IPV4:28443 --tls-cert CERT --tls-key KEY`. Set up LAN
+  DNS for the hostname in the certificate. Use a certificate trusted by the
+  worker binary and curl. For a WSL server, the Windows host must route the
+  chosen LAN address to this worker ingress. A LAN reverse proxy with a trusted
+  certificate can also use the default loopback ingress as its upstream.
+
+Set `VITE_AQ_WORKER_INSTALL_URL` to the resulting private HTTPS origin and
+`VITE_AQ_WORKER_INSTALL_SHA256` to the builder's `installer_sha256` when building
+the dashboard. **Add machine** copies the pinned command and generates a
+separate single-use code. For each new bundle, use its new installer checksum
+in the dashboard build. Verify `/healthz` from the target WSL terminal before
+enrolling the first machine.
