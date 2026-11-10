@@ -10,7 +10,7 @@ use aq_worker_protocol::{
 };
 use serde_json::{Value, json};
 use std::path::PathBuf;
-const MAX_RANGES: u32 = 512;
+const MAX_RANGES: u32 = (1024 * 1024 * 1024 + 1024 * 1024) / 262144;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceRange {

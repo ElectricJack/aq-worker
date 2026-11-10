@@ -23,3 +23,10 @@ seconds of expiry. Replacing it on every work check invalidated an offer whose
 repository export lasted across two checks. The same scoped snapshot remains
 subject to its original deadline and server authority checks; this is not a TTL
 extension. A new snapshot is published before expiry or after an attempt.
+
+The finite source download range count covers the advertised default Git
+profile: a 1 GiB bundle plus a 1 MiB manifest, transferred in 256 KiB ranges
+(4100 total). The older 512-range limit silently capped source near 128 MiB,
+rejecting aq-server's real ~166 MB bundle despite the configured profile.
+The Git byte limits, manifest association checks, deadline and disk reservation
+remain enforced.
