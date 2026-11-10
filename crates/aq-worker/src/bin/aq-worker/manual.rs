@@ -399,23 +399,29 @@ async fn apply(
                 })
                 .collect::<Result<Vec<_>>>()?;
             ensure!(bytes.len() <= 4096, "input bound");
-            let name = id.to_string();
-            tmux(
-                exe,
-                cfg,
-                &container,
-                &["load-buffer", "-b", &name, "-"],
-                Some(&bytes),
-            )
-            .await?;
-            tmux(
-                exe,
-                cfg,
-                &container,
-                &["paste-buffer", "-r", "-d", "-b", &name, "-t", "aq"],
-                None,
-            )
-            .await?;
+            if let Some(key) = terminal_key(&bytes) {
+                // TUI Enter must be a key event, not pasted multiline text.
+                // Only fixed key names enter argv; typed text stays on stdin.
+                tmux(exe, cfg, &container, &["send-keys", "-t", "aq", key], None).await?;
+            } else {
+                let name = id.to_string();
+                tmux(
+                    exe,
+                    cfg,
+                    &container,
+                    &["load-buffer", "-b", &name, "-"],
+                    Some(&bytes),
+                )
+                .await?;
+                tmux(
+                    exe,
+                    cfg,
+                    &container,
+                    &["paste-buffer", "-r", "-d", "-b", &name, "-t", "aq"],
+                    None,
+                )
+                .await?;
+            }
         } else {
             let columns = c["payload"]["columns"].as_u64().context("columns")?;
             let rows = c["payload"]["rows"].as_u64().context("rows")?;
@@ -640,6 +646,22 @@ pub async fn run(
     Ok(())
 }
 
+fn terminal_key(bytes: &[u8]) -> Option<&'static str> {
+    Some(match bytes {
+        b"\r" => "Enter",
+        b"\t" => "Tab",
+        b"\x1b" => "Escape",
+        b"\x7f" | b"\x08" => "BSpace",
+        b"\x03" => "C-c",
+        b"\x04" => "C-d",
+        b"\x1a" => "C-z",
+        b"\x1b[A" | b"\x1bOA" => "Up",
+        b"\x1b[B" | b"\x1bOB" => "Down",
+        b"\x1b[C" | b"\x1bOC" => "Right",
+        b"\x1b[D" | b"\x1bOD" => "Left",
+        _ => return None,
+    })
+}
 fn valid_slug(slug: &str) -> bool {
     slug.split('/').count() == 2
         && slug
