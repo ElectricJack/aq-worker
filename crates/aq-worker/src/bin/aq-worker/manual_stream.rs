@@ -1,5 +1,6 @@
 //! Streaming tmux attach companion: owns disposable PTYs, never agent lifetime.
 mod pty;
+mod redact;
 use anyhow::{Context, Result, ensure};
 use aq_node_service::{
     config::ServiceConfig, enrollment_file::EnrollmentFile, layout::Layout, link::ServerLink,
@@ -84,17 +85,18 @@ async fn relay(
     tracing::info!(session_id=%id,"manual terminal relay connected");
     let (mut sink, mut source) = socket.split();
     let mut attach: Option<(Uuid, u64, pty::Pty)> = None;
+    let mut redactor = redact::Redactor::default();
     loop {
         tokio::select! {
          frame=source.next()=>{let text=match frame{Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_)))=>{sink.flush().await?;continue},Some(Ok(Message::Pong(_)))=>continue,_=>break};let v:Value=serde_json::from_str(&text)?;let connection:Uuid=serde_json::from_value(v["connection_id"].clone())?;let generation=v["generation"].as_u64().context("terminal generation")?;
-          if v["kind"]=="attach"{let (c,r)=size(&v)?;drop(attach.take());let p=pty::Pty::attach(exe,&docker.socket,container,c,r)?;attach=Some((connection,generation,p));sink.send(Message::Text(json!({"kind":"ready","connection_id":connection}).to_string().into())).await?;}
+          if v["kind"]=="attach"{let (c,r)=size(&v)?;drop(attach.take());redactor=redact::Redactor::default();let p=pty::Pty::attach(exe,&docker.socket,container,c,r)?;attach=Some((connection,generation,p));sink.send(Message::Text(json!({"kind":"ready","connection_id":connection}).to_string().into())).await?;}
           else if let Some((current,g,p))=&attach && *current==connection&&*g==generation{
            if v["kind"]=="input"{let bytes=v["bytes"].as_array().context("terminal bytes")?;ensure!(bytes.len()<=4096,"terminal input bound");let bytes=bytes.iter().map(|b|b.as_u64().filter(|n|*n<=255).map(|n|n as u8).context("terminal byte")).collect::<Result<Vec<_>>>()?;p.write(&bytes).await?;}
            else if v["kind"]=="resize"{let(c,r)=size(&v)?;p.resize(c,r)?;}
            else if v["kind"]=="detach"{attach=None;}
           }
          }
-         output=async{match &attach{Some((connection,_,p))=>p.read().await.map(|bytes|(*connection,bytes)),None=>std::future::pending().await}}=>{let(connection,bytes)=output?;let mut data=connection.as_bytes().to_vec();data.extend_from_slice(&bytes);tokio::time::timeout(Duration::from_secs(2),sink.send(Message::Binary(data.into()))).await??;}
+         output=async{match &attach{Some((connection,_,p))=>p.read().await.map(|bytes|(*connection,bytes)),None=>std::future::pending().await}}=>{let(connection,bytes)=output?;let mut data=connection.as_bytes().to_vec();data.extend_from_slice(&redactor.frame(&bytes));tokio::time::timeout(Duration::from_secs(2),sink.send(Message::Binary(data.into()))).await??;}
         }
     }
     Ok(())
