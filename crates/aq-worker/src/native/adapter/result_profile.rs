@@ -6,16 +6,7 @@ use crate::native::{VerifiedArtifact, journal::RuntimeIdentity};
 use aq_admission::{ArtifactKind, RetainedArtifact};
 use aq_session_protocol::LaunchManifest;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ResultAdapterKind {
-    #[serde(rename = "codex-0.166-trusted-node-named-readonly-result-local-v1")]
-    Codex0166TrustedNodeNamedReadonlyLocalV1,
-    #[serde(rename = "codex-0.166-chatgpt-interactive-result-local-v1")]
-    Codex0166ChatgptInteractiveLocalV1,
-    /// MS1: Claude Code in a docker-local sandbox driven from the node.
-    #[serde(rename = "claude-2.1.318-docker-local-result-local-v1")]
-    Claude2318DockerLocalV1,
-}
+pub use aq_agent_result_local::ResultAdapterKind;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResultAdapterDefinition {
@@ -28,6 +19,9 @@ pub struct ResultAdapterDefinition {
     pub contract: ArtifactRef,
     pub recipe: ArtifactRef,
     pub permission_digest: Digest,
+    /// Additional exact permission plans explicitly installed by the operator.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_permission_digests: Vec<Digest>,
     pub reserved_client_bytes: u64,
 }
 /// Independently configured early selection. This does not supply a grant.
@@ -96,6 +90,14 @@ impl ResultAdapterDefinition {
     }
     fn validate(&self) -> Result<()> {
         ensure!(
+            aq_agent_result_local::permission_plans_valid(
+                &self.permission_digest,
+                &self.additional_permission_digests,
+                self.is_claude_docker()
+            ),
+            "unsupported or duplicate additional permission plan"
+        );
+        ensure!(
             self.schema_version == 1
                 && self.encode()?.len() <= MAX_MANIFEST
                 && self.contract == aq_agent_result_local::artifact()
@@ -160,8 +162,11 @@ impl ResultAdapterDefinition {
             manifest.harness.adapter
                 == self.artifact_at_revision(&manifest.harness.adapter.version)?
                 && manifest.harness.environment == self.environment
-                && super::super::journal::canonical_digest(&manifest.permissions)?
-                    == self.permission_digest,
+                && {
+                    let digest = super::super::journal::canonical_digest(&manifest.permissions)?;
+                    digest == self.permission_digest
+                        || self.additional_permission_digests.contains(&digest)
+                },
             "result adapter manifest opt-in/settings/permissions differ"
         );
         if self.is_claude_docker() {
@@ -216,6 +221,3 @@ impl ResultAdapterDefinition {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests;

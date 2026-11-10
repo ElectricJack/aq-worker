@@ -311,7 +311,7 @@ fn configure_result_fixture(offered:&mut NativeOffer)->(crate::native::result::R
     let reference=|id:&str|ArtifactRef{id:Text::new(id).unwrap(),version:Text::new("1").unwrap(),digest:Digest::of(id.as_bytes())};
     let definition=ResultAdapterDefinition{schema_version:1,profile:ResultAdapterKind::Codex0166TrustedNodeNamedReadonlyLocalV1,runtime:qualification().runtime,
         environment:m.harness.environment.clone(),client_manifest:reference("aq.agent-result-client-installation"),client_executable:reference("synthetic-client"),
-        contract:aq_agent_result_local::artifact(),recipe:aq_codex_mapper::result_local_recipe_artifact(),permission_digest:canonical_digest(&m.permissions).unwrap(),reserved_client_bytes:64*1024*1024};
+        contract:aq_agent_result_local::artifact(),recipe:aq_codex_mapper::result_local_recipe_artifact(),permission_digest:canonical_digest(&m.permissions).unwrap(),additional_permission_digests:Vec::new(),reserved_client_bytes:64*1024*1024};
     let adapter=definition.artifact().unwrap();m.harness.adapter=adapter.clone();
     let new_descriptor=offered.startup.artifact().unwrap();
     for module in &mut offered.offered.offer.manifest.modules {if *module==old_descriptor{*module=new_descriptor.clone();}}

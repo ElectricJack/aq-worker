@@ -100,6 +100,27 @@ pub enum PhaseExecutionCommit {
     HistoryOnly(RetainedPhaseExecutionHistory),
 }
 impl InputPipeline {
+    pub(crate) async fn phase_permission_digest(
+        &self,
+        grant: &DurablePhaseExecution,
+    ) -> Result<Digest> {
+        self.check_phase_execution(grant).await?;
+        let scope = self.launch_scope(grant)?;
+        self.storage(move |owner| {
+            scope.check(owner)?;
+            let attempt = owner
+                .journal
+                .state()
+                .attempts
+                .get(&scope.id)
+                .context("result attempt absent")?;
+            super::super::journal::canonical_digest(
+                &attempt.reservation.offer.offered.offer.manifest.permissions,
+            )
+        })
+        .await
+    }
+
     pub async fn check_phase_execution(&self, grant: &DurablePhaseExecution) -> Result<()> {
         ensure!(
             Arc::ptr_eq(&self.owned, &grant.history.owner)
