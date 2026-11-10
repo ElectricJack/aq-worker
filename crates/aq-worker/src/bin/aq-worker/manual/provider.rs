@@ -32,7 +32,7 @@ cd /aq/work
 exe=$(cat /aq/in/executable)
 trap 'rm -f "$CODEX_HOME/auth.json"' EXIT
 model=$(cat /aq/in/model); effort=$(cat /aq/in/effort)
-"$exe" --no-daemon --no-alt-screen --sandbox danger-full-access --ask-for-approval never --model "$model" -c "model_reasoning_effort=\"$effort\"" -c 'model_provider="openai"' -c 'forced_login_method="chatgpt"' 
+"$exe" --no-daemon --no-alt-screen --sandbox danger-full-access --ask-for-approval never --model "$model" -c "model_reasoning_effort=\"$effort\"" -c 'model_provider="openai"' -c 'forced_login_method="chatgpt"' -c 'features.code_mode_host=false' 
 "#;
 pub(super) struct Plan {
     pub entries: Vec<TreeEntry>,
