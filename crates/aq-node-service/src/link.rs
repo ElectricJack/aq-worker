@@ -57,6 +57,9 @@ pub fn checked_origin(origin: &str) -> Result<url::Url> {
     Ok(origin)
 }
 impl ServerLink {
+    pub async fn manual_poll(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
+        self.post("/v1/worker/manual-agents", body).await
+    }
     /// Refuses an origin outside `checked_origin`'s rule and an empty or non-ASCII credential.
     pub fn new(origin: &str, credential: &str, access: Option<(&str, &str)>) -> Result<Self> {
         let origin = checked_origin(origin)?;

@@ -23,8 +23,18 @@ pub struct ServiceConfig {
     pub repositories: Vec<RepositoryBinding>,
     #[serde(default)]
     pub measurement: MeasurementConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual: Option<ManualConfig>,
     #[serde(default = "default_shutdown_grace_ms")]
     pub shutdown_grace_ms: u64,
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManualConfig {
+    pub podman_executable: PathBuf,
+    pub max_slots: u32,
+    #[serde(default)]
+    pub source_slugs: std::collections::BTreeMap<uuid::Uuid, String>,
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -140,6 +150,23 @@ impl ServiceConfig {
             (10_000..=600_000).contains(&self.shutdown_grace_ms),
             "shutdown_grace_ms must be 10000..=600000"
         );
+        if let Some(m) = &self.manual {
+            ensure!(
+                m.podman_executable.is_absolute() && (1..=8).contains(&m.max_slots),
+                "invalid manual worker configuration"
+            );
+            ensure!(
+                m.source_slugs.len() <= 16
+                    && m.source_slugs.values().all(|v| v.split('/').count() == 2
+                        && v.bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b))),
+                "invalid manual repository source"
+            );
+            ensure!(
+                self.measurement.token_file.is_some(),
+                "manual sessions require the installed subscription token file"
+            );
+        }
         let m = &self.measurement;
         ensure!(
             (3_600_000..=43_200_000).contains(&m.renew_before_ms),
@@ -180,6 +207,7 @@ mod tests {
             },
             repositories: vec![],
             measurement: MeasurementConfig::default(),
+            manual: None,
             shutdown_grace_ms: 120_000,
         }
     }

@@ -5,6 +5,7 @@
 mod docker_double;
 #[cfg(feature = "test-support")]
 mod fixture_responses_cli;
+mod manual;
 mod measure;
 mod native_diagnostics;
 #[cfg(feature = "test-support")]

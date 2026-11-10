@@ -1119,6 +1119,7 @@ mod tests {
             },
             repositories: vec![],
             measurement: MeasurementConfig::default(),
+            manual: None,
             shutdown_grace_ms: 10_000,
         };
         Rig {
