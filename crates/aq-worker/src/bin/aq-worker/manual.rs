@@ -65,10 +65,15 @@ m=/aq/private/material
 [ -s "$m" ] || { echo 'Subscription login is unavailable'; exit 90; }
 token=$(cat "$m"); rm -f "$m"
 export HOME=/aq/home TERM=xterm-256color IS_SANDBOX=1
-mkdir -p "$HOME"
+mkdir -p "$HOME/.claude"
+# This checkout was explicitly selected by the owner. Seed only display and
+# workspace acknowledgement preferences; authentication still comes from the
+# private subscription material above. Never copy a host provider config.
+printf '%s' '{"hasCompletedOnboarding":true,"projects":{"/aq/work":{"hasTrustDialogAccepted":true}}}' > "$HOME/.claude.json"
+printf '%s' '{"theme":"dark"}' > "$HOME/.claude/settings.json"
 cd /aq/work
 exe=$(cat /aq/in/executable); model=$(cat /aq/in/model)
-CLAUDE_CODE_OAUTH_TOKEN="$token" "$exe" --model "$model" --permission-mode acceptEdits --append-system-prompt-file /aq/in/context
+CLAUDE_CODE_OAUTH_TOKEN="$token" "$exe" --model "$model" --permission-mode acceptEdits --strict-mcp-config --setting-sources user --append-system-prompt-file /aq/in/context
 "#;
 #[derive(Clone, Serialize, Deserialize)]
 struct Agent {
@@ -296,12 +301,20 @@ async fn observe(
         a.stage = "Agent stopped; workspace retained".into();
         return Ok(None);
     }
-    backend
-        .put_archive(
-            sandbox,
-            tree_archive("aq/out", &[file("lease", (lease_until / 1000).to_string())])?,
-        )
-        .await?;
+    cli(
+        exe,
+        &cfg.socket,
+        &[
+            "exec",
+            "-i",
+            &sandbox.backend_id,
+            "/bin/sh",
+            "-c",
+            "umask 077; cat > /aq/out/lease",
+        ],
+        Some((lease_until / 1000).to_string().as_bytes()),
+    )
+    .await?;
     if tmux(
         exe,
         cfg,
@@ -526,7 +539,13 @@ pub async fn run(
                 ids.contains(id) || !matches!(a.status.as_str(), "stopped" | "failed")
             });
             for a in node.agents.values_mut() {
-                a.acknowledged.clear();
+                // A successful poll confirms that the server received these
+                // acknowledgements. Keep only uncertain delivery markers.
+                for id in a.acknowledged.drain(..) {
+                    let _ = std::fs::remove_file(
+                        root.join(a.id.to_string()).join(format!("input-{id}")),
+                    );
+                }
             }
             for job in jobs {
                 let id: Uuid = serde_json::from_value(job["id"].clone())?;
