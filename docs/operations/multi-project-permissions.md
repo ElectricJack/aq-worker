@@ -45,3 +45,10 @@ of retaining the old 128 MiB scratch ceiling. The generic exact-stream helper
 lives in aq-node-service; its regression streams 129 MiB without allocation and
 also rejects truncated, growing and over-limit input. Durable staging tests use
 real 1 MiB chunks and refuse a chunk one byte beyond the negotiated maximum.
+
+After source hydration, the same retained scoped-presence producer publishes a
+fresh inventory before execution preparation. A real checkout can outlast the
+initial inventory's 30-second validity. This obtains a new receipt from the
+server under the existing compatibility-epoch checks; it does not restamp or
+extend the original report. Production collection fixtures cover both frozen
+and registry-refresh profiles using the real producer and fake HTTP owners.

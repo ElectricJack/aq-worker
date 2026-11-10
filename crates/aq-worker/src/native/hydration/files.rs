@@ -494,20 +494,7 @@ mod tests {
         assert_eq!(std::fs::read(target).unwrap(), b"sentinel");
     }
     #[test]
-    fn growing_reader_is_bounded_and_metadata_changes_are_refused() {
-        struct Growing {
-            reads: usize,
-        }
-        impl Read for Growing {
-            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
-                bytes.fill(b'x');
-                self.reads += bytes.len();
-                Ok(bytes.len())
-            }
-        }
-        let mut growing = Growing { reads: 0 };
-        assert!(hash_exact(&mut growing, 100000).is_err());
-        assert_eq!(growing.reads, 100001);
+    fn truncated_streams_and_metadata_changes_are_refused() {
         assert!(hash_exact(&mut &b"short"[..], 6).is_err());
         let mut file = tempfile::tempfile().unwrap();
         file.write_all(b"initial").unwrap();

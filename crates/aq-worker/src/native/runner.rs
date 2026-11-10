@@ -1,5 +1,4 @@
-//! One fresh native attempt. Configuration and executor readiness precede all
-//! network admission. Retained journal/resources are never released on exit.
+//! Readiness precedes admission; retained journal/resources survive every exit.
 mod claude_docker;
 mod codex;
 mod config;
@@ -253,7 +252,7 @@ async fn run_admitted<E: NativeExecutor>(
     let id = pipeline
         .reserve(offer.clone(), config.runtime.clone(), deadline, disk)
         .await?;
-    let grant = prepare::collect(&pipeline, &client, &config, id, &offer, deadline, git).await?;
+    let grant = prepare::collect(&pipeline, &producer, &config, id, &offer, deadline, git).await?;
     check_root(&config, &held)?;
     heartbeat.check()?;
     let prepared_state = pipeline.snapshot().await?;

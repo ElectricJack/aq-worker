@@ -331,6 +331,7 @@ fn configure_result_fixture(offered:&mut NativeOffer)->(crate::native::result::R
     (pins,bodies)
 }
 impl Inputs {
+    async fn inventory(&self)->crate::native::preparation::ScopedPresenceProducer { let(q,a)=super::hydration_scenarios::presence_scenarios::profile(false);self.pipeline().scoped_presence(q,vec![a],0).await.unwrap() }
     fn pipeline(&self) -> &Arc<InputPipeline> {
         self.pipeline.as_ref().unwrap()
     }
@@ -1392,7 +1393,7 @@ async fn collect_result_fixture(h:&Inputs,git:&GitPeer)->crate::native::preparat
     let (_config_root,mut config)=crate::native::runner::tests::config();let published=published_phase_fixture();
     config.negotiation=serde_json::from_value(published["proposal"]["negotiation"].clone()).unwrap();config.capabilities=capabilities();
     config.source_profile=serde_json::from_value(published["accept"]["hold"]["source_profile"].clone()).unwrap();config.maximum_preparation_ms=30000;config.renderer=a.reservation.offer.startup.renderer_qualification.clone();
-    crate::native::runner::test_collect(h.pipeline(),&h.client,&config,h.id,&a.reservation.offer,a.reservation.deadline_ns,git.client.clone()).await.unwrap()
+    crate::native::runner::test_collect(h.pipeline(),&h.inventory().await,&config,h.id,&a.reservation.offer,a.reservation.deadline_ns,git.client.clone()).await.unwrap()
 }
 #[tokio::test]
 async fn native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline(){

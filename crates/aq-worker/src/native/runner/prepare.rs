@@ -1,9 +1,9 @@
 use super::*;
-use crate::native::preparation::PhaseExecutionCommit;
+use crate::native::preparation::{PhaseExecutionCommit, ScopedPresenceProducer};
 use aq_admission::{ArtifactKind, startup::NativeOffer};
 pub(crate) async fn collect(
     pipeline: &Arc<InputPipeline>,
-    _client: &NativeClient,
+    inventory: &ScopedPresenceProducer,
     config: &NativeConfig,
     id: Uuid,
     offer: &NativeOffer,
@@ -12,10 +12,10 @@ pub(crate) async fn collect(
 ) -> Result<DurablePhaseExecution> {
     match &config.negotiation {
         ConfiguredPreparation::Frozen(n) => {
-            collect_frozen(pipeline, config, n, id, offer, deadline, git).await
+            collect_frozen(pipeline, config, n, id, offer, deadline, (git, inventory)).await
         }
         ConfiguredPreparation::Refresh(n) => {
-            collect_refresh(pipeline, config, n, id, offer, deadline, git).await
+            collect_refresh(pipeline, config, n, id, offer, deadline, (git, inventory)).await
         }
     }
 }
@@ -28,8 +28,9 @@ macro_rules! collect_profile {
             id: Uuid,
             offer: &NativeOffer,
             deadline: u64,
-            git: GitClient,
+            sources: (GitClient, &ScopedPresenceProducer),
         ) -> Result<DurablePhaseExecution> {
+            let (git, inventory) = sources;
             type Options = $options;
             let accepted = pipeline
                 .$accept(
@@ -67,6 +68,9 @@ macro_rules! collect_profile {
             let workspace = pipeline
                 .$hydrate(id, preparation.clone(), spec, git)
                 .await?;
+            let refreshed = inventory.begin_inventory(config.inventory_ttl_ms)?;
+            inventory.publish_inventory(&refreshed).await?;
+            pipeline.record_inventory_sequence(refreshed.request().sequence);
             let inputs = pipeline
                 .$prepare(
                     id,

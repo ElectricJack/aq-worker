@@ -1082,7 +1082,7 @@ async fn inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion() {
 mod granted_scenarios;
 
 #[path = "presence_scenarios.rs"]
-mod presence_scenarios;
+pub(super) mod presence_scenarios;
 
 async fn phase_physical(
     h: &Inputs,
@@ -1488,7 +1488,7 @@ async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch
     config.renderer = a.reservation.offer.startup.renderer_qualification.clone();
     let grant = crate::native::runner::test_collect(
         h.pipeline(),
-        &h.client,
+        &h.inventory().await,
         &config,
         h.id,
         &a.reservation.offer,
