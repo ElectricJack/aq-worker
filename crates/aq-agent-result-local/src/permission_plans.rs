@@ -30,8 +30,8 @@ mod tests {
         let b = Digest::of(b"aq-server");
         assert!(permission_plans_valid(&a, &[], false));
         assert!(permission_plans_valid(&a, std::slice::from_ref(&b), true));
-        assert!(!permission_plans_valid(&a, &[b.clone()], false));
-        assert!(!permission_plans_valid(&a, &[a.clone()], true));
+        assert!(!permission_plans_valid(&a, std::slice::from_ref(&b), false));
+        assert!(!permission_plans_valid(&a, std::slice::from_ref(&a), true));
         assert!(!permission_plans_valid(&a, &[b.clone(), b], true));
         assert!(!permission_plans_valid(
             &a,
