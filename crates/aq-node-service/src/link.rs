@@ -57,6 +57,53 @@ pub fn checked_origin(origin: &str) -> Result<url::Url> {
     Ok(origin)
 }
 impl ServerLink {
+    /// A bounded, original-node WebSocket. Never follows a redirect or exposes credentials to a sandbox.
+    pub async fn terminal_stream(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut url = self
+            .origin
+            .join(&format!("/v1/worker/manual-agents/{id}/terminal-stream"))?;
+        let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
+        url.set_scheme(scheme)
+            .map_err(|_| anyhow::anyhow!("invalid stream origin"))?;
+        let mut request = url
+            .as_str()
+            .into_client_request()
+            .map_err(|_| anyhow::anyhow!("invalid terminal stream request"))?;
+        let mut bearer = header::HeaderValue::from_str(&format!("Bearer {}", &*self.credential))
+            .map_err(|_| anyhow::anyhow!("invalid node credential"))?;
+        bearer.set_sensitive(true);
+        request.headers_mut().insert(header::AUTHORIZATION, bearer);
+        if let Some((id, secret)) = &self.access {
+            let mut value = header::HeaderValue::from_str(secret)
+                .map_err(|_| anyhow::anyhow!("invalid Access secret"))?;
+            value.set_sensitive(true);
+            request
+                .headers_mut()
+                .insert("cf-access-client-id", header::HeaderValue::from_str(id)?);
+            request
+                .headers_mut()
+                .insert("cf-access-client-secret", value);
+        }
+        let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(131072))
+            .max_frame_size(Some(131072));
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            tokio_tungstenite::connect_async_with_config(request, Some(config), false),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("terminal stream handshake timed out"))?
+        .map(|(socket, _)| socket)
+        .map_err(|_| anyhow::anyhow!("terminal stream handshake refused"))
+    }
     pub async fn manual_poll(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
         self.post("/v1/worker/manual-agents", body).await
     }
