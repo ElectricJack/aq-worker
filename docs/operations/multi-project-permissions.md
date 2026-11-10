@@ -30,3 +30,12 @@ profile: a 1 GiB bundle plus a 1 MiB manifest, transferred in 256 KiB ranges
 rejecting aq-server's real ~166 MB bundle despite the configured profile.
 The Git byte limits, manifest association checks, deadline and disk reservation
 remain enforced.
+
+Source API1 status can advertise `aq-source-max-range: 1048576`. New workers
+negotiate 1 MiB ranges only when that header is present, and fall back to the
+original 256 KiB range size otherwise. Older workers keep using 256 KiB with a
+newer server. The selected range size is durable per download; legacy journals
+retain their original default and canonical bytes. All transfer bindings,
+whole-file digest checks, grant/retention fences and bounded response limits
+remain in place. The larger ranges reduce repeated control and journal work
+for real repository bundles.

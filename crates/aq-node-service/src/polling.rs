@@ -40,3 +40,82 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn poll_until_offer_returns_the_third_result() {
+        let calls = std::cell::Cell::new(0);
+        let (_s, mut shutdown) = watch::channel(false);
+        let (_p, mut pause) = watch::channel(false);
+        let found = poll_until_offer(
+            || {
+                calls.set(calls.get() + 1);
+                let n = calls.get();
+                async move { Ok((n == 3).then_some(7)) }
+            },
+            std::time::Duration::from_secs(10),
+            &mut shutdown,
+            &mut pause,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(found, PollLoop::Offer(7)));
+        assert_eq!(calls.get(), 3);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn poll_until_offer_honours_pause_before_polling() {
+        let calls = std::cell::Cell::new(0);
+        let (_s, mut shutdown) = watch::channel(false);
+        let (_p, mut pause) = watch::channel(true);
+        let found = poll_until_offer(
+            || {
+                calls.set(calls.get() + 1);
+                async { Ok(Some(1)) }
+            },
+            std::time::Duration::from_secs(10),
+            &mut shutdown,
+            &mut pause,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(found, PollLoop::<i32>::Paused));
+        assert_eq!(calls.get(), 0);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn poll_until_offer_shutdown_during_sleep() {
+        let calls = std::cell::Cell::new(0);
+        let (stop, mut shutdown) = watch::channel(false);
+        let (_p, mut pause) = watch::channel(false);
+        let sender = async {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            stop.send(true).unwrap();
+        };
+        let looped = poll_until_offer(
+            || {
+                calls.set(calls.get() + 1);
+                async { Ok(None::<i32>) }
+            },
+            std::time::Duration::from_secs(10),
+            &mut shutdown,
+            &mut pause,
+        );
+        let (found, ()) = tokio::join!(looped, sender);
+        assert!(matches!(found.unwrap(), PollLoop::Shutdown));
+        assert_eq!(calls.get(), 1);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn poll_until_offer_propagates_errors() {
+        let (_s, mut shutdown) = watch::channel(false);
+        let (_p, mut pause) = watch::channel(false);
+        let error = poll_until_offer(
+            || async { Err::<Option<i32>, _>(anyhow::anyhow!("boom")) },
+            std::time::Duration::from_secs(10),
+            &mut shutdown,
+            &mut pause,
+        )
+        .await;
+        assert!(error.is_err_and(|e| e.to_string() == "boom"));
+    }
+}

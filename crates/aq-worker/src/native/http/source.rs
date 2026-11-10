@@ -1,7 +1,7 @@
 //! Native source API1 over the independently frozen worker0.2 manifest.
-//! Caller obtains SourceAdmission from the verified retained execution spec,
-//! journals the first exact manifest, and verifies whole file digests on disk.
+//! Journal the verified spec's exact source manifest and verify whole file digests on disk.
 use super::*;
+use anyhow::Context as _;
 use aq_admission::{ObjectFormat, SourceAdmission};
 use aq_session_protocol::Validate as _;
 use aq_worker_protocol::{SourceRole, TransferFile, TransferManifest, Validate as _};
@@ -77,6 +77,17 @@ impl NativeClient {
         source: &SourceAdmission,
         previous: Option<&TransferManifest>,
     ) -> Result<TransferManifest> {
+        Ok(self
+            .source_status_with_range(binding, source, previous)
+            .await?
+            .0)
+    }
+    pub(crate) async fn source_status_with_range(
+        &self,
+        binding: &LaunchBinding,
+        source: &SourceAdmission,
+        previous: Option<&TransferManifest>,
+    ) -> Result<(TransferManifest, u32)> {
         self.scope(binding)?;
         binding.validate()?;
         source.validate()?;
@@ -96,6 +107,16 @@ impl NativeClient {
                 .is_some_and(|v| v == "application/json"),
             "native source status body type"
         );
+        let maximum_range = response
+            .headers()
+            .get("aq-source-max-range")
+            .map(|v| v.to_str().ok().and_then(|v| v.parse::<u32>().ok()))
+            .unwrap_or(Some(262144))
+            .context("invalid native source range capability")?;
+        ensure!(
+            matches!(maximum_range, 262144 | 1048576),
+            "unsupported native source range capability"
+        );
         let manifest: TransferManifest = serde_json::from_slice(&body(response, 8192).await?)
             .map_err(|_| anyhow::anyhow!("invalid native source status"))?;
         transfer(binding, &manifest)?;
@@ -106,7 +127,7 @@ impl NativeClient {
                 && previous.is_none_or(|old| old == &manifest),
             "native source pins changed"
         );
-        Ok(manifest)
+        Ok((manifest, maximum_range))
     }
     pub async fn source_chunk(
         &self,
@@ -123,7 +144,7 @@ impl NativeClient {
             TransferFile::Bundle => ("bundle", expected.bundle_bytes),
         };
         ensure!(
-            (1..=262_144).contains(&limit) && offset < size,
+            (1..=1_048_576).contains(&limit) && offset < size,
             "native source range"
         );
         let count = (size - offset).min(u64::from(limit)) as usize;

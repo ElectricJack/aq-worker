@@ -35,8 +35,19 @@ pub struct SourceDownload {
     pub bundle_offset: u64,
     pub pending: Option<SourceRange>,
     pub ranges: u32,
+    #[serde(
+        default = "default_range_bytes",
+        skip_serializing_if = "is_default_range"
+    )]
+    pub range_bytes: u32,
     pub verified: Option<GitManifest>,
     pub operations: BTreeMap<String, PendingGitOperation>,
+}
+fn default_range_bytes() -> u32 {
+    262144
+}
+fn is_default_range(value: &u32) -> bool {
+    *value == default_range_bytes()
 }
 impl SourceDownload {
     pub fn admission(&self) -> &SourceAdmission {
@@ -67,8 +78,8 @@ fn transfer(s: &SourceDownload, m: &TransferManifest, attempt: &Attempt) -> Resu
             && m.bundle_bytes > 0
             && m.manifest_bytes <= 1_048_576
             && m.manifest_bytes
-                .div_ceil(262144)
-                .checked_add(m.bundle_bytes.div_ceil(262144))
+                .div_ceil(u64::from(s.range_bytes))
+                .checked_add(m.bundle_bytes.div_ceil(u64::from(s.range_bytes)))
                 .is_some_and(|n| n <= u64::from(MAX_RANGES))
             && m.attempt.attempt_id == b.attempt_id
             && m.attempt.session_id == session_id
@@ -121,6 +132,7 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
             && !s.discovery_id.is_nil()
             && ids.insert(s.discovery_id)
             && s.ranges <= MAX_RANGES
+            && matches!(s.range_bytes, 262144 | 1048576)
             && s.operations.len() <= 5,
         "native source plan bounds"
     );
@@ -142,11 +154,13 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
                 && s.manifest_offset <= m.manifest_bytes
                 && s.bundle_offset <= m.bundle_bytes
                 && (s.bundle_offset == 0 || s.manifest_offset == m.manifest_bytes)
-                && (s.manifest_offset == m.manifest_bytes || s.manifest_offset % 262144 == 0)
-                && (s.bundle_offset == m.bundle_bytes || s.bundle_offset % 262144 == 0)
+                && (s.manifest_offset == m.manifest_bytes
+                    || s.manifest_offset % u64::from(s.range_bytes) == 0)
+                && (s.bundle_offset == m.bundle_bytes
+                    || s.bundle_offset % u64::from(s.range_bytes) == 0)
                 && u64::from(s.ranges)
-                    == s.manifest_offset.div_ceil(262144)
-                        + s.bundle_offset.div_ceil(262144)
+                    == s.manifest_offset.div_ceil(u64::from(s.range_bytes))
+                        + s.bundle_offset.div_ceil(u64::from(s.range_bytes))
                         + u64::from(s.pending.is_some()),
             "source cursor bounds"
         );
@@ -171,9 +185,9 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
             !r.operation_id.is_nil()
                 && ids.insert(r.operation_id)
                 && r.offset == offset
-                && (1..=262144).contains(&r.length)
+                && (1..=s.range_bytes).contains(&r.length)
                 && r.offset < size
-                && u64::from(r.length) == (size - r.offset).min(262144)
+                && u64::from(r.length) == (size - r.offset).min(u64::from(s.range_bytes))
                 && s.ranges > 0,
             "source pending range"
         );
@@ -272,6 +286,7 @@ impl Journal {
             bundle_offset: 0,
             pending: None,
             ranges: 0,
+            range_bytes: default_range_bytes(),
             verified: None,
             operations: BTreeMap::new(),
         };
@@ -280,11 +295,21 @@ impl Journal {
         self.persist(next)?;
         Ok(plan)
     }
-    pub(crate) fn source_manifest(&mut self, id: Uuid, m: TransferManifest) -> Result<()> {
+    pub(crate) fn source_manifest(
+        &mut self,
+        id: Uuid,
+        m: TransferManifest,
+        maximum_range: u32,
+    ) -> Result<()> {
         self.source_update(id, |s| {
             if let Some(old) = &s.manifest {
                 ensure!(old == &m, "source discovery changed")
             } else {
+                ensure!(
+                    matches!(maximum_range, 262144 | 1048576),
+                    "source range capability"
+                );
+                s.range_bytes = maximum_range;
                 s.manifest = Some(m)
             }
             Ok(())
@@ -311,7 +336,7 @@ impl Journal {
                 operation_id: Uuid::new_v4(),
                 file,
                 offset,
-                length: (size - offset).min(262144) as u32,
+                length: (size - offset).min(u64::from(s.range_bytes)) as u32,
             };
             s.ranges += 1;
             s.pending = Some(r.clone());
