@@ -1,4 +1,5 @@
 //! Persistent, owner-started tmux sessions in the fixed local sandbox.
+mod provider;
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::{
     config::ServiceConfig,
@@ -53,27 +54,11 @@ while ! timeout 40 git -c core.hooksPath=/dev/null -c http.lowSpeedLimit=1 -c ht
 stage 'Checking out project source'
 git -c core.hooksPath=/dev/null checkout --detach FETCH_HEAD
 stage 'Starting interactive agent'
-tmux -S /aq/out/manual.sock new-session -d -s aq -x 120 -y 40 '/bin/bash /aq/in/claude.sh'
+tmux -S /aq/out/manual.sock new-session -d -s aq -x 120 -y 40 '/bin/bash /aq/in/agent.sh'
 stage 'Ready to connect'
 while tmux -S /aq/out/manual.sock has-session -t aq 2>/dev/null; do sleep 1; done
 stage 'Agent exited; workspace retained'
 kill "$watchdog" 2>/dev/null || true
-"#;
-const CLAUDE: &str = r#"set -euo pipefail
-umask 077
-m=/aq/private/material
-[ -s "$m" ] || { echo 'Subscription login is unavailable'; exit 90; }
-token=$(cat "$m"); rm -f "$m"
-export HOME=/aq/home TERM=xterm-256color IS_SANDBOX=1
-mkdir -p "$HOME/.claude"
-# This checkout was explicitly selected by the owner. Seed only display and
-# workspace acknowledgement preferences; authentication still comes from the
-# private subscription material above. Never copy a host provider config.
-printf '%s' '{"hasCompletedOnboarding":true,"projects":{"/aq/work":{"hasTrustDialogAccepted":true}}}' > "$HOME/.claude.json"
-printf '%s' '{"theme":"dark"}' > "$HOME/.claude/settings.json"
-cd /aq/work
-exe=$(cat /aq/in/executable); model=$(cat /aq/in/model)
-CLAUDE_CODE_OAUTH_TOKEN="$token" "$exe" --model "$model" --permission-mode acceptEdits --strict-mcp-config --setting-sources user --append-system-prompt-file /aq/in/context
 "#;
 #[derive(Clone, Serialize, Deserialize)]
 struct Agent {
@@ -211,15 +196,7 @@ async fn create(
         .and_then(|m| m.source_slugs.get(&repo.repository_id))
         .unwrap_or(&repo.identity);
     ensure!(valid_slug(slug), "repository source is not configured");
-    ensure!(
-        a.spec["provider"] == "anthropic",
-        "interactive provider is not installed"
-    );
-    let model = a.spec["model"].as_str().context("interactive model")?;
-    ensure!(
-        model.len() <= 128 && !model.contains(['\n', '\0']),
-        "invalid interactive model"
-    );
+    let plan = provider::plan(config, settings, &a.spec)?;
     let mut docker = settings.host.docker_local.clone();
     docker.runner_command = Some(vec!["/bin/bash".into(), "-c".into(), RUNNER.into()]);
     let mut backend = DockerLocalBackend::connect_unix(docker).await?;
@@ -246,17 +223,12 @@ async fn create(
         "You are an interactive coding agent for {} in an isolated workspace. Wait for the owner's instructions. Read AGENTS.md and .aq/PRIME.md before doing project work. Keep build outputs outside the retained source tree. Do not change other projects, host services, credentials or pools. This session stays open between requests; the owner stops it explicitly.\n",
         a.spec["project_name"].as_str().unwrap_or("this project")
     );
-    let entries = vec![
+    let mut entries = vec![
         file("repository", format!("https://github.com/{slug}.git")),
         file("source", source(&a.spec)?),
-        file("model", model.as_bytes()),
-        file(
-            "executable",
-            settings.host.claude_executable.to_string_lossy().as_bytes(),
-        ),
         file("context", context),
-        file("claude.sh", CLAUDE),
     ];
+    entries.extend(plan.entries);
     backend
         .put_archive(&sandbox, tree_archive("aq/in", &entries)?)
         .await?;
@@ -269,16 +241,8 @@ async fn create(
             )?,
         )
         .await?;
-    let token = config
-        .measurement
-        .token_file
-        .as_ref()
-        .context("subscription token file")?;
-    let bytes = aq_handoff_note::read_private(token, 65536)?;
-    ensure!(
-        !bytes.is_empty() && bytes.len() <= 65536,
-        "subscription login is unavailable"
-    );
+    let bytes = aq_handoff_note::read_private(&plan.secret, 65536)?;
+    provider::validate_material(&a.spec, &bytes)?;
     backend
         .deliver_private_material(&sandbox, PrivateMaterial::new(bytes.to_vec()))
         .await?;
@@ -479,6 +443,7 @@ pub async fn run(
     };
     let exe = manual.podman_executable.clone();
     let max_slots = manual.max_slots;
+    let providers = provider::available(&config);
     let root = config.state_root.join("manual-agents");
     std::fs::create_dir_all(&root)?;
     let mut nodes = Vec::new();
@@ -520,7 +485,7 @@ pub async fn run(
                 .values()
                 .map(|a| a.report(node.snapshots.get(&a.id).cloned()))
                 .collect::<Vec<_>>();
-            let request = json!({"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":active.load(Ordering::SeqCst)>0,"reports":reports});
+            let request = json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":active.load(Ordering::SeqCst)>0,"reports":reports});
             let response = match node.link.manual_poll(&request).await {
                 Ok(v) => v,
                 Err(_) => {
@@ -570,6 +535,21 @@ pub async fn run(
                 a.desired_running = job["desired_running"] == true;
                 if !a.desired_running {
                     if let Some(sandbox) = &a.sandbox {
+                        if a.spec["provider"] == "openai" {
+                            let _ = cli(
+                                &exe,
+                                &settings.host.docker_local.socket,
+                                &[
+                                    "exec",
+                                    &sandbox.backend_id,
+                                    "rm",
+                                    "-f",
+                                    "/aq/home/.codex/auth.json",
+                                ],
+                                None,
+                            )
+                            .await;
+                        }
                         let mut backend =
                             DockerLocalBackend::connect_unix(settings.host.docker_local.clone())
                                 .await?;
@@ -638,7 +618,7 @@ pub async fn run(
                 }
             }
         }
-        let _=node.link.manual_poll(&json!({"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":true,"reports":node.agents.values().map(|a|a.report(None)).collect::<Vec<_>>()})).await;
+        let _=node.link.manual_poll(&json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":true,"reports":node.agents.values().map(|a|a.report(None)).collect::<Vec<_>>()})).await;
     }
     for pause in paused.values() {
         pause.send_replace(false);

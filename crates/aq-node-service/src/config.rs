@@ -35,6 +35,16 @@ pub struct ManualConfig {
     pub max_slots: u32,
     #[serde(default)]
     pub source_slugs: std::collections::BTreeMap<uuid::Uuid, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex: Option<ManualCodexConfig>,
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManualCodexConfig {
+    /// Executable inside the fixed sandbox template.
+    pub executable: PathBuf,
+    /// Owner-only ChatGPT subscription auth document; never a host config directory.
+    pub auth_file: PathBuf,
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -162,6 +172,12 @@ impl ServiceConfig {
                             .all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b))),
                 "invalid manual repository source"
             );
+            if let Some(c) = &m.codex {
+                ensure!(
+                    c.executable.is_absolute() && c.auth_file.is_absolute(),
+                    "manual Codex paths must be absolute"
+                );
+            }
             ensure!(
                 self.measurement.token_file.is_some(),
                 "manual sessions require the installed subscription token file"
