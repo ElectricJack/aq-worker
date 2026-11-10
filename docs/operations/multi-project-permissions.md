@@ -17,3 +17,9 @@ The result channel pins the actual admitted plan from the retained original
 manifest. Result installation checks that same plan after validating it against
 the installed adapter. An unlisted plan, duplicate entry, or changed permission
 field is refused. Sharing a worker does not require sharing project permissions.
+
+Idle polls reuse the acknowledged capability snapshot until it is within five
+seconds of expiry. Replacing it on every work check invalidated an offer whose
+repository export lasted across two checks. The same scoped snapshot remains
+subject to its original deadline and server authority checks; this is not a TTL
+extension. A new snapshot is published before expiry or after an attempt.

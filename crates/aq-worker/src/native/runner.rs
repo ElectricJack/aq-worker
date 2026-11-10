@@ -86,43 +86,7 @@ pub enum RunDisposition {
     AttemptStopped,
     PollingPaused,
 }
-/// Delay between polls of `run_until_attempt` while no offer is available.
-pub const IDLE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
-pub enum PollLoop<T> {
-    Offer(T),
-    Paused,
-    Shutdown,
-}
-/// Calls `poll` until it yields `Some`, sleeping `interval` between calls. `pause` and
-/// `shutdown` are checked before every call and during the sleep; an `Err` ends the loop.
-pub async fn poll_until_offer<T, F, Fut>(
-    mut poll: F,
-    interval: std::time::Duration,
-    shutdown: &mut watch::Receiver<bool>,
-    pause: &mut watch::Receiver<bool>,
-) -> Result<PollLoop<T>>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<Option<T>>>,
-{
-    loop {
-        if *pause.borrow() {
-            return Ok(PollLoop::Paused);
-        }
-        if *shutdown.borrow() {
-            return Ok(PollLoop::Shutdown);
-        }
-        if let Some(offer) = poll().await? {
-            return Ok(PollLoop::Offer(offer));
-        }
-        tokio::select! {
-            _ = tokio::time::sleep(interval) => {}
-            changed = shutdown.changed() => if changed.is_err() { return Ok(PollLoop::Shutdown) },
-            // A dropped pause sender never pauses; the sleep still ends the wait.
-            _ = async { if pause.changed().await.is_err() { std::future::pending::<()>().await } } => {}
-        }
-    }
-}
+pub use aq_node_service::polling::{IDLE_POLL_INTERVAL, PollLoop, poll_until_offer};
 
 pub async fn run_once<E: NativeExecutor>(
     worker: &WorkerConfig,
@@ -132,7 +96,7 @@ pub async fn run_once<E: NativeExecutor>(
 ) -> Result<RunDisposition> {
     run_admitted(worker, config, executor, shutdown, None).await
 }
-/// Same admission path as `run_once`, but after one Register it republishes the inventory and
+/// Same admission path as `run_once`, renewing the acknowledged inventory near expiry, then
 /// polls (limit 1) until an offer, `pause` (`PollingPaused`) or `shutdown`.
 pub async fn run_until_attempt<E: NativeExecutor>(
     worker: &WorkerConfig,
@@ -198,15 +162,31 @@ async fn run_admitted<E: NativeExecutor>(
         .scoped_presence(profile, config.harness_qualifications.clone(), 0)
         .await?;
     let mut poll_shutdown = shutdown.clone();
+    // Preserve the acknowledged snapshot while idle polling. Replacing it on
+    // every poll invalidates offers assembled from that same snapshot.
+    let inventory_cache = tokio::sync::Mutex::new(None::<(u64, u64)>);
     let poll_once = || async {
         heartbeat.check()?;
-        let inventory = producer.begin_inventory(config.inventory_ttl_ms)?;
-        let acknowledged = producer.publish_inventory(&inventory).await?;
-        pipeline.record_inventory_sequence(inventory.request().sequence);
-        ensure!(
-            super::http::boot_ns()? < acknowledged.deadline_ns(),
-            "native inventory expired before poll"
-        );
+        let now = super::http::boot_ns()?;
+        let mut cached = inventory_cache.lock().await;
+        let sequence = if let Some((sequence, deadline)) = *cached
+            && deadline.saturating_sub(now) > 5_000_000_000
+        {
+            sequence
+        } else {
+            let inventory = producer.begin_inventory(config.inventory_ttl_ms)?;
+            let acknowledged = producer.publish_inventory(&inventory).await?;
+            let deadline = acknowledged.deadline_ns();
+            ensure!(
+                super::http::boot_ns()? < deadline,
+                "native inventory expired before poll"
+            );
+            let sequence = inventory.request().sequence;
+            pipeline.record_inventory_sequence(sequence);
+            *cached = Some((sequence, deadline));
+            sequence
+        };
+        drop(cached);
         if *shutdown.borrow() {
             return Ok(None);
         }
@@ -216,7 +196,7 @@ async fn run_admitted<E: NativeExecutor>(
                 schema_version: 1,
                 operation_id: Uuid::new_v4(),
                 identity: identity.clone(),
-                inventory_sequence: inventory.request().sequence,
+                inventory_sequence: sequence,
                 available: Resources {
                     slots: available.slots,
                     memory_bytes: available.memory_bytes,
