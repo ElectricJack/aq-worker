@@ -26,13 +26,24 @@ export HOME=/aq/home CODEX_HOME=/aq/home/.codex TERM=xterm-256color
 mkdir -p "$CODEX_HOME"
 [ -s /aq/private/material ] || { echo 'ChatGPT subscription login is unavailable'; exit 90; }
 cat /aq/private/material > "$CODEX_HOME/auth.json"
+trap 'rm -f "$CODEX_HOME/auth.json"' EXIT
 rm -f /aq/private/material
 cat /aq/in/codex-config > "$CODEX_HOME/config.toml"
 cd /aq/work
 exe=$(cat /aq/in/executable)
-trap 'rm -f "$CODEX_HOME/auth.json"' EXIT
+if [ -d /aq/in/codex-runtime ]; then
+  actual=$(sha256sum "$exe"); actual=${actual%% *}
+  [ "$actual" = "$(cat /aq/in/codex-digest)" ] || { echo 'Installed Codex does not match its pinned helpers'; exit 91; }
+  runtime="$HOME/.codex-runtime"
+  mkdir -p "$runtime"
+  cp -L "$exe" "$runtime/codex"
+  cp -R /aq/in/codex-runtime/. "$runtime/"
+  chmod 700 "$runtime/codex" "$runtime/codex-code-mode-host" "$runtime/codex-path/rg" "$runtime/codex-resources/bwrap"
+  exe="$runtime/codex"
+  export PATH="$runtime/codex-path:$PATH"
+fi
 model=$(cat /aq/in/model); effort=$(cat /aq/in/effort)
-"$exe" --no-daemon --no-alt-screen --sandbox danger-full-access --ask-for-approval never --model "$model" -c "model_reasoning_effort=\"$effort\"" -c 'model_provider="openai"' -c 'forced_login_method="chatgpt"' -c 'features.code_mode_host=false' 
+"$exe" --no-daemon --no-alt-screen --sandbox danger-full-access --ask-for-approval never --model "$model" -c "model_reasoning_effort=\"$effort\"" -c 'model_provider="openai"' -c 'forced_login_method="chatgpt"' 
 "#;
 pub(super) struct Plan {
     pub entries: Vec<TreeEntry>,
@@ -134,9 +145,64 @@ pub(super) fn plan(
     ];
     if spec["provider"] == "openai" {
         entries.push(file("codex-config", codex_config(spec)?));
+        if let Some(bundle) = config
+            .manual
+            .as_ref()
+            .and_then(|m| m.codex.as_ref())
+            .and_then(|c| c.runtime_bundle.as_ref())
+        {
+            entries.extend(runtime_bundle(bundle)?);
+        }
     }
     Ok(Plan { entries, secret })
 }
+/// Only these public, exact-version runtime artifacts may enter a session.
+fn runtime_bundle(path: &std::path::Path) -> Result<Vec<TreeEntry>> {
+    let pins: Value = serde_json::from_str(include_str!(
+        "../../../../../../packaging/native-runtime/pins.json"
+    ))?;
+    let mut entries = vec![file(
+        "codex-digest",
+        pins["inputs"]["codex"]["sha256"]
+            .as_str()
+            .context("Codex executable pin")?,
+    )];
+    for name in [
+        "codex-runtime",
+        "codex-runtime/codex-path",
+        "codex-runtime/codex-resources",
+    ] {
+        entries.push(TreeEntry::Dir {
+            path: name.into(),
+            mode: 0o700,
+        });
+    }
+    for name in [
+        "codex-code-mode-host",
+        "codex-path/rg",
+        "codex-resources/bwrap",
+    ] {
+        let pin = &pins["inputs"][name];
+        let expected = pin["bytes"].as_u64().context("Codex helper size")?;
+        let file = std::fs::File::open(path.join(name)).context("Codex helper unavailable")?;
+        ensure!(
+            file.metadata()?.is_file() && file.metadata()?.len() == expected,
+            "Codex helper size mismatch"
+        );
+        let mut bytes = Vec::new();
+        use std::io::Read;
+        file.take(expected + 1).read_to_end(&mut bytes)?;
+        ensure!(
+            bytes.len() as u64 == expected
+                && aq_session_protocol::Digest::of(&bytes).as_str()
+                    == pin["sha256"].as_str().context("Codex helper digest")?,
+            "Codex helper digest mismatch"
+        );
+        entries.push(super::file(&format!("codex-runtime/{name}"), bytes));
+    }
+    Ok(entries)
+}
+
 fn codex_config(spec: &Value) -> Result<String> {
     // JSON strings are valid TOML basic strings; only these known scalar options
     // cross into CLI configuration. Never copy a host config or arbitrary options.
@@ -183,6 +249,12 @@ mod tests {
         }
         assert!(CODEX.contains("--no-daemon --no-alt-screen"));
         assert!(!CODEX.contains("exec \"$exe\" exec"));
+    }
+    #[test]
+    fn runtime_bundle_refuses_unpinned_helper_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("codex-code-mode-host"), b"wrong helper").unwrap();
+        assert!(runtime_bundle(root.path()).is_err());
     }
     #[test]
     fn rejects_api_key_material_and_unsupported_provider_options() {

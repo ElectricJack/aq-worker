@@ -45,6 +45,9 @@ pub struct ManualCodexConfig {
     pub executable: PathBuf,
     /// Owner-only ChatGPT subscription auth document; never a host config directory.
     pub auth_file: PathBuf,
+    /// Optional pinned Codex helpers copied into this manual session only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_bundle: Option<PathBuf>,
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -174,7 +177,9 @@ impl ServiceConfig {
             );
             if let Some(c) = &m.codex {
                 ensure!(
-                    c.executable.is_absolute() && c.auth_file.is_absolute(),
+                    c.executable.is_absolute()
+                        && c.auth_file.is_absolute()
+                        && c.runtime_bundle.as_ref().is_none_or(|p| p.is_absolute()),
                     "manual Codex paths must be absolute"
                 );
             }
