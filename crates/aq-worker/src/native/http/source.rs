@@ -1,5 +1,4 @@
-//! Native source API1 over the independently frozen worker0.2 manifest.
-//! Journal the verified spec's exact source manifest and verify whole file digests on disk.
+//! Native source API1: journal the frozen manifest and verify whole file digests.
 use super::*;
 use anyhow::Context as _;
 use aq_admission::{ObjectFormat, SourceAdmission};
@@ -69,8 +68,7 @@ impl NativeClient {
         version(&response)?;
         Ok(response)
     }
-    /// First discovery is read-only. It must be journaled before file transfer;
-    /// retries supply the original manifest and may not replace its metadata.
+    /// Journal the read-only discovery before transfer; retries preserve its original metadata.
     pub async fn source_status(
         &self,
         binding: &LaunchBinding,

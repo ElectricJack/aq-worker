@@ -96,8 +96,7 @@ pub async fn run_once<E: NativeExecutor>(
 ) -> Result<RunDisposition> {
     run_admitted(worker, config, executor, shutdown, None).await
 }
-/// Same admission path as `run_once`, renewing the acknowledged inventory near expiry, then
-/// polls (limit 1) until an offer, `pause` (`PollingPaused`) or `shutdown`.
+/// Poll until offer/pause/shutdown, renewing acknowledged inventory near expiry.
 pub async fn run_until_attempt<E: NativeExecutor>(
     worker: &WorkerConfig,
     config: NativeConfig,
@@ -162,8 +161,7 @@ async fn run_admitted<E: NativeExecutor>(
         .scoped_presence(profile, config.harness_qualifications.clone(), 0)
         .await?;
     let mut poll_shutdown = shutdown.clone();
-    // Preserve the acknowledged snapshot while idle polling. Replacing it on
-    // every poll invalidates offers assembled from that same snapshot.
+    // Keep the acknowledged snapshot stable while its offer is assembled.
     let inventory_cache = tokio::sync::Mutex::new(None::<(u64, u64)>);
     let poll_once = || async {
         heartbeat.check()?;

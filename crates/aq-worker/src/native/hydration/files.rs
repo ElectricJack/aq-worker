@@ -223,7 +223,7 @@ impl Staging {
     pub(crate) fn append(&self, file: &TransferFile, offset: u64, bytes: &[u8]) -> Result<()> {
         self.check()?;
         ensure!(
-            !bytes.is_empty() && bytes.len() <= 262144,
+            !bytes.is_empty() && bytes.len() <= 1048576,
             "native source chunk bound"
         );
         let dir = self.directory(true)?;
@@ -351,7 +351,7 @@ mod tests {
                 hex: "a".repeat(40),
             },
         };
-        let bundle = b"synthetic bytes, not a native Git bundle".to_vec();
+        let bundle = vec![b's'; 1048576];
         let digest = format!("{:x}", Sha256::digest(&bundle));
         let native = GitManifest {
             format_version: 1,
@@ -410,6 +410,10 @@ mod tests {
         s.append(&TransferFile::Manifest, 0, &bytes).unwrap();
         assert!(
             s.append(&TransferFile::Manifest, 0, b"changed bytes")
+                .is_err()
+        );
+        assert!(
+            s.append(&TransferFile::Bundle, 0, &vec![b'x'; 1048577])
                 .is_err()
         );
         s.append(&TransferFile::Bundle, 0, &bundle).unwrap();
