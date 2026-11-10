@@ -96,27 +96,9 @@ fn unchanged(before: &Metadata, file: &File) -> Result<()> {
     Ok(())
 }
 fn hash_exact(reader: &mut impl Read, expected: u64) -> Result<String> {
-    ensure!(
-        expected > 0 && expected <= 128 * 1024 * 1024,
-        "native source streaming byte bound"
-    );
-    let mut hash = Sha256::new();
-    let mut remaining = expected;
-    let mut buffer = [0; 65536];
-    while remaining > 0 {
-        let limit = remaining.min(buffer.len() as u64) as usize;
-        let n = reader.read(&mut buffer[..limit])?;
-        ensure!(n > 0, "native source bundle truncated");
-        hash.update(&buffer[..n]);
-        remaining -= n as u64;
-    }
-    let mut extra = [0];
-    ensure!(
-        reader.read(&mut extra)? == 0,
-        "native source bundle grew beyond admitted bound"
-    );
-    Ok(format!("{:x}", hash.finalize()))
+    aq_node_service::source_hash::exact(reader, expected, 1024 * 1024 * 1024)
 }
+
 pub(crate) struct Staging {
     root: File,
     path: PathBuf,

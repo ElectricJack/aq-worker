@@ -39,3 +39,9 @@ retain their original default and canonical bytes. All transfer bindings,
 whole-file digest checks, grant/retention fences and bounded response limits
 remain in place. The larger ranges reduce repeated control and journal work
 for real repository bundles.
+
+Whole-bundle verification streams up to the configured 1 GiB profile instead
+of retaining the old 128 MiB scratch ceiling. The generic exact-stream helper
+lives in aq-node-service; its regression streams 129 MiB without allocation and
+also rejects truncated, growing and over-limit input. Durable staging tests use
+real 1 MiB chunks and refuse a chunk one byte beyond the negotiated maximum.

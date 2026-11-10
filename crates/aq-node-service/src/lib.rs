@@ -25,3 +25,5 @@ pub use supervisor::{
 };
 
 pub mod polling;
+
+pub mod source_hash;
