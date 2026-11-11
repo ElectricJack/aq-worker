@@ -32,13 +32,38 @@ mkdir -p "$install_root"
 work="$(mktemp -d "$install_root/stage.XXXXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 package="$install_root/$digest"
+# The bootstrap carries configuration fixes independently of the pinned runtime bundle.
+cat > "$work/configure.py" <<'AQ_INSTALL_CONFIG'
+@AQ_INSTALL_CONFIG@
+AQ_INSTALL_CONFIG
 
-if ! command -v python3 >/dev/null || ! command -v git >/dev/null || ! command -v newuidmap >/dev/null || ! command -v tmux >/dev/null; then
-  if ! command -v apt-get >/dev/null || ! command -v sudo >/dev/null; then
-    echo 'Install Python 3, Git, uidmap and tmux, then rerun the command.' >&2; exit 3
+# A connected worker already has its runtime and receiver unit. Control updates
+# must remain possible even when native setup validation is what needs diagnosis.
+controls_only=0
+control_profile=local
+control_args=("$@")
+for ((i=0; i<${#control_args[@]}; i++)); do
+  case "${control_args[i]}" in
+    --controls-only) controls_only=1 ;;
+    --profile) control_profile="${control_args[i+1]:-}" ;;
+  esac
+done
+if [[ "$controls_only" == 1 ]]; then
+  [[ "$control_profile" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo 'Invalid worker profile.' >&2; exit 2; }
+  control_config="${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/service/$control_profile"
+  python3 "$work/configure.py" upgrade-controls "$package" "$control_config" "$origin"
+  exit 0
+fi
+
+install_packages() {
+  command -v apt-get >/dev/null && command -v sudo >/dev/null &&
+    sudo apt-get update && sudo apt-get install -y "$@"
+}
+
+if ! command -v python3 >/dev/null || ! command -v git >/dev/null || ! command -v newuidmap >/dev/null || ! command -v tmux >/dev/null || ! command -v iptables >/dev/null; then
+  if ! install_packages ca-certificates git python3 tmux uidmap libutempter0 iptables; then
+    echo 'Install Python 3, Git, uidmap, tmux, libutempter0 and iptables, then rerun the command.' >&2; exit 3
   fi
-  sudo apt-get update
-  sudo apt-get install -y ca-certificates git python3 tmux uidmap
 fi
 if ! awk -F: -v name="$(id -un)" -v uid="$(id -u)" '
   $1 == name || $1 == uid { found[FILENAME] = 1 }
@@ -61,33 +86,53 @@ fi
 
 profile=local
 slots=1
+explicit_slots=0
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
   case "${args[i]}" in
     --profile) profile="${args[i+1]:-}" ;;
-    --slots) slots="${args[i+1]:-}" ;;
+    --slots) slots="${args[i+1]:-}"; explicit_slots=1 ;;
   esac
 done
 [[ "$profile" =~ ^[a-z0-9][a-z0-9-]{0,31}$ && "$slots" =~ ^[1-8]$ ]] || {
   echo 'Choose a valid profile and between one and eight slots.' >&2; exit 2;
 }
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/service/$profile"
+if [[ -f "$config_dir/service.toml" && "$explicit_slots" == 0 ]]; then
+  slots="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["slots"])' "$config_dir/service.toml")"
+  [[ "$slots" =~ ^[1-8]$ ]] || { echo 'The existing worker slot count is invalid.' >&2; exit 2; }
+  args+=(--slots "$slots")
+fi
 podman="$HOME/.local/opt/aq-sandbox-podman/podman-linux-amd64/usr/local/bin/podman"
 socket="$XDG_RUNTIME_DIR/aq-sandbox/podman.sock"
 # Validate runtime pins and resolve host-specific paths before consuming a code.
-python3 "$package/worker-install-config.py" prepare "$package" "$work" "$origin" "$socket" "$config_dir" "$digest"
+python3 "$work/configure.py" prepare "$package" "$work" "$origin" "$socket" "$config_dir" "$digest"
+tmux_libraries="$(ldd "$package/tmux" 2>&1 || true)"
+# Ubuntu 26.04's tmux package dropped the utmp library required by the bundled binary.
+if grep -Eq '^[[:space:]]*libutempter\.so\.0[[:space:]]+=>[[:space:]]+not found' <<<"$tmux_libraries"; then
+  echo 'Installing the compatibility library required by the bundled tmux.'
+  if ! install_packages libutempter0; then
+    echo 'Install libutempter0, then rerun the command.' >&2; exit 3
+  fi
+fi
 for tool in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver tmux; do
-  if ldd "$package/$tool" 2>&1 | grep 'not found' >/dev/null; then
-    echo "A system library required by $tool is missing. Use the Ubuntu WSL version supported by this AQ bundle." >&2; exit 3
+  libraries="$(ldd "$package/$tool" 2>&1 || true)"
+  if [[ "$libraries" == *'not found'* ]]; then
+    echo "A system library required by $tool is missing." >&2
+    grep 'not found' <<<"$libraries" >&2
+    exit 3
   fi
 done
 if [[ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" != yes ]]; then
   if command -v sudo >/dev/null; then sudo loginctl enable-linger "$(id -un)"; fi
 fi
 install_args=()
-if [[ -r "${AQ_CLAUDE_TOKEN_FILE:-$HOME/.config/aq-secrets/claude-oauth-token}" ]]; then
-  model="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["measurement_model"])' "$package/bootstrap.json")"
-  install_args+=(--measurement-token-file "${AQ_CLAUDE_TOKEN_FILE:-$HOME/.config/aq-secrets/claude-oauth-token}" --measurement-model "$model")
+token_file="${AQ_CLAUDE_TOKEN_FILE:-$HOME/.config/aq-secrets/claude-oauth-token}"
+if [[ -r "$token_file" ]]; then
+  model="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["measurement_model"] or "")' "$package/bootstrap.json")"
+  if [[ -n "$model" ]]; then
+    install_args+=(--measurement-token-file "$token_file" --measurement-model "$model")
+  fi
 fi
 AQ_SANDBOX_DAEMON_DIR="$package/sandbox-daemon" bash "$package/aq-install.sh" \
   --server "$origin" --bundle "$package" --native-template "$work/native.json" \
@@ -103,8 +148,11 @@ image="$(cat "$work/image")"
 if ! "$podman" --remote --url "unix://$socket" image exists "$image"; then
   "$podman" --remote --url "unix://$socket" pull "$image"
 fi
-python3 "$package/worker-install-config.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest"
+python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest"
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
 "$worker" service status --profile "$profile"
+python3 "$work/configure.py" install-sync "$package" "$config_dir"
+echo 'Checking that this machine can start an agent sandbox.'
+python3 "$work/configure.py" preflight "$package" "$config_dir" "$podman"
 echo 'Worker installed. Check Agents → Swarm for its connection.'
