@@ -12,6 +12,17 @@ env:
 
 # Lint and test run as parallel jobs; each keeps its own dependency cache.
 jobs:
+  packaging:
+    name: worker installer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y python3-pytest shellcheck
+      - run: /usr/bin/python3 -m pytest packaging/service/tests/test_install.py packaging/worker/tests/test_worker_ctl.py -q
+
   lint:
     name: fmt, clippy and contracts
     runs-on: ubuntu-latest

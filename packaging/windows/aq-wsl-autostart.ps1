@@ -7,7 +7,8 @@
   Registers a per-user logon task named "AQ WSL worker keepalive". At logon it
   runs `wsl.exe -d <Distro> --exec sleep infinity` with no window. That boots
   the VM, which starts systemd, linger, aq-sandbox-podman.service and
-  aq-worker@<profile>.service. Holding the session open also stops WSL from
+  aq-node@<profile>.service (or the container worker aq-worker@<profile>).
+  Holding the session open also stops WSL from
   shutting down the idle distro or VM. A second trigger re-fires the task every
   minute with IgnoreNew, so a keepalive that ended (wsl --shutdown, a WSL
   update) is back within one or two minutes.
@@ -45,6 +46,10 @@ $Conhost = Join-Path $env:WINDIR "System32\conhost.exe"
 $StartupDir = [Environment]::GetFolderPath("Startup")
 $Launcher = Join-Path $StartupDir "aq-wsl-keepalive.vbs"
 
+if ([string]::IsNullOrWhiteSpace($Distro) -or $Distro -match '["\x00-\x1f]') {
+  throw "Use a WSL distribution name without quotes or control characters."
+}
+
 function Get-AqTask { Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
 
 if ($Status) {
@@ -65,7 +70,7 @@ if ($Uninstall) {
 }
 
 # `conhost --headless` keeps wsl.exe windowless; the task's own lifetime keeps the VM up.
-$action = New-ScheduledTaskAction -Execute $Conhost -Argument "--headless `"$Wsl`" -d $Distro --exec sleep infinity"
+$action = New-ScheduledTaskAction -Execute $Conhost -Argument "--headless `"$Wsl`" -d `"$Distro`" --exec sleep infinity"
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 $dockerTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 # A second trigger re-fires every minute, starting now and continuing
@@ -96,8 +101,8 @@ try {
   }
 } catch {
   "Task Scheduler refused registration ($($_.Exception.Message)); using the Startup folder instead"
-  $vbs = "CreateObject(""WScript.Shell"").Run """"""$Wsl"""" -d $Distro --exec sleep infinity"", 0, False"
-  Set-Content -Path $Launcher -Value $vbs -Encoding ASCII
+  $vbs = 'CreateObject("WScript.Shell").Run """' + $Wsl + '"" -d ""' + $Distro + '"" --exec sleep infinity", 0, False'
+  Set-Content -Path $Launcher -Value $vbs -Encoding Unicode
   "wrote $Launcher"
-  if ($StartNow) { Start-Process -WindowStyle Hidden -FilePath $Wsl -ArgumentList "-d", $Distro, "--exec", "sleep", "infinity"; "started keepalive" }
+  if ($StartNow) { Start-Process -WindowStyle Hidden -FilePath $Wsl -ArgumentList "-d `"$Distro`" --exec sleep infinity"; "started keepalive" }
 }

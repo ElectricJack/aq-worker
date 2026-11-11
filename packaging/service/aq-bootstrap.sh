@@ -81,9 +81,6 @@ for tool in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver tmux; do
     echo "A system library required by $tool is missing. Use the Ubuntu WSL version supported by this AQ bundle." >&2; exit 3
   fi
 done
-if [[ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" != yes ]]; then
-  if command -v sudo >/dev/null; then sudo loginctl enable-linger "$(id -un)"; fi
-fi
 install_args=()
 token_file="${AQ_CLAUDE_TOKEN_FILE:-$HOME/.config/aq-secrets/claude-oauth-token}"
 if [[ -r "$token_file" ]]; then
