@@ -20,8 +20,12 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - run: sudo apt-get update && sudo apt-get install -y python3-pytest shellcheck
-      - run: /usr/bin/python3 -m pytest packaging/service/tests/test_install.py packaging/worker/tests/test_worker_ctl.py -q
+      - name: Install packaging test tools
+        run: |
+          python3 -m pip install --disable-pip-version-check --target "$RUNNER_TEMP/aq-installer-tests" pytest shellcheck-py
+          echo "$RUNNER_TEMP/aq-installer-tests/bin" >> "$GITHUB_PATH"
+          echo "PYTHONPATH=$RUNNER_TEMP/aq-installer-tests" >> "$GITHUB_ENV"
+      - run: python -m pytest packaging/service/tests/test_install.py packaging/worker/tests/test_worker_ctl.py -q
 
   lint:
     name: fmt, clippy and contracts
