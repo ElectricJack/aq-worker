@@ -322,3 +322,101 @@ def test_hosted_install_repairs_the_tokenless_manual_section_and_keeps_enrollmen
         assert result.returncode == 0, result.stderr
         assert service.read_text() == original
         assert enrollment.read_text() == 'credential = "existing-enrollment"\n'
+
+
+def login_helper():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("aq_login_config", SCRIPT.parent / "worker-install-config.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def login_profile(tmp_path):
+    package, config = tmp_path / "package", tmp_path / "config"
+    package.mkdir(); config.mkdir()
+    (package / "codex-bundle").mkdir()
+    (package / "bootstrap.json").write_text(json.dumps({"source_slugs": {"repo": "owner/repo"}}))
+    (config / "login-sync.json").write_text(json.dumps({"podman": "/opt/podman"}))
+    (config / "service.toml").write_text('profile = "local"\nslots = 1\n[measurement]\nenabled = false\nmodel = "fixture-model"\n')
+    return package, config
+
+
+def test_server_logins_enable_manual_both_providers_and_remain_private(tmp_path):
+    helper = login_helper()
+    package, config = login_profile(tmp_path)
+    codex = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "test-access", "refresh_token": "test-refresh", "id_token": "test-id", "account_id": "test-account"}})
+    logins = [{"provider": "anthropic", "material": "synthetic-claude"}, {"provider": "openai", "material": codex}]
+    assert helper.apply_logins(package, config, logins)
+    parsed = helper.read_toml(config / "service.toml")
+    assert parsed["manual"]["source_slugs"] == {"repo": "owner/repo"}
+    assert parsed["measurement"]["enabled"] is False
+    assert parsed["measurement"]["model"] == "fixture-model"
+    assert parsed["measurement"]["token_file"] == str(config / "provider-auth/claude-token")
+    assert parsed["manual"]["codex"]["auth_file"] == str(config / "provider-auth/codex-auth.json")
+    for path in (config / "provider-auth").iterdir():
+        assert path.stat().st_mode & 0o777 == 0o600
+    assert (config / "provider-auth").stat().st_mode & 0o777 == 0o700
+    assert not helper.apply_logins(package, config, logins)
+
+
+def test_codex_only_then_claude_requests_capability_restart(tmp_path):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    auth = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "a", "refresh_token": "r", "id_token": "i", "account_id": "acct"}})
+    assert helper.apply_logins(package, config, [{"provider": "openai", "material": auth}])
+    assert not (config / "provider-auth/claude-token").exists()
+    assert helper.apply_logins(package, config, [{"provider": "anthropic", "material": "synthetic"}])
+
+
+def test_invalid_delivery_writes_no_secrets(tmp_path):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    for logins in ([], [{"provider": "anthropic", "material": "bad\nvalue"}], [{"provider": "openai", "material": '{"OPENAI_API_KEY":"test"}'}]):
+        with pytest.raises(ValueError):
+            helper.apply_logins(package, config, logins)
+        assert not (config / "provider-auth").exists()
+
+
+def test_receipt_retry_does_not_restart_twice(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    import uuid
+    generation = str(uuid.uuid4()); requests = []; commands = []
+    def request(_config, body, _slot=1):
+        requests.append(body)
+        if not body:
+            return {"generation": generation, "logins": [{"provider": "anthropic", "material": "synthetic"}]}
+        if len(requests) == 2:
+            raise OSError("simulated lost acknowledgement")
+        return {"generation": None, "logins": []}
+    monkeypatch.setattr(helper, "login_request", request)
+    monkeypatch.setattr(helper.subprocess, "run", lambda argv, **_kw: commands.append(argv))
+    with pytest.raises(ValueError):
+        helper.sync_logins(package, config)
+    helper.sync_logins(package, config)
+    assert len(commands) == 1
+    assert requests[1] == requests[3] == {"generation": generation, "applied": True}
+
+
+def test_login_unit_uses_profile_and_persistent_helper(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    commands = []
+    monkeypatch.setattr(helper.subprocess, "run", lambda argv, **_kw: commands.append(argv))
+    helper.install_sync(package, config)
+    unit = (tmp_path / "xdg/systemd/user/aq-login-sync-local.service").read_text()
+    assert str(config / "login-sync.py") in unit
+    assert "UMask=0077" in unit
+    assert commands[-1][-1] == "aq-login-sync-local.timer"
+
+
+def test_retired_primary_does_not_prevent_sibling_delivery(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    (config / 'service.toml').write_text('profile = "local"\nslots = 2\n')
+    seen = []
+    def sync(_package, _config, slot):
+        seen.append(slot)
+        if slot == 1:
+            raise OSError('revoked primary')
+    monkeypatch.setattr(helper, 'sync_slot', sync)
+    with pytest.raises(ValueError):
+        helper.sync_logins(package, config)
+    assert seen == [1, 2]

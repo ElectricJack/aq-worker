@@ -246,21 +246,16 @@ bundle, prepares the rootless sandbox and matching image, then starts one slot.
 It can request sudo for missing Ubuntu packages or systemd linger. A fresh WSL
 distro needs curl and a running systemd user session.
 
-Enrollment establishes the AQ connection. Model subscriptions stay on the
-machines that use them. For a Claude worker, provision its subscription file
-before installing at `~/.config/aq-secrets/claude-oauth-token` (mode 0600), or
-set `AQ_CLAUDE_TOKEN_FILE` to a different absolute file path before running the
-command. The worker uses that file for qualification with the bundled measurement
-model. Runtimes configured for manual sessions also use it for Claude sessions.
-For Codex manual sessions, sign into Codex on the worker so its private
-`~/.codex/auth.json` is available. The install download includes the pinned
-runtime helpers when the operator packages them. On first install without a
-Claude token, the worker still enrolls. To configure Claude later, set
-`enabled = true`, `token_file` and `model` in the worker's `[measurement]`
-settings, then restart the service.
-The installer enables manual sessions once the profile has its subscription
-token configured. Rerun the hosted command to finish that setup. A worker
-without a provider login can still enroll and connect.
+Enrollment establishes the AQ connection without requiring provider accounts on
+that machine. The hosted installer also installs the login receiver described
+below. Select the connected worker in Agents → Swarm and use **Push logins** to
+install AQ's existing Claude and Codex subscription logins. Manual sessions are
+enabled automatically after the first successful delivery.
+
+Separate local accounts remain optional: supply a Claude token with
+`AQ_CLAUDE_TOKEN_FILE` when installing, or sign into Codex locally before install.
+AQ-managed delivery switches AQ's auth paths to its private profile files and
+keeps those personal login files intact.
 
 The command can be rerun with the same bundle after an interrupted image pull.
 It resumes an unfinished enrollment or reuses the saved enrollment. Use a fresh
@@ -307,3 +302,33 @@ the dashboard. **Add machine** copies the pinned command and generates a
 separate single-use code. For each new bundle, use its new installer checksum
 in the dashboard build. Verify `/healthz` from the target WSL terminal before
 enrolling the first machine.
+
+
+### Push saved logins to a connected worker
+
+The hosted installer installs a user timer, `aq-login-sync-<profile>.timer`, alongside
+`aq-node@<profile>.service`. In Agents → Swarm select a worker, choose Claude and/or
+Codex under Server logins, then select **Push logins**. Delivery is queued while
+the worker is disconnected or its machine has active agents. The dashboard shows
+queued, installed, or failed status. A failed installation can be retried with a
+new push. An uncertain request is retried with the same operation identity.
+
+A worker installed before this receiver was shipped needs the current hosted
+install command once. It retains its enrollment, configured slots and runtime.
+Subsequent login pushes require no terminal command or new enrollment code.
+
+The receiver uses each enrolled slot's credential over the installation's pinned
+HTTPS origin and refuses redirects. The server serves only explicitly requested,
+permitted subscription logins, using its current versioned material owner. API
+keys and other credentials are excluded. Neither the dashboard nor the SQL queue
+receives secret material. Worker files live in the profile's `provider-auth`
+directory (0700), with individual files written atomically as 0600. This changes
+AQ's configured auth paths without overwriting personal Claude/Codex login files.
+New provider support restarts the worker only while the machine is idle; updates
+to material at existing paths are available to the next agent without a restart.
+
+Inspect the receiver with `systemctl --user status aq-login-sync-local.timer` and
+`journalctl --user -u aq-login-sync-local.service`. Diagnostics deliberately omit
+HTTP response bodies and credentials. To stop future delivery on this installation,
+disable its timer; revoke/remove the worker in AQ to reject future authenticated
+requests. Existing provider sessions still require their normal Stop agent control.

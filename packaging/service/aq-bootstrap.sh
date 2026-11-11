@@ -68,17 +68,23 @@ fi
 
 profile=local
 slots=1
+explicit_slots=0
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
   case "${args[i]}" in
     --profile) profile="${args[i+1]:-}" ;;
-    --slots) slots="${args[i+1]:-}" ;;
+    --slots) slots="${args[i+1]:-}"; explicit_slots=1 ;;
   esac
 done
 [[ "$profile" =~ ^[a-z0-9][a-z0-9-]{0,31}$ && "$slots" =~ ^[1-8]$ ]] || {
   echo 'Choose a valid profile and between one and eight slots.' >&2; exit 2;
 }
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/service/$profile"
+if [[ -f "$config_dir/service.toml" && "$explicit_slots" == 0 ]]; then
+  slots="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["slots"])' "$config_dir/service.toml")"
+  [[ "$slots" =~ ^[1-8]$ ]] || { echo 'The existing worker slot count is invalid.' >&2; exit 2; }
+  args+=(--slots "$slots")
+fi
 podman="$HOME/.local/opt/aq-sandbox-podman/podman-linux-amd64/usr/local/bin/podman"
 socket="$XDG_RUNTIME_DIR/aq-sandbox/podman.sock"
 # Validate runtime pins and resolve host-specific paths before consuming a code.
@@ -127,5 +133,6 @@ fi
 python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest"
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
+python3 "$work/configure.py" install-sync "$package" "$config_dir"
 "$worker" service status --profile "$profile"
 echo 'Worker installed. Check Agents → Swarm for its connection.'
