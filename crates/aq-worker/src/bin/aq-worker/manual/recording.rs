@@ -187,6 +187,20 @@ fn add(path: &Path, state: &mut State, mut text: String) -> Result<()> {
     }
     Ok(())
 }
+// Podman renders time.Time differently when formatted as a plain Go value.
+// JSON serialization gives both Podman and Docker an RFC 3339 timestamp.
+fn stopped_after_start(bytes: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct ContainerState {
+        running: bool,
+        started_at: String,
+    }
+    serde_json::from_slice::<ContainerState>(bytes).is_ok_and(|state| {
+        !state.running
+            && chrono::DateTime::parse_from_rfc3339(&state.started_at)
+                .is_ok_and(|started| started.timestamp() > 0)
+    })
+}
 async fn tick(path: &Path, state: &mut State, exe: &Path, cfg: &DockerLocalConfig) -> Result<()> {
     // A forced tmux close cannot prove that the PTY kernel buffer was empty.
     if path.join("forced-stop").exists() {
@@ -291,21 +305,13 @@ async fn tick(path: &Path, state: &mut State, exe: &Path, cfg: &DockerLocalConfi
                 &[
                     "inspect",
                     "--format",
-                    "{{.State.Running}} {{.State.StartedAt}}",
+                    r#"{"running":{{json .State.Running}},"started_at":{{json .State.StartedAt}}}"#,
                     &state.container,
                 ],
                 None,
             )
             .await
-            .is_ok_and(|v| {
-                let output = String::from_utf8_lossy(&v);
-                let mut fields = output.split_whitespace();
-                fields.next() == Some("false")
-                    && fields
-                        .next()
-                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                        .is_some_and(|started| started.timestamp() > 0)
-            });
+            .is_ok_and(|v| stopped_after_start(&v));
             // A created sandbox is not running yet, but that is not capture
             // loss. A nonzero start time proves the runner was launched.
             if stopped || path.join("capture-lost").exists() {
@@ -1367,7 +1373,7 @@ sys.exit(1)
         std::fs::create_dir(&out).unwrap();
         let exe = temp.path().join("remote-fixture");
         let script = format!(
-            "#!/usr/bin/env python3\nimport os,sys\na=sys.argv[4:]\nif a[0]=='inspect':\n print('false 0001-01-01T00:00:00Z'); sys.exit(0)\nif a[0]=='exec' and os.path.exists({ready:?}):\n a=[x.replace('/aq/out',{out:?}) for x in a[2:]]\n os.execvp(a[0],a)\nsys.exit(1)\n",
+            "#!/usr/bin/env python3\nimport os,sys,json\na=sys.argv[4:]\nif a[0]=='inspect':\n print(json.dumps(dict(running=False,started_at='0001-01-01T00:00:00Z'))); sys.exit(0)\nif a[0]=='exec' and os.path.exists({ready:?}):\n a=[x.replace('/aq/out',{out:?}) for x in a[2:]]\n os.execvp(a[0],a)\nsys.exit(1)\n",
             ready = temp.path().join("started").to_str().unwrap(),
             out = out.to_str().unwrap()
         );
@@ -1410,7 +1416,7 @@ sys.exit(1)
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let exe = temp.path().join("remote-fixture");
-        std::fs::write(&exe, "#!/bin/sh\nshift 3\nif [ \"$1\" = inspect ]; then echo 'false 2026-11-11T12:00:00Z'; exit 0; fi\nexit 1\n").unwrap();
+        std::fs::write(&exe, "#!/bin/sh\nshift 3\nif [ \"$1\" = inspect ]; then echo '{\"running\":false,\"started_at\":\"2026-11-11T07:57:58.568778246-08:00\"}'; exit 0; fi\nexit 1\n").unwrap();
         std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
         let id = Uuid::new_v4();
         initialize(temp.path(), id, Uuid::new_v4(), "fixture").unwrap();
@@ -1515,5 +1521,21 @@ sys.exit(1)
             std::fs::read_to_string(chunk(&path, 1)).unwrap(),
             "fixture begin\nfixture end\n"
         );
+    }
+    #[test]
+    fn podman_inspect_json_requires_a_real_stopped_start_time() {
+        assert!(stopped_after_start(
+            br#"{"running":false,"started_at":"2026-11-11T07:57:58.568778246-08:00"}"#
+        ));
+        assert!(!stopped_after_start(
+            br#"{"running":false,"started_at":"0001-01-01T00:00:00Z"}"#
+        ));
+        assert!(!stopped_after_start(
+            br#"{"running":true,"started_at":"2026-11-11T07:57:58.568778246-08:00"}"#
+        ));
+        assert!(!stopped_after_start(
+            br#"{"running":false,"started_at":"invalid"}"#
+        ));
+        assert!(!stopped_after_start(b"invalid"));
     }
 }
