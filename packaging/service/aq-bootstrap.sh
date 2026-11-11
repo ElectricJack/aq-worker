@@ -133,6 +133,6 @@ fi
 python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest"
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
-python3 "$work/configure.py" install-sync "$package" "$config_dir"
 "$worker" service status --profile "$profile"
+python3 "$work/configure.py" install-sync "$package" "$config_dir"
 echo 'Worker installed. Check Agents → Swarm for its connection.'
