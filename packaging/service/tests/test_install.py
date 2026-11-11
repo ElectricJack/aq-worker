@@ -5,6 +5,8 @@ from pathlib import Path
 import shutil
 import socket
 import subprocess
+import sys
+import tomllib
 
 import pytest
 
@@ -270,3 +272,28 @@ def test_an_enrolled_profile_is_not_enrolled_again_without_reconfigure(host):
         assert run(host).returncode == 0
     assert len([c for c in worker_calls(host) if c["args"][:2] == ["service", "enroll"]]) == 2, \
         "an unfinished enrollment resumes"
+
+
+def test_deferred_install_enrolls_without_starting_a_service(host):
+    with with_socket(host):
+        result = run(host, "--defer-start")
+    assert result.returncode == 0, result.stderr
+    assert [call["args"][:2] for call in worker_calls(host)] == [["service", "enroll"]]
+    assert worker_calls(host)[0]["stdin"] == CODE + "\n"
+
+
+@pytest.mark.parametrize("manual_sessions", [False, True])
+def test_hosted_install_keeps_the_bundled_worker_config_schema(tmp_path, manual_sessions):
+    (tmp_path / "bootstrap.json").write_text(json.dumps({
+        "manual_sessions": manual_sessions, "source_slugs": {},
+    }))
+    service = tmp_path / "service.toml"
+    service.write_text("slots = 1\n")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
+         "configure", str(tmp_path), str(tmp_path), "https://worker.example",
+         "/usr/bin/podman", "1", "a" * 64],
+        capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert ("manual" in tomllib.loads(service.read_text())) == manual_sessions

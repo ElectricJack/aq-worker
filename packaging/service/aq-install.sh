@@ -11,18 +11,19 @@ usage: aq-install.sh --server URL --bundle DIR [--profile NAME=local] [--slots N
                      [--machine-key KEY] [--cf-service-token]
                      [--native-template FILE=DIR/native.json] [--repositories FILE=DIR/repositories.json]
                      [--measurement-token-file FILE --measurement-model MODEL]
-                     [--sandbox-bundle podman-linux-amd64.tar.gz] [--reconfigure]
+                     [--sandbox-bundle podman-linux-amd64.tar.gz] [--reconfigure] [--defer-start]
 USAGE
   exit 2
 }
 
-KEY_GIVEN=0 RECONFIGURE=0
+KEY_GIVEN=0 RECONFIGURE=0 DEFER_START=0
 SERVER="" BUNDLE="" PROFILE="local" SLOTS="1" NAME="" MACHINE_KEY="" CF=0
 TEMPLATE="" REPOS="" MTOKEN="" MMODEL="" SANDBOX_BUNDLE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cf-service-token) CF=1; shift; continue ;;
     --reconfigure) RECONFIGURE=1; shift; continue ;;
+    --defer-start) DEFER_START=1; shift; continue ;;
     --server|--bundle|--profile|--slots|--name|--machine-key|--native-template|--repositories|\
     --measurement-token-file|--measurement-model|--sandbox-bundle)
       [[ $# -ge 2 ]] || usage ;;
@@ -140,6 +141,9 @@ else
   [[ -n "$MTOKEN" ]] && ENROLL+=(--measurement-token-file "$MTOKEN" --measurement-model "$MMODEL")
   "${ENROLL[@]}"
 fi
+
+# The hosted installer prepares the image before starting the service.
+if [[ "$DEFER_START" == 1 ]]; then exit 0; fi
 
 # 5. Install and start (or restart, so a new enrollment takes effect).
 "$WORKER" service install --profile "$PROFILE"
