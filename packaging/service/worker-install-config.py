@@ -354,7 +354,7 @@ def sync_diagnostics_slot(package, config, slot):
             else:
                 raise ValueError("This receiver does not support the requested check.")
         except (ValueError, OSError, KeyError, TypeError) as error:
-            report = {"ok": False, "phase": "receiver", "error": str(error)[:4096] if type(error) is ValueError else "The receiver could not complete its fixed check."}
+            report = {"ok": False, "phase": "receiver", "error": str(error)[:4096] if type(error) is ValueError or isinstance(error, OSError) else "The receiver could not complete its fixed check."}
         atomic_text(receipt, json.dumps({"operation_id": operation, "report": report}))
     diagnostic_request(config, {"operation_id": operation, "report": report}, slot)
 
