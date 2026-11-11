@@ -68,10 +68,33 @@ impl ServerLink {
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
     > {
+        self.terminal_stream_path(&format!("/v1/worker/manual-agents/{id}/terminal-stream"))
+            .await
+    }
+    pub async fn host_terminal_stream(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        self.terminal_stream_path(&format!("/v1/worker/host-terminals/{id}/terminal-stream"))
+            .await
+    }
+    pub async fn host_terminal_poll(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
+        self.post("/v1/worker/host-terminals", body).await
+    }
+    async fn terminal_stream_path(
+        &self,
+        path: &str,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        let mut url = self
-            .origin
-            .join(&format!("/v1/worker/manual-agents/{id}/terminal-stream"))?;
+        let mut url = self.origin.join(path)?;
         let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
         url.set_scheme(scheme)
             .map_err(|_| anyhow::anyhow!("invalid stream origin"))?;

@@ -1,5 +1,5 @@
 //! Streaming tmux attach companion: owns disposable PTYs, never agent lifetime.
-mod pty;
+pub(crate) mod pty;
 mod redact;
 use anyhow::{Context, Result, ensure};
 use aq_node_service::{

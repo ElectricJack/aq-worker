@@ -5,6 +5,7 @@
 mod docker_double;
 #[cfg(feature = "test-support")]
 mod fixture_responses_cli;
+mod host_terminal;
 mod manual;
 mod manual_stream;
 mod measure;
@@ -34,6 +35,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Serve owner host shells without restarting the agent worker.
+    HostTerminalRelay {
+        #[arg(long)]
+        service_config: PathBuf,
+    },
     /// Relay interactive terminal bytes without owning or restarting agent processes.
     TerminalRelay {
         #[arg(long)]
@@ -836,6 +842,12 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => usage_err(format!("{e:#}")),
         },
+        Cmd::HostTerminalRelay { service_config } => {
+            match Box::pin(host_terminal::run(&service_config)).await {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(_) => usage_err("host terminal companion stopped"),
+            }
+        }
         Cmd::TerminalRelay { service_config } => {
             match Box::pin(manual_stream::run(&service_config)).await {
                 Ok(()) => ExitCode::SUCCESS,

@@ -11,7 +11,7 @@ use tokio::{
     process::{Child, Command},
 };
 /// Only this Podman/tmux attach is disposable. Its detached agent is untouched.
-pub(super) struct Pty {
+pub(crate) struct Pty {
     master: AsyncFd<File>,
     _child: Child,
 }
@@ -23,6 +23,35 @@ impl Pty {
         columns: u16,
         rows: u16,
     ) -> Result<Self> {
+        let mut cmd = Command::new(exe);
+        cmd.args(["--remote", "--url"])
+            .arg(format!("unix://{}", socket.display()))
+            .args([
+                "exec",
+                "--env",
+                "TERM=xterm-256color",
+                "--env",
+                "COLORTERM=truecolor",
+                "-it",
+                container,
+                "tmux",
+                "-u",
+                "-S",
+                "/aq/out/manual.sock",
+                "set-window-option",
+                "-t",
+                "aq",
+                "window-size",
+                "latest",
+                ";",
+                "attach-session",
+                "-E",
+                "-t",
+                "aq",
+            ]);
+        Self::command(cmd, columns, rows)
+    }
+    pub fn command(mut cmd: Command, columns: u16, rows: u16) -> Result<Self> {
         let (mut master, mut slave) = (-1, -1);
         ensure!(
             unsafe {
@@ -64,33 +93,7 @@ impl Pty {
             "PTY raw mode failed"
         );
         set_size(&slave, columns, rows)?;
-        let mut cmd = Command::new(exe);
-        cmd.args(["--remote", "--url"])
-            .arg(format!("unix://{}", socket.display()))
-            .args([
-                "exec",
-                "--env",
-                "TERM=xterm-256color",
-                "--env",
-                "COLORTERM=truecolor",
-                "-it",
-                container,
-                "tmux",
-                "-u",
-                "-S",
-                "/aq/out/manual.sock",
-                "set-window-option",
-                "-t",
-                "aq",
-                "window-size",
-                "latest",
-                ";",
-                "attach-session",
-                "-E",
-                "-t",
-                "aq",
-            ])
-            .env("TERM", "xterm-256color")
+        cmd.env("TERM", "xterm-256color")
             .env("COLORTERM", "truecolor")
             .stdin(Stdio::from(slave.try_clone()?))
             .stdout(Stdio::from(slave.try_clone()?))

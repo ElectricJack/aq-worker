@@ -86,7 +86,7 @@ def safe_json(value):
 
 def render_bootstrap(bundle_digest):
     template = (HERE / "aq-bootstrap.sh").read_text()
-    config = (HERE / "worker-install-config.py").read_text().rstrip()
+    config = (HERE / "worker-install-config.py").read_text().rstrip().replace("@AQ_HOST_BUNDLE_SHA256@", bundle_digest)
     return template.replace("@AQ_ARCHIVE_SHA256@", bundle_digest).replace("@AQ_INSTALL_CONFIG@", config)
 
 

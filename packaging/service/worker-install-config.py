@@ -17,6 +17,8 @@ import tempfile
 import tomllib
 from urllib.parse import urlsplit
 
+HOST_BUNDLE_SHA256 = "@AQ_HOST_BUNDLE_SHA256@"
+
 NETWORK_TOOLS_SHA256 = "bc4e3950d651996e0aa9579577b96b3d76e1b51431a4fe109a3ebba21d60720b"
 
 
@@ -516,10 +518,86 @@ def sync_logins(package, config):
     if state is not None:
         try:
             ensure_terminal_relay(package, config)
+            ensure_host_terminal(config)
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             failed = True
     if failed:
         raise ValueError("Worker controls are waiting or need attention. Check this worker in the dashboard.")
+
+
+def host_bundle_files(archive, destination):
+    """Extract only regular, bounded companion files from a verified bundle."""
+    allowed = {"aq-worker", "tmux", "tmux-libs/libtinfo.so.6"}
+    found = set()
+    with tarfile.open(archive, "r:gz") as bundle:
+        for member in bundle:
+            if member.name not in allowed:
+                continue
+            if member.name in found or not member.isfile() or not 0 < member.size <= 268435456:
+                raise ValueError("Invalid host terminal companion file.")
+            found.add(member.name)
+            target = destination / member.name
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with bundle.extractfile(member) as source, target.open("xb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(0o700 if member.name in {"aq-worker", "tmux"} else 0o600)
+    if not {"aq-worker", "tmux"}.issubset(found):
+        raise ValueError("Host terminal companion is missing from the pinned bundle.")
+
+
+def ensure_host_terminal(config):
+    digest = HOST_BUNDLE_SHA256
+    if not re.fullmatch(r"[a-f0-9]{64}", digest):
+        return  # source/unpackaged receiver, including local fixtures
+    state = read_toml(config / "service.toml")
+    profile = state["profile"]
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", profile):
+        raise ValueError("Invalid worker profile.")
+    marker = json.loads((config / "hosted-install.json").read_text())
+    origin = marker["origin"]
+    parsed = urlsplit(origin)
+    if parsed.scheme != "https" or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        raise ValueError("Host terminal bundle needs the enrolled HTTPS origin.")
+    enrollment = read_toml(config / "slots/1/worker.toml")
+    if enrollment["server_url"].rstrip("/") != origin.rstrip("/"):
+        raise ValueError("Host terminal bundle origin differs from the enrollment.")
+    parent = Path(state["state_root"]) / "host-terminal-runtime"
+    parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    package = parent / digest
+    if not package.is_dir():
+        with tempfile.TemporaryDirectory(dir=parent) as temporary:
+            temporary = Path(temporary)
+            archive = temporary / "bundle.tar.gz"
+            checksum, size = hashlib.sha256(), 0
+            with urllib.request.build_opener(NoRedirect()).open(origin.rstrip("/") + "/install/" + digest + ".tar.gz", timeout=30) as response, archive.open("xb") as output:
+                while chunk := response.read(1048576):
+                    size += len(chunk)
+                    if size > 536870912:
+                        raise ValueError("Host terminal bundle exceeded its bound.")
+                    checksum.update(chunk)
+                    output.write(chunk)
+            if checksum.hexdigest() != digest:
+                raise ValueError("Host terminal bundle checksum did not match.")
+            extracted = temporary / "runtime"
+            extracted.mkdir(mode=0o700)
+            host_bundle_files(archive, extracted)
+            extracted.rename(package)
+    root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd/user"
+    root.mkdir(parents=True, exist_ok=True)
+    def argument(value):
+        return '"' + str(value).replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"') + '"'
+    command = " ".join(argument(value) for value in (package / "aq-worker", "host-terminal-relay", "--service-config", config / "service.toml"))
+    name = "aq-host-terminal-" + profile + ".service"
+    target = root / name
+    unit = "[Unit]\nDescription=AQ worker host terminal (" + profile + ")\n[Service]\nType=simple\nUMask=0077\nExecStart=" + command + "\nRestart=always\nRestartSec=2\nTimeoutStopSec=15\nKillMode=mixed\n[Install]\nWantedBy=default.target\n"
+    changed = not target.exists() or target.read_text() != unit
+    if changed:
+        atomic_text(target, unit)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True, capture_output=True, timeout=15)
+    active = subprocess.run(["systemctl", "--user", "is-active", "--quiet", name], capture_output=True, timeout=15).returncode == 0
+    if changed or not active:
+        subprocess.run(["systemctl", "--user", "enable", name], check=True, capture_output=True, timeout=15)
+        subprocess.run(["systemctl", "--user", "restart" if changed else "start", name], check=True, capture_output=True, timeout=20)
 
 
 def ensure_terminal_relay(package, config):

@@ -684,3 +684,32 @@ def test_network_tools_install_is_private_pinned_and_restarts_only_aq_daemon(tmp
     assert str(prefix / 'network-tools' / pin / 'bin') in override.read_text()
     assert commands[-1][-2:] == ['restart', 'aq-sandbox-podman.service']
     assert not any('sudo' in c or 'apt-get' in c or any('aq-node@' in a for a in c) for c in commands)
+
+
+def test_host_companion_extracts_only_regular_allowlisted_files(tmp_path):
+    import io
+    import tarfile
+    helper = login_helper()
+    archive = tmp_path / 'bundle.tar.gz'
+    def bundle(entries):
+        with tarfile.open(archive, 'w:gz') as tar:
+            for name, data, symlink in entries:
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                if symlink:
+                    info.type = tarfile.SYMTYPE
+                    info.linkname = '/bin/sh'
+                tar.addfile(info, io.BytesIO(data) if not symlink else None)
+    bundle([('aq-worker', b'worker', False), ('tmux', b'tmux', False), ('service.toml', b'secret', False), ('../../escape', b'bad', False)])
+    destination = tmp_path / 'safe'; destination.mkdir()
+    helper.host_bundle_files(archive, destination)
+    assert sorted(p.name for p in destination.iterdir()) == ['aq-worker', 'tmux']
+    assert not (tmp_path / 'escape').exists()
+    bundle([('aq-worker', b'', True), ('tmux', b'tmux', False)])
+    rejected = tmp_path / 'rejected'; rejected.mkdir()
+    with pytest.raises(ValueError, match='Invalid host terminal'):
+        helper.host_bundle_files(archive, rejected)
+    bundle([('aq-worker', b'first', False), ('aq-worker', b'second', False), ('tmux', b'tmux', False)])
+    duplicate = tmp_path / 'duplicate'; duplicate.mkdir()
+    with pytest.raises(ValueError, match='Invalid host terminal'):
+        helper.host_bundle_files(archive, duplicate)
