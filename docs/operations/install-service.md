@@ -358,3 +358,11 @@ and atomically replaces only its own embedded Python code. It does not execute
 the downloaded installer shell, change enrollment or replace runtime binaries.
 Updates and diagnostic receipts are durable and retried by identity. No generic
 remote shell command is accepted by this protocol.
+
+The selected-worker update command uses `--controls-only`. It replaces the
+existing receiver and restarts its timer without native-template comparison,
+runtime replacement, enrollment, image preparation or sandbox validation. This
+keeps remote diagnosis available when those checks are what failed. Bootstrap
+errors are returned to the queued AQ diagnostic when its enrollment is usable;
+control polling can also recover the enrolled slot list from a malformed service
+configuration. Full installations still run all sandbox checks before success.

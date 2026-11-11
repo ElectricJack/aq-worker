@@ -414,9 +414,17 @@ def apply_logins(package, config, logins):
 
 
 def sync_logins(package, config):
-    state = read_toml(config / "service.toml")
+    try:
+        state = read_toml(config / "service.toml")
+        count = state["slots"]
+        if type(count) is not int or not 1 <= count <= 8:
+            raise ValueError("Invalid slot count")
+        slots = list(range(1, count + 1))
+    except (ValueError, OSError, KeyError):
+        # Control traffic must survive the broken configuration it diagnoses.
+        slots = [slot for slot in range(1, 9) if (config / f"slots/{slot}/worker.toml").is_file()]
     failed = False
-    for slot in range(1, state["slots"] + 1):
+    for slot in slots:
         for receive in (sync_slot, sync_diagnostics_slot):
             try:
                 receive(package, config, slot)
@@ -424,7 +432,7 @@ def sync_logins(package, config):
                 # One failing function/node must not prevent other requests.
                 failed = True
     if failed:
-        raise ValueError("Login delivery is waiting or needs attention. Check Push logins in the dashboard.")
+        raise ValueError("Worker controls are waiting or need attention. Check this worker in the dashboard.")
 
 
 def sync_slot(package, config, slot):
@@ -451,6 +459,36 @@ def sync_slot(package, config, slot):
             raise ValueError("Login installation failed. Check the worker configuration and retry Push logins.") from None
     login_request(config, {"generation": generation, "applied": True}, slot)
 
+
+
+def upgrade_controls(config, origin):
+    """Upgrade an already connected receiver without reinstalling its runtime."""
+    profile = config.name
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", profile):
+        raise ValueError("Invalid worker profile.")
+    try:
+        marker = json.loads((config / "hosted-install.json").read_text())
+        slot = read_toml(config / "slots/1/worker.toml")
+        if marker["origin"] != origin or slot["server_url"] != origin:
+            raise ValueError("This worker belongs to another server.")
+        target = config / "login-sync.py"
+        if not target.is_file() or target.is_symlink() or target.stat().st_uid != os.getuid():
+            raise ValueError("The installed AQ control receiver was not found for this profile.")
+        atomic_text(target, Path(__file__).read_text())
+        subprocess.run(["systemctl", "--user", "restart", "aq-login-sync-" + profile + ".timer"], check=True, timeout=20, capture_output=True)
+        subprocess.run(["systemctl", "--user", "start", "--no-block", "aq-login-sync-" + profile + ".service"], check=True, timeout=20, capture_output=True)
+    except (ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
+        # Bootstrap may fail before its timer is running. Return its own fixed
+        # setup diagnostic over the existing enrollment whenever possible.
+        message = str(error)[:4096] if type(error) is ValueError or isinstance(error, OSError) else "The AQ control service could not be started."
+        try:
+            job = diagnostic_request(config, {})
+            if job.get("operation_id"):
+                diagnostic_request(config, {"operation_id": job["operation_id"], "report": {"ok": False, "phase": "controls_upgrade", "error": message}})
+        except (ValueError, OSError, KeyError):
+            pass
+        raise ValueError(message) from None
+    print("Worker controls updated. AQ will collect the queued diagnostic directly.")
 
 def install_sync(package, config):
     state = read_toml(config / "service.toml")
@@ -486,6 +524,8 @@ def main():
         configure(package, Path(config), origin, Path(podman), int(slots), digest)
     elif mode == "preflight":
         sandbox_preflight(package, Path(args[0]), Path(args[1]))
+    elif mode == "upgrade-controls":
+        upgrade_controls(Path(args[0]), args[1])
     elif mode == "install-sync":
         install_sync(package, Path(args[0]))
     elif mode == "sync":

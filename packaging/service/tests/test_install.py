@@ -528,3 +528,48 @@ def test_remote_diagnostic_rejects_main_container_socket(tmp_path):
     (config / 'service.toml').write_text('native_template = ' + json.dumps(str(config / 'native.json')) + '\n' + text)
     with pytest.raises(ValueError, match='sandbox socket'):
         helper.sandbox_diagnostics(config)
+
+
+def test_control_only_update_preserves_native_and_runtime_files(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    (config / 'hosted-install.json').write_text(json.dumps({'origin': 'https://worker.example', 'bundle_sha256': 'older-bundle'}))
+    (config / 'slots/1').mkdir(parents=True)
+    (config / 'slots/1/worker.toml').write_text('server_url = "https://worker.example"\ncredential = "synthetic-private"\n')
+    (config / 'native.json').write_text('{"custom_existing_native":true}')
+    (config / 'login-sync.py').write_text('old_receiver=True\n')
+    before = {name: (config / name).read_bytes() for name in ('service.toml', 'native.json', 'slots/1/worker.toml', 'hosted-install.json')}
+    commands = []
+    monkeypatch.setattr(helper.subprocess, 'run', lambda args, **_kwargs: commands.append(args))
+    helper.upgrade_controls(config, 'https://worker.example')
+    assert (config / 'login-sync.py').read_text() == Path(helper.__file__).read_text()
+    assert all((config / name).read_bytes() == raw for name, raw in before.items())
+    assert commands[-1][2:4] == ['start', '--no-block']
+    assert not any('aq-node@' in str(arg) for command in commands for arg in command)
+
+
+def test_control_bootstrap_failure_reports_to_queued_diagnostic(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    (config / 'hosted-install.json').write_text(json.dumps({'origin': 'https://worker.example'}))
+    (config / 'slots/1').mkdir(parents=True)
+    (config / 'slots/1/worker.toml').write_text('server_url = "https://worker.example"\n')
+    requests = []
+    def report(_config, body):
+        requests.append(body)
+        return {'operation_id': 'fixture-operation'}
+    monkeypatch.setattr(helper, 'diagnostic_request', report)
+    with pytest.raises(ValueError, match='receiver was not found'):
+        helper.upgrade_controls(config, 'https://worker.example')
+    assert requests[1]['report']['phase'] == 'controls_upgrade'
+    assert requests[1]['report']['ok'] is False
+
+
+def test_diagnostics_poll_survives_a_broken_service_configuration(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    (config / 'service.toml').write_text('not valid TOML')
+    (config / 'slots/1').mkdir(parents=True)
+    (config / 'slots/1/worker.toml').write_text('server_url="https://worker.example"\n')
+    seen = []
+    monkeypatch.setattr(helper, 'sync_slot', lambda *_args: None)
+    monkeypatch.setattr(helper, 'sync_diagnostics_slot', lambda _package, _config, slot: seen.append(slot))
+    helper.sync_logins(package, config)
+    assert seen == [1]

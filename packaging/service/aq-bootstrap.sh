@@ -37,6 +37,24 @@ cat > "$work/configure.py" <<'AQ_INSTALL_CONFIG'
 @AQ_INSTALL_CONFIG@
 AQ_INSTALL_CONFIG
 
+# A connected worker already has its runtime and receiver unit. Control updates
+# must remain possible even when native setup validation is what needs diagnosis.
+controls_only=0
+control_profile=local
+control_args=("$@")
+for ((i=0; i<${#control_args[@]}; i++)); do
+  case "${control_args[i]}" in
+    --controls-only) controls_only=1 ;;
+    --profile) control_profile="${control_args[i+1]:-}" ;;
+  esac
+done
+if [[ "$controls_only" == 1 ]]; then
+  [[ "$control_profile" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo 'Invalid worker profile.' >&2; exit 2; }
+  control_config="${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/service/$control_profile"
+  python3 "$work/configure.py" upgrade-controls "$package" "$control_config" "$origin"
+  exit 0
+fi
+
 install_packages() {
   command -v apt-get >/dev/null && command -v sudo >/dev/null &&
     sudo apt-get update && sudo apt-get install -y "$@"
