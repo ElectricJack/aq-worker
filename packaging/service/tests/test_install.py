@@ -389,12 +389,59 @@ def test_receipt_retry_does_not_restart_twice(tmp_path, monkeypatch):
         return {"generation": None, "logins": []}
     monkeypatch.setattr(helper, "login_request", request)
     monkeypatch.setattr(helper, "sync_diagnostics_slot", lambda *_args: None)
+    monkeypatch.setattr(helper, "ensure_terminal_relay", lambda *_args: None)
     monkeypatch.setattr(helper.subprocess, "run", lambda argv, **_kw: commands.append(argv))
     with pytest.raises(ValueError):
         helper.sync_logins(package, config)
     helper.sync_logins(package, config)
     assert len(commands) == 1
     assert requests[1] == requests[3] == {"generation": generation, "applied": True}
+
+
+def test_manual_terminal_companion_is_installed_and_kept_alive_without_restarting_worker(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    worker = package / 'aq-worker'; worker.write_text('fixture'); worker.chmod(0o755)
+    original = (config / 'service.toml').read_text()
+    original = 'state_root = ' + json.dumps(str(config / 'state')) + '\n' + original + '\n[manual]\nmax_slots = 2\n'
+    (config / 'service.toml').write_text(original)
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path / 'xdg'))
+    commands = []
+    active = False
+    def run(args, **_kwargs):
+        commands.append(args)
+        return SimpleNamespace(returncode=0 if active or 'is-active' not in args else 3)
+    monkeypatch.setattr(helper.subprocess, 'run', run)
+    helper.ensure_terminal_relay(package, config)
+    unit = (tmp_path / 'xdg/systemd/user/aq-terminal-relay-local.service').read_text()
+    assert '"' + str(worker) + '" "terminal-relay" "--service-config" "' + str(config / 'service.toml') + '"' in unit
+    assert 'Restart=always' in unit and 'UMask=0077' in unit
+    assert (config / 'state/manual-agents').is_dir()
+    assert commands[-1] == ['systemctl', '--user', 'restart', 'aq-terminal-relay-local.service']
+    assert not any('aq-node@local.service' in args for args in commands)
+    assert (config / 'service.toml').read_text() == original
+    active = True; commands.clear()
+    helper.ensure_terminal_relay(package, config)
+    assert commands == [['systemctl', '--user', 'is-active', '--quiet', 'aq-terminal-relay-local.service']]
+    active = False; commands.clear()
+    helper.ensure_terminal_relay(package, config)
+    assert commands[-1] == ['systemctl', '--user', 'start', 'aq-terminal-relay-local.service']
+
+
+def test_unconfigured_provider_does_not_start_terminal_companion(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    monkeypatch.setattr(helper.subprocess, 'run', lambda *_args, **_kwargs: pytest.fail('No manual configuration'))
+    helper.ensure_terminal_relay(package, config)
+
+
+def test_connected_receiver_repairs_missing_terminal_companion_even_without_a_new_login(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    seen = []
+    monkeypatch.setattr(helper, 'sync_slot', lambda *_args: None)
+    monkeypatch.setattr(helper, 'sync_diagnostics_slot', lambda *_args: None)
+    monkeypatch.setattr(helper, 'ensure_terminal_relay', lambda p, c: seen.append((p, c)))
+    helper.sync_logins(package, config)
+    assert seen == [(package, config)]
 
 
 def test_login_unit_uses_profile_and_persistent_helper(tmp_path, monkeypatch):

@@ -492,6 +492,7 @@ def apply_logins(package, config, logins):
 
 
 def sync_logins(package, config):
+    state = None
     try:
         state = read_toml(config / "service.toml")
         count = state["slots"]
@@ -509,8 +510,45 @@ def sync_logins(package, config):
             except (OSError, ValueError, KeyError, subprocess.SubprocessError, http.client.HTTPException):
                 # One failing function/node must not prevent other requests.
                 failed = True
+    # The worker process owns agent lifetime; its separate relay owns disposable
+    # terminal attachments. Hosted installs must start both, including workers
+    # whose manual settings arrived later through Push logins.
+    if state is not None:
+        try:
+            ensure_terminal_relay(package, config)
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            failed = True
     if failed:
         raise ValueError("Worker controls are waiting or need attention. Check this worker in the dashboard.")
+
+
+def ensure_terminal_relay(package, config):
+    state = read_toml(config / "service.toml")
+    if not state.get("manual"):
+        return
+    profile = state["profile"]
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", profile):
+        raise ValueError("Invalid worker profile.")
+    worker = package / "aq-worker"
+    if not worker.is_file() or not os.access(worker, os.X_OK):
+        raise ValueError("The installed worker terminal runtime is missing.")
+    (Path(state["state_root"]) / "manual-agents").mkdir(parents=True, mode=0o700, exist_ok=True)
+    root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd/user"
+    root.mkdir(parents=True, exist_ok=True)
+    name = "aq-terminal-relay-" + profile + ".service"
+    target = root / name
+    def argument(value):
+        return '"' + str(value).replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"') + '"'
+    command = " ".join(argument(value) for value in (worker, "terminal-relay", "--service-config", config / "service.toml"))
+    unit = "[Unit]\nDescription=AQ interactive terminal transport (" + profile + ")\nAfter=aq-node@" + profile + ".service\n[Service]\nType=simple\nUMask=0077\nExecStart=" + command + "\nRestart=always\nRestartSec=2\nTimeoutStopSec=10\nKillMode=mixed\n[Install]\nWantedBy=default.target\n"
+    changed = not target.exists() or target.read_text() != unit
+    if changed:
+        atomic_text(target, unit)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True, capture_output=True, timeout=15)
+    active = subprocess.run(["systemctl", "--user", "is-active", "--quiet", name], capture_output=True, timeout=15).returncode == 0
+    if changed or not active:
+        subprocess.run(["systemctl", "--user", "enable", name], check=True, capture_output=True, timeout=15)
+        subprocess.run(["systemctl", "--user", "restart" if changed else "start", name], check=True, capture_output=True, timeout=20)
 
 
 def sync_slot(package, config, slot):
