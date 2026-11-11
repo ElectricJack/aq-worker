@@ -237,8 +237,9 @@ fresh enrollment.
 
 ## Install from Add machine
 
-The hosted command targets Ubuntu 24.04 on x86-64, including WSL2 with systemd
-enabled. In **Settings → Framework connection → Add machine** or **Agents →
+The hosted command targets Ubuntu 24.04 and 26.04 on x86-64, including WSL2
+with systemd enabled. It installs `libutempter0` for the bundled tmux when
+needed. In **Settings → Framework connection → Add machine** or **Agents →
 Swarm**, copy the command into the new PC's WSL terminal. Paste the one-time
 code when the worker asks for it. The command downloads the pinned worker
 bundle, prepares the rootless sandbox and matching image, then starts one slot.
@@ -268,9 +269,11 @@ the installation paths.
 Run `packaging/service/prepare-worker-install.py --help`. Give it the active
 service TOML, the matching worker binary and runtime directory, and the
 installed Podman distribution directory. Optionally supply the pinned Codex
-helper directory with `--codex-helpers`. The builder copies an explicit set of
-binaries and configuration files and verifies the pinned host tools and image
-manifest. It does not distribute enrollment files or subscription logins.
+helper directory with `--codex-helpers`. On an Ubuntu build host with a
+dynamically linked tmux, install `patchelf` so the builder can package tmux
+with its matching terminfo library. The builder verifies the pinned host
+tools and image manifest before packaging. It does not distribute enrollment
+files or subscription logins.
 The output contains the checksummed installer, checksummed bundle and an nginx
 configuration.
 

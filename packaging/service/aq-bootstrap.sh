@@ -33,12 +33,15 @@ work="$(mktemp -d "$install_root/stage.XXXXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 package="$install_root/$digest"
 
+install_packages() {
+  command -v apt-get >/dev/null && command -v sudo >/dev/null &&
+    sudo apt-get update && sudo apt-get install -y "$@"
+}
+
 if ! command -v python3 >/dev/null || ! command -v git >/dev/null || ! command -v newuidmap >/dev/null || ! command -v tmux >/dev/null; then
-  if ! command -v apt-get >/dev/null || ! command -v sudo >/dev/null; then
-    echo 'Install Python 3, Git, uidmap and tmux, then rerun the command.' >&2; exit 3
+  if ! install_packages ca-certificates git python3 tmux uidmap libutempter0; then
+    echo 'Install Python 3, Git, uidmap, tmux and libutempter0, then rerun the command.' >&2; exit 3
   fi
-  sudo apt-get update
-  sudo apt-get install -y ca-certificates git python3 tmux uidmap
 fi
 if ! awk -F: -v name="$(id -un)" -v uid="$(id -u)" '
   $1 == name || $1 == uid { found[FILENAME] = 1 }
@@ -76,9 +79,20 @@ podman="$HOME/.local/opt/aq-sandbox-podman/podman-linux-amd64/usr/local/bin/podm
 socket="$XDG_RUNTIME_DIR/aq-sandbox/podman.sock"
 # Validate runtime pins and resolve host-specific paths before consuming a code.
 python3 "$package/worker-install-config.py" prepare "$package" "$work" "$origin" "$socket" "$config_dir" "$digest"
+tmux_libraries="$(ldd "$package/tmux" 2>&1 || true)"
+# Ubuntu 26.04's tmux package dropped the utmp library required by the bundled binary.
+if grep -Eq '^[[:space:]]*libutempter\.so\.0[[:space:]]+=>[[:space:]]+not found' <<<"$tmux_libraries"; then
+  echo 'Installing the compatibility library required by the bundled tmux.'
+  if ! install_packages libutempter0; then
+    echo 'Install libutempter0, then rerun the command.' >&2; exit 3
+  fi
+fi
 for tool in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver tmux; do
-  if ldd "$package/$tool" 2>&1 | grep 'not found' >/dev/null; then
-    echo "A system library required by $tool is missing. Use the Ubuntu WSL version supported by this AQ bundle." >&2; exit 3
+  libraries="$(ldd "$package/$tool" 2>&1 || true)"
+  if [[ "$libraries" == *'not found'* ]]; then
+    echo "A system library required by $tool is missing." >&2
+    grep 'not found' <<<"$libraries" >&2
+    exit 3
   fi
 done
 if [[ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" != yes ]]; then
