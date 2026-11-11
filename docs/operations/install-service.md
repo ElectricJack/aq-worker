@@ -338,3 +338,21 @@ Inspect the receiver with `systemctl --user status aq-login-sync-local.timer` an
 HTTP response bodies and credentials. To stop future delivery on this installation,
 disable its timer; revoke/remove the worker in AQ to reject future authenticated
 requests. Existing provider sessions still require their normal Stop agent control.
+
+### Remote diagnostics
+
+The updated receiver also polls owner-requested diagnostics. Select a worker and
+use **Run checks** to test its rootless daemon, cgroup settings, pinned image,
+container creation/start and tmux through the same Docker API policy as an agent.
+The dashboard receives the failing phase and engine diagnostic automatically;
+terminal output does not need to be copied between machines. Recent-session
+metadata reports whether a sandbox was created, without collecting agent output
+or provider files. Tests use a unique disposable container/volume and no model.
+
+Older receivers need the current hosted installer once. Afterwards **Update
+controls** queues a receiver update using the dashboard's pinned installer hash.
+The receiver downloads that script from its enrolled HTTPS origin, verifies it,
+and atomically replaces only its own embedded Python code. It does not execute
+the downloaded installer shell, change enrollment or replace runtime binaries.
+Updates and diagnostic receipts are durable and retried by identity. No generic
+remote shell command is accepted by this protocol.

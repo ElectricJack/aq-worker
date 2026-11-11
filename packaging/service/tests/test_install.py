@@ -388,6 +388,7 @@ def test_receipt_retry_does_not_restart_twice(tmp_path, monkeypatch):
             raise OSError("simulated lost acknowledgement")
         return {"generation": None, "logins": []}
     monkeypatch.setattr(helper, "login_request", request)
+    monkeypatch.setattr(helper, "sync_diagnostics_slot", lambda *_args: None)
     monkeypatch.setattr(helper.subprocess, "run", lambda argv, **_kw: commands.append(argv))
     with pytest.raises(ValueError):
         helper.sync_logins(package, config)
@@ -417,6 +418,7 @@ def test_retired_primary_does_not_prevent_sibling_delivery(tmp_path, monkeypatch
         if slot == 1:
             raise OSError('revoked primary')
     monkeypatch.setattr(helper, 'sync_slot', sync)
+    monkeypatch.setattr(helper, 'sync_diagnostics_slot', lambda *_args: None)
     with pytest.raises(ValueError):
         helper.sync_logins(package, config)
     assert seen == [1, 2]
@@ -472,3 +474,57 @@ def test_preflight_refuses_missing_resource_controller_before_launch(tmp_path, m
     with pytest.raises(ValueError, match='cgroup v2'):
         helper.sandbox_preflight(package, config, Path('/opt/podman'))
     assert not commands
+
+
+def test_diagnostic_acknowledgement_retry_reuses_report(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    import uuid
+    operation = str(uuid.uuid4()); requests = []; probes = []
+    def request(_config, body, slot):
+        assert slot == 2
+        requests.append(body)
+        if not body:
+            return {'operation_id': operation, 'kind': 'sandbox_startup_v1'}
+        if len(requests) == 2:
+            raise OSError('simulated lost acknowledgement')
+        return {'operation_id': None}
+    def probe(_config):
+        probes.append(True)
+        return {'ok': False, 'phase': 'container_create', 'error': 'Synthetic engine refusal'}
+    monkeypatch.setattr(helper, 'diagnostic_request', request)
+    monkeypatch.setattr(helper, 'sandbox_diagnostics', probe)
+    with pytest.raises(OSError):
+        helper.sync_diagnostics_slot(package, config, 2)
+    helper.sync_diagnostics_slot(package, config, 2)
+    assert len(probes) == 1
+    assert requests[1] == requests[3]
+
+
+def test_receiver_update_checks_digest_and_updates_only_its_installed_helper(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    import hashlib
+    import io
+    target = config / 'login-sync.py'; target.write_text('old_receiver = True\n')
+    monkeypatch.setattr(helper, '__file__', str(target))
+    (config / 'hosted-install.json').write_text(json.dumps({'origin': 'https://worker.example'}))
+    content = b"cat > temp <<'AQ_INSTALL_CONFIG'\nnew_receiver = True\nAQ_INSTALL_CONFIG\n"
+    class Opener:
+        def open(self, url, timeout):
+            assert url.startswith('https://worker.example/install/')
+            return io.BytesIO(content)
+    monkeypatch.setattr(helper.urllib.request, 'build_opener', lambda *_args: Opener())
+    with pytest.raises(ValueError, match='checksum'):
+        helper.receiver_update(config, '0' * 64)
+    assert target.read_text() == 'old_receiver = True\n'
+    assert helper.receiver_update(config, hashlib.sha256(content).hexdigest())['ok']
+    assert target.read_text() == 'new_receiver = True\n'
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_remote_diagnostic_rejects_main_container_socket(tmp_path):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    (config / 'native.json').write_text(json.dumps({'executor': {'settings': {'host': {'docker_local': {'socket': '/run/podman/podman.sock'}}}}}))
+    text = (config / 'service.toml').read_text()
+    (config / 'service.toml').write_text('native_template = ' + json.dumps(str(config / 'native.json')) + '\n' + text)
+    with pytest.raises(ValueError, match='sandbox socket'):
+        helper.sandbox_diagnostics(config)

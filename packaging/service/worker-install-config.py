@@ -173,7 +173,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError("The worker endpoint must not redirect login delivery.")
 
 
-def login_request(config, body, slot=1):
+def worker_request(config, body, slot=1, endpoint="/v1/worker/logins"):
     marker = json.loads((config / "hosted-install.json").read_text())
     origin = marker["origin"]
     if not re.fullmatch(r"https://[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]{1,5})?", origin):
@@ -184,12 +184,179 @@ def login_request(config, body, slot=1):
     headers = {"Authorization": "Bearer " + enrollment["credential"], "Content-Type": "application/json"}
     if enrollment.get("cf_client_id") and enrollment.get("cf_client_secret"):
         headers.update({"CF-Access-Client-Id": enrollment["cf_client_id"], "CF-Access-Client-Secret": enrollment["cf_client_secret"]})
-    request = urllib.request.Request(origin + "/v1/worker/logins", data=json.dumps(body).encode(), headers=headers)
+    request = urllib.request.Request(origin + endpoint, data=json.dumps(body).encode(), headers=headers)
     with urllib.request.build_opener(NoRedirect()).open(request, timeout=12) as response:
         payload = response.read(262145)
         if len(payload) > 262144:
             raise ValueError("Login delivery exceeded its size limit.")
         return json.loads(payload)
+
+
+
+def login_request(config, body, slot=1):
+    return worker_request(config, body, slot)
+
+
+def diagnostic_request(config, body, slot=1):
+    return worker_request(config, body, slot, "/v1/worker/diagnostics")
+
+
+def receiver_update(config, digest):
+    if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise ValueError("Receiver update needs a pinned installer checksum.")
+    target = config / "login-sync.py"
+    if Path(__file__).resolve() != target.resolve():
+        raise ValueError("Receiver updates must run from the installed receiver.")
+    marker = json.loads((config / "hosted-install.json").read_text())
+    origin = marker["origin"]  # worker_request has already verified the enrollment's HTTPS origin.
+    with urllib.request.build_opener(NoRedirect()).open(origin + "/install/" + digest + ".sh", timeout=20) as response:
+        content = response.read(262145)
+    if len(content) > 262144 or hashlib.sha256(content).hexdigest() != digest:
+        raise ValueError("Receiver update checksum did not match.")
+    text = content.decode("utf-8")
+    prefix, suffix = "<<'AQ_INSTALL_CONFIG'\n", "\nAQ_INSTALL_CONFIG\n"
+    if text.count(prefix) != 1 or suffix not in text:
+        raise ValueError("The pinned installer does not contain a receiver.")
+    helper = text.split(prefix, 1)[1].split(suffix, 1)[0]
+    compile(helper, str(target), "exec")
+    atomic_text(target, helper + "\n")
+    return {"ok": True, "phase": "receiver_update", "details": {"installer_sha256": digest}}
+
+
+def sandbox_diagnostics(config):
+    """Probe only AQ's configured sandbox; never read provider or node credentials."""
+    service = read_toml(config / "service.toml")
+    native = json.loads(Path(service["native_template"]).read_text())
+    docker = native["executor"]["settings"]["host"]["docker_local"]
+    socket_path = Path(docker["socket"])
+    if not socket_path.is_absolute() or socket_path.resolve() in (Path("/var/run/docker.sock"), Path("/run/docker.sock"), Path("/run/podman/podman.sock")) or socket_path.stat().st_uid != os.getuid():
+        raise ValueError("The AQ sandbox socket must belong to the worker user.")
+    details = {"socket": str(socket_path), "shared_root_fs": docker.get("shared_root_fs", False)}
+    recent = []
+    state_root = Path(service["state_root"]) / "manual-agents"
+    if state_root.is_dir():
+        paths = [p / "state.json" for p in state_root.iterdir() if p.is_dir() and not p.is_symlink() and (p / "state.json").is_file() and not (p / "state.json").is_symlink()]
+        for path in sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True)[:4]:
+            if path.stat().st_size > 65536:
+                continue
+            try:
+                value = json.loads(path.read_text())
+                identifier = str(uuid.UUID(value["id"]))
+                recent.append({"id": identifier, "status": value.get("status") if value.get("status") in ("pending", "preparing", "running", "stopping", "stopped", "failed") else "unknown", "sandbox_created": isinstance(value.get("sandbox"), dict), "provider": value.get("spec", {}).get("provider") if value.get("spec", {}).get("provider") in ("anthropic", "openai") else "unknown"})
+            except (ValueError, OSError, KeyError, TypeError):
+                continue
+    details["recent_sessions"] = recent
+    phase = "daemon_info"
+    class Connection(http.client.HTTPConnection):
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX)
+            self.sock.settimeout(20)
+            self.sock.connect(str(socket_path))
+    def call(method, path, body=None):
+        connection = Connection("localhost", timeout=20)
+        try:
+            connection.request(method, "/v1.44" + path, body=None if body is None else json.dumps(body).encode(), headers={} if body is None else {"Content-Type": "application/json"})
+            response = connection.getresponse()
+            raw = response.read(65537)
+            if len(raw) > 65536:
+                raise ValueError("The sandbox diagnostic response exceeded its limit.")
+            return response.status, raw
+        finally:
+            connection.close()
+    def expected(method, path, body, statuses):
+        status, raw = call(method, path, body)
+        if status not in statuses:
+            try:
+                message = json.loads(raw).get("message", "Sandbox API refused the fixed test")
+            except (ValueError, AttributeError):
+                message = "Sandbox API refused the fixed test"
+            raise ValueError("Sandbox API " + str(status) + ": " + str(message)[:4096])
+        return raw
+    probe = "aq-worker-check-" + uuid.uuid4().hex[:12]
+    volume = probe + "-work"
+    made_volume = made_container = False
+    try:
+        raw = expected("GET", "/info", None, (200,))
+        info = json.loads(raw)
+        for key in ("CgroupDriver", "CgroupVersion", "SecurityOptions", "DockerRootDir"):
+            details[key] = info.get(key)
+        if not any("name=rootless" in option.split(",") for option in info.get("SecurityOptions", [])):
+            raise ValueError("The sandbox daemon did not report rootless mode.")
+        if info.get("CgroupDriver") in (None, "", "none") or info.get("CgroupVersion") != "2":
+            raise ValueError("The worker requires a cgroup v2 resource controller.")
+        storage = info.get("DockerRootDir")
+        shared = not storage or not Path(storage).exists() or Path(storage).stat().st_dev == Path("/").stat().st_dev
+        details["storage_shares_root"] = shared
+        if shared and not docker.get("shared_root_fs", False):
+            raise ValueError("Sandbox storage shares the root filesystem but this installation has no shared_root_fs override.")
+        image, = docker["templates"]
+        details["image"] = image["image"]
+        phase = "image"
+        from urllib.parse import quote
+        expected("GET", "/images/" + quote(image["image"], safe="") + "/json", None, (200,))
+        phase = "volume_create"
+        expected("POST", "/volumes/create", {"Name": volume, "Driver": "local", "Labels": {"aq.install-check": "true"}}, (200, 201))
+        made_volume = True
+        phase = "container_create"
+        script = "set -eu; git --version; tmux -S /tmp/aq-check.sock new-session -d -s check 'sleep 10'; tmux -S /tmp/aq-check.sock has-session -t check; tmux -S /tmp/aq-check.sock kill-server"
+        body = {"Image": image["image"], "Labels": {"aq.install-check": "true"}, "Env": [], "WorkingDir": "/aq/work", "ExposedPorts": {}, "AttachStdin": False, "OpenStdin": False, "Tty": False, "Cmd": ["/bin/bash", "-c", script], "HostConfig": {"Privileged": False, "CapAdd": [], "CapDrop": ["ALL"], "Devices": [], "DeviceCgroupRules": [], "SecurityOpt": ["no-new-privileges"], "NanoCpus": 2000000000, "Memory": 4294967296, "MemorySwap": 4294967296, "PidsLimit": 512, "NetworkMode": "bridge", "PortBindings": {}, "PublishAllPorts": False, "Binds": [], "Mounts": [{"Type": "volume", "Source": volume, "Target": "/aq/work", "ReadOnly": False}], "IpcMode": "private", "RestartPolicy": {"Name": "no"}, "AutoRemove": False}}
+        expected("POST", "/containers/create?name=" + probe, body, (201,))
+        made_container = True
+        phase = "container_start"
+        expected("POST", "/containers/" + probe + "/start", None, (204, 304))
+        phase = "tmux"
+        import time
+        for _ in range(30):
+            container = json.loads(expected("GET", "/containers/" + probe + "/json", None, (200,)))
+            state = container.get("State", {})
+            if state.get("Status") in ("exited", "dead"):
+                if state.get("ExitCode") != 0:
+                    _status, raw = call("GET", "/containers/" + probe + "/logs?stdout=1&stderr=1")
+                    # Docker log frames contain fixed-probe output only, never an agent session.
+                    logs = bytearray()
+                    while len(raw) >= 8 and raw[0] in (0, 1, 2) and raw[1:4] == b"\0\0\0":
+                        size = int.from_bytes(raw[4:8], "big"); logs.extend(raw[8:8+size]); raw = raw[8+size:]
+                    logs.extend(raw)
+                    raise ValueError("The fixed sandbox check exited with code " + str(state.get("ExitCode")) + ": " + logs.decode("utf-8", errors="replace")[-4096:])
+                return {"ok": True, "phase": "complete", "details": details}
+            time.sleep(1)
+        raise ValueError("The fixed sandbox check has not exited.")
+    except (ValueError, OSError, KeyError, TypeError, http.client.HTTPException) as error:
+        # No credentials are read or mounted by this probe. These errors describe
+        # only its own daemon request, filesystem metadata, or fixed command.
+        return {"ok": False, "phase": phase, "error": str(error)[:4096], "details": details}
+    finally:
+        try:
+            if made_container:
+                call("DELETE", "/containers/" + probe + "?force=true")
+            if made_volume:
+                call("DELETE", "/volumes/" + volume)
+        except (OSError, ValueError, http.client.HTTPException):
+            pass
+
+
+def sync_diagnostics_slot(package, config, slot):
+    job = diagnostic_request(config, {}, slot)
+    operation = job.get("operation_id")
+    if not operation:
+        return
+    operation = str(uuid.UUID(operation))
+    receipt = config / f"diagnostic-receipt-{slot}.json"
+    prior = json.loads(receipt.read_text()) if receipt.exists() else {}
+    if prior.get("operation_id") == operation:
+        report = prior["report"]
+    else:
+        try:
+            if job.get("kind") == "sandbox_startup_v1":
+                report = sandbox_diagnostics(config)
+            elif job.get("kind") == "receiver_update_v1":
+                report = receiver_update(config, job.get("installer_sha256"))
+            else:
+                raise ValueError("This receiver does not support the requested check.")
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            report = {"ok": False, "phase": "receiver", "error": str(error)[:4096] if type(error) is ValueError else "The receiver could not complete its fixed check."}
+        atomic_text(receipt, json.dumps({"operation_id": operation, "report": report}))
+    diagnostic_request(config, {"operation_id": operation, "report": report}, slot)
 
 
 def apply_logins(package, config, logins):
@@ -250,11 +417,12 @@ def sync_logins(package, config):
     state = read_toml(config / "service.toml")
     failed = False
     for slot in range(1, state["slots"] + 1):
-        try:
-            sync_slot(package, config, slot)
-        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
-            # Retiring a primary node must not prevent sibling nodes receiving logins.
-            failed = True
+        for receive in (sync_slot, sync_diagnostics_slot):
+            try:
+                receive(package, config, slot)
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError, http.client.HTTPException):
+                # One failing function/node must not prevent other requests.
+                failed = True
     if failed:
         raise ValueError("Login delivery is waiting or needs attention. Check Push logins in the dashboard.")
 
