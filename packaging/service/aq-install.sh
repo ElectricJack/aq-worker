@@ -55,6 +55,7 @@ TEMPLATE="${TEMPLATE:-$BUNDLE/native.json}"
 REPOS="${REPOS:-$BUNDLE/repositories.json}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SANDBOX_DIR="${AQ_SANDBOX_DAEMON_DIR:-$ROOT/scripts/sandbox-daemon}"
 RUNTIME_DIR="$HOME/.local/share/agent-q/runtime"
 USER_NAME="${USER:-$(id -un)}"
@@ -89,15 +90,50 @@ systemctl --user show-environment >/dev/null || {
   echo "The systemd user manager is not available (systemctl --user show-environment failed)." >&2
   exit 3
 }
-if [[ "$(loginctl show-user "$USER_NAME" -p Linger --value 2>/dev/null || true)" != "yes" ]]; then
-  echo "Lingering is off, so the service would stop at logout. Run: sudo loginctl enable-linger $USER_NAME"
-fi
 if [[ ( -e "$LINK" || -L "$LINK" ) && "$(readlink "$LINK" || true)" != "$RUNTIME_DIR/aq-worker" ]]; then
   echo "$LINK exists and is not the link this script installs; move it away and run again." >&2
   exit 2
 fi
 if systemctl --user is-active --quiet aq-worker@local.service; then
   echo "warning: the container worker aq-worker@local is running too. Two workers on one machine compete for it; stop it with: systemctl --user disable --now aq-worker@local" >&2
+fi
+
+# Configure boot startup before consuming an enrollment code. Keep installer
+# stdin for enrollment; loginctl/sudo must not read a piped code or Access token.
+if [[ "$IS_WSL" == 1 ]]; then
+  WINDOWS_AUTOSTART="$INSTALL_DIR/aq-wsl-autostart.ps1"
+  [[ -f "$WINDOWS_AUTOSTART" ]] || WINDOWS_AUTOSTART="$ROOT/packaging/windows/aq-wsl-autostart.ps1"
+  if [[ ! -f "$WINDOWS_AUTOSTART" || -z "${WSL_DISTRO_NAME:-}" ]] || \
+      ! command -v powershell.exe >/dev/null || ! command -v wslpath >/dev/null; then
+    echo "Windows autostart requires PowerShell interop, WSL_DISTRO_NAME and the bundled aq-wsl-autostart.ps1. Enable WSL interop and rerun the installer." >&2
+    exit 3
+  fi
+fi
+if [[ "$(loginctl show-user "$USER_NAME" -p Linger --value 2>/dev/null || true)" != yes ]]; then
+  if ! loginctl enable-linger "$USER_NAME" </dev/null; then
+    if ! command -v sudo >/dev/null || ! sudo loginctl enable-linger "$USER_NAME" </dev/null; then
+      echo "Could not enable boot startup. Run 'sudo loginctl enable-linger $USER_NAME', then rerun the installer." >&2
+      exit 3
+    fi
+  fi
+  if [[ "$(loginctl show-user "$USER_NAME" -p Linger --value 2>/dev/null || true)" != yes ]]; then
+    echo "Linger is still disabled; boot startup was not configured. Enable it and rerun the installer." >&2
+    exit 3
+  fi
+fi
+if [[ "$IS_WSL" == 1 ]]; then
+  # A Windows drive working directory avoids WSL interop failures from a UNC
+  # working directory. Pass paths and distro as arguments, never shell code.
+  WINDOWS_SCRIPT="$(wslpath -w "$WINDOWS_AUTOSTART")"
+  WINDOWS_CWD="$(wslpath -u "C:\\")"
+  if ! (cd "$WINDOWS_CWD" && powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+      -File "$WINDOWS_SCRIPT" -Distro "$WSL_DISTRO_NAME" -StartNow -NoDockerDesktop </dev/null); then
+    echo "Windows autostart could not be configured. Fix the error above and rerun the installer; no enrollment code has been consumed." >&2
+    exit 3
+  fi
+  echo "Automatic startup configured: the worker starts when this WSL distro boots, and Windows starts the distro at sign-in."
+else
+  echo "Automatic startup configured: the worker starts at boot without a login session."
 fi
 
 # 2. Sandbox runtime.
@@ -107,12 +143,13 @@ if [[ ! -S "${XDG_RUNTIME_DIR:-/nonexistent}/aq-sandbox/podman.sock" ]]; then
     install -D -m 0755 "$SANDBOX_DIR/aq-sandbox-podman.sh" "$HOME/.local/bin/aq-sandbox-podman.sh"
     install -D -m 0644 "$SANDBOX_DIR/aq-sandbox-podman.service" "$HOME/.config/systemd/user/aq-sandbox-podman.service"
     systemctl --user daemon-reload
-    systemctl --user enable --now aq-sandbox-podman.service
   else
     echo "The sandbox socket \$XDG_RUNTIME_DIR/aq-sandbox/podman.sock is missing. Re-run with --sandbox-bundle podman-linux-amd64.tar.gz to install the sandbox runtime." >&2
     exit 4
   fi
 fi
+# An existing socket alone does not mean its service is enabled after a reboot.
+systemctl --user enable --now aq-sandbox-podman.service
 
 # 3. Binaries.
 for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
