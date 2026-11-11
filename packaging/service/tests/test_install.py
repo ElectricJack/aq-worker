@@ -420,3 +420,55 @@ def test_retired_primary_does_not_prevent_sibling_delivery(tmp_path, monkeypatch
     with pytest.raises(ValueError):
         helper.sync_logins(package, config)
     assert seen == [1, 2]
+
+
+def preflight_profile(tmp_path, monkeypatch, info=None, failure=None):
+    from types import SimpleNamespace
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    (config / 'native.json').write_text(json.dumps({'executor': {'settings': {'host': {'docker_local': {
+        'socket': '/run/aq-test/podman.sock', 'templates': [{'image': 'registry.example/template@sha256:fixture'}],
+    }}}}}))
+    data = info if info is not None else {'SecurityOptions': ['name=rootless'], 'CgroupVersion': '2', 'CgroupDriver': 'systemd'}
+    class Connection:
+        def __init__(self, *_args, **_kwargs):
+            pass
+        def request(self, *args):
+            assert args == ('GET', '/v1.44/info')
+        def getresponse(self):
+            return SimpleNamespace(status=200, read=lambda _size: json.dumps(data).encode())
+        def close(self):
+            pass
+    commands = []
+    monkeypatch.setattr(helper.http.client, 'HTTPConnection', Connection)
+    def execute(args, **_kwargs):
+        commands.append(args)
+        return SimpleNamespace(returncode=1 if failure and 'run' in args else 0, stderr=failure or '')
+    monkeypatch.setattr(helper.subprocess, 'run', execute)
+    return helper, package, config, commands
+
+
+def test_preflight_exercises_real_launch_limits_bridge_and_tmux(tmp_path, monkeypatch):
+    helper, package, config, commands = preflight_profile(tmp_path, monkeypatch)
+    helper.sandbox_preflight(package, config, Path('/opt/podman'))
+    launch, cleanup = commands
+    assert launch[launch.index('--network') + 1] == 'bridge'
+    assert launch[launch.index('--memory') + 1] == '4g'
+    assert launch[launch.index('--memory-swap') + 1] == '4g'
+    assert 'tmux -S /tmp/aq-install.sock new-session' in launch[-1]
+    assert cleanup[-1] == launch[launch.index('--name') + 1]
+    assert not any('auth.json' in arg or 'claude-token' in arg for arg in launch)
+
+
+def test_preflight_keeps_useful_engine_error_and_cleans_its_probe(tmp_path, monkeypatch):
+    helper, package, config, commands = preflight_profile(tmp_path, monkeypatch, failure='Error: network helper is missing')
+    with pytest.raises(ValueError, match='network helper is missing'):
+        helper.sandbox_preflight(package, config, Path('/opt/podman'))
+    assert commands[-1][-3:-1] == ['rm', '--force']
+
+
+def test_preflight_refuses_missing_resource_controller_before_launch(tmp_path, monkeypatch):
+    info = {'SecurityOptions': ['name=rootless'], 'CgroupVersion': '1', 'CgroupDriver': 'none'}
+    helper, package, config, commands = preflight_profile(tmp_path, monkeypatch, info=info)
+    with pytest.raises(ValueError, match='cgroup v2'):
+        helper.sandbox_preflight(package, config, Path('/opt/podman'))
+    assert not commands

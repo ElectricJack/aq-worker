@@ -257,6 +257,12 @@ Separate local accounts remain optional: supply a Claude token with
 AQ-managed delivery switches AQ's auth paths to its private profile files and
 keeps those personal login files intact.
 
+Before reporting success, the hosted installer checks the daemon's rootless
+cgroup-v2 setup and runs a disposable container with the agent's bridge network,
+memory/CPU/PID limits and tmux. The test mounts no provider login and invokes no
+model. A failure prints the container engine's diagnostic and cleans up the test
+container; an enrollment/heartbeat alone does not mean the installation passed.
+
 The command can be rerun with the same bundle after an interrupted image pull.
 It resumes an unfinished enrollment or reuses the saved enrollment. Use a fresh
 distro or the regular upgrade procedure if another worker runtime already owns

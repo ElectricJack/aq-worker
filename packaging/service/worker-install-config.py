@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Resolve the bundled template and finish the newly enrolled worker's configuration."""
 import hashlib
+import http.client
+import socket
+import uuid
 import os
 import re
 import subprocess
@@ -102,6 +105,53 @@ def configure(package, config, origin, podman, slots, digest):
         print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to enable agents.")
 
 
+
+
+def sandbox_preflight(package, config, podman):
+    """Exercise the sandbox without a provider login or model invocation."""
+    native = json.loads((config / "native.json").read_text())
+    docker = native["executor"]["settings"]["host"]["docker_local"]
+    class Connection(http.client.HTTPConnection):
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX)
+            self.sock.settimeout(15)
+            self.sock.connect(docker["socket"])
+    connection = Connection("localhost", timeout=15)
+    try:
+        connection.request("GET", "/v1.44/info")
+        response = connection.getresponse()
+        raw = response.read(1048577)
+        if response.status != 200 or len(raw) > 1048576:
+            raise ValueError("Sandbox daemon did not provide its resource configuration.")
+        info = json.loads(raw)
+    finally:
+        connection.close()
+    if not any("name=rootless" in option.split(",") for option in info.get("SecurityOptions", [])):
+        raise ValueError("AQ's sandbox daemon must run as your normal Linux user.")
+    if info.get("CgroupVersion") != "2" or info.get("CgroupDriver") in (None, "", "none"):
+        raise ValueError("The sandbox needs cgroup v2 with a resource controller. Check that WSL uses systemd and restart WSL before retrying.")
+    image, = docker["templates"]
+    probe = "aq-install-check-" + uuid.uuid4().hex[:12]
+    cli = [str(podman), "--remote", "--url", "unix://" + docker["socket"]]
+    # Match the agent's runtime, bridge network and resource controls. No provider
+    # credential is mounted and no agent executable is invoked.
+    script = "set -eu; git --version; tmux -S /tmp/aq-install.sock new-session -d -s check 'sleep 10'; tmux -S /tmp/aq-install.sock has-session -t check; tmux -S /tmp/aq-install.sock kill-server"
+    args = cli + ["run", "--rm", "--name", probe, "--label", "aq.install-check=true", "--network", "bridge", "--memory", "4g", "--memory-swap", "4g", "--cpus", "2", "--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--ipc", "private", "--entrypoint", "/bin/bash", image["image"], "-c", script]
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=90)
+        if result.returncode:
+            # This fixed probe carries no secrets. Preserve the engine's useful
+            # diagnostic instead of claiming installation succeeded.
+            detail = result.stderr.strip()[-4096:] or "The sandbox test failed without an engine diagnostic."
+            raise ValueError("Sandbox startup check failed:\n" + detail)
+    except subprocess.TimeoutExpired:
+        raise ValueError("Sandbox startup check did not finish. Check the AQ sandbox service and rerun the installer.") from None
+    finally:
+        try:
+            subprocess.run(cli + ["rm", "--force", probe], capture_output=True, timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            pass  # Do not replace the startup diagnostic with a cleanup error.
+    print("Sandbox startup, bridge networking, resource controls and tmux passed.")
 
 def set_toml_value(contents, section, key, value):
     """Change one scalar while retaining enrollment and unrelated settings verbatim."""
@@ -266,6 +316,8 @@ def main():
     elif mode == "configure":
         config, origin, podman, slots, digest = args
         configure(package, Path(config), origin, Path(podman), int(slots), digest)
+    elif mode == "preflight":
+        sandbox_preflight(package, Path(args[0]), Path(args[1]))
     elif mode == "install-sync":
         install_sync(package, Path(args[0]))
     elif mode == "sync":
