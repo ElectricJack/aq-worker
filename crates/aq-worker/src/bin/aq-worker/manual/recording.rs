@@ -133,8 +133,28 @@ fn chunk(path: &Path, n: u64) -> PathBuf {
 }
 pub(super) fn initialize(root: &Path, id: Uuid, node: Uuid, container: &str) -> Result<()> {
     let path = dir(root, id);
-    // Keep a separate recovery identity: the recording state contains mutable
-    // offsets and may become unreadable independently of this small file.
+    // State first prevents a concurrent scanner from mistaking initialization
+    // for a lost state; readable existing states are never overwritten.
+    if !path.join("state.json").exists() {
+        ensure!(
+            !path.join("identity.json").exists(),
+            "recording state is missing"
+        );
+        save(
+            &path,
+            &State {
+                id,
+                node,
+                container: container.into(),
+                offset: 0,
+                bytes: 0,
+                next: 1,
+                normalizer: Normalizer::default(),
+                ended: false,
+                reason: None,
+            },
+        )?;
+    }
     if !path.join("identity.json").exists() {
         write_private(
             &path.join("identity.json"),
@@ -145,23 +165,7 @@ pub(super) fn initialize(root: &Path, id: Uuid, node: Uuid, container: &str) -> 
             })?,
         )?;
     }
-    if path.join("state.json").exists() {
-        return Ok(());
-    }
-    save(
-        &path,
-        &State {
-            id,
-            node,
-            container: container.into(),
-            offset: 0,
-            bytes: 0,
-            next: 1,
-            normalizer: Normalizer::default(),
-            ended: false,
-            reason: None,
-        },
-    )
+    Ok(())
 }
 fn add(path: &Path, state: &mut State, mut text: String) -> Result<()> {
     let left = TEXT_LIMIT.saturating_sub(state.bytes) as usize;
@@ -420,8 +424,8 @@ async fn upload(path: &Path, state: &State, link: &ServerLink) -> Result<()> {
     }
     Ok(())
 }
-// A corrupt offset cannot establish an archive high-water mark. Release the
-// runner without deleting the raw spool or asserting an archive finalization.
+// Release the runner without deleting the raw spool. Archive recovery uses the
+// independently persisted identity and server's acknowledged high-water mark.
 async fn release_corrupt(
     path: &Path,
     node: Uuid,
@@ -460,6 +464,80 @@ async fn release_corrupt(
         &path.join("corrupt-released"),
         b"Recording state unreadable; archive requires recovery",
     )?;
+    Ok(())
+}
+
+const CORRUPT_REASON: &str = "Recording state was lost; retained output may be incomplete";
+#[derive(Serialize, Deserialize)]
+struct CorruptRecovery {
+    sequence: u64,
+    #[serde(default)]
+    conflicts: u8,
+}
+
+async fn recover_corrupt_archive(path: &Path, node: Uuid, link: &ServerLink) -> Result<()> {
+    if path.join("corrupt-finalized").exists() || path.join("corrupt-recovery-needed").exists() {
+        return Ok(());
+    }
+    let identity: Identity = serde_json::from_slice(&std::fs::read(path.join("identity.json"))?)?;
+    ensure!(
+        identity.node == node,
+        "recording identity belongs to another node"
+    );
+    ensure!(
+        path.parent()
+            .and_then(Path::file_name)
+            .and_then(|s| s.to_str())
+            == Some(identity.id.to_string().as_str()),
+        "recording identity does not match directory"
+    );
+    let progress: Option<Progress> = std::fs::read(path.join("upload.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
+    if progress
+        .as_ref()
+        .is_some_and(|p| p.finalized || p.unsupported)
+    {
+        return Ok(());
+    }
+    let recovery_path = path.join("corrupt-recovery.json");
+    let mut recovery = match std::fs::read(&recovery_path) {
+        Ok(bytes) => serde_json::from_slice::<CorruptRecovery>(&bytes)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => CorruptRecovery {
+            sequence: progress
+                .map(|p| p.uploaded)
+                .filter(|n| *n <= TEXT_LIMIT)
+                .unwrap_or(0),
+            conflicts: 0,
+        },
+        Err(e) => return Err(e.into()),
+    };
+    ensure!(
+        recovery.sequence <= TEXT_LIMIT,
+        "invalid recording recovery sequence"
+    );
+    // Persist the proposed cursor so repeated conflicts cannot spin after restart.
+    write_private(&recovery_path, &serde_json::to_vec(&recovery)?)?;
+    match link.manual_transcript(identity.id, &json!({"final_sequence":recovery.sequence,"coverage":"partial","reason":CORRUPT_REASON})).await {
+        Ok(ack) => {
+            ensure!(ack["accepted_through"].as_u64() == Some(recovery.sequence), "unexpected archive acknowledgement");
+            write_private(&path.join("corrupt-finalized"), b"Partial archive finalized after recording state loss")?;
+        }
+        Err(e) => {
+            if let Some(conflict) = e.downcast_ref::<LinkError>().filter(|e| e.status == 409 && e.code.as_deref() == Some("manual_transcript_conflict")) {
+                match conflict.next_sequence.filter(|n| (1..=TEXT_LIMIT + 1).contains(n)).map(|n| n - 1) {
+                    Some(sequence) if sequence != recovery.sequence && recovery.conflicts == 0 => {
+                        recovery.sequence = sequence;
+                        recovery.conflicts = 1;
+                        write_private(&recovery_path, &serde_json::to_vec(&recovery)?)?;
+                    }
+                    _ => { write_private(&path.join("corrupt-recovery-needed"), b"Archive finalization needs manual recovery")?; }
+                }
+            } else if e.downcast_ref::<LinkError>().is_some_and(|e| e.status == 404) {
+                write_private(&path.join("corrupt-recovery-needed"), b"Archive finalization needs manual recovery")?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -531,6 +609,12 @@ pub(super) async fn run(
                             }
                             _ => {}
                         }
+                    } else if path.join("identity.json").exists() {
+                        let _ = write_private(
+                            &path.join("recording-error"),
+                            b"Local recording state is unreadable",
+                        );
+                        let _ = release_corrupt(&path, node, &exe, &cfg).await;
                     }
                 }
             }
@@ -543,8 +627,8 @@ pub(super) async fn run(
                 for entry in entries.flatten() {
                     let path = entry.path().join("recording");
                     if let Ok(bytes) = std::fs::read(path.join("state.json")) {
-                        if let Ok(state) = serde_json::from_slice::<State>(&bytes) {
-                            if state.node == node {
+                        match serde_json::from_slice::<State>(&bytes) {
+                            Ok(state) if state.node == node => {
                                 if upload(&path, &state, &link).await.is_err() {
                                     let _ = write_private(
                                         &path.join("upload-error"),
@@ -552,7 +636,13 @@ pub(super) async fn run(
                                     );
                                 }
                             }
+                            Err(_) => {
+                                let _ = recover_corrupt_archive(&path, node, &link).await;
+                            }
+                            _ => {}
                         }
+                    } else if path.join("identity.json").exists() {
+                        let _ = recover_corrupt_archive(&path, node, &link).await;
                     }
                 }
             }
@@ -1035,6 +1125,9 @@ sys.exit(1)
         assert_eq!(std::fs::read(chunk(&path, 1)).unwrap(), b"retained fixture");
         assert!(path.join("recording-error").exists());
         assert!(!path.join("upload.json").exists());
+        std::fs::remove_file(path.join("state.json")).unwrap();
+        assert!(initialize(temp.path(), id, node, "fixture").is_err());
+        assert!(!path.join("state.json").exists());
     }
     /// Opt-in integration with a real archive server supplied by its test harness.
     #[tokio::test]
@@ -1119,5 +1212,132 @@ sys.exit(1)
                 .unwrap()
                 .success()
         );
+    }
+    #[tokio::test]
+    async fn corrupt_recovery_uses_server_high_water_and_bounds_conflicts() {
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        use std::sync::{Arc, Mutex};
+        let bodies = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let seen = bodies.clone();
+        let app = Router::new().route("/v1/worker/manual-agents/{id}/transcript", post(move |Json(body): Json<serde_json::Value>| {
+            let seen = seen.clone();
+            async move {
+                seen.lock().unwrap().push(body.clone());
+                if body["final_sequence"] == 2 {
+                    (StatusCode::OK, Json(json!({"accepted_through":2,"next_sequence":3,"archive_state":"complete"})))
+                } else {
+                    (StatusCode::CONFLICT, Json(json!({"error":"manual_transcript_conflict","message":"conflict","next_sequence":3})))
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let id = Uuid::new_v4();
+        let node = Uuid::new_v4();
+        initialize(root.path(), id, node, "fixture").unwrap();
+        let path = dir(root.path(), id);
+        write_private(
+            &path.join("upload.json"),
+            &serde_json::to_vec(&Progress {
+                uploaded: 1,
+                ..Progress::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(path.join("state.json"), b"corrupt").unwrap();
+        std::fs::write(chunk(&path, 2), b"pending fixture").unwrap();
+        let link = ServerLink::new(&origin, "fixture-credential", None).unwrap();
+        recover_corrupt_archive(&path, node, &link).await.unwrap();
+        assert!(!path.join("corrupt-finalized").exists());
+        recover_corrupt_archive(&path, node, &link).await.unwrap();
+        assert!(path.join("corrupt-finalized").exists());
+        assert_eq!(std::fs::read(chunk(&path, 2)).unwrap(), b"pending fixture");
+        let seen = bodies.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0]["final_sequence"], 1);
+        assert_eq!(seen[1]["final_sequence"], 2);
+        assert_eq!(seen[1]["coverage"], "partial");
+        drop(seen);
+        // A conflicting finalization at the same server high-water mark is terminal.
+        let id2 = Uuid::new_v4();
+        initialize(root.path(), id2, node, "fixture").unwrap();
+        let path2 = dir(root.path(), id2);
+        write_private(
+            &path2.join("upload.json"),
+            &serde_json::to_vec(&Progress {
+                uploaded: 2,
+                ..Progress::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        // The mock accepts sequence 2, so emulate a previous divergent response by
+        // persisting the one allowed cursor adjustment and asking at sequence 1.
+        write_private(
+            &path2.join("corrupt-recovery.json"),
+            &serde_json::to_vec(&CorruptRecovery {
+                sequence: 1,
+                conflicts: 1,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        recover_corrupt_archive(&path2, node, &link).await.unwrap();
+        assert!(path2.join("corrupt-recovery-needed").exists());
+        recover_corrupt_archive(&path2, node, &link).await.unwrap();
+        assert_eq!(bodies.lock().unwrap().len(), 3);
+        server.abort();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a private real-server fixture"]
+    async fn real_archive_corrupt_recovery_fixture() {
+        #[derive(Deserialize)]
+        struct Fixture {
+            origin: String,
+            credential: String,
+            session_id: Uuid,
+            node_id: Uuid,
+        }
+        let fixture: Fixture = serde_json::from_slice(
+            &std::fs::read(std::env::var_os("AQ_RECORDING_FIXTURE").unwrap()).unwrap(),
+        )
+        .unwrap();
+        let link = ServerLink::new(&fixture.origin, &fixture.credential, None).unwrap();
+        for sequence in 1..=2 {
+            let ack = link
+                .manual_transcript(
+                    fixture.session_id,
+                    &json!({"sequence":sequence,"text":format!("fixture retained {sequence}\n")}),
+                )
+                .await
+                .unwrap();
+            assert_eq!(ack["accepted_through"], sequence);
+        }
+        let root = tempfile::tempdir().unwrap();
+        initialize(root.path(), fixture.session_id, fixture.node_id, "fixture").unwrap();
+        let path = dir(root.path(), fixture.session_id);
+        write_private(
+            &path.join("upload.json"),
+            &serde_json::to_vec(&Progress {
+                uploaded: 1,
+                ..Progress::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(path.join("state.json"), b"corrupt").unwrap();
+        std::fs::write(chunk(&path, 2), b"fixture pending").unwrap();
+        recover_corrupt_archive(&path, fixture.node_id, &link)
+            .await
+            .unwrap();
+        recover_corrupt_archive(&path, fixture.node_id, &link)
+            .await
+            .unwrap();
+        assert!(path.join("corrupt-finalized").exists());
+        assert!(chunk(&path, 2).exists());
     }
 }

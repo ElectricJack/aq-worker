@@ -1005,7 +1005,12 @@ mod tests {
             };
             reply.map_err(|(status, aq)| {
                 let code = aq.then(|| "unauthorized".to_owned());
-                LinkError { status, code }.into()
+                LinkError {
+                    status,
+                    code,
+                    next_sequence: None,
+                }
+                .into()
             })
         }
         async fn handoff(&self, slot: u32, n: &HandoffNotice) -> Result<()> {

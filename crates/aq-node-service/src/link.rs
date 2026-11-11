@@ -22,6 +22,8 @@ pub struct ServerLink {
 pub struct LinkError {
     pub status: u16,
     pub code: Option<String>,
+    /// Server-provided transcript cursor, when present in a conflict response.
+    pub next_sequence: Option<u64>,
 }
 impl LinkError {
     /// AQ itself refused the credential: 401 or 403 in AQ's own error schema.
@@ -213,6 +215,13 @@ impl ServerLink {
             return Err(LinkError {
                 status: status.as_u16(),
                 code,
+                next_sequence: if status.as_u16() == 409 {
+                    serde_json::from_slice::<serde_json::Value>(&bytes)
+                        .ok()
+                        .and_then(|v| v.get("next_sequence").and_then(|n| n.as_u64()))
+                } else {
+                    None
+                },
             }
             .into());
         }
