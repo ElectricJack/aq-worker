@@ -1,4 +1,7 @@
 """Install script checks: fake PATH stubs and a temporary HOME; nothing real is installed."""
+import argparse
+import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -6,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import tomllib
 
 import pytest
@@ -22,6 +26,8 @@ args = sys.argv[1:]
 stdin = ""
 if name == "aq-worker" and args[:2] == ["service", "enroll"]:
     stdin = sys.stdin.read()
+if name in ("sudo", "powershell.exe") or (name == "loginctl" and args[0] == "enable-linger"):
+    stdin = sys.stdin.read()
 with open(os.environ["CALLS"], "a") as f:
     f.write(json.dumps({"name": name, "args": args, "stdin": stdin}) + "\\n")
 if name == "ps":
@@ -29,7 +35,21 @@ if name == "ps":
 if name == "uname":
     print(os.environ.get("STUB_UNAME", "Linux"))
 if name == "loginctl":
-    print(os.environ.get("STUB_LINGER", "yes"))
+    linger = pathlib.Path(os.environ["CALLS"] + ".linger")
+    if args[0] == "enable-linger":
+        if os.environ.get("STUB_REQUIRE_SUDO") and not os.environ.get("STUB_SUDO"):
+            sys.exit(1)
+        exit_code = int(os.environ.get("STUB_ENABLE_LINGER_RC", "0"))
+        if not exit_code and not os.environ.get("STUB_LINGER_UNCHANGED"):
+            linger.write_text("yes")
+        sys.exit(exit_code)
+    print(linger.read_text() if linger.exists() else os.environ.get("STUB_LINGER", "yes"))
+if name == "sudo":
+    os.execvpe(args[0], args, {**os.environ, "STUB_SUDO": "1"})
+if name == "wslpath":
+    print(os.environ["WINDOWS_CWD"] if args[0] == "-u" else "C:\\\\AQ install\\\\aq-wsl-autostart.ps1")
+if name == "powershell.exe":
+    sys.exit(int(os.environ.get("STUB_POWERSHELL_RC", "0")))
 if name == "systemctl" and "show-environment" in args:
     sys.exit(int(os.environ.get("STUB_SYSTEMD_USER_RC", "0")))
 if name == "systemctl" and "is-active" in args:
@@ -44,7 +64,7 @@ def host(tmp_path):
     stub = bin_dir / "stub"
     stub.write_text(STUB)
     stub.chmod(0o755)
-    for name in ("systemctl", "loginctl", "hostname", "ps", "uname", "powershell", "powershell.exe"):
+    for name in ("systemctl", "loginctl", "hostname", "ps", "uname", "powershell", "powershell.exe", "wslpath", "sudo"):
         (bin_dir / name).symlink_to(stub)
     bundle = tmp_path / "bundle"
     bundle.mkdir()
@@ -78,6 +98,8 @@ def host(tmp_path):
         "AQ_SANDBOX_DAEMON_DIR": str(sandbox_dir),
         "CALLS": str(tmp_path / "calls.jsonl"),
         "CALLS_SANDBOX": str(tmp_path / "sandbox-calls"),
+        "WINDOWS_CWD": str(tmp_path),
+        "WSL_DISTRO_NAME": "Ubuntu 24.04",
     }
     return {"tmp": tmp_path, "env": env, "bundle": bundle, "runtime": runtime,
             "osrelease": osrelease, "pid1": pid1, "home": home}
@@ -91,10 +113,10 @@ def with_socket(host):
     return daemon
 
 
-def run(host, *args, stdin=CODE + "\n", env=None):
+def run(host, *args, stdin=CODE + "\n", env=None, script=SCRIPT):
     full = {**host["env"], **(env or {})}
     return subprocess.run(
-        ["bash", str(SCRIPT), "--server", "https://machine.example",
+        ["bash", str(script), "--server", "https://machine.example",
          "--bundle", str(host["bundle"]), *args],
         env=full, input=stdin, capture_output=True, text=True, timeout=20)
 
@@ -199,7 +221,128 @@ def test_prints_but_never_runs_the_windows_probe(host):
         result = run(host)
     assert result.returncode == 0, result.stderr
     assert "aq-host-load.ps1 -Install -StartNow" in result.stdout
-    assert not [c for c in calls(host) if c["name"].startswith("powershell")]
+    powershell, = [c for c in calls(host) if c["name"] == "powershell.exe"]
+    assert "aq-host-load.ps1" not in " ".join(powershell["args"])
+    assert powershell["args"] == [
+        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-File", "C:\\AQ install\\aq-wsl-autostart.ps1", "-Distro", "Ubuntu 24.04",
+        "-StartNow", "-NoDockerDesktop",
+    ]
+
+
+@pytest.mark.parametrize("require_sudo", [False, True])
+def test_enables_linger_without_consuming_enrollment_stdin(host, require_sudo):
+    with with_socket(host):
+        result = run(host, env={"STUB_LINGER": "no", **({"STUB_REQUIRE_SUDO": "1"} if require_sudo else {})})
+    assert result.returncode == 0, result.stderr
+    log = calls(host)
+    enabled = [c for c in log if c["name"] == "loginctl" and c["args"] == ["enable-linger", "worker"]]
+    assert len(enabled) == (2 if require_sudo else 1)
+    assert bool([c for c in log if c["name"] == "sudo"]) == require_sudo
+    assert log.index(enabled[-1]) < log.index(worker_calls(host)[0])
+    assert worker_calls(host)[0]["stdin"] == CODE + "\n"
+
+
+def test_existing_linger_is_not_changed_and_linux_needs_no_windows_tools(host):
+    with with_socket(host):
+        result = run(host)
+    assert result.returncode == 0, result.stderr
+    assert not [c for c in calls(host) if c["name"] in ("sudo", "powershell.exe", "wslpath")]
+    assert not [c for c in calls(host) if c["name"] == "loginctl" and "enable-linger" in c["args"]]
+    assert "starts at boot" in result.stdout
+
+
+@pytest.mark.parametrize("failure", [{"STUB_ENABLE_LINGER_RC": "1"}, {"STUB_LINGER_UNCHANGED": "1"}])
+def test_refuses_to_enroll_when_boot_startup_cannot_be_enabled(host, failure):
+    with with_socket(host):
+        result = run(host, env={"STUB_LINGER": "no", **failure})
+    assert result.returncode == 3
+    assert "boot startup" in result.stderr
+    assert worker_calls(host) == []
+
+
+def test_windows_startup_failure_does_not_consume_an_enrollment_code(host):
+    host["osrelease"].write_text("5.15.0-microsoft-standard-WSL2\n")
+    with with_socket(host):
+        result = run(host, env={"STUB_POWERSHELL_RC": "1"})
+    assert result.returncode == 3
+    assert "Windows autostart could not be configured" in result.stderr
+    assert worker_calls(host) == []
+
+
+def test_wsl_requires_a_distro_name_before_enrollment(host):
+    host["osrelease"].write_text("5.15.0-microsoft-standard-WSL2\n")
+    with with_socket(host):
+        result = run(host, env={"WSL_DISTRO_NAME": ""})
+    assert result.returncode == 3
+    assert "WSL_DISTRO_NAME" in result.stderr
+    assert worker_calls(host) == []
+
+
+def test_wsl_requires_the_windows_script_in_a_standalone_installer(host):
+    script = host["bundle"] / "aq-install.sh"
+    shutil.copyfile(SCRIPT, script)
+    host["osrelease"].write_text("5.15.0-microsoft-standard-WSL2\n")
+    with with_socket(host):
+        result = run(host, script=script)
+    assert result.returncode == 3
+    assert "bundled aq-wsl-autostart.ps1" in result.stderr
+    assert worker_calls(host) == []
+
+
+def test_existing_sandbox_socket_also_gets_an_enabled_service(host):
+    with with_socket(host):
+        result = run(host)
+    assert result.returncode == 0, result.stderr
+    assert ["--user", "enable", "--now", "aq-sandbox-podman.service"] in [
+        c["args"] for c in calls(host) if c["name"] == "systemctl"
+    ]
+
+
+def test_downloadable_bundle_installs_windows_startup_without_a_checkout(host, monkeypatch):
+    spec = importlib.util.spec_from_file_location("prepare_worker_install", SCRIPT.with_name("prepare-worker-install.py"))
+    prepare = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prepare)
+    # Registry inspection is unrelated to startup; use a local manifest route.
+    monkeypatch.setattr(prepare, "registry_paths", lambda *_: ("127.0.0.1:5000", ["/v2/"]))
+    bundle = host["bundle"]
+    shutil.copyfile(bundle / "aq-worker", bundle / "tmux")
+    refs = {}
+    for name, binary in [("helper", "aq-session-host"), ("driver", "aq-sandbox-driver"), ("tmux", "tmux")]:
+        path = bundle / binary
+        refs[name] = {"path": str(path), "artifact": {"digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}}
+    manifest = bundle / "manifest.json"
+    manifest.write_text("{}")
+    native = {
+        "adapter_manifest": str(manifest), "inventory_definition": str(manifest),
+        "executor": {"composite_definition": str(manifest), "settings": {"host": {
+            **refs, "docker_local": {"templates": [{"image": "test", "digest": "sha256:" + "a" * 64}]},
+        }}},
+    }
+    (bundle / "native.json").write_text(json.dumps(native))
+    service = host["tmp"] / "service.toml"
+    service.write_text("native_template = " + json.dumps(str(bundle / "native.json")) + "\n")
+    podman = host["tmp"] / "podman"
+    podman.mkdir()
+    output = host["tmp"] / "download"
+    prepare.build(argparse.Namespace(
+        runtime=bundle, worker=bundle / "aq-worker", service=service,
+        podman=podman, output=output, codex_helpers=None,
+        listen="127.0.0.1:28443", worker_port=28081, tls_cert=None, tls_key=None,
+    ))
+    archive, = (output / "install").glob("*.tar.gz")
+    extracted = host["tmp"] / "downloaded"
+    with tarfile.open(archive) as tar:
+        tar.extractall(extracted, filter="data")
+    assert (extracted / "aq-wsl-autostart.ps1").read_bytes() == (ROOT / "packaging/windows/aq-wsl-autostart.ps1").read_bytes()
+    host["bundle"] = extracted
+    host["osrelease"].write_text("5.15.0-microsoft-standard-WSL2\n")
+    with with_socket(host):
+        result = run(host, script=extracted / "aq-install.sh")
+    assert result.returncode == 0, result.stderr
+    assert worker_calls(host)[0]["stdin"] == CODE + "\n"
+    assert any(c["name"] == "powershell.exe" for c in calls(host))
+    assert {"name": "wslpath", "args": ["-w", str(extracted / "aq-wsl-autostart.ps1")], "stdin": ""} in calls(host)
 
 
 def test_exits_4_without_sandbox_socket_or_bundle(host):

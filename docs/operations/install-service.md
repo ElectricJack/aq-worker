@@ -10,10 +10,13 @@ supported yet; the script refuses it.
 - Linux, or WSL2 with systemd. For WSL2 follow "Prerequisites" in
   [install-worker.md](install-worker.md) (`/etc/wsl.conf` with `[boot]
   systemd=true`, then `wsl --shutdown` once).
-- Linger, so the user manager runs without a login: `sudo loginctl enable-linger
-  $USER`. The script prints this command when linger is off and continues.
-- WSL2 autostart from Windows (`aq-wsl-autostart.ps1`): see "Autostart" in
-  [install-worker.md](install-worker.md).
+- Permission to enable systemd linger. The installer enables and verifies it,
+  using sudo if needed, so the service starts at boot without a login session.
+- On WSL2, Windows PowerShell interop and `WSL_DISTRO_NAME` must be available.
+  The installer registers the Windows sign-in task and keepalive automatically
+  using the bundled `aq-wsl-autostart.ps1`. This service uses rootless Podman
+  and does not need Docker Desktop. Windows starts the distro at **sign-in**;
+  it does not run the worker before anyone signs in.
 - WSL2 host load: see "Windows host load (WSL2)" in
   [install-worker.md](install-worker.md). The script prints the probe command
   when the host-load file is missing and never runs it.
@@ -54,8 +57,11 @@ link, and warns when the container worker `aq-worker@local` is running too.
 
 The script, in order:
 
-1. checks the platform, systemd, linger and the machine key;
-2. makes sure the sandbox daemon is running;
+1. checks the platform, systemd and the machine key, then enables and verifies
+   linger; on WSL2 it also installs the Windows sign-in task and starts its
+   keepalive. A startup setup failure stops the installer before enrollment;
+2. makes sure the sandbox daemon is running and enabled for the next boot,
+   even when its socket already exists;
 3. installs the five binaries into `~/.local/share/agent-q/runtime/` and links
    `~/.local/bin/aq-worker`;
 4. runs `aq-worker service enroll`, which prompts for the code. A profile that
@@ -67,6 +73,18 @@ The script, in order:
    second measurement meanwhile;
 7. prints the Windows probe command on WSL2 if needed;
 8. prints `aq-worker service status`.
+
+Rerunning the installer on an enrolled profile also repairs boot startup without
+consuming another enrollment code. To check an existing installation:
+
+```sh
+loginctl show-user "$USER" -p Linger --value       # yes
+systemctl --user is-enabled aq-sandbox-podman.service aq-node@local.service
+systemctl --user status aq-node@local.service
+```
+
+Use the actual profile instead of `local`. For the Windows task and removal
+commands, see "Autostart" in [install-worker.md](install-worker.md).
 
 The enrollment code is typed at the prompt, or piped as the first stdin line.
 With `--cf-service-token` the next two prompts (or lines) are the node's Access
@@ -243,8 +261,10 @@ needed. In **Settings → Framework connection → Add machine** or **Agents →
 Swarm**, copy the command into the new PC's WSL terminal. Paste the one-time
 code when the worker asks for it. The command downloads the pinned worker
 bundle, prepares the rootless sandbox and matching image, then starts one slot.
-It can request sudo for missing Ubuntu packages or systemd linger. A fresh WSL
-distro needs curl and a running systemd user session.
+It configures boot startup, including the WSL sign-in task, and can request sudo
+for missing Ubuntu packages or systemd linger. A fresh WSL distro needs curl,
+Windows PowerShell interop and a running systemd user session. No separate
+Windows autostart command is needed for this installer.
 
 Enrollment establishes the AQ connection without requiring provider accounts on
 that machine. The hosted installer also installs the login receiver described

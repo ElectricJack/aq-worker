@@ -202,7 +202,9 @@ def build(args):
         host["docker_local"]["socket"] = "/bundle/podman.sock"
         for name, value in [("native", native), ("repositories", repos), ("bootstrap", metadata)]:
             (stage / (name + ".json")).write_text(safe_json(value))
-        shutil.copyfile(HERE / "aq-install.sh", stage / "aq-install.sh")
+        for name in ("aq-install.sh", "worker-install-config.py"):
+            shutil.copyfile(HERE / name, stage / name)
+        shutil.copyfile(ROOT / "packaging/windows/aq-wsl-autostart.ps1", stage / "aq-wsl-autostart.ps1")
         scripts = ROOT / "scripts/sandbox-daemon"
         shutil.copytree(scripts, stage / "sandbox-daemon")
         with tarfile.open(stage / "podman-linux-amd64.tar.gz", "w:gz", compresslevel=3) as archive:
