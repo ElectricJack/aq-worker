@@ -104,6 +104,13 @@ impl Normalizer {
     }
 }
 #[derive(Serialize, Deserialize)]
+struct Identity {
+    id: Uuid,
+    node: Uuid,
+    container: String,
+}
+
+#[derive(Serialize, Deserialize)]
 struct State {
     id: Uuid,
     node: Uuid,
@@ -126,6 +133,18 @@ fn chunk(path: &Path, n: u64) -> PathBuf {
 }
 pub(super) fn initialize(root: &Path, id: Uuid, node: Uuid, container: &str) -> Result<()> {
     let path = dir(root, id);
+    // Keep a separate recovery identity: the recording state contains mutable
+    // offsets and may become unreadable independently of this small file.
+    if !path.join("identity.json").exists() {
+        write_private(
+            &path.join("identity.json"),
+            &serde_json::to_vec(&Identity {
+                id,
+                node,
+                container: container.into(),
+            })?,
+        )?;
+    }
     if path.join("state.json").exists() {
         return Ok(());
     }
@@ -401,6 +420,49 @@ async fn upload(path: &Path, state: &State, link: &ServerLink) -> Result<()> {
     }
     Ok(())
 }
+// A corrupt offset cannot establish an archive high-water mark. Release the
+// runner without deleting the raw spool or asserting an archive finalization.
+async fn release_corrupt(
+    path: &Path,
+    node: Uuid,
+    exe: &Path,
+    cfg: &DockerLocalConfig,
+) -> Result<()> {
+    if path.join("corrupt-released").exists() {
+        return Ok(());
+    }
+    let identity: Identity = serde_json::from_slice(&std::fs::read(path.join("identity.json"))?)?;
+    ensure!(
+        identity.node == node,
+        "recording identity belongs to another node"
+    );
+    ensure!(
+        path.parent()
+            .and_then(Path::file_name)
+            .and_then(|s| s.to_str())
+            == Some(identity.id.to_string().as_str()),
+        "recording identity does not match directory"
+    );
+    cli(
+        exe,
+        &cfg.socket,
+        &[
+            "exec",
+            &identity.container,
+            "/bin/sh",
+            "-c",
+            ": > /aq/out/transcript.drained",
+        ],
+        None,
+    )
+    .await?;
+    write_private(
+        &path.join("corrupt-released"),
+        b"Recording state unreadable; archive requires recovery",
+    )?;
+    Ok(())
+}
+
 pub(super) async fn run(
     root: PathBuf,
     node: Uuid,
@@ -418,6 +480,24 @@ pub(super) async fn run(
                     if let Ok(bytes) = std::fs::read(path.join("state.json")) {
                         match serde_json::from_slice::<State>(&bytes) {
                             Ok(mut state) if state.node == node => {
+                                // Recordings created before identity sidecars were introduced
+                                // get one while their mutable state is still readable.
+                                if !path.join("identity.json").exists()
+                                    && path
+                                        .parent()
+                                        .and_then(Path::file_name)
+                                        .and_then(|s| s.to_str())
+                                        == Some(state.id.to_string().as_str())
+                                {
+                                    let identity = Identity {
+                                        id: state.id,
+                                        node: state.node,
+                                        container: state.container.clone(),
+                                    };
+                                    if let Ok(bytes) = serde_json::to_vec(&identity) {
+                                        let _ = write_private(&path.join("identity.json"), &bytes);
+                                    }
+                                }
                                 if tick(&path, &mut state, &exe, &cfg).await.is_err() {
                                     let count = errors.entry(path.clone()).or_default();
                                     *count = count.saturating_add(1);
@@ -447,6 +527,7 @@ pub(super) async fn run(
                                     &path.join("recording-error"),
                                     b"Local recording state is unreadable",
                                 );
+                                let _ = release_corrupt(&path, node, &exe, &cfg).await;
                             }
                             _ => {}
                         }
@@ -492,7 +573,31 @@ pub(super) async fn request_stop(
     let Ok(bytes) = std::fs::read(path.join("state.json")) else {
         return true;
     };
-    if serde_json::from_slice::<State>(&bytes).is_ok_and(|s| s.ended) {
+    let state = match serde_json::from_slice::<State>(&bytes) {
+        Ok(state) => state,
+        Err(_) => {
+            let _ = write_private(
+                &path.join("recording-error"),
+                b"Local recording state is unreadable",
+            );
+            let _ = tmux(exe, cfg, container, &["kill-session", "-t", "aq"], None).await;
+            let _ = cli(
+                exe,
+                &cfg.socket,
+                &[
+                    "exec",
+                    container,
+                    "/bin/sh",
+                    "-c",
+                    ": > /aq/out/transcript.drained",
+                ],
+                None,
+            )
+            .await;
+            return true;
+        }
+    };
+    if state.ended {
         return true;
     }
     if !path.join("stop-requested").exists() {
@@ -893,5 +998,126 @@ sys.exit(1)
         );
         drop(bodies);
         server.abort();
+    }
+    #[tokio::test]
+    async fn corrupt_state_releases_runner_and_stop_without_erasing_chunks() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        let exe = temp.path().join("remote-fixture");
+        let script = format!(
+            "#!/usr/bin/env python3\nimport os,sys\na=sys.argv[4:]\nif a[0]=='exec':\n a=[x.replace('/aq/out',{:?}) for x in a[2:]]\n if a[0]=='tmux':\n  open({:?},'w').close(); sys.exit(0)\n os.execvp(a[0],a)\nsys.exit(1)\n",
+            out.to_str().unwrap(),
+            temp.path().join("stopped").to_str().unwrap()
+        );
+        std::fs::write(&exe, script).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let id = Uuid::new_v4();
+        let node = Uuid::new_v4();
+        initialize(temp.path(), id, node, "fixture").unwrap();
+        let path = dir(temp.path(), id);
+        std::fs::write(chunk(&path, 1), b"retained fixture").unwrap();
+        std::fs::write(path.join("state.json"), b"corrupt").unwrap();
+        let cfg = DockerLocalConfig::new(temp.path().join("fixture.sock"));
+        assert!(
+            release_corrupt(&path, Uuid::new_v4(), &exe, &cfg)
+                .await
+                .is_err()
+        );
+        assert!(!out.join("transcript.drained").exists());
+        release_corrupt(&path, node, &exe, &cfg).await.unwrap();
+        assert!(out.join("transcript.drained").exists());
+        assert!(path.join("corrupt-released").exists());
+        assert!(!temp.path().join("stopped").exists());
+        assert!(request_stop(temp.path(), id, &exe, &cfg, "fixture").await);
+        assert!(temp.path().join("stopped").exists());
+        assert_eq!(std::fs::read(chunk(&path, 1)).unwrap(), b"retained fixture");
+        assert!(path.join("recording-error").exists());
+        assert!(!path.join("upload.json").exists());
+    }
+    /// Opt-in integration with a real archive server supplied by its test harness.
+    #[tokio::test]
+    #[ignore = "requires disposable Docker image and private server fixture"]
+    async fn real_archive_docker_fixture() {
+        use std::os::unix::fs::PermissionsExt;
+        #[derive(Deserialize)]
+        struct Fixture {
+            origin: String,
+            credential: String,
+            session_id: Uuid,
+            node_id: Uuid,
+        }
+        let fixture_path =
+            std::env::var_os("AQ_RECORDING_FIXTURE").expect("private fixture path required");
+        let fixture: Fixture =
+            serde_json::from_slice(&std::fs::read(fixture_path).unwrap()).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let container_file = temp.path().join("container");
+        let helper =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/qualify-manual-recording.py");
+        let mut child = tokio::process::Command::new("python3")
+            .arg(helper)
+            .arg("--container-file")
+            .arg(&container_file)
+            .spawn()
+            .unwrap();
+        let mut container = String::new();
+        for _ in 0..300 {
+            if let Ok(name) = std::fs::read_to_string(&container_file) {
+                if !name.is_empty() {
+                    container = name;
+                    break;
+                }
+            }
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "Docker fixture exited early"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(!container.is_empty(), "Docker fixture timed out");
+        let exe = temp.path().join("docker-adapter");
+        std::fs::write(&exe, "#!/bin/sh\nshift 3\nexec docker \"$@\"\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        initialize(temp.path(), fixture.session_id, fixture.node_id, &container).unwrap();
+        let path = dir(temp.path(), fixture.session_id);
+        let cfg = DockerLocalConfig::new(temp.path().join("unused.sock"));
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        for _ in 0..30 {
+            tick(&path, &mut state, &exe, &cfg).await.unwrap();
+            if state.ended {
+                break;
+            }
+        }
+        assert!(state.ended && state.reason.is_none());
+        let link = ServerLink::new(&fixture.origin, &fixture.credential, None).unwrap();
+        for _ in 0..120 {
+            upload(&path, &state, &link).await.unwrap();
+            if path.join("upload.json").exists() {
+                let progress: Progress =
+                    serde_json::from_slice(&std::fs::read(path.join("upload.json")).unwrap())
+                        .unwrap();
+                assert!(
+                    !progress.unsupported,
+                    "server does not support archive uploads"
+                );
+                if progress.finalized {
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        let progress: Progress =
+            serde_json::from_slice(&std::fs::read(path.join("upload.json")).unwrap()).unwrap();
+        assert!(progress.finalized, "archive upload did not finalize");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(15), child.wait())
+                .await
+                .unwrap()
+                .unwrap()
+                .success()
+        );
     }
 }

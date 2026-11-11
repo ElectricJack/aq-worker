@@ -8,6 +8,7 @@ import argparse, pathlib, subprocess, tempfile, time, uuid, re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--raw-limit", action="store_true")
+parser.add_argument("--container-file", type=pathlib.Path)
 args = parser.parse_args()
 repository = pathlib.Path(__file__).resolve().parent.parent
 
@@ -51,8 +52,12 @@ with tempfile.TemporaryDirectory(prefix='aq-recording-fixture-') as tmp:
             assert raw.startswith(b'FIXTURE-BEGIN\r\n') and raw.endswith(b'FIXTURE-END\r\n')
             assert b'fixture-line-0700-' in raw and len(raw)>65536 and raw.count(b'\n')>500
             evidence = f'{len(raw)} bytes, {raw.count(bytes([10]))} lines, beginning/middle/end'
-        run('docker','exec',name,'sh','-c',': > /aq/out/transcript.drained')
-        for _ in range(50):
+        if args.container_file:
+            # The opt-in Rust harness drains the real container through tick().
+            args.container_file.write_text(name)
+        else:
+            run('docker','exec',name,'sh','-c',': > /aq/out/transcript.drained')
+        for _ in range(600 if args.container_file else 50):
             p=subprocess.run(['docker','inspect','--format','{{.State.Running}}',name],capture_output=True)
             if p.stdout.strip()==b'false': break
             time.sleep(.1)
