@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Resolve the bundled template and finish the newly enrolled worker's configuration."""
 import hashlib
+import shutil
+import tarfile
 import http.client
 import socket
 import uuid
@@ -14,6 +16,8 @@ import sys
 import tempfile
 import tomllib
 from urllib.parse import urlsplit
+
+NETWORK_TOOLS_SHA256 = "bc4e3950d651996e0aa9579577b96b3d76e1b51431a4fe109a3ebba21d60720b"
 
 
 def atomic_text(path, contents):
@@ -223,7 +227,7 @@ def receiver_update(config, digest):
     return {"ok": True, "phase": "receiver_update", "details": {"installer_sha256": digest}}
 
 
-def sandbox_diagnostics(config):
+def sandbox_probe(config):
     """Probe only AQ's configured sandbox; never read provider or node credentials."""
     service = read_toml(config / "service.toml")
     native = json.loads(Path(service["native_template"]).read_text())
@@ -334,6 +338,80 @@ def sandbox_diagnostics(config):
         except (OSError, ValueError, http.client.HTTPException):
             pass
 
+
+
+def install_network_tools(config):
+    """Restore an AQ-owned runtime dependency without sudo or system packages."""
+    state = read_toml(config / "service.toml")
+    prefix = Path.home() / ".local/opt/aq-sandbox-podman"
+    expected = prefix / "podman-linux-amd64/usr/local/bin/podman"
+    configured = Path(state.get("manual", {}).get("podman_executable", "/unconfigured"))
+    if configured != expected or not prefix.is_dir() or prefix.is_symlink() or prefix.stat().st_uid != os.getuid():
+        raise ValueError("Network helper repair is restricted to the installed AQ sandbox runtime.")
+    kill_mode = subprocess.run(["systemctl", "--user", "show", "aq-sandbox-podman.service", "--property=KillMode", "--value"], check=True, capture_output=True, text=True, timeout=15).stdout.strip()
+    if kill_mode != "process":
+        raise ValueError("The sandbox service must preserve running containers before it can be restarted.")
+    marker = json.loads((config / "hosted-install.json").read_text())
+    origin = marker["origin"]
+    if not re.fullmatch(r"https://[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]{1,5})?", origin):
+        raise ValueError("Network tools require the installed HTTPS worker origin.")
+    root = prefix / "network-tools"
+    root.mkdir(mode=0o700, exist_ok=True)
+    target = root / NETWORK_TOOLS_SHA256
+    if not target.exists():
+        with urllib.request.build_opener(NoRedirect()).open(origin + "/install/" + NETWORK_TOOLS_SHA256 + ".tar.gz", timeout=30) as response:
+            contents = response.read(8388609)
+        if len(contents) > 8388608 or hashlib.sha256(contents).hexdigest() != NETWORK_TOOLS_SHA256:
+            raise ValueError("AQ network tools failed checksum verification.")
+        with tempfile.TemporaryDirectory(prefix="stage-", dir=root) as stage:
+            stage = Path(stage)
+            archive = stage / "tools.tar.gz"; archive.write_bytes(contents)
+            unpacked = stage / "runtime"; unpacked.mkdir()
+            with tarfile.open(archive) as tar:
+                members = tar.getmembers()
+                if len(members) > 512 or sum(m.size for m in members) > 33554432 or any(not (m.isfile() or m.isdir()) for m in members):
+                    raise ValueError("AQ network tools archive was not a supported runtime.")
+                tar.extractall(unpacked, filter="data")
+            if not (unpacked / "bin/iptables").is_file() or not (unpacked / "manifest.json").is_file():
+                raise ValueError("AQ network tools archive is incomplete.")
+            unpacked.rename(target)
+    manifest = json.loads((target / "manifest.json").read_text())
+    for name, fact in manifest["files"].items():
+        path = (target / name).resolve()
+        if not path.is_relative_to(target.resolve()) or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != fact["sha256"]:
+            raise ValueError("Installed AQ network tools do not match their manifest.")
+    unitroot = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd/user/aq-sandbox-podman.service.d"
+    unitroot.mkdir(parents=True, exist_ok=True)
+    path = str(target / "bin") + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    path = path.replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"')
+    atomic_text(unitroot / "30-aq-network-tools.conf", '[Service]\nEnvironment="PATH=' + path + '"\n')
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True, capture_output=True, timeout=15)
+    subprocess.run(["systemctl", "--user", "restart", "aq-sandbox-podman.service"], check=True, capture_output=True, timeout=30)
+    return NETWORK_TOOLS_SHA256
+
+
+def sandbox_diagnostics(config):
+    report = sandbox_probe(config)
+    missing = not report.get("ok") and report.get("phase") == "container_start" and "iptables" in report.get("error", "") and "No such file or directory" in report.get("error", "")
+    if not missing:
+        return report
+    try:
+        restored = install_network_tools(config)
+        import time
+        for attempt in range(20):
+            try:
+                retry = sandbox_probe(config)
+                if retry.get("phase") != "daemon_info":
+                    break
+            except OSError:
+                if attempt == 19:
+                    raise
+            time.sleep(0.5)
+        retry.setdefault("details", {})["network_tools_restored"] = restored
+        return retry
+    except (ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
+        message = str(error)[:4096] if type(error) is ValueError or isinstance(error, OSError) else "AQ's private network helper repair failed."
+        return {"ok": False, "phase": "network_support", "error": message, "details": report.get("details", {})}
 
 def sync_diagnostics_slot(package, config, slot):
     job = diagnostic_request(config, {}, slot)

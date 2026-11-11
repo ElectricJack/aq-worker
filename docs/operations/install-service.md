@@ -366,3 +366,22 @@ keeps remote diagnosis available when those checks are what failed. Bootstrap
 errors are returned to the queued AQ diagnostic when its enrollment is usable;
 control polling can also recover the enrolled slot list from a malformed service
 configuration. Full installations still run all sandbox checks before success.
+
+### Rootless bridge networking dependency
+
+Fresh hosted installs require the Ubuntu `iptables` package. A rootless
+container without networking can pass while the agent's bridge network fails
+with `netavark: iptables: No such file or directory`.
+
+For connected workers, the fixed sandbox check recognizes that exact startup
+error and restores checksum-pinned AQ networking tools under the existing
+AQ sandbox runtime. The package includes iptables, its private shared libraries
+and extensions, package versions and copyright notices. It is built reproducibly
+by `prepare-network-tools.py` on Ubuntu amd64 and verified on Ubuntu 26.
+
+Repair changes only the AQ sandbox user service's PATH through its own drop-in.
+It checks `KillMode=process` before restarting the API daemon, preserving the
+container supervision boundary. It does not invoke sudo, install system packages
+or change global firewall configuration. The iptables wrapper uses its private
+libraries/extensions and an AQ-scoped lock file. Other diagnostic failures do not
+trigger this repair. The complete sandbox probe is repeated after restoration.

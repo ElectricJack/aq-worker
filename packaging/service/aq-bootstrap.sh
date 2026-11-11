@@ -60,9 +60,9 @@ install_packages() {
     sudo apt-get update && sudo apt-get install -y "$@"
 }
 
-if ! command -v python3 >/dev/null || ! command -v git >/dev/null || ! command -v newuidmap >/dev/null || ! command -v tmux >/dev/null; then
-  if ! install_packages ca-certificates git python3 tmux uidmap libutempter0; then
-    echo 'Install Python 3, Git, uidmap, tmux and libutempter0, then rerun the command.' >&2; exit 3
+if ! command -v python3 >/dev/null || ! command -v git >/dev/null || ! command -v newuidmap >/dev/null || ! command -v tmux >/dev/null || ! command -v iptables >/dev/null; then
+  if ! install_packages ca-certificates git python3 tmux uidmap libutempter0 iptables; then
+    echo 'Install Python 3, Git, uidmap, tmux, libutempter0 and iptables, then rerun the command.' >&2; exit 3
   fi
 fi
 if ! awk -F: -v name="$(id -un)" -v uid="$(id -u)" '

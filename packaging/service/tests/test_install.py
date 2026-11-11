@@ -573,3 +573,67 @@ def test_diagnostics_poll_survives_a_broken_service_configuration(tmp_path, monk
     monkeypatch.setattr(helper, 'sync_diagnostics_slot', lambda _package, _config, slot: seen.append(slot))
     helper.sync_logins(package, config)
     assert seen == [1]
+
+
+def test_missing_iptables_is_restored_only_for_its_specific_startup_failure(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    reports = iter([{'ok': False, 'phase': 'container_start', 'error': 'Sandbox API 500: netavark: iptables: No such file or directory (os error 2)'}, {'ok': True, 'phase': 'complete', 'details': {}}])
+    repaired = []
+    monkeypatch.setattr(helper, 'sandbox_probe', lambda _config: next(reports))
+    monkeypatch.setattr(helper, 'install_network_tools', lambda _config: repaired.append(True) or 'pinned-support')
+    result = helper.sandbox_diagnostics(config)
+    assert result['ok'] and result['details']['network_tools_restored'] == 'pinned-support'
+    assert len(repaired) == 1
+
+
+def test_unrelated_sandbox_failure_does_not_change_network_configuration(tmp_path, monkeypatch):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    failure = {'ok': False, 'phase': 'image', 'error': 'Image unavailable'}
+    monkeypatch.setattr(helper, 'sandbox_probe', lambda _config: failure)
+    monkeypatch.setattr(helper, 'install_network_tools', lambda _config: pytest.fail('Unrelated failure must not trigger repair'))
+    assert helper.sandbox_diagnostics(config) == failure
+
+
+def test_network_tools_install_is_private_pinned_and_restarts_only_aq_daemon(tmp_path, monkeypatch):
+    import hashlib
+    import io
+    import tarfile
+    from types import SimpleNamespace
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    prefix = tmp_path / '.local/opt/aq-sandbox-podman'
+    executable = prefix / 'podman-linux-amd64/usr/local/bin/podman'
+    executable.parent.mkdir(parents=True); executable.write_text('fixture podman')
+    text = (config / 'service.toml').read_text() + '\n[manual]\npodman_executable = ' + json.dumps(str(executable)) + '\n'
+    (config / 'service.toml').write_text(text)
+    (config / 'hosted-install.json').write_text(json.dumps({'origin': 'https://worker.example'}))
+    files = {'bin/iptables': b'#!/bin/sh\nexit 0\n'}
+    manifest = {'files': {'bin/iptables': {'sha256': hashlib.sha256(files['bin/iptables']).hexdigest()}}}
+    files['manifest.json'] = json.dumps(manifest).encode()
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w:gz') as archive:
+        for name, contents in files.items():
+            entry = tarfile.TarInfo(name); entry.size = len(contents); entry.mode = 0o755 if name.startswith('bin/') else 0o644
+            archive.addfile(entry, io.BytesIO(contents))
+    body = stream.getvalue(); pin = hashlib.sha256(body).hexdigest()
+    monkeypatch.setattr(helper, 'NETWORK_TOOLS_SHA256', pin)
+    class Opener:
+        def open(self, url, timeout):
+            assert url == 'https://worker.example/install/' + pin + '.tar.gz'
+            return io.BytesIO(body)
+    monkeypatch.setattr(helper.urllib.request, 'build_opener', lambda *_args: Opener())
+    commands = []
+    def command(args, **_kwargs):
+        commands.append(args)
+        return SimpleNamespace(stdout='process\n')
+    monkeypatch.setattr(helper.subprocess, 'run', command)
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path / 'xdg'))
+    original = Path.__dict__['home']; Path.home = classmethod(lambda _cls: tmp_path)
+    try:
+        assert helper.install_network_tools(config) == pin
+    finally:
+        Path.home = original
+    assert (prefix / 'network-tools' / pin / 'bin/iptables').read_bytes() == files['bin/iptables']
+    override = tmp_path / 'xdg/systemd/user/aq-sandbox-podman.service.d/30-aq-network-tools.conf'
+    assert str(prefix / 'network-tools' / pin / 'bin') in override.read_text()
+    assert commands[-1][-2:] == ['restart', 'aq-sandbox-podman.service']
+    assert not any('sudo' in c or 'apt-get' in c or any('aq-node@' in a for a in c) for c in commands)
