@@ -1182,11 +1182,11 @@ sys.exit(1)
             .unwrap();
         let mut container = String::new();
         for _ in 0..300 {
-            if let Ok(name) = std::fs::read_to_string(&container_file) {
-                if !name.is_empty() {
-                    container = name;
-                    break;
-                }
+            if let Ok(name) = std::fs::read_to_string(&container_file)
+                && !name.is_empty()
+            {
+                container = name;
+                break;
             }
             assert!(
                 child.try_wait().unwrap().is_none(),
@@ -1280,12 +1280,13 @@ sys.exit(1)
         recover_corrupt_archive(&path, node, &link).await.unwrap();
         assert!(path.join("corrupt-finalized").exists());
         assert_eq!(std::fs::read(chunk(&path, 2)).unwrap(), b"pending fixture");
-        let seen = bodies.lock().unwrap();
-        assert_eq!(seen.len(), 2);
-        assert_eq!(seen[0]["final_sequence"], 1);
-        assert_eq!(seen[1]["final_sequence"], 2);
-        assert_eq!(seen[1]["coverage"], "partial");
-        drop(seen);
+        {
+            let seen = bodies.lock().unwrap();
+            assert_eq!(seen.len(), 2);
+            assert_eq!(seen[0]["final_sequence"], 1);
+            assert_eq!(seen[1]["final_sequence"], 2);
+            assert_eq!(seen[1]["coverage"], "partial");
+        }
         // A conflicting finalization at the same server high-water mark is terminal.
         let id2 = Uuid::new_v4();
         initialize(root.path(), id2, node, "fixture").unwrap();

@@ -653,7 +653,7 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn oversized_source_geometry_refuses_before_any_range_or_git_mutation() {
     let mut export = synthetic();
-    export.manifest.bundle_bytes = 512 * 262144;
+    export.manifest.bundle_bytes = (1u64 << 30) + (1 << 20);
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
     let git = GitPeer::new(h.root.clone(), manifest);
