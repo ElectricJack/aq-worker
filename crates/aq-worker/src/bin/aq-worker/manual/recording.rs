@@ -111,11 +111,8 @@ struct State {
     offset: u64,
     bytes: u64,
     next: u64,
-    uploaded: u64,
     normalizer: Normalizer,
     ended: bool,
-    finalized: bool,
-    unsupported: bool,
     reason: Option<String>,
 }
 fn dir(root: &Path, id: Uuid) -> PathBuf {
@@ -141,11 +138,8 @@ pub(super) fn initialize(root: &Path, id: Uuid, node: Uuid, container: &str) -> 
             offset: 0,
             bytes: 0,
             next: 1,
-            uploaded: 0,
             normalizer: Normalizer::default(),
             ended: false,
-            finalized: false,
-            unsupported: false,
             reason: None,
         },
     )
@@ -170,17 +164,19 @@ fn add(path: &Path, state: &mut State, mut text: String) -> Result<()> {
     }
     Ok(())
 }
-async fn tick(
-    path: &Path,
-    state: &mut State,
-    link: &ServerLink,
-    exe: &Path,
-    cfg: &DockerLocalConfig,
-) -> Result<()> {
-    if state.finalized {
-        return Ok(());
+async fn tick(path: &Path, state: &mut State, exe: &Path, cfg: &DockerLocalConfig) -> Result<()> {
+    // A forced tmux close cannot prove that the PTY kernel buffer was empty.
+    if path.join("forced-stop").exists() {
+        state.reason.get_or_insert_with(|| {
+            "Session was stopped before terminal output could be fully verified".into()
+        });
     }
     // Read bounded blocks into durable immutable chunks before attempting HTTP.
+    if !state.ended && path.join("capture-lost").exists() {
+        state.reason = Some("Capture ended before the final output could be drained".into());
+        state.ended = true;
+        save(path, state)?;
+    }
     if !state.ended {
         let status = cli(exe, &cfg.socket, &["exec", &state.container, "/bin/sh", "-c", "if [ -e /aq/out/transcript.failed ]; then echo failed; elif [ -f /aq/out/transcript.raw ]; then if [ -e /aq/out/transcript.done ]; then echo done; else echo open; fi; wc -c < /aq/out/transcript.raw; else echo waiting; fi"], None).await;
         if let Ok(status) = status {
@@ -242,6 +238,12 @@ async fn tick(
                 {
                     let text = state.normalizer.feed(&[], true);
                     add(path, state, text)?;
+                    if path.join("forced-stop").exists() {
+                        state.reason.get_or_insert_with(|| {
+                            "Session was stopped before terminal output could be fully verified"
+                                .into()
+                        });
+                    }
                     state.ended = true;
                     save(path, state)?;
                     let _ = cli(
@@ -317,11 +319,32 @@ async fn tick(
             }
         }
     }
-    if state.unsupported {
+    Ok(())
+}
+#[derive(Default, Serialize, Deserialize)]
+struct Progress {
+    uploaded: u64,
+    finalized: bool,
+    unsupported: bool,
+}
+fn save_progress(path: &Path, progress: &Progress) -> Result<()> {
+    write_private(&path.join("upload.json"), &serde_json::to_vec(progress)?)
+}
+async fn upload(path: &Path, state: &State, link: &ServerLink) -> Result<()> {
+    let progress_file = path.join("upload.json");
+    let mut progress: Progress = if progress_file.exists() {
+        serde_json::from_slice(&std::fs::read(progress_file)?)?
+    } else {
+        Progress::default()
+    };
+    if progress.finalized {
         return Ok(());
     }
-    if state.uploaded + 1 < state.next {
-        let n = state.uploaded + 1;
+    if progress.unsupported {
+        return Ok(());
+    }
+    if progress.uploaded + 1 < state.next {
+        let n = progress.uploaded + 1;
         let text = std::fs::read_to_string(chunk(path, n))?;
         match link
             .manual_transcript(state.id, &json!({"sequence":n,"text":text}))
@@ -332,16 +355,16 @@ async fn tick(
                     ack["accepted_through"].as_u64() == Some(n),
                     "unexpected archive acknowledgement"
                 );
-                state.uploaded = n;
-                save(path, state)?;
+                progress.uploaded = n;
+                save_progress(path, &progress)?;
                 let _ = std::fs::remove_file(chunk(path, n));
             }
             Err(e)
                 if e.downcast_ref::<LinkError>()
                     .is_some_and(|e| e.status == 404) =>
             {
-                state.unsupported = true;
-                save(path, state)?;
+                progress.unsupported = true;
+                save_progress(path, &progress)?;
             }
             Err(_) => {}
         }
@@ -354,24 +377,24 @@ async fn tick(
         match link
             .manual_transcript(
                 state.id,
-                &json!({"final_sequence":state.uploaded,"coverage":coverage,"reason":state.reason}),
+                &json!({"final_sequence":progress.uploaded,"coverage":coverage,"reason":state.reason}),
             )
             .await
         {
             Ok(ack) => {
                 ensure!(
-                    ack["accepted_through"].as_u64() == Some(state.uploaded),
+                    ack["accepted_through"].as_u64() == Some(progress.uploaded),
                     "unexpected archive acknowledgement"
                 );
-                state.finalized = true;
-                save(path, state)?;
+                progress.finalized = true;
+                save_progress(path, &progress)?;
             }
             Err(e)
                 if e.downcast_ref::<LinkError>()
                     .is_some_and(|e| e.status == 404) =>
             {
-                state.unsupported = true;
-                save(path, state)?;
+                progress.unsupported = true;
+                save_progress(path, &progress)?;
             }
             Err(_) => {}
         }
@@ -386,21 +409,123 @@ pub(super) async fn run(
     cfg: DockerLocalConfig,
     _shutdown: watch::Receiver<bool>,
 ) {
-    loop {
-        if let Ok(entries) = std::fs::read_dir(&root) {
-            for entry in entries.flatten() {
-                let path = entry.path().join("recording");
-                if let Ok(bytes) = std::fs::read(path.join("state.json")) {
-                    if let Ok(mut state) = serde_json::from_slice::<State>(&bytes) {
-                        if state.node == node {
-                            let _ = tick(&path, &mut state, &link, &exe, &cfg).await;
+    let capture = async {
+        let mut errors = std::collections::BTreeMap::<PathBuf, u8>::new();
+        loop {
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    let path = entry.path().join("recording");
+                    if let Ok(bytes) = std::fs::read(path.join("state.json")) {
+                        match serde_json::from_slice::<State>(&bytes) {
+                            Ok(mut state) if state.node == node => {
+                                if tick(&path, &mut state, &exe, &cfg).await.is_err() {
+                                    let count = errors.entry(path.clone()).or_default();
+                                    *count = count.saturating_add(1);
+                                    let _ = write_private(
+                                        &path.join("recording-error"),
+                                        b"Recording could not read or persist output",
+                                    );
+                                    if *count == 1 {
+                                        tracing::warn!(session_id=%state.id, "manual recording encountered a local error");
+                                    }
+                                    if *count >= 3 {
+                                        let _ = write_private(
+                                            &path.join("capture-lost"),
+                                            b"capture lost",
+                                        );
+                                    }
+                                } else {
+                                    errors.remove(&path);
+                                }
+                            }
+                            Err(_) => {
+                                if !errors.contains_key(&path) {
+                                    tracing::warn!("manual recording state is unreadable");
+                                }
+                                errors.insert(path.clone(), 1);
+                                let _ = write_private(
+                                    &path.join("recording-error"),
+                                    b"Local recording state is unreadable",
+                                );
+                            }
+                            _ => {}
                         }
                     }
                 }
             }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    };
+    let uploads = async {
+        loop {
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    let path = entry.path().join("recording");
+                    if let Ok(bytes) = std::fs::read(path.join("state.json")) {
+                        if let Ok(state) = serde_json::from_slice::<State>(&bytes) {
+                            if state.node == node {
+                                if upload(&path, &state, &link).await.is_err() {
+                                    let _ = write_private(
+                                        &path.join("upload-error"),
+                                        b"Recording upload state or pending chunk is unreadable",
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    };
+    tokio::join!(capture, uploads);
+}
+
+pub(super) async fn request_stop(
+    root: &Path,
+    id: Uuid,
+    exe: &Path,
+    cfg: &DockerLocalConfig,
+    container: &str,
+) -> bool {
+    let path = dir(root, id);
+    let Ok(bytes) = std::fs::read(path.join("state.json")) else {
+        return true;
+    };
+    if serde_json::from_slice::<State>(&bytes).is_ok_and(|s| s.ended) {
+        return true;
     }
+    if !path.join("stop-requested").exists() {
+        let _ = write_private(&path.join("forced-stop"), b"forced stop");
+        if tmux(exe, cfg, container, &["kill-session", "-t", "aq"], None)
+            .await
+            .is_err()
+        {
+            // Before the provider starts there is no pipe to drain. If a pipe
+            // already exists, leave the recorder to consume its remaining bytes.
+            let raw_exists = cli(
+                exe,
+                &cfg.socket,
+                &[
+                    "exec",
+                    container,
+                    "/bin/sh",
+                    "-c",
+                    "test -f /aq/out/transcript.raw",
+                ],
+                None,
+            )
+            .await
+            .is_ok();
+            if !raw_exists {
+                let _ = write_private(&path.join("capture-lost"), b"capture lost");
+                let _ = write_private(&path.join("stop-requested"), b"stop requested");
+            }
+        } else {
+            let _ = write_private(&path.join("stop-requested"), b"stop requested");
+        }
+    }
+    false
 }
 pub(super) async fn drain_before_stop(
     root: &Path,
@@ -409,21 +534,15 @@ pub(super) async fn drain_before_stop(
     cfg: &DockerLocalConfig,
     container: &str,
 ) {
-    let path = dir(root, id);
-    if !path.join("state.json").exists() {
-        return;
-    }
-    let _ = tmux(exe, cfg, container, &["kill-session", "-t", "aq"], None).await;
     for _ in 0..40 {
-        if let Ok(bytes) = std::fs::read(path.join("state.json")) {
-            if serde_json::from_slice::<State>(&bytes).is_ok_and(|s| s.ended) {
-                return;
-            }
+        if request_stop(root, id, exe, cfg, container).await {
+            return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
-    let _ = write_private(&path.join("capture-lost"), b"capture lost");
+    let _ = write_private(&dir(root, id).join("capture-lost"), b"capture lost");
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,7 +553,7 @@ mod tests {
             let mut n = Normalizer::default();
             let mut out = n.feed(&bytes[..i], false);
             out.push_str(&n.feed(&bytes[i..], true));
-            assert_eq!(out, "α sk-ant-**********************\nnext");
+            assert_eq!(out, "α sk-ant-**********************\n****");
         }
     }
     #[test]
@@ -476,5 +595,203 @@ mod tests {
         add(&path, &mut state, "abc".into()).unwrap();
         assert_eq!(std::fs::read_to_string(chunk(&path, 1)).unwrap(), "ab");
         assert!(state.reason.is_some());
+    }
+    #[tokio::test]
+    async fn lost_ack_retries_exact_chunk_after_restart_and_finalizes() {
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        use std::sync::{Arc, Mutex};
+        let received = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let seen = received.clone();
+        let app = Router::new().route("/v1/worker/manual-agents/{id}/transcript", post(move |Json(body): Json<serde_json::Value>| {
+            let seen = seen.clone();
+            async move {
+                let mut seen = seen.lock().unwrap();
+                seen.push(body.clone());
+                if seen.len() == 1 { return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({}))); }
+                (StatusCode::OK, Json(json!({"accepted_through":1,"next_sequence":2,"archive_state":"complete"})))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let id = Uuid::new_v4();
+        initialize(root.path(), id, Uuid::new_v4(), "fixture").unwrap();
+        let path = dir(root.path(), id);
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        add(&path, &mut state, "fixture text\n".into()).unwrap();
+        state.ended = true;
+        save(&path, &state).unwrap();
+        let link = ServerLink::new(&origin, "fixture-credential", None).unwrap();
+        upload(&path, &state, &link).await.unwrap();
+        assert!(!path.join("upload.json").exists());
+        let state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        upload(&path, &state, &link).await.unwrap();
+        upload(&path, &state, &link).await.unwrap();
+        let bodies = received.lock().unwrap();
+        assert_eq!(bodies.len(), 3);
+        assert_eq!(bodies[0], bodies[1]);
+        assert_eq!(bodies[2]["final_sequence"], 1);
+        assert_eq!(bodies[2]["coverage"], "complete");
+        drop(bodies);
+        server.abort();
+    }
+    #[tokio::test]
+    async fn fast_exit_drains_every_byte_through_real_tmux_pipe() {
+        use std::os::unix::fs::PermissionsExt;
+        if std::process::Command::new("tmux")
+            .arg("-V")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        let exe = temp.path().join("remote-fixture");
+        let script = format!(
+            r##"#!/usr/bin/env python3
+import os,sys
+args=sys.argv[4:]
+if args[0] == 'exec':
+    args=[x.replace('/aq/out', {out:?}) for x in args[2:]]
+    os.execvp(args[0],args)
+sys.exit(1)
+"##,
+            out = out.to_str().unwrap()
+        );
+        std::fs::write(&exe, script).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = out.join("manual.sock");
+        let tmux = |args: &[&str]| {
+            std::process::Command::new("tmux")
+                .arg("-S")
+                .arg(&socket)
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        assert!(tmux(&["new-session", "-d", "-s", "aq", "while [ ! -e /aq/out/ready ]; do sleep 0.05; done; head -c 90000 /dev/zero | tr '\\0' x; printf LAST".replace("/aq/out", out.to_str().unwrap()).as_str()]).status.success());
+        let pipe = format!(
+            "umask 077; head -c 134217728 > {}/transcript.raw; : > {}/transcript.done",
+            out.display(),
+            out.display()
+        );
+        assert!(
+            tmux(&["pipe-pane", "-O", "-t", "aq", &pipe])
+                .status
+                .success()
+        );
+        std::fs::write(out.join("ready"), b"").unwrap();
+        for _ in 0..200 {
+            if out.join("transcript.done").exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(out.join("transcript.done").exists());
+        let id = Uuid::new_v4();
+        initialize(temp.path(), id, Uuid::new_v4(), "fixture").unwrap();
+        let path = dir(temp.path(), id);
+        let cfg = DockerLocalConfig::new(temp.path().join("fixture.sock"));
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        while !state.ended {
+            tick(&path, &mut state, &exe, &cfg).await.unwrap();
+        }
+        assert!(state.reason.is_none());
+        let mut text = String::new();
+        for n in 1..state.next {
+            text.push_str(&std::fs::read_to_string(chunk(&path, n)).unwrap());
+        }
+        assert_eq!(text.len(), 90004);
+        assert!(text.starts_with(&"x".repeat(90000)));
+        assert!(text.ends_with("LAST"));
+        assert!(out.join("transcript.drained").exists());
+    }
+    #[tokio::test]
+    async fn stop_drains_backlog_before_returning_ready() {
+        use std::os::unix::fs::PermissionsExt;
+        if std::process::Command::new("tmux")
+            .arg("-V")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        let exe = temp.path().join("remote-fixture");
+        let script = format!(
+            "#!/usr/bin/env python3\nimport os,sys\na=sys.argv[4:]\nif a[0]=='exec':\n a=[x.replace('/aq/out',{:?}) for x in a[2:]]\n os.execvp(a[0],a)\nsys.exit(1)\n",
+            out.to_str().unwrap()
+        );
+        std::fs::write(&exe, script).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = out.join("manual.sock");
+        let tmux = |args: &[&str]| {
+            std::process::Command::new("tmux")
+                .arg("-S")
+                .arg(&socket)
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        let command = format!(
+            "while [ ! -e {0}/ready ]; do sleep 0.05; done; head -c 150000 /dev/zero | tr '\\0' x; printf LAST; : > {0}/produced; sleep 30",
+            out.display()
+        );
+        assert!(
+            tmux(&["new-session", "-d", "-s", "aq", &command])
+                .status
+                .success()
+        );
+        let pipe = format!(
+            "umask 077; head -c 134217728 > {0}/transcript.raw; : > {0}/transcript.done",
+            out.display()
+        );
+        assert!(
+            tmux(&["pipe-pane", "-O", "-t", "aq", &pipe])
+                .status
+                .success()
+        );
+        std::fs::write(out.join("ready"), b"").unwrap();
+        for _ in 0..400 {
+            if out.join("produced").exists()
+                && std::fs::metadata(out.join("transcript.raw")).is_ok_and(|m| m.len() >= 140000)
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(out.join("produced").exists());
+        let id = Uuid::new_v4();
+        initialize(temp.path(), id, Uuid::new_v4(), "fixture").unwrap();
+        let path = dir(temp.path(), id);
+        let cfg = DockerLocalConfig::new(temp.path().join("fixture.sock"));
+        assert!(!request_stop(temp.path(), id, &exe, &cfg, "fixture").await);
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        for _ in 0..100 {
+            tick(&path, &mut state, &exe, &cfg).await.unwrap();
+            if state.ended {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(state.ended);
+        assert!(state.reason.is_some());
+        assert!(request_stop(temp.path(), id, &exe, &cfg, "fixture").await);
+        let mut text = String::new();
+        for n in 1..state.next {
+            text.push_str(&std::fs::read_to_string(chunk(&path, n)).unwrap());
+        }
+        assert_eq!(text.len(), 150004);
+        assert!(text.ends_with("LAST"));
     }
 }

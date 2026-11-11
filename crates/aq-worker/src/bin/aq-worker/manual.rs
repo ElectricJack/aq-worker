@@ -567,14 +567,36 @@ pub async fn run(
                             )
                             .await;
                         }
-                        recording::drain_before_stop(
+                        if !recording::request_stop(
                             &root,
                             a.id,
                             &exe,
                             &settings.host.docker_local,
                             &sandbox.backend_id,
                         )
-                        .await;
+                        .await
+                        {
+                            // Keep the sandbox alive while the recorder drains. Neither
+                            // HTTP upload nor backlog size holds up the poll loop.
+                            let _ = cli(
+                                &exe,
+                                &settings.host.docker_local.socket,
+                                &[
+                                    "exec",
+                                    "-i",
+                                    &sandbox.backend_id,
+                                    "/bin/sh",
+                                    "-c",
+                                    "umask 077; cat > /aq/out/lease",
+                                ],
+                                Some((node.lease_until / 1000).to_string().as_bytes()),
+                            )
+                            .await;
+                            a.status = "stopping".into();
+                            a.stage = "Saving terminal output".into();
+                            save(&root, a)?;
+                            continue;
+                        }
                         let mut backend =
                             DockerLocalBackend::connect_unix(settings.host.docker_local.clone())
                                 .await?;
