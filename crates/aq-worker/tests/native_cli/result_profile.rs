@@ -1,6 +1,12 @@
-use super::*;
-use crate::native::ArtifactAssembly;
+use aq_admission::{ArtifactKind, RetainedArtifact};
 use aq_session_protocol::Text;
+use aq_session_protocol::{ArtifactRef, Digest, LaunchManifest, Validate};
+use aq_worker::native::{
+    ArtifactAssembly, VerifiedArtifact,
+    adapter::result_client::MAX_RESULT_CLIENT_INSTALLATION_BYTES,
+    adapter::result_profile::{ExpectedResultAdapter, ResultAdapterDefinition, ResultAdapterKind},
+    journal::RuntimeIdentity,
+};
 fn reference(name: &str) -> ArtifactRef {
     ArtifactRef {
         id: Text::new(name).unwrap(),
@@ -22,6 +28,7 @@ fn definition() -> ResultAdapterDefinition {
         contract: aq_agent_result_local::artifact(),
         recipe: aq_codex_mapper::result_local_recipe_artifact(),
         permission_digest: Digest::of(b"permissions"),
+        additional_permission_digests: vec![],
         reserved_client_bytes: MAX_RESULT_CLIENT_INSTALLATION_BYTES,
     }
 }
@@ -205,7 +212,7 @@ fn retained_definition_requires_its_original_role_descriptor_bytes_and_selection
 #[test]
 fn result_profile_preserves_existing_permission_domain_and_pins_whole_plan() {
     let published: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../../../../vendor/aq-admission-0.1.7/artifacts/control.fixture.json"
+        "../../../../vendor/aq-admission-0.1.7/artifacts/control.fixture.json"
     ))
     .unwrap();
     let mut manifest: LaunchManifest =
@@ -219,8 +226,7 @@ fn result_profile_preserves_existing_permission_domain_and_pins_whole_plan() {
     manifest.model.spending_budget = None;
     let mut value = definition();
     value.environment = manifest.harness.environment.clone();
-    value.permission_digest =
-        crate::native::journal::canonical_digest(&manifest.permissions).unwrap();
+    value.permission_digest = permission_digest(&manifest.permissions);
     manifest.harness.adapter = value.artifact().unwrap();
     value.validate_manifest(&manifest).unwrap();
     let original_adapter = manifest.harness.adapter.clone();
@@ -240,11 +246,67 @@ fn result_profile_preserves_existing_permission_domain_and_pins_whole_plan() {
         "whole compiled permission plan is pinned"
     );
     let mut selected_changed = value.clone();
-    selected_changed.permission_digest =
-        crate::native::journal::canonical_digest(&changed.permissions).unwrap();
+    selected_changed.permission_digest = permission_digest(&changed.permissions);
     changed.harness.adapter = selected_changed.artifact().unwrap();
     selected_changed.validate_manifest(&changed).unwrap();
     let mut wrong_adapter = manifest;
     wrong_adapter.harness.adapter = reference("other adapter");
     assert!(value.validate_manifest(&wrong_adapter).is_err());
+}
+
+fn permission_digest(value: &impl serde::Serialize) -> Digest {
+    let mut value = serde_json::to_value(value).unwrap();
+    value.sort_all_objects();
+    Digest::of(&serde_json::to_vec(&value).unwrap())
+}
+#[test]
+fn claude_accepts_only_the_explicitly_installed_permission_plans() {
+    let published: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../vendor/aq-admission-0.1.7/artifacts/control.fixture.json"
+    ))
+    .unwrap();
+    let mut manifest: LaunchManifest =
+        serde_json::from_value(published["native_offer"]["offered"]["offer"]["manifest"].clone())
+            .unwrap();
+    manifest.harness.harness = Text::new("claude").unwrap();
+    manifest.harness.cli_version = Text::new("2.1.318").unwrap();
+    manifest
+        .harness
+        .required_capabilities
+        .retain(|c| c.id.as_str() != aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY);
+    manifest
+        .harness
+        .required_capabilities
+        .push(aq_session_protocol::Capability {
+            id: Text::new(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY).unwrap(),
+            version: 1,
+        });
+    manifest.model.provider = Text::new("anthropic").unwrap();
+    manifest.model.spending_budget = None;
+    manifest.terminal.input_enabled = false;
+    let mut value = definition();
+    value.profile = ResultAdapterKind::Claude2318DockerLocalV1;
+    value.recipe = value.recipe_artifact();
+    value.environment = manifest.harness.environment.clone();
+    value.permission_digest = permission_digest(&manifest.permissions);
+    let mut second = manifest.clone();
+    second
+        .permissions
+        .omissions
+        .push(Text::new("unavailable optional scope").unwrap());
+    value.additional_permission_digests = vec![permission_digest(&second.permissions)];
+    let selected = value.artifact().unwrap();
+    manifest.harness.adapter = selected.clone();
+    second.harness.adapter = selected;
+    value.validate_manifest(&manifest).unwrap();
+    value.validate_manifest(&second).unwrap();
+    second
+        .permissions
+        .omissions
+        .push(Text::new("unapproved change").unwrap());
+    assert!(value.validate_manifest(&second).is_err());
+    value
+        .additional_permission_digests
+        .push(value.permission_digest.clone());
+    assert!(ResultAdapterDefinition::decode(&value.encode().unwrap()).is_err());
 }

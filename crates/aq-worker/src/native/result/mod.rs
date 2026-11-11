@@ -231,7 +231,7 @@ impl InputPipeline {
                     client_executable: definition.client_executable.clone(),
                     environment: definition.environment.clone(),
                     recipe: definition.recipe.clone(),
-                    permission_digest: definition.permission_digest.clone(),
+                    permission_digest: super::super::journal::canonical_digest(&m.permissions)?,
                     reserved_client_bytes: definition.reserved_client_bytes,
                 };
                 ensure!(

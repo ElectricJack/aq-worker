@@ -234,6 +234,7 @@ fn result_configuration(
         contract: aq_agent_result_local::artifact(),
         recipe: aq_codex_mapper::result_local_recipe_artifact(),
         permission_digest: selected.permissions_digest.clone(),
+        additional_permission_digests: vec![],
         reserved_client_bytes:
             crate::native::adapter::result_client::MAX_RESULT_CLIENT_INSTALLATION_BYTES,
     };

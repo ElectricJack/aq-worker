@@ -4,7 +4,7 @@ use crate::native::preparation::{
     DurableInitialGrant, GrantCommit, QualifiedPresenceProfile, ScopedPresenceProducer,
 };
 use aq_admission::scoped_presence as wire;
-fn profile(formatted: bool) -> (QualifiedPresenceProfile, ArtifactRef) {
+pub(crate) fn profile(formatted: bool) -> (QualifiedPresenceProfile, ArtifactRef) {
     let runtime = qualification();
     let adapter = ArtifactRef {
         id: Text::new("synthetic.presence-adapter").unwrap(),

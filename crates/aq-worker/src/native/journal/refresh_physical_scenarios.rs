@@ -360,7 +360,7 @@ async fn production_collect_dispatch_retains_actual_refresh_inputs_without_launc
     config.renderer = a.reservation.offer.startup.renderer_qualification.clone();
     let grant = crate::native::runner::test_collect(
         h.pipeline(),
-        &h.client,
+        &h.inventory().await,
         &config,
         h.id,
         &a.reservation.offer,

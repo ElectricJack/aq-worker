@@ -136,6 +136,8 @@ pub struct NativeSlotBackend {
     /// Attempts whose restart handoff notice the server accepted; a retried recovery does
     /// not post them again.
     notified: std::sync::Mutex<std::collections::HashSet<Uuid>>,
+    manual_pause: std::collections::BTreeMap<Uuid, watch::Receiver<bool>>,
+    native_active: std::collections::BTreeMap<Uuid, Arc<std::sync::atomic::AtomicUsize>>,
 }
 impl NativeSlotBackend {
     pub fn new(template: PathBuf, measure_node: Uuid) -> Self {
@@ -143,6 +145,8 @@ impl NativeSlotBackend {
             template,
             measure_node,
             notified: Default::default(),
+            manual_pause: Default::default(),
+            native_active: Default::default(),
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
@@ -404,6 +408,40 @@ impl SlotBackend for NativeSlotBackend {
         shutdown: watch::Receiver<bool>,
         pause: watch::Receiver<bool>,
     ) -> Result<AttemptOutcome> {
+        struct Active(Arc<std::sync::atomic::AtomicUsize>);
+        impl Drop for Active {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let active = self
+            .native_active
+            .get(&ctx.node_id)
+            .cloned()
+            .unwrap_or_default();
+        active.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let _active = Active(active);
+        let mut native_pause = pause;
+        let mut manual_pause = self
+            .manual_pause
+            .get(&ctx.node_id)
+            .cloned()
+            .unwrap_or_else(|| watch::channel(false).1);
+        let (combined, pause) = watch::channel(*native_pause.borrow() || *manual_pause.borrow());
+        let merge = tokio::spawn(async move {
+            let mut manual_live = true;
+            loop {
+                combined.send_replace(*native_pause.borrow() || *manual_pause.borrow());
+                tokio::select! {r=native_pause.changed()=>{if r.is_err(){break;}},r=manual_pause.changed(),if manual_live=>{if r.is_err(){manual_live=false;}}}
+            }
+        });
+        struct Merger(tokio::task::JoinHandle<()>);
+        impl Drop for Merger {
+            fn drop(&mut self) {
+                self.0.abort();
+            }
+        }
+        let _merge = Merger(merge);
         let worker = WorkerConfig::load(&ctx.enrollment)?;
         let cfg = self.native_config(&ctx)?;
         let mut executor = ClaudeDockerExecutor::configured(&worker)?;
@@ -558,6 +596,7 @@ async fn enroll_in(
             model: args.measurement_model.clone(),
             ..MeasurementConfig::default()
         },
+        manual: None,
         shutdown_grace_ms: 120_000,
     };
     // Repository count and format, absolute paths (the token file too), bounds, and the
@@ -968,14 +1007,43 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
         runtime = %layout.runtime_root.display(), "worker service starting");
     // Each slot's handoff notices go out under that slot's own credential (D4).
     let control = Arc::new(MachineLink::new(link.clone(), &layout, config.slots));
-    let backend = Arc::new(NativeSlotBackend::new(
-        config.native_template.clone(),
-        slot1.node_id,
-    ));
+    let mut manual_pause = std::collections::BTreeMap::new();
+    let mut manual_pause_tx = std::collections::BTreeMap::new();
+    let mut native_active = std::collections::BTreeMap::new();
+    for slot in 1..=config.slots {
+        let id = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
+        let (tx, rx) = watch::channel(false);
+        manual_pause.insert(id, rx);
+        manual_pause_tx.insert(id, tx);
+        native_active.insert(id, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    }
+    let manual = if config.manual.is_some() {
+        Some(tokio::spawn(super::manual::run(
+            config.clone(),
+            Layout::for_service(config_dir, &config),
+            rx.clone(),
+            manual_pause_tx,
+            native_active.clone(),
+        )))
+    } else {
+        None
+    };
+    let mut native_backend = NativeSlotBackend::new(config.native_template.clone(), slot1.node_id);
+    native_backend.manual_pause = manual_pause;
+    native_backend.native_active = native_active;
+    let backend = Arc::new(native_backend);
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
     let result = Supervisor::new(config, layout, backend, control, git)
         .run(rx)
         .await;
+    if let Some(manual) = manual {
+        match manual.await {
+            Ok(Ok(())) => {}
+            _ => tracing::error!(
+                "manual session supervisor stopped with an error; sandboxes retain their expiring watchdog"
+            ),
+        }
+    }
     watcher.abort();
     if let Some(machine) = machine {
         machine.abort();

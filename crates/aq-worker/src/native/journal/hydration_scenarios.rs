@@ -653,7 +653,7 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn oversized_source_geometry_refuses_before_any_range_or_git_mutation() {
     let mut export = synthetic();
-    export.manifest.bundle_bytes = 512 * 262144;
+    export.manifest.bundle_bytes = (1u64 << 30) + (1 << 20);
     let manifest = export.manifest.clone();
     let h = Inputs::new(export).await;
     let git = GitPeer::new(h.root.clone(), manifest);
@@ -1082,7 +1082,7 @@ async fn inline_batch_fsync_cuts_never_reopen_partial_plan_or_completion() {
 mod granted_scenarios;
 
 #[path = "presence_scenarios.rs"]
-mod presence_scenarios;
+pub(super) mod presence_scenarios;
 
 async fn phase_physical(
     h: &Inputs,
@@ -1488,7 +1488,7 @@ async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch
     config.renderer = a.reservation.offer.startup.renderer_qualification.clone();
     let grant = crate::native::runner::test_collect(
         h.pipeline(),
-        &h.client,
+        &h.inventory().await,
         &config,
         h.id,
         &a.reservation.offer,

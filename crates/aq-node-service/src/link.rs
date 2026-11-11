@@ -22,6 +22,8 @@ pub struct ServerLink {
 pub struct LinkError {
     pub status: u16,
     pub code: Option<String>,
+    /// Server-provided transcript cursor, when present in a conflict response.
+    pub next_sequence: Option<u64>,
 }
 impl LinkError {
     /// AQ itself refused the credential: 401 or 403 in AQ's own error schema.
@@ -57,6 +59,88 @@ pub fn checked_origin(origin: &str) -> Result<url::Url> {
     Ok(origin)
 }
 impl ServerLink {
+    /// A bounded, original-node WebSocket. Never follows a redirect or exposes credentials to a sandbox.
+    pub async fn terminal_stream(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        self.terminal_stream_path(&format!("/v1/worker/manual-agents/{id}/terminal-stream"))
+            .await
+    }
+    pub async fn host_terminal_stream(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        self.terminal_stream_path(&format!("/v1/worker/host-terminals/{id}/terminal-stream"))
+            .await
+    }
+    pub async fn host_terminal_poll(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
+        self.post("/v1/worker/host-terminals", body).await
+    }
+    async fn terminal_stream_path(
+        &self,
+        path: &str,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut url = self.origin.join(path)?;
+        let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
+        url.set_scheme(scheme)
+            .map_err(|_| anyhow::anyhow!("invalid stream origin"))?;
+        let mut request = url
+            .as_str()
+            .into_client_request()
+            .map_err(|_| anyhow::anyhow!("invalid terminal stream request"))?;
+        let mut bearer = header::HeaderValue::from_str(&format!("Bearer {}", &*self.credential))
+            .map_err(|_| anyhow::anyhow!("invalid node credential"))?;
+        bearer.set_sensitive(true);
+        request.headers_mut().insert(header::AUTHORIZATION, bearer);
+        if let Some((id, secret)) = &self.access {
+            let mut value = header::HeaderValue::from_str(secret)
+                .map_err(|_| anyhow::anyhow!("invalid Access secret"))?;
+            value.set_sensitive(true);
+            request
+                .headers_mut()
+                .insert("cf-access-client-id", header::HeaderValue::from_str(id)?);
+            request
+                .headers_mut()
+                .insert("cf-access-client-secret", value);
+        }
+        let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(131072))
+            .max_frame_size(Some(131072));
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            tokio_tungstenite::connect_async_with_config(request, Some(config), false),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("terminal stream handshake timed out"))?
+        .map(|(socket, _)| socket)
+        .map_err(|_| anyhow::anyhow!("terminal stream handshake refused"))
+    }
+    pub async fn manual_poll(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
+        self.post("/v1/worker/manual-agents", body).await
+    }
+    /// Append an immutable transcript chunk or finalize an archive.
+    pub async fn manual_transcript(
+        &self,
+        id: uuid::Uuid,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        self.post(&format!("/v1/worker/manual-agents/{id}/transcript"), body)
+            .await
+    }
     /// Refuses an origin outside `checked_origin`'s rule and an empty or non-ASCII credential.
     pub fn new(origin: &str, credential: &str, access: Option<(&str, &str)>) -> Result<Self> {
         let origin = checked_origin(origin)?;
@@ -154,6 +238,13 @@ impl ServerLink {
             return Err(LinkError {
                 status: status.as_u16(),
                 code,
+                next_sequence: if status.as_u16() == 409 {
+                    serde_json::from_slice::<serde_json::Value>(&bytes)
+                        .ok()
+                        .and_then(|v| v.get("next_sequence").and_then(|n| n.as_u64()))
+                } else {
+                    None
+                },
             }
             .into());
         }

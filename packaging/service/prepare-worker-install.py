@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import tomllib
@@ -30,6 +31,27 @@ def copy_pin(source, target, expected):
         raise ValueError(f"The bytes of {source.name} do not match the active worker template.")
     shutil.copyfile(source, target)
     target.chmod(0o755 if source.stat().st_mode & 0o111 else 0o644)
+
+
+def package_tmux(pin, stage):
+    source = Path(pin["path"])
+    target = stage / "tmux"
+    copy_pin(source, target, pin["artifact"]["digest"])
+    libraries = subprocess.run(["ldd", source], capture_output=True, text=True, timeout=10).stdout
+    for line in libraries.splitlines():
+        fields = line.split()
+        if fields[:2] != ["libtinfo.so.6", "=>"]:
+            continue
+        # Keep the versioned ncurses symbols available to the bundled executable.
+        # Only this copy of tmux loads the bundled library.
+        directory = stage / "tmux-libs"
+        directory.mkdir()
+        shutil.copyfile(fields[2], directory / "libtinfo.so.6")
+        shutil.copyfile("/usr/share/doc/libtinfo6/copyright", directory / "copyright")
+        subprocess.run(["patchelf", "--add-rpath", "$ORIGIN/tmux-libs", target], check=True)
+        pin["artifact"]["version"] += "-with-tinfo"
+        pin["artifact"]["digest"] = sha(target)
+        break
 
 
 def registry_paths(image, pinned):
@@ -60,6 +82,12 @@ def safe_json(value):
     if re.search(r"sk-ant-|sk-proj-|aqn_[A-Za-z0-9_-]{25,}|aqe_[A-Za-z0-9_-]{25,}|aqsv1_[a-f0-9]{64}", encoded):
         raise ValueError("A setup file contains credential material.")
     return encoded
+
+
+def render_bootstrap(bundle_digest):
+    template = (HERE / "aq-bootstrap.sh").read_text()
+    config = (HERE / "worker-install-config.py").read_text().rstrip().replace("@AQ_HOST_BUNDLE_SHA256@", bundle_digest)
+    return template.replace("@AQ_ARCHIVE_SHA256@", bundle_digest).replace("@AQ_INSTALL_CONFIG@", config)
 
 
 def nginx_config(args, registry, paths):
@@ -157,7 +185,7 @@ def build(args):
             else:
                 shutil.copyfile(src, stage / name)
             (stage / name).chmod(0o755)
-        copy_pin(Path(host["tmux"]["path"]), stage / "tmux", host["tmux"]["artifact"]["digest"])
+        package_tmux(host["tmux"], stage)
         for source, name in [(native["adapter_manifest"], "adapter.json"), (executor["composite_definition"], "composite.json"), (native["inventory_definition"], "inventory.json")]:
             # Preserve the exact pinned bytes, including the original formatting.
             raw = Path(source).read_bytes()
@@ -193,7 +221,7 @@ def build(args):
         digest = sha(output)
         output.replace(download / (digest + ".tar.gz"))
         bootstrap = Path(temp) / "aq-worker.sh"
-        bootstrap.write_text((HERE / "aq-bootstrap.sh").read_text().replace("@AQ_ARCHIVE_SHA256@", digest))
+        bootstrap.write_text(render_bootstrap(digest))
         installer_digest = sha(bootstrap)
         bootstrap.replace(download / (installer_digest + ".sh"))
     (args.output / "nginx.conf").write_text(config)

@@ -126,9 +126,10 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 .profile
                 .clone()
                 .context("Claude executor not preflighted")?;
-            let pins = self.pins.clone().context("Claude result pins absent")?;
+            let mut pins = self.pins.clone().context("Claude result pins absent")?;
             let root = self.result_root.clone().context("result root absent")?;
             let id = grant.history().attempt_id();
+            pins.permission_digest = pipeline.phase_permission_digest(&grant).await?;
             let channel = pipeline
                 .create_result_channel_in_namespace(&grant, root, pins)
                 .await?;

@@ -260,7 +260,7 @@ async fn source_manifest_pins_and_bounded_member_ranges_are_exact() {
     }
     assert!(
         s.client
-            .source_chunk(&s.binding, &manifest, TransferFile::Bundle, 0, 262145)
+            .source_chunk(&s.binding, &manifest, TransferFile::Bundle, 0, 1_048_577)
             .await
             .is_err()
     );

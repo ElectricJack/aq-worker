@@ -23,3 +23,7 @@ pub use supervisor::{
     GitChild, GitFactory, MachineLink, QUIET_WINDOW, RecoverOutcome, SlotBackend, SlotContext,
     Supervisor, mark_handoff, recorded_handoff, running_attempts,
 };
+
+pub mod polling;
+
+pub mod source_hash;

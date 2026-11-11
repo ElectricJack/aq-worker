@@ -96,27 +96,9 @@ fn unchanged(before: &Metadata, file: &File) -> Result<()> {
     Ok(())
 }
 fn hash_exact(reader: &mut impl Read, expected: u64) -> Result<String> {
-    ensure!(
-        expected > 0 && expected <= 128 * 1024 * 1024,
-        "native source streaming byte bound"
-    );
-    let mut hash = Sha256::new();
-    let mut remaining = expected;
-    let mut buffer = [0; 65536];
-    while remaining > 0 {
-        let limit = remaining.min(buffer.len() as u64) as usize;
-        let n = reader.read(&mut buffer[..limit])?;
-        ensure!(n > 0, "native source bundle truncated");
-        hash.update(&buffer[..n]);
-        remaining -= n as u64;
-    }
-    let mut extra = [0];
-    ensure!(
-        reader.read(&mut extra)? == 0,
-        "native source bundle grew beyond admitted bound"
-    );
-    Ok(format!("{:x}", hash.finalize()))
+    aq_node_service::source_hash::exact(reader, expected, 1024 * 1024 * 1024)
 }
+
 pub(crate) struct Staging {
     root: File,
     path: PathBuf,
@@ -223,7 +205,7 @@ impl Staging {
     pub(crate) fn append(&self, file: &TransferFile, offset: u64, bytes: &[u8]) -> Result<()> {
         self.check()?;
         ensure!(
-            !bytes.is_empty() && bytes.len() <= 262144,
+            !bytes.is_empty() && bytes.len() <= 1048576,
             "native source chunk bound"
         );
         let dir = self.directory(true)?;
@@ -351,7 +333,7 @@ mod tests {
                 hex: "a".repeat(40),
             },
         };
-        let bundle = b"synthetic bytes, not a native Git bundle".to_vec();
+        let bundle = vec![b's'; 1048576];
         let digest = format!("{:x}", Sha256::digest(&bundle));
         let native = GitManifest {
             format_version: 1,
@@ -410,6 +392,10 @@ mod tests {
         s.append(&TransferFile::Manifest, 0, &bytes).unwrap();
         assert!(
             s.append(&TransferFile::Manifest, 0, b"changed bytes")
+                .is_err()
+        );
+        assert!(
+            s.append(&TransferFile::Bundle, 0, &vec![b'x'; 1048577])
                 .is_err()
         );
         s.append(&TransferFile::Bundle, 0, &bundle).unwrap();
@@ -508,20 +494,7 @@ mod tests {
         assert_eq!(std::fs::read(target).unwrap(), b"sentinel");
     }
     #[test]
-    fn growing_reader_is_bounded_and_metadata_changes_are_refused() {
-        struct Growing {
-            reads: usize,
-        }
-        impl Read for Growing {
-            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
-                bytes.fill(b'x');
-                self.reads += bytes.len();
-                Ok(bytes.len())
-            }
-        }
-        let mut growing = Growing { reads: 0 };
-        assert!(hash_exact(&mut growing, 100000).is_err());
-        assert_eq!(growing.reads, 100001);
+    fn truncated_streams_and_metadata_changes_are_refused() {
         assert!(hash_exact(&mut &b"short"[..], 6).is_err());
         let mut file = tempfile::tempfile().unwrap();
         file.write_all(b"initial").unwrap();

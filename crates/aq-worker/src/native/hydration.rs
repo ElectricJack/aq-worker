@@ -127,13 +127,14 @@ impl InputPipeline {
             .deadline_ns()
             .min(preparation.deadline_ns());
         let client = self.client.fetch_until(deadline);
-        let manifest =
-            (client.source_status(&binding, plan.admission(), plan.manifest.as_ref())).await?;
+        let (manifest, maximum_range) =
+            (client.source_status_with_range(&binding, plan.admission(), plan.manifest.as_ref()))
+                .await?;
         let m = manifest.clone();
         let observed = preparation.clone();
         self.storage(move |owner| {
             observed.check(&owner.journal, id)?;
-            owner.journal.source_manifest(id, m)
+            owner.journal.source_manifest(id, m, maximum_range)
         })
         .await?;
         let root = git.root().to_owned();

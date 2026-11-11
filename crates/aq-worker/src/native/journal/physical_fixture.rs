@@ -311,7 +311,7 @@ fn configure_result_fixture(offered:&mut NativeOffer)->(crate::native::result::R
     let reference=|id:&str|ArtifactRef{id:Text::new(id).unwrap(),version:Text::new("1").unwrap(),digest:Digest::of(id.as_bytes())};
     let definition=ResultAdapterDefinition{schema_version:1,profile:ResultAdapterKind::Codex0166TrustedNodeNamedReadonlyLocalV1,runtime:qualification().runtime,
         environment:m.harness.environment.clone(),client_manifest:reference("aq.agent-result-client-installation"),client_executable:reference("synthetic-client"),
-        contract:aq_agent_result_local::artifact(),recipe:aq_codex_mapper::result_local_recipe_artifact(),permission_digest:canonical_digest(&m.permissions).unwrap(),reserved_client_bytes:64*1024*1024};
+        contract:aq_agent_result_local::artifact(),recipe:aq_codex_mapper::result_local_recipe_artifact(),permission_digest:canonical_digest(&m.permissions).unwrap(),additional_permission_digests:Vec::new(),reserved_client_bytes:64*1024*1024};
     let adapter=definition.artifact().unwrap();m.harness.adapter=adapter.clone();
     let new_descriptor=offered.startup.artifact().unwrap();
     for module in &mut offered.offered.offer.manifest.modules {if *module==old_descriptor{*module=new_descriptor.clone();}}
@@ -331,6 +331,7 @@ fn configure_result_fixture(offered:&mut NativeOffer)->(crate::native::result::R
     (pins,bodies)
 }
 impl Inputs {
+    async fn inventory(&self)->crate::native::preparation::ScopedPresenceProducer { let(q,a)=super::hydration_scenarios::presence_scenarios::profile(false);self.pipeline().scoped_presence(q,vec![a],0).await.unwrap() }
     fn pipeline(&self) -> &Arc<InputPipeline> {
         self.pipeline.as_ref().unwrap()
     }
@@ -1392,7 +1393,7 @@ async fn collect_result_fixture(h:&Inputs,git:&GitPeer)->crate::native::preparat
     let (_config_root,mut config)=crate::native::runner::tests::config();let published=published_phase_fixture();
     config.negotiation=serde_json::from_value(published["proposal"]["negotiation"].clone()).unwrap();config.capabilities=capabilities();
     config.source_profile=serde_json::from_value(published["accept"]["hold"]["source_profile"].clone()).unwrap();config.maximum_preparation_ms=30000;config.renderer=a.reservation.offer.startup.renderer_qualification.clone();
-    crate::native::runner::test_collect(h.pipeline(),&h.client,&config,h.id,&a.reservation.offer,a.reservation.deadline_ns,git.client.clone()).await.unwrap()
+    crate::native::runner::test_collect(h.pipeline(),&h.inventory().await,&config,h.id,&a.reservation.offer,a.reservation.deadline_ns,git.client.clone()).await.unwrap()
 }
 #[tokio::test]
 async fn native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline(){

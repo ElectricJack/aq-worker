@@ -1,9 +1,11 @@
 //! Pure local claims/projections only. Matching JSON, file presence, a nonce,
 //! kernel lock or lease projection cannot construct execution/stop authority.
+mod permission_plans;
 use aq_session_protocol::{
     ArtifactRef, ContractError, Digest, LaunchBinding, SessionIdentity, Text, Validate,
     canonical_bytes, canonical_digest,
 };
+pub use permission_plans::{ResultAdapterKind, permission_plans_valid};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

@@ -255,8 +255,9 @@ fresh enrollment.
 
 ## Install from Add machine
 
-The hosted command targets Ubuntu 24.04 on x86-64, including WSL2 with systemd
-enabled. In **Settings → Framework connection → Add machine** or **Agents →
+The hosted command targets Ubuntu 24.04 and 26.04 on x86-64, including WSL2
+with systemd enabled. It installs `libutempter0` for the bundled tmux when
+needed. In **Settings → Framework connection → Add machine** or **Agents →
 Swarm**, copy the command into the new PC's WSL terminal. Paste the one-time
 code when the worker asks for it. The command downloads the pinned worker
 bundle, prepares the rootless sandbox and matching image, then starts one slot.
@@ -265,32 +266,43 @@ for missing Ubuntu packages or systemd linger. A fresh WSL distro needs curl,
 Windows PowerShell interop and a running systemd user session. No separate
 Windows autostart command is needed for this installer.
 
-Enrollment establishes the AQ connection. Model subscriptions stay on the
-machines that use them. For a Claude worker, provision its subscription file
-before installing at `~/.config/aq-secrets/claude-oauth-token` (mode 0600), or
-set `AQ_CLAUDE_TOKEN_FILE` to a different absolute file path before running the
-command. The worker uses that file for qualification with the bundled measurement
-model. Runtimes configured for manual sessions also use it for Claude sessions.
-For Codex manual sessions, sign into Codex on the worker so its private
-`~/.codex/auth.json` is available. The install download includes the pinned
-runtime helpers when the operator packages them. On first install without a
-Claude token, the worker still enrolls. To configure Claude later, set
-`enabled = true`, `token_file` and `model` in the worker's `[measurement]`
-settings, then restart the service.
+Enrollment establishes the AQ connection without requiring provider accounts on
+that machine. The hosted installer also installs the login receiver described
+below. Select the connected worker in Agents → Swarm and use **Push logins** to
+install AQ's existing Claude and Codex subscription logins. Manual sessions are
+enabled automatically after the first successful delivery.
+
+Separate local accounts remain optional: supply a Claude token with
+`AQ_CLAUDE_TOKEN_FILE` when installing, or sign into Codex locally before install.
+AQ-managed delivery switches AQ's auth paths to its private profile files and
+keeps those personal login files intact.
+
+Before reporting success, the hosted installer checks the daemon's rootless
+cgroup-v2 setup and runs a disposable container with the agent's bridge network,
+memory/CPU/PID limits and tmux. The test mounts no provider login and invokes no
+model. A failure prints the container engine's diagnostic and cleans up the test
+container; an enrollment/heartbeat alone does not mean the installation passed.
+The remote controls are installed before this check, so a failing machine can
+return its diagnostic through AQ without copying terminal output.
 
 The command can be rerun with the same bundle after an interrupted image pull.
 It resumes an unfinished enrollment or reuses the saved enrollment. Use a fresh
 distro or the regular upgrade procedure if another worker runtime already owns
 the installation paths.
+Configuration fixes can be delivered in the pinned bootstrap while reusing
+the existing runtime bundle and enrollment. Rerunning the latest command
+repairs the manual-session section written by an earlier tokenless install.
 
 ### Prepare the download on the server
 
 Run `packaging/service/prepare-worker-install.py --help`. Give it the active
 service TOML, the matching worker binary and runtime directory, and the
 installed Podman distribution directory. Optionally supply the pinned Codex
-helper directory with `--codex-helpers`. The builder copies an explicit set of
-binaries and configuration files and verifies the pinned host tools and image
-manifest. It does not distribute enrollment files or subscription logins.
+helper directory with `--codex-helpers`. On an Ubuntu build host with a
+dynamically linked tmux, install `patchelf` so the builder can package tmux
+with its matching terminfo library. The builder verifies the pinned host
+tools and image manifest before packaging. It does not distribute enrollment
+files or subscription logins.
 The output contains the checksummed installer, checksummed bundle and an nginx
 configuration.
 
@@ -318,3 +330,78 @@ the dashboard. **Add machine** copies the pinned command and generates a
 separate single-use code. For each new bundle, use its new installer checksum
 in the dashboard build. Verify `/healthz` from the target WSL terminal before
 enrolling the first machine.
+
+
+### Push saved logins to a connected worker
+
+The hosted installer installs a user timer, `aq-login-sync-<profile>.timer`, alongside
+`aq-node@<profile>.service`. In Agents → Swarm select a worker, choose Claude and/or
+Codex under Server logins, then select **Push logins**. Delivery is queued while
+the worker is disconnected or its machine has active agents. The dashboard shows
+queued, installed, or failed status. A failed installation can be retried with a
+new push. An uncertain request is retried with the same operation identity.
+
+A worker installed before this receiver was shipped needs the current hosted
+install command once. It retains its enrollment, configured slots and runtime.
+Subsequent login pushes require no terminal command or new enrollment code.
+
+The receiver uses each enrolled slot's credential over the installation's pinned
+HTTPS origin and refuses redirects. The server serves only explicitly requested,
+permitted subscription logins, using its current versioned material owner. API
+keys and other credentials are excluded. Neither the dashboard nor the SQL queue
+receives secret material. Worker files live in the profile's `provider-auth`
+directory (0700), with individual files written atomically as 0600. This changes
+AQ's configured auth paths without overwriting personal Claude/Codex login files.
+New provider support restarts the worker only while the machine is idle; updates
+to material at existing paths are available to the next agent without a restart.
+
+Inspect the receiver with `systemctl --user status aq-login-sync-local.timer` and
+`journalctl --user -u aq-login-sync-local.service`. Diagnostics deliberately omit
+HTTP response bodies and credentials. To stop future delivery on this installation,
+disable its timer; revoke/remove the worker in AQ to reject future authenticated
+requests. Existing provider sessions still require their normal Stop agent control.
+
+### Remote diagnostics
+
+The updated receiver also polls owner-requested diagnostics. Select a worker and
+use **Run checks** to test its rootless daemon, cgroup settings, pinned image,
+container creation/start and tmux through the same Docker API policy as an agent.
+The dashboard receives the failing phase and engine diagnostic automatically;
+terminal output does not need to be copied between machines. Recent-session
+metadata reports whether a sandbox was created, without collecting agent output
+or provider files. Tests use a unique disposable container/volume and no model.
+
+Older receivers need the current hosted installer once. Afterwards **Update
+controls** queues a receiver update using the dashboard's pinned installer hash.
+The receiver downloads that script from its enrolled HTTPS origin, verifies it,
+and atomically replaces only its own embedded Python code. It does not execute
+the downloaded installer shell, change enrollment or replace runtime binaries.
+Updates and diagnostic receipts are durable and retried by identity. No generic
+remote shell command is accepted by this protocol.
+
+The selected-worker update command uses `--controls-only`. It replaces the
+existing receiver and restarts its timer without native-template comparison,
+runtime replacement, enrollment, image preparation or sandbox validation. This
+keeps remote diagnosis available when those checks are what failed. Bootstrap
+errors are returned to the queued AQ diagnostic when its enrollment is usable;
+control polling can also recover the enrolled slot list from a malformed service
+configuration. Full installations still run all sandbox checks before success.
+
+### Rootless bridge networking dependency
+
+Fresh hosted installs require the Ubuntu `iptables` package. A rootless
+container without networking can pass while the agent's bridge network fails
+with `netavark: iptables: No such file or directory`.
+
+For connected workers, the fixed sandbox check recognizes that exact startup
+error and restores checksum-pinned AQ networking tools under the existing
+AQ sandbox runtime. The package includes iptables, its private shared libraries
+and extensions, package versions and copyright notices. It is built reproducibly
+by `prepare-network-tools.py` on Ubuntu amd64 and verified on Ubuntu 26.
+
+Repair changes only the AQ sandbox user service's PATH through its own drop-in.
+It checks `KillMode=process` before restarting the API daemon, preserving the
+container supervision boundary. It does not invoke sudo, install system packages
+or change global firewall configuration. The iptables wrapper uses its private
+libraries/extensions and an AQ-scoped lock file. Other diagnostic failures do not
+trigger this repair. The complete sandbox probe is repeated after restoration.
