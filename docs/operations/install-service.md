@@ -258,11 +258,17 @@ runtime helpers when the operator packages them. On first install without a
 Claude token, the worker still enrolls. To configure Claude later, set
 `enabled = true`, `token_file` and `model` in the worker's `[measurement]`
 settings, then restart the service.
+The installer enables manual sessions once the profile has its subscription
+token configured. Rerun the hosted command to finish that setup. A worker
+without a provider login can still enroll and connect.
 
 The command can be rerun with the same bundle after an interrupted image pull.
 It resumes an unfinished enrollment or reuses the saved enrollment. Use a fresh
 distro or the regular upgrade procedure if another worker runtime already owns
 the installation paths.
+Configuration fixes can be delivered in the pinned bootstrap while reusing
+the existing runtime bundle and enrollment. Rerunning the latest command
+repairs the manual-session section written by an earlier tokenless install.
 
 ### Prepare the download on the server
 

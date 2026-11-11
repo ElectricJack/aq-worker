@@ -60,28 +60,42 @@ def prepare(package, work, origin, socket, config, digest):
     (work / "image").write_text(entry["image"] + "\n")
 
 
+def manual_settings(package, podman, slots, source_slugs):
+    lines = [
+        "", "[manual]", f"podman_executable = {json.dumps(str(podman))}",
+        f"max_slots = {slots}", "", "[manual.source_slugs]",
+    ]
+    lines.extend(f"{json.dumps(key)} = {json.dumps(slug)}" for key, slug in source_slugs.items())
+    if (package / "codex-bundle").is_dir():
+        lines.extend([
+            "", "[manual.codex]", 'executable = "/opt/aq/bin/codex"',
+            f'auth_file = {json.dumps(str(Path.home() / ".codex/auth.json"))}',
+            f'runtime_bundle = {json.dumps(str(package / "codex-bundle"))}',
+        ])
+    return "\n" + "\n".join(lines) + "\n"
+
+
 def configure(package, config, origin, podman, slots, digest):
     service = config / "service.toml"
-    current = read_toml(service)
+    contents = service.read_text()
+    current = tomllib.loads(contents)
     if current["slots"] != slots:
         raise ValueError("The profile already has a different slot count. Keep the existing count or choose another profile.")
     metadata = json.loads((package / "bootstrap.json").read_text())
-    if metadata["manual_sessions"] and "manual" not in current:
-        lines = [
-            "", "[manual]", f"podman_executable = {json.dumps(str(podman))}",
-            f"max_slots = {slots}", "", "[manual.source_slugs]",
-        ]
-        lines.extend(f"{json.dumps(key)} = {json.dumps(slug)}" for key, slug in metadata["source_slugs"].items())
-        if (package / "codex-bundle").is_dir():
-            lines.extend([
-                "", "[manual.codex]", 'executable = "/opt/aq/bin/codex"',
-                f'auth_file = {json.dumps(str(Path.home() / ".codex/auth.json"))}',
-                f'runtime_bundle = {json.dumps(str(package / "codex-bundle"))}',
-            ])
-        atomic_text(service, service.read_text().rstrip() + "\n" + "\n".join(lines) + "\n")
+    measurement = current.get("measurement", {})
+    if metadata["manual_sessions"]:
+        suffix = manual_settings(package, podman, slots, metadata["source_slugs"])
+        if measurement.get("token_file"):
+            if "manual" not in current:
+                atomic_text(service, contents.rstrip() + suffix)
+        elif "manual" in current:
+            # Earlier installers appended this section before checking for the required token.
+            if not contents.endswith(suffix):
+                raise ValueError("This profile has custom manual settings. Configure its measurement token to enable manual sessions.")
+            atomic_text(service, contents.removesuffix(suffix) + "\n")
     atomic_text(config / "hosted-install.json", json.dumps({"origin": origin, "bundle_sha256": digest}) + "\n")
-    if not current.get("measurement", {}).get("enabled"):
-        print("The node can enroll without a provider login. Set up its subscription before running agents.")
+    if not measurement.get("enabled"):
+        print("The worker can connect now. Set up its provider subscription before running agents.")
 
 
 def main():

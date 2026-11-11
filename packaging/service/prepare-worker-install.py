@@ -84,6 +84,12 @@ def safe_json(value):
     return encoded
 
 
+def render_bootstrap(bundle_digest):
+    template = (HERE / "aq-bootstrap.sh").read_text()
+    config = (HERE / "worker-install-config.py").read_text().rstrip()
+    return template.replace("@AQ_ARCHIVE_SHA256@", bundle_digest).replace("@AQ_INSTALL_CONFIG@", config)
+
+
 def nginx_config(args, registry, paths):
     host, port = args.listen.split(":")
     address = ipaddress.IPv4Address(host)
@@ -196,8 +202,7 @@ def build(args):
         host["docker_local"]["socket"] = "/bundle/podman.sock"
         for name, value in [("native", native), ("repositories", repos), ("bootstrap", metadata)]:
             (stage / (name + ".json")).write_text(safe_json(value))
-        for name in ("aq-install.sh", "worker-install-config.py"):
-            shutil.copyfile(HERE / name, stage / name)
+        shutil.copyfile(HERE / "aq-install.sh", stage / "aq-install.sh")
         scripts = ROOT / "scripts/sandbox-daemon"
         shutil.copytree(scripts, stage / "sandbox-daemon")
         with tarfile.open(stage / "podman-linux-amd64.tar.gz", "w:gz", compresslevel=3) as archive:
@@ -214,7 +219,7 @@ def build(args):
         digest = sha(output)
         output.replace(download / (digest + ".tar.gz"))
         bootstrap = Path(temp) / "aq-worker.sh"
-        bootstrap.write_text((HERE / "aq-bootstrap.sh").read_text().replace("@AQ_ARCHIVE_SHA256@", digest))
+        bootstrap.write_text(render_bootstrap(digest))
         installer_digest = sha(bootstrap)
         bootstrap.replace(download / (installer_digest + ".sh"))
     (args.output / "nginx.conf").write_text(config)

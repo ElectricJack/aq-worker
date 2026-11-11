@@ -283,12 +283,16 @@ def test_deferred_install_enrolls_without_starting_a_service(host):
 
 
 @pytest.mark.parametrize("manual_sessions", [False, True])
-def test_hosted_install_keeps_the_bundled_worker_config_schema(tmp_path, manual_sessions):
+@pytest.mark.parametrize("with_token", [False, True])
+def test_hosted_install_keeps_the_bundled_worker_config_schema(tmp_path, manual_sessions, with_token):
     (tmp_path / "bootstrap.json").write_text(json.dumps({
         "manual_sessions": manual_sessions, "source_slugs": {},
     }))
     service = tmp_path / "service.toml"
-    service.write_text("slots = 1\n")
+    contents = "slots = 1\n"
+    if with_token:
+        contents += '\n[measurement]\ntoken_file = "/private/claude-token"\n'
+    service.write_text(contents)
     result = subprocess.run(
         [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
          "configure", str(tmp_path), str(tmp_path), "https://worker.example",
@@ -296,4 +300,25 @@ def test_hosted_install_keeps_the_bundled_worker_config_schema(tmp_path, manual_
         capture_output=True, text=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
-    assert ("manual" in tomllib.loads(service.read_text())) == manual_sessions
+    assert ("manual" in tomllib.loads(service.read_text())) == (manual_sessions and with_token)
+
+
+def test_hosted_install_repairs_the_tokenless_manual_section_and_keeps_enrollment(tmp_path):
+    (tmp_path / "bootstrap.json").write_text(json.dumps({
+        "manual_sessions": True, "source_slugs": {},
+    }))
+    service = tmp_path / "service.toml"
+    original = 'slots = 1\nmachine_key = "existing-pc"\n\n[measurement]\nenabled = false\n'
+    service.write_text(original.rstrip() + '\n\n[manual]\npodman_executable = "/usr/bin/podman"\nmax_slots = 1\n\n[manual.source_slugs]\n')
+    enrollment = tmp_path / "worker.toml"
+    enrollment.write_text('credential = "existing-enrollment"\n')
+    for _ in range(2):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
+             "configure", str(tmp_path), str(tmp_path), "https://worker.example",
+             "/usr/bin/podman", "1", "a" * 64],
+            capture_output=True, text=True, timeout=20,
+        )
+        assert result.returncode == 0, result.stderr
+        assert service.read_text() == original
+        assert enrollment.read_text() == 'credential = "existing-enrollment"\n'

@@ -32,6 +32,10 @@ mkdir -p "$install_root"
 work="$(mktemp -d "$install_root/stage.XXXXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 package="$install_root/$digest"
+# The bootstrap carries configuration fixes independently of the pinned runtime bundle.
+cat > "$work/configure.py" <<'AQ_INSTALL_CONFIG'
+@AQ_INSTALL_CONFIG@
+AQ_INSTALL_CONFIG
 
 install_packages() {
   command -v apt-get >/dev/null && command -v sudo >/dev/null &&
@@ -78,7 +82,7 @@ config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/service/$profile"
 podman="$HOME/.local/opt/aq-sandbox-podman/podman-linux-amd64/usr/local/bin/podman"
 socket="$XDG_RUNTIME_DIR/aq-sandbox/podman.sock"
 # Validate runtime pins and resolve host-specific paths before consuming a code.
-python3 "$package/worker-install-config.py" prepare "$package" "$work" "$origin" "$socket" "$config_dir" "$digest"
+python3 "$work/configure.py" prepare "$package" "$work" "$origin" "$socket" "$config_dir" "$digest"
 tmux_libraries="$(ldd "$package/tmux" 2>&1 || true)"
 # Ubuntu 26.04's tmux package dropped the utmp library required by the bundled binary.
 if grep -Eq '^[[:space:]]*libutempter\.so\.0[[:space:]]+=>[[:space:]]+not found' <<<"$tmux_libraries"; then
@@ -120,7 +124,7 @@ image="$(cat "$work/image")"
 if ! "$podman" --remote --url "unix://$socket" image exists "$image"; then
   "$podman" --remote --url "unix://$socket" pull "$image"
 fi
-python3 "$package/worker-install-config.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest"
+python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest"
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
 "$worker" service status --profile "$profile"
