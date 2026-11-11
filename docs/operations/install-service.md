@@ -262,6 +262,8 @@ cgroup-v2 setup and runs a disposable container with the agent's bridge network,
 memory/CPU/PID limits and tmux. The test mounts no provider login and invokes no
 model. A failure prints the container engine's diagnostic and cleans up the test
 container; an enrollment/heartbeat alone does not mean the installation passed.
+The remote controls are installed before this check, so a failing machine can
+return its diagnostic through AQ without copying terminal output.
 
 The command can be rerun with the same bundle after an interrupted image pull.
 It resumes an unfinished enrollment or reuses the saved enrollment. Use a fresh

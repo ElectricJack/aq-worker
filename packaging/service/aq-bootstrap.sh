@@ -130,11 +130,11 @@ image="$(cat "$work/image")"
 if ! "$podman" --remote --url "unix://$socket" image exists "$image"; then
   "$podman" --remote --url "unix://$socket" pull "$image"
 fi
-echo 'Checking that this machine can start an agent sandbox.'
-python3 "$work/configure.py" preflight "$package" "$config_dir" "$podman"
 python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest"
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
 "$worker" service status --profile "$profile"
 python3 "$work/configure.py" install-sync "$package" "$config_dir"
+echo 'Checking that this machine can start an agent sandbox.'
+python3 "$work/configure.py" preflight "$package" "$config_dir" "$podman"
 echo 'Worker installed. Check Agents → Swarm for its connection.'
