@@ -794,4 +794,104 @@ sys.exit(1)
         assert_eq!(text.len(), 150004);
         assert!(text.ends_with("LAST"));
     }
+    #[tokio::test]
+    async fn raw_limit_is_bounded_and_finalizes_partial() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        let raw = std::fs::File::create(out.join("transcript.raw")).unwrap();
+        raw.set_len(RAW_LIMIT).unwrap();
+        std::fs::write(out.join("transcript.done"), b"").unwrap();
+        let exe = temp.path().join("remote-fixture");
+        let script = format!(
+            "#!/usr/bin/env python3\nimport os,sys\na=sys.argv[4:]\nif a[0]=='exec':\n a=[x.replace('/aq/out',{:?}) for x in a[2:]]\n os.execvp(a[0],a)\nsys.exit(1)\n",
+            out.to_str().unwrap()
+        );
+        std::fs::write(&exe, script).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let id = Uuid::new_v4();
+        initialize(temp.path(), id, Uuid::new_v4(), "fixture").unwrap();
+        let path = dir(temp.path(), id);
+        let cfg = DockerLocalConfig::new(temp.path().join("fixture.sock"));
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        state.offset = RAW_LIMIT - 4;
+        tick(&path, &mut state, &exe, &cfg).await.unwrap();
+        assert_eq!(state.offset, RAW_LIMIT);
+        assert!(state.ended);
+        assert_eq!(state.reason.as_deref(), Some("Raw output limit reached"));
+        assert!(!out.join("transcript.raw").exists());
+        assert!(out.join("transcript.drained").exists());
+    }
+
+    #[tokio::test]
+    async fn upload_resumes_after_server_restart() {
+        use axum::{Json, Router, routing::post};
+        use std::sync::{Arc, Mutex};
+        let received = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let id = Uuid::new_v4();
+        initialize(temp.path(), id, Uuid::new_v4(), "fixture").unwrap();
+        let path = dir(temp.path(), id);
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        add(&path, &mut state, "before restart".into()).unwrap();
+        save(&path, &state).unwrap();
+        let link = ServerLink::new(&format!("http://{addr}"), "fixture-credential", None).unwrap();
+        let seen = received.clone();
+        let app = Router::new().route("/v1/worker/manual-agents/{id}/transcript", post(move |Json(body): Json<serde_json::Value>| {
+            let seen = seen.clone();
+            async move {
+                let sequence = body["sequence"].as_u64().or_else(|| body["final_sequence"].as_u64()).unwrap();
+                seen.lock().unwrap().push(body);
+                Json(json!({"accepted_through":sequence,"next_sequence":sequence+1,"archive_state":"recording"}))
+            }
+        }));
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        upload(&path, &state, &link).await.unwrap();
+        server.abort();
+        let _ = server.await;
+        add(&path, &mut state, "after restart".into()).unwrap();
+        state.ended = true;
+        save(&path, &state).unwrap();
+        upload(&path, &state, &link).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Progress>(&std::fs::read(path.join("upload.json")).unwrap())
+                .unwrap()
+                .uploaded,
+            1
+        );
+        let seen = received.clone();
+        let app = Router::new().route(
+            "/v1/worker/manual-agents/{id}/transcript",
+            post(move |Json(body): Json<serde_json::Value>| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock().unwrap().push(body);
+                    Json(json!({"accepted_through":2,"next_sequence":3,"archive_state":"complete"}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        upload(&path, &state, &link).await.unwrap();
+        upload(&path, &state, &link).await.unwrap();
+        let bodies = received.lock().unwrap();
+        assert_eq!(bodies.len(), 3);
+        assert_eq!(bodies[0]["text"], "before restart");
+        assert_eq!(bodies[1]["text"], "after restart");
+        assert_eq!(bodies[2]["final_sequence"], 2);
+        assert!(
+            serde_json::from_slice::<Progress>(&std::fs::read(path.join("upload.json")).unwrap())
+                .unwrap()
+                .finalized
+        );
+        drop(bodies);
+        server.abort();
+    }
 }
