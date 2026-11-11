@@ -622,6 +622,7 @@ pub async fn run(
                         continue;
                     }
                     if let Err(_error) = create(&config, &settings, node.id, a, &root).await {
+                        recording::startup_failed(&root, a.id);
                         a.status = "failed".into();
                         a.stage = "Startup failed; workspace retained for diagnosis".into();
                         save(&root, a)?;

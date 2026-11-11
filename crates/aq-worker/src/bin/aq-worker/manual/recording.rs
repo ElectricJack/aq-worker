@@ -291,13 +291,23 @@ async fn tick(path: &Path, state: &mut State, exe: &Path, cfg: &DockerLocalConfi
                 &[
                     "inspect",
                     "--format",
-                    "{{.State.Running}}",
+                    "{{.State.Running}} {{.State.StartedAt}}",
                     &state.container,
                 ],
                 None,
             )
             .await
-            .is_ok_and(|v| String::from_utf8_lossy(&v).trim() == "false");
+            .is_ok_and(|v| {
+                let output = String::from_utf8_lossy(&v);
+                let mut fields = output.split_whitespace();
+                fields.next() == Some("false")
+                    && fields
+                        .next()
+                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                        .is_some_and(|started| started.timestamp() > 0)
+            });
+            // A created sandbox is not running yet, but that is not capture
+            // loss. A nonzero start time proves the runner was launched.
             if stopped || path.join("capture-lost").exists() {
                 state.reason =
                     Some("Capture ended before the final output could be drained".into());
@@ -650,6 +660,15 @@ pub(super) async fn run(
         }
     };
     tokio::join!(capture, uploads);
+}
+
+// The creator can fail before a sandbox is started. Do not infer this from
+// Running=false: created containers are expected during normal preparation.
+pub(super) fn startup_failed(root: &Path, id: Uuid) {
+    let path = dir(root, id);
+    if path.join("state.json").exists() {
+        let _ = write_private(&path.join("capture-lost"), b"startup failed");
+    }
 }
 
 pub(super) async fn request_stop(
@@ -1339,5 +1358,162 @@ sys.exit(1)
             .unwrap();
         assert!(path.join("corrupt-finalized").exists());
         assert!(chunk(&path, 2).exists());
+    }
+    #[tokio::test]
+    async fn created_container_waits_and_fast_exit_drains_before_finalizing() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        let exe = temp.path().join("remote-fixture");
+        let script = format!(
+            "#!/usr/bin/env python3\nimport os,sys\na=sys.argv[4:]\nif a[0]=='inspect':\n print('false 0001-01-01T00:00:00Z'); sys.exit(0)\nif a[0]=='exec' and os.path.exists({ready:?}):\n a=[x.replace('/aq/out',{out:?}) for x in a[2:]]\n os.execvp(a[0],a)\nsys.exit(1)\n",
+            ready = temp.path().join("started").to_str().unwrap(),
+            out = out.to_str().unwrap()
+        );
+        std::fs::write(&exe, script).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let id = Uuid::new_v4();
+        initialize(temp.path(), id, Uuid::new_v4(), "fixture").unwrap();
+        let path = dir(temp.path(), id);
+        let cfg = DockerLocalConfig::new(temp.path().join("fixture.sock"));
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        for _ in 0..3 {
+            tick(&path, &mut state, &exe, &cfg).await.unwrap();
+            assert!(!state.ended);
+            assert!(state.reason.is_none());
+        }
+        let restored: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        assert!(!restored.ended);
+        // The provider has already exited by the next tick, leaving a fully
+        // drained pipe in the still-running sandbox runner.
+        std::fs::write(
+            out.join("transcript.raw"),
+            b"initial fixture\nfinal fixture\n",
+        )
+        .unwrap();
+        std::fs::write(out.join("transcript.done"), b"").unwrap();
+        std::fs::write(temp.path().join("started"), b"").unwrap();
+        tick(&path, &mut state, &exe, &cfg).await.unwrap();
+        assert!(state.ended && state.reason.is_none());
+        assert_eq!(
+            std::fs::read_to_string(chunk(&path, 1)).unwrap(),
+            "initial fixture\nfinal fixture\n"
+        );
+        assert!(out.join("transcript.drained").exists());
+    }
+
+    #[tokio::test]
+    async fn previously_started_stopped_container_reports_capture_loss() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let exe = temp.path().join("remote-fixture");
+        std::fs::write(&exe, "#!/bin/sh\nshift 3\nif [ \"$1\" = inspect ]; then echo 'false 2026-11-11T12:00:00Z'; exit 0; fi\nexit 1\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let id = Uuid::new_v4();
+        initialize(temp.path(), id, Uuid::new_v4(), "fixture").unwrap();
+        let path = dir(temp.path(), id);
+        let cfg = DockerLocalConfig::new(temp.path().join("fixture.sock"));
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        tick(&path, &mut state, &exe, &cfg).await.unwrap();
+        assert!(state.ended);
+        assert_eq!(
+            state.reason.as_deref(),
+            Some("Capture ended before the final output could be drained")
+        );
+    }
+
+    #[test]
+    fn startup_failure_marks_existing_recording_as_partial() {
+        let temp = tempfile::tempdir().unwrap();
+        let id = Uuid::new_v4();
+        startup_failed(temp.path(), id);
+        assert!(!dir(temp.path(), id).exists());
+        initialize(temp.path(), id, Uuid::new_v4(), "fixture").unwrap();
+        startup_failed(temp.path(), id);
+        assert!(dir(temp.path(), id).join("capture-lost").exists());
+    }
+    #[tokio::test]
+    #[ignore = "requires Docker and the local aq-bootstrap-tmux-proof:26.04 image"]
+    async fn real_created_container_waits_before_first_start() {
+        use std::os::unix::fs::PermissionsExt;
+        struct Container(String);
+        impl Drop for Container {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("docker")
+                    .args(["rm", "-f", &self.0])
+                    .output();
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let container = Container(format!(
+            "aq-recorder-created-fixture-{}",
+            Uuid::new_v4().simple()
+        ));
+        let command = "mkdir -p /aq/out; printf 'fixture begin\\nfixture end\\n' > /aq/out/transcript.raw; : > /aq/out/transcript.done; while [ ! -e /aq/out/transcript.drained ]; do sleep 0.1; done";
+        assert!(
+            std::process::Command::new("docker")
+                .args([
+                    "create",
+                    "--network",
+                    "none",
+                    "--name",
+                    &container.0,
+                    "aq-bootstrap-tmux-proof:26.04",
+                    "/bin/sh",
+                    "-c",
+                    command
+                ])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        let exe = temp.path().join("docker-adapter");
+        std::fs::write(&exe, "#!/bin/sh\nshift 3\nexec docker \"$@\"\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let id = Uuid::new_v4();
+        initialize(temp.path(), id, Uuid::new_v4(), &container.0).unwrap();
+        let path = dir(temp.path(), id);
+        let cfg = DockerLocalConfig::new(temp.path().join("unused.sock"));
+        let mut state: State =
+            serde_json::from_slice(&std::fs::read(path.join("state.json")).unwrap()).unwrap();
+        tick(&path, &mut state, &exe, &cfg).await.unwrap();
+        assert!(!state.ended && state.reason.is_none());
+        assert!(
+            std::process::Command::new("docker")
+                .args(["start", &container.0])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        for _ in 0..100 {
+            let done = std::process::Command::new("docker")
+                .args([
+                    "exec",
+                    &container.0,
+                    "test",
+                    "-e",
+                    "/aq/out/transcript.done",
+                ])
+                .output()
+                .unwrap()
+                .status
+                .success();
+            if done {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        tick(&path, &mut state, &exe, &cfg).await.unwrap();
+        assert!(state.ended && state.reason.is_none());
+        assert_eq!(
+            std::fs::read_to_string(chunk(&path, 1)).unwrap(),
+            "fixture begin\nfixture end\n"
+        );
     }
 }
