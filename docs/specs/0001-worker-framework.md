@@ -1,6 +1,6 @@
 # Agent Q worker framework design
 
-**Status:** Required framework; core mechanisms exist, native execution/product integration remains open
+**Status:** Required framework. The native service path (register, poll, reserve, prepare through aq-git, launch Claude in a sandbox, report, recover) was accepted live on one machine on 2026-11-09 ([`../implementation/0007-P1.md`](../implementation/0007-P1.md)). Codex has had one real run; Gemini and OpenCode have ignored live tests only. No second machine has taken a queued task. Platform state: aq-server `docs/status.md`.
 **Date:** 2026-10-30  
 **Implementation language:** Rust  
 **Repository:** `aq-worker`  

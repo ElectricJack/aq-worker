@@ -1,6 +1,6 @@
 # Session observation and suspension mechanisms
 
-**Status:** Implementation design; not qualified by the existing synthetic runtime.
+**Status:** Implementation design; not qualified by the existing synthetic runtime. As of 2026-11-12 hibernation and continuation are built over ports with no production adapters ([`../implementation/H5.md`](../implementation/H5.md)), the observation engine is not adopted by the worker runtime ([`../implementation/WRK-15-integration.md`](../implementation/WRK-15-integration.md)), and nothing in this spec has run live.
 
 **Date:** 2026-10-30
 

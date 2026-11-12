@@ -1,8 +1,11 @@
 # Profiled tmux sessions and outbound terminal access
 
 **Status:** Partial implementation. Guarded hosting and finite terminal control
-have component qualification; continuous output, renderer snapshots and worker
-runtime adoption remain unqualified.
+have component qualification. Manual agent sessions with persistent tmux and
+streaming output, and worker host shells, ran live on two machines on
+2026-11-10 and 2026-11-11 (aq-server `docs/handoff/2026-11-11-agents-terminal-workspace.md`).
+Terminal control of queued task attempts is still pending an owner decision
+(W13, [`../implementation/0007-P1.md`](../implementation/0007-P1.md)).
 
 **Date:** 2026-10-31
 
