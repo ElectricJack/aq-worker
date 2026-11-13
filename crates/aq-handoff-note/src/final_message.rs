@@ -146,9 +146,9 @@ mod tests {
     /// reach the comment.
     #[test]
     fn the_comment_drops_bidi_and_invisible_format_characters() {
-        let message = "a\u{202E}b\u{2066}c\u{2069}d\u{200F}e\u{FEFF}f\u{061C}g";
+        let message = "a\u{202E}b\u{2066}c\u{2069}d\u{200F}e\u{FEFF}f\u{061C}g\u{E0041}h\u{FE0F}i\u{2028}j\u{3164}k\u{FFF9}l\u{E0100}m\u{0600}n";
         let body = comment_body(Uuid::from_u128(1), message);
-        assert!(body.contains("abcdefg"), "{body:?}");
+        assert!(body.contains("abcdefghijklmn"), "{body:?}");
     }
     /// R2-M2: a channel that accepts and never answers costs at most two seconds.
     #[test]

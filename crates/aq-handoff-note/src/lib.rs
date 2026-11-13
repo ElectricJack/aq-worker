@@ -14,14 +14,20 @@ mod stream;
 pub use secret_file::{parse_token, read_private};
 pub use stream::{conclusion, final_text, pane_line, print_logs, proven_success};
 
-/// Review R2-M3: a character the result text keeps. Control characters other than
-/// tab, and invisible format characters (bidi embeddings, overrides and isolates
-/// U+202A-U+202E and U+2066-U+2069, marks, zero-width and joiner characters, the
-/// soft hyphen and BOM) are dropped.
+/// Review R2-M3, R3-M2: a character the result text keeps. Dropped: control
+/// characters other than tab; every Unicode format (Cf) character (bidi embeddings,
+/// overrides and isolates, zero-width and joiner characters, marks, the soft hyphen,
+/// the BOM, interlinear annotation and prefixed-format characters); the tag block
+/// U+E0000-U+E007F; variation selectors; Hangul fillers; U+2028 and U+2029.
 pub fn visible(c: char) -> bool {
     (!c.is_control() || c == '\t')
-        && !matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
+        && !matches!(c,
+            '\u{00AD}' | '\u{0600}'..='\u{0605}' | '\u{061C}' | '\u{06DD}' | '\u{070F}'
+            | '\u{0890}'..='\u{0891}' | '\u{08E2}' | '\u{115F}' | '\u{1160}' | '\u{180B}'..='\u{180F}'
+            | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{206F}'
+            | '\u{3164}' | '\u{FE00}'..='\u{FE0F}' | '\u{FEFF}' | '\u{FFA0}' | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}' | '\u{110CD}' | '\u{13430}'..='\u{1343F}' | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}' | '\u{E0000}'..='\u{E007F}' | '\u{E0100}'..='\u{E01EF}')
 }
 
 /// Unix milliseconds now (0 before the epoch).

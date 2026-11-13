@@ -60,13 +60,15 @@ pub fn proven_success(
 /// Bound of the conclusion line (the result report's label holds 512 bytes).
 const CONCLUSION_BYTES: usize = 500;
 const CLIPPED: &str = " [clipped]";
-const CLIPPED_TO_COMMENT: &str = " [clipped; the full message is posted to the task comments]";
+const CLIPPED_TO_COMMENT: &str =
+    " [clipped; the full message is sent to the task comments when the channel accepts it]";
 
 /// One-line, bounded conclusion (review I-1, R1-M2): the agent's `Outcome`
 /// (first, so clipping never removes it), its own `Changes:` claim, the
 /// copied-back files, the exit code, then its final message (without the Changes
 /// and Outcome lines), folded and clipped with an explicit marker. `in_comment`:
-/// the whole final message is posted as a task comment after the claim.
+/// a post of the whole final message to the task comments follows the claim
+/// (R3-M1: it may still be refused, so the marker does not promise it).
 pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String], in_comment: bool) -> String {
     let text = final_text(stream).unwrap_or_else(|| "no final message".into());
     // R2-M3: no control, bidi or invisible format characters reach the summary.
@@ -346,11 +348,13 @@ mod tests {
             "{clipped}"
         );
         // R2-M3: no bidi or invisible format characters in the summary.
-        let bidi = result_of("ab\u{202E}cd\u{2067}ef\nChanges: none");
+        let bidi = result_of("ab\u{202E}cd\u{2067}e\u{E0041}\u{2029}f\nChanges: none");
         assert!(conclusion(&bidi, Some(0), &[], false).ends_with("Result: abcdef"));
         let pointed = conclusion(&long, None, &[], true);
         assert!(pointed.len() <= 500, "{pointed}");
-        assert!(pointed.ends_with(" [clipped; the full message is posted to the task comments]"));
+        assert!(pointed.ends_with(
+            " [clipped; the full message is sent to the task comments when the channel accepts it]"
+        ));
         assert!(conclusion(b"", None, &[], false).starts_with(
             "Outcome: done; Changes: unknown; Copied: none; Claude exit unknown; Result: no final message"
         ));
