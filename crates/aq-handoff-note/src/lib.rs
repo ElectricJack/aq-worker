@@ -8,9 +8,19 @@ pub use preserve::{
     CopyBackIncomplete, PRESERVED_MARKER, preserved, preserved_claim, preserved_claim_bytes,
     preserved_conclusion, write_exit,
 };
+pub mod claim;
+pub mod final_message;
 mod stream;
 pub use secret_file::{parse_token, read_private};
-pub use stream::{conclusion, pane_line, print_logs, proven_success};
+pub use stream::{conclusion, final_text, pane_line, print_logs, proven_success};
+
+/// Unix milliseconds now (0 before the epoch).
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Folds whitespace and bounds a claim to 500 bytes.
 pub fn fold_claim(text: String) -> String {

@@ -33,7 +33,7 @@ pub use aq_handoff_note::{
     CopyBackIncomplete, HANDOFF_MARKER, HandoffMarker, PRESERVED_MARKER, conclusion, fold_claim,
     handoff_note, holds_secret, holds_token, parse_token, proven_success, read_handoff_marker,
 };
-use aq_handoff_note::{preserved_claim, read_private, write_exit};
+use aq_handoff_note::{final_message, now_ms, preserved_claim, read_private, write_exit};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -328,13 +328,6 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     ])
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
 pub struct DriverOutcome {
     pub sandbox: SandboxIdentity,
     pub runner_exit: Option<RunnerExit>,
@@ -489,6 +482,11 @@ fn claim_outcome(
         );
     }
     write_exit(config_path, proven.is_ok());
+    let (on, root) = (
+        config.agent_channel && leak.is_none(),
+        &config.docker_local.channel_root,
+    );
+    let posted = final_message::post_from_stream(on, root, config.owner.attempt_id, stream);
     submit_claim(
         config,
         match leak {
@@ -496,7 +494,7 @@ fn claim_outcome(
             Some(place) => {
                 format!("Changes: none (copy-back refused); Refused: {place}; the attempt failed")
             }
-            None => conclusion(stream, rc, changed),
+            None => conclusion(stream, rc, changed, posted),
         },
     );
     if proven.is_ok() { 0 } else { 1 }

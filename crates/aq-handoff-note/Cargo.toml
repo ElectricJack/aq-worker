@@ -12,6 +12,7 @@ aq-agent-channel = { path = "../aq-agent-channel" }
 aq-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+uuid = { workspace = true, features = ["v5"] }
 
 [dev-dependencies]
 tempfile.workspace = true

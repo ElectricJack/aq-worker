@@ -1,5 +1,6 @@
 //! Reading Claude's stream-json transcript: the proven-success rule, the
 //! bounded conclusion line and the pane rendering of one event.
+use crate::claim::{blocked, claimed_changes, field, names_paths};
 use crate::holds_secret;
 use std::io::Write;
 
@@ -13,41 +14,9 @@ fn last_result(stream: &[u8]) -> Option<serde_json::Value> {
 }
 
 /// The text of the last stream-json `result` event, if any.
-fn final_text(stream: &[u8]) -> Option<String> {
+pub fn final_text(stream: &[u8]) -> Option<String> {
     last_result(stream).and_then(|r| r["result"].as_str().map(str::to_owned))
 }
-/// The value of the agent's own last `Changes:` line, up to its first `;`.
-fn claimed_changes(text: &str) -> Option<&str> {
-    let line = text
-        .lines()
-        .rev()
-        .find(|l| l.trim_start().starts_with("Changes:"))?;
-    let value = line.trim_start().trim_start_matches("Changes:");
-    Some(value.split(';').next().unwrap_or_default().trim())
-}
-/// `none`, in any case, optionally followed by an explanation.
-fn claims_none(value: &str) -> bool {
-    value
-        .get(..4)
-        .is_some_and(|v| v.eq_ignore_ascii_case("none"))
-}
-/// Owner ruling 4a: the agent's last `Outcome:` line says `blocked`. A missing or
-/// unrecognised Outcome line is `done`, so agents that never write one keep working.
-fn outcome_blocked(text: &str) -> bool {
-    let Some(line) = text
-        .lines()
-        .rev()
-        .find(|l| l.trim_start().starts_with("Outcome:"))
-    else {
-        return false;
-    };
-    let value = line.trim_start().trim_start_matches("Outcome:").trim();
-    let word = value
-        .split(|c: char| c.is_whitespace() || c == ';' || c == '.')
-        .next();
-    word.is_some_and(|w| w.eq_ignore_ascii_case("blocked"))
-}
-
 /// MS1 review B1: a Claude exit 0 alone never proves the work was done
 /// (Claude can end its turn with a question, a refusal or "couldn't find X").
 /// The driver records success only when all of these hold; otherwise the
@@ -59,8 +28,9 @@ fn outcome_blocked(text: &str) -> bool {
 ///   `is_error`);
 /// - the agent's final text contains its own `Changes:` line;
 /// - it does not say `Outcome: blocked`;
-/// - when its `Changes:` value is not `none`, changes were copied back (review
-///   I-2: a consistency check between the claim and the evidence).
+/// - when its `Changes:` value names a path, changes were copied back (review
+///   I-2: a consistency check between the claim and the evidence; a value that
+///   names no path is no claim, R1-I1).
 ///
 /// An empty change set is not a failure (owner decision 2026-11-13): a task
 /// may be read-only, and its result is the agent's final message.
@@ -78,10 +48,10 @@ pub fn proven_success(
     }
     let text = result["result"].as_str().ok_or("no final message")?;
     let claim = claimed_changes(text).ok_or("final message has no Changes: line")?;
-    if outcome_blocked(text) {
+    if blocked(text) {
         return Err("the agent reported Outcome: blocked");
     }
-    if !claims_none(claim) && changed.is_empty() {
+    if names_paths(claim) && changed.is_empty() {
         return Err("the agent reported changes, but none were copied back");
     }
     Ok(())
@@ -90,28 +60,28 @@ pub fn proven_success(
 /// Bound of the conclusion line (the result report's label holds 512 bytes).
 const CONCLUSION_BYTES: usize = 500;
 const CLIPPED: &str = " [clipped]";
+const CLIPPED_TO_COMMENT: &str = " [clipped; the full result is in the task comments]";
 
-/// One-line, bounded conclusion (review I-1): the agent's own `Changes:` claim,
-/// the copied-back files, the exit code, then the agent's final message (without
-/// its Changes line), folded to one line and clipped with an explicit marker.
-pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String]) -> String {
+/// One-line, bounded conclusion (review I-1, R1-M2): the agent's `Outcome`
+/// (first, so clipping never removes it), its own `Changes:` claim, the
+/// copied-back files, the exit code, then its final message (without the Changes
+/// and Outcome lines), folded and clipped with an explicit marker. `in_comment`:
+/// the whole final message was posted as a task comment.
+pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String], in_comment: bool) -> String {
     let text = final_text(stream).unwrap_or_else(|| "no final message".into());
-    let claim = claimed_changes(&text).unwrap_or("unknown");
-    let claim = if claim.is_empty() { "unknown" } else { claim };
-    let message: Vec<&str> = text
-        .lines()
-        .filter(|l| !l.trim_start().starts_with("Changes:"))
-        .collect();
-    let mut rest = text
+    let outcome = if blocked(&text) { "blocked" } else { "done" };
+    let claim = claimed_changes(&text)
+        .filter(|c| !c.is_empty())
+        .unwrap_or("unknown");
+    let keep = |l: &&str| field(l, "changes").is_none() && field(l, "outcome").is_none();
+    let message: Vec<&str> = text.lines().filter(keep).collect();
+    let rest = text
         .lines()
         .rev()
-        .find(|l| l.trim_start().starts_with("Changes:"))
-        .and_then(|l| l.split_once(';').map(|(_, rest)| rest.trim().to_owned()))
+        .find(|l| field(l, "changes").is_some())
+        .and_then(|l| l.split_once(';').map(|(_, rest)| rest.trim()))
         .unwrap_or_default();
-    if !rest.is_empty() {
-        rest.insert(0, ' ');
-    }
-    let message = format!("{}{rest}", message.join(" "));
+    let message = format!("{} {rest}", message.join(" "));
     let message = message.split_whitespace().collect::<Vec<_>>().join(" ");
     let copied = match changed.join(",") {
         files if files.is_empty() => "none".to_string(),
@@ -124,16 +94,22 @@ pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String]) -> String 
     } else {
         message
     };
-    let mut line =
-        format!("Changes: {claim}; Copied: {copied}; Claude exit {rc}; Result: {message}");
-    line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    let line = format!(
+        "Outcome: {outcome}; Changes: {claim}; Copied: {copied}; Claude exit {rc}; Result: {message}"
+    );
+    let mut line = line.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.len() > CONCLUSION_BYTES {
-        let mut cut = CONCLUSION_BYTES - CLIPPED.len();
+        let marker = if in_comment {
+            CLIPPED_TO_COMMENT
+        } else {
+            CLIPPED
+        };
+        let mut cut = CONCLUSION_BYTES - marker.len();
         while !line.is_char_boundary(cut) {
             cut -= 1;
         }
         line.truncate(cut);
-        line.push_str(CLIPPED);
+        line.push_str(marker);
     }
     line
 }
@@ -286,15 +262,18 @@ mod tests {
             proven_success(&edits, Some(0), &["src/lib.rs".into()]),
             Ok(())
         );
-        for none in [
-            "Changes: none",
-            "Changes: None; Checks: x",
-            "Changes: none (read-only)",
-        ] {
+        // Review R1-I1: the same table as the claim parser, through proven_success.
+        for (value, claims) in crate::claim::CASES {
+            let text = format!("Answer.\nChanges: {value}; Checks: none");
+            let expected = if claims {
+                Err("the agent reported changes, but none were copied back")
+            } else {
+                Ok(())
+            };
             assert_eq!(
-                proven_success(&result_of(none), Some(0), &[]),
-                Ok(()),
-                "{none}"
+                proven_success(&result_of(&text), Some(0), &[]),
+                expected,
+                "{value:?}"
             );
         }
     }
@@ -303,11 +282,17 @@ mod tests {
     /// Outcome line is done, so existing agents keep working.
     #[test]
     fn an_outcome_blocked_line_fails_and_any_other_is_done() {
-        let blocked = result_of("I could not find the config.\nOutcome: blocked\nChanges: none");
-        assert_eq!(
-            proven_success(&blocked, Some(0), &[]),
-            Err("the agent reported Outcome: blocked")
-        );
+        for text in [
+            "I could not find the config.\nOutcome: blocked\nChanges: none",
+            "I could not find the config.\n**Outcome:** Blocked\nChanges: none",
+            "I could not find the config.\noutcome: blocked.\nChanges: none",
+        ] {
+            assert_eq!(
+                proven_success(&result_of(text), Some(0), &[]),
+                Err("the agent reported Outcome: blocked"),
+                "{text}"
+            );
+        }
         for text in [
             "Answer.\nOutcome: done\nChanges: none",
             "Answer.\nOutcome: maybe\nChanges: none",
@@ -321,34 +306,45 @@ mod tests {
         }
     }
 
-    /// Review I-1: the recorded result is the agent's final message (bounded),
-    /// led by its own Changes claim and the copied files.
+    /// Review I-1, R1-M2: the recorded result is the agent's final message
+    /// (bounded), led by its Outcome, its own Changes claim and the copied files.
     #[test]
     fn the_conclusion_keeps_the_final_message() {
         let stream = result_of(
             "CI fails because the lockfile is stale.\nRun cargo update.\nChanges: none; Checks: cargo test (passed); Limits: none",
         );
         assert_eq!(
-            conclusion(&stream, Some(0), &[]),
-            "Changes: none; Copied: none; Claude exit 0; Result: CI fails because the lockfile is stale. Run cargo update. Checks: cargo test (passed); Limits: none"
+            conclusion(&stream, Some(0), &[], false),
+            "Outcome: done; Changes: none; Copied: none; Claude exit 0; Result: CI fails because the lockfile is stale. Run cargo update. Checks: cargo test (passed); Limits: none"
         );
         let line = conclusion(
-            &result_of("Added hello.\nChanges: src/lib.rs"),
+            &result_of("Added hello.\nOutcome: done\nChanges: src/lib.rs"),
             Some(0),
             &["src/lib.rs".into()],
+            false,
         );
         assert_eq!(
             line,
-            "Changes: src/lib.rs; Copied: src/lib.rs; Claude exit 0; Result: Added hello."
+            "Outcome: done; Changes: src/lib.rs; Copied: src/lib.rs; Claude exit 0; Result: Added hello."
         );
-        let long = result_of(&format!("{}\nChanges: none", "é".repeat(400)));
-        let clipped = conclusion(&long, None, &[]);
+        let long = result_of(&format!(
+            "{}\n**Outcome:** blocked\nChanges: none",
+            "é".repeat(400)
+        ));
+        let clipped = conclusion(&long, None, &[], false);
         assert!(
             clipped.len() <= 500 && clipped.ends_with(" [clipped]"),
             "{clipped}"
         );
-        assert!(conclusion(b"", None, &[]).starts_with(
-            "Changes: unknown; Copied: none; Claude exit unknown; Result: no final message"
+        assert!(
+            clipped.starts_with("Outcome: blocked; Changes: none;"),
+            "{clipped}"
+        );
+        let pointed = conclusion(&long, None, &[], true);
+        assert!(pointed.len() <= 500, "{pointed}");
+        assert!(pointed.ends_with(" [clipped; the full result is in the task comments]"));
+        assert!(conclusion(b"", None, &[], false).starts_with(
+            "Outcome: done; Changes: unknown; Copied: none; Claude exit unknown; Result: no final message"
         ));
     }
 }
