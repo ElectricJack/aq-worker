@@ -60,15 +60,20 @@ pub fn proven_success(
 /// Bound of the conclusion line (the result report's label holds 512 bytes).
 const CONCLUSION_BYTES: usize = 500;
 const CLIPPED: &str = " [clipped]";
-const CLIPPED_TO_COMMENT: &str = " [clipped; the full result is in the task comments]";
+const CLIPPED_TO_COMMENT: &str = " [clipped; the full message is posted to the task comments]";
 
 /// One-line, bounded conclusion (review I-1, R1-M2): the agent's `Outcome`
 /// (first, so clipping never removes it), its own `Changes:` claim, the
 /// copied-back files, the exit code, then its final message (without the Changes
 /// and Outcome lines), folded and clipped with an explicit marker. `in_comment`:
-/// the whole final message was posted as a task comment.
+/// the whole final message is posted as a task comment after the claim.
 pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String], in_comment: bool) -> String {
     let text = final_text(stream).unwrap_or_else(|| "no final message".into());
+    // R2-M3: no control, bidi or invisible format characters reach the summary.
+    let text: String = text
+        .chars()
+        .filter(|c| crate::visible(*c) || *c == '\n')
+        .collect();
     let outcome = if blocked(&text) { "blocked" } else { "done" };
     let claim = claimed_changes(&text)
         .filter(|c| !c.is_empty())
@@ -263,7 +268,7 @@ mod tests {
             Ok(())
         );
         // Review R1-I1: the same table as the claim parser, through proven_success.
-        for (value, claims) in crate::claim::CASES {
+        for (claims, value) in crate::claim::tests::cases() {
             let text = format!("Answer.\nChanges: {value}; Checks: none");
             let expected = if claims {
                 Err("the agent reported changes, but none were copied back")
@@ -340,9 +345,12 @@ mod tests {
             clipped.starts_with("Outcome: blocked; Changes: none;"),
             "{clipped}"
         );
+        // R2-M3: no bidi or invisible format characters in the summary.
+        let bidi = result_of("ab\u{202E}cd\u{2067}ef\nChanges: none");
+        assert!(conclusion(&bidi, Some(0), &[], false).ends_with("Result: abcdef"));
         let pointed = conclusion(&long, None, &[], true);
         assert!(pointed.len() <= 500, "{pointed}");
-        assert!(pointed.ends_with(" [clipped; the full result is in the task comments]"));
+        assert!(pointed.ends_with(" [clipped; the full message is posted to the task comments]"));
         assert!(conclusion(b"", None, &[], false).starts_with(
             "Outcome: done; Changes: unknown; Copied: none; Claude exit unknown; Result: no final message"
         ));

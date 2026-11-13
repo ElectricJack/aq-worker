@@ -2,7 +2,8 @@
 //! the driver posts the agent's whole final message (at most 16 KiB, clipped with
 //! an explicit marker) as an agent comment on the task, once per attempt. The
 //! result report's conclusion stays a bounded summary. Without a channel only the
-//! summary exists.
+//! summary exists. The post runs after the result claim, within [`POST_BUDGET`]
+//! (R2-M2): a slow channel or a host stop never leaves the attempt unclaimed.
 use anyhow::{Context, Result, ensure};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -11,6 +12,8 @@ use uuid::Uuid;
 /// aq-server's task comment body bound (`aq_task_comments::MAX_BODY_BYTES`).
 pub const MAX_COMMENT_BYTES: usize = 16 * 1024;
 const CLIPPED: &str = "[clipped: the final message exceeded 16 KiB]";
+/// The whole post (connect, send, reply) takes at most this long.
+pub const POST_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The comment's operation id: one per attempt, so a retried post replays.
 pub fn comment_operation(attempt: Uuid) -> Uuid {
@@ -18,18 +21,16 @@ pub fn comment_operation(attempt: Uuid) -> Uuid {
 }
 
 /// Plain text: the message sits in a fenced block, so no markup in it renders.
-/// A line that would close the fence gets a zero-width space first. Control
-/// characters other than tab and line feed are dropped.
+/// The message's control, bidi and other invisible format characters are dropped
+/// (R2-M3, [`crate::visible`]); then a line that would close the fence gets a
+/// zero-width space first.
 pub fn comment_body(attempt: Uuid, message: &str) -> String {
     let head = format!("Final message of attempt {attempt}:\n\n```text\n");
     let tail = "\n```\n";
     let clean: String = message
         .lines()
         .map(|l| {
-            let l: String = l
-                .chars()
-                .filter(|c| !c.is_control() || *c == '\t')
-                .collect();
+            let l: String = l.chars().filter(|c| crate::visible(*c)).collect();
             if l.trim_start().starts_with("```") {
                 format!("\u{200B}{l}")
             } else {
@@ -63,18 +64,25 @@ pub fn post(root: &Path, attempt: Uuid, message: &str) -> Result<()> {
         "operation_id": comment_operation(attempt),
         "body": comment_body(attempt, message),
     }))?;
+    let deadline = std::time::Instant::now() + POST_BUDGET;
+    let left = || {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        (!left.is_zero())
+            .then_some(left)
+            .context("post budget spent")
+    };
     let mut stream = std::os::unix::net::UnixStream::connect(&socket).context("agent channel")?;
-    let limit = Some(std::time::Duration::from_secs(5));
-    stream.set_read_timeout(limit)?;
-    stream.set_write_timeout(limit)?;
+    stream.set_write_timeout(Some(left()?))?;
     let head = format!(
         "POST /v1/agent/comments HTTP/1.1\r\nHost: aq\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes())?;
     stream.write_all(&body)?;
+    stream.set_read_timeout(Some(left()?))?;
     let mut reply = Vec::new();
     stream.take(64 * 1024).read_to_end(&mut reply)?;
+    left()?;
     let status = reply.split(|b| *b == b'\n').next().unwrap_or_default();
     ensure!(
         status.starts_with(b"HTTP/1.1 200") || status.starts_with(b"HTTP/1.0 200"),
@@ -133,6 +141,36 @@ mod tests {
             comment_operation(attempt),
             comment_operation(Uuid::from_u128(8))
         );
+    }
+    /// R2-M3: bidi overrides, isolates and other invisible format characters never
+    /// reach the comment.
+    #[test]
+    fn the_comment_drops_bidi_and_invisible_format_characters() {
+        let message = "a\u{202E}b\u{2066}c\u{2069}d\u{200F}e\u{FEFF}f\u{061C}g";
+        let body = comment_body(Uuid::from_u128(1), message);
+        assert!(body.contains("abcdefg"), "{body:?}");
+    }
+    /// R2-M2: a channel that accepts and never answers costs at most two seconds.
+    #[test]
+    fn a_silent_channel_costs_at_most_two_seconds() {
+        let dir = tempfile::tempdir().unwrap();
+        let attempt = Uuid::from_u128(11);
+        std::fs::create_dir(dir.path().join(attempt.to_string())).unwrap();
+        let socket = dir
+            .path()
+            .join(attempt.to_string())
+            .join(aq_agent_channel::SOCKET_NAME);
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let hold = std::thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            drop(s);
+        });
+        let started = std::time::Instant::now();
+        assert!(post(dir.path(), attempt, "The answer.").is_err());
+        let took = started.elapsed();
+        assert!(took <= std::time::Duration::from_millis(2500), "{took:?}");
+        hold.join().unwrap();
     }
     #[test]
     fn post_sends_one_idempotent_comment_through_the_channel() {

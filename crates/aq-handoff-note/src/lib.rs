@@ -14,6 +14,16 @@ mod stream;
 pub use secret_file::{parse_token, read_private};
 pub use stream::{conclusion, final_text, pane_line, print_logs, proven_success};
 
+/// Review R2-M3: a character the result text keeps. Control characters other than
+/// tab, and invisible format characters (bidi embeddings, overrides and isolates
+/// U+202A-U+202E and U+2066-U+2069, marks, zero-width and joiner characters, the
+/// soft hyphen and BOM) are dropped.
+pub fn visible(c: char) -> bool {
+    (!c.is_control() || c == '\t')
+        && !matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
+}
+
 /// Unix milliseconds now (0 before the epoch).
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()

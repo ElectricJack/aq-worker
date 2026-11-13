@@ -486,7 +486,7 @@ fn claim_outcome(
         config.agent_channel && leak.is_none(),
         &config.docker_local.channel_root,
     );
-    let posted = final_message::post_from_stream(on, root, config.owner.attempt_id, stream);
+    let posting = on && root.is_some();
     submit_claim(
         config,
         match leak {
@@ -494,9 +494,11 @@ fn claim_outcome(
             Some(place) => {
                 format!("Changes: none (copy-back refused); Refused: {place}; the attempt failed")
             }
-            None => conclusion(stream, rc, changed, posted),
+            None => conclusion(stream, rc, changed, posting),
         },
     );
+    // R2-M2: after the claim, best effort and bounded, so it never delays the result.
+    final_message::post_from_stream(on, root, config.owner.attempt_id, stream);
     if proven.is_ok() { 0 } else { 1 }
 }
 
