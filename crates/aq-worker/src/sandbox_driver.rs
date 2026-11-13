@@ -482,7 +482,7 @@ fn claim_outcome(
     }
     let proven = match leak {
         Some(place) => Err(place),
-        None => proven_success(stream, rc, changed),
+        None => proven_success(stream, rc),
     };
     if let Err(reason) = proven {
         println!(

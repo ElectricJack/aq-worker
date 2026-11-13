@@ -21,13 +21,11 @@ fn last_result(stream: &[u8]) -> Option<serde_json::Value> {
 /// - the last stream-json `result` event has `subtype == "success"` and
 ///   `is_error == false` (auth failures, max-turns, budget and errors set
 ///   `is_error`);
-/// - the agent's final text contains its own `Changes:` line;
-/// - the copied-back change set is non-empty.
-pub fn proven_success(
-    stream: &[u8],
-    rc: Option<i32>,
-    changed: &[String],
-) -> std::result::Result<(), &'static str> {
+/// - the agent's final text contains its own `Changes:` line.
+///
+/// An empty change set is not a failure (owner decision 2026-11-13): a task
+/// may be read-only, and its result is the agent's final message.
+pub fn proven_success(stream: &[u8], rc: Option<i32>) -> std::result::Result<(), &'static str> {
     if rc != Some(0) {
         return Err("runner exit not 0");
     }
@@ -41,9 +39,6 @@ pub fn proven_success(
         .any(|line| line.trim_start().starts_with("Changes:"))
     {
         return Err("final message has no Changes: line");
-    }
-    if changed.is_empty() {
-        return Err("no workspace change was copied back");
     }
     Ok(())
 }
@@ -145,7 +140,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn success_requires_exit_zero_a_successful_result_a_changes_line_and_changes() {
+    fn success_requires_exit_zero_a_successful_result_and_a_changes_line() {
         let result = |subtype: &str, is_error: bool, text: &str| {
             format!(
                 "{{\"type\":\"system\"}}\n{}\n",
@@ -158,19 +153,12 @@ mod tests {
             false,
             "Did it.\nChanges: src/lib.rs; Checks: cargo test; Limits: none",
         );
-        let files = vec!["src/lib.rs".to_string()];
-        assert_eq!(proven_success(&done, Some(0), &files), Ok(()));
+        assert_eq!(proven_success(&done, Some(0)), Ok(()));
         // Each refusal case alone keeps the attempt failed.
+        assert_eq!(proven_success(&done, Some(1)), Err("runner exit not 0"));
+        assert_eq!(proven_success(&done, None), Err("runner exit not 0"));
         assert_eq!(
-            proven_success(&done, Some(1), &files),
-            Err("runner exit not 0")
-        );
-        assert_eq!(
-            proven_success(&done, None, &files),
-            Err("runner exit not 0")
-        );
-        assert_eq!(
-            proven_success(b"{\"type\":\"assistant\"}\n", Some(0), &files),
+            proven_success(b"{\"type\":\"assistant\"}\n", Some(0)),
             Err("no final result event")
         );
         for (subtype, is_error) in [
@@ -179,7 +167,7 @@ mod tests {
             ("error_during_execution", false),
         ] {
             assert_eq!(
-                proven_success(&result(subtype, is_error, "Changes: x"), Some(0), &files),
+                proven_success(&result(subtype, is_error, "Changes: x"), Some(0)),
                 Err("final result is not a success"),
                 "{subtype} {is_error}"
             );
@@ -191,18 +179,21 @@ mod tests {
             "Which file should I edit? I could not find src/lib.rs.",
         );
         assert_eq!(
-            proven_success(&question, Some(0), &files),
+            proven_success(&question, Some(0)),
             Err("final message has no Changes: line")
         );
-        assert_eq!(
-            proven_success(&done, Some(0), &[]),
-            Err("no workspace change was copied back")
+        // A read-only task changes no file and still succeeds.
+        let read_only = result(
+            "success",
+            false,
+            "The build passes.\nChanges: none; Checks: cargo test passed; Limits: none",
         );
+        assert_eq!(proven_success(&read_only, Some(0)), Ok(()));
         // Only the LAST result event counts.
         let mut later = done.clone();
         later.extend(result("error_during_execution", true, "Changes: none"));
         assert_eq!(
-            proven_success(&later, Some(0), &files),
+            proven_success(&later, Some(0)),
             Err("final result is not a success")
         );
     }
