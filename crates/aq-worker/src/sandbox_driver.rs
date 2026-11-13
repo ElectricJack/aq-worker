@@ -68,11 +68,10 @@ exit "$rc"
 "#;
 
 /// Appended to the startup context inside the sandbox.
-pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and \
-AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the result client. \
-The node runner submits your final message as the AQ result claim, so end with exactly one line: \
-Changes: ...; Checks: exact commands and outcomes; Limits: .... Your worktree is retained as is: keep \
-build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
+pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the \
+result client. The node runner submits your final message as the AQ result claim, so end with exactly one line: Changes: ...; Checks: exact commands \
+and outcomes; Limits: ... (write Changes: none when you changed no file), and above it one line Outcome: done, or Outcome: blocked when you could not \
+do the task. Your worktree is retained as is: keep build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
 /// Appended when the attempt has an agent channel.
 pub const CHANNEL_NOTE: &str = "The aq CLI (/opt/aq/bin/aq, where installed) reaches AQ from this \
 sandbox through AQ_CHANNEL; no credential is needed or accepted. `aq commands` lists what you may run.\n";
@@ -482,7 +481,7 @@ fn claim_outcome(
     }
     let proven = match leak {
         Some(place) => Err(place),
-        None => proven_success(stream, rc),
+        None => proven_success(stream, rc, changed),
     };
     if let Err(reason) = proven {
         println!(
