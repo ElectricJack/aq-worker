@@ -33,7 +33,7 @@ pub use aq_handoff_note::{
     CopyBackIncomplete, HANDOFF_MARKER, HandoffMarker, PRESERVED_MARKER, conclusion, fold_claim,
     handoff_note, holds_secret, holds_token, parse_token, proven_success, read_handoff_marker,
 };
-use aq_handoff_note::{preserved_claim, read_private, write_exit};
+use aq_handoff_note::{final_message, now_ms, preserved_claim, read_private, write_exit};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -68,11 +68,10 @@ exit "$rc"
 "#;
 
 /// Appended to the startup context inside the sandbox.
-pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and \
-AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the result client. \
-The node runner submits your final message as the AQ result claim, so end with exactly one line: \
-Changes: ...; Checks: exact commands and outcomes; Limits: .... Your worktree is retained as is: keep \
-build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
+pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the \
+result client. The node runner submits your final message as the AQ result claim, so end with exactly one line: Changes: ...; Checks: exact commands \
+and outcomes; Limits: ... (write Changes: none when you changed no file), and above it one line Outcome: done, or Outcome: blocked when you could not \
+do the task. Your worktree is retained as is: keep build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
 /// Appended when the attempt has an agent channel.
 pub const CHANNEL_NOTE: &str = "The aq CLI (/opt/aq/bin/aq, where installed) reaches AQ from this \
 sandbox through AQ_CHANNEL; no credential is needed or accepted. `aq commands` lists what you may run.\n";
@@ -329,13 +328,6 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     ])
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
 pub struct DriverOutcome {
     pub sandbox: SandboxIdentity,
     pub runner_exit: Option<RunnerExit>,
@@ -490,6 +482,11 @@ fn claim_outcome(
         );
     }
     write_exit(config_path, proven.is_ok());
+    let (on, root) = (
+        config.agent_channel && leak.is_none(),
+        &config.docker_local.channel_root,
+    );
+    let posting = on && root.is_some();
     submit_claim(
         config,
         match leak {
@@ -497,9 +494,11 @@ fn claim_outcome(
             Some(place) => {
                 format!("Changes: none (copy-back refused); Refused: {place}; the attempt failed")
             }
-            None => conclusion(stream, rc, changed),
+            None => conclusion(stream, rc, changed, posting),
         },
     );
+    // R2-M2: after the claim, best effort and bounded, so it never delays the result.
+    final_message::post_from_stream(on, root, config.owner.attempt_id, stream);
     if proven.is_ok() { 0 } else { 1 }
 }
 

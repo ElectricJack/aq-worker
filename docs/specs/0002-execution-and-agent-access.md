@@ -1,6 +1,6 @@
 # Worker execution recovery and agent access
 
-**Status:** Current execution contract; foundation recovery/client/source components are qualified, native consumer integration remains open.
+**Status:** Current execution contract; foundation recovery/client/source components are qualified, the native consumer is integrated and ran live, including crash recovery, in swarm phase 1 ([`../implementation/0007-P1.md`](../implementation/0007-P1.md)); the agent channel was proven live in [`../implementation/0006-P6.md`](../implementation/0006-P6.md).
 
 **Date:** 2026-10-30
 
