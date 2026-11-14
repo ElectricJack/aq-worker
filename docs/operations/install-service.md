@@ -117,11 +117,12 @@ key too, unless `--name` gives another.
 - Durable state: `state_root` in `service.toml`, by default
   `~/.local/state/agent-q/service/PROFILE/`: each slot's journal, Git state,
   materials and archives. Today nothing deletes old archives or kept sandboxes;
-  release them by hand (below). Target (2026-11-13, pending): both are rolling
+  release them by hand (below). Target (2026-11-13, implementation pending): both are rolling
   sets under aq-server
   [architecture 0006](../../../aq-server/docs/architecture/0006-records-are-rolling.md) and SBX22: the most recent 20 archives per slot, none
-  older than 14 days, and the most recent `preserve.max_count` kept sandboxes,
-  none older than `preserve.max_age`; the service deletes older ones itself.
+  older than 14 days, and the most recent `preserve.max_count` kept sandboxes
+  (default 2 per machine), none older than `preserve.max_age` (default 3
+  days); the service deletes older ones itself.
 - Runtime files: every Unix socket (aq-git's, tmux's, the session host's) and
   the session host's per-launch directories live under a short runtime root,
   `$XDG_RUNTIME_DIR/aq/PROFILE/` (for example `/run/user/1000/aq/local/`), or
@@ -199,6 +200,16 @@ budgets) or `lost_after_crash` (charged, like any crash) and retries the task
 from its original input: the attempt's unsaved work is not salvaged.
 `lost-ATTEMPT.json` in the slot's archived state records this, and the slot is
 free again. Release the kept sandbox with `service release-sandbox` (below).
+
+Target (2026-11-13, implementation pending): after a crash, kill or reboot the
+service tries once to salvage the lost attempt's unsaved work from the stopped
+sandbox and offers it to the retry as its starting point, told that it
+continues from interrupted, possibly half-finished work. After a successful
+salvage the sandbox is deleted at once. A sandbox whose salvage failed is kept
+only for inspection: at most `preserve.max_count` per machine (default 2),
+each for at most `preserve.max_age` (default 3 days), then the service deletes
+it. Both are settings. `service release-sandbox` then only deletes one sooner.
+A planned restart or stop is unchanged. Details: worker spec 0001 §16.
 Without a proof, or if the server refuses the release, the slot is held for
 the owner and the reason is logged.
 
