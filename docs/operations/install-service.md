@@ -116,7 +116,12 @@ key too, unless `--name` gives another.
   `machine.json`, `native.json`, one `slots/N/worker.toml` per slot).
 - Durable state: `state_root` in `service.toml`, by default
   `~/.local/state/agent-q/service/PROFILE/`: each slot's journal, Git state,
-  materials and archives.
+  materials and archives. Today nothing deletes old archives or kept sandboxes;
+  release them by hand (below). Target (2026-11-13, pending): both are rolling
+  sets under aq-server
+  [architecture 0006](../../../aq-server/docs/architecture/0006-records-are-rolling.md) and SBX22: the most recent 20 archives per slot, none
+  older than 14 days, and the most recent `preserve.max_count` kept sandboxes,
+  none older than `preserve.max_age`; the service deletes older ones itself.
 - Runtime files: every Unix socket (aq-git's, tmux's, the session host's) and
   the session host's per-launch directories live under a short runtime root,
   `$XDG_RUNTIME_DIR/aq/PROFILE/` (for example `/run/user/1000/aq/local/`), or
