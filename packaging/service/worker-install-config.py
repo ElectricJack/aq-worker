@@ -60,14 +60,20 @@ def prepare(package, work, origin, socket, config, digest):
     template["adapter_manifest"] = str(package / "adapter.json")
     template["executor"]["composite_definition"] = str(package / "composite.json")
     template["inventory_definition"] = str(package / "inventory.json")
-    template.update(state_dir=str(config / "state"), git_root=str(config / "git"), git_socket=str(config / "git.sock"))
+    # The worker validates these when it loads the template, before it replaces them with
+    # each slot's own: the state directory must exist, be private to this user (0700) and
+    # contain the git root. `configure` creates it.
+    template.update(state_dir=str(config / "state"), git_root=str(config / "state/git"), git_socket=str(config / "git.sock"))
     native = json.dumps(template, indent=2) + "\n"
     enrolled = config / "service.toml"
     if enrolled.exists():
         slot = read_toml(config / "slots/1/worker.toml")
-        if slot["server_url"] != origin or (not update and (config / "native.json").read_text() != native):
+        stored = (config / "native.json").read_text()
+        # An install made before the state directory fix differs only in its git root.
+        repaired = stored != native and stored.replace(json.dumps(str(config / "git")), json.dumps(str(config / "state/git"))) == native
+        if slot["server_url"] != origin or (not update and not repaired and stored != native):
             raise ValueError("This profile is already configured for a different installation. Use a different --profile.")
-        if update:
+        if update or repaired:
             # Taken up by `configure`, after the new binaries are in place.
             atomic_text(config / "native.json.update", native)
     # aq-install.sh shares these paths across its profiles. Refuse a binary swap
@@ -137,6 +143,11 @@ def configure(package, config, origin, podman, slots, digest):
             if not contents.endswith(suffix):
                 raise ValueError("This profile has custom manual settings. Configure its measurement token to enable manual sessions.")
             atomic_text(service, contents.removesuffix(suffix) + "\n")
+    # Without this directory the worker fails every attempt with "No such file or directory"
+    # and never reports its capabilities.
+    state = config / "state"
+    state.mkdir(mode=0o700, exist_ok=True)
+    state.chmod(0o700)
     staged = config / "native.json.update"
     if staged.exists():
         staged.replace(config / "native.json")

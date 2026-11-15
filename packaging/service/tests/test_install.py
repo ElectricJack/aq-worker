@@ -920,6 +920,11 @@ def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_pat
     assert "updated" in done.stdout
     assert str(newer / "aq-session-host") in (config / "native.json").read_text()
     assert not (config / "native.json.update").exists()
+    # What the worker checks when it loads the template: a private state directory that holds the git root.
+    template = json.loads((config / "native.json").read_text())
+    state = Path(template["state_dir"])
+    assert state == config / "state" and state.is_dir() and state.stat().st_mode & 0o777 == 0o700
+    assert Path(template["git_root"]).parent == state
     assert json.loads((config / "hosted-install.json").read_text()) == {"origin": origin, "bundle_sha256": new}
     assert (config / "slots/1/worker.toml").read_text() == f'server_url = "{origin}"\n', "the enrollment is kept"
 
