@@ -880,6 +880,9 @@ def hosted_profile(tmp_path, digest):
         }}},
     }
     (package / "native.json").write_text(json.dumps(template))
+    for name in ("adapter.json", "composite.json", "inventory.json"):
+        (package / name).write_text("{}")
+        (package / name).chmod(0o644)
     for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
         (package / name).write_text(name + digest)
     return package, config, runtime
@@ -925,6 +928,16 @@ def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_pat
     state = Path(template["state_dir"])
     assert state == config / "state" and state.is_dir() and state.stat().st_mode & 0o777 == 0o700
     assert Path(template["git_root"]).parent == state
+    for key in (template["adapter_manifest"], template["inventory_definition"], template["executor"]["composite_definition"]):
+        assert Path(key).stat().st_mode & 0o777 == 0o600, "the worker reads its definitions only as private files"
+    # A machine installed by an earlier installer mends itself on the receiver's next pass.
+    helper = login_helper()
+    (config / "service.toml").write_text(f'slots = 1\nnative_template = "{config / "native.json"}"\n')
+    Path(template["adapter_manifest"]).chmod(0o644)
+    shutil.rmtree(state)
+    helper.repair_native_files(config)
+    assert Path(template["adapter_manifest"]).stat().st_mode & 0o777 == 0o600
+    assert state.is_dir() and state.stat().st_mode & 0o777 == 0o700
     assert json.loads((config / "hosted-install.json").read_text()) == {"origin": origin, "bundle_sha256": new}
     assert (config / "slots/1/worker.toml").read_text() == f'server_url = "{origin}"\n', "the enrollment is kept"
 

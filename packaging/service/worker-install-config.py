@@ -64,6 +64,8 @@ def prepare(package, work, origin, socket, config, digest):
     # each slot's own: the state directory must exist, be private to this user (0700) and
     # contain the git root. `configure` creates it.
     template.update(state_dir=str(config / "state"), git_root=str(config / "state/git"), git_socket=str(config / "git.sock"))
+    for name in ("adapter.json", "composite.json", "inventory.json"):
+        (package / name).chmod(0o600)  # the worker reads its definitions only as private files
     native = json.dumps(template, indent=2) + "\n"
     enrolled = config / "service.toml"
     if enrolled.exists():
@@ -463,6 +465,23 @@ def sandbox_diagnostics(config):
         message = str(error)[:4096] if type(error) is ValueError or isinstance(error, OSError) else "AQ's private network helper repair failed."
         return {"ok": False, "phase": "network_support", "error": message, "details": report.get("details", {})}
 
+def repair_native_files(config):
+    """Keeps what the worker requires of its template true, so a machine installed by an earlier
+    installer mends itself: the worker reads its adapter, composite and inventory definitions only
+    as private files (0600), and needs its private state directory (0700). A bundle unpacks the
+    definitions as 0644, and nothing created the directory. Only this user's regular files are touched.
+    """
+    native = json.loads(Path(read_toml(config / "service.toml")["native_template"]).read_text())
+    for value in (native.get("adapter_manifest"), native.get("inventory_definition"), native["executor"].get("composite_definition")):
+        path = Path(str(value))
+        if path.is_absolute() and path.is_file() and not path.is_symlink() and path.stat().st_uid == os.getuid() and path.stat().st_mode & 0o7777 != 0o600:
+            path.chmod(0o600)
+    state = Path(str(native.get("state_dir")))
+    if state.is_absolute() and state.parent == config:
+        state.mkdir(mode=0o700, exist_ok=True)
+        state.chmod(0o700)
+
+
 def worker_service_report(config):
     """What the worker service says about itself, for a remote check: whether it runs, its version,
     which of its template's paths are missing, and its last log lines. It reads no credential; a
@@ -594,6 +613,10 @@ def sync_logins(package, config):
         # Control traffic must survive the broken configuration it diagnoses.
         slots = [slot for slot in range(1, 9) if (config / f"slots/{slot}/worker.toml").is_file()]
     failed = False
+    try:
+        repair_native_files(config)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
     for slot in slots:
         for receive in (sync_slot, sync_diagnostics_slot):
             try:
