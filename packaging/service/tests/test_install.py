@@ -980,3 +980,32 @@ def test_rerunning_the_installer_enables_queued_work_once_a_claude_login_was_del
     assert tomllib.loads(service.read_text())["slots"] == 1
     again = run_config(tmp_path, *args)
     assert again.returncode == 0 and "Queued work is enabled" not in again.stdout
+
+
+def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(tmp_path, monkeypatch):
+    helper = login_helper()
+    config = tmp_path / "local"
+    (config / "state").mkdir(parents=True, mode=0o700)
+    present = tmp_path / "present"
+    present.write_text("")
+    native = {"state_dir": str(config / "state"), "git_root": str(config / "state/git"), "adapter_manifest": str(present),
+              "inventory_definition": str(tmp_path / "absent.json"),
+              "executor": {"composite_definition": str(present), "settings": {"host": {
+                  "docker_local": {"socket": str(present)}, "driver": {"path": str(present)},
+                  "helper": {"path": str(present)}, "tmux": {"path": str(present)}}}}}
+    (config / "native.json").write_text(json.dumps(native))
+    (config / "service.toml").write_text(f'slots = 1\nnative_template = "{config / "native.json"}"\n\n[measurement]\nenabled = true\nmodel = "m"\n')
+    log = "attempt failed: No such file or directory\ntoken sk-ant-oat01-abcDEF_123 seen\n" + "x" * 500 + "\n"
+    def fake_run(argv, **_):
+        out = {"systemctl": "active\n", "journalctl": log}.get(Path(argv[0]).name, "aq-worker 0.5.1+abc\n")
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+    monkeypatch.setattr(helper.subprocess, "run", fake_run)
+    report = helper.worker_service_report(config)
+    assert report["active"] == "active" and report["version"] == "aq-worker 0.5.1+abc"
+    assert report["measurement"] == {"enabled": True, "model": "m"}
+    assert report["missing"] == ["inventory_definition"]
+    assert report["state_dir"] == {"mode": "0o700", "holds_git_root": True}
+    assert report["log"][0] == "attempt failed: No such file or directory"
+    assert report["log"][1] == "token [redacted] seen" and len(report["log"][2]) == 280
+    assert len(json.dumps(report)) < 12000
+

@@ -463,6 +463,44 @@ def sandbox_diagnostics(config):
         message = str(error)[:4096] if type(error) is ValueError or isinstance(error, OSError) else "AQ's private network helper repair failed."
         return {"ok": False, "phase": "network_support", "error": message, "details": report.get("details", {})}
 
+def worker_service_report(config):
+    """What the worker service says about itself, for a remote check: whether it runs, its version,
+    which of its template's paths are missing, and its last log lines. It reads no credential; a
+    token-shaped string in a log line is replaced. Kept small: the whole report is at most 16 KiB.
+    """
+    unit = "aq-node@" + config.name + ".service"
+    def run(*argv):
+        try:
+            return subprocess.run(argv, capture_output=True, text=True, timeout=15).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    report = {
+        "active": run("systemctl", "--user", "is-active", unit).strip()[:32],
+        "version": run(str(Path.home() / ".local/share/agent-q/runtime/aq-worker"), "--version").strip()[:96],
+    }
+    try:
+        service = read_toml(config / "service.toml")
+        report["measurement"] = {key: service.get("measurement", {}).get(key) for key in ("enabled", "model")}
+        native = json.loads(Path(service["native_template"]).read_text())
+        host = native["executor"]["settings"]["host"]
+        paths = {
+            "state_dir": native.get("state_dir"), "adapter_manifest": native.get("adapter_manifest"),
+            "inventory_definition": native.get("inventory_definition"),
+            "composite_definition": native["executor"].get("composite_definition"),
+            "socket": host["docker_local"]["socket"], "driver": host["driver"]["path"],
+            "helper": host["helper"]["path"], "tmux": host["tmux"]["path"],
+        }
+        report["missing"] = sorted(key for key, value in paths.items() if not (isinstance(value, str) and os.path.exists(value)))
+        state = Path(str(paths["state_dir"]))
+        report["state_dir"] = {"mode": oct(state.stat().st_mode & 0o7777), "holds_git_root": str(native.get("git_root", "")).startswith(str(state) + "/")} if state.is_dir() else None
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        report["template_error"] = str(error)[:300]
+    secret = re.compile(r"sk-ant-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_.-]+|Bearer\s+\S+")
+    lines = run("journalctl", "--user", "-u", unit, "-n", "40", "--no-pager", "-o", "cat").splitlines()
+    report["log"] = [secret.sub("[redacted]", line)[:280] for line in lines][-30:]
+    return report
+
+
 def sync_diagnostics_slot(package, config, slot):
     job = diagnostic_request(config, {}, slot)
     operation = job.get("operation_id")
@@ -477,6 +515,7 @@ def sync_diagnostics_slot(package, config, slot):
         try:
             if job.get("kind") == "sandbox_startup_v1":
                 report = sandbox_diagnostics(config)
+                report.setdefault("details", {})["worker"] = worker_service_report(config)
             elif job.get("kind") == "receiver_update_v1":
                 report = receiver_update(config, job.get("installer_sha256"))
             else:
