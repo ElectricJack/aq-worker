@@ -856,3 +856,62 @@ def test_host_companion_extracts_only_regular_allowlisted_files(tmp_path):
     duplicate = tmp_path / 'duplicate'; duplicate.mkdir()
     with pytest.raises(ValueError, match='Invalid host terminal'):
         helper.host_bundle_files(archive, duplicate)
+
+
+def hosted_profile(tmp_path, digest):
+    """A profile enrolled from the hosted installer's bundle `digest`, and that bundle's package."""
+    package, config, runtime = tmp_path / ("pkg-" + digest[:4]), tmp_path / "config", tmp_path / "home/.local/share/agent-q/runtime"
+    for directory in (package, config / "slots/1", runtime):
+        directory.mkdir(parents=True, exist_ok=True)
+    template = {
+        "adapter_manifest": "/adapter.json", "inventory_definition": "/inventory.json",
+        "executor": {"composite_definition": "/composite.json", "settings": {"host": {
+            "root": "/bundle/host", "driver": {"path": "/bundle/aq-sandbox-driver"},
+            "helper": {"path": "/bundle/aq-session-host"}, "tmux": {"path": "/bundle/tmux"},
+            "docker_local": {"socket": "/bundle/podman.sock", "templates": [{"image": "registry.invalid/owner/image", "digest": "sha256:" + "0" * 64}]},
+        }}},
+    }
+    (package / "native.json").write_text(json.dumps(template))
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
+        (package / name).write_text(name + digest)
+    return package, config, runtime
+
+
+def run_config(tmp_path, *args):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT.with_name("worker-install-config.py")), *map(str, args)],
+        capture_output=True, text=True, timeout=20, env={**os.environ, "HOME": str(tmp_path / "home")},
+    )
+
+
+def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_path):
+    origin, old, new = "https://worker.example", "a" * 64, "b" * 64
+    package, config, runtime = hosted_profile(tmp_path, old)
+    work = tmp_path / "work"
+    work.mkdir()
+    # First install: prepare, then what aq-install.sh and enrollment leave behind.
+    first = run_config(tmp_path, "prepare", package, work, origin, tmp_path / "podman.sock", config, old)
+    assert first.returncode == 0, first.stderr
+    (config / "native.json").write_text((work / "native.json").read_text())
+    (config / "service.toml").write_text("slots = 1\n")
+    (config / "slots/1/worker.toml").write_text(f'server_url = "{origin}"\n')
+    (config / "hosted-install.json").write_text(json.dumps({"origin": origin, "bundle_sha256": old}))
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
+        (runtime / name).write_text((package / name).read_text())
+    # A newer bundle from another server is refused.
+    newer, _, _ = hosted_profile(tmp_path, new)
+    other = run_config(tmp_path, "prepare", newer, work, "https://other.example", tmp_path / "podman.sock", config, new)
+    assert other.returncode != 0 and "another server" in other.stderr
+    # From the same server it is an update: allowed although the runtime and template differ.
+    update = run_config(tmp_path, "prepare", newer, work, origin, tmp_path / "podman.sock", config, new)
+    assert update.returncode == 0, update.stderr
+    assert str(newer) not in (config / "native.json").read_text(), "the template changes only once the binaries are in place"
+    (newer / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}}))
+    done = run_config(tmp_path, "configure", newer, config, origin, "/usr/bin/podman", "1", new)
+    assert done.returncode == 0, done.stderr
+    assert "updated" in done.stdout
+    assert str(newer / "aq-session-host") in (config / "native.json").read_text()
+    assert not (config / "native.json.update").exists()
+    assert json.loads((config / "hosted-install.json").read_text()) == {"origin": origin, "bundle_sha256": new}
+    assert (config / "slots/1/worker.toml").read_text() == f'server_url = "{origin}"\n', "the enrollment is kept"
+

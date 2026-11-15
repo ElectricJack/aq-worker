@@ -38,9 +38,16 @@ def read_toml(path):
 
 
 def prepare(package, work, origin, socket, config, digest):
+    # A profile installed from this server's installer may take a newer bundle
+    # from the same server: that is an update. Its runtime binaries and native
+    # template are then replaced; its enrollment, slots and identity are kept.
     marker = config / "hosted-install.json"
-    if marker.exists() and json.loads(marker.read_text()) != {"origin": origin, "bundle_sha256": digest}:
-        raise ValueError("This profile was installed from another bundle or server. Use a different --profile.")
+    update = False
+    if marker.exists():
+        recorded = json.loads(marker.read_text())
+        if recorded.get("origin") != origin:
+            raise ValueError("This profile was installed from another server. Use a different --profile.")
+        update = recorded.get("bundle_sha256") != digest
     template = json.loads((package / "native.json").read_text())
     host = template["executor"]["settings"]["host"]
     host["root"] = str(config / "host")
@@ -58,8 +65,11 @@ def prepare(package, work, origin, socket, config, digest):
     enrolled = config / "service.toml"
     if enrolled.exists():
         slot = read_toml(config / "slots/1/worker.toml")
-        if slot["server_url"] != origin or (config / "native.json").read_text() != native:
+        if slot["server_url"] != origin or (not update and (config / "native.json").read_text() != native):
             raise ValueError("This profile is already configured for a different installation. Use a different --profile.")
+        if update:
+            # Taken up by `configure`, after the new binaries are in place.
+            atomic_text(config / "native.json.update", native)
     # aq-install.sh shares these paths across its profiles. Refuse a binary swap
     # on a machine that already uses a different runtime.
     runtime = Path.home() / ".local/share/agent-q/runtime"
@@ -67,7 +77,7 @@ def prepare(package, work, origin, socket, config, digest):
         installed = runtime / name
         if installed.exists():
             with installed.open("rb") as current, (package / name).open("rb") as source:
-                if hashlib.file_digest(current, "sha256").digest() != hashlib.file_digest(source, "sha256").digest():
+                if not update and hashlib.file_digest(current, "sha256").digest() != hashlib.file_digest(source, "sha256").digest():
                     raise ValueError("Another AQ runtime is installed. Install on a fresh WSL distro or upgrade that runtime separately.")
     (work / "native.json").write_text(native)
     (work / "image").write_text(entry["image"] + "\n")
@@ -106,6 +116,10 @@ def configure(package, config, origin, podman, slots, digest):
             if not contents.endswith(suffix):
                 raise ValueError("This profile has custom manual settings. Configure its measurement token to enable manual sessions.")
             atomic_text(service, contents.removesuffix(suffix) + "\n")
+    staged = config / "native.json.update"
+    if staged.exists():
+        staged.replace(config / "native.json")
+        print("This worker was updated to the bundle of this installer. Its enrollment was kept.")
     atomic_text(config / "hosted-install.json", json.dumps({"origin": origin, "bundle_sha256": digest}) + "\n")
     if not measurement.get("enabled"):
         print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to enable agents.")
