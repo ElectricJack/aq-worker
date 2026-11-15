@@ -181,7 +181,7 @@ if (( ${#others[@]} )); then
   printf '  pid %s\n' "${others[@]}" >&2
   echo 'Worker services on this machine:' >&2
   systemctl --user list-units --no-legend --plain 'aq-*' >&2 || true
-  echo 'Stop that worker (for a container worker: systemctl --user disable --now aq-worker@PROFILE.service), then run this command again.' >&2
+  echo 'Stop that worker, then run this command again. Send this list to whoever runs the AQ server if it is not clear what it is.' >&2
   exit 5
 fi
 python3 "$work/configure.py" install-sync "$package" "$config_dir"

@@ -94,9 +94,16 @@ if [[ ( -e "$LINK" || -L "$LINK" ) && "$(readlink "$LINK" || true)" != "$RUNTIME
   echo "$LINK exists and is not the link this script installs; move it away and run again." >&2
   exit 2
 fi
-if systemctl --user is-active --quiet aq-worker@local.service; then
-  echo "warning: the container worker aq-worker@local is running too. Two workers on one machine compete for it; stop it with: systemctl --user disable --now aq-worker@local" >&2
-fi
+# A container worker (aq-worker-ctl) on this machine competes with the service
+# this script installs, and updating the service does not replace it: it would
+# keep answering for the machine with its own, older worker. Turn it off. Its
+# configuration and enrollment are kept, and `systemctl --user enable --now
+# UNIT` turns it back on.
+while read -r unit _; do
+  [[ "$unit" == aq-worker@*.service ]] || continue
+  echo "Turning off the container worker $unit: the worker service installed here replaces it. Its configuration is kept; turn it back on with: systemctl --user enable --now $unit"
+  systemctl --user disable --now "$unit"
+done < <(systemctl --user list-units --type=service --state=active --no-legend --plain 'aq-worker@*.service' 2>/dev/null || true)
 
 # Configure boot startup before consuming an enrollment code. Keep installer
 # stdin for enrollment; loginctl/sudo must not read a piped code or Access token.

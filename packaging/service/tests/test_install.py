@@ -391,12 +391,17 @@ def test_refuses_to_replace_a_foreign_aq_worker(host):
         assert run(host, "--reconfigure").returncode == 0, "our own link is replaced"
 
 
-def test_warns_when_the_container_worker_is_active(host):
+def test_an_active_container_worker_is_turned_off_and_its_configuration_kept(host):
     with with_socket(host):
         quiet = run(host)
-        loud = run(host, env={"STUB_ACTIVE": "aq-worker@local.service"})
-    assert quiet.returncode == 0 and "aq-worker@local" not in quiet.stderr
-    assert loud.returncode == 0 and "aq-worker@local is running" in loud.stderr
+        loud = run(host, env={"STUB_ACTIVE": "aq-worker@local.service aq-sandbox-podman.service"})
+    assert quiet.returncode == 0 and "aq-worker@local" not in quiet.stdout + quiet.stderr
+    assert not [c for c in calls(host) if c["name"] == "systemctl" and "disable" in c["args"]][:-1], "only the active one"
+    assert loud.returncode == 0, loud.stderr
+    assert "Turning off the container worker aq-worker@local.service" in loud.stdout
+    assert "systemctl --user enable --now aq-worker@local.service" in loud.stdout
+    disabled = [c["args"] for c in calls(host) if c["name"] == "systemctl" and "disable" in c["args"]]
+    assert disabled == [["--user", "disable", "--now", "aq-worker@local.service"]]
 
 
 def test_an_enrolled_profile_is_not_enrolled_again_without_reconfigure(host):
