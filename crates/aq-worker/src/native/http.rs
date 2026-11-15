@@ -74,7 +74,8 @@ pub(crate) async fn refused(response: Response) -> anyhow::Error {
     let body = response.text().await.unwrap_or_default();
     let body: String = body.chars().take(400).collect();
     tracing::warn!(%path, %status, %body, "native endpoint refused");
-    HttpStatus(status, retry_after).into()
+    let gone = status == StatusCode::CONFLICT && body.contains("execution cancelled"); // released: 410, never retried
+    HttpStatus([status, StatusCode::GONE][gone as usize], retry_after).into()
 }
 /// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
 /// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.
