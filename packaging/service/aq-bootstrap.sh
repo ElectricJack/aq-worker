@@ -167,13 +167,18 @@ if [[ "$running" != "$worker" ]]; then
   exit 5
 fi
 echo "Worker running: $("$worker" --version)."
-# No other worker may be running on this machine: one started from replaced
-# files, or a second installation, would keep answering for it with old code.
+# No second worker service process may be running on this machine: one started
+# from replaced files, or another installation, would answer for it with old
+# code. The terminal companions also run aq-worker (other subcommands, from
+# their own copy); `install-sync` below moves them to this bundle.
 others=()
 if command -v pgrep >/dev/null; then
   for other in $(pgrep -u "$(id -u)" -x aq-worker || true); do
     exe="$(readlink "/proc/$other/exe" 2>/dev/null || true)"
-    if [[ "$exe" != "$worker" ]]; then others+=("$other  ${exe:-unknown}  started $(ps -o lstart= -p "$other" 2>/dev/null || true)"); fi
+    mapfile -d '' -t argv < "/proc/$other/cmdline" 2>/dev/null || argv=()
+    if [[ "${argv[1]:-}" == run && "$exe" != "$worker" ]]; then
+      others+=("$other  ${exe:-unknown}  started $(ps -o lstart= -p "$other" 2>/dev/null || true)")
+    fi
   done
 fi
 if (( ${#others[@]} )); then
