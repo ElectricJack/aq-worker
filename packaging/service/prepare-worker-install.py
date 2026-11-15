@@ -142,6 +142,11 @@ http {{
     }}
     location /install/ {{ return 404; }}
     {image_routes}
+    # The worker protocol's own /v2/ paths (the agent channel's credential) are not the
+    # image registry's: without this an enrolled machine cannot launch an agent.
+    location /v2/worker/ {{
+      proxy_pass http://127.0.0.1:{args.worker_port};
+    }}
     location /v2/ {{ return 404; }}
     location / {{
       proxy_set_header Upgrade $http_upgrade;
