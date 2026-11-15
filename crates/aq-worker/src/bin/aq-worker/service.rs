@@ -197,6 +197,17 @@ impl NativeSlotBackend {
                 }
                 continue;
             }
+            // The server released this attempt (its task was cancelled as the agent finished):
+            // its result can never be recorded. Leave it for the archive instead of retrying
+            // forever, which kept the slot from taking any other work.
+            let released = |e: &anyhow::Error| {
+                (e.downcast_ref::<aq_worker::native::http::HttpStatus>())
+                    .is_some_and(|s| s.0 == reqwest::StatusCode::GONE)
+            };
+            if salvaged.as_ref().err().is_some_and(released) {
+                tracing::warn!(%attempt, "the server released this attempt; its unreported result is archived, not retried");
+                continue;
+            }
             match salvaged? {
                 SalvageDisposition::Unsalvageable(why) => {
                     return Ok(RecoverOutcome::Held(why.to_owned()));
