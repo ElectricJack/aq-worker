@@ -28,7 +28,7 @@ impl Heartbeat {
     ) -> Result<(Self, watch::Receiver<bool>)> {
         let client = Client::from_config(worker)?;
         let request = aq_protocol::HeartbeatRequest {
-            worker_version: crate::VERSION.into(),
+            worker_version: env!("AQ_WORKER_VERSION").into(),
             protocol_version: aq_protocol::PROTOCOL_VERSION,
         };
         // #121 answers lock timeouts with 503: a heartbeat only records liveness, so it is resent.

@@ -33,8 +33,3 @@ pub mod transfer_client;
 pub mod native;
 
 pub mod template;
-
-/// What this worker reports as its version: the package version, `+`, and
-/// the source revision it was built from (see `build.rs`), for example
-/// `0.5.1+a1b2c3d4e5f6`. At most 64 characters, the server's limit.
-pub const VERSION: &str = env!("AQ_WORKER_VERSION");

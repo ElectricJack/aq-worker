@@ -102,7 +102,7 @@ pub async fn run_execution(
         identity: identity.clone(),
         operation_id: Uuid::new_v4(),
         protocol_version: EXECUTION_PROTOCOL_VERSION,
-        worker_version: crate::VERSION.into(),
+        worker_version: env!("AQ_WORKER_VERSION").into(),
         capabilities: vec![
             FAKE_HARNESS_CAPABILITY.into(),
             crate::guardian::PROFILE.into(),
