@@ -157,8 +157,45 @@ for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
 done
 [[ -f "$TEMPLATE" ]] || { echo "native template $TEMPLATE not found." >&2; exit 2; }
 [[ -f "$REPOS" ]] || { echo "repositories file $REPOS not found." >&2; exit 2; }
+# A running worker keeps executing the files it was started from, so replacing
+# them under it would leave the old worker running. When any runtime file
+# changes (an update), first stop every worker service that runs this runtime
+# and end any worker left over from it; then replace the files. The other
+# profiles' services are started again here; this profile's is started by step
+# 5, or by the hosted installer, which checks it runs the installed worker.
+changed=0
+for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
+  if [[ -f "$RUNTIME_DIR/$f" ]] && ! cmp -s "$BUNDLE/$f" "$RUNTIME_DIR/$f"; then changed=1; fi
+done
+stopped=()
+if [[ "$changed" == 1 ]]; then
+  while read -r unit _; do
+    [[ "$unit" == aq-node@*.service ]] || continue
+    echo "Stopping $unit: this update replaces its worker."
+    systemctl --user stop "$unit"
+    stopped+=("$unit")
+  done < <(systemctl --user list-units --type=service --state=active --no-legend --plain 'aq-node@*.service' 2>/dev/null || true)
+  if command -v pgrep >/dev/null; then
+    leftover=()
+    for pid in $(pgrep -u "$(id -u)" -x aq-worker || true); do
+      [[ "$(readlink "/proc/$pid/exe" 2>/dev/null || true)" == "$RUNTIME_DIR/aq-worker" ]] && leftover+=("$pid")
+    done
+    if (( ${#leftover[@]} )); then
+      echo "Ending ${#leftover[@]} worker process(es) left running outside the service."
+      kill -TERM "${leftover[@]}" 2>/dev/null || true
+      for ((i=0; i<20; i++)); do
+        alive=0; for pid in "${leftover[@]}"; do kill -0 "$pid" 2>/dev/null && alive=1; done
+        [[ "$alive" == 0 ]] && break; sleep 1
+      done
+      kill -KILL "${leftover[@]}" 2>/dev/null || true
+    fi
+  fi
+fi
 for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
   install -D -m 0755 "$BUNDLE/$f" "$RUNTIME_DIR/$f"
+done
+for unit in "${stopped[@]}"; do
+  [[ "$unit" == "aq-node@$PROFILE.service" ]] || systemctl --user start "$unit"
 done
 mkdir -p "$HOME/.local/bin"
 ln -sfn "$RUNTIME_DIR/aq-worker" "$LINK"

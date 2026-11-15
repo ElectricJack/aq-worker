@@ -52,6 +52,9 @@ if name == "powershell.exe":
     sys.exit(int(os.environ.get("STUB_POWERSHELL_RC", "0")))
 if name == "systemctl" and "show-environment" in args:
     sys.exit(int(os.environ.get("STUB_SYSTEMD_USER_RC", "0")))
+if name == "systemctl" and "list-units" in args:
+    for unit in os.environ.get("STUB_ACTIVE", "").split():
+        print(unit + " loaded active running AQ worker service")
 if name == "systemctl" and "is-active" in args:
     sys.exit(0 if args[-1] in os.environ.get("STUB_ACTIVE", "").split() else 3)
 """
@@ -914,4 +917,31 @@ def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_pat
     assert not (config / "native.json.update").exists()
     assert json.loads((config / "hosted-install.json").read_text()) == {"origin": origin, "bundle_sha256": new}
     assert (config / "slots/1/worker.toml").read_text() == f'server_url = "{origin}"\n', "the enrollment is kept"
+
+
+def test_an_update_stops_the_running_workers_before_replacing_their_files(host):
+    profile = host["home"] / ".config/agent-q/service/local"
+    profile.mkdir(parents=True)
+    (profile / "service.toml").write_text("")
+    runtime = host["home"] / ".local/share/agent-q/runtime"
+    runtime.mkdir(parents=True)
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
+        (runtime / name).write_text("an older build of " + name)
+    active = "aq-node@local.service aq-node@other.service"
+    with with_socket(host):
+        result = run(host, env={"STUB_ACTIVE": active})
+    assert result.returncode == 0, result.stderr
+    assert (runtime / "aq-agent").read_bytes() == (host["bundle"] / "aq-agent").read_bytes()
+    systemd = [c["args"] for c in calls(host) if c["name"] == "systemctl"]
+    stops = [a[-1] for a in systemd if "stop" in a]
+    starts = [a[-1] for a in systemd if "start" in a]
+    assert stops == ["aq-node@local.service", "aq-node@other.service"], result.stdout
+    assert starts == ["aq-node@other.service"], "this profile's service is started by `service install`"
+    order = [c["name"] + " " + " ".join(c["args"][:2]) for c in calls(host)]
+    assert order.index("systemctl --user stop") < order.index("aq-worker service install")
+    # The same bundle again changes nothing, so nothing is stopped.
+    with with_socket(host):
+        again = run(host, env={"STUB_ACTIVE": active})
+    assert again.returncode == 0, again.stderr
+    assert len([c for c in calls(host) if c["name"] == "systemctl" and "stop" in c["args"]]) == 2
 

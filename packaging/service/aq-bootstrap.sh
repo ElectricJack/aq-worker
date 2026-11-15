@@ -149,6 +149,24 @@ python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podm
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
 "$worker" service status --profile "$profile"
+# The service must now be running the worker that was just installed, not one
+# started from the files it replaced.
+unit="aq-node@$profile.service"
+running=""
+for ((retry=0; retry<30; retry++)); do
+  pid="$(systemctl --user show "$unit" --property=MainPID --value 2>/dev/null || true)"
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    running="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    [[ "$running" == "$worker" ]] && break
+  fi
+  sleep 1
+done
+if [[ "$running" != "$worker" ]]; then
+  echo "The worker service is not running the installed worker (it runs: ${running:-nothing})." >&2
+  echo "Check: journalctl --user -u $unit -n 40" >&2
+  exit 5
+fi
+echo "Worker running: $("$worker" --version)."
 python3 "$work/configure.py" install-sync "$package" "$config_dir"
 echo 'Checking that this machine can start an agent sandbox.'
 python3 "$work/configure.py" preflight "$package" "$config_dir" "$podman"
