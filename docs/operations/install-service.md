@@ -24,7 +24,7 @@ supported yet; the script refuses it.
   `$XDG_RUNTIME_DIR/aq-sandbox/podman.sock`, or pass `--sandbox-bundle
   podman-linux-amd64.tar.gz` and the script installs and starts it. Without
   either it exits with code 4.
-- A single-use enrollment code, created from the Swarm page ("Add machine").
+- A single-use enrollment code, created from the Swarm page ("Add or update machine").
 
 ## The bundle directory
 
@@ -263,17 +263,17 @@ aq-worker service uninstall --profile local --purge    # also delete them
 `runtime_root` that `service.toml` names (custom ones too), and nothing else.
 It does not revoke the machine's nodes: revoke the machine on the Swarm page.
 
-After a revoke, enroll again with a new code from "Add machine": run
+After a revoke, enroll again with a new code from "Add or update machine": run
 `aq-install.sh` again with the same `--profile` and `--machine-key` and
 `--reconfigure`. The service is restarted with the new credentials. After a
 purge, `--reconfigure` is not needed. The key can be claimed again only by a
 fresh enrollment.
 
-## Install from Add machine
+## Install from Add or update machine
 
 The hosted command targets Ubuntu 24.04 and 26.04 on x86-64, including WSL2
 with systemd enabled. It installs `libutempter0` for the bundled tmux when
-needed. In **Settings → Framework connection → Add machine** or **Agents →
+needed. In **Settings → Framework connection → Add or update machine** or **Agents →
 Swarm**, copy the command into the new PC's WSL terminal. Paste the one-time
 code when the worker asks for it. The command downloads the pinned worker
 bundle, prepares the rootless sandbox and matching image, then starts one slot.
@@ -342,7 +342,7 @@ separate.
 
 Set `VITE_AQ_WORKER_INSTALL_URL` to the resulting private HTTPS origin and
 `VITE_AQ_WORKER_INSTALL_SHA256` to the builder's `installer_sha256` when building
-the dashboard. **Add machine** copies the pinned command and generates a
+the dashboard. **Add or update machine** copies the pinned command and generates a
 separate single-use code. For each new bundle, use its new installer checksum
 in the dashboard build. Verify `/healthz` from the target WSL terminal before
 enrolling the first machine.

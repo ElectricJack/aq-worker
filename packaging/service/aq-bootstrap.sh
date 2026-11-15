@@ -7,7 +7,7 @@ umask 077
 origin="${1:?usage: aq-bootstrap.sh https://worker-host [installer options]}"
 shift
 [[ "$origin" =~ ^https://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?$ ]] || {
-  echo 'Use the HTTPS worker address shown in Add machine.' >&2; exit 2;
+  echo 'Use the HTTPS worker address shown in Add or update machine.' >&2; exit 2;
 }
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 && "$(id -u)" != 0 ]] || {
   echo 'Run this as your normal user in x86-64 Linux or Ubuntu WSL.' >&2; exit 2;
@@ -77,7 +77,7 @@ if [[ ! -d "$package" ]]; then
   curl --proto '=https' --fail --silent --show-error --retry 2 --connect-timeout 10 \
     --max-time 900 --max-filesize 536870912 "$origin/install/$digest.tar.gz" -o "$work/bundle.tar.gz"
   printf '%s  %s\n' "$digest" "$work/bundle.tar.gz" | sha256sum --check --status || {
-    echo 'Worker bundle checksum did not match. Copy a fresh command from Add machine.' >&2; exit 4;
+    echo 'Worker bundle checksum did not match. Copy a fresh command from Add or update machine.' >&2; exit 4;
   }
   mkdir "$work/package"
   python3 -m tarfile --filter data --extract "$work/bundle.tar.gz" "$work/package"

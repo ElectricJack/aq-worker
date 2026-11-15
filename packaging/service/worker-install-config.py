@@ -186,7 +186,7 @@ def worker_request(config, body, slot=1, endpoint="/v1/worker/logins"):
         raise ValueError("Use the trusted HTTPS worker endpoint.")
     enrollment = read_toml(config / f"slots/{slot}/worker.toml")
     if enrollment["server_url"] != origin:
-        raise ValueError("The worker endpoint changed. Reinstall from Add machine.")
+        raise ValueError("The worker endpoint changed. Reinstall from Add or update machine.")
     headers = {"Authorization": "Bearer " + enrollment["credential"], "Content-Type": "application/json"}
     if enrollment.get("cf_client_id") and enrollment.get("cf_client_secret"):
         headers.update({"CF-Access-Client-Id": enrollment["cf_client_id"], "CF-Access-Client-Secret": enrollment["cf_client_secret"]})
