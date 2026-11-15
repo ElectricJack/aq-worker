@@ -98,6 +98,27 @@ def manual_settings(package, podman, slots, source_slugs):
     return "\n" + "\n".join(lines) + "\n"
 
 
+def enable_measurement(package, config):
+    """A machine installed from the dashboard takes queued work (owner, 2026-11-15).
+
+    Queued work needs a qualification measurement, which needs a Claude login and a model. A worker
+    enrolled without a token file starts with measurement off; once a Claude login has been delivered
+    (`measurement.token_file` names a file that exists) it is turned on, with the bundle's model when
+    the profile names none. Without it the worker connects and serves manual sessions but never
+    reports its capabilities. Returns whether the configuration changed.
+    """
+    service = config / "service.toml"
+    contents = service.read_text()
+    measurement = tomllib.loads(contents).get("measurement", {})
+    model = measurement.get("model") or json.loads((package / "bootstrap.json").read_text()).get("measurement_model")
+    token = measurement.get("token_file")
+    if measurement.get("enabled") or not model or not token or not Path(token).is_file():
+        return False
+    contents = set_toml_value(contents, "measurement", "model", model)
+    atomic_text(service, set_toml_value(contents, "measurement", "enabled", True))
+    return True
+
+
 def configure(package, config, origin, podman, slots, digest):
     service = config / "service.toml"
     contents = service.read_text()
@@ -121,8 +142,10 @@ def configure(package, config, origin, podman, slots, digest):
         staged.replace(config / "native.json")
         print("This worker was updated to the bundle of this installer. Its enrollment was kept.")
     atomic_text(config / "hosted-install.json", json.dumps({"origin": origin, "bundle_sha256": digest}) + "\n")
-    if not measurement.get("enabled"):
-        print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to enable agents.")
+    if enable_measurement(package, config):
+        print("Queued work is enabled: this worker now measures with its delivered Claude login.")
+    elif not measurement.get("enabled"):
+        print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to enable agents and queued work.")
 
 
 
@@ -504,7 +527,9 @@ def apply_logins(package, config, logins):
         contents = set_toml_value(contents, "manual.codex", "auth_file", str(private / "codex-auth.json"))
     if contents != previous:
         atomic_text(service, contents)
-    return contents != previous or new_provider
+    # A delivered Claude login also lets the worker qualify for queued work.
+    measuring = enable_measurement(package, config)
+    return contents != previous or new_provider or measuring
 
 
 def sync_logins(package, config):

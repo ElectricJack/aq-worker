@@ -501,7 +501,7 @@ def test_server_logins_enable_manual_both_providers_and_remain_private(tmp_path)
     assert helper.apply_logins(package, config, logins)
     parsed = helper.read_toml(config / "service.toml")
     assert parsed["manual"]["source_slugs"] == {"repo": "owner/repo"}
-    assert parsed["measurement"]["enabled"] is False
+    assert parsed["measurement"]["enabled"] is True, "a machine installed from the dashboard takes queued work"
     assert parsed["measurement"]["model"] == "fixture-model"
     assert parsed["measurement"]["token_file"] == str(config / "provider-auth/claude-token")
     assert parsed["manual"]["codex"]["auth_file"] == str(config / "provider-auth/codex-auth.json")
@@ -950,3 +950,28 @@ def test_an_update_stops_the_running_workers_before_replacing_their_files(host):
     assert again.returncode == 0, again.stderr
     assert len([c for c in calls(host) if c["name"] == "systemctl" and "stop" in c["args"]]) == 2
 
+
+
+def test_rerunning_the_installer_enables_queued_work_once_a_claude_login_was_delivered(tmp_path):
+    package, config = tmp_path / "package", tmp_path / "config"
+    package.mkdir()
+    config.mkdir()
+    (package / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}, "measurement_model": "bundle-model"}))
+    token = config / "claude-token"
+    service = config / "service.toml"
+    service.write_text(f'slots = 1\n\n[measurement]\nenabled = false\ntoken_file = "{token}"\n')
+    args = ("configure", package, config, "https://worker.example", "/usr/bin/podman", "1", "a" * 64)
+    # No login has been delivered yet: nothing to measure with, so it stays off.
+    waiting = run_config(tmp_path, *args)
+    assert waiting.returncode == 0, waiting.stderr
+    assert "Use Push logins" in waiting.stdout
+    assert tomllib.loads(service.read_text())["measurement"]["enabled"] is False
+    token.write_text("synthetic-claude")
+    enabled = run_config(tmp_path, *args)
+    assert enabled.returncode == 0, enabled.stderr
+    assert "Queued work is enabled" in enabled.stdout
+    measurement = tomllib.loads(service.read_text())["measurement"]
+    assert measurement == {"enabled": True, "token_file": str(token), "model": "bundle-model"}
+    assert tomllib.loads(service.read_text())["slots"] == 1
+    again = run_config(tmp_path, *args)
+    assert again.returncode == 0 and "Queued work is enabled" not in again.stdout
