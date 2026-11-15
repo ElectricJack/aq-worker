@@ -258,7 +258,7 @@ pub async fn run_loop(client: &Client, shutdown: impl Future) -> Result<(), Call
     loop {
         let result = if probed {
             let req = HeartbeatRequest {
-                worker_version: env!("CARGO_PKG_VERSION").to_string(),
+                worker_version: env!("AQ_WORKER_VERSION").to_string(),
                 protocol_version: PROTOCOL_VERSION,
             };
             tokio::select! {

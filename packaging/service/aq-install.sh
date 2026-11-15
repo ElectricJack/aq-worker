@@ -94,9 +94,16 @@ if [[ ( -e "$LINK" || -L "$LINK" ) && "$(readlink "$LINK" || true)" != "$RUNTIME
   echo "$LINK exists and is not the link this script installs; move it away and run again." >&2
   exit 2
 fi
-if systemctl --user is-active --quiet aq-worker@local.service; then
-  echo "warning: the container worker aq-worker@local is running too. Two workers on one machine compete for it; stop it with: systemctl --user disable --now aq-worker@local" >&2
-fi
+# A container worker (aq-worker-ctl) on this machine competes with the service
+# this script installs, and updating the service does not replace it: it would
+# keep answering for the machine with its own, older worker. Turn it off. Its
+# configuration and enrollment are kept, and `systemctl --user enable --now
+# UNIT` turns it back on.
+while read -r unit _; do
+  [[ "$unit" == aq-worker@*.service ]] || continue
+  echo "Turning off the container worker $unit: the worker service installed here replaces it. Its configuration is kept; turn it back on with: systemctl --user enable --now $unit"
+  systemctl --user disable --now "$unit"
+done < <(systemctl --user list-units --type=service --state=active --no-legend --plain 'aq-worker@*.service' 2>/dev/null || true)
 
 # Configure boot startup before consuming an enrollment code. Keep installer
 # stdin for enrollment; loginctl/sudo must not read a piped code or Access token.
@@ -157,8 +164,52 @@ for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
 done
 [[ -f "$TEMPLATE" ]] || { echo "native template $TEMPLATE not found." >&2; exit 2; }
 [[ -f "$REPOS" ]] || { echo "repositories file $REPOS not found." >&2; exit 2; }
+# A running worker keeps executing the files it was started from, so replacing
+# them under it would leave the old worker running. When any runtime file
+# changes (an update), first stop every worker service that runs this runtime
+# and end any worker left over from it; then replace the files. The other
+# profiles' services are started again here; this profile's is started by step
+# 5, or by the hosted installer, which checks it runs the installed worker.
+changed=0
+for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
+  if [[ -f "$RUNTIME_DIR/$f" ]] && ! cmp -s "$BUNDLE/$f" "$RUNTIME_DIR/$f"; then changed=1; fi
+done
+# A worker still running from files an earlier update replaced is the same case.
+workers_from_runtime() {
+  local pid exe
+  command -v pgrep >/dev/null || return 0
+  for pid in $(pgrep -u "$(id -u)" -x aq-worker || true); do
+    exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    if [[ "$exe" == "$RUNTIME_DIR/aq-worker$1" ]]; then echo "$pid"; fi
+  done
+}
+if [[ -n "$(workers_from_runtime ' (deleted)')" ]]; then changed=1; fi
+stopped=()
+if [[ "$changed" == 1 ]]; then
+  while read -r unit _; do
+    [[ "$unit" == aq-node@*.service ]] || continue
+    echo "Stopping $unit: this update replaces its worker."
+    systemctl --user stop "$unit"
+    stopped+=("$unit")
+  done < <(systemctl --user list-units --type=service --state=active --no-legend --plain 'aq-node@*.service' 2>/dev/null || true)
+  mapfile -t leftover < <(workers_from_runtime ''; workers_from_runtime ' (deleted)')
+  if (( ${#leftover[@]} )); then
+    echo "Ending ${#leftover[@]} worker process(es) left running outside the service."
+    kill -TERM "${leftover[@]}" 2>/dev/null || true
+    for ((i=0; i<20; i++)); do
+      alive=0
+      for pid in "${leftover[@]}"; do if kill -0 "$pid" 2>/dev/null; then alive=1; fi; done
+      if [[ "$alive" == 0 ]]; then break; fi
+      sleep 1
+    done
+    kill -KILL "${leftover[@]}" 2>/dev/null || true
+  fi
+fi
 for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
   install -D -m 0755 "$BUNDLE/$f" "$RUNTIME_DIR/$f"
+done
+for unit in "${stopped[@]}"; do
+  [[ "$unit" == "aq-node@$PROFILE.service" ]] || systemctl --user start "$unit"
 done
 mkdir -p "$HOME/.local/bin"
 ln -sfn "$RUNTIME_DIR/aq-worker" "$LINK"

@@ -7,7 +7,7 @@ umask 077
 origin="${1:?usage: aq-bootstrap.sh https://worker-host [installer options]}"
 shift
 [[ "$origin" =~ ^https://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?$ ]] || {
-  echo 'Use the HTTPS worker address shown in Add machine.' >&2; exit 2;
+  echo 'Use the HTTPS worker address shown in Add or update machine.' >&2; exit 2;
 }
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 && "$(id -u)" != 0 ]] || {
   echo 'Run this as your normal user in x86-64 Linux or Ubuntu WSL.' >&2; exit 2;
@@ -77,7 +77,7 @@ if [[ ! -d "$package" ]]; then
   curl --proto '=https' --fail --silent --show-error --retry 2 --connect-timeout 10 \
     --max-time 900 --max-filesize 536870912 "$origin/install/$digest.tar.gz" -o "$work/bundle.tar.gz"
   printf '%s  %s\n' "$digest" "$work/bundle.tar.gz" | sha256sum --check --status || {
-    echo 'Worker bundle checksum did not match. Copy a fresh command from Add machine.' >&2; exit 4;
+    echo 'Worker bundle checksum did not match. Copy a fresh command from Add or update machine.' >&2; exit 4;
   }
   mkdir "$work/package"
   python3 -m tarfile --filter data --extract "$work/bundle.tar.gz" "$work/package"
@@ -149,6 +149,46 @@ python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podm
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
 "$worker" service status --profile "$profile"
+# The service must now be running the worker that was just installed, not one
+# started from the files it replaced.
+unit="aq-node@$profile.service"
+running=""
+for ((retry=0; retry<30; retry++)); do
+  pid="$(systemctl --user show "$unit" --property=MainPID --value 2>/dev/null || true)"
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    running="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    [[ "$running" == "$worker" ]] && break
+  fi
+  sleep 1
+done
+if [[ "$running" != "$worker" ]]; then
+  echo "The worker service is not running the installed worker (it runs: ${running:-nothing})." >&2
+  echo "Check: journalctl --user -u $unit -n 40" >&2
+  exit 5
+fi
+echo "Worker running: $("$worker" --version)."
+# No second worker service process may be running on this machine: one started
+# from replaced files, or another installation, would answer for it with old
+# code. The terminal companions also run aq-worker (other subcommands, from
+# their own copy); `install-sync` below moves them to this bundle.
+others=()
+if command -v pgrep >/dev/null; then
+  for other in $(pgrep -u "$(id -u)" -x aq-worker || true); do
+    exe="$(readlink "/proc/$other/exe" 2>/dev/null || true)"
+    mapfile -d '' -t argv < "/proc/$other/cmdline" 2>/dev/null || argv=()
+    if [[ "${argv[1]:-}" == run && "$exe" != "$worker" ]]; then
+      others+=("$other  ${exe:-unknown}  started $(ps -o lstart= -p "$other" 2>/dev/null || true)")
+    fi
+  done
+fi
+if (( ${#others[@]} )); then
+  echo 'Another AQ worker is still running on this machine, not the one just installed:' >&2
+  printf '  pid %s\n' "${others[@]}" >&2
+  echo 'Worker services on this machine:' >&2
+  systemctl --user list-units --no-legend --plain 'aq-*' >&2 || true
+  echo 'Stop that worker, then run this command again. Send this list to whoever runs the AQ server if it is not clear what it is.' >&2
+  exit 5
+fi
 python3 "$work/configure.py" install-sync "$package" "$config_dir"
 echo 'Checking that this machine can start an agent sandbox.'
 python3 "$work/configure.py" preflight "$package" "$config_dir" "$podman"

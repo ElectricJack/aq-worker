@@ -38,9 +38,16 @@ def read_toml(path):
 
 
 def prepare(package, work, origin, socket, config, digest):
+    # A profile installed from this server's installer may take a newer bundle
+    # from the same server: that is an update. Its runtime binaries and native
+    # template are then replaced; its enrollment, slots and identity are kept.
     marker = config / "hosted-install.json"
-    if marker.exists() and json.loads(marker.read_text()) != {"origin": origin, "bundle_sha256": digest}:
-        raise ValueError("This profile was installed from another bundle or server. Use a different --profile.")
+    update = False
+    if marker.exists():
+        recorded = json.loads(marker.read_text())
+        if recorded.get("origin") != origin:
+            raise ValueError("This profile was installed from another server. Use a different --profile.")
+        update = recorded.get("bundle_sha256") != digest
     template = json.loads((package / "native.json").read_text())
     host = template["executor"]["settings"]["host"]
     host["root"] = str(config / "host")
@@ -53,13 +60,24 @@ def prepare(package, work, origin, socket, config, digest):
     template["adapter_manifest"] = str(package / "adapter.json")
     template["executor"]["composite_definition"] = str(package / "composite.json")
     template["inventory_definition"] = str(package / "inventory.json")
-    template.update(state_dir=str(config / "state"), git_root=str(config / "git"), git_socket=str(config / "git.sock"))
+    # The worker validates these when it loads the template, before it replaces them with
+    # each slot's own: the state directory must exist, be private to this user (0700) and
+    # contain the git root. `configure` creates it.
+    template.update(state_dir=str(config / "state"), git_root=str(config / "state/git"), git_socket=str(config / "git.sock"))
+    for name in ("adapter.json", "composite.json", "inventory.json"):
+        (package / name).chmod(0o600)  # the worker reads its definitions only as private files
     native = json.dumps(template, indent=2) + "\n"
     enrolled = config / "service.toml"
     if enrolled.exists():
         slot = read_toml(config / "slots/1/worker.toml")
-        if slot["server_url"] != origin or (config / "native.json").read_text() != native:
+        stored = (config / "native.json").read_text()
+        # An install made before the state directory fix differs only in its git root.
+        repaired = stored != native and stored.replace(json.dumps(str(config / "git")), json.dumps(str(config / "state/git"))) == native
+        if slot["server_url"] != origin or (not update and not repaired and stored != native):
             raise ValueError("This profile is already configured for a different installation. Use a different --profile.")
+        if update or repaired:
+            # Taken up by `configure`, after the new binaries are in place.
+            atomic_text(config / "native.json.update", native)
     # aq-install.sh shares these paths across its profiles. Refuse a binary swap
     # on a machine that already uses a different runtime.
     runtime = Path.home() / ".local/share/agent-q/runtime"
@@ -67,7 +85,7 @@ def prepare(package, work, origin, socket, config, digest):
         installed = runtime / name
         if installed.exists():
             with installed.open("rb") as current, (package / name).open("rb") as source:
-                if hashlib.file_digest(current, "sha256").digest() != hashlib.file_digest(source, "sha256").digest():
+                if not update and hashlib.file_digest(current, "sha256").digest() != hashlib.file_digest(source, "sha256").digest():
                     raise ValueError("Another AQ runtime is installed. Install on a fresh WSL distro or upgrade that runtime separately.")
     (work / "native.json").write_text(native)
     (work / "image").write_text(entry["image"] + "\n")
@@ -88,6 +106,27 @@ def manual_settings(package, podman, slots, source_slugs):
     return "\n" + "\n".join(lines) + "\n"
 
 
+def enable_measurement(package, config):
+    """A machine installed from the dashboard takes queued work (owner, 2026-11-15).
+
+    Queued work needs a qualification measurement, which needs a Claude login and a model. A worker
+    enrolled without a token file starts with measurement off; once a Claude login has been delivered
+    (`measurement.token_file` names a file that exists) it is turned on, with the bundle's model when
+    the profile names none. Without it the worker connects and serves manual sessions but never
+    reports its capabilities. Returns whether the configuration changed.
+    """
+    service = config / "service.toml"
+    contents = service.read_text()
+    measurement = tomllib.loads(contents).get("measurement", {})
+    model = measurement.get("model") or json.loads((package / "bootstrap.json").read_text()).get("measurement_model")
+    token = measurement.get("token_file")
+    if measurement.get("enabled") or not model or not token or not Path(token).is_file():
+        return False
+    contents = set_toml_value(contents, "measurement", "model", model)
+    atomic_text(service, set_toml_value(contents, "measurement", "enabled", True))
+    return True
+
+
 def configure(package, config, origin, podman, slots, digest):
     service = config / "service.toml"
     contents = service.read_text()
@@ -106,9 +145,20 @@ def configure(package, config, origin, podman, slots, digest):
             if not contents.endswith(suffix):
                 raise ValueError("This profile has custom manual settings. Configure its measurement token to enable manual sessions.")
             atomic_text(service, contents.removesuffix(suffix) + "\n")
+    # Without this directory the worker fails every attempt with "No such file or directory"
+    # and never reports its capabilities.
+    state = config / "state"
+    state.mkdir(mode=0o700, exist_ok=True)
+    state.chmod(0o700)
+    staged = config / "native.json.update"
+    if staged.exists():
+        staged.replace(config / "native.json")
+        print("This worker was updated to the bundle of this installer. Its enrollment was kept.")
     atomic_text(config / "hosted-install.json", json.dumps({"origin": origin, "bundle_sha256": digest}) + "\n")
-    if not measurement.get("enabled"):
-        print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to enable agents.")
+    if enable_measurement(package, config):
+        print("Queued work is enabled: this worker now measures with its delivered Claude login.")
+    elif not measurement.get("enabled"):
+        print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to enable agents and queued work.")
 
 
 
@@ -186,7 +236,7 @@ def worker_request(config, body, slot=1, endpoint="/v1/worker/logins"):
         raise ValueError("Use the trusted HTTPS worker endpoint.")
     enrollment = read_toml(config / f"slots/{slot}/worker.toml")
     if enrollment["server_url"] != origin:
-        raise ValueError("The worker endpoint changed. Reinstall from Add machine.")
+        raise ValueError("The worker endpoint changed. Reinstall from Add or update machine.")
     headers = {"Authorization": "Bearer " + enrollment["credential"], "Content-Type": "application/json"}
     if enrollment.get("cf_client_id") and enrollment.get("cf_client_secret"):
         headers.update({"CF-Access-Client-Id": enrollment["cf_client_id"], "CF-Access-Client-Secret": enrollment["cf_client_secret"]})
@@ -415,6 +465,61 @@ def sandbox_diagnostics(config):
         message = str(error)[:4096] if type(error) is ValueError or isinstance(error, OSError) else "AQ's private network helper repair failed."
         return {"ok": False, "phase": "network_support", "error": message, "details": report.get("details", {})}
 
+def repair_native_files(config):
+    """Keeps what the worker requires of its template true, so a machine installed by an earlier
+    installer mends itself: the worker reads its adapter, composite and inventory definitions only
+    as private files (0600), and needs its private state directory (0700). A bundle unpacks the
+    definitions as 0644, and nothing created the directory. Only this user's regular files are touched.
+    """
+    native = json.loads(Path(read_toml(config / "service.toml")["native_template"]).read_text())
+    for value in (native.get("adapter_manifest"), native.get("inventory_definition"), native["executor"].get("composite_definition")):
+        path = Path(str(value))
+        if path.is_absolute() and path.is_file() and not path.is_symlink() and path.stat().st_uid == os.getuid() and path.stat().st_mode & 0o7777 != 0o600:
+            path.chmod(0o600)
+    state = Path(str(native.get("state_dir")))
+    if state.is_absolute() and state.parent == config:
+        state.mkdir(mode=0o700, exist_ok=True)
+        state.chmod(0o700)
+
+
+def worker_service_report(config):
+    """What the worker service says about itself, for a remote check: whether it runs, its version,
+    which of its template's paths are missing, and its last log lines. It reads no credential; a
+    token-shaped string in a log line is replaced. Kept small: the whole report is at most 16 KiB.
+    """
+    unit = "aq-node@" + config.name + ".service"
+    def run(*argv):
+        try:
+            return subprocess.run(argv, capture_output=True, text=True, timeout=15).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    report = {
+        "active": run("systemctl", "--user", "is-active", unit).strip()[:32],
+        "version": run(str(Path.home() / ".local/share/agent-q/runtime/aq-worker"), "--version").strip()[:96],
+    }
+    try:
+        service = read_toml(config / "service.toml")
+        report["measurement"] = {key: service.get("measurement", {}).get(key) for key in ("enabled", "model")}
+        native = json.loads(Path(service["native_template"]).read_text())
+        host = native["executor"]["settings"]["host"]
+        paths = {
+            "state_dir": native.get("state_dir"), "adapter_manifest": native.get("adapter_manifest"),
+            "inventory_definition": native.get("inventory_definition"),
+            "composite_definition": native["executor"].get("composite_definition"),
+            "socket": host["docker_local"]["socket"], "driver": host["driver"]["path"],
+            "helper": host["helper"]["path"], "tmux": host["tmux"]["path"],
+        }
+        report["missing"] = sorted(key for key, value in paths.items() if not (isinstance(value, str) and os.path.exists(value)))
+        state = Path(str(paths["state_dir"]))
+        report["state_dir"] = {"mode": oct(state.stat().st_mode & 0o7777), "holds_git_root": str(native.get("git_root", "")).startswith(str(state) + "/")} if state.is_dir() else None
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        report["template_error"] = str(error)[:300]
+    secret = re.compile(r"sk-ant-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_.-]+|Bearer\s+\S+")
+    lines = run("journalctl", "--user", "-u", unit, "-n", "40", "--no-pager", "-o", "cat").splitlines()
+    report["log"] = [secret.sub("[redacted]", line)[:280] for line in lines][-30:]
+    return report
+
+
 def sync_diagnostics_slot(package, config, slot):
     job = diagnostic_request(config, {}, slot)
     operation = job.get("operation_id")
@@ -429,6 +534,7 @@ def sync_diagnostics_slot(package, config, slot):
         try:
             if job.get("kind") == "sandbox_startup_v1":
                 report = sandbox_diagnostics(config)
+                report.setdefault("details", {})["worker"] = worker_service_report(config)
             elif job.get("kind") == "receiver_update_v1":
                 report = receiver_update(config, job.get("installer_sha256"))
             else:
@@ -490,7 +596,9 @@ def apply_logins(package, config, logins):
         contents = set_toml_value(contents, "manual.codex", "auth_file", str(private / "codex-auth.json"))
     if contents != previous:
         atomic_text(service, contents)
-    return contents != previous or new_provider
+    # A delivered Claude login also lets the worker qualify for queued work.
+    measuring = enable_measurement(package, config)
+    return contents != previous or new_provider or measuring
 
 
 def sync_logins(package, config):
@@ -505,6 +613,10 @@ def sync_logins(package, config):
         # Control traffic must survive the broken configuration it diagnoses.
         slots = [slot for slot in range(1, 9) if (config / f"slots/{slot}/worker.toml").is_file()]
     failed = False
+    try:
+        repair_native_files(config)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
     for slot in slots:
         for receive in (sync_slot, sync_diagnostics_slot):
             try:

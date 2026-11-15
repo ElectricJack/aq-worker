@@ -52,6 +52,9 @@ if name == "powershell.exe":
     sys.exit(int(os.environ.get("STUB_POWERSHELL_RC", "0")))
 if name == "systemctl" and "show-environment" in args:
     sys.exit(int(os.environ.get("STUB_SYSTEMD_USER_RC", "0")))
+if name == "systemctl" and "list-units" in args:
+    for unit in os.environ.get("STUB_ACTIVE", "").split():
+        print(unit + " loaded active running AQ worker service")
 if name == "systemctl" and "is-active" in args:
     sys.exit(0 if args[-1] in os.environ.get("STUB_ACTIVE", "").split() else 3)
 """
@@ -388,12 +391,17 @@ def test_refuses_to_replace_a_foreign_aq_worker(host):
         assert run(host, "--reconfigure").returncode == 0, "our own link is replaced"
 
 
-def test_warns_when_the_container_worker_is_active(host):
+def test_an_active_container_worker_is_turned_off_and_its_configuration_kept(host):
     with with_socket(host):
         quiet = run(host)
-        loud = run(host, env={"STUB_ACTIVE": "aq-worker@local.service"})
-    assert quiet.returncode == 0 and "aq-worker@local" not in quiet.stderr
-    assert loud.returncode == 0 and "aq-worker@local is running" in loud.stderr
+        loud = run(host, env={"STUB_ACTIVE": "aq-worker@local.service aq-sandbox-podman.service"})
+    assert quiet.returncode == 0 and "aq-worker@local" not in quiet.stdout + quiet.stderr
+    assert not [c for c in calls(host) if c["name"] == "systemctl" and "disable" in c["args"]][:-1], "only the active one"
+    assert loud.returncode == 0, loud.stderr
+    assert "Turning off the container worker aq-worker@local.service" in loud.stdout
+    assert "systemctl --user enable --now aq-worker@local.service" in loud.stdout
+    disabled = [c["args"] for c in calls(host) if c["name"] == "systemctl" and "disable" in c["args"]]
+    assert disabled == [["--user", "disable", "--now", "aq-worker@local.service"]]
 
 
 def test_an_enrolled_profile_is_not_enrolled_again_without_reconfigure(host):
@@ -493,7 +501,7 @@ def test_server_logins_enable_manual_both_providers_and_remain_private(tmp_path)
     assert helper.apply_logins(package, config, logins)
     parsed = helper.read_toml(config / "service.toml")
     assert parsed["manual"]["source_slugs"] == {"repo": "owner/repo"}
-    assert parsed["measurement"]["enabled"] is False
+    assert parsed["measurement"]["enabled"] is True, "a machine installed from the dashboard takes queued work"
     assert parsed["measurement"]["model"] == "fixture-model"
     assert parsed["measurement"]["token_file"] == str(config / "provider-auth/claude-token")
     assert parsed["manual"]["codex"]["auth_file"] == str(config / "provider-auth/codex-auth.json")
@@ -856,3 +864,161 @@ def test_host_companion_extracts_only_regular_allowlisted_files(tmp_path):
     duplicate = tmp_path / 'duplicate'; duplicate.mkdir()
     with pytest.raises(ValueError, match='Invalid host terminal'):
         helper.host_bundle_files(archive, duplicate)
+
+
+def hosted_profile(tmp_path, digest):
+    """A profile enrolled from the hosted installer's bundle `digest`, and that bundle's package."""
+    package, config, runtime = tmp_path / ("pkg-" + digest[:4]), tmp_path / "config", tmp_path / "home/.local/share/agent-q/runtime"
+    for directory in (package, config / "slots/1", runtime):
+        directory.mkdir(parents=True, exist_ok=True)
+    template = {
+        "adapter_manifest": "/adapter.json", "inventory_definition": "/inventory.json",
+        "executor": {"composite_definition": "/composite.json", "settings": {"host": {
+            "root": "/bundle/host", "driver": {"path": "/bundle/aq-sandbox-driver"},
+            "helper": {"path": "/bundle/aq-session-host"}, "tmux": {"path": "/bundle/tmux"},
+            "docker_local": {"socket": "/bundle/podman.sock", "templates": [{"image": "registry.invalid/owner/image", "digest": "sha256:" + "0" * 64}]},
+        }}},
+    }
+    (package / "native.json").write_text(json.dumps(template))
+    for name in ("adapter.json", "composite.json", "inventory.json"):
+        (package / name).write_text("{}")
+        (package / name).chmod(0o644)
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
+        (package / name).write_text(name + digest)
+    return package, config, runtime
+
+
+def run_config(tmp_path, *args):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT.with_name("worker-install-config.py")), *map(str, args)],
+        capture_output=True, text=True, timeout=20, env={**os.environ, "HOME": str(tmp_path / "home")},
+    )
+
+
+def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_path):
+    origin, old, new = "https://worker.example", "a" * 64, "b" * 64
+    package, config, runtime = hosted_profile(tmp_path, old)
+    work = tmp_path / "work"
+    work.mkdir()
+    # First install: prepare, then what aq-install.sh and enrollment leave behind.
+    first = run_config(tmp_path, "prepare", package, work, origin, tmp_path / "podman.sock", config, old)
+    assert first.returncode == 0, first.stderr
+    (config / "native.json").write_text((work / "native.json").read_text())
+    (config / "service.toml").write_text("slots = 1\n")
+    (config / "slots/1/worker.toml").write_text(f'server_url = "{origin}"\n')
+    (config / "hosted-install.json").write_text(json.dumps({"origin": origin, "bundle_sha256": old}))
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
+        (runtime / name).write_text((package / name).read_text())
+    # A newer bundle from another server is refused.
+    newer, _, _ = hosted_profile(tmp_path, new)
+    other = run_config(tmp_path, "prepare", newer, work, "https://other.example", tmp_path / "podman.sock", config, new)
+    assert other.returncode != 0 and "another server" in other.stderr
+    # From the same server it is an update: allowed although the runtime and template differ.
+    update = run_config(tmp_path, "prepare", newer, work, origin, tmp_path / "podman.sock", config, new)
+    assert update.returncode == 0, update.stderr
+    assert str(newer) not in (config / "native.json").read_text(), "the template changes only once the binaries are in place"
+    (newer / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}}))
+    done = run_config(tmp_path, "configure", newer, config, origin, "/usr/bin/podman", "1", new)
+    assert done.returncode == 0, done.stderr
+    assert "updated" in done.stdout
+    assert str(newer / "aq-session-host") in (config / "native.json").read_text()
+    assert not (config / "native.json.update").exists()
+    # What the worker checks when it loads the template: a private state directory that holds the git root.
+    template = json.loads((config / "native.json").read_text())
+    state = Path(template["state_dir"])
+    assert state == config / "state" and state.is_dir() and state.stat().st_mode & 0o777 == 0o700
+    assert Path(template["git_root"]).parent == state
+    for key in (template["adapter_manifest"], template["inventory_definition"], template["executor"]["composite_definition"]):
+        assert Path(key).stat().st_mode & 0o777 == 0o600, "the worker reads its definitions only as private files"
+    # A machine installed by an earlier installer mends itself on the receiver's next pass.
+    helper = login_helper()
+    (config / "service.toml").write_text(f'slots = 1\nnative_template = "{config / "native.json"}"\n')
+    Path(template["adapter_manifest"]).chmod(0o644)
+    shutil.rmtree(state)
+    helper.repair_native_files(config)
+    assert Path(template["adapter_manifest"]).stat().st_mode & 0o777 == 0o600
+    assert state.is_dir() and state.stat().st_mode & 0o777 == 0o700
+    assert json.loads((config / "hosted-install.json").read_text()) == {"origin": origin, "bundle_sha256": new}
+    assert (config / "slots/1/worker.toml").read_text() == f'server_url = "{origin}"\n', "the enrollment is kept"
+
+
+def test_an_update_stops_the_running_workers_before_replacing_their_files(host):
+    profile = host["home"] / ".config/agent-q/service/local"
+    profile.mkdir(parents=True)
+    (profile / "service.toml").write_text("")
+    runtime = host["home"] / ".local/share/agent-q/runtime"
+    runtime.mkdir(parents=True)
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
+        (runtime / name).write_text("an older build of " + name)
+    active = "aq-node@local.service aq-node@other.service"
+    with with_socket(host):
+        result = run(host, env={"STUB_ACTIVE": active})
+    assert result.returncode == 0, result.stderr
+    assert (runtime / "aq-agent").read_bytes() == (host["bundle"] / "aq-agent").read_bytes()
+    systemd = [c["args"] for c in calls(host) if c["name"] == "systemctl"]
+    stops = [a[-1] for a in systemd if "stop" in a]
+    starts = [a[-1] for a in systemd if "start" in a]
+    assert stops == ["aq-node@local.service", "aq-node@other.service"], result.stdout
+    assert starts == ["aq-node@other.service"], "this profile's service is started by `service install`"
+    order = [c["name"] + " " + " ".join(c["args"][:2]) for c in calls(host)]
+    assert order.index("systemctl --user stop") < order.index("aq-worker service install")
+    # The same bundle again changes nothing, so nothing is stopped.
+    with with_socket(host):
+        again = run(host, env={"STUB_ACTIVE": active})
+    assert again.returncode == 0, again.stderr
+    assert len([c for c in calls(host) if c["name"] == "systemctl" and "stop" in c["args"]]) == 2
+
+
+
+def test_rerunning_the_installer_enables_queued_work_once_a_claude_login_was_delivered(tmp_path):
+    package, config = tmp_path / "package", tmp_path / "config"
+    package.mkdir()
+    config.mkdir()
+    (package / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}, "measurement_model": "bundle-model"}))
+    token = config / "claude-token"
+    service = config / "service.toml"
+    service.write_text(f'slots = 1\n\n[measurement]\nenabled = false\ntoken_file = "{token}"\n')
+    args = ("configure", package, config, "https://worker.example", "/usr/bin/podman", "1", "a" * 64)
+    # No login has been delivered yet: nothing to measure with, so it stays off.
+    waiting = run_config(tmp_path, *args)
+    assert waiting.returncode == 0, waiting.stderr
+    assert "Use Push logins" in waiting.stdout
+    assert tomllib.loads(service.read_text())["measurement"]["enabled"] is False
+    token.write_text("synthetic-claude")
+    enabled = run_config(tmp_path, *args)
+    assert enabled.returncode == 0, enabled.stderr
+    assert "Queued work is enabled" in enabled.stdout
+    measurement = tomllib.loads(service.read_text())["measurement"]
+    assert measurement == {"enabled": True, "token_file": str(token), "model": "bundle-model"}
+    assert tomllib.loads(service.read_text())["slots"] == 1
+    again = run_config(tmp_path, *args)
+    assert again.returncode == 0 and "Queued work is enabled" not in again.stdout
+
+
+def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(tmp_path, monkeypatch):
+    helper = login_helper()
+    config = tmp_path / "local"
+    (config / "state").mkdir(parents=True, mode=0o700)
+    present = tmp_path / "present"
+    present.write_text("")
+    native = {"state_dir": str(config / "state"), "git_root": str(config / "state/git"), "adapter_manifest": str(present),
+              "inventory_definition": str(tmp_path / "absent.json"),
+              "executor": {"composite_definition": str(present), "settings": {"host": {
+                  "docker_local": {"socket": str(present)}, "driver": {"path": str(present)},
+                  "helper": {"path": str(present)}, "tmux": {"path": str(present)}}}}}
+    (config / "native.json").write_text(json.dumps(native))
+    (config / "service.toml").write_text(f'slots = 1\nnative_template = "{config / "native.json"}"\n\n[measurement]\nenabled = true\nmodel = "m"\n')
+    log = "attempt failed: No such file or directory\ntoken sk-ant-oat01-abcDEF_123 seen\n" + "x" * 500 + "\n"
+    def fake_run(argv, **_):
+        out = {"systemctl": "active\n", "journalctl": log}.get(Path(argv[0]).name, "aq-worker 0.5.1+abc\n")
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+    monkeypatch.setattr(helper.subprocess, "run", fake_run)
+    report = helper.worker_service_report(config)
+    assert report["active"] == "active" and report["version"] == "aq-worker 0.5.1+abc"
+    assert report["measurement"] == {"enabled": True, "model": "m"}
+    assert report["missing"] == ["inventory_definition"]
+    assert report["state_dir"] == {"mode": "0o700", "holds_git_root": True}
+    assert report["log"][0] == "attempt failed: No such file or directory"
+    assert report["log"][1] == "token [redacted] seen" and len(report["log"][2]) == 280
+    assert len(json.dumps(report)) < 12000
+

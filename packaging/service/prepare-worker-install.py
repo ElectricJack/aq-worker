@@ -225,14 +225,30 @@ def build(args):
         installer_digest = sha(bootstrap)
         bootstrap.replace(download / (installer_digest + ".sh"))
     (args.output / "nginx.conf").write_text(config)
-    print(json.dumps({"installer_sha256": installer_digest, "bundle_sha256": digest}))
+    published = {"installer_sha256": installer_digest, "bundle_sha256": digest, "worker_revision": worker_revision(args.worker)}
+    if getattr(args, "manifest", None):
+        # What aq-server's [workers.install] manifest_file reads on every request: written last and
+        # atomically, so the dashboard's install command names this bundle as soon as it is served.
+        staged = args.manifest.with_name(args.manifest.name + ".next")
+        staged.write_text(json.dumps(published, indent=2) + "\n")
+        staged.replace(args.manifest)
+    print(json.dumps(published))
+
+
+def worker_revision(worker):
+    """The revision the worker reports ("0.5.1+a1b2c3d4e5f6" gives "a1b2c3d4e5f6"), or None."""
+    try:
+        version = subprocess.run([worker, "--version"], capture_output=True, text=True, timeout=10).stdout.split()[-1]
+    except (OSError, IndexError, subprocess.SubprocessError):
+        return None
+    return version.partition("+")[2] or None
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("runtime", "worker", "service", "podman", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
-    for name in ("codex-helpers", "tls-cert", "tls-key"):
+    for name in ("codex-helpers", "tls-cert", "tls-key", "manifest"):
         parser.add_argument("--" + name, type=Path)
     parser.add_argument("--listen", default="127.0.0.1:28443")
     parser.add_argument("--worker-port", type=int, default=28081)
