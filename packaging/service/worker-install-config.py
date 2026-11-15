@@ -516,7 +516,8 @@ def worker_service_report(config):
         report["template_error"] = str(error)[:300]
     secret = re.compile(r"sk-ant-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_.-]+|Bearer\s+\S+")
     lines = run("journalctl", "--user", "-u", unit, "-n", "40", "--no-pager", "-o", "cat").splitlines()
-    report["log"] = [secret.sub("[redacted]", line)[:280] for line in lines][-30:]
+    # A refusal carries the server's reason at the end of a long line: keep those lines whole enough to read it.
+    report["log"] = [secret.sub("[redacted]", line)[:900 if "refused" in line else 240] for line in lines][-24:]
     return report
 
 

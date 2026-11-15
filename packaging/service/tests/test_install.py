@@ -1019,6 +1019,6 @@ def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(t
     assert report["missing"] == ["inventory_definition"]
     assert report["state_dir"] == {"mode": "0o700", "holds_git_root": True}
     assert report["log"][0] == "attempt failed: No such file or directory"
-    assert report["log"][1] == "token [redacted] seen" and len(report["log"][2]) == 280
+    assert report["log"][1] == "token [redacted] seen" and len(report["log"][2]) == 240
     assert len(json.dumps(report)) < 12000
 
