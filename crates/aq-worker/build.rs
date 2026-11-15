@@ -14,8 +14,12 @@ fn git(args: &[&str]) -> Option<String> {
 
 fn main() {
     println!("cargo:rerun-if-env-changed=AQ_SOURCE_REVISION");
-    if let Some(head) = git(&["rev-parse", "--git-path", "HEAD"]) {
-        println!("cargo:rerun-if-changed={head}");
+    // The reflog changes on every commit and checkout, the index on every
+    // staged change; HEAD alone does not change when its branch moves.
+    for path in ["HEAD", "logs/HEAD", "index"] {
+        if let Some(path) = git(&["rev-parse", "--git-path", path]) {
+            println!("cargo:rerun-if-changed={path}");
+        }
     }
     let stamped = std::env::var("AQ_SOURCE_REVISION")
         .ok()
