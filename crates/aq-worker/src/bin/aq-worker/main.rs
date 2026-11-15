@@ -24,7 +24,7 @@ use clap::{Parser, Subcommand};
 
 /// Agent Q worker connector.
 #[derive(Parser)]
-#[command(version)]
+#[command(version = aq_worker::VERSION)]
 struct Cli {
     /// Path to worker.toml (default: $XDG_CONFIG_HOME/agent-q/worker.toml).
     #[arg(long, global = true)]
@@ -946,7 +946,7 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                 .enroll(&EnrollRequest {
                     code: secrets.code,
                     name,
-                    worker_version: env!("CARGO_PKG_VERSION").to_string(),
+                    worker_version: aq_worker::VERSION.to_string(),
                     protocol_version: PROTOCOL_VERSION,
                 })
                 .await;

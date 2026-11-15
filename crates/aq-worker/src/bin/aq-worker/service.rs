@@ -633,7 +633,7 @@ async fn enroll_in(
             .enroll(&EnrollRequest {
                 code: typed.code,
                 name: name.clone(),
-                worker_version: env!("CARGO_PKG_VERSION").to_string(),
+                worker_version: aq_worker::VERSION.to_string(),
                 protocol_version: PROTOCOL_VERSION,
             })
             .await?;
