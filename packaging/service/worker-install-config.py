@@ -276,7 +276,60 @@ def receiver_update(config, digest):
     helper = text.split(prefix, 1)[1].split(suffix, 1)[0]
     compile(helper, str(target), "exec")
     atomic_text(target, helper + "\n")
-    return {"ok": True, "phase": "receiver_update", "details": {"installer_sha256": digest}}
+    details = {"installer_sha256": digest}
+    # The receiver is already replaced; a worker update that fails is reported, not raised.
+    try:
+        details["worker"] = worker_binary_update(config, text, origin)
+    except (ValueError, OSError, KeyError, subprocess.SubprocessError, tarfile.TarError) as error:
+        details["worker"] = {"error": str(error)[:1024]}
+    return {"ok": True, "phase": "receiver_update", "details": details}
+
+
+def worker_binary_update(config, installer, origin):
+    """Replaces the installed aq-worker with the one in the bundle the pinned installer names, and
+    restarts the worker service, so a machine takes a worker fix without anyone running the
+    installer on it. The bundle is checked against the checksum the installer pins. Only the
+    worker binary is replaced; the bundle's other programs change with a full install.
+    """
+    pinned = re.search(r"^digest='([a-f0-9]{64})'$", installer, re.M)
+    if not pinned:
+        raise ValueError("The pinned installer names no worker bundle.")
+    runtime = Path.home() / ".local/share/agent-q/runtime"
+    worker = runtime / "aq-worker"
+    if not worker.is_file() or worker.is_symlink():
+        raise ValueError("No installed worker to update.")
+    limit, seen, checksum = 536870912, 0, hashlib.sha256()
+    with tempfile.TemporaryDirectory(dir=runtime) as work:
+        archive, fresh = Path(work) / "bundle.tar.gz", Path(work) / "aq-worker"
+        with urllib.request.build_opener(NoRedirect()).open(origin + "/install/" + pinned.group(1) + ".tar.gz", timeout=60) as response, open(archive, "wb") as out:
+            while chunk := response.read(1 << 20):
+                seen += len(chunk)
+                if seen > limit:
+                    raise ValueError("The worker bundle is too large.")
+                checksum.update(chunk)
+                out.write(chunk)
+        if checksum.hexdigest() != pinned.group(1):
+            raise ValueError("Worker bundle checksum did not match.")
+        with tarfile.open(archive) as bundle:
+            member = bundle.getmember("aq-worker")
+            if not member.isfile():
+                raise ValueError("The worker bundle holds no worker.")
+            with bundle.extractfile(member) as source, open(fresh, "wb") as out:
+                shutil.copyfileobj(source, out)
+        fresh.chmod(0o755)
+        version = subprocess.run([str(fresh), "--version"], check=True, timeout=20, capture_output=True, text=True).stdout.strip()
+        os.replace(fresh, worker)
+    # A slot an earlier worker held because its Prepare got no grant is released by the new one:
+    # those workers held the slot for good even when the server had answered with a refusal.
+    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agent-q/service" / config.name
+    released = []
+    for held in sorted(state.glob("slots/*/held")):
+        current = held.parent / "current"
+        if held.read_text().startswith("prepare_disposition_unknown") and current.is_dir() and not (current / "server-refused").exists():
+            atomic_text(current / "server-refused", "released by a remote worker update")
+            released.append(held.parent.name)
+    subprocess.run(["systemctl", "--user", "restart", "--no-block", "aq-node@" + config.name + ".service"], check=True, timeout=20, capture_output=True)
+    return {"version": version, "bundle_sha256": pinned.group(1), "restarted": True, "released_slots": released}
 
 
 def sandbox_probe(config):

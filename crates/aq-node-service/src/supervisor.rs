@@ -44,6 +44,9 @@ pub enum AttemptOutcome {
     Paused,
     ShutdownBeforeAdmission,
 }
+/// Written into a slot's `current` when its attempt ended on a refusal the server answered.
+const SERVER_REFUSED: &str = "server-refused";
+const PREPARE_UNKNOWN: &str = "prepare_disposition_unknown";
 #[derive(Debug, PartialEq, Eq)]
 pub enum RecoverOutcome {
     Clean,
@@ -492,7 +495,20 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 // Retried with backoff, so not held: `service status` shows no stale reason.
                 let _ = std::fs::remove_file(layout.slot_held(slot));
             }
-            if let RecoverOutcome::Held(why) = recovered? {
+            // A Prepare the server answered with a refusal has a known disposition: no grant.
+            // Without this the slot was held for good after one refused Prepare.
+            let refused = current.join(SERVER_REFUSED).exists();
+            let recovered = match recovered? {
+                RecoverOutcome::Held(why) if refused && why.starts_with(PREPARE_UNKNOWN) => {
+                    tracing::warn!(
+                        slot,
+                        "the server refused this attempt's Prepare; archived, slot released"
+                    );
+                    RecoverOutcome::Clean
+                }
+                other => other,
+            };
+            if let RecoverOutcome::Held(why) = recovered {
                 tracing::error!(slot, "slot held until the owner releases it: {why}");
                 if let Err(e) = write_private(&layout.slot_held(slot), why.as_bytes()) {
                     tracing::warn!(slot, "holding reason not recorded: {e:#}");
@@ -577,6 +593,17 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                         "attempt failed, retrying in {}s: {e:#}",
                         backoff.as_secs()
                     );
+                    // The server answered (a refusal, not a lost reply): recovery reads this.
+                    let text = format!("{e:#}");
+                    if ["returned 4", "returned 503"]
+                        .iter()
+                        .any(|s| text.contains(&format!("native endpoint {s}")))
+                    {
+                        let _ = write_private(
+                            &self.sup.layout.current(slot).join(SERVER_REFUSED),
+                            text.as_bytes(),
+                        );
+                    }
                     if !back_off(&mut stopping, &mut backoff).await {
                         return;
                     }

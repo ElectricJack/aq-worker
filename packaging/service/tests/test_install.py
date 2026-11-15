@@ -714,9 +714,18 @@ def test_receiver_update_checks_digest_and_updates_only_its_installed_helper(tmp
     with pytest.raises(ValueError, match='checksum'):
         helper.receiver_update(config, '0' * 64)
     assert target.read_text() == 'old_receiver = True\n'
-    assert helper.receiver_update(config, hashlib.sha256(content).hexdigest())['ok']
+    updated = []
+    monkeypatch.setattr(helper, 'worker_binary_update', lambda c, text, origin: updated.append(origin) or {'version': 'new'})
+    report = helper.receiver_update(config, hashlib.sha256(content).hexdigest())
+    assert report['ok'] and report['details']['worker'] == {'version': 'new'}
+    assert updated == ['https://worker.example']
     assert target.read_text() == 'new_receiver = True\n'
     assert target.stat().st_mode & 0o777 == 0o600
+    # A worker update that fails is reported; the receiver update itself stands.
+    monkeypatch.undo(); monkeypatch.setattr(helper, '__file__', str(target))
+    monkeypatch.setattr(helper.urllib.request, 'build_opener', lambda *_args: Opener())
+    report = helper.receiver_update(config, hashlib.sha256(content).hexdigest())
+    assert report['ok'] and 'names no worker bundle' in report['details']['worker']['error']
 
 
 def test_remote_diagnostic_rejects_main_container_socket(tmp_path):
