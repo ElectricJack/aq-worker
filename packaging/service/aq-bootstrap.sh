@@ -167,6 +167,23 @@ if [[ "$running" != "$worker" ]]; then
   exit 5
 fi
 echo "Worker running: $("$worker" --version)."
+# No other worker may be running on this machine: one started from replaced
+# files, or a second installation, would keep answering for it with old code.
+others=()
+if command -v pgrep >/dev/null; then
+  for other in $(pgrep -u "$(id -u)" -x aq-worker || true); do
+    exe="$(readlink "/proc/$other/exe" 2>/dev/null || true)"
+    if [[ "$exe" != "$worker" ]]; then others+=("$other  ${exe:-unknown}  started $(ps -o lstart= -p "$other" 2>/dev/null || true)"); fi
+  done
+fi
+if (( ${#others[@]} )); then
+  echo 'Another AQ worker is still running on this machine, not the one just installed:' >&2
+  printf '  pid %s\n' "${others[@]}" >&2
+  echo 'Worker services on this machine:' >&2
+  systemctl --user list-units --no-legend --plain 'aq-*' >&2 || true
+  echo 'Stop that worker (for a container worker: systemctl --user disable --now aq-worker@PROFILE.service), then run this command again.' >&2
+  exit 5
+fi
 python3 "$work/configure.py" install-sync "$package" "$config_dir"
 echo 'Checking that this machine can start an agent sandbox.'
 python3 "$work/configure.py" preflight "$package" "$config_dir" "$podman"

@@ -167,6 +167,16 @@ changed=0
 for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
   if [[ -f "$RUNTIME_DIR/$f" ]] && ! cmp -s "$BUNDLE/$f" "$RUNTIME_DIR/$f"; then changed=1; fi
 done
+# A worker still running from files an earlier update replaced is the same case.
+workers_from_runtime() {
+  local pid exe
+  command -v pgrep >/dev/null || return 0
+  for pid in $(pgrep -u "$(id -u)" -x aq-worker || true); do
+    exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    if [[ "$exe" == "$RUNTIME_DIR/aq-worker$1" ]]; then echo "$pid"; fi
+  done
+}
+if [[ -n "$(workers_from_runtime ' (deleted)')" ]]; then changed=1; fi
 stopped=()
 if [[ "$changed" == 1 ]]; then
   while read -r unit _; do
@@ -175,20 +185,17 @@ if [[ "$changed" == 1 ]]; then
     systemctl --user stop "$unit"
     stopped+=("$unit")
   done < <(systemctl --user list-units --type=service --state=active --no-legend --plain 'aq-node@*.service' 2>/dev/null || true)
-  if command -v pgrep >/dev/null; then
-    leftover=()
-    for pid in $(pgrep -u "$(id -u)" -x aq-worker || true); do
-      [[ "$(readlink "/proc/$pid/exe" 2>/dev/null || true)" == "$RUNTIME_DIR/aq-worker" ]] && leftover+=("$pid")
+  mapfile -t leftover < <(workers_from_runtime ''; workers_from_runtime ' (deleted)')
+  if (( ${#leftover[@]} )); then
+    echo "Ending ${#leftover[@]} worker process(es) left running outside the service."
+    kill -TERM "${leftover[@]}" 2>/dev/null || true
+    for ((i=0; i<20; i++)); do
+      alive=0
+      for pid in "${leftover[@]}"; do if kill -0 "$pid" 2>/dev/null; then alive=1; fi; done
+      if [[ "$alive" == 0 ]]; then break; fi
+      sleep 1
     done
-    if (( ${#leftover[@]} )); then
-      echo "Ending ${#leftover[@]} worker process(es) left running outside the service."
-      kill -TERM "${leftover[@]}" 2>/dev/null || true
-      for ((i=0; i<20; i++)); do
-        alive=0; for pid in "${leftover[@]}"; do kill -0 "$pid" 2>/dev/null && alive=1; done
-        [[ "$alive" == 0 ]] && break; sleep 1
-      done
-      kill -KILL "${leftover[@]}" 2>/dev/null || true
-    fi
+    kill -KILL "${leftover[@]}" 2>/dev/null || true
   fi
 fi
 for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
