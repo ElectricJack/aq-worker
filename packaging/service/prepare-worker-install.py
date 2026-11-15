@@ -226,7 +226,7 @@ def build(args):
         bootstrap.replace(download / (installer_digest + ".sh"))
     (args.output / "nginx.conf").write_text(config)
     published = {"installer_sha256": installer_digest, "bundle_sha256": digest, "worker_revision": worker_revision(args.worker)}
-    if args.manifest:
+    if getattr(args, "manifest", None):
         # What aq-server's [workers.install] manifest_file reads on every request: written last and
         # atomically, so the dashboard's install command names this bundle as soon as it is served.
         staged = args.manifest.with_name(args.manifest.name + ".next")
