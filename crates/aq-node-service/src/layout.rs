@@ -193,13 +193,6 @@ impl Layout {
     pub fn held_reason(&self, slot: u32) -> Option<String> {
         std::fs::read_to_string(self.slot_held(slot)).ok()
     }
-    pub fn renderer_pin(&self) -> PathBuf {
-        self.state_root.join("renderer.json")
-    }
-    /// Held while a qualification measurement runs (`measure::measure_lock`).
-    pub fn measure_lock(&self) -> PathBuf {
-        self.state_root.join("measure.lock")
-    }
     pub fn machine_json(&self) -> PathBuf {
         self.config_dir.join("machine.json")
     }

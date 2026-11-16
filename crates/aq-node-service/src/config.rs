@@ -21,8 +21,6 @@ pub struct ServiceConfig {
     pub aq_git: AqGitConfig,
     #[serde(default)]
     pub repositories: Vec<RepositoryBinding>,
-    #[serde(default)]
-    pub measurement: MeasurementConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manual: Option<ManualConfig>,
     #[serde(default = "default_shutdown_grace_ms")]
@@ -33,6 +31,9 @@ pub struct ServiceConfig {
 pub struct ManualConfig {
     pub podman_executable: PathBuf,
     pub max_slots: u32,
+    /// Owner-only Claude subscription token file (`claude setup-token`) that manual Claude
+    /// sessions log in with.
+    pub claude_token_file: PathBuf,
     #[serde(default)]
     pub source_slugs: std::collections::BTreeMap<uuid::Uuid, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -63,33 +64,8 @@ pub struct RepositoryBinding {
     pub binding_generation: u64,
     pub object_format: String,
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct MeasurementConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub token_file: Option<PathBuf>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default = "default_renew_before_ms")]
-    pub renew_before_ms: u64,
-}
-impl Default for MeasurementConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            token_file: None,
-            model: None,
-            renew_before_ms: default_renew_before_ms(),
-        }
-    }
-}
 fn default_shutdown_grace_ms() -> u64 {
     120_000
-}
-fn default_renew_before_ms() -> u64 {
-    14_400_000
 }
 /// `^[a-z0-9][a-z0-9-]{0,31}$`
 pub fn valid_profile(p: &str) -> bool {
@@ -100,7 +76,7 @@ pub fn valid_profile(p: &str) -> bool {
 }
 
 /// What systemd allows beyond the shutdown grace before it kills the service: the forced stop
-/// and the measurement release fit inside it (asserted in the supervisor).
+/// fits inside it (asserted in the supervisor).
 pub const STOP_MARGIN: std::time::Duration = std::time::Duration::from_secs(30);
 impl ServiceConfig {
     /// The unit's TimeoutStopSec: the grace, rounded up to seconds, plus `STOP_MARGIN`.
@@ -112,12 +88,25 @@ impl ServiceConfig {
         self.shutdown_grace_ms.div_ceil(1000) + STOP_MARGIN.as_secs()
     }
     pub fn load(path: &Path) -> Result<Self> {
-        let config: Self = toml::from_str(&read_private(path)?)
-            .with_context(|| format!("parse {}", path.display()))?;
+        let text = read_private(path)?;
+        let config: Self =
+            Self::parse(&text).with_context(|| format!("parse {}", path.display()))?;
         config
             .validate()
             .with_context(|| format!("invalid {}", path.display()))?;
         Ok(config)
+    }
+    /// Parses the document, refusing unknown keys. A `[measurement]` section (written before
+    /// qualification measurement was removed) is refused by name, with what replaces the one
+    /// setting of it that is still used.
+    pub fn parse(text: &str) -> Result<Self> {
+        let table: toml::Table = toml::from_str(text)?;
+        if table.contains_key("measurement") {
+            bail!(
+                "the [measurement] section is no longer supported: qualification measurement was removed. Delete the section; if manual sessions are configured, move its token_file to claude_token_file in [manual]"
+            );
+        }
+        Ok(toml::from_str(text)?)
     }
     pub fn save(&self, path: &Path) -> Result<()> {
         self.validate()?;
@@ -184,26 +173,8 @@ impl ServiceConfig {
                 );
             }
             ensure!(
-                self.measurement.token_file.is_some(),
-                "manual sessions require the installed subscription token file"
-            );
-        }
-        let m = &self.measurement;
-        ensure!(
-            (3_600_000..=43_200_000).contains(&m.renew_before_ms),
-            "renew_before_ms must be 3600000..=43200000"
-        );
-        if m.enabled {
-            let Some(file) = &m.token_file else {
-                bail!("measurement.token_file is required when measurement is enabled")
-            };
-            ensure!(
-                file.is_absolute(),
-                "measurement.token_file must be an absolute path"
-            );
-            ensure!(
-                m.model.as_deref().is_some_and(|m| !m.is_empty()),
-                "measurement.model is required when measurement is enabled"
+                m.claude_token_file.is_absolute(),
+                "manual.claude_token_file must be an absolute path"
             );
         }
         Ok(())
@@ -227,10 +198,95 @@ mod tests {
                 git_executable: "/usr/bin/git".into(),
             },
             repositories: vec![],
-            measurement: MeasurementConfig::default(),
             manual: None,
             shutdown_grace_ms: 120_000,
         }
+    }
+    fn manual(token: &str) -> ManualConfig {
+        ManualConfig {
+            podman_executable: "/usr/bin/podman".into(),
+            max_slots: 1,
+            claude_token_file: token.into(),
+            source_slugs: Default::default(),
+            codex: None,
+        }
+    }
+    const MINIMAL: &str = r#"schema_version = 1
+profile = "local"
+machine_key = "desk"
+slots = 1
+native_template = "/n.json"
+state_root = "/s"
+runtime_root = "/run/user/1000/aq/local"
+[aq_git]
+binary = "/g"
+git_executable = "/usr/bin/git"
+"#;
+    fn load_text(text: &str) -> Result<ServiceConfig> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("service.toml");
+        write_private(&path, text.as_bytes()).unwrap();
+        ServiceConfig::load(&path)
+    }
+    /// A `service.toml` written before measurement was removed is refused when loaded, naming
+    /// the key that replaces its token file; so is any other unknown key.
+    #[test]
+    fn an_old_measurement_section_is_refused_naming_the_new_key() {
+        load_text(MINIMAL).unwrap();
+        for old in [
+            "[measurement]\nenabled = false\nrenew_before_ms = 14400000\n",
+            "[measurement]\nenabled = true\ntoken_file = \"/t\"\nmodel = \"m\"\n",
+            "[measurement]\n",
+        ] {
+            let e = format!("{:#}", load_text(&format!("{MINIMAL}{old}")).unwrap_err());
+            assert!(
+                e.contains("[measurement] section is no longer supported"),
+                "{e}"
+            );
+            assert!(e.contains("claude_token_file in [manual]"), "{e}");
+        }
+        let e = format!(
+            "{:#}",
+            load_text(&format!("{MINIMAL}[other]\n")).unwrap_err()
+        );
+        assert!(e.contains("unknown field `other`"), "{e}");
+        let manual = "[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\n";
+        let e = format!(
+            "{:#}",
+            load_text(&format!("{MINIMAL}{manual}token_file = \"/t\"\n")).unwrap_err()
+        );
+        assert!(e.contains("unknown field `token_file`"), "{e}");
+    }
+    /// Manual sessions name their Claude subscription token file in `[manual]`; it is
+    /// required there and must be absolute.
+    #[test]
+    fn manual_sessions_name_their_claude_token_file() {
+        let manual = "[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\n";
+        let c = load_text(&format!(
+            "{MINIMAL}{manual}claude_token_file = \"/etc/aq/token\"\n"
+        ))
+        .unwrap();
+        assert_eq!(
+            c.manual.as_ref().unwrap().claude_token_file,
+            Path::new("/etc/aq/token")
+        );
+        let saved = toml::to_string(&c).unwrap();
+        assert!(
+            saved.contains("claude_token_file = \"/etc/aq/token\""),
+            "{saved}"
+        );
+        assert!(!saved.contains("measurement"), "{saved}");
+        let e = format!(
+            "{:#}",
+            load_text(&format!("{MINIMAL}{manual}")).unwrap_err()
+        );
+        assert!(e.contains("missing field `claude_token_file`"), "{e}");
+        let relative = format!("{MINIMAL}{manual}claude_token_file = \"token\"\n");
+        let e = format!("{:#}", load_text(&relative).unwrap_err());
+        assert!(
+            e.contains("manual.claude_token_file must be an absolute path"),
+            "{e}"
+        );
     }
     #[test]
     fn loads_valid_and_refuses_bounds() {
@@ -238,13 +294,19 @@ mod tests {
         let path = dir.path().join("service.toml");
         valid().save(&path).unwrap();
         assert_eq!(ServiceConfig::load(&path).unwrap().slots, 2);
-        let bad: [fn(&mut ServiceConfig); 8] = [
+        let bad: [fn(&mut ServiceConfig); 9] = [
             |c| c.slots = 0,
             |c| c.slots = 9,
             |c| c.native_template = "native.json".into(),
             |c| c.profile = "Bad_Name".into(),
             |c| c.machine_key = "Desk".into(),
-            |c| c.measurement.enabled = true,
+            |c| c.manual = Some(manual("token")),
+            |c| {
+                c.manual = Some(ManualConfig {
+                    max_slots: 9,
+                    ..manual("/t")
+                })
+            },
             |c| c.runtime_root = Some("run/aq".into()),
             |c| {
                 c.repositories = vec![RepositoryBinding {
@@ -262,7 +324,7 @@ mod tests {
         }
     }
     #[test]
-    fn defaults_fill_grace_and_renew_window() {
+    fn defaults_fill_the_grace() {
         let text = r#"schema_version = 1
 profile = "local"
 machine_key = "desk"
@@ -275,17 +337,14 @@ git_executable = "/usr/bin/git"
 "#;
         let c: ServiceConfig = toml::from_str(text).unwrap();
         c.validate().unwrap();
-        assert_eq!(
-            (c.shutdown_grace_ms, c.measurement.renew_before_ms),
-            (120_000, 14_400_000)
-        );
+        assert_eq!(c.shutdown_grace_ms, 120_000);
         assert_eq!(c.stop_timeout_secs(), 150, "the template's default");
         let longest = ServiceConfig {
             shutdown_grace_ms: 600_000,
             ..c.clone()
         };
         assert_eq!(longest.stop_timeout_secs(), 630);
-        assert!(!c.measurement.enabled && c.repositories.is_empty());
+        assert!(c.repositories.is_empty() && c.manual.is_none());
         assert!(c.runtime_root.is_none());
         assert!(!toml::to_string(&c).unwrap().contains("runtime_root"));
     }

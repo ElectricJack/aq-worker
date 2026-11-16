@@ -67,10 +67,6 @@ tokio = { workspace = true, features = ["test-util"] }
 [features]
 # Historical M2/M3 synthetic execution harness; never enabled by production builds.
 synthetic-runtime = []
-# Epic "any model": a worker runs whatever model the offer names. No renderer
-# qualification pin and no per-model check on offers. Compile time only;
-# removed when the epic is confirmed.
-any-model = ["aq-node-service/any-model"]
 backend-conformance = ["aq-responses-transport/test-support"]
 test-support = ["synthetic-runtime","backend-conformance", "aq-responses-transport/test-support","aq-terminal-bridge/test-support","aq-worker-protocol/test-support", "aq-session-host/test-support"]
 

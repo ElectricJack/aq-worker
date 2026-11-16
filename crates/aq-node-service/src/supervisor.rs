@@ -1,17 +1,13 @@
 //! The slot supervisor: one polling loop per slot, the control poll, handoff
-//! markers, the renderer switch, measurement renewal and the graceful stop.
+//! markers and the graceful stop.
 use crate::{
     EnrollmentFile, Layout, LinkError, RepositoryBinding, ServerLink, ServiceConfig,
     config::{AqGitConfig, STOP_MARGIN},
     enrollment_file::write_private,
     git::AqGit,
-    measure::measure_lock,
 };
 use anyhow::{Context, Result};
-use aq_protocol::{
-    ArtifactPin, ControlResponse, HandoffNotice, HandoffReason, MeasurementSubmission,
-    QualificationPin,
-};
+use aq_protocol::{ControlResponse, HandoffNotice, HandoffReason};
 use std::{
     collections::HashSet,
     os::unix::fs::OpenOptionsExt,
@@ -19,11 +15,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{
-    sync::watch,
-    task::{JoinHandle, JoinSet},
-    time::Instant,
-};
+use tokio::{sync::watch, task::JoinSet};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -36,7 +28,6 @@ pub struct SlotContext {
     /// directory.
     pub host_root: PathBuf,
     pub git_socket: PathBuf,
-    pub renderer: Option<ArtifactPin>,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum AttemptOutcome {
@@ -70,23 +61,14 @@ pub trait SlotBackend: Send + Sync + 'static {
     /// Destroys the leftover stopped sandboxes of the slot's claimed attempts (their work is in
     /// the worktree): the driver can be killed between its claim and the node's destroy.
     async fn release_claimed(&self, ctx: SlotContext) -> Result<usize>;
-    /// Runs one measurement. When `cancel` turns true it stops, releases its sandbox and
-    /// returns an error.
-    async fn measure(
-        &self,
-        token_file: &Path,
-        model: &str,
-        cancel: watch::Receiver<bool>,
-    ) -> Result<MeasurementSubmission>;
 }
 #[async_trait::async_trait]
 pub trait ControlSource: Send + Sync + 'static {
     async fn control(&self) -> Result<ControlResponse>;
     /// Posts the notice for an attempt of `slot`, under that slot's node credential.
     async fn handoff(&self, slot: u32, notice: &HandoffNotice) -> Result<()>;
-    async fn submit_measurement(&self, s: &MeasurementSubmission) -> Result<QualificationPin>;
 }
-/// The machine's server calls. The control poll and measurements use slot 1's credential (the
+/// The machine's server calls. The control poll uses slot 1's credential (the
 /// server groups the slots by machine key). A handoff notice uses its own slot's: the server
 /// refuses a notice for an attempt the posting node does not own.
 pub struct MachineLink {
@@ -120,9 +102,6 @@ impl ControlSource for MachineLink {
         }
         self.slot(slot)?.handoff(notice).await
     }
-    async fn submit_measurement(&self, s: &MeasurementSubmission) -> Result<QualificationPin> {
-        self.primary.submit_measurement(s).await
-    }
 }
 #[async_trait::async_trait]
 pub trait GitFactory: Send + Sync {
@@ -152,26 +131,15 @@ impl GitChild for AqGit {
 }
 
 pub const CONTROL_INTERVAL: Duration = Duration::from_secs(5);
-pub const QUIET_WINDOW: Duration = Duration::from_secs(30);
 pub const BACKOFF_START: Duration = Duration::from_secs(30);
 pub const BACKOFF_MAX: Duration = Duration::from_secs(300);
 const REVOKED_INTERVAL: Duration = Duration::from_secs(60);
-/// After a failed measurement: this long, doubled after each further failure while the
-/// machine has no pin, up to `MEASURE_RETRY_MAX`.
-const MEASURE_RETRY: Duration = Duration::from_secs(600);
-const MEASURE_RETRY_MAX: Duration = Duration::from_secs(7200);
 const FORCE_WAIT: Duration = Duration::from_secs(20);
-/// How long the stop waits for a cancelled measurement to release its sandbox.
-const MEASURE_STOP_WAIT: Duration = Duration::from_secs(5);
 /// Bound on one handoff notice post during the stop (the posts also end with the grace).
 const HANDOFF_POST_WAIT: Duration = Duration::from_secs(4);
-// systemd's TimeoutStopSec is the grace plus STOP_MARGIN: the forced stop and the measurement
-// release must fit in the margin.
-// A post started just before the grace ends is the most the handoff can add.
-const _: () = assert!(
-    FORCE_WAIT.as_secs() + MEASURE_STOP_WAIT.as_secs() + HANDOFF_POST_WAIT.as_secs()
-        < STOP_MARGIN.as_secs()
-);
+// systemd's TimeoutStopSec is the grace plus STOP_MARGIN: the forced stop must fit in the
+// margin. A post started just before the grace ends is the most the handoff can add.
+const _: () = assert!(FORCE_WAIT.as_secs() + HANDOFF_POST_WAIT.as_secs() < STOP_MARGIN.as_secs());
 /// Written in a slot's `current` when the service stops, so an attempt that had no driver
 /// directory yet (still preparing) is still handed off as a service stop, not a crash.
 pub const SERVICE_STOP_MARKER: &str = "service-stop";
@@ -271,16 +239,14 @@ pub fn recorded_handoff(
 }
 
 /// Why polling is paused; slots poll only while no flag is set.
-const QUIET: usize = 0;
-const REVOKED: usize = 1;
-const STOPPING: usize = 2;
-/// Set from the start until a control reply showed the current pin and its renderer was
-/// applied (or showed that there is none), so no slot polls under a stale renderer.
-/// With `any-model` the first control reply clears it whatever it carries.
-const UNPINNED: usize = 3;
+const REVOKED: usize = 0;
+const STOPPING: usize = 1;
+/// Set from the start until the first successful control reply, whatever it carries: no slot
+/// polls for work before the server has answered this machine once.
+const AWAITING_FIRST_CONTROL_REPLY: usize = 2;
 struct Pause {
     tx: watch::Sender<bool>,
-    flags: Mutex<[bool; 4]>,
+    flags: Mutex<[bool; 3]>,
 }
 impl Pause {
     /// Notifies the slots only when the combined value changes: every notification wakes a
@@ -311,13 +277,6 @@ impl ControlState {
         }
     }
 }
-#[derive(Default)]
-struct Measuring {
-    busy: bool,
-    /// No new measurement before this.
-    not_before: Option<Instant>,
-    failures: u32,
-}
 
 pub struct Supervisor<B: SlotBackend, C: ControlSource> {
     config: ServiceConfig,
@@ -331,13 +290,8 @@ struct Shared<B: SlotBackend, C: ControlSource> {
     pause: Pause,
     stopping: watch::Sender<bool>,
     force: watch::Sender<bool>,
-    renderer: Mutex<Option<ArtifactPin>>,
-    latest: Mutex<Option<QualificationPin>>,
-    measuring: Mutex<Measuring>,
-    measurement: Mutex<Option<JoinHandle<()>>>,
     /// Slots inside `attempt` (their `current` belongs to a live attempt).
     active: Mutex<HashSet<u32>>,
-    started: (Instant, u64),
 }
 impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
     pub fn new(
@@ -358,31 +312,14 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
     /// Supervises every slot until `shutdown`. It returns only then: a slot that cannot run
     /// (held, or no enrollment) never ends the service, which would restart it in a loop.
     pub async fn run(self, mut shutdown: watch::Receiver<bool>) -> Result<()> {
-        let wall = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis() as u64;
-        // any-model: a pin an earlier build saved is not used; slots keep the template's
-        // renderer.
-        let renderer = if cfg!(feature = "any-model") {
-            None
-        } else {
-            std::fs::read(self.layout.renderer_pin())
-                .ok()
-                .and_then(|b| serde_json::from_slice(&b).ok())
-        };
         let shared = Arc::new(Shared {
             pause: Pause {
                 tx: watch::channel(true).0,
-                flags: Mutex::new([false, false, false, true]),
+                flags: Mutex::new([false, false, true]),
             },
             stopping: watch::channel(false).0,
             force: watch::channel(false).0,
-            renderer: Mutex::new(renderer),
-            latest: Mutex::new(None),
-            measuring: Mutex::default(),
-            measurement: Mutex::new(None),
             active: Mutex::default(),
-            started: (Instant::now(), wall),
             sup: self,
         });
         let control_task = tokio::spawn(shared.clone().control_loop());
@@ -396,7 +333,7 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
         };
         if !signalled_first {
             tracing::warn!(
-                "no slot is running; the service stays up (control poll, measurement) until it is stopped"
+                "no slot is running; the service stays up (control poll) until it is stopped"
             );
             signalled(&mut shutdown).await;
         }
@@ -420,17 +357,6 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
                 }
                 () = tokio::time::sleep(CONTROL_INTERVAL) => {}
             }
-        }
-        let measurement = shared.measurement.lock().unwrap().take();
-        if let Some(mut task) = measurement
-            && tokio::time::timeout(MEASURE_STOP_WAIT, &mut task)
-                .await
-                .is_err()
-        {
-            tracing::error!(
-                "the measurement did not release its sandbox in time; the next start sweeps it"
-            );
-            task.abort();
         }
         control_task.abort();
         Ok(())
@@ -456,9 +382,6 @@ async fn back_off(stopping: &mut watch::Receiver<bool>, backoff: &mut Duration) 
 }
 
 impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
-    fn now_ms(&self) -> u64 {
-        self.started.1 + self.started.0.elapsed().as_millis() as u64
-    }
     fn ctx(&self, slot: u32, node_id: Uuid, state_dir: PathBuf) -> SlotContext {
         let layout = &self.sup.layout;
         SlotContext {
@@ -468,7 +391,6 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             state_dir,
             host_root: layout.host_root(slot),
             git_socket: layout.git_socket(slot),
-            renderer: self.renderer.lock().unwrap().clone(),
         }
     }
     fn archive(&self, ctx: &SlotContext) {
@@ -756,7 +678,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             }
         }
     }
-    fn apply(self: &Arc<Self>, resp: ControlResponse) {
+    /// The qualification pin a reply may still carry is ignored: the worker runs whatever
+    /// model an offer names, under the template's renderer.
+    fn apply(&self, resp: ControlResponse) {
         let layout = &self.sup.layout;
         for id in resp.handoff {
             if let Err(e) = mark_handoff(layout, &self.active_slots(), id, HandoffReason::OwnerStop)
@@ -764,132 +688,16 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 tracing::warn!(%id, "handoff marker: {e:#}");
             }
         }
-        if cfg!(feature = "any-model") {
-            // The worker runs any model the offer names: a pin, present or absent, neither
-            // pauses the slots nor changes their renderer, and nothing is measured. Slots
-            // start after the first control reply, as without a pin.
-            self.pause.set(UNPINNED, false);
-            return;
-        }
-        *self.latest.lock().unwrap() = resp.qualification.clone();
-        // A pin not yet effective says nothing of the one the server offers with now.
-        let current = match &resp.qualification {
-            Some(pin) => {
-                self.switch_renderer(pin);
-                self.now_ms() >= pin.effective_at_ms
-            }
-            None => {
-                self.pause.set(QUIET, false);
-                true
-            }
-        };
-        if current {
-            self.pause.set(UNPINNED, false);
-        }
-        self.maybe_measure();
-    }
-    /// A new renderer takes effect at `effective_at_ms`. The slots pause in the quiet window
-    /// before it and on every switch, including the first pin after a start, so a poll that
-    /// is already running cannot take an offer under the old renderer. The next tick that
-    /// sees the active pin resumes them.
-    fn switch_renderer(&self, pin: &QualificationPin) {
-        let now = self.now_ms();
-        let mut active = self.renderer.lock().unwrap();
-        if active.as_ref() == Some(&pin.renderer) {
-            self.pause.set(QUIET, false);
-        } else if now >= pin.effective_at_ms {
-            let saved = serde_json::to_vec(&pin.renderer)
-                .map_err(Into::into)
-                .and_then(|b| write_private(&self.sup.layout.renderer_pin(), &b));
-            if let Err(e) = saved {
-                tracing::warn!("renderer pin not saved: {e:#}");
-            }
-            *active = Some(pin.renderer.clone());
-            self.pause.set(QUIET, true);
-        } else {
-            let quiet = now + QUIET_WINDOW.as_millis() as u64 >= pin.effective_at_ms;
-            self.pause.set(QUIET, quiet);
-        }
-    }
-    fn maybe_measure(self: &Arc<Self>) {
-        if cfg!(feature = "any-model") {
-            return;
-        }
-        let m = &self.sup.config.measurement;
-        let (true, Some(file), Some(model)) = (m.enabled, m.token_file.clone(), m.model.clone())
-        else {
-            return;
-        };
-        let now = self.now_ms();
-        let pinned = self.latest.lock().unwrap().clone();
-        let due = pinned
-            .as_ref()
-            .is_none_or(|p| p.expires_at_ms.saturating_sub(now) <= m.renew_before_ms);
-        let lock = {
-            let state = self.measuring.lock().unwrap();
-            if !due || state.busy || state.not_before.is_some_and(|t| Instant::now() < t) {
-                return;
-            }
-            // `aq-worker service measure` (the install script) may hold it: skip this tick.
-            match measure_lock(&self.sup.layout.measure_lock(), false) {
-                Ok(Some(lock)) => lock,
-                Ok(None) => return,
-                Err(e) => {
-                    tracing::warn!("measurement lock: {e:#}");
-                    return;
-                }
-            }
-        };
-        self.measuring.lock().unwrap().busy = true;
-        let shared = self.clone();
-        let task = tokio::spawn(async move {
-            let _lock = lock;
-            let cancel = shared.stopping.subscribe();
-            let done = async {
-                let submission = shared.sup.backend.measure(&file, &model, cancel).await?;
-                shared.sup.control.submit_measurement(&submission).await
-            }
-            .await;
-            let mut state = shared.measuring.lock().unwrap();
-            let wait = match done {
-                Ok(pin) => {
-                    tracing::info!(
-                        expires_at_ms = pin.expires_at_ms,
-                        "qualification measurement submitted"
-                    );
-                    *shared.latest.lock().unwrap() = Some(pin);
-                    state.failures = 0;
-                    MEASURE_RETRY
-                }
-                Err(e) => {
-                    state.failures += 1;
-                    let wait = if pinned.is_none() {
-                        MEASURE_RETRY
-                            .saturating_mul(2u32.saturating_pow(state.failures.min(16) - 1))
-                            .min(MEASURE_RETRY_MAX)
-                    } else {
-                        MEASURE_RETRY
-                    };
-                    tracing::warn!(
-                        "qualification measurement failed, next try in {} min: {e:#}",
-                        wait.as_secs() / 60
-                    );
-                    wait
-                }
-            };
-            (state.busy, state.not_before) = (false, Some(Instant::now() + wait));
-        });
-        *self.measurement.lock().unwrap() = Some(task);
+        self.pause.set(AWAITING_FIRST_CONTROL_REPLY, false);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::MeasurementConfig;
-    use aq_protocol::DesiredState;
+    use aq_protocol::{ArtifactPin, DesiredState, QualificationPin};
     use std::collections::{HashMap, VecDeque};
-    use tokio::time::sleep;
+    use tokio::time::{Instant, sleep};
 
     enum Step {
         Outcome(AttemptOutcome),
@@ -911,15 +719,9 @@ mod tests {
         recovery: Mutex<HashMap<u32, VecDeque<Result<RecoverOutcome, ()>>>>,
         calls: Mutex<Vec<String>>,
         run_times: Mutex<Vec<Instant>>,
-        renderers: Mutex<Vec<Option<ArtifactPin>>>,
         observed: Mutex<Option<watch::Receiver<bool>>>,
         released: Mutex<Option<Instant>>,
         retained_empty: bool,
-        measured: Mutex<Vec<Instant>>,
-        /// Measurements fail; or wait for the cancel and record the release.
-        measure_fails: bool,
-        measure_hangs: bool,
-        measure_released: Mutex<bool>,
         /// release_claimed fails this many times; the slots it was called for.
         release_failures: Mutex<u32>,
         releases: Mutex<Vec<u32>>,
@@ -934,7 +736,6 @@ mod tests {
         ) -> Result<AttemptOutcome> {
             self.calls.lock().unwrap().push(format!("run:{}", ctx.slot));
             self.run_times.lock().unwrap().push(Instant::now());
-            self.renderers.lock().unwrap().push(ctx.renderer.clone());
             let step = self
                 .script
                 .lock()
@@ -1008,24 +809,6 @@ mod tests {
                 vec![Uuid::nil()]
             })
         }
-        async fn measure(
-            &self,
-            _: &Path,
-            _: &str,
-            mut cancel: watch::Receiver<bool>,
-        ) -> Result<MeasurementSubmission> {
-            self.measured.lock().unwrap().push(Instant::now());
-            if self.measure_hangs {
-                let _ = cancel.wait_for(|v| *v).await;
-                *self.measure_released.lock().unwrap() = true;
-                anyhow::bail!("cancelled");
-            }
-            anyhow::ensure!(!self.measure_fails, "no sandbox");
-            Ok(MeasurementSubmission {
-                schema_version: 1,
-                calls: vec![],
-            })
-        }
     }
     struct FakeControl {
         /// An error is (status, whether the body is AQ's error schema).
@@ -1034,8 +817,6 @@ mod tests {
         /// Each notice with the slot it was posted for.
         handoffs: Mutex<Vec<(u32, HandoffNotice)>>,
         hang_handoffs: Mutex<bool>,
-        submissions: Mutex<u32>,
-        renewed: QualificationPin,
     }
     #[async_trait::async_trait]
     impl ControlSource for FakeControl {
@@ -1064,10 +845,6 @@ mod tests {
                 std::future::pending::<()>().await;
             }
             Ok(())
-        }
-        async fn submit_measurement(&self, _: &MeasurementSubmission) -> Result<QualificationPin> {
-            *self.submissions.lock().unwrap() += 1;
-            Ok(self.renewed.clone())
         }
     }
     struct FakeGit;
@@ -1108,8 +885,6 @@ mod tests {
             polls: Mutex::default(),
             handoffs: Mutex::default(),
             hang_handoffs: Mutex::default(),
-            submissions: Mutex::default(),
-            renewed: pin("1", 0, wall() + 86_400_000),
         })
     }
     fn reply(
@@ -1167,7 +942,6 @@ mod tests {
                 git_executable: "/usr/bin/git".into(),
             },
             repositories: vec![],
-            measurement: MeasurementConfig::default(),
             manual: None,
             shutdown_grace_ms: 10_000,
         };
@@ -1373,54 +1147,6 @@ mod tests {
         stop(handle, tx).await;
     }
 
-    #[cfg(not(feature = "any-model"))]
-    #[tokio::test(start_paused = true)]
-    async fn renderer_switch_pauses_polling_in_quiet_window() {
-        let rig = rig(1);
-        let backend = Arc::new(FakeBackend::default());
-        script(&backend, 1, vec![Step::Observe, Step::Hang]);
-        let (now, effective) = (wall(), wall() + 40_000);
-        let (handle, tx) = start(
-            &rig,
-            &backend,
-            &control(vec![
-                reply(vec![], Some(pin("1", now - 1000, now + 86_400_000))),
-                reply(vec![], Some(pin("2", effective, effective + 86_400_000))),
-            ]),
-        );
-        sleep(Duration::from_secs(7)).await;
-        let paused = backend.observed.lock().unwrap().clone().unwrap();
-        assert!(!*paused.borrow(), "before the quiet window");
-        sleep(Duration::from_secs(8)).await;
-        assert!(*paused.borrow(), "inside the quiet window");
-        assert_eq!(backend.calls.lock().unwrap().len(), 1);
-        sleep(Duration::from_secs(35)).await;
-        assert!(!*paused.borrow(), "after the switch");
-        assert_eq!(
-            backend
-                .renderers
-                .lock()
-                .unwrap()
-                .last()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .version,
-            "2"
-        );
-        assert_eq!(
-            backend.renderers.lock().unwrap()[0]
-                .as_ref()
-                .unwrap()
-                .version,
-            "1"
-        );
-        let saved: ArtifactPin =
-            serde_json::from_slice(&std::fs::read(rig.layout.renderer_pin()).unwrap()).unwrap();
-        assert_eq!(saved.version, "2");
-        stop(handle, tx).await;
-    }
-
     #[tokio::test(start_paused = true)]
     async fn failing_slot_backs_off_and_prunes_empty_dirs() {
         let rig = rig(1);
@@ -1489,36 +1215,6 @@ mod tests {
         );
     }
 
-    #[cfg(not(feature = "any-model"))]
-    #[tokio::test(start_paused = true)]
-    async fn measurement_runs_when_pin_near_expiry() {
-        let mut rig = rig(1);
-        rig.config.measurement = MeasurementConfig {
-            enabled: true,
-            token_file: Some("/tmp/token".into()),
-            model: Some("m".into()),
-            renew_before_ms: 14_400_000,
-        };
-        let backend = Arc::new(FakeBackend::default());
-        script(&backend, 1, vec![Step::Hang]);
-        let now = wall();
-        let old = pin("1", now - 1000, now + 3 * 3_600_000);
-        let renewed = pin("1", now - 1000, now + 24 * 3_600_000);
-        let ctl = control(vec![reply(vec![], Some(old)), reply(vec![], Some(renewed))]);
-        let (handle, tx) = start(&rig, &backend, &ctl);
-        sleep(Duration::from_secs(12)).await;
-        assert_eq!(
-            (
-                backend.measured.lock().unwrap().len(),
-                *ctl.submissions.lock().unwrap()
-            ),
-            (1, 1)
-        );
-        sleep(Duration::from_secs(1200)).await;
-        assert_eq!(backend.measured.lock().unwrap().len(), 1);
-        stop(handle, tx).await;
-    }
-
     #[tokio::test(start_paused = true)]
     async fn revoked_credential_pauses_all_slots() {
         let rig = rig(1);
@@ -1548,14 +1244,6 @@ mod tests {
     fn journal(rig: &Rig, slot: u32) {
         std::fs::create_dir_all(rig.layout.current(slot)).unwrap();
         std::fs::write(rig.layout.current(slot).join("journal"), b"j").unwrap();
-    }
-    fn measuring(rig: &mut Rig) {
-        rig.config.measurement = MeasurementConfig {
-            enabled: true,
-            token_file: Some("/tmp/token".into()),
-            model: Some("m".into()),
-            renew_before_ms: 14_400_000,
-        };
     }
 
     /// Review #1: an attempt that fails after admission keeps current/journal, and the next
@@ -1634,48 +1322,21 @@ mod tests {
         stop(handle, tx).await;
     }
 
-    /// Review #4: the first pin after a start switches the renderer; the running poll is
-    /// paused, and the next attempt runs under the new renderer.
-    #[cfg(not(feature = "any-model"))]
-    #[tokio::test(start_paused = true)]
-    async fn first_pin_pauses_a_running_poll() {
-        let rig = rig(1);
-        let backend = Arc::new(FakeBackend::default());
-        script(&backend, 1, vec![Step::Observe, Step::Hang]);
-        let now = wall();
-        let pinned = reply(vec![], Some(pin("2", now - 1000, now + 86_400_000)));
-        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None), pinned]));
-        sleep(Duration::from_secs(1)).await;
-        assert_eq!(*backend.renderers.lock().unwrap(), [None]);
-        sleep(Duration::from_secs(5)).await;
-        let paused = backend.observed.lock().unwrap().clone().unwrap();
-        assert!(
-            *paused.borrow(),
-            "the switch pauses the poll that runs under no pin"
-        );
-        assert_eq!(backend.calls.lock().unwrap().len(), 1);
-        sleep(Duration::from_secs(5)).await;
-        let renderers = backend.renderers.lock().unwrap().clone();
-        assert_eq!(renderers.len(), 2);
-        assert_eq!(renderers[1].as_ref().unwrap().version, "2");
-        stop(handle, tx).await;
-    }
-
     /// Review M1: setting a flag to its current value wakes nobody.
     #[test]
     fn pause_notifies_only_on_change() {
         let pause = Pause {
             tx: watch::channel(false).0,
-            flags: Mutex::new([false; 4]),
+            flags: Mutex::new([false; 3]),
         };
         let mut rx = pause.tx.subscribe();
-        pause.set(QUIET, false);
+        pause.set(STOPPING, false);
         assert!(!rx.has_changed().unwrap());
-        pause.set(QUIET, true);
+        pause.set(STOPPING, true);
         assert!(rx.has_changed().unwrap() && *rx.borrow_and_update());
-        pause.set(QUIET, true);
+        pause.set(STOPPING, true);
         pause.set(REVOKED, true);
-        pause.set(QUIET, false);
+        pause.set(STOPPING, false);
         assert!(!rx.has_changed().unwrap(), "still paused by REVOKED");
         pause.set(REVOKED, false);
         assert!(rx.has_changed().unwrap() && !*rx.borrow_and_update());
@@ -1709,56 +1370,6 @@ mod tests {
         sleep(Duration::from_secs(16)).await;
         assert!(*backend.observed.lock().unwrap().clone().unwrap().borrow());
         stop(handle, tx).await;
-    }
-
-    /// Review 9b: without a pin, failed measurements back off from 10 min to 2 h; and the
-    /// service skips its measurement while `service measure` holds the lock.
-    #[cfg(not(feature = "any-model"))]
-    #[tokio::test(start_paused = true)]
-    async fn measurement_backs_off_without_a_pin_and_yields_to_the_lock() {
-        let mut rig = rig(1);
-        measuring(&mut rig);
-        let held = measure_lock(&rig.layout.measure_lock(), false)
-            .unwrap()
-            .unwrap();
-        let backend = Arc::new(FakeBackend {
-            measure_fails: true,
-            ..Default::default()
-        });
-        script(&backend, 1, vec![Step::Hang]);
-        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
-        sleep(Duration::from_secs(60)).await;
-        assert!(
-            backend.measured.lock().unwrap().is_empty(),
-            "the lock is held"
-        );
-        drop(held);
-        sleep(Duration::from_secs(400 * 60)).await;
-        let times = backend.measured.lock().unwrap().clone();
-        let gaps: Vec<u64> = times
-            .windows(2)
-            .map(|w| (w[1] - w[0]).as_secs() / 60)
-            .collect();
-        assert_eq!(gaps, [10, 20, 40, 80, 120, 120]);
-        stop(handle, tx).await;
-    }
-
-    /// Review #7: a stop cancels a running measurement and waits for its release.
-    #[cfg(not(feature = "any-model"))]
-    #[tokio::test(start_paused = true)]
-    async fn shutdown_cancels_the_measurement_and_waits_for_its_release() {
-        let mut rig = rig(1);
-        measuring(&mut rig);
-        let backend = Arc::new(FakeBackend {
-            measure_hangs: true,
-            ..Default::default()
-        });
-        script(&backend, 1, vec![Step::Hang]);
-        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
-        sleep(Duration::from_secs(10)).await;
-        assert_eq!(backend.measured.lock().unwrap().len(), 1);
-        stop(handle, tx).await;
-        assert!(*backend.measure_released.lock().unwrap());
     }
 
     /// Review M4: a SIGTERM while an attempt prepares (no driver.json yet) marks the slot, so
@@ -1916,37 +1527,10 @@ mod tests {
         handle.await.unwrap().unwrap();
     }
 
-    /// D3: a fresh state root has no renderer, so the slots do not poll before a control reply
-    /// shows the current pin and its renderer is applied. A failed control poll does not count,
-    /// nor does a pin that is not effective yet (the server offers with an earlier one).
-    #[cfg(not(feature = "any-model"))]
+    /// A qualification pin in the control reply (current, switching, not yet effective) or
+    /// none at all changes nothing: the slots poll at once and are never paused by it.
     #[tokio::test(start_paused = true)]
-    async fn fresh_slots_wait_for_the_current_pin() {
-        let rig = rig(1);
-        let backend = Arc::new(FakeBackend::default());
-        script(&backend, 1, vec![Step::Hang]);
-        let effective = wall() + 20_000;
-        let pending = reply(vec![], Some(pin("2", effective, effective + 86_400_000)));
-        let ctl = control(vec![Err((500, false)), pending]);
-        let (handle, tx) = start(&rig, &backend, &ctl);
-        sleep(Duration::from_secs(19)).await;
-        assert!(
-            backend.calls.lock().unwrap().is_empty(),
-            "no poll before the pin"
-        );
-        sleep(Duration::from_secs(12)).await;
-        assert_eq!(*backend.calls.lock().unwrap(), ["run:1"]);
-        let renderers = backend.renderers.lock().unwrap().clone();
-        assert_eq!(renderers[0].as_ref().unwrap().version, "2");
-        stop(handle, tx).await;
-    }
-
-    /// any-model: a pin, present (current, switching or not yet effective) or absent, never
-    /// pauses the slots, never reaches a slot as its renderer and is never saved; the service
-    /// measures nothing even when `[measurement]` is still enabled.
-    #[cfg(feature = "any-model")]
-    #[tokio::test(start_paused = true)]
-    async fn any_model_ignores_the_pin_and_never_measures() {
+    async fn a_qualification_pin_in_the_control_reply_is_ignored() {
         let now = wall();
         let soon = now + 20_000;
         for replies in [
@@ -1958,8 +1542,7 @@ mod tests {
             ],
             vec![reply(vec![], Some(pin("2", soon, soon + 86_400_000)))],
         ] {
-            let mut rig = rig(1);
-            measuring(&mut rig);
+            let rig = rig(1);
             let backend = Arc::new(FakeBackend::default());
             script(&backend, 1, vec![Step::Observe]);
             let ctl = control(replies);
@@ -1973,35 +1556,23 @@ mod tests {
             }
             sleep(Duration::from_secs(3600)).await;
             assert_eq!(*backend.calls.lock().unwrap(), ["run:1"]);
-            assert_eq!(*backend.renderers.lock().unwrap(), [None]);
-            assert!(!rig.layout.renderer_pin().exists(), "no pin file");
-            assert!(backend.measured.lock().unwrap().is_empty());
-            assert_eq!(*ctl.submissions.lock().unwrap(), 0);
             stop(handle, tx).await;
         }
     }
 
-    /// any-model: a pin file an earlier build saved is not applied to the slots, and slots
-    /// still wait for the first successful control reply.
-    #[cfg(feature = "any-model")]
+    /// No slot polls before the first successful control reply; a failed control poll does
+    /// not count.
     #[tokio::test(start_paused = true)]
-    async fn any_model_ignores_a_saved_pin_and_waits_for_the_first_control_reply() {
+    async fn slots_wait_for_the_first_control_reply() {
         let rig = rig(1);
-        let saved = serde_json::to_vec(&pin("9", 0, 0).renderer).unwrap();
-        std::fs::create_dir_all(rig.layout.renderer_pin().parent().unwrap()).unwrap();
-        std::fs::write(rig.layout.renderer_pin(), &saved).unwrap();
         let backend = Arc::new(FakeBackend::default());
         script(&backend, 1, vec![Step::Hang]);
-        let now = wall();
-        let pinned = reply(vec![], Some(pin("2", now - 1000, now + 86_400_000)));
-        let ctl = control(vec![Err((500, false)), pinned]);
+        let ctl = control(vec![Err((500, false)), reply(vec![], None)]);
         let (handle, tx) = start(&rig, &backend, &ctl);
         sleep(Duration::from_secs(4)).await;
         assert!(backend.calls.lock().unwrap().is_empty(), "no control reply");
-        sleep(Duration::from_secs(12)).await;
+        sleep(Duration::from_secs(2)).await;
         assert_eq!(*backend.calls.lock().unwrap(), ["run:1"]);
-        assert_eq!(*backend.renderers.lock().unwrap(), [None]);
-        assert_eq!(std::fs::read(rig.layout.renderer_pin()).unwrap(), saved);
         stop(handle, tx).await;
     }
 

@@ -1,10 +1,7 @@
 //! The node's authenticated link to aq-server (bearer, optional Cloudflare Access).
 use crate::enrollment_file::EnrollmentFile;
 use anyhow::{Context, Result, bail, ensure};
-use aq_protocol::{
-    ControlResponse, HandoffNotice, MeasurementSubmission, QualificationPin, SlotsRequest,
-    SlotsResponse, valid_machine_key,
-};
+use aq_protocol::{ControlResponse, HandoffNotice, SlotsRequest, SlotsResponse, valid_machine_key};
 use reqwest::header;
 use serde::{Serialize, de::DeserializeOwned};
 use std::time::Duration;
@@ -189,9 +186,6 @@ impl ServerLink {
         r: &aq_protocol::LostAttemptRelease,
     ) -> Result<aq_protocol::LostAttemptReleased> {
         self.post("/v1/worker/lost-attempts", r).await
-    }
-    pub async fn submit_measurement(&self, s: &MeasurementSubmission) -> Result<QualificationPin> {
-        self.post("/v1/worker/qualifications", s).await
     }
     pub async fn machine_report<T: Serialize + Sync>(&self, report: &T) -> Result<()> {
         self.post::<_, serde_json::Value>("/v1/worker/machine", report)

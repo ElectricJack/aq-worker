@@ -425,7 +425,7 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         _ => None,
     };
     drop(token);
-    // Non-secret transcript beside the driver config (evidence, measurement),
+    // Non-secret transcript beside the driver config (evidence),
     // in the private driver directory, and never when it held the token.
     if let Some(dir) = config_path.parent()
         && leak.is_none()

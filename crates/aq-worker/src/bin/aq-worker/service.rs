@@ -3,13 +3,12 @@
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::{
     AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError, MachineLink,
-    MeasurementConfig, RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState,
-    SlotBackend, SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff,
-    write_machine_json, write_private,
+    RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState, SlotBackend,
+    SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff, write_machine_json,
+    write_private,
 };
 use aq_protocol::{
-    ArtifactPin, EnrollRequest, HandoffNotice, HandoffReason, MeasurementSubmission,
-    PROTOCOL_VERSION, SlotsRequest, valid_machine_key,
+    EnrollRequest, HandoffNotice, HandoffReason, PROTOCOL_VERSION, SlotsRequest, valid_machine_key,
 };
 use aq_worker::{
     client::Client,
@@ -68,15 +67,6 @@ pub enum ServiceCmd {
         #[arg(long)]
         force: bool,
     },
-    /// Run the qualification measurement now and submit it.
-    Measure {
-        #[arg(long)]
-        profile: String,
-        /// Write the outputs to <DIR>/measure (for `ms1-profiled.py` `measured()`) and do
-        /// not submit.
-        #[arg(long, hide = true)]
-        output: Option<PathBuf>,
-    },
 }
 #[derive(Args)]
 pub struct ServiceEnrollArgs {
@@ -101,10 +91,6 @@ pub struct ServiceEnrollArgs {
     /// JSON array of RepositoryBinding.
     #[arg(long)]
     repositories: PathBuf,
-    #[arg(long)]
-    measurement_token_file: Option<PathBuf>,
-    #[arg(long, requires = "measurement_token_file")]
-    measurement_model: Option<String>,
     /// Enroll a profile that is already enrolled (after a revoke): redeems a new code and
     /// replaces its credentials and configuration. `service install` then restarts it.
     #[arg(long)]
@@ -117,7 +103,6 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Install { profile } => install(&profile),
         ServiceCmd::Uninstall { profile, purge } => uninstall(&profile, purge),
         ServiceCmd::Status { profile } => status(&profile),
-        ServiceCmd::Measure { profile, output } => measure(&profile, output.as_deref()).await,
         ServiceCmd::ReleaseSandbox {
             profile,
             slot,
@@ -131,8 +116,6 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
 /// The native pipeline behind the supervisor: one `run_until_attempt` per call.
 pub struct NativeSlotBackend {
     template: PathBuf,
-    /// Slot 1's node: it owns the measurement sandbox.
-    measure_node: Uuid,
     /// Attempts whose restart handoff notice the server accepted; a retried recovery does
     /// not post them again.
     notified: std::sync::Mutex<std::collections::HashSet<Uuid>>,
@@ -140,10 +123,9 @@ pub struct NativeSlotBackend {
     native_active: std::collections::BTreeMap<Uuid, Arc<std::sync::atomic::AtomicUsize>>,
 }
 impl NativeSlotBackend {
-    pub fn new(template: PathBuf, measure_node: Uuid) -> Self {
+    pub fn new(template: PathBuf) -> Self {
         Self {
             template,
-            measure_node,
             notified: Default::default(),
             manual_pause: Default::default(),
             native_active: Default::default(),
@@ -239,39 +221,19 @@ fn held_if_permanent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome
     }
 }
 /// The native template, pointed at the slot's state (journal, Git) and runtime directory
-/// (aq-git's socket, the session host root), with the slot's renderer.
-///
-/// With `any-model` the template's own renderer stays: no pin replaces it.
+/// (aq-git's socket, the session host root). The renderer is the template's own.
 fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
-    let pin = renderer_override(ctx);
     let mut cfg = NativeConfig::load(template)?;
     cfg.state_dir = ctx.state_dir.clone();
     cfg.git_socket = ctx.git_socket.clone();
     cfg.git_root = ctx.state_dir.join("git");
     if let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &mut cfg.executor {
         settings.host.root = ctx.host_root.clone();
-        if let Some(pin) = pin {
-            settings.host.renderer = to_artifact_ref(pin)?;
-        }
     } else {
         bail!("the worker service needs the Claude docker-local executor in its native template");
     }
-    if let Some(pin) = pin {
-        cfg.renderer = to_artifact_ref(pin)?;
-    }
     cfg.validate()?;
     Ok(cfg)
-}
-/// The pin that replaces the template's renderer. With `any-model` there is none, whatever
-/// the context carries.
-fn renderer_override(ctx: &SlotContext) -> Option<&ArtifactPin> {
-    ctx.renderer
-        .as_ref()
-        .filter(|_| !cfg!(feature = "any-model"))
-}
-/// Converts a wire pin to the pipeline's artifact reference (same JSON shape).
-fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<T> {
-    serde_json::from_value(serde_json::to_value(pin)?).context("invalid renderer pin")
 }
 /// D2: a recovery that failed because the guardian was lost: the outside proof that its
 /// processes are dead, if one holds, and the reason. (The stopped contract carries only a
@@ -498,16 +460,6 @@ impl SlotBackend for NativeSlotBackend {
     fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>> {
         retained_attempts(&self.native_config(ctx)?, ctx.node_id)
     }
-    async fn measure(
-        &self,
-        token_file: &Path,
-        model: &str,
-        cancel: watch::Receiver<bool>,
-    ) -> Result<MeasurementSubmission> {
-        let node = self.measure_node;
-        let m = crate::measure::run(&self.template, token_file, model, node, cancel).await?;
-        Ok(m.measured.submission)
-    }
 }
 
 fn is_wsl() -> bool {
@@ -611,16 +563,10 @@ async fn enroll_in(
             git_executable: args.git_executable.clone(),
         },
         repositories,
-        measurement: MeasurementConfig {
-            enabled: args.measurement_token_file.is_some(),
-            token_file: args.measurement_token_file.clone(),
-            model: args.measurement_model.clone(),
-            ..MeasurementConfig::default()
-        },
         manual: None,
         shutdown_grace_ms: 120_000,
     };
-    // Repository count and format, absolute paths (the token file too), bounds, and the
+    // Repository count and format, absolute paths, bounds, and the
     // socket paths under the runtime root.
     config.validate()?;
 
@@ -830,61 +776,6 @@ fn slot_line(layout: &Layout, slot: u32) -> String {
         None => format!("slot {slot}: not held"),
     }
 }
-async fn measure(profile: &str, output: Option<&Path>) -> Result<()> {
-    let (layout, config) = loaded(profile)?;
-    let m = &config.measurement;
-    let (Some(file), Some(model)) = (&m.token_file, &m.model) else {
-        bail!("measurement is not configured for profile {profile}");
-    };
-    let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
-    // One measurement at a time: the service skips its own while this holds the lock.
-    let lock = match aq_node_service::measure::measure_lock(&layout.measure_lock(), false)? {
-        Some(lock) => lock,
-        None => {
-            println!(
-                "a measurement for profile {profile} is already running (the service started it); waiting for it to finish"
-            );
-            let path = layout.measure_lock();
-            tokio::task::spawn_blocking(move || aq_node_service::measure::measure_lock(&path, true))
-                .await??
-                .context("measurement lock")?
-        }
-    };
-    let (tx, cancel) = watch::channel(false);
-    let watcher = tokio::spawn(async move {
-        crate::shutdown_signal().await;
-        let _ = tx.send(true);
-    });
-    let done =
-        crate::measure::run(&config.native_template, file, model, slot1.node_id, cancel).await;
-    watcher.abort();
-    drop(lock);
-    let done = done?;
-    for (call, total, out) in &done.measured.totals {
-        println!("{call}: total_input={total} output={out}");
-    }
-    println!(
-        "capacity_tokens={} observed_at_ms={}",
-        done.measured.capacity_tokens, done.measured.observed_at_ms
-    );
-    if let Some(dir) = output {
-        aq_node_service::measure::write_output(dir, &done.files)?;
-        println!(
-            "written to {}; not submitted",
-            dir.join("measure").display()
-        );
-        return Ok(());
-    }
-    let pin = ServerLink::from_enrollment(&slot1)?
-        .submit_measurement(&done.measured.submission)
-        .await?;
-    println!(
-        "qualification accepted: effective at {} ms, until {} ms",
-        pin.effective_at_ms, pin.expires_at_ms
-    );
-    Ok(())
-}
-
 /// `service release-sandbox`: the operator release of a sandbox one of the slot's attempts
 /// preserved, through the slot's own node and the profile's native template.
 /// Whether the slot's recovery still holds `attempt` for salvage: its `current` journal retains
@@ -923,7 +814,6 @@ async fn release_sandbox(
         git_socket: layout.git_socket(slot),
         host_root: state_dir.join("host"),
         state_dir,
-        renderer: None,
     };
     let cfg = slot_native_config(&config.native_template, &ctx)?;
     let current = layout.current(slot);
@@ -986,13 +876,6 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     attest_prior_invocation();
     let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
     let link = Arc::new(ServerLink::from_enrollment(&slot1)?);
-    // A measurement cut short (kill, crash, reboot) left its sandbox: release it before work.
-    let lock = layout.measure_lock();
-    match crate::measure::sweep(&config.native_template, slot1.node_id, &lock).await {
-        Ok(0) => {}
-        Ok(n) => tracing::info!("released {n} leftover measurement sandbox(es)"),
-        Err(e) => tracing::warn!("measurement sandbox sweep: {e:#}"),
-    }
     let (tx, rx) = watch::channel(false);
     let watcher = tokio::spawn(async move {
         crate::shutdown_signal().await;
@@ -1049,7 +932,7 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     } else {
         None
     };
-    let mut native_backend = NativeSlotBackend::new(config.native_template.clone(), slot1.node_id);
+    let mut native_backend = NativeSlotBackend::new(config.native_template.clone());
     native_backend.manual_pause = manual_pause;
     native_backend.native_active = native_active;
     let backend = Arc::new(native_backend);
@@ -1084,7 +967,6 @@ mod tests {
             state_dir: dir.join("current"),
             host_root: dir.join("run/1/host"),
             git_socket: dir.join("run/1/git.sock"),
-            renderer: None,
         }
     }
     #[test]
@@ -1117,40 +999,6 @@ mod tests {
             HandoffReason::Restart
         );
     }
-    /// any-model: a pin in the slot context never replaces the template's renderer.
-    #[test]
-    fn a_renderer_pin_replaces_the_template_renderer_only_without_any_model() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut ctx = slot_ctx(dir.path());
-        assert!(renderer_override(&ctx).is_none());
-        ctx.renderer = Some(ArtifactPin {
-            id: "aq-terminal-renderer".into(),
-            version: "0.1.0".into(),
-            digest: "a".repeat(64),
-        });
-        assert_eq!(
-            renderer_override(&ctx).is_some(),
-            !cfg!(feature = "any-model")
-        );
-    }
-    #[test]
-    fn renderer_pin_converts_to_an_artifact_ref() {
-        let pin = ArtifactPin {
-            id: "aq-terminal-renderer".into(),
-            version: "0.1.0".into(),
-            digest: "a".repeat(64),
-        };
-        let r: aq_session_protocol::ArtifactRef = to_artifact_ref(&pin).unwrap();
-        assert_eq!(r.digest.as_str(), "a".repeat(64));
-        assert!(
-            to_artifact_ref::<aq_session_protocol::ArtifactRef>(&ArtifactPin {
-                digest: "x".into(),
-                ..pin
-            })
-            .is_err()
-        );
-    }
-
     /// A loopback stand-in for aq-server's enroll and slots routes. The slots route answers
     /// 409 for the first `refuse_claims` calls.
     struct FakeServer {
@@ -1236,8 +1084,6 @@ mod tests {
                 aq_git: at("aq-git"),
                 git_executable: "/usr/bin/git".into(),
                 repositories: at("repositories.json"),
-                measurement_token_file: None,
-                measurement_model: None,
                 reconfigure: false,
             }
         }
@@ -1299,14 +1145,6 @@ mod tests {
             )
             .unwrap()
         };
-        let mut relative = p.args(&server.origin);
-        relative.measurement_token_file = Some("token".into());
-        relative.measurement_model = Some("m".into());
-        let e = p.enroll(&relative, None).await.unwrap_err();
-        assert!(
-            format!("{e:#}").contains("token_file must be an absolute path"),
-            "{e:#}"
-        );
         write_repos(vec![repo("sha1"); 17]);
         let e = p.enroll(&p.args(&server.origin), None).await.unwrap_err();
         assert!(
@@ -1470,9 +1308,9 @@ mod tests {
     }
 
     /// D9: the CLI uses service.toml's state and runtime roots, so purge removes a custom
-    /// state root (and `service measure` takes the service's measurement lock).
+    /// state root.
     #[tokio::test]
-    async fn purge_and_measure_use_the_configured_state_root() {
+    async fn purge_uses_the_configured_state_root() {
         let server = fake_server(0).await;
         let p = profile();
         p.enroll(&p.args(&server.origin), Some("code-1"))
@@ -1491,7 +1329,6 @@ mod tests {
         };
         let (layout, _) = loaded_in(defaults, "local").unwrap();
         assert_eq!(layout.state_root, custom);
-        assert_eq!(layout.measure_lock(), custom.join("measure.lock"));
         assert_eq!(layout.runtime_root, p.dir.path().join("run/local"));
         layout.prepare_runtime().unwrap();
         purge_dirs(&layout).unwrap();
@@ -1795,8 +1632,7 @@ mod tests {
             cf_client_secret: None,
         }));
         let path = PathBuf::from("/nonexistent");
-        let backend: &'static NativeSlotBackend =
-            Box::leak(Box::new(NativeSlotBackend::new(path, Uuid::nil())));
+        let backend: &'static NativeSlotBackend = Box::leak(Box::new(NativeSlotBackend::new(path)));
         // `recover_attempts` is the body the async_trait `recover` boxes. It awaits
         // `release_lost` with the real closures (a docker backend and the server link), so the
         // lost-guardian release is measured inside it as instantiated in the service.

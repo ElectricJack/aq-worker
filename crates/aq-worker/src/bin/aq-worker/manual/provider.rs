@@ -67,10 +67,9 @@ pub(super) fn validate_material(spec: &Value, bytes: &[u8]) -> Result<()> {
 pub(super) fn available(config: &ServiceConfig) -> Vec<&'static str> {
     let mut out = Vec::new();
     if config
-        .measurement
-        .token_file
+        .manual
         .as_ref()
-        .is_some_and(|p| aq_handoff_note::read_private(p, 65536).is_ok())
+        .is_some_and(|m| aq_handoff_note::read_private(&m.claude_token_file, 65536).is_ok())
     {
         out.push("anthropic");
     }
@@ -113,9 +112,9 @@ pub(super) fn plan(
             (
                 settings.host.claude_executable.clone(),
                 config
-                    .measurement
-                    .token_file
-                    .clone()
+                    .manual
+                    .as_ref()
+                    .map(|m| m.claude_token_file.clone())
                     .context("Claude subscription file")?,
                 CLAUDE,
             )
@@ -249,6 +248,27 @@ mod tests {
         }
         assert!(CODEX.contains("--no-daemon --no-alt-screen"));
         assert!(!CODEX.contains("exec \"$exe\" exec"));
+    }
+    /// Manual Claude sessions log in with `[manual] claude_token_file`: Claude is offered
+    /// exactly while that file is a readable private file, and never without `[manual]`.
+    #[test]
+    fn claude_is_available_from_the_manual_claude_token_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let token = dir.path().join("claude-token");
+        let base = "schema_version = 1\nprofile = \"local\"\nmachine_key = \"desk\"\nslots = 1\nnative_template = \"/n.json\"\nstate_root = \"/s\"\nruntime_root = \"/run/user/1000/aq/local\"\n[aq_git]\nbinary = \"/g\"\ngit_executable = \"/usr/bin/git\"\n";
+        let manual = format!(
+            "{base}[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\nclaude_token_file = {:?}\n",
+            token.to_str().unwrap()
+        );
+        let config = ServiceConfig::parse(&manual).unwrap();
+        config.validate().unwrap();
+        assert!(available(&config).is_empty(), "no token file yet");
+        std::fs::write(&token, b"synthetic-subscription-token").unwrap();
+        std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(available(&config), ["anthropic"]);
+        let without_manual = ServiceConfig::parse(base).unwrap();
+        assert!(available(&without_manual).is_empty());
     }
     #[test]
     fn runtime_bundle_refuses_unpinned_helper_bytes() {

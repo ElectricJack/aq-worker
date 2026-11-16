@@ -8,11 +8,10 @@ pub mod git;
 pub mod invocation;
 pub mod layout;
 pub mod link;
-pub mod measure;
 pub mod os_service;
 pub mod supervisor;
 
-pub use config::{AqGitConfig, MeasurementConfig, RepositoryBinding, ServiceConfig};
+pub use config::{AqGitConfig, ManualConfig, RepositoryBinding, ServiceConfig};
 pub use enrollment_file::{EnrollmentFile, write_private};
 pub use git::AqGit;
 pub use layout::{Layout, write_machine_json};
@@ -20,8 +19,8 @@ pub use link::{LinkError, ServerLink, checked_origin, default_machine_key};
 pub use os_service::{Preflight, ServiceManager, ServiceState, UnitSpec, detect, preflight};
 pub use supervisor::{
     AqGitFactory, AttemptOutcome, BACKOFF_MAX, BACKOFF_START, CONTROL_INTERVAL, ControlSource,
-    GitChild, GitFactory, MachineLink, QUIET_WINDOW, RecoverOutcome, SlotBackend, SlotContext,
-    Supervisor, mark_handoff, recorded_handoff, running_attempts,
+    GitChild, GitFactory, MachineLink, RecoverOutcome, SlotBackend, SlotContext, Supervisor,
+    mark_handoff, recorded_handoff, running_attempts,
 };
 
 pub mod polling;

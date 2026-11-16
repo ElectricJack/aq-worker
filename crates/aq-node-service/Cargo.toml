@@ -24,12 +24,6 @@ url = "2"
 uuid.workspace = true
 zeroize = "1"
 
-[features]
-# Epic "any model": a worker runs whatever model the offer names. The service
-# ignores the server's qualification pin (no pause, no renderer switch, no
-# measurement). Compile time only; removed when the epic is confirmed.
-any-model = []
-
 [dev-dependencies]
 aq-machine-load = { path = "../aq-machine-load" }
 axum.workspace = true
