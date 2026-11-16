@@ -294,7 +294,6 @@ async fn codex_prepared(
     let renderer = a.reservation.offer.startup.renderer_qualification.clone();
     let mapper = CodexExecProfile {
         harness: m.harness.clone(),
-        model: m.model.clone(),
         permissions_digest: crate::native::journal::canonical_digest(&m.permissions).unwrap(),
         renderer,
         confinement: None,

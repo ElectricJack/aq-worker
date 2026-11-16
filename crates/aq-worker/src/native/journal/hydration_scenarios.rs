@@ -416,15 +416,9 @@ async fn actual_git_hydration(retain_grant: bool, phase_mode: bool) {
         b"synthetic native source bytes\n"
     );
     let all = h.all_inputs().await;
-    let renderer = h.pipeline().snapshot().await.unwrap().attempts[&h.id]
-        .reservation
-        .offer
-        .startup
-        .renderer_qualification
-        .clone();
     let joined = h
         .pipeline()
-        .prepare_inputs(h.id, h.preparation().clone(), all, proof, renderer)
+        .prepare_inputs(h.id, h.preparation().clone(), all, proof)
         .await
         .unwrap();
     assert!(
@@ -706,15 +700,9 @@ async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for
         .await
         .unwrap();
     let before = h.pipeline().snapshot().await.unwrap();
-    let renderer = before.attempts[&h.id]
-        .reservation
-        .offer
-        .startup
-        .renderer_qualification
-        .clone();
     let prepared = h
         .pipeline()
-        .prepare_inputs(h.id, h.preparation().clone(), all, source, renderer.clone())
+        .prepare_inputs(h.id, h.preparation().clone(), all, source)
         .await
         .unwrap();
     assert_eq!(prepared.request().journal_revision, before.revision);
@@ -759,7 +747,7 @@ async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for
         .unwrap();
     let retry = h
         .pipeline()
-        .prepare_inputs(h.id, h.preparation().clone(), all, source, renderer)
+        .prepare_inputs(h.id, h.preparation().clone(), all, source)
         .await
         .unwrap();
     assert!(same(&first_request, retry.request()).unwrap());
@@ -767,12 +755,8 @@ async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn prepare_join_refuses_missing_inputs_renderer_and_retention_changed_after_hydration() {
-    for mode in 0..5 {
-        // any-model accepts another renderer (`tests/native_startup.rs`).
-        if mode == 1 && cfg!(feature = "any-model") {
-            continue;
-        }
+async fn prepare_join_refuses_missing_inputs_and_retention_changed_after_hydration() {
+    for mode in [0, 2, 3, 4] {
         let export = synthetic();
         let manifest = export.manifest.clone();
         let h = Inputs::new(export).await;
@@ -789,17 +773,10 @@ async fn prepare_join_refuses_missing_inputs_renderer_and_retention_changed_afte
             .await
             .unwrap();
         let before = h.pipeline().snapshot().await.unwrap();
-        let mut renderer = before.attempts[&h.id]
-            .reservation
-            .offer
-            .startup
-            .renderer_qualification
-            .clone();
         match mode {
             0 => {
                 all.pop();
             }
-            1 => renderer.digest = Digest::of(b"uninstalled renderer"),
             2 => git.mode.store(2, Ordering::SeqCst),
             3 => git.mode.store(3, Ordering::SeqCst),
             _ => {
@@ -817,7 +794,7 @@ async fn prepare_join_refuses_missing_inputs_renderer_and_retention_changed_afte
         }
         assert!(
             h.pipeline()
-                .prepare_inputs(h.id, h.preparation().clone(), all, source, renderer)
+                .prepare_inputs(h.id, h.preparation().clone(), all, source)
                 .await
                 .is_err(),
             "mode {mode}"
@@ -852,16 +829,10 @@ async fn prepare_join_fsync_cuts_retain_original_or_complete_intent_and_reopen_w
             .await
             .unwrap();
         let before = h.pipeline().snapshot().await.unwrap();
-        let renderer = before.attempts[&h.id]
-            .reservation
-            .offer
-            .startup
-            .renderer_qualification
-            .clone();
         h.pipeline().test_journal_fault(fault).await.unwrap();
         assert!(
             h.pipeline()
-                .prepare_inputs(h.id, h.preparation().clone(), all, source, renderer)
+                .prepare_inputs(h.id, h.preparation().clone(), all, source)
                 .await
                 .is_err()
         );
@@ -1095,7 +1066,6 @@ async fn phase_physical(
     Arc<crate::native::http::preparation_v2::AcceptedPreparation>,
     Vec<crate::native::VerifiedArtifact>,
     crate::native::preparation::HydratedWorkspace,
-    ArtifactRef,
 ) {
     let accepted = h.phase.as_ref().unwrap().clone();
     let before = h.pipeline().snapshot().await.unwrap();
@@ -1124,14 +1094,13 @@ async fn phase_physical(
             .await
             .unwrap();
     }
-    let renderer = a.reservation.offer.startup.renderer_qualification.clone();
-    (accepted, all, workspace, renderer)
+    (accepted, all, workspace)
 }
 async fn phase_join(h: &Inputs, git: GitClient) -> crate::native::preparation::PreparedPhaseInputs {
-    let (accepted, all, workspace, renderer) = phase_physical(h, git).await;
+    let (accepted, all, workspace) = phase_physical(h, git).await;
     let joined = h
         .pipeline()
-        .prepare_inputs_phase(h.id, accepted.clone(), all, workspace, renderer)
+        .prepare_inputs_phase(h.id, accepted.clone(), all, workspace)
         .await
         .unwrap();
     let state = h.pipeline().snapshot().await.unwrap();
@@ -1319,16 +1288,13 @@ async fn phase_prepare_cancelled_fsync_retains_exact_request_and_replay_does_not
     let manifest = export.manifest.clone();
     let h = Inputs::new_phase(export).await;
     let git = GitPeer::new(h.root.clone(), manifest);
-    let (a, all, workspace, renderer) = phase_physical(&h, git.client.clone()).await;
+    let (a, all, workspace) = phase_physical(&h, git.client.clone()).await;
     let pause = WritePause::new();
     h.pipeline().test_pause_grant_commit(&pause).await.unwrap();
     let pipeline = h.pipeline().clone();
     let id = h.id;
-    let task = tokio::spawn(async move {
-        pipeline
-            .prepare_inputs_phase(id, a, all, workspace, renderer)
-            .await
-    });
+    let task =
+        tokio::spawn(async move { pipeline.prepare_inputs_phase(id, a, all, workspace).await });
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while !pause.entered() {
             tokio::time::sleep(std::time::Duration::from_millis(1)).await
@@ -1440,14 +1406,14 @@ async fn phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reo
     let manifest = export.manifest.clone();
     let mut h = Inputs::new_phase(export).await;
     let git = GitPeer::new(h.root.clone(), manifest);
-    let (a, all, workspace, renderer) = phase_physical(&h, git.client.clone()).await;
+    let (a, all, workspace) = phase_physical(&h, git.client.clone()).await;
     h.pipeline()
         .test_journal_fault(WriteFault::AfterRename)
         .await
         .unwrap();
     assert!(
         h.pipeline()
-            .prepare_inputs_phase(h.id, a.clone(), all, workspace, renderer)
+            .prepare_inputs_phase(h.id, a.clone(), all, workspace)
             .await
             .is_err()
     );

@@ -17,7 +17,7 @@ use aq_admission::{
     ArtifactKind, RetainedArtifact, startup::NativeOffer, transport::ArtifactReceipt,
 };
 use aq_session_host::RenderedStartup;
-use aq_session_protocol::{ArtifactRef, Digest, canonical_bytes};
+use aq_session_protocol::{Digest, canonical_bytes};
 
 pub const MAX_INLINE_BYTES: u64 = 2_097_152;
 pub const MAX_INLINE_SET_BYTES: u64 = 8 * 1024 * 1024;
@@ -94,22 +94,16 @@ impl VerifiedArtifact {
 }
 
 /// Build the host's single final payload only from independently checked actual
-/// downloads. The installed renderer qualification comes from trusted runtime
-/// configuration, not from accepting the offer's own claim of compatibility.
+/// downloads. The offer's renderer qualification is not compared with anything:
+/// the worker runs whatever an offer names.
 /// Historical retained timestamps are checked by the public contract; freshness
 /// at launch still belongs to preparation/grant authority and local deadlines.
-/// With `any-model` the offer's renderer qualification is not compared.
 pub fn prepare_startup(
     offer: &NativeOffer,
-    installed_renderer: &ArtifactRef,
     descriptor: VerifiedArtifact,
     payload: VerifiedArtifact,
 ) -> Result<RenderedStartup> {
     offer.validate()?;
-    ensure!(
-        cfg!(feature = "any-model") || offer.startup.renderer_qualification == *installed_renderer,
-        "unsupported startup renderer qualification"
-    );
     ensure!(
         descriptor.descriptor.artifact == offer.startup.artifact()?
             && descriptor.descriptor.kind == ArtifactKind::Definition

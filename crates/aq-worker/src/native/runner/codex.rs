@@ -15,7 +15,7 @@ use aq_session_host::{
     HostPhase,
     observed::{NamedReadonlyEnvironment, NamedReadonlyExecPool},
 };
-use aq_session_protocol::{ArtifactRef, Digest, HarnessSettings, ModelSettings};
+use aq_session_protocol::{ArtifactRef, Digest, HarnessSettings};
 use aq_terminal_bridge::http::{NodeCredential, RelayHttp};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -27,7 +27,6 @@ const CODEX_INSTALLATION_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 pub struct CodexSettings {
     pub host_root: PathBuf,
     pub harness: HarnessSettings,
-    pub model: ModelSettings,
     pub permissions_digest: Digest,
     pub columns: u16,
     pub rows: u16,
@@ -74,11 +73,7 @@ impl CodexSettings {
             self.harness.harness.as_str() == "codex"
                 && self.harness.cli_version.as_str()
                     == crate::native::adapter::codex::CODEX_CLI_VERSION
-                && self.harness.adapter == config.adapter
-                && self.model.provider.as_str() == "openai"
-                && self.model.spending_budget.is_none()
-                && (16..=1_048_576).contains(&self.model.max_output_tokens)
-                && matches!(self.model.reasoning.as_str(), "low" | "medium" | "high"),
+                && self.harness.adapter == config.adapter,
             "unsupported closed Codex settings"
         );
         ensure!(
@@ -412,7 +407,6 @@ impl NativeExecutor for CodexExecutor {
         );
         let mapper = CodexExecProfile {
             harness: settings.harness.clone(),
-            model: settings.model.clone(),
             permissions_digest: settings.permissions_digest.clone(),
             renderer: config.renderer.clone(),
             confinement: self.confinement.clone(),

@@ -94,7 +94,6 @@ fn native_commands_report_preflight_failure_before_disposition() {
             "settings": {
                 "host_root": dir.path().join("not-created-host"),
                 "harness": manifest["harness"],
-                "model": manifest["model"],
                 "permissions_digest": Digest::of(b"permissions"),
                 "columns": 80,
                 "rows": 24

@@ -72,13 +72,7 @@ macro_rules! collect_profile {
             inventory.publish_inventory(&refreshed).await?;
             pipeline.record_inventory_sequence(refreshed.request().sequence);
             let inputs = pipeline
-                .$prepare(
-                    id,
-                    preparation,
-                    artifacts,
-                    workspace,
-                    config.renderer.clone(),
-                )
+                .$prepare(id, preparation, artifacts, workspace)
                 .await?;
             match pipeline.$execute(inputs, &accepted).await? {
                 PhaseExecutionCommit::Usable(grant) => Ok(grant),

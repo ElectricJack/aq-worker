@@ -15,14 +15,8 @@ pub(super) async fn joined(h: &Inputs, git: &GitPeer) -> PreparedInputs {
         .await
         .unwrap();
     let all = h.all_inputs().await;
-    let renderer = h.pipeline().snapshot().await.unwrap().attempts[&h.id]
-        .reservation
-        .offer
-        .startup
-        .renderer_qualification
-        .clone();
     h.pipeline()
-        .prepare_inputs(h.id, h.preparation().clone(), all, workspace, renderer)
+        .prepare_inputs(h.id, h.preparation().clone(), all, workspace)
         .await
         .unwrap()
 }

@@ -50,7 +50,6 @@ struct Config {
     qualification: ArtifactRef,
     capabilities: Vec<Capability>,
     features: Vec<Feature>,
-    renderer: ArtifactRef,
     phase_preparation: Option<PhaseConfig>,
     refresh_preparation: Option<PhaseConfig<aq_admission::preparation_refresh_v1::Negotiation>>,
 }
@@ -490,7 +489,6 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                     preparation.clone(),
                     artifacts,
                     workspace,
-                    config.renderer,
                 )
                 .await?;
             current_root(&config.root, &held)?;
@@ -773,13 +771,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         .await?;
     *stage = "prepare_inputs";
     let prepared = pipeline
-        .prepare_inputs(
-            id,
-            preparation.clone(),
-            artifacts,
-            workspace,
-            config.renderer,
-        )
+        .prepare_inputs(id, preparation.clone(), artifacts, workspace)
         .await?;
     current_root(&config.root, &held)?;
     *stage = "initial_grant";
@@ -857,7 +849,6 @@ mod tests {
             qualification: reference("synthetic-qualification"),
             capabilities: vec![],
             features: vec![],
-            renderer: reference("synthetic-renderer"),
             phase_preparation: None,
             refresh_preparation: Some(phase(
                 json!({"contract":refresh::contract_artifact().unwrap(),"features":refresh::required_features()}),

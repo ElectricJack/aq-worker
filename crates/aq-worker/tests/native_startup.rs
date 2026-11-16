@@ -49,7 +49,6 @@ fn published_native_fixture_downloads_produce_one_host_payload() {
     assert_eq!(receipt.bytes, bytes.len() as u64);
     prepare_startup(
         &offer,
-        &offer.startup.renderer_qualification,
         verified(descriptor, &canonical_bytes(&offer.startup).unwrap()),
         downloaded,
     )
@@ -103,7 +102,6 @@ fn self_consistent_replacement_cannot_replace_original_payload() {
     assert!(
         prepare_startup(
             &offer,
-            &offer.startup.renderer_qualification,
             verified(descriptor, &canonical_bytes(&offer.startup).unwrap()),
             verified(payload, &bytes),
         )
@@ -111,27 +109,15 @@ fn self_consistent_replacement_cannot_replace_original_payload() {
     );
 }
 #[test]
-fn offer_cannot_qualify_its_own_renderer_or_replace_retention_receipt() {
+fn offer_cannot_replace_retention_receipt() {
     let (offer, bytes) = fixture();
     let (descriptor, payload) = descriptors(&offer);
     let descriptor_bytes = canonical_bytes(&offer.startup).unwrap();
-    let mut unsupported = offer.startup.renderer_qualification.clone();
-    unsupported.digest = Digest::of(b"another installed renderer");
-    let differing = prepare_startup(
-        &offer,
-        &unsupported,
-        verified(descriptor.clone(), &descriptor_bytes),
-        verified(payload.clone(), &bytes),
-    );
-    // any-model: the offer's renderer qualification is not compared with the
-    // installed renderer; every other check below still refuses.
-    assert_eq!(differing.is_ok(), cfg!(feature = "any-model"));
     let mut changed = payload;
     changed.retention_receipt.digest = Digest::of(b"different owner receipt");
     assert!(
         prepare_startup(
             &offer,
-            &offer.startup.renderer_qualification,
             verified(descriptor, &descriptor_bytes),
             verified(changed, &bytes),
         )
@@ -148,7 +134,6 @@ fn alternate_descriptor_encoding_is_not_the_content_addressed_object() {
     assert!(
         prepare_startup(
             &offer,
-            &offer.startup.renderer_qualification,
             verified(descriptor, &pretty),
             verified(payload, &bytes),
         )
@@ -237,7 +222,6 @@ mod codex_settings {
         let m = &o.offered.offer.manifest;
         CodexExecProfile {
             harness: m.harness.clone(),
-            model: m.model.clone(),
             permissions_digest: canonical_digest(&m.permissions).unwrap(),
             renderer: o.startup.renderer_qualification.clone(),
             confinement: None,
@@ -278,16 +262,6 @@ mod codex_settings {
                 )
                 .is_err()
         );
-        // The installed model must equal the offered one; with any-model the offered
-        // model is used instead (see the next test).
-        let mut changed = selected;
-        changed.model.reasoning = Text::new("high").unwrap();
-        assert_eq!(
-            changed
-                .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
-                .is_err(),
-            !cfg!(feature = "any-model")
-        );
         let mut budgeted = offer.clone();
         budgeted.offered.offer.manifest.model.spending_budget =
             Some(aq_session_protocol::SpendingBudget {
@@ -316,44 +290,72 @@ mod codex_settings {
                 .is_err()
         );
     }
-    /// any-model: the installation and its profile carry another model and
-    /// another renderer than the offer names. The offer is accepted and Codex is
-    /// started with the offered model and reasoning. Without the feature the
-    /// same offer is refused, and the installed harness stays exact either way.
+    /// The installation names no model, and its renderer differs from the one the
+    /// offer names. Every offer is accepted and Codex is started with the offered
+    /// model and reasoning (`default` passes no effort override); an unknown
+    /// reasoning is refused, and the installed harness stays exact.
     #[test]
-    fn any_model_starts_codex_with_the_offered_model_and_any_renderer_qualification() {
+    fn codex_starts_with_the_offered_model_and_any_renderer_qualification() {
         let (root, home, work) = dirs();
         let (offer, payload) = fixture();
-        let manifest = &offer.offered.offer.manifest;
-        let digest = canonical_digest(manifest).unwrap();
         let mut renderer = offer.startup.renderer_qualification.clone();
         renderer.digest = Digest::of(b"the installed renderer");
+        assert_ne!(renderer, offer.startup.renderer_qualification);
         let mut adapter = installed(root.path(), &offer, &renderer);
         let mut selected = profile(&offer);
         selected.renderer = renderer;
-        let other_renderer =
-            selected.prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home);
-        assert_eq!(other_renderer.is_ok(), cfg!(feature = "any-model"));
-        selected.model.model = Text::new("installed-model").unwrap();
-        selected.model.reasoning = Text::new("high").unwrap();
-        assert_ne!(manifest.model.reasoning.as_str(), "high");
-        let prepared =
-            selected.prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home);
-        assert_eq!(prepared.is_ok(), cfg!(feature = "any-model"));
-        if let Ok(prepared) = prepared {
+        let offered = |model: &str, reasoning: &str| {
+            let mut offer = offer.clone();
+            let m = &mut offer.offered.offer.manifest;
+            m.model.model = Text::new(model).unwrap();
+            m.model.reasoning = Text::new(reasoning).unwrap();
+            let digest = canonical_digest(m).unwrap();
+            offer.offered.offer.binding.launch_manifest_digest = digest.clone();
+            offer.validate().unwrap();
+            (offer, digest)
+        };
+        for (model, reasoning) in [
+            ("gpt-5.1-codex-mini", "medium"),
+            ("a-model-no-installation-names", "high"),
+            ("another-offered-model", "low"),
+            ("yet-another-offered-model", "default"),
+        ] {
+            let (offer, digest) = offered(model, reasoning);
+            let prepared = selected
+                .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
+                .unwrap();
             let args = &prepared.command().arguments;
-            let offered = manifest.model.model.as_str();
             assert!(
-                args.windows(2)
-                    .any(|w| w[0] == "--model" && w[1] == offered)
+                args.windows(2).any(|w| w[0] == "--model" && w[1] == model),
+                "{args:?}"
             );
-            assert!(!args.iter().any(|a| a.contains("installed-model")));
-            let effort = format!(
-                "model_reasoning_effort=\"{}\"",
-                manifest.model.reasoning.as_str()
-            );
-            assert!(args.contains(&effort), "{args:?}");
+            assert_eq!(args.iter().filter(|a| *a == "--model").count(), 1);
+            let efforts: Vec<_> = (args.iter())
+                .filter(|a| a.starts_with("model_reasoning_effort"))
+                .collect();
+            if reasoning == "default" {
+                assert!(efforts.is_empty(), "{args:?}");
+            } else {
+                assert_eq!(
+                    efforts,
+                    [&format!("model_reasoning_effort=\"{reasoning}\"")]
+                );
+            }
         }
+        let (unknown, unknown_digest) = offered("gpt-5.1-codex-mini", "xhigh");
+        let Err(refused) = selected.prepare(
+            &mut adapter,
+            &unknown,
+            &unknown_digest,
+            payload.clone(),
+            &work,
+            &home,
+        ) else {
+            panic!("unknown reasoning accepted")
+        };
+        let expected = "expected default, low, medium or high";
+        assert!(format!("{refused:#}").contains(expected), "{refused:#}");
+        let digest = canonical_digest(&offer.offered.offer.manifest).unwrap();
         selected.harness.cli_version = Text::new("0.0.0").unwrap();
         assert!(
             selected

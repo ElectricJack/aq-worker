@@ -152,7 +152,6 @@ fn profile(o: &NativeOffer) -> CodexExecProfile {
     let m = &o.offered.offer.manifest;
     CodexExecProfile {
         harness: m.harness.clone(),
-        model: m.model.clone(),
         permissions_digest: crate::native::journal::canonical_digest(&m.permissions).unwrap(),
         renderer: o.startup.renderer_qualification.clone(),
         confinement: None,
