@@ -101,6 +101,59 @@ fn unsupported_settings_cannot_map_a_recipe() {
     });
     assert!(validate_settings(selected(&harness, &changed)).is_err());
 }
+/// `default` reasoning passes no effort override in either mode; the named
+/// values pass exactly theirs; anything else is refused by name.
+#[test]
+fn reasoning_default_passes_no_effort_override_and_unknown_values_are_refused() {
+    let (harness, model) = settings();
+    let paths = || Paths {
+        executable: Path::new("/installed/codex"),
+        workspace: Path::new("/worktree"),
+        private_home: Path::new("/private/home"),
+    };
+    let efforts = |recipe: &Recipe| -> Vec<String> {
+        (recipe.arguments.iter())
+            .filter(|a| a.starts_with("model_reasoning_effort"))
+            .cloned()
+            .collect()
+    };
+    let with = |value: &str| {
+        let mut changed = model.clone();
+        changed.reasoning = Text::new(value).unwrap();
+        changed
+    };
+    for value in ["low", "medium", "high"] {
+        let changed = with(value);
+        validate_settings(selected(&harness, &changed)).unwrap();
+        let recipe = map(selected(&harness, &changed), paths()).unwrap();
+        assert_eq!(
+            efforts(&recipe),
+            [format!("model_reasoning_effort=\"{value}\"")]
+        );
+    }
+    let default = with("default");
+    validate_settings(selected(&harness, &default)).unwrap();
+    let exec = map(selected(&harness, &default), paths()).unwrap();
+    assert!(efforts(&exec).is_empty(), "{:?}", exec.arguments);
+    let named = map(selected(&harness, &with("medium")), paths()).unwrap();
+    assert_eq!(exec.arguments.len() + 2, named.arguments.len());
+    let interactive = Settings {
+        harness: &harness,
+        model: &default,
+        terminal_input_enabled: true,
+    };
+    validate_interactive_settings(interactive).unwrap();
+    assert!(efforts(&map_interactive(interactive, paths()).unwrap()).is_empty());
+    for value in ["", "Default", "off", "none", "minimal", "xhigh", "max"] {
+        let Ok(text) = Text::new(value) else { continue };
+        let mut changed = model.clone();
+        changed.reasoning = text;
+        let refused = validate_settings(selected(&harness, &changed)).unwrap_err();
+        let expected = "expected default, low, medium or high";
+        assert!(format!("{refused:#}").contains(expected), "{refused:#}");
+        assert!(map(selected(&harness, &changed), paths()).is_err());
+    }
+}
 #[test]
 fn scoped_endpoint_accepts_only_nonzero_port_and_emits_metadata() {
     assert!(LoopbackResponsesEndpoint::new(0).is_err());

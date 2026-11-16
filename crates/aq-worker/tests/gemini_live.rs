@@ -103,7 +103,7 @@ fn recipe(mode: Mode, model_id: &str) -> (Vec<String>, Vec<(String, String)>, St
     let model = ModelSettings {
         provider: text("google"),
         model: text(model_id),
-        reasoning: text("medium"),
+        reasoning: text("default"),
         max_output_tokens: 8192,
         spending_budget: None,
     };

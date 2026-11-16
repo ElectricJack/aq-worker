@@ -713,7 +713,7 @@ async fn gemini_home_carries_only_the_proxy_capability() {
     let model = aq_session_protocol::ModelSettings {
         provider: text("google"),
         model: text("gemini-2.5-flash"),
-        reasoning: text("medium"),
+        reasoning: text("default"),
         max_output_tokens: 100,
         spending_budget: None,
     };

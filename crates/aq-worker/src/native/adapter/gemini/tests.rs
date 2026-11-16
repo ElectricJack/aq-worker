@@ -26,7 +26,7 @@ fn settings(confinement: &str) -> (HarnessSettings, ModelSettings) {
         ModelSettings {
             provider: Text::new("google").unwrap(),
             model: Text::new("gemini-2.5-flash").unwrap(),
-            reasoning: Text::new("high").unwrap(),
+            reasoning: Text::new("default").unwrap(),
             max_output_tokens: 4096,
             spending_budget: None,
         },
@@ -57,6 +57,32 @@ fn flag<'a>(recipe: &'a GeminiRecipe, name: &str) -> &'a str {
 }
 fn system(recipe: &GeminiRecipe) -> serde_json::Value {
     serde_json::from_slice(&recipe.system_settings_json).unwrap()
+}
+
+/// The recipe passes no thinking setting, so `default` is the only reasoning it
+/// accepts; any other value is refused by name instead of being ignored.
+#[test]
+fn reasoning_default_is_the_only_accepted_value() {
+    let (h, m) = container();
+    let default = map(&h, &m, paths(), ConfinementMode::Container, proxy()).unwrap();
+    let rendered = format!(
+        "{:?} {:?} {}",
+        default.arguments,
+        default.environment,
+        String::from_utf8_lossy(&default.system_settings_json)
+    );
+    assert!(!rendered.to_lowercase().contains("thinking"), "{rendered}");
+    for value in ["Default", "off", "low", "medium", "high", "xhigh", "max"] {
+        let mut changed = m.clone();
+        changed.reasoning = Text::new(value).unwrap();
+        for auth in [proxy(), GeminiAuth::Subscription] {
+            let Err(refused) = map(&h, &changed, paths(), ConfinementMode::Container, auth) else {
+                panic!("{value} accepted")
+            };
+            let expected = format!("unsupported reasoning {value:?}: expected default");
+            assert!(format!("{refused:#}").contains(&expected), "{refused:#}");
+        }
+    }
 }
 
 #[test]

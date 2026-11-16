@@ -19,6 +19,10 @@
 //! uid 0 and not group/other writable, so it lives in its own directory
 //! outside the agent home ([`GeminiPaths::system_settings_dir`]).
 //!
+//! Reasoning: the recipe passes no thinking setting, so the only accepted
+//! `model.reasoning` is `default` (the CLI's own setting for the model). Any
+//! other value is refused instead of being silently ignored.
+//!
 //! Only container confinement is offered: Gemini's own `--sandbox` needs
 //! docker/podman (or macOS `sandbox-exec`), so there is no native mode.
 use crate::native::runner::sandbox::confinement::ConfinementMode;
@@ -121,6 +125,11 @@ pub(crate) fn map(
             && model.provider.as_str() == "google"
             && model.spending_budget.is_none(),
         "Gemini recipe unsupported settings"
+    );
+    let reasoning = model.reasoning.as_str();
+    ensure!(
+        reasoning == "default",
+        "Gemini recipe unsupported reasoning {reasoning:?}: expected default"
     );
     let declares = |id: &str| {
         harness
