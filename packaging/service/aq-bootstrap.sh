@@ -123,17 +123,16 @@ for tool in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver tmux; do
     exit 3
   fi
 done
-install_args=()
+# A Claude subscription token file already on this machine enables manual Claude sessions at
+# install; otherwise logins arrive later through Push logins.
+configure_args=()
 token_file="${AQ_CLAUDE_TOKEN_FILE:-$HOME/.config/aq-secrets/claude-oauth-token}"
-if [[ -r "$token_file" ]]; then
-  model="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["measurement_model"] or "")' "$package/bootstrap.json")"
-  if [[ -n "$model" ]]; then
-    install_args+=(--measurement-token-file "$token_file" --measurement-model "$model")
-  fi
+if [[ "$token_file" == /* && -r "$token_file" ]]; then
+  configure_args+=("$token_file")
 fi
 AQ_SANDBOX_DAEMON_DIR="$package/sandbox-daemon" bash "$package/aq-install.sh" \
   --server "$origin" --bundle "$package" --native-template "$work/native.json" \
-  --sandbox-bundle "$package/podman-linux-amd64.tar.gz" --defer-start "${install_args[@]}" "$@"
+  --sandbox-bundle "$package/podman-linux-amd64.tar.gz" --defer-start "$@"
 
 echo 'Preparing the pinned sandbox image.'
 for ((retry=0; retry<30; retry++)); do
@@ -145,7 +144,7 @@ image="$(cat "$work/image")"
 if ! "$podman" --remote --url "unix://$socket" image exists "$image"; then
   "$podman" --remote --url "unix://$socket" pull "$image"
 fi
-python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest"
+python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest" "${configure_args[@]}"
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
 "$worker" service status --profile "$profile"

@@ -49,7 +49,6 @@ packaging/service/aq-install.sh --server https://aq.example --bundle ~/aq-bundle
 Options: `--profile` (default `local`; lower-case letters, digits and `-`, at
 most 32 characters), `--slots` (default 1, at most 8), `--name`,
 `--machine-key`, `--cf-service-token`, `--native-template`, `--repositories`,
-`--measurement-token-file` (an absolute path) with `--measurement-model`,
 `--sandbox-bundle` and `--reconfigure`.
 
 The script refuses to replace a `~/.local/bin/aq-worker` that is not its own
@@ -68,11 +67,8 @@ The script, in order:
    is already enrolled is skipped (pass `--reconfigure` to enroll it again);
 5. runs `aq-worker service install` (writes the user unit `aq-node@PROFILE`
    and starts it, or restarts it when it is already running);
-6. runs `aq-worker service measure` when a measurement token file was given.
-   It holds the profile's measurement lock, so the service does not start a
-   second measurement meanwhile;
-7. prints the Windows probe command on WSL2 if needed;
-8. prints `aq-worker service status`.
+6. prints the Windows probe command on WSL2 if needed;
+7. prints `aq-worker service status`.
 
 Rerunning the installer on an enrolled profile also repairs boot startup without
 consuming another enrollment code. To check an existing installation:
@@ -91,8 +87,8 @@ With `--cf-service-token` the next two prompts (or lines) are the node's Access
 client id and secret. Nothing secret is ever put in an argument, the
 environment, a log or a unit file. The code works once.
 
-`enroll` checks every argument (the server origin, the repositories file, the
-token file path) before it reads the code, so a typo never uses it up. The
+`enroll` checks every argument (the server origin, the repositories file)
+before it reads the code, so a typo never uses it up. The
 server must be `https`; plain `http` is accepted only to `127.0.0.1` or `::1`.
 If the machine key claim fails after the code was redeemed (for example the key
 is in use), run the same command again: it resumes at the claim and needs no
@@ -289,7 +285,8 @@ install AQ's existing Claude and Codex subscription logins. Manual sessions are
 enabled automatically after the first successful delivery.
 
 Separate local accounts remain optional: supply a Claude token with
-`AQ_CLAUDE_TOKEN_FILE` when installing, or sign into Codex locally before install.
+`AQ_CLAUDE_TOKEN_FILE` (an absolute path) when installing, or sign into Codex
+locally before install.
 AQ-managed delivery switches AQ's auth paths to its private profile files and
 keeps those personal login files intact.
 
@@ -306,8 +303,16 @@ It resumes an unfinished enrollment or reuses the saved enrollment. Use a fresh
 distro or the regular upgrade procedure if another worker runtime already owns
 the installation paths.
 Configuration fixes can be delivered in the pinned bootstrap while reusing
-the existing runtime bundle and enrollment. Rerunning the latest command
-repairs the manual-session section written by an earlier tokenless install.
+the existing runtime bundle and enrollment.
+
+Manual Claude sessions log in with the subscription token file named by
+`claude_token_file` in the `[manual]` section of `service.toml` (an absolute
+path; required whenever `[manual]` is present). The installer and Push logins
+write it. The worker runs whatever model and reasoning effort an offer names:
+there is no qualification measurement and no `[measurement]` section. A
+`service.toml` that still has one is refused when the service loads it. Delete
+the section, and if the profile has a `[manual]` section, move the old
+`token_file` value to `claude_token_file` there.
 
 ### Prepare the download on the server
 

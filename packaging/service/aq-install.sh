@@ -10,7 +10,6 @@ usage() {
 usage: aq-install.sh --server URL --bundle DIR [--profile NAME=local] [--slots N=1] [--name NAME]
                      [--machine-key KEY] [--cf-service-token]
                      [--native-template FILE=DIR/native.json] [--repositories FILE=DIR/repositories.json]
-                     [--measurement-token-file FILE --measurement-model MODEL]
                      [--sandbox-bundle podman-linux-amd64.tar.gz] [--reconfigure] [--defer-start]
 USAGE
   exit 2
@@ -18,14 +17,14 @@ USAGE
 
 KEY_GIVEN=0 RECONFIGURE=0 DEFER_START=0
 SERVER="" BUNDLE="" PROFILE="local" SLOTS="1" NAME="" MACHINE_KEY="" CF=0
-TEMPLATE="" REPOS="" MTOKEN="" MMODEL="" SANDBOX_BUNDLE=""
+TEMPLATE="" REPOS="" SANDBOX_BUNDLE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cf-service-token) CF=1; shift; continue ;;
     --reconfigure) RECONFIGURE=1; shift; continue ;;
     --defer-start) DEFER_START=1; shift; continue ;;
     --server|--bundle|--profile|--slots|--name|--machine-key|--native-template|--repositories|\
-    --measurement-token-file|--measurement-model|--sandbox-bundle)
+    --sandbox-bundle)
       [[ $# -ge 2 ]] || usage ;;
     *) usage ;;
   esac
@@ -38,15 +37,11 @@ while [[ $# -gt 0 ]]; do
     --machine-key) MACHINE_KEY="$2"; KEY_GIVEN=1 ;;
     --native-template) TEMPLATE="$2" ;;
     --repositories) REPOS="$2" ;;
-    --measurement-token-file) MTOKEN="$2" ;;
-    --measurement-model) MMODEL="$2" ;;
     --sandbox-bundle) SANDBOX_BUNDLE="$2" ;;
   esac
   shift 2
 done
 [[ -n "$SERVER" && -n "$BUNDLE" ]] || usage
-[[ -z "$MTOKEN" || -n "$MMODEL" ]] || { echo "--measurement-token-file needs --measurement-model." >&2; exit 2; }
-[[ -z "$MMODEL" || -n "$MTOKEN" ]] || { echo "--measurement-model needs --measurement-token-file." >&2; exit 2; }
 [[ -d "$BUNDLE" ]] || { echo "bundle directory $BUNDLE not found." >&2; exit 2; }
 [[ "$SLOTS" =~ ^[0-9]+$ ]] || { echo "--slots must be a number." >&2; exit 2; }
 # The service config's rule (aq-node-service valid_profile).
@@ -226,7 +221,6 @@ else
   [[ "$CF" == 1 ]] && ENROLL+=(--cf-service-token)
   [[ "$RECONFIGURE" == 1 ]] && ENROLL+=(--reconfigure)
   ENROLL+=(--native-template "$TEMPLATE" --aq-git "$RUNTIME_DIR/aq-git" --repositories "$REPOS")
-  [[ -n "$MTOKEN" ]] && ENROLL+=(--measurement-token-file "$MTOKEN" --measurement-model "$MMODEL")
   "${ENROLL[@]}"
 fi
 
@@ -236,12 +230,7 @@ if [[ "$DEFER_START" == 1 ]]; then exit 0; fi
 # 5. Install and start (or restart, so a new enrollment takes effect).
 "$WORKER" service install --profile "$PROFILE"
 
-# 6. Measure. It holds the profile's measurement lock: the service skips its own meanwhile.
-if [[ -n "$MTOKEN" ]]; then
-  "$WORKER" service measure --profile "$PROFILE"
-fi
-
-# 7. Windows host load: print only, the owner has not approved installing the probe.
+# 6. Windows host load: print only, the owner has not approved installing the probe.
 if [[ "$IS_WSL" == 1 && ! -e /mnt/c/ProgramData/agent-q/host-load.json ]]; then
   cat <<'PROBE'
 
@@ -252,7 +241,7 @@ PowerShell in the repository (it is not run for you):
 PROBE
 fi
 
-# 8. Status.
+# 7. Status.
 "$WORKER" service status --profile "$PROFILE"
 echo
 echo "This machine is allowed automatically on credentials and projects that allow enrolled machines (allow_enrolled_nodes). Start, stop, drain or revoke it from its pane on the Swarm page."
