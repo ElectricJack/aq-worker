@@ -98,10 +98,7 @@ impl VerifiedArtifact {
 /// configuration, not from accepting the offer's own claim of compatibility.
 /// Historical retained timestamps are checked by the public contract; freshness
 /// at launch still belongs to preparation/grant authority and local deadlines.
-///
-/// With the `any-model` feature the offer's renderer qualification is not
-/// compared with the installed renderer: the worker runs whatever model the
-/// offer names, and the server stamps a constant, model-independent value.
+/// With `any-model` the offer's renderer qualification is not compared.
 pub fn prepare_startup(
     offer: &NativeOffer,
     installed_renderer: &ArtifactRef,

@@ -84,9 +84,7 @@ pub struct PreparedCodexExec {
     manifest_digest: Digest,
 }
 impl CodexExecProfile {
-    /// The model settings the CLI is started with: the installed ones, which the
-    /// offer must equal. With `any-model` the offer's own; the mapper still
-    /// validates them.
+    /// The model the CLI is started with; with `any-model` the offered one.
     pub(crate) fn launch_model<'a>(
         &'a self,
         manifest: &'a aq_session_protocol::LaunchManifest,

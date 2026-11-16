@@ -829,3 +829,149 @@ async fn gemini_home_carries_only_the_proxy_capability() {
     assert!(!root.path().join("gemini-native").exists());
     proxy.stop().await.unwrap();
 }
+
+/// The Claude recipe maps the manifest's reasoning: `default` passes exactly the
+/// arguments and environment the recipe always had, `off` adds only
+/// `MAX_THINKING_TOKENS=0`, an effort adds only `--effort <value>` at the end,
+/// and anything else is refused, never passed to a command line.
+#[test]
+fn claude_recipe_maps_reasoning_to_effort() {
+    use aq_session_protocol::{
+        ArtifactRef, CONTAINER_CONFINEMENT_CAPABILITY, Capability, Digest, HarnessSettings,
+        ModelSettings, Text,
+    };
+    use aq_worker::native::adapter::claude::{CLAUDE_CLI_VERSION, ClaudePaths};
+    use aq_worker::native::runner::sandbox::{confinement::*, harness_config::ClaudeAgentHome};
+    let text = |s: &str| Text::new(s).unwrap();
+    let artifact = ArtifactRef {
+        id: text("fixture"),
+        version: text("1"),
+        digest: Digest::of(b"fixture"),
+    };
+    let harness = HarnessSettings {
+        harness: text("claude"),
+        cli_version: text(CLAUDE_CLI_VERSION),
+        adapter: artifact.clone(),
+        environment: artifact,
+        required_capabilities: vec![Capability {
+            id: text(CONTAINER_CONFINEMENT_CAPABILITY),
+            version: 1,
+        }],
+    };
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path().canonicalize().unwrap();
+    let (work, home) = (root.join("work"), root.join("home"));
+    let confinement = authorize(
+        ConfinementMode::Container,
+        &ExecutionConfinement {
+            permit_container: true,
+            require_native: false,
+        },
+        &QualificationRecord::docker_local("fixture"),
+        &AttemptSeparation {
+            runner_uid: 1001,
+            agent: aq_session_host::users::AgentIdentity {
+                uid: 1002,
+                gid: 1002,
+            },
+            credentials_attempt_scoped: true,
+        },
+    )
+    .unwrap();
+    let map = |reasoning: &str| {
+        let _ = std::fs::remove_dir_all(&home);
+        ClaudeAgentHome::install(
+            &confinement,
+            &harness,
+            &ModelSettings {
+                provider: text("anthropic"),
+                model: text("claude-opus-5"),
+                reasoning: text(reasoning),
+                max_output_tokens: 4096,
+                spending_budget: None,
+            },
+            ClaudePaths {
+                executable: std::path::Path::new("/opt/aq/bin/claude"),
+                workspace: &work,
+                private_home: &home,
+            },
+        )
+    };
+    let default = map("default").unwrap();
+    let settings = home.join("settings.json");
+    assert_eq!(
+        default.arguments,
+        [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--input-format",
+            "text",
+            "--model",
+            "claude-opus-5",
+            "--permission-mode",
+            "bypassPermissions",
+            "--setting-sources",
+            "user",
+            "--settings",
+            settings.to_str().unwrap(),
+            "--strict-mcp-config",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+        ]
+    );
+    assert_eq!(
+        default.environment.keys().collect::<Vec<_>>(),
+        [
+            "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+            "CLAUDE_CONFIG_DIR",
+            "DISABLE_AUTOUPDATER",
+            "DISABLE_ERROR_REPORTING",
+            "DISABLE_TELEMETRY",
+            "HOME",
+            "PATH",
+        ]
+    );
+
+    let off = map("off").unwrap();
+    assert_eq!(off.arguments, default.arguments);
+    let mut expected = default.environment.clone();
+    expected.insert("MAX_THINKING_TOKENS".into(), "0".into());
+    assert_eq!(off.environment, expected);
+
+    for effort in ["low", "medium", "high", "xhigh", "max"] {
+        let recipe = map(effort).unwrap();
+        let mut expected = default.arguments.clone();
+        expected.extend(["--effort".to_owned(), effort.to_owned()]);
+        assert_eq!(recipe.arguments, expected, "{effort}");
+        assert_eq!(recipe.environment, default.environment, "{effort}");
+        assert_eq!(recipe.settings_json, default.settings_json, "{effort}");
+    }
+    for unknown in [
+        "none",
+        "High",
+        "ultra",
+        "low --dangerously-skip-permissions",
+    ] {
+        let error = map(unknown).err().unwrap();
+        assert!(
+            error.to_string().contains("unsupported reasoning"),
+            "{unknown:?}: {error}"
+        );
+        assert!(!home.exists(), "nothing is installed for {unknown:?}");
+    }
+}
+
+/// The server pins the docker-local recipe by digest, and the runner reads its
+/// arguments from `/aq/in/args`: mapping reasoning changed neither the runner
+/// nor these bytes. A deliberate runner change updates this value together with
+/// the server's pinned Definition.
+#[test]
+fn claude_docker_local_recipe_bytes_are_pinned() {
+    assert_eq!(
+        aq_worker::native::adapter::claude::docker_local_recipe_body(),
+        r#"{"cli_version":"2.1.318","confinement":"container","profile":"claude-2.1.318-docker-local-result-local-v1","result_claim":"node_driver_final_message_v1","runner_sha256":"1317347ae593f6d120310d3161947cab2af0602388aec9730a1fc6b73e3b425e","schema_version":1,"token_delivery":"private_material_env_only_v1","workspace":"copy_in_copy_out_v1"}"#
+    );
+}

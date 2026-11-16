@@ -769,8 +769,7 @@ async fn prepare_join_retains_exact_request_and_requires_actual_inputs_again_for
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prepare_join_refuses_missing_inputs_renderer_and_retention_changed_after_hydration() {
     for mode in 0..5 {
-        // any-model: a renderer other than the offer's is accepted (see
-        // `tests/native_startup.rs`), so mode 1 is no refusal.
+        // any-model accepts another renderer (`tests/native_startup.rs`).
         if mode == 1 && cfg!(feature = "any-model") {
             continue;
         }

@@ -155,3 +155,240 @@ fn alternate_descriptor_encoding_is_not_the_content_addressed_object() {
         .is_err()
     );
 }
+
+/// Codex exact-settings checks through the public mapping API. Moved here from
+/// the lib's unit tests (build budget); the helpers mirror
+/// `src/native/adapter/codex/tests.rs`.
+mod codex_settings {
+    use aq_admission::startup::NativeOffer;
+    use aq_session_protocol::{ArtifactRef, Digest, Text};
+    use aq_worker::native::adapter::{
+        AdapterManifest, ExpectedAdapter, FilePin, HandoffKind, InstalledAdapter,
+        codex::{CODEX_CLI_VERSION, CodexExecProfile},
+    };
+    use serde::Serialize;
+    use std::{os::unix::fs::PermissionsExt, path::Path};
+
+    const PEER: &[u8] = b"#!/bin/sh\nexit 0\n";
+    fn canonical_digest(value: &impl Serialize) -> anyhow::Result<Digest> {
+        let mut value = serde_json::to_value(value)?;
+        value.sort_all_objects();
+        Ok(Digest::of(&serde_json::to_vec(&value)?))
+    }
+    fn fixture() -> (NativeOffer, Vec<u8>) {
+        let value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../vendor/aq-admission-0.1.9/artifacts/startup.fixture.json"
+        ))
+        .unwrap();
+        let mut offer: NativeOffer = serde_json::from_value(value["native_offer"].clone()).unwrap();
+        let m = &mut offer.offered.offer.manifest;
+        m.harness.harness = Text::new("codex").unwrap();
+        m.harness.cli_version = Text::new(CODEX_CLI_VERSION).unwrap();
+        m.model.provider = Text::new("openai").unwrap();
+        m.model.reasoning = Text::new("medium").unwrap();
+        m.model.spending_budget = None;
+        m.terminal.input_enabled = false;
+        offer.offered.offer.binding.launch_manifest_digest = canonical_digest(m).unwrap();
+        offer.validate().unwrap();
+        (
+            offer,
+            value["payload_utf8"].as_str().unwrap().as_bytes().to_vec(),
+        )
+    }
+    /// An installation whose renderer is `renderer`.
+    fn installed(dir: &Path, offer: &NativeOffer, renderer: &ArtifactRef) -> InstalledAdapter {
+        let path = dir.join("executable");
+        std::fs::write(&path, PEER).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let reference = ArtifactRef {
+            id: Text::new("fixture").unwrap(),
+            version: Text::new("1").unwrap(),
+            digest: Digest::of(PEER),
+        };
+        let pin = FilePin {
+            path,
+            artifact: reference.clone(),
+        };
+        let m = AdapterManifest {
+            schema_version: 1,
+            adapter: offer.offered.offer.manifest.harness.adapter.clone(),
+            runtime: reference.clone(),
+            qualification: reference.clone(),
+            renderer: renderer.clone(),
+            handoff: HandoffKind::OpaquePrivateFileV1,
+            executable: pin.clone(),
+            helper: pin.clone(),
+            tmux: pin,
+        };
+        let digest = m.digest().unwrap();
+        InstalledAdapter::open(
+            m,
+            ExpectedAdapter {
+                manifest_digest: &digest,
+                adapter: &offer.offered.offer.manifest.harness.adapter,
+                runtime: &reference,
+                qualification: &reference,
+                renderer,
+            },
+        )
+        .unwrap()
+    }
+    fn profile(o: &NativeOffer) -> CodexExecProfile {
+        let m = &o.offered.offer.manifest;
+        CodexExecProfile {
+            harness: m.harness.clone(),
+            model: m.model.clone(),
+            permissions_digest: canonical_digest(&m.permissions).unwrap(),
+            renderer: o.startup.renderer_qualification.clone(),
+            confinement: None,
+        }
+    }
+    /// A private home, a workspace and the root that owns both.
+    fn dirs() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let work = root.path().join("work");
+        std::fs::create_dir(&work).unwrap();
+        (root, home, work)
+    }
+
+    #[test]
+    fn changed_payload_settings_private_mode_and_hard_budget_are_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let (offer, payload) = fixture();
+        let digest = canonical_digest(&offer.offered.offer.manifest).unwrap();
+        let work = root.path().join("work");
+        std::fs::create_dir(&work).unwrap();
+        let selected = profile(&offer);
+        let mut adapter = installed(root.path(), &offer, &offer.startup.renderer_qualification);
+        assert!(
+            selected
+                .prepare(
+                    &mut adapter,
+                    &offer,
+                    &digest,
+                    b"changed".to_vec(),
+                    &work,
+                    &home
+                )
+                .is_err()
+        );
+        // The installed model must equal the offered one; with any-model the offered
+        // model is used instead (see the next test).
+        let mut changed = selected;
+        changed.model.reasoning = Text::new("high").unwrap();
+        assert_eq!(
+            changed
+                .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
+                .is_err(),
+            !cfg!(feature = "any-model")
+        );
+        let mut budgeted = offer.clone();
+        budgeted.offered.offer.manifest.model.spending_budget =
+            Some(aq_session_protocol::SpendingBudget {
+                currency: Text::new("USD").unwrap(),
+                basis: aq_session_protocol::BudgetBasis::TaskCumulativeEstimatedCost,
+                limit_microunits: 1000,
+            });
+        let budget_digest = canonical_digest(&budgeted.offered.offer.manifest).unwrap();
+        budgeted.offered.offer.binding.launch_manifest_digest = budget_digest.clone();
+        assert!(
+            profile(&budgeted)
+                .prepare(
+                    &mut adapter,
+                    &budgeted,
+                    &budget_digest,
+                    payload.clone(),
+                    &work,
+                    &home
+                )
+                .is_err()
+        );
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            profile(&offer)
+                .prepare(&mut adapter, &offer, &digest, payload, &work, &home)
+                .is_err()
+        );
+    }
+    /// any-model: the installation and its profile carry another model and
+    /// another renderer than the offer names. The offer is accepted and Codex is
+    /// started with the offered model and reasoning. Without the feature the
+    /// same offer is refused, and the installed harness stays exact either way.
+    #[test]
+    fn any_model_starts_codex_with_the_offered_model_and_any_renderer_qualification() {
+        let (root, home, work) = dirs();
+        let (offer, payload) = fixture();
+        let manifest = &offer.offered.offer.manifest;
+        let digest = canonical_digest(manifest).unwrap();
+        let mut renderer = offer.startup.renderer_qualification.clone();
+        renderer.digest = Digest::of(b"the installed renderer");
+        let mut adapter = installed(root.path(), &offer, &renderer);
+        let mut selected = profile(&offer);
+        selected.renderer = renderer;
+        let other_renderer =
+            selected.prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home);
+        assert_eq!(other_renderer.is_ok(), cfg!(feature = "any-model"));
+        selected.model.model = Text::new("installed-model").unwrap();
+        selected.model.reasoning = Text::new("high").unwrap();
+        assert_ne!(manifest.model.reasoning.as_str(), "high");
+        let prepared =
+            selected.prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home);
+        assert_eq!(prepared.is_ok(), cfg!(feature = "any-model"));
+        if let Ok(prepared) = prepared {
+            let args = &prepared.command().arguments;
+            let offered = manifest.model.model.as_str();
+            assert!(
+                args.windows(2)
+                    .any(|w| w[0] == "--model" && w[1] == offered)
+            );
+            assert!(!args.iter().any(|a| a.contains("installed-model")));
+            let effort = format!(
+                "model_reasoning_effort=\"{}\"",
+                manifest.model.reasoning.as_str()
+            );
+            assert!(args.contains(&effort), "{args:?}");
+        }
+        selected.harness.cli_version = Text::new("0.0.0").unwrap();
+        assert!(
+            selected
+                .prepare(&mut adapter, &offer, &digest, payload, &work, &home)
+                .is_err()
+        );
+    }
+
+    /// The Claude docker-local recipe accepts a manifest only with a reasoning
+    /// value it can map (`default`, `off` or an effort).
+    #[test]
+    fn claude_docker_local_manifest_refuses_unknown_reasoning() {
+        use aq_worker::native::adapter::claude::{
+            CLAUDE_CLI_VERSION, validate_docker_local_manifest,
+        };
+        let (offer, _) = fixture();
+        let mut m = offer.offered.offer.manifest;
+        m.harness.harness = Text::new("claude").unwrap();
+        m.harness.cli_version = Text::new(CLAUDE_CLI_VERSION).unwrap();
+        m.model.provider = Text::new("anthropic").unwrap();
+        m.harness.required_capabilities = vec![aq_session_protocol::Capability {
+            id: Text::new(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY).unwrap(),
+            version: 1,
+        }];
+        for known in ["default", "off", "low", "medium", "high", "xhigh", "max"] {
+            m.model.reasoning = Text::new(known).unwrap();
+            validate_docker_local_manifest(&m).unwrap();
+        }
+        for unknown in ["none", "High", "ultra", "--dangerously-skip-permissions"] {
+            m.model.reasoning = Text::new(unknown).unwrap();
+            let error = validate_docker_local_manifest(&m).unwrap_err();
+            assert!(
+                error.to_string().contains("unsupported reasoning"),
+                "{error}"
+            );
+        }
+    }
+}
