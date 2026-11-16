@@ -84,6 +84,19 @@ pub struct PreparedCodexExec {
     manifest_digest: Digest,
 }
 impl CodexExecProfile {
+    /// The model settings the CLI is started with: the installed ones, which the
+    /// offer must equal. With `any-model` the offer's own; the mapper still
+    /// validates them.
+    pub(crate) fn launch_model<'a>(
+        &'a self,
+        manifest: &'a aq_session_protocol::LaunchManifest,
+    ) -> &'a ModelSettings {
+        if cfg!(feature = "any-model") {
+            &manifest.model
+        } else {
+            &self.model
+        }
+    }
     pub fn prepare(
         &self,
         installed: &mut InstalledAdapter,
@@ -187,14 +200,14 @@ impl CodexExecProfile {
                 && manifest.harness == self.harness
                 && *adapter == self.harness.adapter
                 && *renderer == self.renderer
-                && manifest.model == self.model
+                && (cfg!(feature = "any-model") || manifest.model == self.model)
                 && super::super::journal::canonical_digest(&manifest.permissions)?
                     == self.permissions_digest,
             "Codex exact installed settings mismatch"
         );
         let settings = aq_codex_mapper::Settings {
             harness: &self.harness,
-            model: &self.model,
+            model: self.launch_model(manifest),
             terminal_input_enabled: manifest.terminal.input_enabled,
         };
         if interactive {
@@ -205,7 +218,7 @@ impl CodexExecProfile {
         descriptor.validate()?;
         descriptor.verify_payload(&payload)?;
         ensure!(
-            descriptor.renderer_qualification == self.renderer
+            (cfg!(feature = "any-model") || descriptor.renderer_qualification == self.renderer)
                 && manifest.modules.contains(&descriptor.artifact()?)
                 && manifest
                     .modules
@@ -249,7 +262,7 @@ impl CodexExecProfile {
         }
         let settings = aq_codex_mapper::Settings {
             harness: &self.harness,
-            model: &self.model,
+            model: self.launch_model(manifest),
             terminal_input_enabled: manifest.terminal.input_enabled,
         };
         let paths = aq_codex_mapper::Paths {

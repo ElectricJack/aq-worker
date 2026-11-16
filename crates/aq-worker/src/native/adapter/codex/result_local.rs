@@ -69,7 +69,7 @@ impl CodexExecProfile {
         );
         let settings = aq_codex_mapper::Settings {
             harness: &self.harness,
-            model: &self.model,
+            model: self.launch_model(manifest),
             terminal_input_enabled: manifest.terminal.input_enabled,
         };
         let paths = aq_codex_mapper::Paths {

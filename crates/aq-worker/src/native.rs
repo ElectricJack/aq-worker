@@ -98,6 +98,10 @@ impl VerifiedArtifact {
 /// configuration, not from accepting the offer's own claim of compatibility.
 /// Historical retained timestamps are checked by the public contract; freshness
 /// at launch still belongs to preparation/grant authority and local deadlines.
+///
+/// With the `any-model` feature the offer's renderer qualification is not
+/// compared with the installed renderer: the worker runs whatever model the
+/// offer names, and the server stamps a constant, model-independent value.
 pub fn prepare_startup(
     offer: &NativeOffer,
     installed_renderer: &ArtifactRef,
@@ -106,7 +110,7 @@ pub fn prepare_startup(
 ) -> Result<RenderedStartup> {
     offer.validate()?;
     ensure!(
-        offer.startup.renderer_qualification == *installed_renderer,
+        cfg!(feature = "any-model") || offer.startup.renderer_qualification == *installed_renderer,
         "unsupported startup renderer qualification"
     );
     ensure!(

@@ -282,13 +282,18 @@ fn changed_payload_settings_private_mode_and_hard_budget_are_refused() {
             )
             .is_err()
     );
-    let mut changed = selected;
-    changed.model.reasoning = Text::new("high").unwrap();
-    assert!(
-        changed
-            .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
-            .is_err()
-    );
+    // Without any-model the installed model must equal the offered one. With it
+    // the offered model is used (`any_model_maps_the_offered_model_...`).
+    #[cfg(not(feature = "any-model"))]
+    {
+        let mut changed = selected;
+        changed.model.reasoning = Text::new("high").unwrap();
+        assert!(
+            changed
+                .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
+                .is_err()
+        );
+    }
     let mut budgeted = offer.clone();
     budgeted.offered.offer.manifest.model.spending_budget =
         Some(aq_session_protocol::SpendingBudget {
@@ -314,6 +319,53 @@ fn changed_payload_settings_private_mode_and_hard_budget_are_refused() {
     std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(
         profile(&offer)
+            .prepare(&mut adapter, &offer, &digest, payload, &work, &home)
+            .is_err()
+    );
+}
+/// any-model: the installed profile names another model and another renderer
+/// than the offer. The offer is accepted and the command carries the offered
+/// model and reasoning, not the installed ones. Other settings still refuse.
+#[cfg(feature = "any-model")]
+#[test]
+fn any_model_maps_the_offered_model_and_accepts_a_differing_renderer_qualification() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let (offer, payload) = fixture();
+    let manifest = &offer.offered.offer.manifest;
+    let digest = crate::native::journal::canonical_digest(manifest).unwrap();
+    // The installation and its profile carry a renderer the offer does not name.
+    let mut local = offer.clone();
+    local.startup.renderer_qualification.digest = Digest::of(b"the installed renderer");
+    let mut adapter = installed(root.path(), &local);
+    let mut selected = profile(&local);
+    assert_ne!(selected.renderer, offer.startup.renderer_qualification);
+    selected.model.model = Text::new("installed-model").unwrap();
+    selected.model.reasoning = Text::new("high").unwrap();
+    assert_ne!(manifest.model.reasoning.as_str(), "high");
+    let prepared = selected
+        .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
+        .unwrap();
+    let args = &prepared.command().arguments;
+    let offered = manifest.model.model.as_str();
+    assert!(
+        args.windows(2)
+            .any(|w| w[0] == "--model" && w[1] == offered)
+    );
+    assert!(!args.iter().any(|a| a.contains("installed-model")));
+    assert!(args.iter().any(|a| a
+        == &format!(
+            "model_reasoning_effort=\"{}\"",
+            manifest.model.reasoning.as_str()
+        )));
+    // The installed harness is still exact.
+    selected.harness.cli_version = Text::new("0.0.0").unwrap();
+    assert!(
+        selected
             .prepare(&mut adapter, &offer, &digest, payload, &work, &home)
             .is_err()
     );

@@ -240,24 +240,34 @@ fn held_if_permanent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome
 }
 /// The native template, pointed at the slot's state (journal, Git) and runtime directory
 /// (aq-git's socket, the session host root), with the slot's renderer.
+///
+/// With `any-model` the template's own renderer stays: no pin replaces it.
 fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
+    let pin = renderer_override(ctx);
     let mut cfg = NativeConfig::load(template)?;
     cfg.state_dir = ctx.state_dir.clone();
     cfg.git_socket = ctx.git_socket.clone();
     cfg.git_root = ctx.state_dir.join("git");
     if let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &mut cfg.executor {
         settings.host.root = ctx.host_root.clone();
-        if let Some(pin) = &ctx.renderer {
+        if let Some(pin) = pin {
             settings.host.renderer = to_artifact_ref(pin)?;
         }
     } else {
         bail!("the worker service needs the Claude docker-local executor in its native template");
     }
-    if let Some(pin) = &ctx.renderer {
+    if let Some(pin) = pin {
         cfg.renderer = to_artifact_ref(pin)?;
     }
     cfg.validate()?;
     Ok(cfg)
+}
+/// The pin that replaces the template's renderer. With `any-model` there is none, whatever
+/// the context carries.
+fn renderer_override(ctx: &SlotContext) -> Option<&ArtifactPin> {
+    ctx.renderer
+        .as_ref()
+        .filter(|_| !cfg!(feature = "any-model"))
 }
 /// Converts a wire pin to the pipeline's artifact reference (same JSON shape).
 fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<T> {
@@ -1105,6 +1115,22 @@ mod tests {
         assert_eq!(
             restart_reason(&ctx, Uuid::from_u128(10)),
             HandoffReason::Restart
+        );
+    }
+    /// any-model: a pin in the slot context never replaces the template's renderer.
+    #[test]
+    fn a_renderer_pin_replaces_the_template_renderer_only_without_any_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = slot_ctx(dir.path());
+        assert!(renderer_override(&ctx).is_none());
+        ctx.renderer = Some(ArtifactPin {
+            id: "aq-terminal-renderer".into(),
+            version: "0.1.0".into(),
+            digest: "a".repeat(64),
+        });
+        assert_eq!(
+            renderer_override(&ctx).is_some(),
+            !cfg!(feature = "any-model")
         );
     }
     #[test]

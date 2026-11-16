@@ -117,15 +117,15 @@ fn offer_cannot_qualify_its_own_renderer_or_replace_retention_receipt() {
     let descriptor_bytes = canonical_bytes(&offer.startup).unwrap();
     let mut unsupported = offer.startup.renderer_qualification.clone();
     unsupported.digest = Digest::of(b"another installed renderer");
-    assert!(
-        prepare_startup(
-            &offer,
-            &unsupported,
-            verified(descriptor.clone(), &descriptor_bytes),
-            verified(payload.clone(), &bytes),
-        )
-        .is_err()
+    let differing = prepare_startup(
+        &offer,
+        &unsupported,
+        verified(descriptor.clone(), &descriptor_bytes),
+        verified(payload.clone(), &bytes),
     );
+    // any-model: the offer's renderer qualification is not compared with the
+    // installed renderer; every other check below still refuses.
+    assert_eq!(differing.is_ok(), cfg!(feature = "any-model"));
     let mut changed = payload;
     changed.retention_receipt.digest = Digest::of(b"different owner receipt");
     assert!(
