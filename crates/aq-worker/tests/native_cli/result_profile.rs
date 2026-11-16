@@ -282,6 +282,8 @@ fn claude_accepts_only_the_explicitly_installed_permission_plans() {
             version: 1,
         });
     manifest.model.provider = Text::new("anthropic").unwrap();
+    // The published fixture says "standard", which the Claude recipe cannot map.
+    manifest.model.reasoning = Text::new("default").unwrap();
     manifest.model.spending_budget = None;
     manifest.terminal.input_enabled = false;
     let mut value = definition();
