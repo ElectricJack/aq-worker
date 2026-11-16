@@ -181,3 +181,85 @@ fn claude_recipe_refuses_unsupported_settings_and_paths() {
         );
     }
 }
+
+/// `default` passes exactly the arguments and environment the recipe had before
+/// reasoning was mapped; `off` adds only the environment variable; an effort
+/// adds only `--effort <value>` at the end; anything else is refused.
+#[test]
+fn claude_recipe_maps_reasoning_to_effort() {
+    let (harness, mut model) = settings(CONTAINER_CONFINEMENT_CAPABILITY);
+    let mode = ConfinementMode::Container;
+    let mut with = |reasoning: &str| {
+        model.reasoning = Text::new(reasoning).unwrap();
+        map(&harness, &model, paths(), mode)
+    };
+    let default = with("default").unwrap();
+    assert_eq!(
+        default.arguments,
+        [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--input-format",
+            "text",
+            "--model",
+            "claude-opus-5",
+            "--permission-mode",
+            "bypassPermissions",
+            "--setting-sources",
+            "user",
+            "--settings",
+            "/home/agent/.aq/claude/settings.json",
+            "--strict-mcp-config",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+        ]
+    );
+    assert!(!default.environment.contains_key("MAX_THINKING_TOKENS"));
+    assert_eq!(default.environment.len(), 8);
+
+    let off = with("off").unwrap();
+    assert_eq!(off.arguments, default.arguments);
+    let mut expected = default.environment.clone();
+    expected.insert("MAX_THINKING_TOKENS".into(), "0".into());
+    assert_eq!(off.environment, expected);
+
+    for effort in ["low", "medium", "high", "xhigh", "max"] {
+        let recipe = with(effort).unwrap();
+        let mut expected = default.arguments.clone();
+        expected.extend(["--effort".to_owned(), effort.to_owned()]);
+        assert_eq!(recipe.arguments, expected, "{effort}");
+        assert_eq!(recipe.environment, default.environment, "{effort}");
+        assert_eq!(recipe.settings_json, default.settings_json, "{effort}");
+    }
+    for unknown in [
+        "",
+        "none",
+        "High",
+        "ultra",
+        "low --dangerously-skip-permissions",
+        "max\n",
+    ] {
+        let Ok(text) = Text::new(unknown) else {
+            continue;
+        };
+        model.reasoning = text;
+        let error = map(&harness, &model, paths(), mode).err().unwrap();
+        assert!(
+            error.to_string().contains("unsupported reasoning"),
+            "{unknown:?}: {error}"
+        );
+    }
+}
+
+/// The server pins this recipe by digest and the runner reads its arguments
+/// from `/aq/in/args`: mapping reasoning changes neither the runner nor the
+/// recipe bytes.
+#[test]
+fn docker_local_recipe_bytes_are_unchanged() {
+    assert_eq!(
+        docker_local_recipe_body(),
+        r#"{"cli_version":"2.1.318","confinement":"container","profile":"claude-2.1.318-docker-local-result-local-v1","result_claim":"node_driver_final_message_v1","runner_sha256":"1317347ae593f6d120310d3161947cab2af0602388aec9730a1fc6b73e3b425e","schema_version":1,"token_delivery":"private_material_env_only_v1","workspace":"copy_in_copy_out_v1"}"#
+    );
+}

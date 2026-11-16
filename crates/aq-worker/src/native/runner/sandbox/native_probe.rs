@@ -183,7 +183,8 @@ fn claude_command(model: &str) -> Result<ClaudeCommand> {
     let model = ModelSettings {
         provider: Text::new("anthropic")?,
         model: Text::new(model)?,
-        reasoning: Text::new("low")?,
+        // `default` passes no effort flag: the probe command stays as it was.
+        reasoning: Text::new("default")?,
         max_output_tokens: 4096,
         spending_budget: None,
     };

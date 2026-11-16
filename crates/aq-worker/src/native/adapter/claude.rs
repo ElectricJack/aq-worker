@@ -61,6 +61,28 @@ pub struct ClaudeRecipe {
     pub settings_json: Vec<u8>,
 }
 
+/// How the manifest's `model.reasoning` reaches the Claude CLI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReasoningEffort<'a> {
+    /// `default`: nothing is passed; the CLI decides.
+    Default,
+    /// `off`: `MAX_THINKING_TOKENS=0` in the environment.
+    Off,
+    /// `--effort <value>`.
+    Effort(&'a str),
+}
+/// Closed set: an unknown value is refused, never passed to a command line.
+pub(crate) fn reasoning_effort(model: &ModelSettings) -> Result<ReasoningEffort<'_>> {
+    Ok(match model.reasoning.as_str() {
+        "default" => ReasoningEffort::Default,
+        "off" => ReasoningEffort::Off,
+        effort @ ("low" | "medium" | "high" | "xhigh" | "max") => ReasoningEffort::Effort(effort),
+        other => anyhow::bail!(
+            "Claude recipe unsupported reasoning {other:?}: expected default, off, low, medium, high, xhigh or max"
+        ),
+    })
+}
+
 /// Crate-private: callers outside the crate reach it only through
 /// `ClaudeAgentHome::install`, which requires an `AuthorizedConfinement`.
 pub(crate) fn map(
@@ -76,6 +98,7 @@ pub(crate) fn map(
             && model.spending_budget.is_none(),
         "Claude recipe unsupported settings"
     );
+    let effort = reasoning_effort(model)?;
     let declares = |id: &str| {
         harness
             .required_capabilities
@@ -119,7 +142,7 @@ pub(crate) fn map(
         ConfinementMode::Native => "acceptEdits",
         ConfinementMode::Container => "bypassPermissions",
     };
-    let arguments = [
+    let mut arguments = [
         "-p",
         "--output-format",
         "stream-json",
@@ -142,7 +165,10 @@ pub(crate) fn map(
     ]
     .map(String::from)
     .to_vec();
-    let environment = [
+    if let ReasoningEffort::Effort(effort) = effort {
+        arguments.extend(["--effort".to_owned(), effort.to_owned()]);
+    }
+    let mut environment: BTreeMap<String, String> = [
         ("HOME", home),
         ("CLAUDE_CONFIG_DIR", home),
         ("PATH", "/usr/local/bin:/usr/bin:/bin"),
@@ -155,6 +181,9 @@ pub(crate) fn map(
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v.to_owned()))
     .collect();
+    if effort == ReasoningEffort::Off {
+        environment.insert("MAX_THINKING_TOKENS".into(), "0".into());
+    }
     Ok(ClaudeRecipe {
         executable: executable.to_owned(),
         arguments,
@@ -195,7 +224,8 @@ pub fn docker_local_recipe_artifact() -> aq_session_protocol::ArtifactRef {
     }
 }
 /// Manifest settings this recipe accepts: Claude 2.1.318 on an Anthropic
-/// subscription model, container confinement, no terminal input.
+/// subscription model, container confinement, no terminal input, and a
+/// reasoning value from the closed set of `reasoning_effort`.
 pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -> Result<()> {
     let declares = |id: &str| {
         m.harness
@@ -213,6 +243,7 @@ pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -
             && !declares(NATIVE_CONFINEMENT_CAPABILITY),
         "Claude docker-local result recipe unsupported manifest settings"
     );
+    reasoning_effort(&m.model)?;
     Ok(())
 }
 
