@@ -276,6 +276,7 @@ const REVOKED: usize = 1;
 const STOPPING: usize = 2;
 /// Set from the start until a control reply showed the current pin and its renderer was
 /// applied (or showed that there is none), so no slot polls under a stale renderer.
+/// With `any-model` the first control reply clears it whatever it carries.
 const UNPINNED: usize = 3;
 struct Pause {
     tx: watch::Sender<bool>,
@@ -360,9 +361,15 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
         let wall = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis() as u64;
-        let renderer = std::fs::read(self.layout.renderer_pin())
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok());
+        // any-model: a pin an earlier build saved is not used; slots keep the template's
+        // renderer.
+        let renderer = if cfg!(feature = "any-model") {
+            None
+        } else {
+            std::fs::read(self.layout.renderer_pin())
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok())
+        };
         let shared = Arc::new(Shared {
             pause: Pause {
                 tx: watch::channel(true).0,
@@ -757,6 +764,13 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 tracing::warn!(%id, "handoff marker: {e:#}");
             }
         }
+        if cfg!(feature = "any-model") {
+            // The worker runs any model the offer names: a pin, present or absent, neither
+            // pauses the slots nor changes their renderer, and nothing is measured. Slots
+            // start after the first control reply, as without a pin.
+            self.pause.set(UNPINNED, false);
+            return;
+        }
         *self.latest.lock().unwrap() = resp.qualification.clone();
         // A pin not yet effective says nothing of the one the server offers with now.
         let current = match &resp.qualification {
@@ -798,6 +812,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         }
     }
     fn maybe_measure(self: &Arc<Self>) {
+        if cfg!(feature = "any-model") {
+            return;
+        }
         let m = &self.sup.config.measurement;
         let (true, Some(file), Some(model)) = (m.enabled, m.token_file.clone(), m.model.clone())
         else {
@@ -1356,6 +1373,7 @@ mod tests {
         stop(handle, tx).await;
     }
 
+    #[cfg(not(feature = "any-model"))]
     #[tokio::test(start_paused = true)]
     async fn renderer_switch_pauses_polling_in_quiet_window() {
         let rig = rig(1);
@@ -1471,6 +1489,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "any-model"))]
     #[tokio::test(start_paused = true)]
     async fn measurement_runs_when_pin_near_expiry() {
         let mut rig = rig(1);
@@ -1617,6 +1636,7 @@ mod tests {
 
     /// Review #4: the first pin after a start switches the renderer; the running poll is
     /// paused, and the next attempt runs under the new renderer.
+    #[cfg(not(feature = "any-model"))]
     #[tokio::test(start_paused = true)]
     async fn first_pin_pauses_a_running_poll() {
         let rig = rig(1);
@@ -1693,6 +1713,7 @@ mod tests {
 
     /// Review 9b: without a pin, failed measurements back off from 10 min to 2 h; and the
     /// service skips its measurement while `service measure` holds the lock.
+    #[cfg(not(feature = "any-model"))]
     #[tokio::test(start_paused = true)]
     async fn measurement_backs_off_without_a_pin_and_yields_to_the_lock() {
         let mut rig = rig(1);
@@ -1723,6 +1744,7 @@ mod tests {
     }
 
     /// Review #7: a stop cancels a running measurement and waits for its release.
+    #[cfg(not(feature = "any-model"))]
     #[tokio::test(start_paused = true)]
     async fn shutdown_cancels_the_measurement_and_waits_for_its_release() {
         let mut rig = rig(1);
@@ -1897,6 +1919,7 @@ mod tests {
     /// D3: a fresh state root has no renderer, so the slots do not poll before a control reply
     /// shows the current pin and its renderer is applied. A failed control poll does not count,
     /// nor does a pin that is not effective yet (the server offers with an earlier one).
+    #[cfg(not(feature = "any-model"))]
     #[tokio::test(start_paused = true)]
     async fn fresh_slots_wait_for_the_current_pin() {
         let rig = rig(1);
@@ -1915,6 +1938,70 @@ mod tests {
         assert_eq!(*backend.calls.lock().unwrap(), ["run:1"]);
         let renderers = backend.renderers.lock().unwrap().clone();
         assert_eq!(renderers[0].as_ref().unwrap().version, "2");
+        stop(handle, tx).await;
+    }
+
+    /// any-model: a pin, present (current, switching or not yet effective) or absent, never
+    /// pauses the slots, never reaches a slot as its renderer and is never saved; the service
+    /// measures nothing even when `[measurement]` is still enabled.
+    #[cfg(feature = "any-model")]
+    #[tokio::test(start_paused = true)]
+    async fn any_model_ignores_the_pin_and_never_measures() {
+        let now = wall();
+        let soon = now + 20_000;
+        for replies in [
+            vec![reply(vec![], None)],
+            vec![reply(vec![], Some(pin("1", now - 1000, now + 3_600_000)))],
+            vec![
+                reply(vec![], Some(pin("1", now - 1000, now + 86_400_000))),
+                reply(vec![], Some(pin("2", soon, soon + 86_400_000))),
+            ],
+            vec![reply(vec![], Some(pin("2", soon, soon + 86_400_000)))],
+        ] {
+            let mut rig = rig(1);
+            measuring(&mut rig);
+            let backend = Arc::new(FakeBackend::default());
+            script(&backend, 1, vec![Step::Observe]);
+            let ctl = control(replies);
+            let (handle, tx) = start(&rig, &backend, &ctl);
+            sleep(Duration::from_secs(1)).await;
+            assert_eq!(*backend.calls.lock().unwrap(), ["run:1"], "polls at once");
+            let paused = backend.observed.lock().unwrap().clone().unwrap();
+            for _ in 0..90 {
+                sleep(Duration::from_secs(1)).await;
+                assert!(!*paused.borrow(), "never paused");
+            }
+            sleep(Duration::from_secs(3600)).await;
+            assert_eq!(*backend.calls.lock().unwrap(), ["run:1"]);
+            assert_eq!(*backend.renderers.lock().unwrap(), [None]);
+            assert!(!rig.layout.renderer_pin().exists(), "no pin file");
+            assert!(backend.measured.lock().unwrap().is_empty());
+            assert_eq!(*ctl.submissions.lock().unwrap(), 0);
+            stop(handle, tx).await;
+        }
+    }
+
+    /// any-model: a pin file an earlier build saved is not applied to the slots, and slots
+    /// still wait for the first successful control reply.
+    #[cfg(feature = "any-model")]
+    #[tokio::test(start_paused = true)]
+    async fn any_model_ignores_a_saved_pin_and_waits_for_the_first_control_reply() {
+        let rig = rig(1);
+        let saved = serde_json::to_vec(&pin("9", 0, 0).renderer).unwrap();
+        std::fs::create_dir_all(rig.layout.renderer_pin().parent().unwrap()).unwrap();
+        std::fs::write(rig.layout.renderer_pin(), &saved).unwrap();
+        let backend = Arc::new(FakeBackend::default());
+        script(&backend, 1, vec![Step::Hang]);
+        let now = wall();
+        let pinned = reply(vec![], Some(pin("2", now - 1000, now + 86_400_000)));
+        let ctl = control(vec![Err((500, false)), pinned]);
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(4)).await;
+        assert!(backend.calls.lock().unwrap().is_empty(), "no control reply");
+        sleep(Duration::from_secs(12)).await;
+        assert_eq!(*backend.calls.lock().unwrap(), ["run:1"]);
+        assert_eq!(*backend.renderers.lock().unwrap(), [None]);
+        assert_eq!(std::fs::read(rig.layout.renderer_pin()).unwrap(), saved);
         stop(handle, tx).await;
     }
 
