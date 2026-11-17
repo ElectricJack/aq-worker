@@ -69,3 +69,20 @@ Command: CARGO_BUILD_JOBS=8 timeout 900 cargo test -p aq-worker --locked --all-f
 --test native_http late_stopped_receipt -- --test-threads=8. Result: 1 passed.
 The six-agent journal test also passes, and all 7 native-runner tests now pass. The explicit
 supported service test run passes 14. The full workspace run is still pending at this point.
+
+## Progress 2026-11-17 — release artifact
+
+Release command succeeded (3m 23s): AQ_SOURCE_REVISION=3ec1755 CARGO_BUILD_JOBS=8 cargo build
+--release --locked -p aq-worker -p aq-session-host -p aq-agent-client --bins.
+Version: aq-worker 0.5.1+3ec1755. Worker path: target/release/aq-worker; identical executable
+copied to the exact requested /tmp/.../scratchpad/rollout/worker-multi-agent/aq-worker path.
+SHA-256: 5e0ce84f478f470d3bfc8808c551178f8bf00414ba264b3b67faaea669d8f006.
+Final clippy, formatting and build-budget checks pass. See verification.md for exact commands,
+per-item status and all outstanding integration limits. IMPORT.md explains how a writable
+session can attach the preserved delivery commits to the actual checkout branch.
+
+Final full workspace result: timeout 900, exit 124, at the existing unrelated-fork-child test.
+Ninety test groups completed before the hung worker lib target; later targets did not run.
+No full integration or production claim is made. Delivery is implemented with focused tests
+and a built binary, but import into shared Git metadata and unrestricted integration checks
+remain outstanding. No changes after the binary stamp affect runtime source.
