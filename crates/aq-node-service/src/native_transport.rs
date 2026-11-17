@@ -145,3 +145,74 @@ pub async fn body(mut response: Response, limit: usize) -> Result<zeroize::Zeroi
     }
     Ok(bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    };
+    /// Sends as the control callers do: the identical request again while `retry_same` says so.
+    async fn send(url: &str) -> (StatusCode, u32) {
+        let (mut tries, mut sends) = (0, 0);
+        loop {
+            let response = reqwest::Client::new()
+                .post(url)
+                .body("same")
+                .send()
+                .await
+                .unwrap();
+            sends += 1;
+            if !retry_same(&response, &mut tries, u64::MAX, 0).await {
+                return (response.status(), sends);
+            }
+        }
+    }
+    #[tokio::test]
+    async fn a_503_is_resent_in_place_and_other_refusals_are_final() {
+        use axum::{Router, extract::State, routing::post};
+        let seen = Arc::new(AtomicU32::new(0));
+        let contended = |State(seen): State<Arc<AtomicU32>>, body: String| async move {
+            assert_eq!(body, "same");
+            match seen.fetch_add(1, Ordering::SeqCst) {
+                0 => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    r#"{"error":"overloaded","message":"row lock contended; retry the same operation"}"#,
+                ),
+                1 => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    r#"{"kind":"failure","body":{"schema_version":1,"code":"unavailable","operation_id":null}}"#,
+                ),
+                _ => (StatusCode::OK, "{}"),
+            }
+        };
+        let app = Router::new()
+            .route("/proposal", post(contended))
+            .route("/conflict", post(|| async { StatusCode::CONFLICT }))
+            .route("/down", post(|| async { StatusCode::SERVICE_UNAVAILABLE }))
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let started = std::time::Instant::now();
+        assert_eq!(send(&format!("{base}/proposal")).await, (StatusCode::OK, 3));
+        assert!(started.elapsed() < Duration::from_secs(1), "short waits");
+        assert_eq!(
+            send(&format!("{base}/conflict")).await,
+            (StatusCode::CONFLICT, 1)
+        );
+        // Bounded: a server that stays unavailable ends the operation after SAME_TRIES sends.
+        assert_eq!(
+            send(&format!("{base}/down")).await,
+            (StatusCode::SERVICE_UNAVAILABLE, SAME_TRIES)
+        );
+        // And never past the caller's send deadline.
+        let response = reqwest::Client::new()
+            .post(format!("{base}/down"))
+            .send()
+            .await
+            .unwrap();
+        assert!(!retry_same(&response, &mut 0, 1_000, 999).await);
+    }
+}

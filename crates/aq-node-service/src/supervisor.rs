@@ -59,6 +59,9 @@ pub trait SlotBackend: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Resolves when the node has room for one more queued attempt (at once by default). The
+    /// slot waits on it before it creates a state directory or starts aq-git for an attempt.
+    async fn ready(&self, _node_id: Uuid) {}
     async fn run_attempt(
         &self,
         ctx: SlotContext,
@@ -644,11 +647,15 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 if *stopping.borrow() {
                     return false;
                 }
-                if !*pause.borrow() {
-                    break;
-                }
                 let mut target = self.target.subscribe();
-                tokio::select! { _ = pause.changed() => {}, _ = stopping.changed() => {}, _ = target.changed() => {} }
+                let paused = *pause.borrow();
+                let ready = async {
+                    match paused {
+                        true => std::future::pending().await,
+                        false => self.sup.backend.ready(node_id).await,
+                    }
+                };
+                tokio::select! { _ = ready => break, _ = pause.changed() => {}, _ = stopping.changed() => {}, _ = target.changed() => {} }
             }
             let left = |resume: tokio::time::Instant| {
                 resume.saturating_duration_since(tokio::time::Instant::now())
@@ -929,6 +936,8 @@ mod tests {
         registrations: Mutex<Vec<(Uuid, Uuid)>>,
         /// Each inventory report: its slot, its sequence in the node's stream, and when.
         reports: Mutex<Vec<(u32, u64, Instant)>>,
+        /// While it holds `false` the node has no room: `ready` waits.
+        room: Option<watch::Receiver<bool>>,
     }
     impl FakeBackend {
         /// Publishes as a slot's poll does: under the node's gate, with the node's next sequence.
@@ -953,6 +962,11 @@ mod tests {
                     Ok(())
                 })
                 .await
+        }
+        async fn ready(&self, _: Uuid) {
+            if let Some(mut room) = self.room.clone() {
+                let _ = room.wait_for(|v| *v).await;
+            }
         }
         async fn run_attempt(
             &self,
@@ -1258,6 +1272,40 @@ mod tests {
                 && c.enrollment == rig.layout.slot_enrollment(1))
         );
         stop(handle, stop_tx).await;
+    }
+    /// A slot the node has no room for (manual sessions hold its capacity) waits for the permit:
+    /// no state directory, no aq-git and no attempt until there is room, however long it takes.
+    #[tokio::test(start_paused = true)]
+    async fn a_slot_without_room_creates_nothing_until_the_node_has_room() {
+        let mut rig = rig(1);
+        rig.layout.node = Some(1);
+        let (room, rx) = watch::channel(false);
+        let backend = Arc::new(FakeBackend {
+            room: Some(rx),
+            ..FakeBackend::default()
+        });
+        let (done, until) = watch::channel(false);
+        for slot in 1..=2 {
+            script(&backend, slot, vec![Step::Until(until.clone())]);
+        }
+        let (handle, stop_tx) = start(&rig, &backend, &control(vec![slots_reply(2)]));
+        spin().await;
+        tokio::time::advance(Duration::from_secs(60)).await;
+        spin().await;
+        assert!(backend.contexts.lock().unwrap().is_empty());
+        assert!(!(backend.calls.lock().unwrap().iter()).any(|c| c.starts_with("run")));
+        for slot in 1..=2 {
+            assert!(
+                !rig.layout.current(slot).exists(),
+                "slot {slot} created its state"
+            );
+        }
+        room.send_replace(true);
+        spin().await;
+        assert_eq!(backend.contexts.lock().unwrap().len(), 2);
+        done.send_replace(true);
+        stop_tx.send_replace(true);
+        handle.await.unwrap().unwrap();
     }
     #[tokio::test(start_paused = true)]
     async fn two_nodes_each_run_three_independent_attempts() {

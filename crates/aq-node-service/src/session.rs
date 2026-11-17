@@ -78,6 +78,8 @@ pub struct NodeSession {
     registered: AsyncMutex<bool>,
     registered_slots: OnceLock<u32>,
     occupancy: Mutex<Occupancy>,
+    /// Wakes the slots waiting in `room` when capacity may have been freed.
+    freed: tokio::sync::Notify,
     retired: AtomicBool,
 }
 #[derive(Default)]
@@ -89,6 +91,7 @@ pub struct QueuedPermit(Arc<NodeSession>);
 impl Drop for QueuedPermit {
     fn drop(&mut self) {
         self.0.occupancy.lock().unwrap().queued -= 1;
+        self.0.freed.notify_waiters();
     }
 }
 impl Default for NodeSession {
@@ -102,6 +105,7 @@ impl Default for NodeSession {
             registered: AsyncMutex::new(false),
             registered_slots: OnceLock::new(),
             occupancy: Mutex::default(),
+            freed: tokio::sync::Notify::new(),
             retired: AtomicBool::new(false),
         }
     }
@@ -124,6 +128,7 @@ impl NodeSession {
             Ordering::SeqCst,
         );
         self.slots.store(reply.node_slots(), Ordering::SeqCst);
+        self.freed.notify_waiters();
         Ok(())
     }
     pub fn retire(&self) {
@@ -181,6 +186,18 @@ impl NodeSession {
     }
     pub fn release_manual(&self, id: Uuid) {
         self.occupancy.lock().unwrap().manual.remove(&id);
+        self.freed.notify_waiters();
+    }
+    /// Waits, without polling, until a queued attempt could get a permit (`try_queued`); at once
+    /// against a server without node slots, where no permit is taken.
+    pub async fn room(&self) {
+        loop {
+            let freed = self.freed.notified();
+            if !self.aware() || !self.full() {
+                return;
+            }
+            freed.await;
+        }
     }
     pub fn full(&self) -> bool {
         let used = self.occupancy.lock().unwrap();
@@ -247,6 +264,77 @@ mod tests {
         drop(b);
         assert!(node.try_queued().is_none());
         node.release_manual(id);
+        assert!(node.try_queued().is_some());
+    }
+    const SECOND: u64 = 1_000_000_000;
+    /// What every slot's poll does under the node's gate (the runner's `node_inventory`).
+    fn poll(state: &InventoryState, now: u64, published: &mut Vec<u64>) -> u64 {
+        let need = state.poll_need(30_000);
+        state.current(now * SECOND, need).unwrap_or_else(|| {
+            let sequence = state.next(0).unwrap();
+            state.record(sequence, (now + 30) * SECOND);
+            published.push(now);
+            sequence
+        })
+    }
+    #[test]
+    fn eight_idle_slots_share_one_report_renewed_only_near_expiry() {
+        let state = Arc::new(InventoryState::default());
+        let mut published = Vec::new();
+        // One of eight slots polls each second for a minute: 60 polls, each slot every 8 s.
+        for now in 1..=60 {
+            let sequence = poll(&state, now, &mut published);
+            assert_eq!(
+                sequence,
+                published.len() as u64,
+                "every slot polls with the node's sequence"
+            );
+        }
+        // The first report, then one per half TTL (30 s): never one per poll or per slot.
+        assert_eq!(published, [1, 16, 31, 46]);
+    }
+    #[test]
+    fn a_sibling_poll_does_not_renew_under_a_slot_in_flight_until_the_floor() {
+        let state = Arc::new(InventoryState::default());
+        let mut published = Vec::new();
+        assert_eq!(poll(&state, 1, &mut published), 1);
+        // A slot got its offer under sequence 1 and is accepting and preparing.
+        let accepting = state.flight();
+        for now in 2..=25 {
+            assert_eq!(
+                poll(&state, now, &mut published),
+                1,
+                "sibling poll at {now} s"
+            );
+        }
+        assert_eq!(published, [1], "no TTL renewal overlapped the accept");
+        // The pre-execution check of that slot (a third of the TTL) still finds it live at 20 s.
+        assert_eq!(state.current(20 * SECOND, 10 * SECOND), Some(1));
+        // Only within 5 s of expiry (31 s) is the report renewed regardless.
+        assert_eq!(poll(&state, 27, &mut published), 2);
+        drop(accepting);
+        let other = InventoryState::default();
+        assert_eq!(poll(&other, 1, &mut published), 1);
+        assert_eq!(
+            poll(&other, 20, &mut published),
+            2,
+            "idle: renewed at half the TTL"
+        );
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_slot_without_room_waits_for_the_permit_instead_of_spinning() {
+        let node = Arc::new(NodeSession::default());
+        node.room().await; // a server without node slots takes no permit
+        node.aware.store(true, Ordering::SeqCst);
+        let held = node.try_queued().unwrap();
+        let waiting = tokio::spawn({
+            let node = node.clone();
+            async move { node.room().await }
+        });
+        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+        assert!(!waiting.is_finished());
+        drop(held);
+        waiting.await.unwrap();
         assert!(node.try_queued().is_some());
     }
     #[test]

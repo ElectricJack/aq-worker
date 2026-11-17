@@ -342,7 +342,7 @@ async fn node_inventory(
     let deadline = producer.publish_inventory(&inventory).await?.deadline_ns();
     ensure!(
         super::http::boot_ns()? < deadline,
-        "native inventory expired before poll"
+        "native inventory expired"
     );
     pipeline
         .inventory

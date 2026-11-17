@@ -448,6 +448,11 @@ impl SlotBackend for NativeSlotBackend {
             .await
     }
 
+    async fn ready(&self, node_id: Uuid) {
+        if let Some(session) = self.sessions.get(&node_id) {
+            session.room().await;
+        }
+    }
     async fn run_attempt(
         &self,
         ctx: SlotContext,
@@ -458,8 +463,8 @@ impl SlotBackend for NativeSlotBackend {
         let _permit = if let Some(session) = &session
             && session.aware()
         {
+            // Lost the race for the room `ready` saw: back to waiting there.
             let Some(permit) = session.try_queued() else {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 return Ok(AttemptOutcome::Paused);
             };
             Some(permit)
@@ -549,6 +554,44 @@ impl SlotBackend for NativeSlotBackend {
     }
 }
 
+/// The node's one heartbeat. Only AQ's own refusal of the credential (revoked or invalid) stops
+/// the node; any other error (an edge 401/403, a 5xx AQ did not mark transient, a protocol
+/// refusal) is logged and the loop is started again after a jittered back-off.
+async fn node_heartbeat(
+    worker: WorkerConfig,
+    node_stop: watch::Sender<bool>,
+    stop: watch::Receiver<bool>,
+) -> Result<()> {
+    use aq_worker::client::CallError;
+    let node = worker.node_id;
+    let client = Client::from_config(&worker).inspect_err(|e| {
+        tracing::error!(%node, "node stopped: its heartbeat client was not built: {e:#}");
+        node_stop.send_replace(true);
+    })?;
+    let mut attempt = 0;
+    loop {
+        let (mut wait, mut ended) = (stop.clone(), stop.clone());
+        let started = tokio::time::Instant::now();
+        let stopped = async move { drop(wait.wait_for(|v| *v).await) };
+        match aq_worker::client::run_loop(&client, stopped).await {
+            Ok(()) => return Ok(()),
+            Err(e @ (CallError::Revoked | CallError::InvalidCredential)) => {
+                tracing::error!(%node, "node stopped: the server refused its credential: {e}");
+                node_stop.send_replace(true);
+                return Err(e.into());
+            }
+            Err(e) => {
+                if started.elapsed() > std::time::Duration::from_secs(120) {
+                    attempt = 0;
+                }
+                let delay = aq_node_service::backoff::delay(attempt, &mut rand::thread_rng());
+                tracing::warn!(%node, attempt, "heartbeat failed, retrying in {delay:?}: {e}");
+                attempt += 1;
+                tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = ended.wait_for(|v| *v) => return Ok(()) }
+            }
+        }
+    }
+}
 fn is_wsl() -> bool {
     std::fs::read_to_string("/proc/sys/kernel/osrelease")
         .is_ok_and(|r| r.to_lowercase().contains("microsoft"))
@@ -1100,23 +1143,7 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
         });
         let worker = WorkerConfig::load(&view.slot_enrollment(1))?;
         let supervisor_rx = node_rx.clone();
-        let heartbeat = tokio::spawn(async move {
-            let client = Client::from_config(&worker);
-            let mut stop = node_rx.clone();
-            let result: Result<()> = async {
-                let client = client?;
-                aq_worker::client::run_loop(&client, async move {
-                    let _ = stop.wait_for(|v| *v).await;
-                })
-                .await?;
-                Ok(())
-            }
-            .await;
-            if result.is_err() {
-                node_stop.send_replace(true);
-            }
-            result
-        });
+        let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, node_rx));
         let sup = Supervisor::new(config.clone(), view, backend.clone(), control, git.clone())
             .retiring(node > config.nodes);
         // Each node is isolated; a refused sibling never stops this supervisor.
@@ -2092,5 +2119,61 @@ mod tests {
             matches!(&outcome, RecoverOutcome::Held(why) if why.contains("record was not written")),
             "{outcome:?}"
         );
+    }
+    /// The node's heartbeat survives a 500 and an edge 403 (logged, retried with back-off) and
+    /// stops the node only when AQ itself revokes the credential.
+    #[tokio::test]
+    async fn heartbeat_errors_are_retried_and_only_a_revocation_stops_the_node() {
+        use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse};
+        use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+        let beats = Arc::new(AtomicU32::new(0));
+        let probe = |Json(q): Json<serde_json::Value>| async move {
+            Json(serde_json::json!({"nonce": q["nonce"], "server_time": "2026-11-17T00:00:00Z"}))
+        };
+        let beat = |State(beats): State<Arc<AtomicU32>>| async move {
+            match beats.fetch_add(1, SeqCst) {
+                0 => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                1 => StatusCode::FORBIDDEN.into_response(),
+                2 => Json(serde_json::json!({"server_version": "t", "heartbeat_interval_secs": 1}))
+                    .into_response(),
+                _ => (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({"error": aq_protocol::CREDENTIAL_REVOKED, "message": "no"})),
+                )
+                    .into_response(),
+            }
+        };
+        let app = Router::new()
+            .route("/v1/worker/probe", axum::routing::post(probe))
+            .route("/v1/worker/heartbeat", axum::routing::post(beat))
+            .with_state(beats.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let worker = WorkerConfig {
+            server_url: format!("http://{}", listener.local_addr().unwrap()),
+            node_id: Uuid::from_u128(7),
+            credential: "c".into(),
+            cf_client_id: None,
+            cf_client_secret: None,
+        };
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (node_stop, stop) = watch::channel(false);
+        let mut stopped = stop.clone();
+        let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, stop));
+        // The 500 and the edge 403 are behind it: the third heartbeat was accepted, node still up.
+        while beats.load(SeqCst) < 3 {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(
+            !*stopped.borrow(),
+            "a 500 and an edge 403 did not stop the node"
+        );
+        assert!(!heartbeat.is_finished());
+        stopped.wait_for(|v| *v).await.unwrap();
+        let error = heartbeat.await.unwrap().unwrap_err();
+        assert!(
+            format!("{error:#}").contains("credential rejected"),
+            "{error:#}"
+        );
+        assert_eq!(beats.load(SeqCst), 4);
     }
 }
