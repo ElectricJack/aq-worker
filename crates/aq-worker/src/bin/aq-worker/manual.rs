@@ -1,4 +1,5 @@
 //! Persistent, owner-started tmux sessions in the fixed local sandbox.
+mod conversation;
 mod provider;
 mod recording;
 use anyhow::{Context, Result, bail, ensure};
@@ -479,6 +480,13 @@ pub async fn run(
             enrollment.node_id,
             ServerLink::from_enrollment(&enrollment)?,
             exe.clone(),
+            settings.host.docker_local.clone(),
+            shutdown.clone(),
+        )));
+        recorders.push(tokio::spawn(conversation::run(
+            root.clone(),
+            enrollment.node_id,
+            ServerLink::from_enrollment(&enrollment)?,
             settings.host.docker_local.clone(),
             shutdown.clone(),
         )));
