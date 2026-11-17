@@ -18,4 +18,6 @@ target = 40000
 
 [lib_lines.ratchet]
 # Crates above the target while they are being split. Each may only shrink.
-aq-worker = 70527
+# 70546 on 2026-11-17: +19 for exporting a finished result as only its new commits (4214622, c517359).
+# Temporary; the git-push result path on feat/push-results removes the export code and lowers this to 70448.
+aq-worker = 70546
