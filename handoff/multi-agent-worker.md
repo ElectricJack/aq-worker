@@ -60,3 +60,12 @@ Packaging tests: 34 passed, 30 failed, 1 skipped; all remaining failures occur a
 Unix-socket fixture, EPERM. Shell syntax and Python compilation checks passed. No live service,
 container, configuration or stack endpoint was touched. See open-contract-questions.md here
 for the worker's exact contract choices and required server behavior.
+
+## Progress 2026-11-17 — terminal correlation regression
+
+Added an existing-binary regression using two valid stopped requests of the same node boot:
+A's receipt is accepted for A and rejected for B, including after an operation-id substitution.
+Command: CARGO_BUILD_JOBS=8 timeout 900 cargo test -p aq-worker --locked --all-features
+--test native_http late_stopped_receipt -- --test-threads=8. Result: 1 passed.
+The six-agent journal test also passes, and all 7 native-runner tests now pass. The explicit
+supported service test run passes 14. The full workspace run is still pending at this point.

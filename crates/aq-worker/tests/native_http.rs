@@ -754,3 +754,46 @@ async fn overloaded_registration_is_resent_and_a_refusal_is_final() {
         assert_eq!(calls.load(Ordering::SeqCst), sends, "{status}");
     }
 }
+
+#[test]
+fn late_stopped_receipt_is_refused_for_a_sibling_attempt_of_the_same_boot() {
+    let a = stopped::decode_request(include_bytes!(
+        "../../../vendor/aq-admission-0.1.6/artifacts/stopped.fixture.json"
+    ))
+    .unwrap();
+    let receipt = stopped::Receipt {
+        schema_version: 1,
+        operation_id: a.evidence.stop_operation_id,
+        binding: a.evidence.binding.clone(),
+        grant_id: a.grant_id().unwrap(),
+        request_digest: a.digest().unwrap(),
+        recorded_at_ms: 1500,
+        authority_revision_at_record: 4,
+    };
+    let mut b = a.clone();
+    let id = Uuid::new_v4();
+    b.evidence.binding.attempt_id = id;
+    if let aq_session_protocol::SessionIdentity::Remote { attempt_id, .. } =
+        &mut b.evidence.binding.session
+    {
+        *attempt_id = id;
+    }
+    b.proof.observation.guardian.intent.session = b.evidence.binding.session.clone();
+    b.evidence.stop_operation_id = Uuid::new_v4();
+    let digest = b.proof.digest().unwrap();
+    if let aq_admission::transport::StopDisposition::Stopped {
+        stop_receipt_digest,
+        ..
+    } = &mut b.evidence.disposition
+    {
+        *stop_receipt_digest = digest;
+    }
+    b.validate().unwrap();
+    let bytes = serde_json::to_vec(&receipt).unwrap();
+    assert!(stopped::decode_receipt(&bytes, &a).is_ok());
+    assert!(stopped::decode_receipt(&bytes, &b).is_err());
+    // Even a misleading operation id cannot turn A's terminal receipt into B's.
+    let mut replay = receipt;
+    replay.operation_id = b.evidence.stop_operation_id;
+    assert!(replay.validate_for(&b).is_err());
+}
