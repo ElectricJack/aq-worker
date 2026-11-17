@@ -244,6 +244,18 @@ fn held_if_permanent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome
         ok => ok,
     }
 }
+/// The executor a node registers with. The template's own session host root is a placeholder:
+/// every slot replaces it (`slot_native_config`) and an installer does not have to create it,
+/// yet the executor's preflight opens it. A node whose template named a missing directory
+/// never registered, so none of its slots polled. The preflight is given the service's runtime
+/// root (the parent of each slot's runtime directory), which exists before any node starts.
+fn registration_host_root(executor: &mut Option<ExecutorConfig>, ctx: &SlotContext) -> Result<()> {
+    let runtime = ctx.git_socket.parent().and_then(Path::parent);
+    if let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = executor {
+        settings.host.root = runtime.context("slot runtime directory")?.to_owned();
+    }
+    Ok(())
+}
 /// The native template, pointed at the slot's state (journal, Git) and runtime directory
 /// (aq-git's socket, the session host root). The renderer is the template's own.
 fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
@@ -424,16 +436,21 @@ impl SlotBackend for NativeSlotBackend {
             return Ok(());
         }
         session
-            .register_once(|| async {
+            .register_current(|operation_id, slots| async move {
                 let worker = WorkerConfig::load(&ctx.enrollment)?;
-                let config = NativeConfig::load(&self.template)?;
-                ClaudeDockerExecutor::configured(&worker)?.preflight(&config)?;
+                let template = self.template.display();
+                let mut config = NativeConfig::load(&self.template)
+                    .with_context(|| format!("native template {template}"))?;
+                registration_host_root(&mut config.executor, &ctx)?;
+                ClaudeDockerExecutor::configured(&worker)?
+                    .preflight(&config)
+                    .with_context(|| format!("executor of native template {template}"))?;
                 let client = aq_worker::native::http::NativeClient::from_config(&worker)?
-                    .for_node_slot(1, session.registered_slots());
+                    .for_node_slot(1, slots);
                 client
                     .register(&aq_admission::transport::Register {
                         schema_version: 1,
-                        operation_id: session.registration_id,
+                        operation_id,
                         identity: aq_admission::transport::WorkerIdentity {
                             node_id: worker.node_id,
                             boot_id: session.boot_id,
@@ -1949,6 +1966,15 @@ mod tests {
                 load(&old).err()
             );
         };
+        // Its host root (never created by the installer) is not what a node registers with:
+        // the preflight opens the service's runtime root, the parent of the slot runtimes.
+        let dir = tempfile::tempdir().unwrap();
+        let mut executor = load(&old).ok();
+        registration_host_root(&mut executor, &slot_ctx(dir.path())).unwrap();
+        let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = executor else {
+            unreachable!()
+        };
+        assert_eq!(settings.host.root, dir.path().join("run"));
         let mut new = old.clone();
         new["settings"]
             .as_object_mut()

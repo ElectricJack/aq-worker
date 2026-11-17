@@ -932,8 +932,8 @@ mod tests {
         releases: Mutex<Vec<u32>>,
         /// As the real backend: one session per node, shared by its slots.
         session: Arc<crate::session::NodeSession>,
-        /// The boot and operation id of each register sent.
-        registrations: Mutex<Vec<(Uuid, Uuid)>>,
+        /// The boot, operation id and slot count of each register sent.
+        registrations: Mutex<Vec<(Uuid, Uuid, u32)>>,
         /// Each inventory report: its slot, its sequence in the node's stream, and when.
         reports: Mutex<Vec<(u32, u64, Instant)>>,
         /// While it holds `false` the node has no room: `ready` waits.
@@ -956,8 +956,8 @@ mod tests {
             self.session.update(reply)?;
             let session = &self.session;
             session
-                .register_once(|| async {
-                    let sent = (session.boot_id, session.registration_id);
+                .register_current(|operation, slots| async move {
+                    let sent = (session.boot_id, operation, slots);
                     self.registrations.lock().unwrap().push(sent);
                     Ok(())
                 })
@@ -1251,6 +1251,13 @@ mod tests {
         tokio::time::advance(CONTROL_INTERVAL).await;
         spin().await;
         assert_eq!(backend.contexts.lock().unwrap().len(), 3);
+        let registered = || backend.registrations.lock().unwrap().clone();
+        let counts = |sent: &[(Uuid, Uuid, u32)]| sent.iter().map(|r| r.2).collect::<Vec<_>>();
+        assert_eq!(
+            counts(&registered()),
+            [1, 3],
+            "the raised count is registered"
+        );
         *ctl.replies.lock().unwrap() = vec![slots_reply(1)].into();
         tokio::time::advance(CONTROL_INTERVAL).await;
         spin().await;
@@ -1262,6 +1269,12 @@ mod tests {
                 .iter()
                 .all(|c| c.state_dir.exists()),
             "shrink keeps running attempts"
+        );
+        let sent = registered();
+        assert_eq!(counts(&sent), [1, 3], "a lowered count registers nothing");
+        assert!(
+            sent[0].0 == sent[1].0 && sent[0].1 != sent[1].1,
+            "one boot, a fresh operation"
         );
         done.send_replace(true);
         spin().await;
@@ -2325,7 +2338,7 @@ mod tests {
         let session = &backend.session;
         assert_eq!(
             *backend.registrations.lock().unwrap(),
-            [(session.boot_id, session.registration_id)],
+            [(session.boot_id, session.registration_id, 2)],
             "registered once, under one boot"
         );
         assert_eq!(secs(&ctl.polls.lock().unwrap(), began), [0, 5, 10]);
