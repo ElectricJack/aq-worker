@@ -5,6 +5,17 @@ use tokio::sync::watch;
 
 /// Delay between polls of `run_until_attempt` while no offer is available.
 pub const IDLE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+/// A slot's delay before its first poll and its idle interval (`interval` ±10 %), both random,
+/// so the slots of one node do not poll in the same millisecond.
+pub fn staggered(interval: std::time::Duration) -> (std::time::Duration, std::time::Duration) {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let first = interval.min(std::time::Duration::from_secs(10)) / 10;
+    (
+        first.mul_f64(rng.gen_range(0.0..1.0)),
+        interval.mul_f64(rng.gen_range(0.9..1.1)),
+    )
+}
 pub enum PollLoop<T> {
     Offer(T),
     Paused,

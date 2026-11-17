@@ -161,12 +161,6 @@ impl InputPipeline {
     /// MS1/B3: read this attempt's pending cancellation from the node's own
     /// poll. A zero-capacity poll asks for no offers; the server answers
     /// cancellations first. Errors mean "unknown", never "not cancelled".
-    /// Records the node's acknowledged inventory sequence for later polls.
-    pub fn record_inventory_sequence(&self, sequence: u64) {
-        self.inventory
-            .acknowledged
-            .store(sequence, std::sync::atomic::Ordering::SeqCst);
-    }
     pub async fn poll_cancellation(&self, id: Uuid) -> Result<Option<Uuid>> {
         let _inventory = self.inventory.gate.lock().await;
         let inventory_sequence = self

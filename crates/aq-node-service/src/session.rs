@@ -17,8 +17,47 @@ pub struct InventoryState {
     pub gate: AsyncMutex<()>,
     allocated: AtomicU64,
     pub acknowledged: AtomicU64,
+    /// Boot-clock expiry of the acknowledged report; zero before the first.
+    deadline: AtomicU64,
+    /// Slots between receiving an offer and holding their execution grant.
+    in_flight: AtomicU32,
+}
+/// While a slot is in flight a report is renewed only this close to its expiry.
+const REFRESH_FLOOR_NS: u64 = 5_000_000_000;
+/// Held by a slot from its offer until its execution request has been answered.
+pub struct InFlight(Arc<InventoryState>);
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 impl InventoryState {
+    /// The node's acknowledged sequence, while its report has more than `need_ns` left at `now`.
+    /// Every slot polls with this one sequence; a new report is due only when this is `None`.
+    pub fn current(&self, now: u64, need_ns: u64) -> Option<u64> {
+        let sequence = self.acknowledged.load(Ordering::SeqCst);
+        let left = self.deadline.load(Ordering::SeqCst).saturating_sub(now);
+        (sequence > 0 && left > need_ns).then_some(sequence)
+    }
+    /// The life a poll asks of the report: half its TTL while the node is idle (renewed early,
+    /// between offers), only the floor while any slot is in flight (a renewal then waits).
+    pub fn poll_need(&self, ttl_ms: u64) -> u64 {
+        let ttl = ttl_ms.saturating_mul(1_000_000);
+        if self.in_flight.load(Ordering::SeqCst) > 0 {
+            REFRESH_FLOOR_NS.min(ttl / 4)
+        } else {
+            ttl / 2
+        }
+    }
+    /// Records the report the server acknowledged (under `gate`).
+    pub fn record(&self, sequence: u64, deadline_ns: u64) {
+        self.acknowledged.store(sequence, Ordering::SeqCst);
+        self.deadline.store(deadline_ns, Ordering::SeqCst);
+    }
+    pub fn flight(self: &Arc<Self>) -> InFlight {
+        self.in_flight.fetch_add(1, Ordering::SeqCst);
+        InFlight(self.clone())
+    }
     pub fn next(&self, minimum: u64) -> Result<u64> {
         self.allocated.fetch_max(minimum, Ordering::SeqCst);
         self.allocated

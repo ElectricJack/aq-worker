@@ -47,10 +47,10 @@ pub struct NativeClient {
     fetch_deadline_ns: u64,
     node_slot: Option<(u32, u32)>,
 }
-pub(crate) use aq_node_service::native_transport::refused;
 pub use aq_node_service::native_transport::{
     FETCH_BACKOFF, FETCH_SPAN, FETCH_TRIES, HttpStatus, TransportFailed, fetch_retry_wait,
 };
+pub(crate) use aq_node_service::native_transport::{refused, retry_same};
 pub async fn fetch_retried<T, F>(deadline_ns: u64, call: impl FnMut() -> F) -> Result<T>
 where
     F: Future<Output = Result<T>>,

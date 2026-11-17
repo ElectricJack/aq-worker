@@ -33,6 +33,29 @@ pub async fn refused(response: Response) -> anyhow::Error {
     let gone = status == StatusCode::CONFLICT && body.contains("execution cancelled"); // released: 410, never retried
     HttpStatus([status, StatusCode::GONE][gone as usize], retry_after).into()
 }
+/// How often one request is resent after a `503`, and the first and longest wait between sends.
+pub const SAME_TRIES: u32 = 8;
+pub const SAME_BACKOFF: (Duration, Duration) =
+    (Duration::from_millis(60), Duration::from_millis(480));
+/// A `503` (`row lock contended; retry the same operation`, `unavailable`) says nothing was
+/// applied and asks for the same operation again. True after a short jittered wait when the
+/// caller should resend the identical request; false when the response is final, `tries` are
+/// used up, or the wait would pass `deadline_ns`. A transport failure is never resent here.
+pub async fn retry_same(response: &Response, tries: &mut u32, deadline_ns: u64, now: u64) -> bool {
+    if response.status() != StatusCode::SERVICE_UNAVAILABLE || *tries + 1 >= SAME_TRIES {
+        return false;
+    }
+    let (base, cap) = SAME_BACKOFF;
+    let wait = crate::backoff::equal_jittered(*tries, base, cap, &mut rand::thread_rng());
+    if now.saturating_add(wait.as_nanos() as u64) >= deadline_ns {
+        return false;
+    }
+    *tries += 1;
+    let path = response.url().path();
+    tracing::warn!(%path, attempt = *tries, "native endpoint answered 503; same operation resent in {wait:?}");
+    tokio::time::sleep(wait).await;
+    true
+}
 /// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
 /// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.
 pub const FETCH_TRIES: u32 = 5;

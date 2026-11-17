@@ -131,6 +131,8 @@ async fn run_admitted<E: NativeExecutor>(
 ) -> Result<RunDisposition> {
     config.validate()?;
     config.capacity.slots = 1;
+    // The service keeps one heartbeat per node, also against a server without node slots.
+    let serviced = node.is_some();
     let node = node.filter(|(n, _)| n.aware());
     // No network or state-directory publication precedes this implementation gate.
     executor.preflight(&config)?;
@@ -170,7 +172,7 @@ async fn run_admitted<E: NativeExecutor>(
         !journal.recovery_required(),
         "native history cannot admit new work; use reconcile-native to report retained outcome"
     );
-    let (heartbeat, shutdown) = if node.is_some() {
+    let (heartbeat, shutdown) = if serviced {
         (None, shutdown)
     } else {
         let (heartbeat, shutdown) = heartbeat::Heartbeat::start(worker, shutdown).await?;
@@ -204,39 +206,14 @@ async fn run_admitted<E: NativeExecutor>(
         .scoped_presence(profile, config.harness_qualifications.clone(), 0)
         .await?;
     let mut poll_shutdown = shutdown.clone();
-    // Keep the acknowledged snapshot stable while its offer is assembled.
-    let inventory_cache = tokio::sync::Mutex::new(None::<(u64, u64)>);
     let report_only = std::sync::atomic::AtomicBool::new(false);
     let poll_once = || async {
         if let Some(h) = &heartbeat {
             h.check()?;
         }
         let _inventory = pipeline.inventory.gate.lock().await;
-        let now = super::http::boot_ns()?;
-        let mut cached = inventory_cache.lock().await;
-        let sequence = if let Some((sequence, deadline)) = *cached
-            && sequence
-                == pipeline
-                    .inventory
-                    .acknowledged
-                    .load(std::sync::atomic::Ordering::SeqCst)
-            && deadline.saturating_sub(now) > 5_000_000_000
-        {
-            sequence
-        } else {
-            let inventory = producer.begin_inventory(config.inventory_ttl_ms)?;
-            let acknowledged = producer.publish_inventory(&inventory).await?;
-            let deadline = acknowledged.deadline_ns();
-            ensure!(
-                super::http::boot_ns()? < deadline,
-                "native inventory expired before poll"
-            );
-            let sequence = inventory.request().sequence;
-            pipeline.record_inventory_sequence(sequence);
-            *cached = Some((sequence, deadline));
-            sequence
-        };
-        drop(cached);
+        let need = pipeline.inventory.poll_need(config.inventory_ttl_ms);
+        let sequence = node_inventory(&pipeline, &producer, config.inventory_ttl_ms, need).await?;
         if report_only.load(std::sync::atomic::Ordering::Relaxed) || *shutdown.borrow() {
             return Ok(None);
         }
@@ -261,13 +238,18 @@ async fn run_admitted<E: NativeExecutor>(
             page.page.offers.len() <= 1 && page.page.offers.len() == page.offer_deadlines_ns.len(),
             "native poll cardinality"
         );
-        Ok(page
-            .page
-            .offers
-            .pop()
-            .map(|offer| (offer, page.offer_deadlines_ns[0])))
+        let offer = page.page.offers.pop();
+        // From here a renewal of the node's report waits for this slot (see `poll_need`).
+        Ok(offer.map(|offer| {
+            (
+                offer,
+                page.offer_deadlines_ns[0],
+                pipeline.inventory.flight(),
+            )
+        }))
     };
-    let (offer, offer_deadline) = match pause {
+    let (first, interval) = aq_node_service::polling::staggered(IDLE_POLL_INTERVAL);
+    let (offer, offer_deadline, in_flight) = match pause {
         None => match poll_once().await? {
             Some(found) => found,
             None if *poll_shutdown.borrow() => return Ok(RunDisposition::ShutdownBeforeAdmission),
@@ -278,15 +260,8 @@ async fn run_admitted<E: NativeExecutor>(
                 report_only.store(!offers, std::sync::atomic::Ordering::Relaxed);
                 poll_once()
             };
-            match poll_until_offer(
-                poll,
-                IDLE_POLL_INTERVAL,
-                hold,
-                &mut poll_shutdown,
-                &mut pause,
-            )
-            .await?
-            {
+            tokio::time::sleep(first).await;
+            match poll_until_offer(poll, interval, hold, &mut poll_shutdown, &mut pause).await? {
                 PollLoop::Offer(found) => found,
                 PollLoop::Paused => return Ok(RunDisposition::PollingPaused),
                 PollLoop::Shutdown => return Ok(RunDisposition::ShutdownBeforeAdmission),
@@ -311,6 +286,7 @@ async fn run_admitted<E: NativeExecutor>(
         .reserve(offer.clone(), config.runtime.clone(), deadline, disk)
         .await?;
     let grant = prepare::collect(&pipeline, &producer, &config, id, &offer, deadline, git).await?;
+    drop(in_flight);
     check_root(&config, &held)?;
     if let Some(h) = &heartbeat {
         h.check()?;
@@ -350,6 +326,28 @@ async fn run_admitted<E: NativeExecutor>(
         h.check()?;
     }
     Ok(RunDisposition::AttemptStopped)
+}
+/// The node's one inventory stream (its gate held): every slot uses the sequence the node last
+/// had acknowledged, and a new report is sent only when that one has `need_ns` or less left.
+async fn node_inventory(
+    pipeline: &InputPipeline,
+    producer: &super::preparation::ScopedPresenceProducer,
+    ttl_ms: u64,
+    need_ns: u64,
+) -> Result<u64> {
+    if let Some(sequence) = pipeline.inventory.current(super::http::boot_ns()?, need_ns) {
+        return Ok(sequence);
+    }
+    let inventory = producer.begin_inventory(ttl_ms)?;
+    let deadline = producer.publish_inventory(&inventory).await?.deadline_ns();
+    ensure!(
+        super::http::boot_ns()? < deadline,
+        "native inventory expired before poll"
+    );
+    pipeline
+        .inventory
+        .record(inventory.request().sequence, deadline);
+    Ok(inventory.request().sequence)
 }
 fn check_root(config: &NativeConfig, held: &std::fs::File) -> Result<()> {
     aq_node_service::session::check_state_root(&config.state_dir, held)

@@ -69,9 +69,9 @@ macro_rules! collect_profile {
                 .$hydrate(id, preparation.clone(), spec, git)
                 .await?;
             let _inventory = pipeline.inventory.gate.lock().await;
-            let refreshed = inventory.begin_inventory(config.inventory_ttl_ms)?;
-            inventory.publish_inventory(&refreshed).await?;
-            pipeline.record_inventory_sequence(refreshed.request().sequence);
+            // The execution request needs a live report, not a new one: a third of the TTL.
+            let (ttl, need) = (config.inventory_ttl_ms, config.inventory_ttl_ms * 333_333);
+            node_inventory(pipeline, inventory, ttl, need).await?;
             let inputs = pipeline
                 .$prepare(id, preparation, artifacts, workspace)
                 .await?;
