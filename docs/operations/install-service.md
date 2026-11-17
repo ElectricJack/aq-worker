@@ -39,6 +39,29 @@ build. `native.json` pins exact image and tool digests, so a file from another
 build will not match the binaries. `--native-template` and `--repositories`
 override the two defaults.
 
+`repositories.json` only pre-registers repositories. A worker runs work for any
+repository: one that is not listed is registered with the slot's `aq-git` from the
+offer that names it (its id, identity and binding generation come with the offer's
+source), the first time the slot sees it. `aq-worker service enroll` runs without
+`--repositories`, and `service.toml` needs no `repositories` key. Manual sessions are
+the exception: they clone from `[manual] source_slugs` (or a listed repository whose
+identity is an `owner/name`), so they run only for listed repositories.
+
+### After a failed attempt
+
+A slot whose attempt failed is settled at once and comes up again. It reports to the
+server (heartbeat, inventory) while it waits and only asks for no offer until the pause
+has passed. Optional `[retry]` keys in `service.toml` set the pauses, in milliseconds:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `offer_pause_ms` | 3000 | After the server refused the slot (409, another 4xx, 503), one offer failed before its launch (its source, a local `aq-git` refusal), or the server was not reached. |
+| `offer_pause_max_ms` | 30000 | Ceiling of that pause. It doubles while the same kind of failure repeats and starts again after another kind or a finished attempt. |
+| `fault_backoff_start_ms` | 30000 | After any other failure (the sandbox, the disk, a refused credential) and after a failed recovery. Doubles until an attempt finishes. |
+| `fault_backoff_max_ms` | 300000 | Ceiling of that back-off. |
+
+A slot that fails as it starts cannot report; it waits the same time without reporting.
+
 ## Install
 
 ```sh

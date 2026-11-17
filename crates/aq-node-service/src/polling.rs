@@ -10,18 +10,25 @@ pub enum PollLoop<T> {
     Paused,
     Shutdown,
 }
-/// Calls `poll` until it yields `Some`, sleeping `interval` between calls. `pause` and
+/// Calls `poll(true)` until it yields `Some`, sleeping `interval` between calls. `pause` and
 /// `shutdown` are checked before every call and during the sleep; an `Err` ends the loop.
+///
+/// For the first `hold` (the pause after a failed attempt) the calls are `poll(false)`: the
+/// poll then only reports (inventory, on the same schedule) and asks for no offer, so a slot
+/// that waits is still shown with a current capability report. The first `poll(true)` comes
+/// when the hold ends, not at the next interval.
 pub async fn poll_until_offer<T, F, Fut>(
     mut poll: F,
     interval: std::time::Duration,
+    hold: std::time::Duration,
     shutdown: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<bool>,
 ) -> Result<PollLoop<T>>
 where
-    F: FnMut() -> Fut,
+    F: FnMut(bool) -> Fut,
     Fut: Future<Output = Result<Option<T>>>,
 {
+    let resume = tokio::time::Instant::now() + hold;
     loop {
         if *pause.borrow() {
             return Ok(PollLoop::Paused);
@@ -29,11 +36,18 @@ where
         if *shutdown.borrow() {
             return Ok(PollLoop::Shutdown);
         }
-        if let Some(offer) = poll().await? {
+        let held = resume.saturating_duration_since(tokio::time::Instant::now());
+        if let Some(offer) = poll(held.is_zero()).await? {
             return Ok(PollLoop::Offer(offer));
         }
+        let held = resume.saturating_duration_since(tokio::time::Instant::now());
+        let wait = if held.is_zero() {
+            interval
+        } else {
+            held.min(interval)
+        };
         tokio::select! {
-            _ = tokio::time::sleep(interval) => {}
+            _ = tokio::time::sleep(wait) => {}
             changed = shutdown.changed() => if changed.is_err() { return Ok(PollLoop::Shutdown) },
             // A dropped pause sender never pauses; the sleep still ends the wait.
             _ = async { if pause.changed().await.is_err() { std::future::pending::<()>().await } } => {}
@@ -50,12 +64,13 @@ mod tests {
         let (_s, mut shutdown) = watch::channel(false);
         let (_p, mut pause) = watch::channel(false);
         let found = poll_until_offer(
-            || {
+            |_| {
                 calls.set(calls.get() + 1);
                 let n = calls.get();
                 async move { Ok((n == 3).then_some(7)) }
             },
             std::time::Duration::from_secs(10),
+            std::time::Duration::ZERO,
             &mut shutdown,
             &mut pause,
         )
@@ -70,11 +85,12 @@ mod tests {
         let (_s, mut shutdown) = watch::channel(false);
         let (_p, mut pause) = watch::channel(true);
         let found = poll_until_offer(
-            || {
+            |_| {
                 calls.set(calls.get() + 1);
                 async { Ok(Some(1)) }
             },
             std::time::Duration::from_secs(10),
+            std::time::Duration::ZERO,
             &mut shutdown,
             &mut pause,
         )
@@ -93,11 +109,12 @@ mod tests {
             stop.send(true).unwrap();
         };
         let looped = poll_until_offer(
-            || {
+            |_| {
                 calls.set(calls.get() + 1);
                 async { Ok(None::<i32>) }
             },
             std::time::Duration::from_secs(10),
+            std::time::Duration::ZERO,
             &mut shutdown,
             &mut pause,
         );
@@ -110,12 +127,39 @@ mod tests {
         let (_s, mut shutdown) = watch::channel(false);
         let (_p, mut pause) = watch::channel(false);
         let error = poll_until_offer(
-            || async { Err::<Option<i32>, _>(anyhow::anyhow!("boom")) },
+            |_| async { Err::<Option<i32>, _>(anyhow::anyhow!("boom")) },
             std::time::Duration::from_secs(10),
+            std::time::Duration::ZERO,
             &mut shutdown,
             &mut pause,
         )
         .await;
         assert!(error.is_err_and(|e| e.to_string() == "boom"));
+    }
+    /// During a hold the poll only reports, on the idle schedule, and the first real poll
+    /// comes exactly when the hold ends.
+    #[tokio::test(start_paused = true)]
+    async fn a_held_poll_reports_on_schedule_and_asks_for_offers_when_the_hold_ends() {
+        let seen = std::cell::RefCell::new(Vec::new());
+        let (_s, mut shutdown) = watch::channel(false);
+        let (_p, mut pause) = watch::channel(false);
+        let start = tokio::time::Instant::now();
+        let found = poll_until_offer(
+            |offers: bool| {
+                seen.borrow_mut().push((start.elapsed().as_secs(), offers));
+                async move { Ok(offers.then_some(7)) }
+            },
+            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(24),
+            &mut shutdown,
+            &mut pause,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(found, PollLoop::Offer(7)));
+        assert_eq!(
+            *seen.borrow(),
+            [(0, false), (10, false), (20, false), (24, true)]
+        );
     }
 }

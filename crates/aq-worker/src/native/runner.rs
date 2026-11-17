@@ -95,22 +95,23 @@ pub async fn run_once<E: NativeExecutor>(
 ) -> Result<RunDisposition> {
     run_admitted(worker, config, executor, shutdown, None).await
 }
-/// Poll until offer/pause/shutdown, renewing acknowledged inventory near expiry.
+/// Poll until offer/pause/shutdown, renewing inventory near expiry; for `hold` it only reports.
 pub async fn run_until_attempt<E: NativeExecutor>(
     worker: &WorkerConfig,
     config: NativeConfig,
     executor: &mut E,
     shutdown: watch::Receiver<bool>,
     pause: watch::Receiver<bool>,
+    hold: std::time::Duration,
 ) -> Result<RunDisposition> {
-    run_admitted(worker, config, executor, shutdown, Some(pause)).await
+    run_admitted(worker, config, executor, shutdown, Some((pause, hold))).await
 }
 async fn run_admitted<E: NativeExecutor>(
     worker: &WorkerConfig,
     config: NativeConfig,
     executor: &mut E,
     shutdown: watch::Receiver<bool>,
-    pause: Option<watch::Receiver<bool>>,
+    pause: Option<(watch::Receiver<bool>, std::time::Duration)>,
 ) -> Result<RunDisposition> {
     config.validate()?;
     // No network or state-directory publication precedes this implementation gate.
@@ -162,6 +163,7 @@ async fn run_admitted<E: NativeExecutor>(
     let mut poll_shutdown = shutdown.clone();
     // Keep the acknowledged snapshot stable while its offer is assembled.
     let inventory_cache = tokio::sync::Mutex::new(None::<(u64, u64)>);
+    let report_only = std::sync::atomic::AtomicBool::new(false);
     let poll_once = || async {
         heartbeat.check()?;
         let now = super::http::boot_ns()?;
@@ -184,7 +186,7 @@ async fn run_admitted<E: NativeExecutor>(
             sequence
         };
         drop(cached);
-        if *shutdown.borrow() {
+        if report_only.load(std::sync::atomic::Ordering::Relaxed) || *shutdown.borrow() {
             return Ok(None);
         }
         let available = pipeline.available().await?;
@@ -220,10 +222,15 @@ async fn run_admitted<E: NativeExecutor>(
             None if *poll_shutdown.borrow() => return Ok(RunDisposition::ShutdownBeforeAdmission),
             None => return Ok(RunDisposition::NoOffer),
         },
-        Some(mut pause) => {
+        Some((mut pause, hold)) => {
+            let poll = |offers: bool| {
+                report_only.store(!offers, std::sync::atomic::Ordering::Relaxed);
+                poll_once()
+            };
             match poll_until_offer(
-                poll_once,
+                poll,
                 IDLE_POLL_INTERVAL,
+                hold,
                 &mut poll_shutdown,
                 &mut pause,
             )

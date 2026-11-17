@@ -29,6 +29,40 @@ pub struct ServiceConfig {
     pub manual: Option<ManualConfig>,
     #[serde(default = "default_shutdown_grace_ms")]
     pub shutdown_grace_ms: u64,
+    /// `[retry]`: how long a slot pauses after a failed attempt. Optional, as is each key.
+    #[serde(default, skip_serializing_if = "RetryConfig::is_default")]
+    pub retry: RetryConfig,
+}
+/// The pause of a slot after a failed attempt (`supervisor::FailureKind`). While it pauses the
+/// slot still reports to the server; it only asks for no offer.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct RetryConfig {
+    /// After the server refused the slot, one offer failed before its launch, or the server
+    /// was not reached: the pause before the slot asks for another offer.
+    pub offer_pause_ms: u64,
+    /// Ceiling of that pause, which doubles while the same kind of failure repeats.
+    pub offer_pause_max_ms: u64,
+    /// After any other failure (this machine's sandbox, disk or credential) or a failed
+    /// recovery: the first pause, which doubles until an attempt finishes.
+    pub fault_backoff_start_ms: u64,
+    /// Ceiling of that back-off.
+    pub fault_backoff_max_ms: u64,
+}
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            offer_pause_ms: 3_000,
+            offer_pause_max_ms: 30_000,
+            fault_backoff_start_ms: crate::supervisor::BACKOFF_START.as_millis() as u64,
+            fault_backoff_max_ms: crate::supervisor::BACKOFF_MAX.as_millis() as u64,
+        }
+    }
+}
+impl RetryConfig {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -152,6 +186,14 @@ impl ServiceConfig {
         ensure!(
             (10_000..=600_000).contains(&self.shutdown_grace_ms),
             "shutdown_grace_ms must be 10000..=600000"
+        );
+        let r = &self.retry;
+        ensure!(
+            (100..=60_000).contains(&r.offer_pause_ms)
+                && (r.offer_pause_ms..=600_000).contains(&r.offer_pause_max_ms)
+                && (1_000..=3_600_000).contains(&r.fault_backoff_start_ms)
+                && (r.fault_backoff_start_ms..=86_400_000).contains(&r.fault_backoff_max_ms),
+            "invalid [retry]: offer_pause_ms 100..=60000 <= offer_pause_max_ms <= 600000, fault_backoff_start_ms 1000..=3600000 <= fault_backoff_max_ms <= 86400000"
         );
         if let Some(m) = &self.manual {
             ensure!(
@@ -316,6 +358,7 @@ mod tests {
             repositories: vec![],
             manual: None,
             shutdown_grace_ms: 120_000,
+            retry: Default::default(),
         }
     }
     fn manual(token: &str) -> ManualConfig {
@@ -650,6 +693,30 @@ git_executable = "/usr/bin/git"
         let c: ServiceConfig = toml::from_str(text).unwrap();
         c.validate().unwrap();
         assert_eq!(c.shutdown_grace_ms, 120_000);
+        // No repositories list: every repository is registered from its offer. No [retry]:
+        // the defaults, which are not written back.
+        assert!(c.repositories.is_empty());
+        let r = &c.retry;
+        assert_eq!(
+            (r.offer_pause_ms, r.offer_pause_max_ms),
+            (3_000, 30_000),
+            "the short pause and its ceiling"
+        );
+        assert_eq!(
+            (r.fault_backoff_start_ms, r.fault_backoff_max_ms),
+            (30_000, 300_000)
+        );
+        assert!(!toml::to_string(&c).unwrap().contains("retry"));
+        let set = format!("{text}[retry]\noffer_pause_max_ms = 10000\n");
+        let set = ServiceConfig::parse(&set).unwrap();
+        set.validate().unwrap();
+        assert_eq!(set.retry.offer_pause_max_ms, 10_000);
+        assert_eq!(set.retry.offer_pause_ms, 3_000, "each key is optional");
+        let again = ServiceConfig::parse(&toml::to_string(&set).unwrap()).unwrap();
+        assert_eq!(again.retry, set.retry);
+        let mut bad = set.clone();
+        bad.retry.offer_pause_max_ms = 1_000;
+        assert!(bad.validate().is_err(), "a ceiling below the pause");
         assert_eq!(c.stop_timeout_secs(), 150, "the template's default");
         let longest = ServiceConfig {
             shutdown_grace_ms: 600_000,

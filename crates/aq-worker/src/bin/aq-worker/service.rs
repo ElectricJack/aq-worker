@@ -88,9 +88,10 @@ pub struct ServiceEnrollArgs {
     aq_git: PathBuf,
     #[arg(long, default_value = "/usr/bin/git")]
     git_executable: PathBuf,
-    /// JSON array of RepositoryBinding.
+    /// JSON array of RepositoryBinding to register before any offer (optional: a repository
+    /// an offer names is registered from the offer when it is first seen).
     #[arg(long)]
-    repositories: PathBuf,
+    repositories: Option<PathBuf>,
     /// Enroll a profile that is already enrolled (after a revoke): redeems a new code and
     /// replaces its credentials and configuration. `service install` then restarts it.
     #[arg(long)]
@@ -444,7 +445,7 @@ impl SlotBackend for NativeSlotBackend {
         let cfg = self.native_config(&ctx)?;
         let mut executor = ClaudeDockerExecutor::configured(&worker)?;
         Ok(
-            match run_until_attempt(&worker, cfg, &mut executor, shutdown, pause).await? {
+            match run_until_attempt(&worker, cfg, &mut executor, shutdown, pause, ctx.hold).await? {
                 RunDisposition::AttemptStopped => AttemptOutcome::AttemptStopped,
                 RunDisposition::PollingPaused => AttemptOutcome::Paused,
                 RunDisposition::ShutdownBeforeAdmission | RunDisposition::NoOffer => {
@@ -556,11 +557,13 @@ async fn enroll_in(
         .clone()
         .or(hostname)
         .context("cannot determine hostname; pass --name")?;
-    let repositories: Vec<RepositoryBinding> = serde_json::from_slice(
-        &std::fs::read(&args.repositories)
-            .with_context(|| format!("read {}", args.repositories.display()))?,
-    )
-    .context("repositories must be a JSON array of repository bindings")?;
+    let repositories: Vec<RepositoryBinding> = match &args.repositories {
+        None => vec![],
+        Some(path) => serde_json::from_slice(
+            &std::fs::read(path).with_context(|| format!("read {}", path.display()))?,
+        )
+        .context("repositories must be a JSON array of repository bindings")?,
+    };
     let template = std::fs::read(&args.native_template)
         .with_context(|| format!("read {}", args.native_template.display()))?;
     let native = layout.config_dir.join("native.json");
@@ -580,6 +583,7 @@ async fn enroll_in(
         repositories,
         manual: None,
         shutdown_grace_ms: 120_000,
+        retry: Default::default(),
     };
     // Repository count and format, absolute paths, bounds, and the
     // socket paths under the runtime root.
@@ -829,6 +833,7 @@ async fn release_sandbox(
         git_socket: layout.git_socket(slot),
         host_root: state_dir.join("host"),
         state_dir,
+        hold: std::time::Duration::ZERO,
     };
     let cfg = slot_native_config(&config.native_template, &ctx)?;
     let current = layout.current(slot);
@@ -982,6 +987,7 @@ mod tests {
             state_dir: dir.join("current"),
             host_root: dir.join("run/1/host"),
             git_socket: dir.join("run/1/git.sock"),
+            hold: std::time::Duration::ZERO,
         }
     }
     #[test]
@@ -1098,7 +1104,7 @@ mod tests {
                 native_template: at("native.json"),
                 aq_git: at("aq-git"),
                 git_executable: "/usr/bin/git".into(),
-                repositories: at("repositories.json"),
+                repositories: Some(at("repositories.json")),
                 reconfigure: false,
             }
         }

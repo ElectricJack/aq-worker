@@ -2,7 +2,7 @@
 //! markers and the graceful stop.
 use crate::{
     EnrollmentFile, Layout, LinkError, RepositoryBinding, ServerLink, ServiceConfig,
-    config::{AqGitConfig, STOP_MARGIN},
+    config::{AqGitConfig, RetryConfig, STOP_MARGIN},
     enrollment_file::write_private,
     git::AqGit,
 };
@@ -28,6 +28,10 @@ pub struct SlotContext {
     /// directory.
     pub host_root: PathBuf,
     pub git_socket: PathBuf,
+    /// What is left of the pause after a failed attempt. The backend comes up and reports
+    /// (heartbeat, inventory) at once, but asks for no offer until it has passed
+    /// (`polling::poll_until_offer`), so a waiting slot never shows an expired report.
+    pub hold: Duration,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum AttemptOutcome {
@@ -371,14 +375,89 @@ async fn signalled(rx: &mut watch::Receiver<bool>) {
 async fn drain(loops: &mut JoinSet<()>) {
     while loops.join_next().await.is_some() {}
 }
-/// Waits `backoff` (false when the service stops first), then doubles it up to `BACKOFF_MAX`.
-async fn back_off(stopping: &mut watch::Receiver<bool>, backoff: &mut Duration) -> bool {
-    let waited = tokio::select! {
-        () = tokio::time::sleep(*backoff) => true,
-        _ = stopping.wait_for(|v| *v) => false,
-    };
-    *backoff = (*backoff * 2).min(BACKOFF_MAX);
+/// Waits `backoff` (false when the service stops first), then doubles it up to `max`.
+async fn back_off(
+    stopping: &mut watch::Receiver<bool>,
+    backoff: &mut Duration,
+    max: Duration,
+) -> bool {
+    let waited = wait(stopping, *backoff).await;
+    *backoff = (*backoff * 2).min(max);
     waited
+}
+/// Waits `time`; false when the service stops first.
+async fn wait(stopping: &mut watch::Receiver<bool>, time: Duration) -> bool {
+    tokio::select! {
+        () = tokio::time::sleep(time) => true,
+        _ = stopping.wait_for(|v| *v) => false,
+    }
+}
+
+/// Why an attempt failed, read from its error text (the backend's errors cross the
+/// `SlotBackend` boundary as text; `SERVER_REFUSED` is found the same way). It decides how long
+/// the slot pauses before it asks for another offer (`RetryConfig`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureKind {
+    /// The server answered with a refusal (409, another 4xx) or 503: nothing is wrong here.
+    Refused,
+    /// One offer could not be prepared (its source, a local aq-git refusal): another may work.
+    Offer,
+    /// The server was not reached.
+    Unreachable,
+    /// Everything else, which includes this machine's own faults (sandbox, disk, a refused
+    /// credential): the long back-off.
+    Fault,
+}
+impl FailureKind {
+    pub fn of(error: &str) -> Self {
+        let has = |s: &str| error.contains(s);
+        if has("endpoint returned 401") || has("endpoint returned 403") {
+            Self::Fault
+        } else if has("endpoint returned 4") || has("endpoint returned 503") {
+            Self::Refused
+        } else if has("aq-git refused") || has("native source") {
+            Self::Offer
+        } else if has("transport failed") || has("error sending request") {
+            Self::Unreachable
+        } else {
+            Self::Fault
+        }
+    }
+}
+/// A slot's run of failed attempts since its last finished one.
+struct Failures {
+    last: Option<FailureKind>,
+    /// How often `last` came in a row after its first time.
+    repeats: u32,
+    /// The next long back-off; also the wait after a failed recovery.
+    fault: Duration,
+}
+impl Failures {
+    fn new(retry: &RetryConfig) -> Self {
+        Self {
+            last: None,
+            repeats: 0,
+            fault: Duration::from_millis(retry.fault_backoff_start_ms),
+        }
+    }
+    /// The pause after a failure of `kind`. A fault doubles from its start to its ceiling
+    /// until an attempt finishes. Any other kind is the short pause, doubled for each
+    /// repeat of the same kind up to the low ceiling.
+    fn pause(&mut self, kind: FailureKind, retry: &RetryConfig) -> Duration {
+        self.repeats = match self.last.replace(kind) {
+            Some(last) if last == kind => self.repeats + 1,
+            _ => 0,
+        };
+        if kind == FailureKind::Fault {
+            let now = self.fault;
+            self.fault = (now * 2).min(Duration::from_millis(retry.fault_backoff_max_ms));
+            return now;
+        }
+        let pause = retry
+            .offer_pause_ms
+            .saturating_mul(1 << self.repeats.min(20));
+        Duration::from_millis(pause.min(retry.offer_pause_max_ms))
+    }
 }
 
 impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
@@ -391,6 +470,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             state_dir,
             host_root: layout.host_root(slot),
             git_socket: layout.git_socket(slot),
+            hold: Duration::ZERO,
         }
     }
     fn archive(&self, ctx: &SlotContext) {
@@ -467,7 +547,14 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         out
     }
     async fn slot_loop(self: Arc<Self>, slot: u32) {
-        let mut backoff = BACKOFF_START;
+        let retry = self.sup.config.retry.clone();
+        let fault_max = Duration::from_millis(retry.fault_backoff_max_ms);
+        let mut failures = Failures::new(&retry);
+        // No offer is asked for before `resume`. The wait is spent inside the next attempt
+        // (`SlotContext::hold`), which reports while it waits; `holds` is false once an attempt
+        // failed during its hold (it cannot stay up), and the wait is then spent here.
+        let mut resume = tokio::time::Instant::now();
+        let mut holds = true;
         let mut stopping = self.stopping.subscribe();
         let mut pause = self.pause.tx.subscribe();
         let enrollment = self.sup.layout.slot_enrollment(slot);
@@ -476,10 +563,11 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 Ok(f) => break f.node_id,
                 Err(e) => tracing::error!(slot, "slot waits for its enrollment: {e:#}"),
             }
-            if !back_off(&mut stopping, &mut backoff).await {
+            if !back_off(&mut stopping, &mut failures.fault, fault_max).await {
                 return;
             }
         };
+        failures = Failures::new(&retry);
         loop {
             if *stopping.borrow() {
                 return;
@@ -495,9 +583,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                     tracing::warn!(
                         slot,
                         "recovery failed, retrying in {}s: {e:#}",
-                        backoff.as_secs()
+                        failures.fault.as_secs()
                     );
-                    if !back_off(&mut stopping, &mut backoff).await {
+                    if !back_off(&mut stopping, &mut failures.fault, fault_max).await {
                         return;
                     }
                     continue;
@@ -512,18 +600,37 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 }
                 tokio::select! { _ = pause.changed() => {}, _ = stopping.changed() => {} }
             }
-            match self.attempt(slot, node_id).await {
-                Ok(AttemptOutcome::AttemptStopped) => backoff = BACKOFF_START,
-                Ok(AttemptOutcome::Paused) => {}
+            let left = |resume: tokio::time::Instant| {
+                resume.saturating_duration_since(tokio::time::Instant::now())
+            };
+            if !holds && !wait(&mut stopping, left(resume)).await {
+                return;
+            }
+            match self.attempt(slot, node_id, left(resume)).await {
+                Ok(AttemptOutcome::AttemptStopped) => {
+                    (failures, holds) = (Failures::new(&retry), true);
+                }
+                Ok(AttemptOutcome::Paused) => holds = true,
                 Ok(AttemptOutcome::ShutdownBeforeAdmission) => return,
-                Err(e) => {
+                Err(e) if !left(resume).is_zero() => {
+                    holds = false;
                     tracing::warn!(
                         slot,
-                        "attempt failed, retrying in {}s: {e:#}",
-                        backoff.as_secs()
+                        "the slot could not stay up while it waited; it waits {}s without reporting: {e:#}",
+                        left(resume).as_secs()
+                    );
+                }
+                Err(e) => {
+                    let text = format!("{e:#}");
+                    let kind = FailureKind::of(&text);
+                    let delay = failures.pause(kind, &retry);
+                    tracing::warn!(
+                        slot,
+                        ?kind,
+                        "attempt failed, retrying in {}s: {text}",
+                        delay.as_secs()
                     );
                     // The server answered (a refusal, not a lost reply): recovery reads this.
-                    let text = format!("{e:#}");
                     if ["returned 4", "returned 503"]
                         .iter()
                         .any(|s| text.contains(&format!("native endpoint {s}")))
@@ -533,16 +640,17 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                             text.as_bytes(),
                         );
                     }
-                    if !back_off(&mut stopping, &mut backoff).await {
-                        return;
-                    }
+                    resume = tokio::time::Instant::now() + delay;
                 }
             }
         }
     }
-    async fn attempt(&self, slot: u32, node_id: Uuid) -> Result<AttemptOutcome> {
+    async fn attempt(&self, slot: u32, node_id: Uuid, hold: Duration) -> Result<AttemptOutcome> {
         let dir = self.sup.layout.fresh_current(slot)?;
-        let ctx = self.ctx(slot, node_id, dir.clone());
+        let ctx = SlotContext {
+            hold,
+            ..self.ctx(slot, node_id, dir.clone())
+        };
         self.active.lock().unwrap().insert(slot);
         let result = async {
             let git = self.sup.git.start(&dir, &ctx.git_socket).await?;
@@ -702,6 +810,10 @@ mod tests {
     enum Step {
         Outcome(AttemptOutcome),
         Error,
+        /// Fails with this text once it polls (after its hold).
+        Fail(&'static str),
+        /// Fails as it starts, before it could wait or report.
+        Down,
         /// Fails after admission: the journal holds the attempt.
         ErrorAdmitted,
         /// Finishes an admitted attempt (its journal holds it).
@@ -719,6 +831,8 @@ mod tests {
         recovery: Mutex<HashMap<u32, VecDeque<Result<RecoverOutcome, ()>>>>,
         calls: Mutex<Vec<String>>,
         run_times: Mutex<Vec<Instant>>,
+        /// When each attempt was started (it reports from then on) and the hold it was given.
+        starts: Mutex<Vec<(Instant, Duration)>>,
         observed: Mutex<Option<watch::Receiver<bool>>>,
         released: Mutex<Option<Instant>>,
         retained_empty: bool,
@@ -735,6 +849,20 @@ mod tests {
             mut pause: watch::Receiver<bool>,
         ) -> Result<AttemptOutcome> {
             self.calls.lock().unwrap().push(format!("run:{}", ctx.slot));
+            (self.starts.lock().unwrap()).push((Instant::now(), ctx.hold));
+            {
+                let mut script = self.script.lock().unwrap();
+                let steps = script.get_mut(&ctx.slot);
+                if let Some(steps) = steps.filter(|s| matches!(s.front(), Some(Step::Down))) {
+                    steps.pop_front();
+                    anyhow::bail!("docker down");
+                }
+            }
+            // As the real backend: it is up and reports during the hold, and polls after it.
+            tokio::select! {
+                () = sleep(ctx.hold) => {}
+                _ = pause.wait_for(|v| *v) => return Ok(AttemptOutcome::Paused),
+            }
             self.run_times.lock().unwrap().push(Instant::now());
             let step = self
                 .script
@@ -745,7 +873,8 @@ mod tests {
             match step {
                 None => Ok(AttemptOutcome::ShutdownBeforeAdmission),
                 Some(Step::Outcome(o)) => Ok(o),
-                Some(Step::Error) => anyhow::bail!("boom"),
+                Some(Step::Error) | Some(Step::Down) => anyhow::bail!("boom"),
+                Some(Step::Fail(text)) => anyhow::bail!(text),
                 Some(Step::Finished) => {
                     std::fs::write(ctx.state_dir.join("journal"), b"j").unwrap();
                     Ok(AttemptOutcome::AttemptStopped)
@@ -944,6 +1073,7 @@ mod tests {
             repositories: vec![],
             manual: None,
             shutdown_grace_ms: 10_000,
+            retry: Default::default(),
         };
         Rig {
             _dir: dir,
@@ -1087,9 +1217,9 @@ mod tests {
         assert_eq!(rig.layout.held_reason(2), None);
     }
 
-    /// R1: an attempt that failed in preparation stays for recovery; recovery settles it (the
-    /// backend reports it never started), the slot is archived, polls again, and a holding
-    /// reason left by an earlier hold is cleared once the slot settles.
+    /// R1: an attempt that failed in preparation stays for recovery; recovery settles it at once
+    /// (the backend reports it never started), the slot is archived, comes up again (it polls
+    /// after its pause), and a holding reason left by an earlier hold is cleared.
     #[tokio::test(start_paused = true)]
     async fn a_failed_preparation_is_settled_and_the_slot_polls_again() {
         let rig = rig(1);
@@ -1108,17 +1238,15 @@ mod tests {
             None,
             "cleared when the slot settles"
         );
-        assert!(
-            rig.layout.current(1).join("journal").exists(),
-            "kept for recovery"
-        );
-        sleep(Duration::from_secs(30)).await;
         assert_eq!(
             *backend.calls.lock().unwrap(),
             ["run:1", "recover:1", "run:1"],
-            "recovered once, then the next poll"
+            "recovered once, then up again"
         );
         assert_eq!(count(rig.layout.archive_dir(1)), 1, "settled and archived");
+        assert_eq!(backend.run_times.lock().unwrap().len(), 1, "no poll yet");
+        sleep(Duration::from_secs(30)).await;
+        assert_eq!(backend.run_times.lock().unwrap().len(), 2, "the next poll");
         assert_eq!(rig.layout.held_reason(1), None);
         stop(handle, tx).await;
     }
@@ -1247,7 +1375,8 @@ mod tests {
     }
 
     /// Review #1: an attempt that fails after admission keeps current/journal, and the next
-    /// round recovers it (handoff notice and salvage) before new work.
+    /// round recovers it (handoff notice and salvage) before new work, which waits out the
+    /// back-off of the failure.
     #[tokio::test(start_paused = true)]
     async fn failed_admitted_attempt_stays_for_recovery() {
         let rig = rig(1);
@@ -1258,9 +1387,6 @@ mod tests {
         script(&backend, 1, vec![Step::ErrorAdmitted, Step::Hang]);
         let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
         sleep(Duration::from_secs(1)).await;
-        assert!(rig.layout.current(1).join("journal").exists());
-        assert_eq!(count(rig.layout.archive_dir(1)), 0, "not archived");
-        sleep(Duration::from_secs(30)).await;
         assert_eq!(
             *backend.calls.lock().unwrap(),
             ["run:1", "recover:1", "run:1"]
@@ -1270,6 +1396,9 @@ mod tests {
             1,
             "archived after recovery"
         );
+        let starts = backend.starts.lock().unwrap().clone();
+        assert_eq!(starts[1].1, BACKOFF_START, "new work waits the back-off");
+        assert_eq!(backend.run_times.lock().unwrap().len(), 1);
         stop(handle, tx).await;
     }
 
@@ -1418,15 +1547,8 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
         assert_eq!(
             *backend.releases.lock().unwrap(),
-            [1],
-            "after the attempt (failed)"
-        );
-        assert!(rig.layout.current(1).join("journal").exists());
-        sleep(Duration::from_secs(30)).await;
-        assert_eq!(
-            *backend.releases.lock().unwrap(),
             [1, 1],
-            "settle, then archive"
+            "after the attempt (failed), then by settle before it archives"
         );
         assert_eq!(
             *backend.calls.lock().unwrap(),
@@ -1458,6 +1580,7 @@ mod tests {
         let rig = rig(1);
         let backend = Arc::new(FakeBackend::default());
         script(&backend, 1, vec![Step::ErrorAdmitted, Step::Hang]);
+        backend.recovery.lock().unwrap().insert(1, [Err(())].into());
         let ctl = control(vec![reply(vec![Uuid::from_u128(42)], None)]);
         let (handle, tx) = start(&rig, &backend, &ctl);
         sleep(Duration::from_secs(6)).await;
@@ -1766,5 +1889,171 @@ mod tests {
         assert_eq!(*backend.calls.lock().unwrap(), ["recover:1", "run:1"]);
         assert_eq!(count(rig.layout.archive_dir(1)), 1, "kept in the archive");
         stop(handle, tx).await;
+    }
+    const REFUSED: &str = "native endpoint returned 409 Conflict";
+    fn secs(times: &[Instant], since: Instant) -> Vec<u64> {
+        times.iter().map(|t| (*t - since).as_secs()).collect()
+    }
+    /// The laptop's loop: an offer the server refused (409) cost the slot 30 s to 300 s with no
+    /// report. Now the slot is settled and up again at once, reports while it waits the short
+    /// pause, and takes the next offer; the control poll keeps its schedule throughout.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_offer_frees_the_slot_after_the_short_pause() {
+        let rig = rig(1);
+        let backend = Arc::new(FakeBackend {
+            retained_empty: true,
+            ..Default::default()
+        });
+        script(&backend, 1, vec![Step::Fail(REFUSED), Step::Hang]);
+        let ctl = control(vec![reply(vec![], None)]);
+        let began = Instant::now();
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(12)).await;
+        let starts = backend.starts.lock().unwrap().clone();
+        let pause = Duration::from_millis(rig.config.retry.offer_pause_ms);
+        assert_eq!(pause, Duration::from_secs(3), "the default");
+        assert_eq!(
+            starts.iter().map(|s| s.1).collect::<Vec<_>>(),
+            [Duration::ZERO, pause],
+            "up again at once, asking for no offer during the pause"
+        );
+        assert_eq!(starts[1].0, starts[0].0, "it reports from the failure on");
+        let polled = backend.run_times.lock().unwrap().clone();
+        assert_eq!(
+            secs(&polled, starts[0].0),
+            [0, 3],
+            "the next offer is taken"
+        );
+        assert_eq!(secs(&ctl.polls.lock().unwrap(), began), [0, 5, 10]);
+        assert_eq!(count(rig.layout.archive_dir(1)), 0, "nothing was admitted");
+        stop(handle, tx).await;
+    }
+    /// Repeats of the same kind double the pause up to the configured ceiling; another kind
+    /// starts at the short pause again, and so does the first failure after a finished attempt.
+    #[tokio::test(start_paused = true)]
+    async fn repeated_refusals_stop_at_the_configured_ceiling_and_reset() {
+        let mut rig = rig(1);
+        rig.config.retry.offer_pause_max_ms = 20_000;
+        let backend = Arc::new(FakeBackend {
+            retained_empty: true,
+            ..Default::default()
+        });
+        let source = "aq-git refused: \"repository_not_found\" \"Repository is not registered\"";
+        let mut steps: Vec<Step> = (0..6).map(|_| Step::Fail(REFUSED)).collect();
+        steps.extend([Step::Fail(source), Step::Fail(source), Step::Finished]);
+        steps.extend([Step::Fail(REFUSED), Step::Hang]);
+        script(&backend, 1, steps);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(300)).await;
+        let times = backend.run_times.lock().unwrap().clone();
+        let gaps: Vec<u64> = times.windows(2).map(|w| (w[1] - w[0]).as_secs()).collect();
+        assert_eq!(gaps, [3, 6, 12, 20, 20, 20, 3, 6, 0, 3]);
+        stop(handle, tx).await;
+    }
+    /// A fault of this machine keeps the long back-off, and the slot reports during it. A
+    /// slot that cannot even stay up (it fails as it starts) waits here instead, without
+    /// reporting, and is not started again before the back-off has passed.
+    #[tokio::test(start_paused = true)]
+    async fn a_local_fault_backs_off_long_and_a_slot_that_cannot_stay_up_waits_outside() {
+        let rig = rig(2);
+        let backend = Arc::new(FakeBackend {
+            retained_empty: true,
+            ..Default::default()
+        });
+        let sandbox = "Claude driver host did not establish Running";
+        script(&backend, 1, vec![Step::Fail(sandbox), Step::Hang]);
+        script(
+            &backend,
+            2,
+            vec![Step::Error, Step::Down, Step::Error, Step::Hang],
+        );
+        let ctl = control(vec![reply(vec![], None)]);
+        let began = Instant::now();
+        let (handle, tx) = start(&rig, &backend, &ctl);
+        sleep(Duration::from_secs(100)).await;
+        let calls = backend.calls.lock().unwrap().clone();
+        let starts = backend.starts.lock().unwrap().clone();
+        let of = |slot: &str| -> Vec<(u64, u64)> {
+            let mine = calls.iter().zip(&starts).filter(|(c, _)| c.ends_with(slot));
+            mine.map(|(_, (at, hold))| ((*at - began).as_secs(), hold.as_secs()))
+                .collect()
+        };
+        assert_eq!(of(":1"), [(0, 0), (0, 30)], "up and reporting for the 30 s");
+        assert_eq!(of(":2"), [(0, 0), (0, 30), (30, 0), (90, 0)]);
+        let polls = secs(&ctl.polls.lock().unwrap(), began);
+        assert_eq!(polls, (0..20).map(|n| n * 5).collect::<Vec<u64>>());
+        stop(handle, tx).await;
+    }
+    /// The texts are the ones the service logged on the laptop and the desktop.
+    #[test]
+    fn failures_are_classified_from_their_text() {
+        use FailureKind::*;
+        for (text, kind) in [
+            (REFUSED, Refused),
+            ("native endpoint returned 503 Service Unavailable", Refused),
+            (
+                "source transfer endpoint returned 503 Service Unavailable",
+                Refused,
+            ),
+            ("native endpoint returned 413 Payload Too Large", Refused),
+            (
+                "aq-git refused: \"repository_not_found\" \"Repository is not registered\"",
+                Offer,
+            ),
+            ("native source bulk lane overloaded", Offer),
+            (
+                "native control transport failed; disposition unknown",
+                Unreachable,
+            ),
+            ("native endpoint returned 401 Unauthorized", Fault),
+            ("native endpoint returned 500 Internal Server Error", Fault),
+            ("Claude driver host did not establish Running", Fault),
+            ("No space left on device (os error 28)", Fault),
+        ] {
+            assert_eq!(FailureKind::of(text), kind, "{text}");
+        }
+    }
+    /// The repositories list only pre-registers: what it names is registered with the slot's
+    /// aq-git before the attempt, and without a list the attempt runs all the same (a
+    /// repository is then registered from the offer that names it).
+    #[tokio::test(start_paused = true)]
+    async fn listed_repositories_are_registered_before_the_attempt_and_none_are_needed() {
+        struct Recording(Arc<Mutex<Vec<Vec<RepositoryBinding>>>>);
+        #[async_trait::async_trait]
+        impl GitFactory for Recording {
+            async fn start(&self, _: &Path, _: &Path) -> Result<Box<dyn GitChild>> {
+                Ok(Box::new(Recording(self.0.clone())))
+            }
+        }
+        #[async_trait::async_trait]
+        impl GitChild for Recording {
+            async fn register(&self, repos: &[RepositoryBinding]) -> Result<()> {
+                self.0.lock().unwrap().push(repos.to_vec());
+                Ok(())
+            }
+            async fn stop(self: Box<Self>) -> Result<()> {
+                Ok(())
+            }
+        }
+        let listed = RepositoryBinding {
+            repository_id: Uuid::from_u128(7),
+            identity: "o/r".into(),
+            binding_generation: 1,
+            object_format: "sha1".into(),
+        };
+        for repositories in [vec![], vec![listed]] {
+            let mut rig = rig(1);
+            rig.config.repositories = repositories.clone();
+            let backend = Arc::new(FakeBackend::default());
+            script(&backend, 1, vec![Step::Hang]);
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let git = Arc::new(Recording(seen.clone()));
+            let ctl = control(vec![reply(vec![], None)]);
+            let (handle, tx) = start_with(&rig, &backend, &ctl, git);
+            sleep(Duration::from_secs(1)).await;
+            assert_eq!(*seen.lock().unwrap(), [repositories]);
+            assert_eq!(*backend.calls.lock().unwrap(), ["run:1"]);
+            stop(handle, tx).await;
+        }
     }
 }
