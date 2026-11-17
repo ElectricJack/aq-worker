@@ -213,7 +213,7 @@ pub async fn salvage_interrupted(
             Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
         }
     };
-    let git = GitClient::new(&config.git_socket, &config.git_root)?;
+    let git = config.git_client()?;
     let transfer = crate::transfer_client::TransferClient::from_config(worker, 1)?;
     let client = NativeClient::from_config(worker)?;
     check_root(config, &held)?;

@@ -1,7 +1,7 @@
 use aq_worker::{
     config::WorkerConfig,
     execution_client::ExecutionClient,
-    transfer_client::{TransferClient, TransferHttpError},
+    transfer_client::{PushedSource, TransferClient, TransferHttpError},
 };
 use aq_worker_protocol::{testing::*, *};
 use axum::{
@@ -471,4 +471,224 @@ fn credentials_in_urls_partial_access_credentials_and_unbounded_lanes_refuse() {
     assert!(TransferClient::from_config(&config, 9).is_err());
     config.cf_client_id = Some("id".into());
     assert!(TransferClient::from_config(&config, 1).is_err());
+}
+
+#[path = "support/git_http.rs"]
+mod git_http;
+use git_http::{git, smart_http};
+
+/// A real `git push` over HTTP: the attempt's ref arrives at the checkpoint, the node
+/// credential reaches the server in headers only, and a repeated push succeeds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn result_push_delivers_the_checkpoint_to_the_attempt_ref_with_headers_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let work = root.join("work");
+    std::fs::create_dir(&work).unwrap();
+    git(&work, &["init", "-q"]);
+    std::fs::write(work.join("result.txt"), "finished work").unwrap();
+    git(&work, &["add", "."]);
+    git(&work, &["commit", "-q", "-m", "checkpoint"]);
+    let sha = git(&work, &["rev-parse", "HEAD"]);
+    // The pool holds the commit under a retention ref, not on a branch.
+    let pool = root.join("objects.git");
+    git(&root, &["init", "-q", "--bare", "objects.git"]);
+    git(
+        &work,
+        &[
+            "push",
+            "-q",
+            pool.to_str().unwrap(),
+            "HEAD:refs/aq-git/retained/1",
+        ],
+    );
+    git(&root, &["init", "-q", "--bare", "remote.git"]);
+    git(
+        &root.join("remote.git"),
+        &["config", "http.receivepack", "true"],
+    );
+    // The pinned git, recording how it was started.
+    let pinned = root.join("pinned-git");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > {0}/argv\nenv > {0}/env\nexec /usr/bin/git \"$@\"\n",
+        root.display()
+    );
+    std::fs::write(&pinned, script).unwrap();
+    std::fs::set_permissions(&pinned, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (config, server) = serve(smart_http(root.clone(), seen.clone())).await;
+    let client = TransferClient::from_config(&config, 1).unwrap();
+    let attempt = sample_offer().attempt.attempt_id;
+    let checkpoint = ObjectId {
+        algorithm: ObjectAlgorithm::Sha1,
+        hex: sha.clone(),
+    };
+    let push = |git: std::path::PathBuf, oid: ObjectId, timeout: Duration| {
+        let (client, pool) = (client.clone(), pool.clone());
+        tokio::task::spawn_blocking(move || {
+            client.push_blocking(&git, &pool, attempt, &oid, timeout)
+        })
+    };
+    let minute = Duration::from_secs(60);
+    push(pinned.clone(), checkpoint.clone(), minute)
+        .await
+        .unwrap()
+        .unwrap();
+    let reference = format!("refs/aq/attempts/{attempt}");
+    let remote = root.join("remote.git");
+    assert_eq!(git(&remote, &["rev-parse", &reference]), sha);
+    assert_eq!(
+        git(&remote, &["for-each-ref", "--format=%(refname)"]),
+        reference
+    );
+    let requests = seen.lock().unwrap().clone();
+    let pushed = format!(
+        "POST {attempt} git-receive-pack Bearer synthetic-source-token synthetic-access-id synthetic-access-token"
+    );
+    assert!(requests.contains(&pushed), "{requests:?}");
+    assert!(
+        requests
+            .iter()
+            .all(|r| r.ends_with(&pushed[pushed.find("Bearer").unwrap()..]))
+    );
+
+    let url = format!("{}/v1/execution/git/{attempt}", config.server_url);
+    let argv = std::fs::read_to_string(root.join("argv")).unwrap();
+    let expected = [
+        "-C",
+        pool.to_str().unwrap(),
+        "-c",
+        "credential.helper=",
+        "-c",
+        "http.followRedirects=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "gc.auto=0",
+        "push",
+        "--porcelain",
+        "--no-verify",
+        &url,
+        &format!("{sha}:{reference}"),
+    ];
+    assert_eq!(argv.lines().collect::<Vec<_>>(), expected);
+    let env = std::fs::read_to_string(root.join("env")).unwrap();
+    for line in [
+        "GIT_TERMINAL_PROMPT=0",
+        "GIT_CONFIG_NOSYSTEM=1",
+        "GIT_CONFIG_GLOBAL=/dev/null",
+        "HOME=/dev/null",
+        "GIT_CONFIG_COUNT=3",
+        "GIT_CONFIG_KEY_0=http.extraHeader",
+        "GIT_CONFIG_VALUE_0=Authorization: Bearer synthetic-source-token",
+        "GIT_CONFIG_VALUE_1=cf-access-client-id: synthetic-access-id",
+        "GIT_CONFIG_VALUE_2=cf-access-client-secret: synthetic-access-token",
+    ] {
+        assert!(env.lines().any(|l| l == line), "{line} absent");
+    }
+    assert!(
+        !env.contains("CARGO"),
+        "the node's environment is not inherited"
+    );
+    for secret in [
+        "synthetic-source-token",
+        "synthetic-access-id",
+        "synthetic-access-token",
+    ] {
+        assert!(!argv.contains(secret), "credential in argv");
+    }
+    let config_file = std::fs::read_to_string(pool.join("config")).unwrap();
+    assert!(!config_file.contains("synthetic"), "credential on disk");
+
+    // A retry after a lost reply finds the ref up to date: still a success.
+    push(pinned.clone(), checkpoint, minute)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(git(&remote, &["rev-parse", &reference]), sha);
+
+    // A commit the pool does not hold fails without naming a credential.
+    let absent = ObjectId {
+        algorithm: ObjectAlgorithm::Sha1,
+        hex: "d".repeat(40),
+    };
+    let error = push(pinned, absent.clone(), minute)
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(!format!("{error:?}").contains("synthetic"), "{error:?}");
+    assert_eq!(git(&remote, &["rev-parse", &reference]), sha);
+
+    // A push that outlives its bound is killed.
+    let stuck = root.join("stuck-git");
+    std::fs::write(&stuck, "#!/bin/sh\nexec sleep 600\n").unwrap();
+    std::fs::set_permissions(&stuck, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let started = std::time::Instant::now();
+    let error = push(stuck, absent, Duration::from_millis(200))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(error.to_string().contains("exceeded"), "{error:?}");
+    assert!(started.elapsed() < Duration::from_secs(20));
+    server.abort();
+}
+
+#[tokio::test]
+async fn pushed_admission_sends_the_exact_request_and_requires_a_receipt() {
+    let request = PushedSource {
+        identity: sample_offer().identity,
+        operation_id: Uuid::from_u128(110),
+        transfer_id: manifest().transfer_id,
+        attempt: sample_offer().attempt,
+        resolved_spec_digest: sample_offer().spec.resolved_spec_digest,
+        source: manifest().source,
+        checkpoint: manifest().checkpoint,
+    };
+    let receipt = CentralRetentionReceipt {
+        receipt_id: Uuid::from_u128(111),
+        transfer_id: manifest().transfer_id,
+        repository_id: manifest().source.repository_id,
+        binding_generation: 1,
+        source: manifest().checkpoint,
+        retention_handle: Uuid::from_u128(112),
+        manifest_digest: "c".repeat(64),
+    };
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (counted, expected, retained) = (calls.clone(), request.clone(), receipt.clone());
+    let app = Router::new().route(
+        "/v1/execution/sources/pushed",
+        post(move |h: HeaderMap, Json(v): Json<Value>| async move {
+            assert_headers(&h);
+            assert_eq!(
+                v,
+                json!({
+                    "identity": expected.identity,
+                    "operation_id": expected.operation_id,
+                    "transfer_id": expected.transfer_id,
+                    "attempt": expected.attempt,
+                    "resolved_spec_digest": expected.resolved_spec_digest,
+                    "source": expected.source,
+                    "checkpoint": expected.checkpoint,
+                })
+            );
+            // The first reply confirms nothing; the retry is the same request.
+            let first = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+            Json(TransferStatus {
+                receipt: (!first).then_some(retained),
+                ..status(0)
+            })
+        }),
+    );
+    let (config, server) = serve(app).await;
+    let client = TransferClient::from_config(&config, 1).unwrap();
+    assert!(client.pushed(&request).await.is_err());
+    let status = client.pushed(&request).await.unwrap();
+    assert_eq!(status.receipt, Some(receipt));
+    let mut foreign = request.clone();
+    foreign.identity.node_id = Uuid::from_u128(999);
+    assert!(client.pushed(&foreign).await.is_err());
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    server.abort();
 }

@@ -123,6 +123,8 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
 /// The native pipeline behind the supervisor: one `run_until_attempt` per call.
 pub struct NativeSlotBackend {
     template: PathBuf,
+    /// aq-git's git executable (`aq_git.git_executable`); results are pushed with it.
+    git_executable: PathBuf,
     /// Attempts whose restart handoff notice the server accepted; a retried recovery does
     /// not post them again.
     notified: std::sync::Mutex<std::collections::HashSet<Uuid>>,
@@ -131,9 +133,10 @@ pub struct NativeSlotBackend {
     sessions: std::collections::BTreeMap<Uuid, Arc<NodeSession>>,
 }
 impl NativeSlotBackend {
-    pub fn new(template: PathBuf) -> Self {
+    pub fn new(template: PathBuf, git_executable: PathBuf) -> Self {
         Self {
             template,
+            git_executable,
             notified: Default::default(),
             manual_pause: Default::default(),
             native_active: Default::default(),
@@ -141,7 +144,7 @@ impl NativeSlotBackend {
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
-        slot_native_config(&self.template, ctx)
+        slot_native_config(&self.template, &self.git_executable, ctx)
     }
     async fn recover_attempts(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
         let worker = WorkerConfig::load(&ctx.enrollment)?;
@@ -246,8 +249,9 @@ fn held_if_permanent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome
 }
 /// The native template, pointed at the slot's state (journal, Git) and runtime directory
 /// (aq-git's socket, the session host root). The renderer is the template's own.
-fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
+fn slot_native_config(template: &Path, git: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
     let mut cfg = NativeConfig::load(template)?;
+    cfg.git_executable = git.into();
     cfg.capacity.slots = 1;
     cfg.state_dir = ctx.state_dir.clone();
     cfg.git_socket = ctx.git_socket.clone();
@@ -970,14 +974,17 @@ async fn release_sandbox(
         state_dir,
         hold: std::time::Duration::ZERO,
     };
-    let cfg = slot_native_config(&config.native_template, &ctx)?;
+    let cfg = slot_native_config(&config.native_template, &config.aq_git.git_executable, &ctx)?;
     let current = layout.current(slot);
     let retained = || {
         let at = SlotContext {
             state_dir: std::fs::canonicalize(&current)?,
             ..ctx.clone()
         };
-        retained_attempts(&slot_native_config(&config.native_template, &at)?, node)
+        retained_attempts(
+            &slot_native_config(&config.native_template, &config.aq_git.git_executable, &at)?,
+            node,
+        )
     };
     ensure!(
         force || !held_for_salvage(&current, attempt, retained),
@@ -1125,7 +1132,10 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     } else {
         None
     };
-    let mut native_backend = NativeSlotBackend::new(config.native_template.clone());
+    let mut native_backend = NativeSlotBackend::new(
+        config.native_template.clone(),
+        config.aq_git.git_executable.clone(),
+    );
     native_backend.manual_pause = manual_pause;
     native_backend.native_active = native_active;
     native_backend.sessions = sessions;
@@ -1863,7 +1873,10 @@ mod tests {
             cf_client_secret: None,
         }));
         let path = PathBuf::from("/nonexistent");
-        let backend: &'static NativeSlotBackend = Box::leak(Box::new(NativeSlotBackend::new(path)));
+        let backend: &'static NativeSlotBackend = Box::leak(Box::new(NativeSlotBackend::new(
+            path,
+            "/usr/bin/git".into(),
+        )));
         // `recover_attempts` is the body the async_trait `recover` boxes. It awaits
         // `release_lost` with the real closures (a docker backend and the server link), so the
         // lost-guardian release is measured inside it as instantiated in the service.

@@ -1,40 +1,26 @@
 //! Stopped-only, finite source effects through the original Git owner.
 use super::*;
 use crate::{
-    source::{GitAction, GitManifest, PendingGitOperation},
-    source_transfer::{
-        UploadAction, UploadState,
-        steps::{self, UploadAcknowledgment},
-    },
+    source::{GitAction, PendingGitOperation},
     transfer_client::TransferClient,
 };
-use aq_worker_protocol::{AttemptRef, NodeIdentity, SourceRole, TransferManifest, Validate as _};
-use sha2::{Digest as _, Sha256};
-use std::io::Read;
+use aq_worker_protocol::Validate as _;
 impl InputPipeline {
-    /// Only an actual stopped owner can checkpoint/export. Fresh current grant
-    /// is intentionally unnecessary for preserving already-produced source.
-    pub async fn capture_result_source(&self, stopped: &DurableStoppedResult) -> Result<()> {
-        let _lane = self
-            .bulk_slots
-            .clone()
-            .try_acquire_owned()
-            .context("native source capture overloaded")?;
-        capture(&Live(self, stopped)).await
-    }
-    /// One bounded authenticated transfer step; intent precedes I/O and the
-    /// original pending chunk/finalize is reused after response loss.
-    pub async fn transfer_result_source_step(
+    /// Only an actual stopped owner can checkpoint and push. A fresh current
+    /// grant is intentionally unnecessary for preserving already-produced
+    /// source. The checkpoint waits for the pipeline's one bulk lane instead of
+    /// failing a finished task; the push and its admission take no lane.
+    pub async fn deliver_result_source(
         &self,
         stopped: &DurableStoppedResult,
         client: &TransferClient,
-    ) -> Result<bool> {
-        let _lane = self
-            .bulk_slots
-            .clone()
-            .try_acquire_owned()
-            .context("native result transfer overloaded")?;
-        transfer_step(&Live(self, stopped), client).await
+    ) -> Result<()> {
+        let owner = Live(self, stopped);
+        {
+            let _lane = self.bulk_slots.clone().acquire_owned().await?;
+            checkpoint(&owner).await?;
+        }
+        deliver(&owner, client).await
     }
 }
 pub(super) async fn snapshot<O: StoppedOwner>(o: &O) -> Result<ResultHistory> {
@@ -49,117 +35,78 @@ pub(super) async fn snapshot<O: StoppedOwner>(o: &O) -> Result<ResultHistory> {
     })
     .await
 }
-pub(super) async fn capture<O: StoppedOwner>(o: &O) -> Result<()> {
-    git_effect(o, "checkpoint").await?;
-    git_effect(o, "export").await
+/// The finite delivery of a checkpoint: one push, then its admission.
+pub(super) async fn deliver<O: StoppedOwner>(o: &O, client: &TransferClient) -> Result<()> {
+    for _ in 0..2 {
+        if push_step(o, client).await? {
+            return Ok(());
+        }
+    }
+    anyhow::bail!("result push step bound exhausted")
 }
-/// Finite transfer bound: every manifest and bundle chunk, plus begin and finalize.
-pub(crate) fn transfer_bound(h: &ResultHistory) -> Result<u64> {
-    let export = h
-        .source
-        .export
-        .as_ref()
-        .context("actual result export absent")?;
-    let chunk = aq_worker_protocol::MAX_CHUNK_BYTES as u64;
-    export
-        .manifest_bytes
-        .div_ceil(chunk)
-        .checked_add(export.manifest.bundle_size.div_ceil(chunk))
-        .and_then(|n| n.checked_add(2))
-        .context("result transfer finite bound overflow")
-}
-async fn git_effect<O: StoppedOwner>(o: &O, key: &'static str) -> Result<()> {
+pub(super) async fn checkpoint<O: StoppedOwner>(o: &O) -> Result<()> {
+    const KEY: &str = "checkpoint";
     o.verify()?;
     let id = o.attempt_id();
     let expected = snapshot(o).await?;
-    if expected
-        .source
-        .operations
-        .get(key)
-        .is_some_and(|op| op.result.is_some())
-    {
+    if expected.source.checkpoint.is_some() {
         return Ok(());
     }
     let git = o.git();
-    let prepared = if expected.source.operations.contains_key(key) {
+    let prepared = if expected.source.operations.contains_key(KEY) {
         expected
     } else {
         let observed = expected.clone();
         // Query/census before freezing ONLY the first checkpoint intent.
         // A retry always uses the original expected head/generation/UUID.
-        let (head, size) = if key == "checkpoint" {
-            let git = git.clone();
-            let binding = expected.scope.source.clone();
-            let workspace = expected.scope.workspace.clone();
-            let roots = o.roots();
-            // The original complete allocation receipt is retained by this
-            // same journal owner. It is a comparison pin, not current proof.
-            let original = o
-                .journal(move |journal| {
-                    journal.state().attempts[&id]
-                        .source
-                        .as_ref()
-                        .and_then(|s| s.operations.get("create"))
-                        .and_then(|o| o.result.clone())
-                        .context("result original workspace allocation absent")
-                })
-                .await?;
-            let scope = expected.scope.clone();
-            tokio::task::spawn_blocking(move || -> Result<_> {
-                roots.verify()?;
-                let bytes = crate::source::workspace_bytes(&workspace.path)?;
-                let value = git.query(
-                    &binding,
-                    "workspace.inspect",
-                    serde_json::json!({"workspace_id":workspace.workspace_id}),
-                )?;
-                let head = inspect_checkpoint_workspace(&value, &original, &scope)?;
-                roots.verify()?;
-                Ok((Some(head), Some(bytes)))
+        let git = git.clone();
+        let binding = expected.scope.source.clone();
+        let workspace = expected.scope.workspace.clone();
+        let roots = o.roots();
+        // The original complete allocation receipt is retained by this
+        // same journal owner. It is a comparison pin, not current proof.
+        let original = o
+            .journal(move |journal| {
+                journal.state().attempts[&id]
+                    .source
+                    .as_ref()
+                    .and_then(|s| s.operations.get("create"))
+                    .and_then(|o| o.result.clone())
+                    .context("result original workspace allocation absent")
             })
-            .await??
-        } else {
-            (None, None)
-        };
+            .await?;
+        let scope = expected.scope.clone();
+        let (head, size) = tokio::task::spawn_blocking(move || -> Result<_> {
+            roots.verify()?;
+            let bytes = crate::source::workspace_bytes(&workspace.path)?;
+            let value = git.query(
+                &binding,
+                "workspace.inspect",
+                serde_json::json!({"workspace_id":workspace.workspace_id}),
+            )?;
+            let head = inspect_checkpoint_workspace(&value, &original, &scope)?;
+            roots.verify()?;
+            Ok((head, bytes))
+        })
+        .await??;
         o.verify()?;
         o.journal(move |journal| {
             let digest = observed.digest()?;
             journal.update_result(id, &digest, |h, _| {
-                let (operation, action) = match key {
-                    "checkpoint" => {
-                        h.source.head = head;
-                        h.source.workspace_bytes = size;
-                        ensure!(
-                            size.is_some_and(|n| n <= h.scope.workspace_limit_bytes),
-                            "stopped workspace exceeds original reservation"
-                        );
-                        (
-                            h.scope.operations.checkpoint,
-                            GitAction::Checkpoint {
-                                workspace_id: h.scope.workspace.workspace_id,
-                                generation: h.scope.workspace.generation,
-                                head: h.source.head.clone().unwrap(),
-                            },
-                        )
-                    }
-                    "export" => {
-                        let checkpoint = h
-                            .source
-                            .checkpoint
-                            .as_ref()
-                            .context("result checkpoint absent")?;
-                        (
-                            h.scope.operations.export,
-                            GitAction::Export {
-                                source: checkpoint.source.clone(),
-                                retention_handle: checkpoint.retention_handle,
-                            },
-                        )
-                    }
-                    _ => anyhow::bail!("unsupported result source action"),
+                ensure!(
+                    size <= h.scope.workspace_limit_bytes,
+                    "stopped workspace exceeds original reservation"
+                );
+                let operation = h.scope.operations.checkpoint;
+                let action = GitAction::Checkpoint {
+                    workspace_id: h.scope.workspace.workspace_id,
+                    generation: h.scope.workspace.generation,
+                    head: head.clone(),
                 };
+                h.source.head = Some(head);
+                h.source.workspace_bytes = Some(size);
                 h.source.operations.insert(
-                    key.into(),
+                    KEY.into(),
                     PendingGitOperation {
                         operation_id: operation,
                         request: action.request(&h.scope.source, operation),
@@ -171,23 +118,18 @@ async fn git_effect<O: StoppedOwner>(o: &O, key: &'static str) -> Result<()> {
         })
         .await?
     };
-    let operation = prepared.source.operations[key].clone();
+    let operation = prepared.source.operations[KEY].clone();
     let expected_digest = prepared.digest()?;
     let roots = o.roots();
-    let (value, export) = tokio::task::spawn_blocking(move || -> Result<_> {
+    let value = tokio::task::spawn_blocking(move || -> Result<_> {
         roots.verify()?;
         let value = git.exchange(&operation.request)?;
         ensure!(
             serde_json::to_vec(&value)?.len() <= MAX_GIT_REPLY_BYTES,
             "oversized result source reply; original operation retained"
         );
-        let export = if key == "export" {
-            Some(verify_export(git.root(), &value, &prepared)?)
-        } else {
-            None
-        };
         roots.verify()?;
-        Ok((value, export))
+        Ok(value)
     })
     .await??;
     o.verify()?;
@@ -196,135 +138,66 @@ async fn git_effect<O: StoppedOwner>(o: &O, key: &'static str) -> Result<()> {
             let op = h
                 .source
                 .operations
-                .get_mut(key)
+                .get_mut(KEY)
                 .context("result source intent absent")?;
             ensure!(op.result.is_none(), "result source effect raced");
             op.result = Some(value.clone());
-            if key == "checkpoint" {
-                h.source.checkpoint = Some(serde_json::from_value(value)?)
-            } else {
-                h.source.export = export
-            }
+            h.source.checkpoint = Some(serde_json::from_value(value)?);
             Ok(())
         })?;
         Ok(())
     })
     .await
 }
-pub(super) async fn transfer_step<O: StoppedOwner>(o: &O, client: &TransferClient) -> Result<bool> {
+/// One step: the push (its intent journaled before any network I/O), or the
+/// admission of the pushed checkpoint and its receipt. A retry after a crash or
+/// a lost response repeats the same push and the same request.
+pub(super) async fn push_step<O: StoppedOwner>(o: &O, client: &TransferClient) -> Result<bool> {
     let id = o.attempt_id();
     let mut history = snapshot(o).await?;
     if history.source.receipt.is_some() {
         return Ok(true);
     }
-    if history.source.transfer.is_none() {
-        let old = history.clone();
+    if history.source.push.is_none() {
+        let digest = history.digest()?;
         history = o
-            .journal(move |journal| {
-                let digest = old.digest()?;
-                journal.update_result(id, &digest, |h, _| {
-                    let e = h.source.export.as_ref().context("result export absent")?;
-                    let b = &h.scope.binding.launch;
-                    let aq_session_protocol::SessionIdentity::Remote {
-                        node_id,
-                        boot_id,
-                        session_id,
-                        ..
-                    } = b.session
-                    else {
-                        anyhow::bail!("result remote session absent")
-                    };
-                    let manifest = TransferManifest {
-                        transfer_id: h.scope.operations.transfer,
-                        role: SourceRole::Checkpoint,
-                        checkpoint: e.manifest.source.clone(),
-                        attempt: AttemptRef {
-                            attempt_id: b.attempt_id,
-                            session_id,
-                            generation: b.assignment_generation,
-                        },
-                        resolved_spec_digest: b.execution_spec_digest.as_str().into(),
-                        source: h.scope.source.clone(),
-                        artifact_id: e.artifact,
-                        manifest_digest: e.manifest_digest.clone(),
-                        bundle_digest: e.manifest.bundle_sha256.clone(),
-                        manifest_bytes: e.manifest_bytes,
-                        bundle_bytes: e.manifest.bundle_size,
-                    };
-                    manifest.validate()?;
-                    h.source.transfer = Some(manifest);
-                    h.source.upload = Some(UploadState {
-                        identity: NodeIdentity { node_id, boot_id },
-                        begin_operation: h.scope.operations.upload_begin,
-                        finalize_operation: h.scope.operations.upload_finalize,
-                        begun: false,
-                        manifest_offset: 0,
-                        bundle_offset: 0,
-                        pending: None,
-                    });
-                    Ok(())
-                })
-            })
+            .journal(move |journal| journal.update_result(id, &digest, |h, _| h.begin_push()))
             .await?;
     }
-    let manifest = history.source.transfer.as_ref().unwrap().clone();
-    let upload = history.source.upload.as_ref().unwrap();
-    let node = upload.identity.node_id;
-    let plan = steps::propose_upload(upload, &manifest, Some(&history.scope.managed_root), node)?;
-    // Persist even the original pending request before any network exchange.
-    let observed = history.digest()?;
-    let state = plan.state;
-    let action = plan.action;
-    history = o
-        .journal(move |journal| {
-            journal.update_result(id, &observed, |h, _| {
-                h.source.upload = Some(state);
+    let request = history.pushed_request()?;
+    let digest = history.digest()?;
+    if !history.source.push.as_ref().is_some_and(|p| p.pushed) {
+        let (git, timeout, pool) = o.git().push_from(request.source.repository_id)?;
+        let (roots, client) = (o.roots(), client.clone());
+        o.verify()?;
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            roots.verify()?;
+            let attempt = request.attempt.attempt_id;
+            client.push_blocking(&git, &pool, attempt, &request.checkpoint, timeout)?;
+            roots.verify()
+        })
+        .await??;
+        o.verify()?;
+        o.journal(move |journal| {
+            journal.update_result(id, &digest, |h, _| {
+                h.source.push.as_mut().context("push intent absent")?.pushed = true;
                 Ok(())
             })
         })
         .await?;
+        return Ok(false);
+    }
     o.verify()?;
-    let status = match &action {
-        UploadAction::Begin {
-            identity,
-            operation_id,
-            manifest,
-        } => client.begin(identity, *operation_id, manifest).await?,
-        UploadAction::Chunk { request, bytes } => client.upload(request, bytes.clone()).await?,
-        UploadAction::Finalize(request) => client.finalize(request).await?,
-    };
+    let receipt = client.pushed(&request).await?.receipt;
     o.verify()?;
-    let next = steps::acknowledge_upload(
-        history.source.upload.as_ref().unwrap(),
-        &manifest,
-        &action,
-        status,
-        node,
-    )?;
-    let digest = history.digest()?;
-    let done = o
-        .journal(move |journal| {
-            let updated = journal.update_result(id, &digest, |h, _| {
-                match next {
-                    UploadAcknowledgment::Progress(state) => h.source.upload = Some(state),
-                    UploadAcknowledgment::RetentionClaim(receipt) => {
-                        let e = h.source.export.as_ref().unwrap();
-                        steps::validate_retention_claim(
-                            &receipt,
-                            &manifest,
-                            &e.manifest,
-                            &h.scope.source,
-                            &e.manifest.source,
-                        )?;
-                        h.source.receipt = Some(receipt);
-                    }
-                }
-                Ok(())
-            })?;
-            Ok(updated.source.receipt.is_some())
+    o.journal(move |journal| {
+        journal.update_result(id, &digest, |h, _| {
+            h.source.receipt = receipt;
+            h.validate()
         })
-        .await?;
-    Ok(done)
+    })
+    .await?;
+    Ok(true)
 }
 /// aq-git's active inspection is an envelope containing the complete workspace
 /// record. Compare it with the original allocation, then use the current HEAD;
@@ -350,103 +223,9 @@ fn inspect_checkpoint_workspace(
     head.validate()?;
     Ok(head)
 }
-
-fn verify_export(
-    root: &Path,
-    value: &serde_json::Value,
-    h: &ResultHistory,
-) -> Result<ExportRecord> {
-    let artifact: Uuid = serde_json::from_value(value["artifact_handle"].clone())?;
-    let manifest: GitManifest = serde_json::from_value(value["manifest"].clone())?;
-    ensure!(
-        !artifact.is_nil()
-            && manifest.transfer_id == artifact
-            && manifest.format_version == 1
-            && manifest.object_format == "sha1"
-            && manifest.repository_id == h.scope.source.repository_id
-            && manifest.repository_identity == h.scope.source.logical_identity
-            && manifest.binding_generation == h.scope.source.binding_generation
-            && manifest.base == h.scope.source.base
-            && manifest.source
-                == h.source
-                    .checkpoint
-                    .as_ref()
-                    .context("result checkpoint absent")?
-                    .source
-            && !manifest.producer_installation_id.is_nil()
-            && manifest.reference_only == (manifest.bundle_size == 0)
-            && manifest.prerequisites.iter().all(|p| p == &manifest.base),
-        "result actual Git export manifest differs"
-    );
-    let mut file =
-        crate::source_transfer::artifact_file(root, artifact, false, "manifest.json", false)?;
-    let size = file.metadata()?.len();
-    ensure!(
-        (1..=1_048_576).contains(&size),
-        "result export manifest bound"
-    );
-    let mut bytes = Vec::new();
-    Read::by_ref(&mut file)
-        .take(1_048_577)
-        .read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() as u64 == size
-            && serde_json::to_value(serde_json::from_slice::<GitManifest>(&bytes)?)?
-                == serde_json::to_value(&manifest)?,
-        "result exact exported manifest bytes differ"
-    );
-    let total = size
-        .checked_add(manifest.bundle_size)
-        .context("result export bytes overflow")?;
-    ensure!(
-        total <= h.scope.artifact_limit_bytes,
-        "result export exceeds original disk reservation"
-    );
-    if manifest.bundle_size > 0 {
-        let mut bundle =
-            crate::source_transfer::artifact_file(root, artifact, false, "objects.bundle", false)?;
-        ensure!(
-            bundle.metadata()?.len() == manifest.bundle_size,
-            "result bundle length changed"
-        );
-        let mut hash = Sha256::new();
-        let mut buffer = [0u8; 65536];
-        let mut read = 0u64;
-        loop {
-            let n = bundle.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
-            read = read
-                .checked_add(n as u64)
-                .context("result bundle overflow")?;
-            ensure!(read <= manifest.bundle_size, "result bundle grew");
-            hash.update(&buffer[..n]);
-        }
-        ensure!(
-            read == manifest.bundle_size
-                && manifest.bundle_sha256.as_deref()
-                    == Some(format!("{:x}", hash.finalize()).as_str()),
-            "result actual bundle hash differs"
-        );
-    } else {
-        ensure!(
-            manifest.bundle_sha256.is_none(),
-            "reference-only bundle has digest"
-        );
-    }
-    Ok(ExportRecord {
-        artifact,
-        manifest,
-        manifest_digest: format!("{:x}", Sha256::digest(&bytes)),
-        manifest_bytes: size,
-        total_bytes: total,
-    })
-}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     // Exact active envelope emitted by aq-git WorkspaceManager::workspace.inspect,
     // including its full allocation record (not the worker's three-field view).
     fn inspection() -> (ResultHistory, serde_json::Value, serde_json::Value) {
@@ -520,98 +299,5 @@ mod tests {
         assert!(inspect_checkpoint_workspace(&value, &original, &h.scope).is_err());
         value.as_object_mut().unwrap().remove("head");
         assert!(inspect_checkpoint_workspace(&value, &original, &h.scope).is_err());
-    }
-    fn export() -> (tempfile::TempDir, ResultHistory, serde_json::Value, Vec<u8>) {
-        let root = tempfile::tempdir().unwrap();
-        let mut h = super::super::tests::history();
-        let checkpoint = aq_worker_protocol::ObjectId {
-            algorithm: aq_worker_protocol::ObjectAlgorithm::Sha1,
-            hex: "b".repeat(40),
-        };
-        h.source.checkpoint = Some(crate::source::Checkpoint {
-            workspace_id: h.scope.workspace.workspace_id,
-            workspace_generation: 2,
-            source: checkpoint.clone(),
-            retention_handle: Uuid::new_v4(),
-        });
-        let bundle = b"actual finite bundle bytes for file verifier only".to_vec();
-        let id = Uuid::new_v4();
-        let native = GitManifest {
-            format_version: 1,
-            repository_id: h.scope.source.repository_id,
-            repository_identity: h.scope.source.logical_identity.clone(),
-            binding_generation: h.scope.source.binding_generation,
-            transfer_id: id,
-            object_format: "sha1".into(),
-            base: h.scope.source.base.clone(),
-            source: checkpoint,
-            prerequisites: vec![h.scope.source.base.clone()],
-            bundle_size: bundle.len() as u64,
-            bundle_sha256: Some(format!("{:x}", Sha256::digest(&bundle))),
-            producer_installation_id: Uuid::new_v4(),
-            reference_only: false,
-            caller_correlation: serde_json::json!({}),
-        };
-        let dir = root.path().join("artifacts").join(id.to_string());
-        std::fs::create_dir_all(&dir).unwrap();
-        let bytes = serde_json::to_vec_pretty(&native).unwrap();
-        for (name, data) in [
-            ("manifest.json", bytes.as_slice()),
-            ("objects.bundle", bundle.as_slice()),
-        ] {
-            let p = dir.join(name);
-            std::fs::write(&p, data).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
-        (
-            root,
-            h,
-            serde_json::json!({"artifact_handle":id,"manifest":native}),
-            bytes,
-        )
-    }
-    #[test]
-    fn result_export_distinguishes_raw_upload_hash_from_native_receipt_hash() {
-        let (root, h, value, bytes) = export();
-        let actual = verify_export(root.path(), &value, &h).unwrap();
-        assert_eq!(
-            actual.manifest_digest,
-            format!("{:x}", Sha256::digest(&bytes))
-        );
-        assert_ne!(
-            actual.manifest_digest,
-            actual.manifest.canonical_digest().unwrap(),
-            "pretty raw upload bytes must not be silently relabeled canonical"
-        );
-        assert_eq!(actual.manifest_bytes, bytes.len() as u64);
-    }
-    #[test]
-    fn result_export_rejects_changed_bundle_before_retention() {
-        let (root, h, value, _) = export();
-        let first = verify_export(root.path(), &value, &h).unwrap();
-        std::fs::write(
-            root.path()
-                .join("artifacts")
-                .join(first.artifact.to_string())
-                .join("objects.bundle"),
-            vec![b'x'; first.manifest.bundle_size as usize],
-        )
-        .unwrap();
-        assert!(verify_export(root.path(), &value, &h).is_err());
-    }
-    #[test]
-    fn result_export_refuses_symlink_manifest_and_out_of_scope_reply() {
-        let (root, h, mut value, _) = export();
-        let actual = verify_export(root.path(), &value, &h).unwrap();
-        let dir = root
-            .path()
-            .join("artifacts")
-            .join(actual.artifact.to_string());
-        let manifest = dir.join("manifest.json");
-        std::fs::rename(&manifest, dir.join("retained.json")).unwrap();
-        std::os::unix::fs::symlink(dir.join("retained.json"), &manifest).unwrap();
-        assert!(verify_export(root.path(), &value, &h).is_err());
-        value["manifest"]["repository_id"] = Uuid::new_v4().to_string().into();
-        assert!(verify_export(root.path(), &value, &h).is_err());
     }
 }

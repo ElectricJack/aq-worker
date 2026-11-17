@@ -1561,3 +1561,90 @@ fn a_real_aq_git_registers_a_repository_it_has_not_seen_once() {
     );
     register_twice_at_once(&service.client, &b);
 }
+
+#[path = "support/git_http.rs"]
+mod git_http;
+/// The checkpoint a real aq-git keeps in its pool (held by a retention ref, on no
+/// branch) reaches the attempt's ref by `git push` from that pool.
+#[test]
+#[ignore = "requires AQ_GIT_TEST_BINARY (an aq-git build)"]
+fn a_real_aq_git_checkpoint_is_pushed_from_its_pool() {
+    use git_http::git;
+    let exe = std::path::PathBuf::from(std::env::var_os("AQ_GIT_TEST_BINARY").unwrap());
+    let temp = TempDir::new().unwrap();
+    let (state, repo) = (temp.path().join("state"), temp.path().join("repository"));
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "--initial-branch=main"]);
+    git(&repo, &["commit", "--allow-empty", "-qm", "base"]);
+    let base = json!({"algorithm":"sha1","hex":git(&repo, &["rev-parse", "HEAD"])});
+    let rid = Uuid::new_v4();
+    let binding = json!({"binding":{"identity":"fixture","mode":"central","binding_generation":1,"remote_url":repo,"allow_file_transport":true,"allowed_refs":["refs/heads/main"]}});
+    direct(&exe, &state, rid, "repo.register", binding, 0);
+    direct(&exe, &state, rid, "repo.sync", json!({}), 1);
+    let w = direct(
+        &exe,
+        &state,
+        rid,
+        "workspace.create",
+        json!({"base":base}),
+        1,
+    );
+    let work = Path::new(w["path"].as_str().unwrap());
+    std::fs::write(work.join("work.txt"), "done").unwrap();
+    git(work, &["add", "work.txt"]);
+    git(work, &["commit", "-qm", "work"]);
+    let head = json!({"algorithm":"sha1","hex":git(work, &["rev-parse", "HEAD"])});
+    let c = direct(
+        &exe,
+        &state,
+        rid,
+        "workspace.checkpoint",
+        json!({"workspace_id":w["workspace_id"],"expected_generation":w["generation"],"expected_head":head,"quiescent":true}),
+        1,
+    );
+    let checkpoint: ObjectId = serde_json::from_value(c["source"].clone()).unwrap();
+    assert_ne!(json!(checkpoint), base, "the checkpoint commits the work");
+    git(temp.path(), &["init", "-q", "--bare", "remote.git"]);
+    let remote = temp.path().join("remote.git");
+    git(&remote, &["config", "http.receivepack", "true"]);
+    let pool = std::fs::canonicalize(&state)
+        .unwrap()
+        .join(format!("repositories/{rid}/objects.git"));
+    let attempt = Uuid::new_v4();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let app = git_http::smart_http(temp.path().into(), seen.clone());
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let oid = checkpoint.clone();
+    runtime.block_on(async move {
+        let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = aq_worker::config::WorkerConfig {
+            server_url: format!("http://{}", socket.local_addr().unwrap()),
+            node_id: Uuid::new_v4(),
+            credential: "synthetic-source-token".into(),
+            cf_client_id: None,
+            cf_client_secret: None,
+        };
+        tokio::spawn(async move { axum::serve(socket, app).await.unwrap() });
+        let client = aq_worker::transfer_client::TransferClient::from_config(&config, 1).unwrap();
+        let minute = std::time::Duration::from_secs(60);
+        let push =
+            move || client.push_blocking(Path::new("/usr/bin/git"), &pool, attempt, &oid, minute);
+        tokio::task::spawn_blocking(push).await.unwrap().unwrap();
+    });
+    let reference = format!("refs/aq/attempts/{attempt}");
+    assert_eq!(git(&remote, &["rev-parse", &reference]), checkpoint.hex);
+    assert_eq!(
+        git(&remote, &["show", &format!("{reference}:work.txt")]),
+        "done"
+    );
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|r| r.contains("Bearer synthetic-source-token"))
+    );
+}

@@ -20,6 +20,8 @@ pub struct GitClient {
     maximum_artifact_bytes: u64,
     maximum_pool_bytes: u64,
     native_inspection: bool,
+    /// The node's pinned git executable and the configured bound of one result push.
+    push: Option<(PathBuf, std::time::Duration)>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -231,6 +233,7 @@ impl GitClient {
             maximum_artifact_bytes: 0,
             maximum_pool_bytes: 0,
             native_inspection: false,
+            push: None,
         };
         let capabilities=client.exchange(&json!({"protocol_version":1,"request_id":Uuid::new_v4().to_string(),"operation":"capabilities","params":{}}))?;
         ensure!(
@@ -291,6 +294,23 @@ impl GitClient {
     }
     pub(crate) fn transfer_byte_limit(&self) -> u64 {
         self.maximum_artifact_bytes
+    }
+    /// Result delivery by `git push` uses this git executable (the one aq-git
+    /// was started with) and gives up after `timeout`.
+    pub fn with_push(mut self, git: &Path, timeout: std::time::Duration) -> Self {
+        self.push = Some((git.into(), timeout));
+        self
+    }
+    /// The push settings and the bare pool repository holding `repository`'s commits.
+    pub(crate) fn push_from(
+        &self,
+        repository: Uuid,
+    ) -> Result<(PathBuf, std::time::Duration, PathBuf)> {
+        let (git, timeout) = self.push.clone().context("result push is not configured")?;
+        let pool = self
+            .root
+            .join(format!("repositories/{repository}/objects.git"));
+        Ok((git, timeout, pool))
     }
     /// Conservative native charge: workspace + retained object pool + full artifact.
     /// This is a logical admission bound, not a physical free-space guarantee.

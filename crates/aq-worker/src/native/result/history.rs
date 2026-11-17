@@ -2,15 +2,15 @@
 use super::pins::ResultInstallationPins;
 use crate::{
     native::journal::RuntimeIdentity,
-    source::{Checkpoint, GitManifest, PendingGitOperation, Workspace},
-    source_transfer::UploadState,
+    source::{Checkpoint, PendingGitOperation, Workspace},
+    transfer_client::PushedSource,
 };
 use anyhow::{Context, Result, ensure};
 use aq_admission::{result_record, transport::ResultReport};
 use aq_agent_result_local as local;
 use aq_session_protocol::{ArtifactRef, Digest, Validate};
 use aq_worker_protocol::{
-    CentralRetentionReceipt, ObjectId, SourceBinding, TransferManifest, Validate as _,
+    AttemptRef, CentralRetentionReceipt, NodeIdentity, ObjectId, SourceBinding, Validate as _,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -48,20 +48,12 @@ pub enum StorageStage {
 #[serde(deny_unknown_fields)]
 pub struct SourceOperations {
     pub checkpoint: Uuid,
-    pub export: Uuid,
     pub transfer: Uuid,
-    pub upload_begin: Uuid,
-    pub upload_finalize: Uuid,
+    pub pushed: Uuid,
 }
 impl SourceOperations {
-    pub fn all(&self) -> [Uuid; 5] {
-        [
-            self.checkpoint,
-            self.export,
-            self.transfer,
-            self.upload_begin,
-            self.upload_finalize,
-        ]
+    pub fn all(&self) -> [Uuid; 3] {
+        [self.checkpoint, self.transfer, self.pushed]
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -85,7 +77,6 @@ pub struct ScopeRecord {
     pub managed_root: PathBuf,
     pub reserved_disk_bytes: u64,
     pub workspace_limit_bytes: u64,
-    pub artifact_limit_bytes: u64,
     pub operations: SourceOperations,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -122,12 +113,10 @@ pub struct StopAnchor {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ExportRecord {
-    pub artifact: Uuid,
-    pub manifest: GitManifest,
-    pub manifest_digest: String,
-    pub manifest_bytes: u64,
-    pub total_bytes: u64,
+pub struct PushRecord {
+    pub identity: NodeIdentity,
+    /// `git push` of the checkpoint to the attempt's remote ref succeeded.
+    pub pushed: bool,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -136,9 +125,8 @@ pub struct SourceHistory {
     pub head: Option<ObjectId>,
     pub workspace_bytes: Option<u64>,
     pub checkpoint: Option<Checkpoint>,
-    pub export: Option<ExportRecord>,
-    pub transfer: Option<TransferManifest>,
-    pub upload: Option<UploadState>,
+    /// Journaled before the first push, so a retry is a replay of this intent.
+    pub push: Option<PushRecord>,
     pub receipt: Option<CentralRetentionReceipt>,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -199,10 +187,8 @@ impl ResultHistory {
         );
         ensure!(
             s.workspace_limit_bytes > 0
-                && s.artifact_limit_bytes > 0
                 && s.workspace_limit_bytes
                     .checked_mul(2)
-                    .and_then(|n| n.checked_add(s.artifact_limit_bytes))
                     .is_some_and(|n| n <= s.reserved_disk_bytes),
             "result original source reservation"
         );
@@ -307,62 +293,73 @@ impl ResultHistory {
         );
         Ok(())
     }
+    /// The worker identity of the original remote session.
+    fn remote(&self) -> Result<(NodeIdentity, Uuid)> {
+        match self.scope.binding.launch.session {
+            aq_session_protocol::SessionIdentity::Remote {
+                node_id,
+                boot_id,
+                session_id,
+                ..
+            } => Ok((NodeIdentity { node_id, boot_id }, session_id)),
+            _ => anyhow::bail!("result requires actual remote session"),
+        }
+    }
+    /// Journals the push intent; the checkpoint and every ID are the originals.
+    pub(super) fn begin_push(&mut self) -> Result<()> {
+        ensure!(self.source.push.is_none(), "result push intent raced");
+        let (identity, _) = self.remote()?;
+        self.source.push = Some(PushRecord {
+            identity,
+            pushed: false,
+        });
+        Ok(())
+    }
+    /// The admission request of the pushed checkpoint: only original scope facts.
+    pub(crate) fn pushed_request(&self) -> Result<PushedSource> {
+        let s = &self.scope;
+        let b = &s.binding.launch;
+        let push = self.source.push.as_ref();
+        let checkpoint = self.source.checkpoint.as_ref();
+        Ok(PushedSource {
+            identity: push.context("result push intent absent")?.identity.clone(),
+            operation_id: s.operations.pushed,
+            transfer_id: s.operations.transfer,
+            attempt: AttemptRef {
+                attempt_id: b.attempt_id,
+                session_id: self.remote()?.1,
+                generation: b.assignment_generation,
+            },
+            resolved_spec_digest: b.execution_spec_digest.as_str().into(),
+            source: s.source.clone(),
+            checkpoint: checkpoint
+                .context("result checkpoint absent")?
+                .source
+                .clone(),
+        })
+    }
     fn validate_source(&self) -> Result<()> {
         let h = &self.source;
         let s = &self.scope;
+        let operation = h.operations.get("checkpoint");
         ensure!(
-            h.operations.len() <= 2
-                && h.checkpoint.is_some()
-                    == h.operations
-                        .get("checkpoint")
-                        .is_some_and(|op| op.result.is_some())
-                && h.export.is_some()
-                    == h.operations
-                        .get("export")
-                        .is_some_and(|op| op.result.is_some())
-                && h.transfer.is_some() == h.upload.is_some(),
+            h.operations.len() == usize::from(operation.is_some())
+                && h.checkpoint.is_some() == operation.is_some_and(|op| op.result.is_some()),
             "result source history projection"
         );
-        for (key, op) in &h.operations {
+        if let Some(op) = operation {
             ensure!(
                 self.claim.is_some() && self.stop.is_some(),
                 "result source action before claim/actual stop"
             );
-            let (id, action) = match key.as_str() {
-                "checkpoint" => (
-                    s.operations.checkpoint,
-                    crate::source::GitAction::Checkpoint {
-                        workspace_id: s.workspace.workspace_id,
-                        generation: s.workspace.generation,
-                        head: h.head.clone().context("result checkpoint head absent")?,
-                    },
-                ),
-                "export" => {
-                    let c = h
-                        .checkpoint
-                        .as_ref()
-                        .context("result export without checkpoint")?;
-                    (
-                        s.operations.export,
-                        crate::source::GitAction::Export {
-                            source: c.source.clone(),
-                            retention_handle: c.retention_handle,
-                        },
-                    )
-                }
-                _ => anyhow::bail!("unknown result source operation"),
+            let action = crate::source::GitAction::Checkpoint {
+                workspace_id: s.workspace.workspace_id,
+                generation: s.workspace.generation,
+                head: h.head.clone().context("result checkpoint head absent")?,
             };
-            let request = action.request(&s.source, id);
-            // An export intent journaled before exports named their base as a
-            // prerequisite stays valid, so a result already finishing when the
-            // worker is replaced keeps its original operation.
-            let mut whole = request.clone();
-            if let Some(params) = whole["params"].as_object_mut() {
-                params.remove("confirmed_prerequisites");
-            }
             ensure!(
-                op.operation_id == id
-                    && (op.request == request || (key == "export" && op.request == whole)),
+                op.operation_id == s.operations.checkpoint
+                    && op.request == action.request(&s.source, s.operations.checkpoint),
                 "result source original request changed"
             );
             if let Some(value) = &op.result {
@@ -394,118 +391,23 @@ impl ResultHistory {
                 "result checkpoint original owner/result"
             );
         }
-        if let Some(e) = &h.export {
-            let c = h
-                .checkpoint
-                .as_ref()
-                .context("result export checkpoint absent")?;
-            let raw = h.operations["export"].result.as_ref().unwrap();
+        if let Some(p) = &h.push {
             ensure!(
-                !e.artifact.is_nil()
-                    && e.manifest.format_version == 1
-                    && e.manifest.object_format == "sha1"
-                    && !e.manifest.producer_installation_id.is_nil()
-                    && e.manifest.reference_only == (e.manifest.bundle_size == 0)
-                    && (e.manifest.bundle_size == 0) == e.manifest.bundle_sha256.is_none()
-                    && e.manifest
-                        .bundle_sha256
-                        .as_ref()
-                        .is_none_or(|s| s.len() == 64
-                            && s.bytes()
-                                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
-                    && e.manifest.prerequisites.iter().all(|p| p == &s.source.base)
-                    && e.artifact == e.manifest.transfer_id
-                    && e.manifest.repository_id == s.source.repository_id
-                    && e.manifest.repository_identity == s.source.logical_identity
-                    && e.manifest.binding_generation == s.source.binding_generation
-                    && e.manifest.base == s.source.base
-                    && e.manifest.source == c.source
-                    && e.manifest_bytes > 0
-                    && e.manifest_bytes <= 1_048_576
-                    && e.manifest_bytes.checked_add(e.manifest.bundle_size) == Some(e.total_bytes)
-                    && e.total_bytes <= s.artifact_limit_bytes
-                    && e.manifest_digest.len() == 64
-                    && e.manifest_digest
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                    && raw["artifact_handle"] == e.artifact.to_string()
-                    && raw["manifest"] == serde_json::to_value(&e.manifest)?,
-                "result exported artifact scope/bytes"
-            );
-            ensure!(
-                h.workspace_bytes
-                    .context("result actual workspace size absent")?
-                    .checked_add(e.total_bytes)
-                    .is_some_and(|n| n <= s.reserved_disk_bytes),
-                "result actual retained disk bound"
-            );
-        }
-        if let Some(t) = &h.transfer {
-            t.validate()?;
-            let e = h.export.as_ref().context("result transfer before export")?;
-            let b = &s.binding.launch;
-            ensure!(
-                t.transfer_id == s.operations.transfer
-                    && t.artifact_id == e.artifact
-                    && t.role == aq_worker_protocol::SourceRole::Checkpoint
-                    && t.attempt.attempt_id == b.attempt_id
-                    && t.attempt.session_id
-                        == match b.session {
-                            aq_session_protocol::SessionIdentity::Remote { session_id, .. } =>
-                                session_id,
-                            _ => anyhow::bail!("result requires actual remote session"),
-                        }
-                    && t.attempt.generation == b.assignment_generation
-                    && t.resolved_spec_digest == b.execution_spec_digest.as_str()
-                    && t.source == s.source
-                    && t.checkpoint == e.manifest.source
-                    && t.manifest_digest == e.manifest_digest
-                    && t.manifest_bytes == e.manifest_bytes
-                    && t.bundle_bytes == e.manifest.bundle_size
-                    && t.bundle_digest == e.manifest.bundle_sha256,
-                "result transport exact source"
-            );
-        }
-        if let Some(u) = &h.upload {
-            let t = h
-                .transfer
-                .as_ref()
-                .context("result upload before transport")?;
-            let aq_session_protocol::SessionIdentity::Remote {
-                node_id, boot_id, ..
-            } = s.binding.launch.session
-            else {
-                anyhow::bail!("result worker identity")
-            };
-            u.validate(t, node_id)?;
-            ensure!(
-                u.identity.boot_id == boot_id
-                    && u.begin_operation == s.operations.upload_begin
-                    && u.finalize_operation == s.operations.upload_finalize,
-                "result upload original identity"
+                h.checkpoint.is_some() && p.identity == self.remote()?.0,
+                "result push before checkpoint or by another identity"
             );
         }
         if let Some(r) = &h.receipt {
-            let t = h
-                .transfer
-                .as_ref()
-                .context("result receipt before transport")?;
-            let u = h.upload.as_ref().unwrap();
+            r.validate()?;
+            let c = h.checkpoint.as_ref();
             ensure!(
-                u.begun
-                    && u.pending.is_none()
-                    && u.manifest_offset == t.manifest_bytes
-                    && u.bundle_offset == t.bundle_bytes,
-                "result source receipt before complete upload"
+                h.push.as_ref().is_some_and(|p| p.pushed)
+                    && r.transfer_id == s.operations.transfer
+                    && r.repository_id == s.source.repository_id
+                    && r.binding_generation == s.source.binding_generation
+                    && c.is_some_and(|c| r.source == c.source),
+                "central source receipt differs from the pushed checkpoint"
             );
-            let e = h.export.as_ref().unwrap();
-            crate::source_transfer::steps::validate_retention_claim(
-                r,
-                t,
-                &e.manifest,
-                &s.source,
-                &e.manifest.source,
-            )?;
         }
         Ok(())
     }

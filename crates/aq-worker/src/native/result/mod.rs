@@ -24,7 +24,6 @@ pub use pins::ResultInstallationPins;
 use salvage::{Live, ResultJournal, StoppedOwner};
 pub use salvage::{SalvageRoots, finish_salvage, salvage_roots};
 use source::snapshot;
-pub(crate) use source::transfer_bound;
 pub use stopped::{DurableStoppedResult, ResultStopCause};
 use storage::ChannelStorage;
 #[derive(Default)]
@@ -292,13 +291,10 @@ impl InputPipeline {
                         managed_root: git.root().into(),
                         reserved_disk_bytes: a.reservation.disk_bytes,
                         workspace_limit_bytes: git.workspace_byte_limit(),
-                        artifact_limit_bytes: git.transfer_byte_limit(),
                         operations: SourceOperations {
                             checkpoint: Uuid::new_v4(),
-                            export: Uuid::new_v4(),
                             transfer: Uuid::new_v4(),
-                            upload_begin: Uuid::new_v4(),
-                            upload_finalize: Uuid::new_v4(),
+                            pushed: Uuid::new_v4(),
                         },
                     },
                     intake_closed: false,

@@ -89,11 +89,6 @@ pub(super) fn validate(a: &Attempt, state: &State, ids: &mut BTreeSet<Uuid>) -> 
             "result report original typed stop differs"
         );
     }
-    if let Some(upload) = &h.source.upload
-        && let Some(p) = &upload.pending
-    {
-        ensure!(ids.insert(p.operation_id), "result upload operation reused");
-    }
     Ok(())
 }
 /// Restart salvage (W4): records the claim (unless one is retained), the actual stop anchor

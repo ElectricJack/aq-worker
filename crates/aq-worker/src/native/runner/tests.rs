@@ -52,6 +52,8 @@ pub(crate) fn config() -> (tempfile::TempDir, NativeConfig) {
         state_dir: dir.path().into(),
         git_root: dir.path().join("git"),
         git_socket: dir.path().join("git.sock"),
+        git_executable: "/usr/bin/git".into(),
+        result_push_timeout_ms: 60_000,
         capacity: Limits {
             slots: 1,
             memory_bytes: 4096,

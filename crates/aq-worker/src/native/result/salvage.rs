@@ -103,7 +103,7 @@ impl StoppedOwner for Salvage {
     }
 }
 /// Records the salvage (`claim` is None to keep a retained claim), then runs the live stop's source and report steps:
-/// checkpoint, export, bounded transfer and the exact report. Repeated calls
+/// checkpoint, push, its admission and the exact report. Repeated calls
 /// resume from the journal.
 pub async fn finish_salvage(
     mut journal: Journal,
@@ -125,12 +125,7 @@ pub async fn finish_salvage(
         roots: roots.0,
         git,
     };
-    super::source::capture(&owner).await?;
-    let bound = super::source::transfer_bound(&super::source::snapshot(&owner).await?)?;
-    for _ in 0..bound {
-        if super::source::transfer_step(&owner, transfer).await? {
-            return super::report::record_report(&owner, client).await;
-        }
-    }
-    anyhow::bail!("salvage source transfer step bound exhausted")
+    super::source::checkpoint(&owner).await?;
+    super::source::deliver(&owner, transfer).await?;
+    super::report::record_report(&owner, client).await
 }

@@ -590,6 +590,8 @@ mod preparation_failure {
             schema_version: 1,
             git_root: state_dir.join("git"),
             git_socket: state_dir.join("git.sock"),
+            git_executable: "/usr/bin/git".into(),
+            result_push_timeout_ms: 60_000,
             capacity: limits(),
             runtime: RuntimeIdentity {
                 runtime: reference("runtime"),

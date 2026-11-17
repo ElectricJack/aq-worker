@@ -835,28 +835,9 @@ pub(super) async fn drive_running_owned(
             .retain_stopped_result(id, cause)
             .await?
             .context("explicit local result claim absent; stopped attempt retained")?;
-        let source = async {
-            pipeline.capture_result_source(&result).await?;
-            // Original source limits also bound the number of chunks. Each
-            // finite request preserves the exact original operation on error.
-            let snapshot = pipeline.snapshot().await?;
-            let max_steps = crate::native::result::transfer_bound(
-                snapshot.attempts[&id]
-                    .result
-                    .as_ref()
-                    .context("result history absent")?,
-            )?;
-            for _ in 0..max_steps {
-                if pipeline
-                    .transfer_result_source_step(&result, &transfer)
-                    .await?
-                {
-                    return Ok::<(), anyhow::Error>(());
-                }
-            }
-            anyhow::bail!("native result source transfer step bound exhausted")
-        }
-        .await;
+        // Checkpoint, then a push of its commits and the admission of that push.
+        // Each finite step preserves the exact original operation on error.
+        let source = pipeline.deliver_result_source(&result, &transfer).await;
         if source.is_err() {
             let _ = pipeline
                 .result_needs_reconciliation(

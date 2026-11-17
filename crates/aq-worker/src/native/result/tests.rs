@@ -211,13 +211,10 @@ pub(crate) fn history() -> ResultHistory {
             managed_root: "/git".into(),
             reserved_disk_bytes: 30000,
             workspace_limit_bytes: 10000,
-            artifact_limit_bytes: 10000,
             operations: SourceOperations {
                 checkpoint: Uuid::from_u128(40),
-                export: Uuid::from_u128(41),
                 transfer: Uuid::from_u128(42),
-                upload_begin: Uuid::from_u128(43),
-                upload_finalize: Uuid::from_u128(44),
+                pushed: Uuid::from_u128(43),
             },
         },
         intake_closed: false,
@@ -265,14 +262,186 @@ fn result_history_exact_claim_identity_order_and_canonical_bytes() {
 fn result_history_protects_scope_budget_and_does_not_project_unclaimed_success() {
     let mut h = history();
     assert!(h.acknowledgment().unwrap().is_none());
-    h.scope.operations.export = h.scope.operations.checkpoint;
+    h.scope.operations.pushed = h.scope.operations.checkpoint;
     assert!(h.validate().is_err());
-    h.scope.operations.export = Uuid::from_u128(41);
+    h.scope.operations.pushed = Uuid::from_u128(43);
     h.scope.original_deadline_ns = 201;
     assert!(h.validate().is_err());
     h.scope.original_deadline_ns = 100;
-    h.scope.reserved_disk_bytes = 29999;
+    h.scope.reserved_disk_bytes = 19999;
     assert!(h.validate().is_err());
+}
+/// A claimed, actually stopped history whose checkpoint aq-git recorded.
+fn checkpointed() -> ResultHistory {
+    let mut h = history();
+    let value = wire::Submission::new(
+        h.scope.binding.clone(),
+        wire::SubmissionInput {
+            schema_version: 1,
+            conclusion: wire::Conclusion::new("Explicit claim").unwrap(),
+        },
+    )
+    .unwrap();
+    let bytes = wire::encode(&value).unwrap();
+    h.claim = Some(ClaimRecord {
+        bytes_digest: Digest::of(&bytes),
+        bytes,
+        submission_digest: value.digest().unwrap(),
+        recorded_revision: 4,
+    });
+    h.intake_closed = true;
+    h.stop = Some(StopAnchor {
+        proof_digest: Digest::of(b"proof"),
+        native_stopped_revision: 5,
+        recorded_revision: 6,
+        stopped_receipt: reference("stopped"),
+        outcome: aq_admission::transport::ProcessOutcome::Failed,
+    });
+    let head = aq_worker_protocol::ObjectId {
+        algorithm: aq_worker_protocol::ObjectAlgorithm::Sha1,
+        hex: "b".repeat(40),
+    };
+    let checkpoint = crate::source::Checkpoint {
+        workspace_id: h.scope.workspace.workspace_id,
+        workspace_generation: 2,
+        source: aq_worker_protocol::ObjectId {
+            hex: "c".repeat(40),
+            ..head.clone()
+        },
+        retention_handle: Uuid::from_u128(50),
+    };
+    let operation = h.scope.operations.checkpoint;
+    let action = crate::source::GitAction::Checkpoint {
+        workspace_id: h.scope.workspace.workspace_id,
+        generation: h.scope.workspace.generation,
+        head: head.clone(),
+    };
+    h.source.head = Some(head);
+    h.source.workspace_bytes = Some(100);
+    h.source.operations.insert(
+        "checkpoint".into(),
+        crate::source::PendingGitOperation {
+            operation_id: operation,
+            request: action.request(&h.scope.source, operation),
+            result: Some(serde_json::to_value(&checkpoint).unwrap()),
+        },
+    );
+    h.source.checkpoint = Some(checkpoint);
+    h.validate().unwrap();
+    h
+}
+fn receipt(h: &ResultHistory) -> aq_worker_protocol::CentralRetentionReceipt {
+    aq_worker_protocol::CentralRetentionReceipt {
+        receipt_id: Uuid::from_u128(60),
+        transfer_id: h.scope.operations.transfer,
+        repository_id: h.scope.source.repository_id,
+        binding_generation: h.scope.source.binding_generation,
+        source: h.source.checkpoint.as_ref().unwrap().source.clone(),
+        retention_handle: Uuid::from_u128(61),
+        manifest_digest: "d".repeat(64),
+    }
+}
+#[test]
+fn result_push_intent_needs_a_stopped_checkpoint_and_replays_the_original_request() {
+    // Neither an unstopped nor an unclaimed owner can hold a checkpoint or a push.
+    for strip in [0, 1] {
+        let mut early = checkpointed();
+        if strip == 0 {
+            early.stop = None;
+        } else {
+            early.claim = None;
+        }
+        assert!(early.validate().is_err());
+    }
+    let mut bare = history();
+    bare.begin_push().unwrap();
+    assert!(bare.validate().is_err(), "push intent before a checkpoint");
+    assert!(bare.pushed_request().is_err());
+
+    let mut h = checkpointed();
+    assert!(h.pushed_request().is_err(), "no request before its intent");
+    h.begin_push().unwrap();
+    h.validate().unwrap();
+    assert!(!h.source.push.as_ref().unwrap().pushed);
+    let request = serde_json::to_value(h.pushed_request().unwrap()).unwrap();
+    assert_eq!(
+        request,
+        serde_json::json!({
+            "identity": {"node_id": Uuid::from_u128(1), "boot_id": Uuid::from_u128(2)},
+            "operation_id": Uuid::from_u128(43),
+            "transfer_id": Uuid::from_u128(42),
+            "attempt": {"attempt_id": Uuid::from_u128(3), "session_id": Uuid::from_u128(5), "generation": 4},
+            "resolved_spec_digest": Digest::of(b"spec").as_str(),
+            "source": h.scope.source,
+            "checkpoint": {"algorithm": "sha1", "hex": "c".repeat(40)},
+        })
+    );
+    // A reopened journal replays the same IDs and checkpoint, never a second intent.
+    let mut reopened: ResultHistory =
+        serde_json::from_slice(&serde_json::to_vec(&h).unwrap()).unwrap();
+    reopened.validate().unwrap();
+    assert_eq!(reopened.digest().unwrap(), h.digest().unwrap());
+    assert_eq!(
+        serde_json::to_value(reopened.pushed_request().unwrap()).unwrap(),
+        request
+    );
+    assert!(reopened.begin_push().is_err());
+    reopened.source.push.as_mut().unwrap().pushed = true;
+    assert_eq!(
+        serde_json::to_value(reopened.pushed_request().unwrap()).unwrap(),
+        request
+    );
+    h.source.push.as_mut().unwrap().identity.boot_id = Uuid::from_u128(77);
+    assert!(h.validate().is_err(), "another boot cannot own the push");
+}
+#[test]
+fn result_receipt_needs_the_completed_push_of_this_checkpoint() {
+    let mut h = checkpointed();
+    h.begin_push().unwrap();
+    h.source.receipt = Some(receipt(&h));
+    assert!(h.validate().is_err(), "receipt before the push completed");
+    h.source.push.as_mut().unwrap().pushed = true;
+    h.validate().unwrap();
+    let good = receipt(&h);
+    let other = aq_worker_protocol::ObjectId {
+        hex: "e".repeat(40),
+        ..good.source.clone()
+    };
+    let changes: [fn(&mut aq_worker_protocol::CentralRetentionReceipt); 5] = [
+        |r| r.transfer_id = Uuid::from_u128(70),
+        |r| r.repository_id = Uuid::from_u128(71),
+        |r| r.binding_generation += 1,
+        |r| r.retention_handle = Uuid::nil(),
+        |r| r.receipt_id = Uuid::nil(),
+    ];
+    for change in changes {
+        let mut wrong = good.clone();
+        change(&mut wrong);
+        h.source.receipt = Some(wrong);
+        assert!(h.validate().is_err());
+    }
+    h.source.receipt = Some(aq_worker_protocol::CentralRetentionReceipt {
+        source: other,
+        ..good
+    });
+    assert!(h.validate().is_err(), "receipt for another commit");
+}
+#[test]
+fn result_history_of_the_bundle_upload_format_is_not_read() {
+    let now = serde_json::to_value(checkpointed()).unwrap();
+    let mut old = now.clone();
+    old["scope"]["operations"]["export"] = serde_json::json!(Uuid::from_u128(41));
+    assert!(serde_json::from_value::<ResultHistory>(old).is_err());
+    let mut old = now.clone();
+    old["source"]["export"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<ResultHistory>(old).is_err());
+    let mut old = now.clone();
+    old["scope"]["operations"]
+        .as_object_mut()
+        .unwrap()
+        .remove("pushed");
+    assert!(serde_json::from_value::<ResultHistory>(old).is_err());
+    serde_json::from_value::<ResultHistory>(now).unwrap();
 }
 #[test]
 fn result_module_alone_does_not_prove_counted_startup_delivery() {

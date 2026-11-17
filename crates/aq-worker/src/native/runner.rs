@@ -140,7 +140,7 @@ async fn run_admitted<E: NativeExecutor>(
         return Ok(RunDisposition::ShutdownBeforeAdmission);
     }
     let profile = config.presence_profile()?;
-    let git = GitClient::new(&config.git_socket, &config.git_root)?;
+    let git = config.git_client()?;
     let disk = git.native_reservation_bytes()?;
     ensure!(
         disk <= config.capacity.disk_bytes,

@@ -107,6 +107,12 @@ pub struct NativeConfig {
     pub state_dir: PathBuf,
     pub git_socket: PathBuf,
     pub git_root: PathBuf,
+    /// The git executable aq-git runs with; the node pushes finished results with it.
+    #[serde(default = "default_git")]
+    pub git_executable: PathBuf,
+    /// Bound of one `git push` of a finished result; the push is killed after it.
+    #[serde(default = "default_result_push_ms")]
+    pub result_push_timeout_ms: u64,
     pub capacity: Limits,
     pub runtime: RuntimeIdentity,
     pub adapter: ArtifactRef,
@@ -126,6 +132,12 @@ pub struct NativeConfig {
     pub inventory_ttl_ms: u64,
     #[serde(default)]
     pub executor: Option<super::codex::ExecutorConfig>,
+}
+fn default_git() -> PathBuf {
+    "/usr/bin/git".into()
+}
+fn default_result_push_ms() -> u64 {
+    600_000
 }
 pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     ensure!(
@@ -186,7 +198,9 @@ impl NativeConfig {
                 && self.state_dir.canonicalize()? == self.state_dir
                 && self.git_root.starts_with(&self.state_dir)
                 && self.git_root != self.state_dir
-                && self.git_socket.is_absolute(),
+                && self.git_socket.is_absolute()
+                && self.git_executable.is_absolute()
+                && self.result_push_timeout_ms > 0,
             "native storage scope"
         );
         let m = std::fs::symlink_metadata(&self.state_dir)?;
@@ -253,6 +267,14 @@ impl NativeConfig {
                 qualification: &self.runtime.qualification,
                 renderer: &self.renderer,
             },
+        )
+    }
+    /// The slot's aq-git client, able to push a finished result.
+    pub(super) fn git_client(&self) -> Result<crate::source::GitClient> {
+        let timeout = std::time::Duration::from_millis(self.result_push_timeout_ms);
+        Ok(
+            crate::source::GitClient::new(&self.git_socket, &self.git_root)?
+                .with_push(&self.git_executable, timeout),
         )
     }
     pub(super) fn presence_profile(&self) -> Result<QualifiedPresenceProfile> {
