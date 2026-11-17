@@ -163,11 +163,21 @@ impl GitAction {
             Self::Export {
                 source,
                 retention_handle,
-            } => (
-                "artifact.export",
-                json!({"source":source,"base":b.base,"retention_handle":retention_handle}),
-                b.binding_generation,
-            ),
+            } => {
+                // The receiver issued the base, so the bundle carries only the
+                // commits after it. A source equal to its base has nothing after
+                // it and is exported whole (git refuses an empty bundle).
+                let prerequisites: &[ObjectId] = if *source == b.base {
+                    &[]
+                } else {
+                    std::slice::from_ref(&b.base)
+                };
+                (
+                    "artifact.export",
+                    json!({"source":source,"base":b.base,"retention_handle":retention_handle,"confirmed_prerequisites":prerequisites}),
+                    b.binding_generation,
+                )
+            }
             Self::Retire {
                 workspace_id,
                 generation,

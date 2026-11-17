@@ -1050,6 +1050,44 @@ fn pinned_git_real_workspace_checkpoint_export_and_feature_refusal() {
     assert_eq!(manifest.source, checkpoint.source);
     assert!(rt.journal.state().attempts[&id].pending_bytes > 0);
     assert!(rt.retire_source(id, &git).is_err());
+    // The result bundle names the issued base as its prerequisite and carries
+    // only what follows it; the central repository, which holds that base,
+    // imports and retains it.
+    assert_eq!(manifest.prerequisites, vec![manifest.base.clone()]);
+    let result_handle = manifest.transfer_id.to_string();
+    let header = std::fs::read(
+        worker
+            .join("artifacts")
+            .join(&result_handle)
+            .join("objects.bundle"),
+    )
+    .unwrap();
+    assert!(
+        String::from_utf8_lossy(&header[..header.len().min(512)]).contains(&format!("-{base}")),
+        "bundle header lacks the base prerequisite"
+    );
+    let returned = central.join("artifacts/incoming").join(&result_handle);
+    std::fs::create_dir_all(&returned).unwrap();
+    for file in ["manifest.json", "objects.bundle"] {
+        std::fs::copy(
+            worker.join("artifacts").join(&result_handle).join(file),
+            returned.join(file),
+        )
+        .unwrap();
+    }
+    let retained = direct(
+        exe,
+        &central,
+        rid,
+        "artifact.import",
+        json!({"artifact_handle":result_handle}),
+        1,
+    );
+    assert_eq!(retained["retention_state"], "active");
+    assert_eq!(
+        retained["source"],
+        serde_json::to_value(&manifest.source).unwrap()
+    );
     let manifest_file = std::fs::read(
         worker
             .join("artifacts")
