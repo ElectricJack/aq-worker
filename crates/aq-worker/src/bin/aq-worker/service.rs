@@ -190,6 +190,15 @@ impl NativeSlotBackend {
                 tracing::warn!(%attempt, "the server released this attempt; its unreported result is archived, not retried");
                 continue;
             }
+            // The server granted this execution and the worker closed it before any launch
+            // intent (for example a refused manifest). No host, sandbox or result exists, so
+            // nothing can still write for it and holding the slot protects nothing: one such
+            // refusal used to take the whole worker out for good. It is archived with the
+            // slot's state; a launch that recorded an intent is never released this way.
+            if never_launched(&salvaged) {
+                tracing::error!(%attempt, "granted execution was never launched (no launch intent, host or result recorded): its state is archived and the slot released. The worker cannot report this closure yet, so the server keeps the attempt and its task until an operator settles it");
+                continue;
+            }
             match salvaged? {
                 SalvageDisposition::Unsalvageable(why) => {
                     return Ok(RecoverOutcome::Held(why.to_owned()));
@@ -204,6 +213,12 @@ impl NativeSlotBackend {
         }
         Ok(outcome)
     }
+}
+/// Recovery's `launch_closure_pending`: an execution was granted and the journal holds no
+/// launch intent, host history or result for it (`runner::recovery::pre_launch`).
+fn never_launched<T>(recovered: &Result<T>) -> bool {
+    let hold = recovered.as_ref().err().and_then(|e| e.downcast_ref());
+    matches!(hold, Some(RecoveryHold("launch_closure_pending", _)))
 }
 /// R1: a recovery that retrying cannot change (an unreadable or inconsistent journal, a
 /// Prepare or launch whose disposition recovery cannot settle) holds the slot with its reason,
@@ -1682,6 +1697,83 @@ mod tests {
         let (outcome, record) = std::thread::spawn(run).join().unwrap();
         assert_eq!(outcome, RecoverOutcome::Lost);
         assert_eq!(record["released"], true);
+    }
+    /// Spec 0014: an installed template still carries `executor.settings.permissions_digest`
+    /// and cannot be edited on a remote machine. The key is read and ignored, and a template
+    /// without it loads the same; an unknown key is still refused.
+    #[test]
+    fn a_template_with_or_without_the_old_permissions_digest_loads() {
+        let artifact = |id: &str| serde_json::json!({"id": id, "version": "1", "digest": aq_session_protocol::Digest::of(id.as_bytes())});
+        let pinned =
+            |id: &str, path: &str| serde_json::json!({"artifact": artifact(id), "path": path});
+        let template = "sha256:057ae952da10fff6c0812a4b8e41b09f0f34c2ba310763976357a786536b3950";
+        let old = serde_json::json!({
+            "kind": "claude-2.1.318-docker-local-result-local-v1",
+            "composite_definition": "/var/lib/aq/composite.json",
+            "settings": {
+                "environment": artifact("environment"),
+                "permissions_digest": aq_session_protocol::Digest::of(b"installed plan"),
+                "host": {
+                    "claude_executable": "/opt/aq/bin/claude", "columns": 120, "rows": 40,
+                    "docker_local": {"shared_root_fs": true, "socket": "/run/user/1000/aq-sandbox/podman.sock",
+                        "templates": [{"digest": template, "image": format!("registry.invalid/aq-template@{template}")}]},
+                    "driver": pinned("aq.claude-docker-local-driver", "/var/lib/aq/aq-sandbox-driver"),
+                    "helper": pinned("aq.host/aq-session-host", "/var/lib/aq/aq-session-host"),
+                    "tmux": pinned("aq.host/tmux", "/usr/bin/tmux"),
+                    "max_workspace_bytes": 268435456, "renderer": artifact("renderer"),
+                    "root": "/var/lib/aq/host", "template": template
+                }
+            }
+        });
+        let load =
+            |wire: &serde_json::Value| serde_json::from_value::<ExecutorConfig>(wire.clone());
+        let Ok(ExecutorConfig::ClaudeDockerLocalResultLocal { .. }) = load(&old) else {
+            panic!(
+                "the installed template shape is refused: {:?}",
+                load(&old).err()
+            );
+        };
+        let mut new = old.clone();
+        new["settings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("permissions_digest");
+        assert!(load(&new).is_ok(), "{:?}", load(&new).err());
+        new["settings"]["permission_plans"] = serde_json::json!([]);
+        assert!(load(&new).is_err(), "unknown keys stay refused");
+    }
+    /// A granted execution with no launch intent, host or result is released (archived, the
+    /// slot freed), also behind added context. Every other hold stays held: a Prepare whose
+    /// grant is unknown, an inconsistent journal (a host or result without its history), and
+    /// an ordinary error is neither.
+    #[test]
+    fn only_a_granted_execution_that_never_launched_is_released() {
+        use aq_worker::native::journal::RecoveryHold;
+        let hold = |reason, why: &'static str| -> Result<SalvageDisposition> {
+            Err(RecoveryHold(reason, anyhow::anyhow!(why)).into())
+        };
+        let never = hold(
+            "launch_closure_pending",
+            "execution granted, no launch recorded",
+        );
+        assert!(never_launched(&never));
+        assert!(never_launched(&never.context("recover slot 1")));
+        for (reason, why) in [
+            ("prepare_disposition_unknown", "Prepare journaled, no grant"),
+            ("journal_inconsistent", "runner native host history absent"),
+            ("journal_unreadable: format", "trailing bytes"),
+        ] {
+            let held = hold(reason, why);
+            assert!(!never_launched(&held), "{reason}");
+            assert!(matches!(
+                held_if_permanent(held.map(|_| RecoverOutcome::Clean)),
+                Ok(RecoverOutcome::Held(_))
+            ));
+        }
+        assert!(!never_launched(&Ok(SalvageDisposition::NotStarted)));
+        assert!(!never_launched::<()>(&Err(anyhow::anyhow!(
+            "server unreachable"
+        ))));
     }
     /// R1: an inconsistent journal (missing or mixed history) holds the slot with its reason
     /// instead of failing every retry; any other recovery error is still retried.

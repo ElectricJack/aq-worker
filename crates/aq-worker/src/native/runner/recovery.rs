@@ -319,7 +319,7 @@ fn pre_launch(a: &Attempt) -> Option<Result<ReconcileDisposition>> {
         // replayed grant (its journal is not live). follow-up: replay the journaled Prepare to
         // learn its disposition, then close or settle the grant.
         (false, true) => hold("prepare_disposition_unknown", "Prepare journaled, no grant"),
-        // follow-up: a launch closure for an execution granted before any launch intent.
+        // Nothing launched: the service archives it and frees the slot. follow-up: its closure.
         (true, _) => hold(
             "launch_closure_pending",
             "execution granted, no launch recorded",
