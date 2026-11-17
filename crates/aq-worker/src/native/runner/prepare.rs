@@ -68,6 +68,7 @@ macro_rules! collect_profile {
             let workspace = pipeline
                 .$hydrate(id, preparation.clone(), spec, git)
                 .await?;
+            let _inventory = pipeline.inventory.gate.lock().await;
             let refreshed = inventory.begin_inventory(config.inventory_ttl_ms)?;
             inventory.publish_inventory(&refreshed).await?;
             pipeline.record_inventory_sequence(refreshed.request().sequence);

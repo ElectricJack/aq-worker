@@ -134,15 +134,16 @@ impl NativeClient {
         ensure!(bytes.len() <= 65_536, "native control request size");
         let nonce = Uuid::new_v4();
         let sent_ns = boot_ns()?;
-        let response = client
+        let request = client
             .post(format!("{}/v1/worker/profiled/{path}", self.base))
             .header(header::AUTHORIZATION, self.credential.clone())
             .header(header::CONTENT_TYPE, "application/json")
             .header("aq-delivery-nonce", nonce.to_string())
-            .body(bytes)
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("native control transport failed; disposition unknown"))?;
+            .body(bytes);
+        let response =
+            self.slot_headers(request, path).send().await.map_err(|_| {
+                anyhow::anyhow!("native control transport failed; disposition unknown")
+            })?;
         if !response.status().is_success() {
             return Err(refused(response).await);
         }

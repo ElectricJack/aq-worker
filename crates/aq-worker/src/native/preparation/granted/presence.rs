@@ -423,11 +423,7 @@ impl ScopedPresenceProducer {
                 "unresolved inventory operation retained"
             );
         }
-        let sequence = state
-            .inventory_sequence
-            .checked_add(1)
-            .filter(|s| *s <= i64::MAX as u64)
-            .context("inventory highwater exhausted")?;
+        let sequence = self.pipeline.inventory.next(state.inventory_sequence)?;
         let request = self.inventory_request(Uuid::new_v4(), sequence, ttl_ms)?;
         request.validate()?;
         let operation = InventoryOperation {

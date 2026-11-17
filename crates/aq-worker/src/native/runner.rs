@@ -38,7 +38,7 @@ use aq_admission::{
 pub use config::{ConfiguredPreparation, NativeConfig};
 use std::{
     future::Future,
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     pin::Pin,
     sync::Arc,
 };
@@ -93,7 +93,7 @@ pub async fn run_once<E: NativeExecutor>(
     executor: &mut E,
     shutdown: watch::Receiver<bool>,
 ) -> Result<RunDisposition> {
-    run_admitted(worker, config, executor, shutdown, None).await
+    run_admitted(worker, config, executor, shutdown, None, None).await
 }
 /// Poll until offer/pause/shutdown, renewing acknowledged inventory near expiry.
 pub async fn run_until_attempt<E: NativeExecutor>(
@@ -103,16 +103,39 @@ pub async fn run_until_attempt<E: NativeExecutor>(
     shutdown: watch::Receiver<bool>,
     pause: watch::Receiver<bool>,
 ) -> Result<RunDisposition> {
-    run_admitted(worker, config, executor, shutdown, Some(pause)).await
+    run_admitted(worker, config, executor, shutdown, Some(pause), None).await
 }
-async fn run_admitted<E: NativeExecutor>(
+/// A slot in a node boot already registered by the service, independently of recovery.
+pub async fn run_node_slot<E: NativeExecutor>(
     worker: &WorkerConfig,
     config: NativeConfig,
     executor: &mut E,
     shutdown: watch::Receiver<bool>,
+    pause: watch::Receiver<bool>,
+    node: Arc<aq_node_service::session::NodeSession>,
+    slot: u32,
+) -> Result<RunDisposition> {
+    run_admitted(
+        worker,
+        config,
+        executor,
+        shutdown,
+        Some(pause),
+        Some((node, slot)),
+    )
+    .await
+}
+async fn run_admitted<E: NativeExecutor>(
+    worker: &WorkerConfig,
+    mut config: NativeConfig,
+    executor: &mut E,
+    shutdown: watch::Receiver<bool>,
     pause: Option<watch::Receiver<bool>>,
+    node: Option<(Arc<aq_node_service::session::NodeSession>, u32)>,
 ) -> Result<RunDisposition> {
     config.validate()?;
+    config.capacity.slots = 1;
+    let node = node.filter(|(n, _)| n.aware());
     // No network or state-directory publication precedes this implementation gate.
     executor.preflight(&config)?;
     if *shutdown.borrow() {
@@ -125,37 +148,62 @@ async fn run_admitted<E: NativeExecutor>(
         disk <= config.capacity.disk_bytes,
         "native Git reservation exceeds configured capacity"
     );
-    let client = NativeClient::from_config(worker)?;
+    let mut client = NativeClient::from_config(worker)?;
+    if let Some((node, slot)) = &node {
+        client = client.for_node_slot(*slot, node.registered_slots());
+    }
     let held = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(&config.state_dir)?;
     fs2::FileExt::try_lock_exclusive(&held).context("native state scope already owned")?;
     check_root(&config, &held)?;
-    let journal = open_journal(&config, worker.node_id)?;
+    let journal = if let Some((node, _)) = &node {
+        Journal::create_identity(
+            &config.state_dir.join("journal"),
+            aq_admission::transport::WorkerIdentity {
+                node_id: worker.node_id,
+                boot_id: node.boot_id,
+            },
+            config.capacity.clone(),
+        )?
+    } else {
+        open_journal(&config, worker.node_id)?
+    };
     ensure!(
         !journal.recovery_required(),
         "native history cannot admit new work; use reconcile-native to report retained outcome"
     );
-    let (heartbeat, shutdown) = heartbeat::Heartbeat::start(worker, shutdown).await?;
+    let (heartbeat, shutdown) = if node.is_some() {
+        (None, shutdown)
+    } else {
+        let (heartbeat, shutdown) = heartbeat::Heartbeat::start(worker, shutdown).await?;
+        (Some(heartbeat), shutdown)
+    };
     let identity = journal.state().identity.clone();
     std::fs::DirBuilder::new()
         .mode(0o700)
         .create(config.state_dir.join("materials"))?;
     held.sync_all()?;
     let materials = MaterialStore::open(&config.state_dir.join("materials"), identity.clone(), 32)?;
-    let pipeline = Arc::new(InputPipeline::new(journal, materials, client.clone()));
+    let mut pipeline = InputPipeline::new(journal, materials, client.clone());
+    if let Some((node, _)) = &node {
+        pipeline = pipeline.with_inventory(node.inventory.clone());
+    }
+    let pipeline = Arc::new(pipeline);
     check_root(&config, &held)?;
-    client
-        .register(&Register {
-            schema_version: 1,
-            operation_id: Uuid::new_v4(),
-            identity: identity.clone(),
-            runtime: config.runtime.runtime.clone(),
-            capabilities: config.capabilities.clone(),
-            features: config.features.clone(),
-        })
-        .await?;
+    if node.is_none() {
+        client
+            .register(&Register {
+                schema_version: 1,
+                operation_id: Uuid::new_v4(),
+                identity: identity.clone(),
+                runtime: config.runtime.runtime.clone(),
+                capabilities: config.capabilities.clone(),
+                features: config.features.clone(),
+            })
+            .await?;
+    }
     let producer = pipeline
         .scoped_presence(profile, config.harness_qualifications.clone(), 0)
         .await?;
@@ -163,10 +211,18 @@ async fn run_admitted<E: NativeExecutor>(
     // Keep the acknowledged snapshot stable while its offer is assembled.
     let inventory_cache = tokio::sync::Mutex::new(None::<(u64, u64)>);
     let poll_once = || async {
-        heartbeat.check()?;
+        if let Some(h) = &heartbeat {
+            h.check()?;
+        }
+        let _inventory = pipeline.inventory.gate.lock().await;
         let now = super::http::boot_ns()?;
         let mut cached = inventory_cache.lock().await;
         let sequence = if let Some((sequence, deadline)) = *cached
+            && sequence
+                == pipeline
+                    .inventory
+                    .acknowledged
+                    .load(std::sync::atomic::Ordering::SeqCst)
             && deadline.saturating_sub(now) > 5_000_000_000
         {
             sequence
@@ -254,7 +310,9 @@ async fn run_admitted<E: NativeExecutor>(
         .await?;
     let grant = prepare::collect(&pipeline, &producer, &config, id, &offer, deadline, git).await?;
     check_root(&config, &held)?;
-    heartbeat.check()?;
+    if let Some(h) = &heartbeat {
+        h.check()?;
+    }
     let prepared_state = pipeline.snapshot().await?;
     ensure!(
         profile::TerminalProfile::for_execution(
@@ -286,21 +344,13 @@ async fn run_admitted<E: NativeExecutor>(
             .complete(state.attempts.get(&id).unwrap())?,
         "native executor missing matching durable lifecycle acknowledgments"
     );
-    heartbeat.check()?;
+    if let Some(h) = &heartbeat {
+        h.check()?;
+    }
     Ok(RunDisposition::AttemptStopped)
 }
 fn check_root(config: &NativeConfig, held: &std::fs::File) -> Result<()> {
-    let a = held.metadata()?;
-    let b = std::fs::symlink_metadata(&config.state_dir)?;
-    ensure!(
-        b.is_dir()
-            && a.dev() == b.dev()
-            && a.ino() == b.ino()
-            && b.uid() == unsafe { libc::geteuid() }
-            && b.mode() & 0o7777 == 0o700,
-        "native state directory changed"
-    );
-    Ok(())
+    aq_node_service::session::check_state_root(&config.state_dir, held)
 }
 
 #[cfg(test)]

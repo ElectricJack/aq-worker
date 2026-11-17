@@ -1,6 +1,7 @@
 //! `aq-worker run --service-config` and `aq-worker service ...` (spec 0007 phase 1):
 //! the glue between `aq-node-service` and the native pipeline.
 use anyhow::{Context, Result, bail, ensure};
+use aq_node_service::session::NodeSession;
 use aq_node_service::{
     AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError, MachineLink,
     RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState, SlotBackend,
@@ -15,9 +16,9 @@ use aq_worker::{
     config::WorkerConfig,
     native::journal::RecoveryHold,
     native::runner::{
-        ClaudeDockerExecutor, ExecutorConfig, NativeConfig, RunDisposition, SalvageDisposition,
-        claimed_attempts, destroy_claimed_sandboxes, retained_attempts, run_until_attempt,
-        salvage_interrupted,
+        ClaudeDockerExecutor, ExecutorConfig, NativeConfig, NativeExecutor, RunDisposition,
+        SalvageDisposition, claimed_attempts, destroy_claimed_sandboxes, retained_attempts,
+        run_node_slot, run_until_attempt, salvage_interrupted,
     },
 };
 use clap::{Args, Subcommand};
@@ -31,8 +32,8 @@ use uuid::Uuid;
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 pub enum ServiceCmd {
-    /// Enroll slot 1 with a single-use code (prompted, or the first stdin line), claim the machine
-    /// key, mint slots 2..N, write machine.json and service.toml. With --cf-service-token the next
+    /// Enroll node 1 with a single-use code (prompted, or the first stdin line), claim the machine
+    /// key, mint nodes 2..N, write machine.json and service.toml. With --cf-service-token the next
     /// two prompts or lines are the node Access client id and secret.
     Enroll(ServiceEnrollArgs),
     /// Install and start the systemd user service for an enrolled profile.
@@ -57,6 +58,9 @@ pub enum ServiceCmd {
     ReleaseSandbox {
         #[arg(long)]
         profile: String,
+        /// Enrolled node index. Without this flag, --slot keeps its historical node-index meaning.
+        #[arg(long)]
+        node: Option<u32>,
         #[arg(long)]
         slot: u32,
         #[arg(long)]
@@ -74,8 +78,9 @@ pub struct ServiceEnrollArgs {
     profile: String,
     #[arg(long)]
     server: String,
-    #[arg(long, default_value_t = 1)]
-    slots: u32,
+    /// Enrolled nodes on this machine. Agent slots are controlled by the server.
+    #[arg(long = "nodes", alias = "slots", default_value_t = 1)]
+    nodes: u32,
     #[arg(long)]
     name: Option<String>,
     #[arg(long)]
@@ -105,11 +110,12 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Status { profile } => status(&profile),
         ServiceCmd::ReleaseSandbox {
             profile,
+            node,
             slot,
             attempt_id,
             reason,
             force,
-        } => release_sandbox(&profile, slot, attempt_id, &reason, force).await,
+        } => release_sandbox(&profile, node, slot, attempt_id, &reason, force).await,
     }
 }
 
@@ -121,6 +127,7 @@ pub struct NativeSlotBackend {
     notified: std::sync::Mutex<std::collections::HashSet<Uuid>>,
     manual_pause: std::collections::BTreeMap<Uuid, watch::Receiver<bool>>,
     native_active: std::collections::BTreeMap<Uuid, Arc<std::sync::atomic::AtomicUsize>>,
+    sessions: std::collections::BTreeMap<Uuid, Arc<NodeSession>>,
 }
 impl NativeSlotBackend {
     pub fn new(template: PathBuf) -> Self {
@@ -129,6 +136,7 @@ impl NativeSlotBackend {
             notified: Default::default(),
             manual_pause: Default::default(),
             native_active: Default::default(),
+            sessions: Default::default(),
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
@@ -239,6 +247,7 @@ fn held_if_permanent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome
 /// (aq-git's socket, the session host root). The renderer is the template's own.
 fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
     let mut cfg = NativeConfig::load(template)?;
+    cfg.capacity.slots = 1;
     cfg.state_dir = ctx.state_dir.clone();
     cfg.git_socket = ctx.git_socket.clone();
     cfg.git_root = ctx.state_dir.join("git");
@@ -400,12 +409,62 @@ fn restart_reason(ctx: &SlotContext, attempt: Uuid) -> HandoffReason {
 
 #[async_trait::async_trait]
 impl SlotBackend for NativeSlotBackend {
+    async fn node_control(
+        &self,
+        ctx: SlotContext,
+        reply: &aq_protocol::ControlResponse,
+    ) -> Result<()> {
+        let session = self
+            .sessions
+            .get(&ctx.node_id)
+            .context("node session absent")?;
+        session.update(reply)?;
+        if !session.aware() {
+            return Ok(());
+        }
+        session
+            .register_once(|| async {
+                let worker = WorkerConfig::load(&ctx.enrollment)?;
+                let config = NativeConfig::load(&self.template)?;
+                ClaudeDockerExecutor::configured(&worker)?.preflight(&config)?;
+                let client = aq_worker::native::http::NativeClient::from_config(&worker)?
+                    .for_node_slot(1, session.registered_slots());
+                client
+                    .register(&aq_admission::transport::Register {
+                        schema_version: 1,
+                        operation_id: session.registration_id,
+                        identity: aq_admission::transport::WorkerIdentity {
+                            node_id: worker.node_id,
+                            boot_id: session.boot_id,
+                        },
+                        runtime: config.runtime.runtime,
+                        capabilities: config.capabilities,
+                        features: config.features,
+                    })
+                    .await?;
+                Ok(())
+            })
+            .await
+    }
+
     async fn run_attempt(
         &self,
         ctx: SlotContext,
         shutdown: watch::Receiver<bool>,
         pause: watch::Receiver<bool>,
     ) -> Result<AttemptOutcome> {
+        let session = self.sessions.get(&ctx.node_id).cloned();
+        let _permit = if let Some(session) = &session
+            && session.aware()
+        {
+            let Some(permit) = session.try_queued() else {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                return Ok(AttemptOutcome::Paused);
+            };
+            Some(permit)
+        } else {
+            None
+        };
         struct Active(Arc<std::sync::atomic::AtomicUsize>);
         impl Drop for Active {
             fn drop(&mut self) {
@@ -443,15 +502,27 @@ impl SlotBackend for NativeSlotBackend {
         let worker = WorkerConfig::load(&ctx.enrollment)?;
         let cfg = self.native_config(&ctx)?;
         let mut executor = ClaudeDockerExecutor::configured(&worker)?;
-        Ok(
-            match run_until_attempt(&worker, cfg, &mut executor, shutdown, pause).await? {
-                RunDisposition::AttemptStopped => AttemptOutcome::AttemptStopped,
-                RunDisposition::PollingPaused => AttemptOutcome::Paused,
-                RunDisposition::ShutdownBeforeAdmission | RunDisposition::NoOffer => {
-                    AttemptOutcome::ShutdownBeforeAdmission
-                }
-            },
-        )
+        let disposition = if let Some(session) = session {
+            run_node_slot(
+                &worker,
+                cfg,
+                &mut executor,
+                shutdown,
+                pause,
+                session,
+                ctx.slot,
+            )
+            .await?
+        } else {
+            run_until_attempt(&worker, cfg, &mut executor, shutdown, pause).await?
+        };
+        Ok(match disposition {
+            RunDisposition::AttemptStopped => AttemptOutcome::AttemptStopped,
+            RunDisposition::PollingPaused => AttemptOutcome::Paused,
+            RunDisposition::ShutdownBeforeAdmission | RunDisposition::NoOffer => {
+                AttemptOutcome::ShutdownBeforeAdmission
+            }
+        })
     }
     async fn recover(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
         held_if_permanent(Box::pin(self.recover_attempts(ctx)).await)
@@ -546,8 +617,8 @@ async fn enroll_in(
             .context("pass --machine-key: the host name does not make a valid machine key")?,
     };
     ensure!(
-        (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(&args.slots),
-        "slots must be 1..={}",
+        (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(&args.nodes),
+        "nodes must be 1..={}",
         aq_protocol::MAX_MACHINE_SLOTS
     );
     aq_node_service::checked_origin(&args.server)?;
@@ -568,7 +639,7 @@ async fn enroll_in(
         schema_version: 1,
         profile: args.profile.clone(),
         machine_key: machine_key.clone(),
-        slots: args.slots,
+        nodes: args.nodes,
         native_template: native.clone(),
         state_root: layout.state_root.clone(),
         runtime_root: None,
@@ -631,7 +702,7 @@ async fn enroll_in(
     };
     // Claim the machine key and mint the siblings, always, even with one slot.
     let minted = ServerLink::from_enrollment(&first)?
-        .slots(&SlotsRequest { schema_version: 1, machine_key: machine_key.clone(), slots: args.slots })
+        .slots(&SlotsRequest { schema_version: 1, machine_key: machine_key.clone(), slots: args.nodes })
         .await
         .map_err(|e| match e.downcast_ref::<LinkError>() {
             Some(l) if l.status == 409 => anyhow::anyhow!("machine key {machine_key} is in use by another machine; revoke it from the Swarm page or pass --machine-key (rerun this command: the code is not needed again)"),
@@ -640,7 +711,7 @@ async fn enroll_in(
             _ => e.context("the machine key claim failed; rerun this command to resume it (the code is not needed again)"),
         })?;
     let mut files = vec![first.clone()];
-    for slot in 2..=args.slots {
+    for slot in 2..=args.nodes {
         let entry = minted
             .slots
             .iter()
@@ -669,7 +740,7 @@ async fn enroll_in(
     for (slot, file) in (1..).zip(&files) {
         file.save(&staged(&layout.slot_enrollment(slot)))?;
     }
-    for slot in 1..=args.slots {
+    for slot in 1..=args.nodes {
         let path = layout.slot_enrollment(slot);
         std::fs::rename(staged(&path), &path)
             .with_context(|| format!("install {}", path.display()))?;
@@ -682,7 +753,7 @@ async fn enroll_in(
     config.save(&layout.service_toml())?;
     std::fs::remove_file(&pending).context("remove the pending enrollment")?;
     println!(
-        "machine {machine_key}: slots {}",
+        "machine {machine_key}: nodes {}",
         files
             .iter()
             .map(|f| f.node_id.to_string())
@@ -774,9 +845,23 @@ fn status(profile: &str) -> Result<()> {
     };
     println!("aq-node@{profile} ({}): {state}", manager.kind());
     if let Ok((layout, config)) = loaded(profile) {
-        println!("machine {}: {} slot(s)", config.machine_key, config.slots);
-        for slot in 1..=config.slots {
-            println!("{}", slot_line(&layout, slot));
+        println!("machine {}: {} node(s)", config.machine_key, config.nodes);
+        for node in layout.enrolled_nodes() {
+            let view = layout.for_node(node);
+            let id = EnrollmentFile::load(&view.slot_enrollment(1))
+                .map(|e| e.node_id.to_string())
+                .unwrap_or_else(|_| "unenrolled".into());
+            println!(
+                "node {node}: {id}{}",
+                if node > config.nodes {
+                    " (retiring)"
+                } else {
+                    ""
+                }
+            );
+            for slot in view.existing_slots() {
+                println!("  {}", slot_line(&view, slot));
+            }
         }
     }
     Ok(())
@@ -807,17 +892,24 @@ fn held_for_salvage(
 }
 async fn release_sandbox(
     profile: &str,
+    node_index: Option<u32>,
     slot: u32,
     attempt: Uuid,
     reason: &str,
     force: bool,
 ) -> Result<()> {
-    let (layout, config) = loaded(profile)?;
+    let (machine, config) = loaded(profile)?;
+    let (node_index, slot) = node_index.map_or((slot, 1), |n| (n, slot));
     ensure!(
-        (1..=config.slots).contains(&slot),
-        "profile {profile} has slots 1..={}",
-        config.slots
+        machine.enrolled_nodes().contains(&node_index),
+        "node {node_index} has no enrollment"
     );
+    ensure!(
+        (1..=aq_protocol::MAX_NODE_SLOTS).contains(&slot),
+        "invalid agent slot"
+    );
+    // Retired nodes remain addressable: their old attempts still belong to their identity.
+    let layout = machine.for_node(node_index);
     let node = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
     // Only the executor settings matter here; the slot's state directory stands in for the
     // attempt's own (which may be archived).
@@ -922,27 +1014,65 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
                 ))
             },
         );
-    tracing::info!(profile = %config.profile, machine = %config.machine_key, slots = config.slots,
+    tracing::info!(profile = %config.profile, machine = %config.machine_key, nodes = config.nodes,
         runtime = %layout.runtime_root.display(), "worker service starting");
-    // Each slot's handoff notices go out under that slot's own credential (D4).
-    let control = Arc::new(MachineLink::new(link.clone(), &layout, config.slots));
     let mut manual_pause = std::collections::BTreeMap::new();
     let mut manual_pause_tx = std::collections::BTreeMap::new();
     let mut native_active = std::collections::BTreeMap::new();
-    for slot in 1..=config.slots {
-        let id = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
+    let mut sessions = std::collections::BTreeMap::new();
+    let mut node_views = Vec::new();
+    let mut node_indices = layout.enrolled_nodes();
+    for node in 1..=config.nodes {
+        if !node_indices.contains(&node) {
+            node_indices.push(node);
+        }
+    }
+    for node in node_indices {
+        let view = layout.for_node(node);
+        let enrollment = EnrollmentFile::load(&view.slot_enrollment(1))?;
+        let id = enrollment.node_id;
+        ensure!(
+            !sessions.contains_key(&id),
+            "two machine node entries share one node identity"
+        );
         let (tx, rx) = watch::channel(false);
         manual_pause.insert(id, rx);
         manual_pause_tx.insert(id, tx);
         native_active.insert(id, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+        let session = Arc::new(NodeSession::pending());
+        if node > config.nodes {
+            session.retire();
+        }
+        sessions.insert(id, session);
+        node_views.push((
+            node,
+            view,
+            Arc::new(ServerLink::from_enrollment(&enrollment)?),
+        ));
+    }
+    // Restore manual occupancy synchronously, before queued loops can poll.
+    if let Ok(entries) = std::fs::read_dir(config.state_root.join("manual-agents")) {
+        for entry in entries.flatten() {
+            if let Ok(bytes) = std::fs::read(entry.path().join("state.json"))
+                && let Ok(agent) = serde_json::from_slice::<serde_json::Value>(&bytes)
+                && agent["status"] != "stopped"
+                && (agent["status"] != "failed" || !agent["sandbox"].is_null())
+                && let (Some(node), Some(id)) = (agent["node_id"].as_str(), agent["id"].as_str())
+                && let (Ok(node), Ok(id)) = (node.parse::<Uuid>(), id.parse::<Uuid>())
+                && let Some(session) = sessions.get(&node)
+            {
+                session.restore_manual(id);
+            }
+        }
     }
     let manual = if config.manual.is_some() {
         Some(tokio::spawn(super::manual::run(
             config.clone(),
-            Layout::for_service(config_dir, &config),
+            layout.clone(),
             rx.clone(),
             manual_pause_tx,
             native_active.clone(),
+            sessions.clone(),
         )))
     } else {
         None
@@ -950,11 +1080,62 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     let mut native_backend = NativeSlotBackend::new(config.native_template.clone());
     native_backend.manual_pause = manual_pause;
     native_backend.native_active = native_active;
+    native_backend.sessions = sessions;
     let backend = Arc::new(native_backend);
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
-    let result = Supervisor::new(config, layout, backend, control, git)
-        .run(rx)
-        .await;
+    let mut supervisors = tokio::task::JoinSet::new();
+    for (node, view, node_link) in node_views {
+        let control = Arc::new(MachineLink::new(node_link, &view, 1));
+        let (node_stop, node_rx) = watch::channel(false);
+        let mut machine_stop = rx.clone();
+        let forward = node_stop.clone();
+        let forwarding = tokio::spawn(async move {
+            let _ = machine_stop.wait_for(|v| *v).await;
+            forward.send_replace(true);
+        });
+        let worker = WorkerConfig::load(&view.slot_enrollment(1))?;
+        let supervisor_rx = node_rx.clone();
+        let heartbeat = tokio::spawn(async move {
+            let client = Client::from_config(&worker);
+            let mut stop = node_rx.clone();
+            let result: Result<()> = async {
+                let client = client?;
+                aq_worker::client::run_loop(&client, async move {
+                    let _ = stop.wait_for(|v| *v).await;
+                })
+                .await?;
+                Ok(())
+            }
+            .await;
+            if result.is_err() {
+                node_stop.send_replace(true);
+            }
+            result
+        });
+        let sup = Supervisor::new(config.clone(), view, backend.clone(), control, git.clone())
+            .retiring(node > config.nodes);
+        // Each node is isolated; a refused sibling never stops this supervisor.
+        supervisors.spawn(async move {
+            // heartbeat sends stop on fatal refusal; machine stop is forwarded above.
+            let result = sup.run(supervisor_rx).await;
+            forwarding.abort();
+            heartbeat.abort();
+            result
+        });
+    }
+    let mut result = Ok(());
+    while let Some(outcome) = supervisors.join_next().await {
+        match outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                tracing::error!("node stopped: {e:#}");
+                result = Err(e);
+            }
+            Err(e) => {
+                result = Err(e.into());
+            }
+        }
+    }
     if let Some(manual) = manual {
         match manual.await {
             Ok(Ok(())) => {}
@@ -1079,6 +1260,7 @@ mod tests {
         std::fs::write(dir.path().join("native.json"), b"{}").unwrap();
         std::fs::write(dir.path().join("aq-git"), b"").unwrap();
         let layout = Layout {
+            node: None,
             config_dir: dir.path().join("cfg"),
             state_root: dir.path().join("state"),
             runtime_root: dir.path().join("run/local"),
@@ -1091,7 +1273,7 @@ mod tests {
             ServiceEnrollArgs {
                 profile: "local".into(),
                 server: server.into(),
-                slots: 2,
+                nodes: 2,
                 name: Some("Desk".into()),
                 machine_key: Some("desk".into()),
                 cf_service_token: false,
@@ -1338,6 +1520,7 @@ mod tests {
         config.save(&p.layout.service_toml()).unwrap();
         std::fs::create_dir_all(custom.join("slots/1/current")).unwrap();
         let defaults = Layout {
+            node: None,
             config_dir: p.layout.config_dir.clone(),
             state_root: p.dir.path().join("default-state"),
             runtime_root: p.dir.path().join("default-run"),
@@ -1799,6 +1982,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let layout = Layout {
+            node: None,
             config_dir: dir.path().join("config"),
             state_root: dir.path().join("state"),
             runtime_root: dir.path().join("run"),
@@ -1848,10 +2032,11 @@ mod tests {
         let node = Uuid::from_u128(1);
         let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
         let (lost, other) = (Uuid::new_v4(), Uuid::new_v4());
+        let shared_boot = Uuid::new_v4();
         for attempt_id in [lost, other] {
             let owner = Ownership {
                 node_id: node,
-                boot_id: Uuid::new_v4(),
+                boot_id: shared_boot,
                 attempt_id,
             };
             let request = CreateRequest::new(owner, template.clone(), 1 << 40, vec![]);

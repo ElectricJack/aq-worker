@@ -11,7 +11,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Clone)]
 pub struct Layout {
+    /// None for the machine view; Some(index) for one enrolled node.
+    pub node: Option<u32>,
     pub config_dir: PathBuf,
     pub state_root: PathBuf,
     /// `$XDG_RUNTIME_DIR/aq/<profile>`, else `/tmp/aq-<uid>/<profile>`, unless service.toml
@@ -102,6 +105,7 @@ impl Layout {
         ensure!(valid_profile(profile), "invalid profile name");
         let tail = Path::new("agent-q/service").join(profile);
         Ok(Self {
+            node: None,
             config_dir: xdg("XDG_CONFIG_HOME", ".config")?.join(&tail),
             state_root: xdg("XDG_STATE_HOME", ".local/state")?.join(&tail),
             runtime_root: default_runtime_root(profile),
@@ -110,10 +114,65 @@ impl Layout {
     /// The layout `service.toml` in `config_dir` describes: its state and runtime roots.
     pub fn for_service(config_dir: &Path, config: &ServiceConfig) -> Self {
         Self {
+            node: None,
             config_dir: config_dir.to_path_buf(),
             state_root: config.state_root.clone(),
             runtime_root: config.runtime_root(),
         }
+    }
+    /// A node keeps its legacy enrollment and slot-1 state; additional slots have no credential.
+    pub fn for_node(&self, node: u32) -> Self {
+        Self {
+            node: Some(node),
+            ..self.clone()
+        }
+    }
+    pub fn check_slots(&self, slots: u32) -> Result<()> {
+        for slot in 1..=slots {
+            let launch = uuid::Uuid::nil().to_string();
+            for suffix in SLOT_SOCKETS {
+                let path = self.slot_runtime(slot).join(suffix.replace('*', &launch));
+                ensure!(
+                    path.as_os_str().len() <= MAX_SOCKET_PATH,
+                    "socket path {} exceeds {MAX_SOCKET_PATH} bytes; shorten runtime_root",
+                    path.display()
+                );
+            }
+        }
+        Ok(())
+    }
+    /// Slots with durable state, including slots above a newly lowered count.
+    pub fn existing_slots(&self) -> Vec<u32> {
+        let Some(node) = self.node else { return vec![] };
+        let root = self
+            .state_root
+            .join("nodes")
+            .join(node.to_string())
+            .join("slots");
+        let mut slots = vec![1];
+        if let Ok(entries) = std::fs::read_dir(root) {
+            slots.extend(
+                entries
+                    .flatten()
+                    .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+                    .filter(|s| (2..=aq_protocol::MAX_NODE_SLOTS).contains(s)),
+            );
+        }
+        slots
+    }
+    /// Enrolled nodes on disk, including nodes retired by lowering the machine's count.
+    pub fn enrolled_nodes(&self) -> Vec<u32> {
+        let mut nodes = vec![];
+        if let Ok(entries) = std::fs::read_dir(self.config_dir.join("slots")) {
+            nodes.extend(
+                entries
+                    .flatten()
+                    .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+                    .filter(|n| (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(n)),
+            );
+        }
+        nodes.sort_unstable();
+        nodes
     }
     /// Creates the runtime root and its parent when missing (0700) and checks both: owned by
     /// this user, the root private and the parent writable only by this user, and no symlink
@@ -134,7 +193,11 @@ impl Layout {
     }
     /// A slot's runtime directory: `git.sock` and the session host root.
     pub fn slot_runtime(&self, slot: u32) -> PathBuf {
-        self.runtime_root.join(slot.to_string())
+        self.runtime_root.join(match self.node {
+            Some(node) if slot > 1 => format!("{node}-{slot}"),
+            Some(node) => node.to_string(),
+            None => slot.to_string(),
+        })
     }
     pub fn git_socket(&self, slot: u32) -> PathBuf {
         self.slot_runtime(slot).join("git.sock")
@@ -172,11 +235,22 @@ impl Layout {
     pub fn slot_enrollment(&self, slot: u32) -> PathBuf {
         self.config_dir
             .join("slots")
-            .join(slot.to_string())
+            .join(self.node.unwrap_or(slot).to_string())
             .join("worker.toml")
     }
     pub fn slot_state(&self, slot: u32) -> PathBuf {
-        self.state_root.join("slots").join(slot.to_string())
+        match self.node {
+            Some(node) if slot > 1 => self
+                .state_root
+                .join("nodes")
+                .join(node.to_string())
+                .join("slots")
+                .join(slot.to_string()),
+            node => self
+                .state_root
+                .join("slots")
+                .join(node.unwrap_or(slot).to_string()),
+        }
     }
     pub fn current(&self, slot: u32) -> PathBuf {
         self.slot_state(slot).join("current")
@@ -282,6 +356,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     fn layout(dir: &Path) -> Layout {
         Layout {
+            node: None,
             config_dir: dir.join("cfg"),
             state_root: dir.join("state"),
             runtime_root: dir.join("run/p"),
@@ -289,6 +364,49 @@ mod tests {
     }
     fn mode(p: &Path) -> u32 {
         std::fs::metadata(p).unwrap().permissions().mode() & 0o777
+    }
+    #[test]
+    fn two_nodes_with_three_agents_have_six_isolated_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let machine = layout(dir.path());
+        let mut roots = std::collections::HashSet::new();
+        let mut sockets = std::collections::HashSet::new();
+        let mut hosts = std::collections::HashSet::new();
+        for node in 1..=2 {
+            let l = machine.for_node(node);
+            l.check_slots(3).unwrap();
+            for slot in 1..=3 {
+                assert_eq!(l.slot_enrollment(slot), machine.slot_enrollment(node));
+                assert!(roots.insert(l.fresh_current(slot).unwrap()));
+                assert!(sockets.insert(l.git_socket(slot)));
+                assert!(hosts.insert(l.host_root(slot)));
+            }
+            assert_eq!(l.current(1), machine.current(node));
+            assert_eq!(l.git_socket(1), machine.git_socket(node));
+            assert_eq!(l.existing_slots().len(), 3);
+            l.archive_current(2, false).unwrap();
+            assert!(l.current(1).is_dir() && l.current(3).is_dir());
+        }
+        assert_eq!((roots.len(), sockets.len(), hosts.len()), (6, 6, 6));
+    }
+    #[test]
+    fn legacy_nodes_are_preserved_when_machine_count_is_lowered() {
+        let dir = tempfile::tempdir().unwrap();
+        let machine = layout(dir.path());
+        for node in 1..=8 {
+            let path = machine.slot_enrollment(node);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "legacy credential").unwrap();
+            assert_eq!(
+                machine.for_node(node).slot_enrollment(3),
+                machine.slot_enrollment(node)
+            );
+        }
+        assert_eq!(machine.enrolled_nodes(), (1..=8).collect::<Vec<_>>());
+        assert!(machine.for_node(2).check_slots(1024).is_ok());
+        let mut long = machine.for_node(2);
+        long.runtime_root = PathBuf::from(format!("/tmp/{}", "x".repeat(48)));
+        assert!(long.check_slots(1024).is_err());
     }
     #[test]
     fn fresh_current_is_private_and_unique() {

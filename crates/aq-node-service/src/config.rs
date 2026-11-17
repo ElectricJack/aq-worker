@@ -16,7 +16,9 @@ pub struct ServiceConfig {
     pub schema_version: u32,
     pub profile: String,
     pub machine_key: String,
-    pub slots: u32,
+    /// Number of enrolled nodes on this machine; old files called these slots.
+    #[serde(alias = "slots")]
+    pub nodes: u32,
     pub native_template: PathBuf,
     pub state_root: PathBuf,
     /// Where the slots' Unix sockets live; `layout::default_runtime_root` when unset.
@@ -34,6 +36,8 @@ pub struct ServiceConfig {
 #[serde(deny_unknown_fields)]
 pub struct ManualConfig {
     pub podman_executable: PathBuf,
+    /// Accepted for old servers only; slot-aware nodes use their server control count.
+    #[serde(default = "default_manual_slots", skip_serializing)]
     pub max_slots: u32,
     /// Owner-only Claude subscription token file (`claude setup-token`) that manual Claude
     /// sessions log in with.
@@ -67,6 +71,9 @@ pub struct RepositoryBinding {
     pub identity: String,
     pub binding_generation: u64,
     pub object_format: String,
+}
+fn default_manual_slots() -> u32 {
+    1
 }
 fn default_shutdown_grace_ms() -> u64 {
     120_000
@@ -126,8 +133,8 @@ impl ServiceConfig {
         ensure!(valid_profile(&self.profile), "invalid profile name");
         ensure!(valid_machine_key(&self.machine_key), "invalid machine_key");
         ensure!(
-            (1..=MAX_MACHINE_SLOTS).contains(&self.slots),
-            "slots must be 1..={MAX_MACHINE_SLOTS}"
+            (1..=MAX_MACHINE_SLOTS).contains(&self.nodes),
+            "nodes must be 1..={MAX_MACHINE_SLOTS}"
         );
         for (name, path) in [
             ("native_template", &self.native_template),
@@ -140,7 +147,7 @@ impl ServiceConfig {
         if let Some(root) = &self.runtime_root {
             ensure!(root.is_absolute(), "runtime_root must be an absolute path");
         }
-        crate::layout::check_socket_paths(&self.runtime_root(), self.slots)?;
+        crate::layout::check_socket_paths(&self.runtime_root(), self.nodes)?;
         ensure!(self.repositories.len() <= 16, "at most 16 repositories");
         for r in &self.repositories {
             ensure!(
@@ -300,12 +307,21 @@ fn keep_first_copy(path: &Path, body: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn old_slots_key_is_node_count_and_new_files_name_nodes() {
+        let config = valid();
+        let current = toml::to_string(&config).unwrap();
+        assert!(current.contains("nodes = 2"));
+        let legacy = current.replace("nodes = 2", "slots = 2");
+        assert_eq!(ServiceConfig::parse(&legacy).unwrap().nodes, 2);
+        assert!(ServiceConfig::parse(&format!("nodes = 1\n{legacy}")).is_err());
+    }
     fn valid() -> ServiceConfig {
         ServiceConfig {
             schema_version: 1,
             profile: "local".into(),
             machine_key: "desk".into(),
-            slots: 2,
+            nodes: 2,
             native_template: "/etc/aq/native.json".into(),
             state_root: "/var/aq".into(),
             runtime_root: Some("/run/user/1000/aq/local".into()),
@@ -605,10 +621,10 @@ git_executable = "/usr/bin/git"
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("service.toml");
         valid().save(&path).unwrap();
-        assert_eq!(ServiceConfig::load(&path).unwrap().slots, 2);
+        assert_eq!(ServiceConfig::load(&path).unwrap().nodes, 2);
         let bad: [fn(&mut ServiceConfig); 9] = [
-            |c| c.slots = 0,
-            |c| c.slots = 9,
+            |c| c.nodes = 0,
+            |c| c.nodes = 9,
             |c| c.native_template = "native.json".into(),
             |c| c.profile = "Bad_Name".into(),
             |c| c.machine_key = "Desk".into(),
@@ -667,7 +683,7 @@ git_executable = "/usr/bin/git"
     fn socket_paths_fit_or_the_config_is_refused() {
         let home = format!("/home/{}", "u".repeat(60));
         let mut c = valid();
-        c.slots = 8;
+        c.nodes = 8;
         c.state_root = format!("{home}/.local/state/agent-q/service/{}", c.profile).into();
         c.runtime_root = None;
         let layout = crate::Layout::for_service(Path::new("/c"), &c);

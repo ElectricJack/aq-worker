@@ -39,8 +39,7 @@ fn setup() -> (
     let old: aq_admission::transport::WorkerIdentity =
         serde_json::from_value(fixture["requests"]["accept"]["identity"].clone()).unwrap();
     let journal =
-        Journal::create_with_identity_for_test(&dir.path().join("journal"), old.clone(), limits())
-            .unwrap();
+        Journal::create_identity(&dir.path().join("journal"), old.clone(), limits()).unwrap();
     let identity = journal.state().identity.clone();
     let offer = serde_json::from_value(fixture["native_offer"].clone()).unwrap();
     let path = dir.path().join("materials");

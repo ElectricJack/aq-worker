@@ -50,6 +50,11 @@ pub enum RecoverOutcome {
 }
 #[async_trait::async_trait]
 pub trait SlotBackend: Send + Sync + 'static {
+    /// Runs independently of slot recovery, including when all slots are held.
+    async fn node_control(&self, _ctx: SlotContext, _reply: &ControlResponse) -> Result<()> {
+        Ok(())
+    }
+
     async fn run_attempt(
         &self,
         ctx: SlotContext,
@@ -74,6 +79,7 @@ pub trait ControlSource: Send + Sync + 'static {
 pub struct MachineLink {
     primary: Arc<ServerLink>,
     enrollments: Vec<PathBuf>,
+    single_node: bool,
 }
 impl MachineLink {
     pub fn new(primary: Arc<ServerLink>, layout: &Layout, slots: u32) -> Self {
@@ -81,6 +87,7 @@ impl MachineLink {
         Self {
             primary,
             enrollments,
+            single_node: layout.node.is_some(),
         }
     }
     /// The link of `slot`'s node, from its enrollment file.
@@ -97,7 +104,7 @@ impl ControlSource for MachineLink {
         self.primary.control().await
     }
     async fn handoff(&self, slot: u32, notice: &HandoffNotice) -> Result<()> {
-        if slot == 1 {
+        if slot == 1 || self.single_node {
             return self.primary.handoff(notice).await;
         }
         self.slot(slot)?.handoff(notice).await
@@ -284,6 +291,7 @@ pub struct Supervisor<B: SlotBackend, C: ControlSource> {
     backend: Arc<B>,
     control: Arc<C>,
     git: Arc<dyn GitFactory>,
+    retiring: bool,
 }
 struct Shared<B: SlotBackend, C: ControlSource> {
     sup: Supervisor<B, C>,
@@ -292,6 +300,7 @@ struct Shared<B: SlotBackend, C: ControlSource> {
     force: watch::Sender<bool>,
     /// Slots inside `attempt` (their `current` belongs to a live attempt).
     active: Mutex<HashSet<u32>>,
+    target: watch::Sender<u32>,
 }
 impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
     pub fn new(
@@ -307,11 +316,22 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
             backend,
             control,
             git,
+            retiring: false,
         }
+    }
+    /// Retire an explicitly removed node: recover its own attempts and admit nothing new.
+    pub fn retiring(mut self, retiring: bool) -> Self {
+        self.retiring = retiring;
+        self
     }
     /// Supervises every slot until `shutdown`. It returns only then: a slot that cannot run
     /// (held, or no enrollment) never ends the service, which would restart it in a loop.
     pub async fn run(self, mut shutdown: watch::Receiver<bool>) -> Result<()> {
+        let initial = if self.layout.node.is_some() {
+            1
+        } else {
+            self.config.nodes
+        };
         let shared = Arc::new(Shared {
             pause: Pause {
                 tx: watch::channel(true).0,
@@ -320,22 +340,48 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
             stopping: watch::channel(false).0,
             force: watch::channel(false).0,
             active: Mutex::default(),
+            target: watch::channel(if self.retiring { 0 } else { initial }).0,
             sup: self,
         });
         let control_task = tokio::spawn(shared.clone().control_loop());
         let mut loops = JoinSet::new();
-        for slot in 1..=shared.sup.config.slots {
-            loops.spawn(shared.clone().slot_loop(slot));
+        let mut spawned = HashSet::new();
+        let mut target = shared.target.subscribe();
+        let mut initial_slots = shared.sup.layout.existing_slots();
+        initial_slots.extend(1..=initial);
+        for slot in initial_slots {
+            if spawned.insert(slot) {
+                let shared = shared.clone();
+                loops.spawn(async move {
+                    let retired = shared.clone().slot_loop(slot).await;
+                    (slot, retired)
+                });
+            }
         }
-        let signalled_first = tokio::select! {
-            () = drain(&mut loops) => false,
-            () = signalled(&mut shutdown) => true,
-        };
-        if !signalled_first {
-            tracing::warn!(
-                "no slot is running; the service stays up (control poll) until it is stopped"
-            );
-            signalled(&mut shutdown).await;
+        loop {
+            tokio::select! {
+                () = signalled(&mut shutdown) => break,
+                _ = target.changed() => {
+                    for slot in 1..=*target.borrow_and_update() {
+                        if spawned.insert(slot) {
+                            let shared = shared.clone();
+                            loops.spawn(async move { let retired = shared.clone().slot_loop(slot).await; (slot, retired) });
+                        }
+                    }
+                }
+                Some(outcome) = loops.join_next(), if !loops.is_empty() => {
+                    // Completed retired loops can be recreated by a later increase.
+                    if shared.sup.retiring && loops.is_empty() { break; }
+                    if let Ok((slot, retired)) = outcome && retired {
+                        spawned.remove(&slot);
+                        if slot <= *shared.target.borrow() {
+                            spawned.insert(slot);
+                            let shared = shared.clone();
+                            loops.spawn(async move { let retired = shared.clone().slot_loop(slot).await; (slot, retired) });
+                        }
+                    }
+                }
+            }
         }
         shared.stopping.send_replace(true);
         shared.pause.set(STOPPING, true);
@@ -368,7 +414,7 @@ async fn signalled(rx: &mut watch::Receiver<bool>) {
     }
 }
 /// Waits for every slot loop; cancel-safe, so it can be raced and called again.
-async fn drain(loops: &mut JoinSet<()>) {
+async fn drain<T: 'static>(loops: &mut JoinSet<T>) {
     while loops.join_next().await.is_some() {}
 }
 /// Waits `backoff` (false when the service stops first), then doubles it up to `BACKOFF_MAX`.
@@ -466,7 +512,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         let _ = git.stop().await;
         out
     }
-    async fn slot_loop(self: Arc<Self>, slot: u32) {
+    async fn slot_loop(self: Arc<Self>, slot: u32) -> bool {
         let mut backoff = BACKOFF_START;
         let mut stopping = self.stopping.subscribe();
         let mut pause = self.pause.tx.subscribe();
@@ -477,19 +523,19 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                 Err(e) => tracing::error!(slot, "slot waits for its enrollment: {e:#}"),
             }
             if !back_off(&mut stopping, &mut backoff).await {
-                return;
+                return false;
             }
         };
         loop {
             if *stopping.borrow() {
-                return;
+                return false;
             }
             match self.settle(slot, node_id).await {
                 Ok(true) => {}
                 Ok(false) => {
                     // Held: nothing more runs here, but the service stays up.
                     let _ = stopping.wait_for(|v| *v).await;
-                    return;
+                    return false;
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -498,24 +544,28 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                         backoff.as_secs()
                     );
                     if !back_off(&mut stopping, &mut backoff).await {
-                        return;
+                        return false;
                     }
                     continue;
                 }
             }
             loop {
+                if slot > *self.target.borrow() {
+                    return true;
+                }
                 if *stopping.borrow() {
-                    return;
+                    return false;
                 }
                 if !*pause.borrow() {
                     break;
                 }
-                tokio::select! { _ = pause.changed() => {}, _ = stopping.changed() => {} }
+                let mut target = self.target.subscribe();
+                tokio::select! { _ = pause.changed() => {}, _ = stopping.changed() => {}, _ = target.changed() => {} }
             }
             match self.attempt(slot, node_id).await {
                 Ok(AttemptOutcome::AttemptStopped) => backoff = BACKOFF_START,
                 Ok(AttemptOutcome::Paused) => {}
-                Ok(AttemptOutcome::ShutdownBeforeAdmission) => return,
+                Ok(AttemptOutcome::ShutdownBeforeAdmission) => return false,
                 Err(e) => {
                     tracing::warn!(
                         slot,
@@ -534,7 +584,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                         );
                     }
                     if !back_off(&mut stopping, &mut backoff).await {
-                        return;
+                        return false;
                     }
                 }
             }
@@ -544,17 +594,25 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         let dir = self.sup.layout.fresh_current(slot)?;
         let ctx = self.ctx(slot, node_id, dir.clone());
         self.active.lock().unwrap().insert(slot);
+        let mut global = self.pause.tx.subscribe();
+        let mut target = self.target.subscribe();
+        let (tx, slot_pause) = watch::channel(*global.borrow() || slot > *target.borrow());
+        let merger = tokio::spawn(async move {
+            loop {
+                tx.send_replace(*global.borrow() || slot > *target.borrow());
+                tokio::select! {
+                    r = global.changed() => { if r.is_err() { break; } },
+                    r = target.changed() => { if r.is_err() { break; } },
+                }
+            }
+        });
         let result = async {
             let git = self.sup.git.start(&dir, &ctx.git_socket).await?;
             let run = async {
                 git.register(&self.sup.config.repositories).await?;
                 self.sup
                     .backend
-                    .run_attempt(
-                        ctx.clone(),
-                        self.force.subscribe(),
-                        self.pause.tx.subscribe(),
-                    )
+                    .run_attempt(ctx.clone(), self.force.subscribe(), slot_pause)
                     .await
             }
             .await;
@@ -564,6 +622,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             run
         }
         .await;
+        merger.abort();
         self.active.lock().unwrap().remove(&slot);
         // A claimed attempt's sandbox the node did not destroy (a killed driver, a failed
         // transfer): on failure `current` stays, and `settle` releases it before archiving.
@@ -647,7 +706,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
                     );
                     self.pause.set(REVOKED, false);
                 }
-                self.apply(resp);
+                if let Err(e) = self.apply(resp).await {
+                    tracing::warn!("node control: {e:#}");
+                }
             }
             Err(e)
                 if e.downcast_ref::<LinkError>()
@@ -680,8 +741,26 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
     }
     /// The qualification pin a reply may still carry is ignored: the worker runs whatever
     /// model an offer names, under the template's renderer.
-    fn apply(&self, resp: ControlResponse) {
+    async fn apply(&self, resp: ControlResponse) -> Result<()> {
         let layout = &self.sup.layout;
+        if layout.node.is_some() {
+            let slots = if self.sup.retiring {
+                0
+            } else {
+                resp.node_slots()
+            };
+            layout.check_slots(slots)?;
+            let enrollment = EnrollmentFile::load(&layout.slot_enrollment(1))?;
+            // Explicit node retirement never registers a new boot over old claims.
+            if !self.sup.retiring {
+                self.sup
+                    .backend
+                    .node_control(self.ctx(1, enrollment.node_id, layout.current(1)), &resp)
+                    .await?;
+            }
+            self.target
+                .send_if_modified(|v| std::mem::replace(v, slots) != slots);
+        }
         for id in resp.handoff {
             if let Err(e) = mark_handoff(layout, &self.active_slots(), id, HandoffReason::OwnerStop)
             {
@@ -689,6 +768,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             }
         }
         self.pause.set(AWAITING_FIRST_CONTROL_REPLY, false);
+        Ok(())
     }
 }
 
@@ -708,6 +788,7 @@ mod tests {
         Finished,
         /// Waits for the forced shutdown.
         Hang,
+        Until(watch::Receiver<bool>),
         /// Keeps the pause receiver, returns Paused when polling pauses.
         Observe,
         /// Admitted and running (journal and driver.json written) until the task is aborted.
@@ -716,6 +797,8 @@ mod tests {
     #[derive(Default)]
     struct FakeBackend {
         script: Mutex<HashMap<u32, VecDeque<Step>>>,
+        contexts: Mutex<Vec<SlotContext>>,
+        controls: Mutex<Vec<Uuid>>,
         recovery: Mutex<HashMap<u32, VecDeque<Result<RecoverOutcome, ()>>>>,
         calls: Mutex<Vec<String>>,
         run_times: Mutex<Vec<Instant>>,
@@ -728,12 +811,17 @@ mod tests {
     }
     #[async_trait::async_trait]
     impl SlotBackend for FakeBackend {
+        async fn node_control(&self, ctx: SlotContext, _: &ControlResponse) -> Result<()> {
+            self.controls.lock().unwrap().push(ctx.node_id);
+            Ok(())
+        }
         async fn run_attempt(
             &self,
             ctx: SlotContext,
             mut shutdown: watch::Receiver<bool>,
             mut pause: watch::Receiver<bool>,
         ) -> Result<AttemptOutcome> {
+            self.contexts.lock().unwrap().push(ctx.clone());
             self.calls.lock().unwrap().push(format!("run:{}", ctx.slot));
             self.run_times.lock().unwrap().push(Instant::now());
             let step = self
@@ -758,6 +846,10 @@ mod tests {
                     let owner = serde_json::json!({"owner": {"attempt_id": Uuid::from_u128(42)}});
                     std::fs::write(dir.join("driver.json"), owner.to_string()).unwrap();
                     anyhow::bail!("source transfer failed")
+                }
+                Some(Step::Until(mut done)) => {
+                    let _ = done.wait_for(|v| *v).await;
+                    Ok(AttemptOutcome::AttemptStopped)
                 }
                 Some(Step::Hang) => {
                     let _ = shutdown.wait_for(|v| *v).await;
@@ -898,6 +990,7 @@ mod tests {
             generation: 1,
             handoff,
             qualification,
+            slots: None,
         })
     }
     fn wall() -> u64 {
@@ -914,6 +1007,7 @@ mod tests {
     fn rig(slots: u32) -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let layout = Layout {
+            node: None,
             config_dir: dir.path().join("cfg"),
             state_root: dir.path().join("state"),
             runtime_root: dir.path().join("run/t"),
@@ -933,7 +1027,7 @@ mod tests {
             schema_version: 1,
             profile: "t".into(),
             machine_key: "desk".into(),
-            slots,
+            nodes: slots,
             native_template: "/n.json".into(),
             state_root: layout.state_root.clone(),
             runtime_root: Some(layout.runtime_root.clone()),
@@ -949,6 +1043,169 @@ mod tests {
             _dir: dir,
             layout,
             config,
+        }
+    }
+    fn slots_reply(slots: u32) -> Result<ControlResponse, (u16, bool)> {
+        let mut r = reply(vec![], None).unwrap();
+        r.schema_version = 2;
+        r.slots = Some(slots);
+        Ok(r)
+    }
+    async fn spin() {
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn node_slots_grow_and_shrink_without_interrupting_running_attempts() {
+        let mut rig = rig(1);
+        rig.layout.node = Some(1);
+        let backend = Arc::new(FakeBackend::default());
+        let (done, rx) = watch::channel(false);
+        for slot in 1..=3 {
+            script(&backend, slot, vec![Step::Until(rx.clone())]);
+        }
+        let ctl = control(vec![slots_reply(1)]);
+        let (handle, stop_tx) = start(&rig, &backend, &ctl);
+        spin().await;
+        assert_eq!(backend.contexts.lock().unwrap().len(), 1);
+        *ctl.replies.lock().unwrap() = vec![slots_reply(3)].into();
+        tokio::time::advance(CONTROL_INTERVAL).await;
+        spin().await;
+        assert_eq!(backend.contexts.lock().unwrap().len(), 3);
+        *ctl.replies.lock().unwrap() = vec![slots_reply(1)].into();
+        tokio::time::advance(CONTROL_INTERVAL).await;
+        spin().await;
+        assert!(
+            backend
+                .contexts
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|c| c.state_dir.exists()),
+            "shrink keeps running attempts"
+        );
+        done.send_replace(true);
+        spin().await;
+        let contexts = backend.contexts.lock().unwrap().clone();
+        assert_eq!(contexts.iter().filter(|c| c.slot > 1).count(), 2);
+        assert!(
+            contexts.iter().all(|c| c.node_id == Uuid::from_u128(1)
+                && c.enrollment == rig.layout.slot_enrollment(1))
+        );
+        stop(handle, stop_tx).await;
+    }
+    #[tokio::test(start_paused = true)]
+    async fn two_nodes_each_run_three_independent_attempts() {
+        let mut rig = rig(2);
+        let backend = Arc::new(FakeBackend::default());
+        let (done, rx) = watch::channel(false);
+        for slot in 1..=3 {
+            script(
+                &backend,
+                slot,
+                vec![Step::Until(rx.clone()), Step::Until(rx.clone())],
+            );
+        }
+        rig.layout.node = Some(1);
+        let (a, a_stop) = start(&rig, &backend, &control(vec![slots_reply(3)]));
+        rig.layout.node = Some(2);
+        let (b, b_stop) = start(&rig, &backend, &control(vec![slots_reply(3)]));
+        spin().await;
+        let contexts = backend.contexts.lock().unwrap().clone();
+        assert_eq!(contexts.len(), 6);
+        let identities: HashSet<_> = contexts.iter().map(|c| (c.node_id, c.slot)).collect();
+        assert_eq!(identities.len(), 6);
+        assert_eq!(
+            contexts
+                .iter()
+                .map(|c| c.git_socket.clone())
+                .collect::<HashSet<_>>()
+                .len(),
+            6
+        );
+        for ctx in &contexts {
+            assert_eq!(
+                EnrollmentFile::load(&ctx.enrollment).unwrap().node_id,
+                ctx.node_id
+            );
+        }
+        done.send_replace(true);
+        spin().await;
+        stop(a, a_stop).await;
+        stop(b, b_stop).await;
+    }
+    #[tokio::test(start_paused = true)]
+    async fn held_slot_does_not_block_sibling_or_node_registration() {
+        let mut rig = rig(1);
+        rig.layout.node = Some(1);
+        let backend = Arc::new(FakeBackend::default());
+        std::fs::create_dir_all(rig.layout.current(1)).unwrap();
+        std::fs::write(rig.layout.current(1).join("journal"), "old").unwrap();
+        backend
+            .recovery
+            .lock()
+            .unwrap()
+            .insert(1, vec![Ok(RecoverOutcome::Held("unknown".into()))].into());
+        script(&backend, 2, vec![Step::Observe]);
+        let (handle, stop_tx) = start(&rig, &backend, &control(vec![slots_reply(2)]));
+        spin().await;
+        assert!(!backend.controls.lock().unwrap().is_empty());
+        assert_eq!(
+            backend
+                .contexts
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|c| c.slot)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert!(rig.layout.slot_held(1).exists());
+        stop(handle, stop_tx).await;
+    }
+    #[tokio::test(start_paused = true)]
+    async fn lowering_machine_node_count_retires_six_nodes_using_their_own_identity() {
+        let mut rig = rig(8);
+        rig.config.nodes = 2;
+        let backend = Arc::new(FakeBackend::default());
+        let mut handles = Vec::new();
+        for node in 3..=8 {
+            let view = rig.layout.for_node(node);
+            std::fs::create_dir_all(view.current(1)).unwrap();
+            std::fs::write(view.current(1).join("journal"), "old").unwrap();
+            let sup = Supervisor::new(
+                rig.config.clone(),
+                view,
+                backend.clone(),
+                control(vec![slots_reply(3)]),
+                Arc::new(FakeGit),
+            )
+            .retiring(true);
+            handles.push(tokio::spawn(sup.run(watch::channel(false).1)));
+        }
+        spin().await;
+        for handle in handles {
+            handle.await.unwrap().unwrap();
+        }
+        assert!(backend.contexts.lock().unwrap().is_empty());
+        assert!(
+            backend.controls.lock().unwrap().is_empty(),
+            "retired nodes never register new boots"
+        );
+        assert_eq!(
+            backend
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.starts_with("recover:"))
+                .count(),
+            6
+        );
+        assert_eq!(rig.layout.enrolled_nodes(), (1..=8).collect::<Vec<_>>());
+        for node in 3..=8 {
+            assert!(!rig.layout.for_node(node).current(1).exists());
         }
     }
     fn script(backend: &FakeBackend, slot: u32, steps: Vec<Step>) {
@@ -968,7 +1225,8 @@ mod tests {
         control: &Arc<FakeControl>,
         git: Arc<dyn GitFactory>,
     ) -> (Handle, watch::Sender<bool>) {
-        let layout = Layout::for_service(&rig.layout.config_dir, &rig.config);
+        let mut layout = Layout::for_service(&rig.layout.config_dir, &rig.config);
+        layout.node = rig.layout.node;
         let sup = Supervisor::new(
             rig.config.clone(),
             layout,

@@ -470,8 +470,7 @@ mod preparation_failure {
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let root = dir.path().join("journal");
-        let mut journal =
-            Journal::create_with_identity_for_test(&root, identity(), limits()).unwrap();
+        let mut journal = Journal::create_identity(&root, identity(), limits()).unwrap();
         let mut offer: NativeOffer =
             serde_json::from_value(fixture()["native_offer"].clone()).unwrap();
         offer.offered.reservation_ttl_ms = window_ms + 1000;
@@ -740,4 +739,109 @@ async fn preparation_outlasts_a_three_second_server_outage() {
         "no read reached the server while down"
     );
     p.task = revived;
+}
+
+/// Separate journals under a shared boot keep every attempt and its replies in its own slot.
+#[cfg(feature = "test-support")]
+#[test]
+fn six_agent_journals_preserve_node_slot_and_old_boot_recovery_fences() {
+    use aq_session_protocol::{ArtifactRef, Digest, Text};
+    use aq_worker::native::journal::{Journal, RuntimeIdentity};
+    let dir = tempfile::tempdir().unwrap();
+    let base: NativeOffer = serde_json::from_value(fixture()["native_offer"].clone()).unwrap();
+    let reference = |name: &str| ArtifactRef {
+        id: Text::new(name).unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(name.as_bytes()),
+    };
+    let mut journals = Vec::new();
+    for node in 1..=2 {
+        let identity = WorkerIdentity {
+            node_id: Uuid::from_u128(1000 + node),
+            boot_id: Uuid::from_u128(2000 + node),
+        };
+        for slot in 1..=3 {
+            let id = Uuid::from_u128(3000 + node * 10 + slot);
+            let mut offer = base.clone();
+            let mut session = offer.offered.offer.binding.session.clone();
+            if let aq_session_protocol::SessionIdentity::Remote {
+                node_id,
+                boot_id,
+                attempt_id,
+                session_id,
+                ..
+            } = &mut session
+            {
+                *node_id = identity.node_id;
+                *boot_id = identity.boot_id;
+                *attempt_id = id;
+                *session_id = id;
+            }
+            offer.offered.offer.binding.attempt_id = id;
+            offer.offered.offer.binding.session = session.clone();
+            offer.offered.offer.manifest.bindings.attempt_id = id;
+            offer.offered.offer.manifest.bindings.session = session;
+            offer.offered.offer.binding.launch_manifest_digest =
+                aq_session_protocol::canonical_digest(&offer.offered.offer.manifest).unwrap();
+            offer.offered.lifecycle_binding =
+                aq_admission::transport::lifecycle_binding(&offer.offered.offer).unwrap();
+            offer.offered.reservation_ttl_ms = 60_000;
+            let root = dir.path().join(format!("node-{node}-slot-{slot}"));
+            let mut journal =
+                Journal::create_identity(&root, identity.clone(), preparation_failure::limits())
+                    .unwrap();
+            journal
+                .reserve(
+                    offer,
+                    RuntimeIdentity {
+                        runtime: reference("synthetic.runtime"),
+                        qualification: reference("synthetic.qualification"),
+                    },
+                    boot_ns() + 50_000_000_000,
+                    1024,
+                )
+                .unwrap();
+            journals.push((root, identity.clone(), id, journal));
+        }
+    }
+    for i in 0..journals.len() {
+        let sibling_attempt = journals[(i + 1) % journals.len()].2;
+        let (_, identity, id, journal) = &mut journals[i];
+        let before = journal.state().revision;
+        assert!(
+            journal.begin_accept(sibling_attempt, vec![]).is_err(),
+            "an earlier or sibling attempt cannot mutate this slot"
+        );
+        assert_eq!(journal.state().revision, before);
+        let accepted = journal
+            .begin_accept(
+                *id,
+                request::<Accept>("accept")
+                    .acceptance
+                    .advertised_capabilities,
+            )
+            .unwrap();
+        assert_eq!(accepted.identity, *identity);
+        assert_eq!(accepted.acceptance.binding.attempt_id, *id);
+    }
+    for (root, identity, id, journal) in journals {
+        drop(journal);
+        let reopened =
+            Journal::open(&root, identity.node_id, preparation_failure::limits()).unwrap();
+        assert!(reopened.recovery_required());
+        assert_eq!(reopened.state().identity, identity);
+        assert_eq!(
+            reopened
+                .state()
+                .attempts
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![id]
+        );
+        assert!(
+            reopened.available().is_err(),
+            "old boot recovery cannot silently admit new work"
+        );
+    }
 }

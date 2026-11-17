@@ -124,7 +124,7 @@ fn private_config_refuses_symlink_public_mode_and_oversize() {
 #[test]
 fn native_config_rejects_unsupported_capacity_and_changed_executable() {
     let (_dir, mut c) = config();
-    c.capacity.slots = 2;
+    c.capacity.slots = aq_protocol::MAX_NODE_SLOTS + 1;
     assert!(c.validate().is_err());
     c.capacity.slots = 1;
     assert!(c.installed_adapter().is_ok());
@@ -203,6 +203,13 @@ fn native_config_load_accepts_exact_long_profiles_and_refuses_changed_contract()
     }
 }
 
+#[test]
+fn previous_single_slot_template_and_larger_capacity_both_load() {
+    let (_dir, mut config) = config();
+    config.validate().unwrap();
+    config.capacity.slots = 3;
+    config.validate().unwrap();
+}
 #[test]
 fn existing_native_state_is_opened_for_validated_recovery() {
     let (dir, c) = config();

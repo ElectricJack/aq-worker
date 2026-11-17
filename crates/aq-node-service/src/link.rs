@@ -12,6 +12,7 @@ pub struct ServerLink {
     credential: Zeroizing<String>,
     access: Option<(String, Zeroizing<String>)>,
     http: reqwest::Client,
+    control_schema: std::sync::atomic::AtomicU32,
 }
 /// The error of a non-2xx response; callers find it with `e.downcast_ref::<LinkError>()`.
 #[derive(Debug, thiserror::Error)]
@@ -155,6 +156,9 @@ impl ServerLink {
             credential: Zeroizing::new(credential.to_owned()),
             access: access.map(|(id, secret)| (id.to_owned(), Zeroizing::new(secret.to_owned()))),
             http,
+            control_schema: std::sync::atomic::AtomicU32::new(
+                aq_protocol::NODE_SLOTS_SCHEMA_VERSION,
+            ),
         })
     }
     pub fn from_enrollment(file: &EnrollmentFile) -> Result<Self> {
@@ -169,11 +173,18 @@ impl ServerLink {
         self.post("/v1/worker/slots", req).await
     }
     pub async fn control(&self) -> Result<ControlResponse> {
-        self.post(
-            "/v1/worker/control",
-            &serde_json::json!({"schema_version": 1}),
-        )
-        .await
+        use std::sync::atomic::Ordering;
+        let version = self.control_schema.load(Ordering::SeqCst);
+        let (reply, version) = negotiate_control(version, |schema| async move {
+            self.post(
+                "/v1/worker/control",
+                &serde_json::json!({"schema_version": schema}),
+            )
+            .await
+        })
+        .await?;
+        self.control_schema.store(version, Ordering::SeqCst);
+        Ok(reply)
     }
     pub async fn handoff(&self, notice: &HandoffNotice) -> Result<()> {
         self.post::<_, serde_json::Value>("/v1/worker/handoffs", notice)
@@ -250,6 +261,41 @@ impl ServerLink {
         serde_json::from_slice(bytes).with_context(|| format!("decode {path} reply"))
     }
 }
+pub fn validate_control(reply: &ControlResponse) -> Result<()> {
+    ensure!(
+        matches!(
+            reply.schema_version,
+            1 | aq_protocol::NODE_SLOTS_SCHEMA_VERSION
+        ) && reply.slots.is_none_or(|n| reply.schema_version
+            == aq_protocol::NODE_SLOTS_SCHEMA_VERSION
+            && n <= aq_protocol::MAX_NODE_SLOTS),
+        "invalid node control response"
+    );
+    Ok(())
+}
+async fn negotiate_control<F, T>(version: u32, mut post: F) -> Result<(ControlResponse, u32)>
+where
+    F: FnMut(u32) -> T,
+    T: std::future::Future<Output = Result<ControlResponse>>,
+{
+    let (reply, version) = match post(version).await {
+        Err(e)
+            if version == aq_protocol::NODE_SLOTS_SCHEMA_VERSION
+                && e.downcast_ref::<LinkError>().is_some_and(|e| {
+                    e.status == 400 && e.code.as_deref() == Some("bad_request")
+                }) =>
+        {
+            (post(1).await?, 1)
+        }
+        other => (other?, version),
+    };
+    validate_control(&reply)?;
+    ensure!(
+        reply.schema_version == version,
+        "control response schema differs from request"
+    );
+    Ok((reply, version))
+}
 /// The aq-worker-ctl machine-config rule: lower-case, every byte outside [a-z0-9-] becomes '-',
 /// cut to 63. None when the result is not a valid key (for example it starts with '-').
 pub fn default_machine_key(hostname: &str) -> Option<String> {
@@ -274,6 +320,72 @@ mod tests {
     use axum::{Json, Router, http::HeaderMap, routing::post};
     use std::sync::{Arc, Mutex};
 
+    fn control_reply(version: u32, slots: Option<u32>) -> ControlResponse {
+        ControlResponse {
+            schema_version: version,
+            slots,
+            machine_key: "desk".into(),
+            desired: aq_protocol::DesiredState::Running,
+            generation: 1,
+            handoff: vec![],
+            qualification: None,
+        }
+    }
+    #[tokio::test]
+    async fn old_server_falls_back_once_and_missing_count_means_one() {
+        let sent = std::sync::Mutex::new(vec![]);
+        let (reply, version) = negotiate_control(2, |schema| {
+            sent.lock().unwrap().push(schema);
+            async move {
+                if schema == 2 {
+                    Err(LinkError {
+                        status: 400,
+                        code: Some("bad_request".into()),
+                        next_sequence: None,
+                    }
+                    .into())
+                } else {
+                    Ok(control_reply(1, None))
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(*sent.lock().unwrap(), vec![2, 1]);
+        assert_eq!((version, reply.node_slots()), (1, 1));
+        let (_, version) = negotiate_control(version, |schema| {
+            assert_eq!(schema, 1);
+            async { Ok(control_reply(1, None)) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(version, 1);
+        assert_eq!(control_reply(2, None).node_slots(), 1);
+    }
+    #[tokio::test]
+    async fn revoked_credentials_and_edges_never_trigger_a_protocol_fallback() {
+        for status in [401, 403, 500] {
+            let mut sends = 0;
+            assert!(
+                negotiate_control(2, |_| {
+                    sends += 1;
+                    async move {
+                        Err(LinkError {
+                            status,
+                            code: Some("unauthorized".into()),
+                            next_sequence: None,
+                        }
+                        .into())
+                    }
+                })
+                .await
+                .is_err()
+            );
+            assert_eq!(sends, 1);
+        }
+        assert!(validate_control(&control_reply(1, Some(3))).is_err());
+        assert!(validate_control(&control_reply(2, Some(1025))).is_err());
+    }
     #[test]
     fn refuses_plain_http_off_loopback() {
         assert!(ServerLink::new("http://10.0.0.5:8081", "c", None).is_err());

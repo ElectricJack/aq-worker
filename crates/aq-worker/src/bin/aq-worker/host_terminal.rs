@@ -115,7 +115,7 @@ pub async fn run(path: &Path) -> Result<()> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
         tokio::select! {_=terminate.recv()=>break,_=tokio::signal::ctrl_c()=>break,_=tick.tick()=>{}}
-        for slot in 1..=config.slots {
+        for slot in 1..=config.nodes {
             let Ok(file) = EnrollmentFile::load(&layout.slot_enrollment(slot)) else {
                 continue;
             };
