@@ -336,14 +336,7 @@ async fn actual_git_hydration(retain_grant: bool, phase_mode: bool) {
         bundle_bytes: bundle.len() as u64,
         bundle_digest: Some(format!("{:x}", Sha256::digest(&bundle))),
     };
-    git_request(
-        &exe,
-        &worker,
-        rid,
-        "repo.register",
-        json!({"binding":{"identity":"synthetic","mode":"worker","binding_generation":1}}),
-        0,
-    );
+    // The worker's aq-git has never seen this repository: hydration registers it from the offer.
     let service = crate::source::GitService::start(&exe, &pin, &worker).unwrap();
     let h = Inputs::new_count(
         Export {

@@ -253,31 +253,21 @@ impl InputPipeline {
         self.storage(move |owner| {
             preparation.check(&owner.journal, id)?;
             let op = owner.journal.source_operation(id, key)?;
-            // Cached mutation replies are exact historical receipts. Read calls
-            // always exchange again; saved JSON cannot become a current proof.
-            let result = if matches!(key, "import" | "create") {
-                if let Some(old) = op.result {
-                    old
-                } else {
-                    git.exchange(&op.request)?
-                }
-            } else {
-                git.exchange(&op.request)?
-            };
-            preparation.check(&owner.journal, id)?;
             let source = owner.journal.state().attempts[&id]
                 .source
                 .as_ref()
                 .context("source plan absent")?;
+            // Cached mutation replies are exact historical receipts. Read calls
+            // always exchange again; saved JSON cannot become a current proof.
+            let fresh = || git.exchange(&op.request);
+            let result = match op.result.filter(|_| matches!(key, "import" | "create")) {
+                Some(old) => old,
+                None if key == "repository" => git.registering(source.binding()?, fresh)?,
+                None => fresh()?,
+            };
+            preparation.check(&owner.journal, id)?;
             if key == "repository" {
-                let b = source.binding()?;
-                ensure!(
-                    result["repository_id"] == b.repository_id.to_string()
-                        && result["binding_generation"] == b.binding_generation
-                        && result["identity"] == b.logical_identity
-                        && result["mode"] == "worker",
-                    "native Git repository binding"
-                );
+                GitClient::same_binding(source.binding()?, &result)?;
             }
             owner.journal.source_result(id, key, result.clone())?;
             Ok(result)

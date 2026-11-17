@@ -368,12 +368,25 @@ impl GitClient {
     }
     pub fn base_available(&self, b: &SourceBinding) -> Result<()> {
         self.validate_binding(b)?;
-        self.query(b, "inspect", json!({"oid":b.base}))?;
-        Ok(())
+        self.query(b, "inspect", json!({"oid":b.base})).map(drop)
+    }
+    /// Runs `read`; when aq-git refuses it (a repository it has not seen), registers the
+    /// repository from the offer's own binding and reads again. One already registered
+    /// (earlier, or by a concurrent caller) is refused here and judged by the second read.
+    pub fn registering<T>(&self, b: &SourceBinding, read: impl Fn() -> Result<T>) -> Result<T> {
+        read().or_else(|_| {
+            let registered = self.exchange(&GitAction::Register.request(b, Uuid::new_v4()));
+            match (read(), registered) {
+                (Err(e), Err(refused)) => Err(e.context(refused)),
+                (read, _) => read,
+            }
+        })
     }
     pub fn validate_binding(&self, b: &SourceBinding) -> Result<()> {
         b.validate()?;
-        let r = self.query(b, "repo.show", json!({}))?;
+        Self::same_binding(b, &self.query(b, "repo.show", json!({}))?)
+    }
+    pub fn same_binding(b: &SourceBinding, r: &Value) -> Result<()> {
         ensure!(
             r["repository_id"] == b.repository_id.to_string()
                 && r["binding_generation"] == b.binding_generation
