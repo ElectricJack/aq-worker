@@ -4,7 +4,7 @@ use aq_protocol::{ControlResponse, NODE_SLOTS_SCHEMA_VERSION};
 use std::{
     future::Future,
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
 };
@@ -75,12 +75,18 @@ pub struct NodeSession {
     pub inventory: Arc<InventoryState>,
     slots: AtomicU32,
     aware: AtomicBool,
-    registered: AsyncMutex<bool>,
-    registered_slots: OnceLock<u32>,
+    registration: AsyncMutex<Registration>,
+    /// The count of the last accepted Register; zero before the first.
+    advertised: AtomicU32,
     occupancy: Mutex<Occupancy>,
     /// Wakes the slots waiting in `room` when capacity may have been freed.
     freed: tokio::sync::Notify,
     retired: AtomicBool,
+}
+/// The Register being sent (its operation id and count are kept across retries).
+#[derive(Default)]
+struct Registration {
+    sending: Option<(Uuid, u32)>,
 }
 #[derive(Default)]
 struct Occupancy {
@@ -102,8 +108,8 @@ impl Default for NodeSession {
             inventory: Arc::default(),
             slots: AtomicU32::new(1),
             aware: AtomicBool::new(false),
-            registered: AsyncMutex::new(false),
-            registered_slots: OnceLock::new(),
+            registration: AsyncMutex::default(),
+            advertised: AtomicU32::new(0),
             occupancy: Mutex::default(),
             freed: tokio::sync::Notify::new(),
             retired: AtomicBool::new(false),
@@ -144,20 +150,40 @@ impl NodeSession {
     pub fn slots(&self) -> u32 {
         self.slots.load(Ordering::SeqCst)
     }
-    /// Register retries retain the exact operation id, boot and initial count.
+    /// The count the boot advertised in its last accepted Register (before the first: the
+    /// count it will advertise).
     pub fn registered_slots(&self) -> u32 {
-        *self.registered_slots.get_or_init(|| self.slots().max(1))
+        match self.advertised.load(Ordering::SeqCst) {
+            0 => self.slots().max(1),
+            n => n,
+        }
     }
-    pub async fn register_once<F, T>(&self, register: F) -> Result<()>
+    /// Registers the boot, and registers it again (same boot, a fresh operation id) whenever
+    /// the server's count has grown past the count it advertised: the server gives no offer
+    /// to a slot above the registered count, so without this a raised Setting took effect
+    /// only after a restart. `register` gets the operation id and the count to send; a retry
+    /// of a failed Register sends the same pair. A lowered count sends nothing: the server
+    /// enforces its own Setting, and an offer already assigned to a higher slot must still
+    /// reach it.
+    pub async fn register_current<F, T>(&self, register: F) -> Result<()>
     where
-        F: FnOnce() -> T,
+        F: FnOnce(Uuid, u32) -> T,
         T: Future<Output = Result<()>>,
     {
-        let mut registered = self.registered.lock().await;
-        if !*registered {
-            register().await?;
-            *registered = true;
+        let mut state = self.registration.lock().await;
+        let (done, want) = (self.advertised.load(Ordering::SeqCst), self.slots().max(1));
+        if done >= want {
+            return Ok(());
         }
+        let operation = match state.sending {
+            Some((id, count)) if count == want => id,
+            None if done == 0 => self.registration_id,
+            _ => Uuid::new_v4(),
+        };
+        state.sending = Some((operation, want));
+        register(operation, want).await?;
+        state.sending = None;
+        self.advertised.store(want, Ordering::SeqCst);
         Ok(())
     }
     /// The service reserves locally before either queued polling or manual sandbox creation.
@@ -225,29 +251,48 @@ pub fn check_state_root(path: &std::path::Path, held: &std::fs::File) -> Result<
 mod tests {
     use super::*;
     #[tokio::test]
-    async fn registration_is_once_even_with_failures_siblings_and_count_changes() {
+    async fn one_boot_registers_once_per_count_and_again_only_when_the_count_grows() {
         let node = Arc::new(NodeSession::default());
-        let calls = AtomicU32::new(0);
-        let boot = node.boot_id;
-        assert!(
-            node.register_once(|| async {
-                calls.fetch_add(1, Ordering::SeqCst);
-                anyhow::bail!("refused")
-            })
-            .await
-            .is_err()
-        );
-        let register = || async {
-            calls.fetch_add(1, Ordering::SeqCst);
+        let sent = Mutex::new(Vec::new());
+        let (sent, boot) = (&sent, node.boot_id);
+        let refused = |id, count| async move {
+            sent.lock().unwrap().push((id, count));
+            anyhow::bail!("refused")
+        };
+        assert!(node.register_current(refused).await.is_err());
+        let register = |id, count| async move {
+            sent.lock().unwrap().push((id, count));
             Ok(())
         };
-        let (a, b) = tokio::join!(node.register_once(register), node.register_once(register));
+        let (a, b) = tokio::join!(
+            node.register_current(register),
+            node.register_current(register)
+        );
         a.unwrap();
         b.unwrap();
-        node.slots.store(3, Ordering::SeqCst);
-        node.register_once(register).await.unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-        assert_eq!(node.boot_id, boot);
+        let first = node.registration_id;
+        assert_eq!(
+            *sent.lock().unwrap(),
+            [(first, 1), (first, 1)],
+            "a retry repeats the operation; siblings do not register again"
+        );
+        // The Setting is raised on the running node: a failed Register is retried as it was.
+        node.slots.store(8, Ordering::SeqCst);
+        assert_eq!(node.registered_slots(), 1);
+        assert!(node.register_current(refused).await.is_err());
+        node.register_current(register).await.unwrap();
+        node.register_current(register).await.unwrap();
+        let grown = sent.lock().unwrap()[2..].to_vec();
+        assert_eq!(grown.len(), 2);
+        assert!(grown[0] == grown[1] && grown[0].1 == 8 && grown[0].0 != first);
+        assert_eq!(node.registered_slots(), 8);
+        // Lowered (zero included) and raised back below the advertised count: nothing is sent.
+        for count in [4, 0, 8] {
+            node.slots.store(count, Ordering::SeqCst);
+            node.register_current(register).await.unwrap();
+        }
+        assert_eq!(sent.lock().unwrap().len(), 4);
+        assert_eq!((node.registered_slots(), node.boot_id), (8, boot));
     }
     #[test]
     fn manual_and_queued_share_count_including_shrink() {
