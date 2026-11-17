@@ -1,0 +1,2996 @@
+From 80c9920a5138c6dc72db2de7b799dae42fe9dd30 Mon Sep 17 00:00:00 2001
+From: Jack Kern <jack.w.kern@gmail.com>
+Date: Tue, 17 Nov 2026 05:55:11 -0800
+Subject: [PATCH 1/4] feat(worker): run isolated agent slots beneath each
+ enrolled node
+
+---
+ Cargo.lock                                    |   1 +
+ build-budget.toml                             |   2 +-
+ crates/aq-node-service/Cargo.toml             |   1 +
+ crates/aq-node-service/src/backoff.rs         |  26 ++
+ crates/aq-node-service/src/config.rs          |  34 +-
+ crates/aq-node-service/src/layout.rs          | 124 ++++++-
+ crates/aq-node-service/src/lib.rs             |   4 +
+ crates/aq-node-service/src/link.rs            | 122 ++++++-
+ .../aq-node-service/src/native_transport.rs   | 124 +++++++
+ crates/aq-node-service/src/session.rs         | 221 ++++++++++++
+ crates/aq-node-service/src/supervisor.rs      | 320 ++++++++++++++++--
+ crates/aq-worker/src/backoff.rs               |  28 +-
+ .../src/bin/aq-worker/host_terminal.rs        |   2 +-
+ crates/aq-worker/src/bin/aq-worker/manual.rs  |  52 ++-
+ .../src/bin/aq-worker/manual_stream.rs        |   2 +-
+ crates/aq-worker/src/bin/aq-worker/service.rs | 269 ++++++++++++---
+ crates/aq-worker/src/native/http.rs           | 202 +++++------
+ crates/aq-worker/src/native/http/control.rs   |  11 +-
+ crates/aq-worker/src/native/journal.rs        |  10 +-
+ crates/aq-worker/src/native/preparation.rs    |  18 +-
+ .../native/preparation/granted/presence.rs    |   6 +-
+ .../preparation/granted/reservation_tests.rs  |   3 +-
+ crates/aq-worker/src/native/runner.rs         | 114 +++++--
+ crates/aq-worker/src/native/runner/config.rs  |   4 +-
+ crates/aq-worker/src/native/runner/prepare.rs |   1 +
+ crates/aq-worker/src/native/runner/tests.rs   |   9 +-
+ crates/aq-worker/tests/native_control.rs      | 108 +++++-
+ handoff/multi-agent-worker.md                 |  49 +++
+ 28 files changed, 1560 insertions(+), 307 deletions(-)
+ create mode 100644 crates/aq-node-service/src/backoff.rs
+ create mode 100644 crates/aq-node-service/src/native_transport.rs
+ create mode 100644 crates/aq-node-service/src/session.rs
+ create mode 100644 handoff/multi-agent-worker.md
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 8d7cd90..c3918cd 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -243,6 +243,7 @@ dependencies = [
+  "axum",
+  "chrono",
+  "libc",
++ "rand 0.8.8",
+  "reqwest",
+  "serde",
+  "serde_json",
+diff --git a/build-budget.toml b/build-budget.toml
+index 06413df..a041e3a 100644
+--- a/build-budget.toml
++++ b/build-budget.toml
+@@ -18,4 +18,4 @@ target = 40000
+ 
+ [lib_lines.ratchet]
+ # Crates above the target while they are being split. Each may only shrink.
+-aq-worker = 70542
++aq-worker = 70536
+diff --git a/crates/aq-node-service/Cargo.toml b/crates/aq-node-service/Cargo.toml
+index 0b0906a..264327d 100644
+--- a/crates/aq-node-service/Cargo.toml
++++ b/crates/aq-node-service/Cargo.toml
+@@ -13,6 +13,7 @@ async-trait = "0.1"
+ chrono.workspace = true
+ libc.workspace = true
+ reqwest.workspace = true
++rand.workspace = true
+ serde.workspace = true
+ serde_json.workspace = true
+ sha2.workspace = true
+diff --git a/crates/aq-node-service/src/backoff.rs b/crates/aq-node-service/src/backoff.rs
+new file mode 100644
+index 0000000..aa9a613
+--- /dev/null
++++ b/crates/aq-node-service/src/backoff.rs
+@@ -0,0 +1,26 @@
++//! Retry delays with full jitter.
++
++use std::time::Duration;
++
++use rand::Rng;
++
++/// `uniform(0, min(60s, 1s * 2^attempt))`. Attempt 0 means a 1 s ceiling.
++pub fn delay(attempt: u32, rng: &mut impl Rng) -> Duration {
++    jittered(attempt, SECOND, SECOND * 60, rng)
++}
++const SECOND: Duration = Duration::from_secs(1);
++
++/// Equal jitter: `c/2 + uniform(0, c/2)` with `c = min(cap, base * 2^attempt)`, so a wait is
++/// never under half its ceiling (R5: full jitter chose 9 ms waits).
++pub fn equal_jittered(attempt: u32, base: Duration, cap: Duration, rng: &mut impl Rng) -> Duration {
++    let half = jittered(attempt, base / 2, cap / 2, rng);
++    (base / 2)
++        .saturating_mul(1u32 << attempt.min(31))
++        .min(cap / 2)
++        + half
++}
++/// `uniform(0, min(cap, base * 2^attempt))`, never overflowing.
++pub fn jittered(attempt: u32, base: Duration, cap: Duration, rng: &mut impl Rng) -> Duration {
++    let ceiling = base.saturating_mul(1u32 << attempt.min(31)).min(cap);
++    Duration::from_millis(rng.gen_range(0..=ceiling.as_millis() as u64))
++}
+diff --git a/crates/aq-node-service/src/config.rs b/crates/aq-node-service/src/config.rs
+index e2a8247..2513d0e 100644
+--- a/crates/aq-node-service/src/config.rs
++++ b/crates/aq-node-service/src/config.rs
+@@ -16,7 +16,9 @@ pub struct ServiceConfig {
+     pub schema_version: u32,
+     pub profile: String,
+     pub machine_key: String,
+-    pub slots: u32,
++    /// Number of enrolled nodes on this machine; old files called these slots.
++    #[serde(alias = "slots")]
++    pub nodes: u32,
+     pub native_template: PathBuf,
+     pub state_root: PathBuf,
+     /// Where the slots' Unix sockets live; `layout::default_runtime_root` when unset.
+@@ -34,6 +36,8 @@ pub struct ServiceConfig {
+ #[serde(deny_unknown_fields)]
+ pub struct ManualConfig {
+     pub podman_executable: PathBuf,
++    /// Accepted for old servers only; slot-aware nodes use their server control count.
++    #[serde(default = "default_manual_slots", skip_serializing)]
+     pub max_slots: u32,
+     /// Owner-only Claude subscription token file (`claude setup-token`) that manual Claude
+     /// sessions log in with.
+@@ -68,6 +72,9 @@ pub struct RepositoryBinding {
+     pub binding_generation: u64,
+     pub object_format: String,
+ }
++fn default_manual_slots() -> u32 {
++    1
++}
+ fn default_shutdown_grace_ms() -> u64 {
+     120_000
+ }
+@@ -126,8 +133,8 @@ impl ServiceConfig {
+         ensure!(valid_profile(&self.profile), "invalid profile name");
+         ensure!(valid_machine_key(&self.machine_key), "invalid machine_key");
+         ensure!(
+-            (1..=MAX_MACHINE_SLOTS).contains(&self.slots),
+-            "slots must be 1..={MAX_MACHINE_SLOTS}"
++            (1..=MAX_MACHINE_SLOTS).contains(&self.nodes),
++            "nodes must be 1..={MAX_MACHINE_SLOTS}"
+         );
+         for (name, path) in [
+             ("native_template", &self.native_template),
+@@ -140,7 +147,7 @@ impl ServiceConfig {
+         if let Some(root) = &self.runtime_root {
+             ensure!(root.is_absolute(), "runtime_root must be an absolute path");
+         }
+-        crate::layout::check_socket_paths(&self.runtime_root(), self.slots)?;
++        crate::layout::check_socket_paths(&self.runtime_root(), self.nodes)?;
+         ensure!(self.repositories.len() <= 16, "at most 16 repositories");
+         for r in &self.repositories {
+             ensure!(
+@@ -300,12 +307,21 @@ fn keep_first_copy(path: &Path, body: &[u8]) -> Result<()> {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    #[test]
++    fn old_slots_key_is_node_count_and_new_files_name_nodes() {
++        let config = valid();
++        let current = toml::to_string(&config).unwrap();
++        assert!(current.contains("nodes = 2"));
++        let legacy = current.replace("nodes = 2", "slots = 2");
++        assert_eq!(ServiceConfig::parse(&legacy).unwrap().nodes, 2);
++        assert!(ServiceConfig::parse(&format!("nodes = 1\n{legacy}")).is_err());
++    }
+     fn valid() -> ServiceConfig {
+         ServiceConfig {
+             schema_version: 1,
+             profile: "local".into(),
+             machine_key: "desk".into(),
+-            slots: 2,
++            nodes: 2,
+             native_template: "/etc/aq/native.json".into(),
+             state_root: "/var/aq".into(),
+             runtime_root: Some("/run/user/1000/aq/local".into()),
+@@ -605,10 +621,10 @@ git_executable = "/usr/bin/git"
+         let dir = tempfile::tempdir().unwrap();
+         let path = dir.path().join("service.toml");
+         valid().save(&path).unwrap();
+-        assert_eq!(ServiceConfig::load(&path).unwrap().slots, 2);
++        assert_eq!(ServiceConfig::load(&path).unwrap().nodes, 2);
+         let bad: [fn(&mut ServiceConfig); 9] = [
+-            |c| c.slots = 0,
+-            |c| c.slots = 9,
++            |c| c.nodes = 0,
++            |c| c.nodes = 9,
+             |c| c.native_template = "native.json".into(),
+             |c| c.profile = "Bad_Name".into(),
+             |c| c.machine_key = "Desk".into(),
+@@ -667,7 +683,7 @@ git_executable = "/usr/bin/git"
+     fn socket_paths_fit_or_the_config_is_refused() {
+         let home = format!("/home/{}", "u".repeat(60));
+         let mut c = valid();
+-        c.slots = 8;
++        c.nodes = 8;
+         c.state_root = format!("{home}/.local/state/agent-q/service/{}", c.profile).into();
+         c.runtime_root = None;
+         let layout = crate::Layout::for_service(Path::new("/c"), &c);
+diff --git a/crates/aq-node-service/src/layout.rs b/crates/aq-node-service/src/layout.rs
+index a84f1c3..44bd88c 100644
+--- a/crates/aq-node-service/src/layout.rs
++++ b/crates/aq-node-service/src/layout.rs
+@@ -11,7 +11,10 @@ use std::{
+     path::{Path, PathBuf},
+ };
+ 
++#[derive(Clone)]
+ pub struct Layout {
++    /// None for the machine view; Some(index) for one enrolled node.
++    pub node: Option<u32>,
+     pub config_dir: PathBuf,
+     pub state_root: PathBuf,
+     /// `$XDG_RUNTIME_DIR/aq/<profile>`, else `/tmp/aq-<uid>/<profile>`, unless service.toml
+@@ -102,6 +105,7 @@ impl Layout {
+         ensure!(valid_profile(profile), "invalid profile name");
+         let tail = Path::new("agent-q/service").join(profile);
+         Ok(Self {
++            node: None,
+             config_dir: xdg("XDG_CONFIG_HOME", ".config")?.join(&tail),
+             state_root: xdg("XDG_STATE_HOME", ".local/state")?.join(&tail),
+             runtime_root: default_runtime_root(profile),
+@@ -110,11 +114,66 @@ impl Layout {
+     /// The layout `service.toml` in `config_dir` describes: its state and runtime roots.
+     pub fn for_service(config_dir: &Path, config: &ServiceConfig) -> Self {
+         Self {
++            node: None,
+             config_dir: config_dir.to_path_buf(),
+             state_root: config.state_root.clone(),
+             runtime_root: config.runtime_root(),
+         }
+     }
++    /// A node keeps its legacy enrollment and slot-1 state; additional slots have no credential.
++    pub fn for_node(&self, node: u32) -> Self {
++        Self {
++            node: Some(node),
++            ..self.clone()
++        }
++    }
++    pub fn check_slots(&self, slots: u32) -> Result<()> {
++        for slot in 1..=slots {
++            let launch = uuid::Uuid::nil().to_string();
++            for suffix in SLOT_SOCKETS {
++                let path = self.slot_runtime(slot).join(suffix.replace('*', &launch));
++                ensure!(
++                    path.as_os_str().len() <= MAX_SOCKET_PATH,
++                    "socket path {} exceeds {MAX_SOCKET_PATH} bytes; shorten runtime_root",
++                    path.display()
++                );
++            }
++        }
++        Ok(())
++    }
++    /// Slots with durable state, including slots above a newly lowered count.
++    pub fn existing_slots(&self) -> Vec<u32> {
++        let Some(node) = self.node else { return vec![] };
++        let root = self
++            .state_root
++            .join("nodes")
++            .join(node.to_string())
++            .join("slots");
++        let mut slots = vec![1];
++        if let Ok(entries) = std::fs::read_dir(root) {
++            slots.extend(
++                entries
++                    .flatten()
++                    .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
++                    .filter(|s| (2..=aq_protocol::MAX_NODE_SLOTS).contains(s)),
++            );
++        }
++        slots
++    }
++    /// Enrolled nodes on disk, including nodes retired by lowering the machine's count.
++    pub fn enrolled_nodes(&self) -> Vec<u32> {
++        let mut nodes = vec![];
++        if let Ok(entries) = std::fs::read_dir(self.config_dir.join("slots")) {
++            nodes.extend(
++                entries
++                    .flatten()
++                    .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
++                    .filter(|n| (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(n)),
++            );
++        }
++        nodes.sort_unstable();
++        nodes
++    }
+     /// Creates the runtime root and its parent when missing (0700) and checks both: owned by
+     /// this user, the root private and the parent writable only by this user, and no symlink
+     /// anywhere (the root is its own canonical path).
+@@ -134,7 +193,11 @@ impl Layout {
+     }
+     /// A slot's runtime directory: `git.sock` and the session host root.
+     pub fn slot_runtime(&self, slot: u32) -> PathBuf {
+-        self.runtime_root.join(slot.to_string())
++        self.runtime_root.join(match self.node {
++            Some(node) if slot > 1 => format!("{node}-{slot}"),
++            Some(node) => node.to_string(),
++            None => slot.to_string(),
++        })
+     }
+     pub fn git_socket(&self, slot: u32) -> PathBuf {
+         self.slot_runtime(slot).join("git.sock")
+@@ -172,11 +235,22 @@ impl Layout {
+     pub fn slot_enrollment(&self, slot: u32) -> PathBuf {
+         self.config_dir
+             .join("slots")
+-            .join(slot.to_string())
++            .join(self.node.unwrap_or(slot).to_string())
+             .join("worker.toml")
+     }
+     pub fn slot_state(&self, slot: u32) -> PathBuf {
+-        self.state_root.join("slots").join(slot.to_string())
++        match self.node {
++            Some(node) if slot > 1 => self
++                .state_root
++                .join("nodes")
++                .join(node.to_string())
++                .join("slots")
++                .join(slot.to_string()),
++            node => self
++                .state_root
++                .join("slots")
++                .join(node.unwrap_or(slot).to_string()),
++        }
+     }
+     pub fn current(&self, slot: u32) -> PathBuf {
+         self.slot_state(slot).join("current")
+@@ -282,6 +356,7 @@ mod tests {
+     use std::os::unix::fs::PermissionsExt;
+     fn layout(dir: &Path) -> Layout {
+         Layout {
++            node: None,
+             config_dir: dir.join("cfg"),
+             state_root: dir.join("state"),
+             runtime_root: dir.join("run/p"),
+@@ -291,6 +366,49 @@ mod tests {
+         std::fs::metadata(p).unwrap().permissions().mode() & 0o777
+     }
+     #[test]
++    fn two_nodes_with_three_agents_have_six_isolated_roots() {
++        let dir = tempfile::tempdir().unwrap();
++        let machine = layout(dir.path());
++        let mut roots = std::collections::HashSet::new();
++        let mut sockets = std::collections::HashSet::new();
++        let mut hosts = std::collections::HashSet::new();
++        for node in 1..=2 {
++            let l = machine.for_node(node);
++            l.check_slots(3).unwrap();
++            for slot in 1..=3 {
++                assert_eq!(l.slot_enrollment(slot), machine.slot_enrollment(node));
++                assert!(roots.insert(l.fresh_current(slot).unwrap()));
++                assert!(sockets.insert(l.git_socket(slot)));
++                assert!(hosts.insert(l.host_root(slot)));
++            }
++            assert_eq!(l.current(1), machine.current(node));
++            assert_eq!(l.git_socket(1), machine.git_socket(node));
++            assert_eq!(l.existing_slots().len(), 3);
++            l.archive_current(2, false).unwrap();
++            assert!(l.current(1).is_dir() && l.current(3).is_dir());
++        }
++        assert_eq!((roots.len(), sockets.len(), hosts.len()), (6, 6, 6));
++    }
++    #[test]
++    fn legacy_nodes_are_preserved_when_machine_count_is_lowered() {
++        let dir = tempfile::tempdir().unwrap();
++        let machine = layout(dir.path());
++        for node in 1..=8 {
++            let path = machine.slot_enrollment(node);
++            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++            std::fs::write(path, "legacy credential").unwrap();
++            assert_eq!(
++                machine.for_node(node).slot_enrollment(3),
++                machine.slot_enrollment(node)
++            );
++        }
++        assert_eq!(machine.enrolled_nodes(), (1..=8).collect::<Vec<_>>());
++        assert!(machine.for_node(2).check_slots(1024).is_ok());
++        let mut long = machine.for_node(2);
++        long.runtime_root = PathBuf::from(format!("/tmp/{}", "x".repeat(48)));
++        assert!(long.check_slots(1024).is_err());
++    }
++    #[test]
+     fn fresh_current_is_private_and_unique() {
+         let dir = tempfile::tempdir().unwrap();
+         let l = layout(dir.path());
+diff --git a/crates/aq-node-service/src/lib.rs b/crates/aq-node-service/src/lib.rs
+index 4456536..dc9cf25 100644
+--- a/crates/aq-node-service/src/lib.rs
++++ b/crates/aq-node-service/src/lib.rs
+@@ -24,5 +24,9 @@ pub use supervisor::{
+ };
+ 
+ pub mod polling;
++pub mod session;
+ 
+ pub mod source_hash;
++
++pub mod backoff;
++pub mod native_transport;
+diff --git a/crates/aq-node-service/src/link.rs b/crates/aq-node-service/src/link.rs
+index 87897c2..890ca27 100644
+--- a/crates/aq-node-service/src/link.rs
++++ b/crates/aq-node-service/src/link.rs
+@@ -12,6 +12,7 @@ pub struct ServerLink {
+     credential: Zeroizing<String>,
+     access: Option<(String, Zeroizing<String>)>,
+     http: reqwest::Client,
++    control_schema: std::sync::atomic::AtomicU32,
+ }
+ /// The error of a non-2xx response; callers find it with `e.downcast_ref::<LinkError>()`.
+ #[derive(Debug, thiserror::Error)]
+@@ -155,6 +156,9 @@ impl ServerLink {
+             credential: Zeroizing::new(credential.to_owned()),
+             access: access.map(|(id, secret)| (id.to_owned(), Zeroizing::new(secret.to_owned()))),
+             http,
++            control_schema: std::sync::atomic::AtomicU32::new(
++                aq_protocol::NODE_SLOTS_SCHEMA_VERSION,
++            ),
+         })
+     }
+     pub fn from_enrollment(file: &EnrollmentFile) -> Result<Self> {
+@@ -169,11 +173,18 @@ impl ServerLink {
+         self.post("/v1/worker/slots", req).await
+     }
+     pub async fn control(&self) -> Result<ControlResponse> {
+-        self.post(
+-            "/v1/worker/control",
+-            &serde_json::json!({"schema_version": 1}),
+-        )
+-        .await
++        use std::sync::atomic::Ordering;
++        let version = self.control_schema.load(Ordering::SeqCst);
++        let (reply, version) = negotiate_control(version, |schema| async move {
++            self.post(
++                "/v1/worker/control",
++                &serde_json::json!({"schema_version": schema}),
++            )
++            .await
++        })
++        .await?;
++        self.control_schema.store(version, Ordering::SeqCst);
++        Ok(reply)
+     }
+     pub async fn handoff(&self, notice: &HandoffNotice) -> Result<()> {
+         self.post::<_, serde_json::Value>("/v1/worker/handoffs", notice)
+@@ -250,6 +261,41 @@ impl ServerLink {
+         serde_json::from_slice(bytes).with_context(|| format!("decode {path} reply"))
+     }
+ }
++pub fn validate_control(reply: &ControlResponse) -> Result<()> {
++    ensure!(
++        matches!(
++            reply.schema_version,
++            1 | aq_protocol::NODE_SLOTS_SCHEMA_VERSION
++        ) && reply.slots.is_none_or(|n| reply.schema_version
++            == aq_protocol::NODE_SLOTS_SCHEMA_VERSION
++            && n <= aq_protocol::MAX_NODE_SLOTS),
++        "invalid node control response"
++    );
++    Ok(())
++}
++async fn negotiate_control<F, T>(version: u32, mut post: F) -> Result<(ControlResponse, u32)>
++where
++    F: FnMut(u32) -> T,
++    T: std::future::Future<Output = Result<ControlResponse>>,
++{
++    let (reply, version) = match post(version).await {
++        Err(e)
++            if version == aq_protocol::NODE_SLOTS_SCHEMA_VERSION
++                && e.downcast_ref::<LinkError>().is_some_and(|e| {
++                    e.status == 400 && e.code.as_deref() == Some("bad_request")
++                }) =>
++        {
++            (post(1).await?, 1)
++        }
++        other => (other?, version),
++    };
++    validate_control(&reply)?;
++    ensure!(
++        reply.schema_version == version,
++        "control response schema differs from request"
++    );
++    Ok((reply, version))
++}
+ /// The aq-worker-ctl machine-config rule: lower-case, every byte outside [a-z0-9-] becomes '-',
+ /// cut to 63. None when the result is not a valid key (for example it starts with '-').
+ pub fn default_machine_key(hostname: &str) -> Option<String> {
+@@ -274,6 +320,72 @@ mod tests {
+     use axum::{Json, Router, http::HeaderMap, routing::post};
+     use std::sync::{Arc, Mutex};
+ 
++    fn control_reply(version: u32, slots: Option<u32>) -> ControlResponse {
++        ControlResponse {
++            schema_version: version,
++            slots,
++            machine_key: "desk".into(),
++            desired: aq_protocol::DesiredState::Running,
++            generation: 1,
++            handoff: vec![],
++            qualification: None,
++        }
++    }
++    #[tokio::test]
++    async fn old_server_falls_back_once_and_missing_count_means_one() {
++        let sent = std::sync::Mutex::new(vec![]);
++        let (reply, version) = negotiate_control(2, |schema| {
++            sent.lock().unwrap().push(schema);
++            async move {
++                if schema == 2 {
++                    Err(LinkError {
++                        status: 400,
++                        code: Some("bad_request".into()),
++                        next_sequence: None,
++                    }
++                    .into())
++                } else {
++                    Ok(control_reply(1, None))
++                }
++            }
++        })
++        .await
++        .unwrap();
++        assert_eq!(*sent.lock().unwrap(), vec![2, 1]);
++        assert_eq!((version, reply.node_slots()), (1, 1));
++        let (_, version) = negotiate_control(version, |schema| {
++            assert_eq!(schema, 1);
++            async { Ok(control_reply(1, None)) }
++        })
++        .await
++        .unwrap();
++        assert_eq!(version, 1);
++        assert_eq!(control_reply(2, None).node_slots(), 1);
++    }
++    #[tokio::test]
++    async fn revoked_credentials_and_edges_never_trigger_a_protocol_fallback() {
++        for status in [401, 403, 500] {
++            let mut sends = 0;
++            assert!(
++                negotiate_control(2, |_| {
++                    sends += 1;
++                    async move {
++                        Err(LinkError {
++                            status,
++                            code: Some("unauthorized".into()),
++                            next_sequence: None,
++                        }
++                        .into())
++                    }
++                })
++                .await
++                .is_err()
++            );
++            assert_eq!(sends, 1);
++        }
++        assert!(validate_control(&control_reply(1, Some(3))).is_err());
++        assert!(validate_control(&control_reply(2, Some(1025))).is_err());
++    }
+     #[test]
+     fn refuses_plain_http_off_loopback() {
+         assert!(ServerLink::new("http://10.0.0.5:8081", "c", None).is_err());
+diff --git a/crates/aq-node-service/src/native_transport.rs b/crates/aq-node-service/src/native_transport.rs
+new file mode 100644
+index 0000000..c3f1b2f
+--- /dev/null
++++ b/crates/aq-node-service/src/native_transport.rs
+@@ -0,0 +1,124 @@
++//! Bounded retries for native HTTP requests; callers supply their boot clock.
++use anyhow::{Result, ensure};
++use reqwest::{Response, StatusCode, header};
++use std::{future::Future, time::Duration};
++/// A refused native request: its status and the `Retry-After` seconds it carried.
++#[derive(Debug)]
++pub struct HttpStatus(pub StatusCode, pub Option<Duration>);
++impl std::fmt::Display for HttpStatus {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        write!(f, "native endpoint returned {}", self.0)
++    }
++}
++impl std::error::Error for HttpStatus {}
++/// A send that failed in transport (connect, timeout, reset): its disposition is unknown.
++#[derive(Debug)]
++pub struct TransportFailed(pub &'static str);
++impl std::fmt::Display for TransportFailed {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.write_str(self.0)
++    }
++}
++impl std::error::Error for TransportFailed {}
++/// Logs a refused response (its body cut to 400 characters) and returns its `HttpStatus`.
++pub async fn refused(response: Response) -> anyhow::Error {
++    let status = response.status();
++    let path = response.url().path().to_owned();
++    let retry_after = (response.headers().get(header::RETRY_AFTER))
++        .and_then(|v| v.to_str().ok()?.trim().parse().ok())
++        .map(Duration::from_secs);
++    let body = response.text().await.unwrap_or_default();
++    let body: String = body.chars().take(400).collect();
++    tracing::warn!(%path, %status, %body, "native endpoint refused");
++    let gone = status == StatusCode::CONFLICT && body.contains("execution cancelled"); // released: 410, never retried
++    HttpStatus([status, StatusCode::GONE][gone as usize], retry_after).into()
++}
++/// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
++/// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.
++pub const FETCH_TRIES: u32 = 5;
++pub const FETCH_SPAN: Duration = Duration::from_secs(10);
++pub const FETCH_BACKOFF: (Duration, Duration) =
++    (Duration::from_millis(500), Duration::from_secs(8));
++/// The wait before retry `attempt` (0-based) of a read-only fetch that failed with `e`, or None
++/// when `e` is final: only 502/503/504, 408, 429 and transport failures are transient. A
++/// `Retry-After` longer than the backoff is waited instead; one beyond the cap ends the retries.
++pub fn fetch_retry_wait(e: &anyhow::Error, attempt: u32) -> Option<Duration> {
++    let (base, cap) = FETCH_BACKOFF;
++    let after = match e.downcast_ref::<HttpStatus>() {
++        Some(HttpStatus(s, after)) if matches!(s.as_u16(), 408 | 429 | 502 | 503 | 504) => *after,
++        Some(_) => return None,
++        None => {
++            e.downcast_ref::<TransportFailed>()?;
++            None
++        }
++    };
++    let backoff = crate::backoff::equal_jittered(attempt, base, cap, &mut rand::thread_rng());
++    after.map_or(Some(backoff), |d| (d <= cap).then_some(d.max(backoff)))
++}
++/// Retries an idempotent read while it fails transiently, until it has had `FETCH_TRIES` tries
++/// and `FETCH_SPAN` has passed, and only while the next wait ends before `deadline_ns` (R1: one
++/// `503 overloaded` failed a whole attempt; R5: five fast tries did not outlast a restart).
++pub async fn fetch_retried<T, F>(
++    deadline_ns: u64,
++    mut call: impl FnMut() -> F,
++    now: impl Fn() -> Result<u64>,
++) -> Result<T>
++where
++    F: Future<Output = Result<T>>,
++{
++    let (mut attempt, started) = (0, tokio::time::Instant::now());
++    loop {
++        let e = match call().await {
++            Ok(value) => return Ok(value),
++            Err(e) => e,
++        };
++        let ends = |w: &Duration| now().is_ok_and(|n| n + (w.as_nanos() as u64) < deadline_ns);
++        let more = attempt + 1 < FETCH_TRIES || started.elapsed() < FETCH_SPAN;
++        let wait = fetch_retry_wait(&e, attempt).filter(|w| more && ends(w));
++        let Some(wait) = wait else {
++            (attempt > 0).then(|| tracing::warn!(tries = attempt + 1, "{e:#}; not retried again"));
++            return Err(e);
++        };
++        attempt += 1;
++        tracing::warn!(attempt, "{e:#}; retrying in {wait:?}");
++        tokio::time::sleep(wait).await;
++    }
++}
++
++/// Linux monotonic clock including suspended time.
++pub fn boot_ns() -> Result<u64> {
++    let mut time = libc::timespec {
++        tv_sec: 0,
++        tv_nsec: 0,
++    };
++    ensure!(
++        unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut time) } == 0,
++        "boot clock unavailable"
++    );
++    let seconds = u64::try_from(time.tv_sec)?;
++    let nanos = u64::try_from(time.tv_nsec)?;
++    seconds
++        .checked_mul(1_000_000_000)
++        .and_then(|n| n.checked_add(nanos))
++        .ok_or_else(|| anyhow::anyhow!("boot clock overflow"))
++}
++
++pub async fn body(mut response: Response, limit: usize) -> Result<zeroize::Zeroizing<Vec<u8>>> {
++    ensure!(
++        response.content_length().is_none_or(|n| n <= limit as u64),
++        "native response size"
++    );
++    let mut bytes = zeroize::Zeroizing::new(Vec::new());
++    while let Some(chunk) = response
++        .chunk()
++        .await
++        .map_err(|_| anyhow::anyhow!("native response read failed"))?
++    {
++        ensure!(
++            chunk.len() <= limit.saturating_sub(bytes.len()),
++            "native response size"
++        );
++        bytes.extend_from_slice(&chunk);
++    }
++    Ok(bytes)
++}
+diff --git a/crates/aq-node-service/src/session.rs b/crates/aq-node-service/src/session.rs
+new file mode 100644
+index 0000000..bd6b1f4
+--- /dev/null
++++ b/crates/aq-node-service/src/session.rs
+@@ -0,0 +1,221 @@
++//! A service-lifetime node boot and the coordination shared by its agent slots.
++use anyhow::{Result, ensure};
++use aq_protocol::{ControlResponse, NODE_SLOTS_SCHEMA_VERSION};
++use std::{
++    future::Future,
++    sync::{
++        Arc, Mutex, OnceLock,
++        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
++    },
++};
++use tokio::sync::Mutex as AsyncMutex;
++use uuid::Uuid;
++
++#[derive(Default)]
++pub struct InventoryState {
++    /// Serializes publication and consumers that require the current snapshot.
++    pub gate: AsyncMutex<()>,
++    allocated: AtomicU64,
++    pub acknowledged: AtomicU64,
++}
++impl InventoryState {
++    pub fn next(&self, minimum: u64) -> Result<u64> {
++        self.allocated.fetch_max(minimum, Ordering::SeqCst);
++        self.allocated
++            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
++                n.checked_add(1).filter(|v| *v <= i64::MAX as u64)
++            })
++            .map(|n| n + 1)
++            .map_err(|_| anyhow::anyhow!("inventory highwater exhausted"))
++    }
++}
++
++pub struct NodeSession {
++    pub boot_id: Uuid,
++    pub registration_id: Uuid,
++    pub inventory: Arc<InventoryState>,
++    slots: AtomicU32,
++    aware: AtomicBool,
++    registered: AsyncMutex<bool>,
++    registered_slots: OnceLock<u32>,
++    occupancy: Mutex<Occupancy>,
++    retired: AtomicBool,
++}
++#[derive(Default)]
++struct Occupancy {
++    queued: u32,
++    manual: std::collections::HashSet<Uuid>,
++}
++pub struct QueuedPermit(Arc<NodeSession>);
++impl Drop for QueuedPermit {
++    fn drop(&mut self) {
++        self.0.occupancy.lock().unwrap().queued -= 1;
++    }
++}
++impl Default for NodeSession {
++    fn default() -> Self {
++        Self {
++            boot_id: Uuid::new_v4(),
++            registration_id: Uuid::new_v4(),
++            inventory: Arc::default(),
++            slots: AtomicU32::new(1),
++            aware: AtomicBool::new(false),
++            registered: AsyncMutex::new(false),
++            registered_slots: OnceLock::new(),
++            occupancy: Mutex::default(),
++            retired: AtomicBool::new(false),
++        }
++    }
++}
++impl NodeSession {
++    pub fn pending() -> Self {
++        Self {
++            slots: AtomicU32::new(0),
++            ..Self::default()
++        }
++    }
++    pub fn update(&self, reply: &ControlResponse) -> Result<()> {
++        crate::link::validate_control(reply)?;
++        ensure!(
++            !self.aware() || reply.schema_version == NODE_SLOTS_SCHEMA_VERSION,
++            "node slot protocol downgraded during a boot"
++        );
++        self.aware.store(
++            reply.schema_version == NODE_SLOTS_SCHEMA_VERSION,
++            Ordering::SeqCst,
++        );
++        self.slots.store(reply.node_slots(), Ordering::SeqCst);
++        Ok(())
++    }
++    pub fn retire(&self) {
++        self.retired.store(true, Ordering::SeqCst);
++        self.slots.store(0, Ordering::SeqCst);
++    }
++    pub fn retired(&self) -> bool {
++        self.retired.load(Ordering::SeqCst)
++    }
++    pub fn aware(&self) -> bool {
++        self.aware.load(Ordering::SeqCst)
++    }
++    pub fn slots(&self) -> u32 {
++        self.slots.load(Ordering::SeqCst)
++    }
++    /// Register retries retain the exact operation id, boot and initial count.
++    pub fn registered_slots(&self) -> u32 {
++        *self.registered_slots.get_or_init(|| self.slots().max(1))
++    }
++    pub async fn register_once<F, T>(&self, register: F) -> Result<()>
++    where
++        F: FnOnce() -> T,
++        T: Future<Output = Result<()>>,
++    {
++        let mut registered = self.registered.lock().await;
++        if !*registered {
++            register().await?;
++            *registered = true;
++        }
++        Ok(())
++    }
++    /// The service reserves locally before either queued polling or manual sandbox creation.
++    pub fn try_queued(self: &Arc<Self>) -> Option<QueuedPermit> {
++        let mut used = self.occupancy.lock().unwrap();
++        if used.queued + used.manual.len() as u32 >= self.slots() {
++            return None;
++        }
++        used.queued += 1;
++        Some(QueuedPermit(self.clone()))
++    }
++    pub fn try_manual(&self, id: Uuid) -> bool {
++        let mut used = self.occupancy.lock().unwrap();
++        if used.manual.contains(&id) {
++            return true;
++        }
++        if used.queued + used.manual.len() as u32 >= self.slots() {
++            return false;
++        }
++        used.manual.insert(id);
++        true
++    }
++    /// Restore outstanding manual ownership before any new admission, even after a shrink.
++    pub fn restore_manual(&self, id: Uuid) {
++        self.occupancy.lock().unwrap().manual.insert(id);
++    }
++    pub fn release_manual(&self, id: Uuid) {
++        self.occupancy.lock().unwrap().manual.remove(&id);
++    }
++    pub fn full(&self) -> bool {
++        let used = self.occupancy.lock().unwrap();
++        used.queued + used.manual.len() as u32 >= self.slots()
++    }
++}
++
++/// Verify a held directory descriptor still names the same private state root.
++pub fn check_state_root(path: &std::path::Path, held: &std::fs::File) -> Result<()> {
++    use std::os::unix::fs::MetadataExt;
++    let a = held.metadata()?;
++    let b = std::fs::symlink_metadata(path)?;
++    ensure!(
++        b.is_dir()
++            && a.dev() == b.dev()
++            && a.ino() == b.ino()
++            && b.uid() == unsafe { libc::geteuid() }
++            && b.mode() & 0o7777 == 0o700,
++        "native state directory changed"
++    );
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[tokio::test]
++    async fn registration_is_once_even_with_failures_siblings_and_count_changes() {
++        let node = Arc::new(NodeSession::default());
++        let calls = AtomicU32::new(0);
++        let boot = node.boot_id;
++        assert!(
++            node.register_once(|| async {
++                calls.fetch_add(1, Ordering::SeqCst);
++                anyhow::bail!("refused")
++            })
++            .await
++            .is_err()
++        );
++        let register = || async {
++            calls.fetch_add(1, Ordering::SeqCst);
++            Ok(())
++        };
++        let (a, b) = tokio::join!(node.register_once(register), node.register_once(register));
++        a.unwrap();
++        b.unwrap();
++        node.slots.store(3, Ordering::SeqCst);
++        node.register_once(register).await.unwrap();
++        assert_eq!(calls.load(Ordering::SeqCst), 2);
++        assert_eq!(node.boot_id, boot);
++    }
++    #[test]
++    fn manual_and_queued_share_count_including_shrink() {
++        let node = Arc::new(NodeSession::default());
++        node.slots.store(3, Ordering::SeqCst);
++        let a = node.try_queued().unwrap();
++        let id = Uuid::new_v4();
++        assert!(node.try_manual(id));
++        let b = node.try_queued().unwrap();
++        assert!(node.try_queued().is_none());
++        assert!(!node.try_manual(Uuid::new_v4()));
++        node.slots.store(1, Ordering::SeqCst);
++        drop(a);
++        drop(b);
++        assert!(node.try_queued().is_none());
++        node.release_manual(id);
++        assert!(node.try_queued().is_some());
++    }
++    #[test]
++    fn inventory_is_monotone_across_slot_producers_and_retries() {
++        let state = InventoryState::default();
++        assert_eq!(state.next(0).unwrap(), 1);
++        assert_eq!(state.next(0).unwrap(), 2);
++        assert_eq!(state.next(5).unwrap(), 6);
++        assert!(state.next(i64::MAX as u64).is_err());
++    }
++}
+diff --git a/crates/aq-node-service/src/supervisor.rs b/crates/aq-node-service/src/supervisor.rs
+index e96c985..33296e1 100644
+--- a/crates/aq-node-service/src/supervisor.rs
++++ b/crates/aq-node-service/src/supervisor.rs
+@@ -50,6 +50,11 @@ pub enum RecoverOutcome {
+ }
+ #[async_trait::async_trait]
+ pub trait SlotBackend: Send + Sync + 'static {
++    /// Runs independently of slot recovery, including when all slots are held.
++    async fn node_control(&self, _ctx: SlotContext, _reply: &ControlResponse) -> Result<()> {
++        Ok(())
++    }
++
+     async fn run_attempt(
+         &self,
+         ctx: SlotContext,
+@@ -74,6 +79,7 @@ pub trait ControlSource: Send + Sync + 'static {
+ pub struct MachineLink {
+     primary: Arc<ServerLink>,
+     enrollments: Vec<PathBuf>,
++    single_node: bool,
+ }
+ impl MachineLink {
+     pub fn new(primary: Arc<ServerLink>, layout: &Layout, slots: u32) -> Self {
+@@ -81,6 +87,7 @@ impl MachineLink {
+         Self {
+             primary,
+             enrollments,
++            single_node: layout.node.is_some(),
+         }
+     }
+     /// The link of `slot`'s node, from its enrollment file.
+@@ -97,7 +104,7 @@ impl ControlSource for MachineLink {
+         self.primary.control().await
+     }
+     async fn handoff(&self, slot: u32, notice: &HandoffNotice) -> Result<()> {
+-        if slot == 1 {
++        if slot == 1 || self.single_node {
+             return self.primary.handoff(notice).await;
+         }
+         self.slot(slot)?.handoff(notice).await
+@@ -284,6 +291,7 @@ pub struct Supervisor<B: SlotBackend, C: ControlSource> {
+     backend: Arc<B>,
+     control: Arc<C>,
+     git: Arc<dyn GitFactory>,
++    retiring: bool,
+ }
+ struct Shared<B: SlotBackend, C: ControlSource> {
+     sup: Supervisor<B, C>,
+@@ -292,6 +300,7 @@ struct Shared<B: SlotBackend, C: ControlSource> {
+     force: watch::Sender<bool>,
+     /// Slots inside `attempt` (their `current` belongs to a live attempt).
+     active: Mutex<HashSet<u32>>,
++    target: watch::Sender<u32>,
+ }
+ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
+     pub fn new(
+@@ -307,11 +316,22 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
+             backend,
+             control,
+             git,
++            retiring: false,
+         }
+     }
++    /// Retire an explicitly removed node: recover its own attempts and admit nothing new.
++    pub fn retiring(mut self, retiring: bool) -> Self {
++        self.retiring = retiring;
++        self
++    }
+     /// Supervises every slot until `shutdown`. It returns only then: a slot that cannot run
+     /// (held, or no enrollment) never ends the service, which would restart it in a loop.
+     pub async fn run(self, mut shutdown: watch::Receiver<bool>) -> Result<()> {
++        let initial = if self.layout.node.is_some() {
++            1
++        } else {
++            self.config.nodes
++        };
+         let shared = Arc::new(Shared {
+             pause: Pause {
+                 tx: watch::channel(true).0,
+@@ -320,22 +340,48 @@ impl<B: SlotBackend, C: ControlSource> Supervisor<B, C> {
+             stopping: watch::channel(false).0,
+             force: watch::channel(false).0,
+             active: Mutex::default(),
++            target: watch::channel(if self.retiring { 0 } else { initial }).0,
+             sup: self,
+         });
+         let control_task = tokio::spawn(shared.clone().control_loop());
+         let mut loops = JoinSet::new();
+-        for slot in 1..=shared.sup.config.slots {
+-            loops.spawn(shared.clone().slot_loop(slot));
++        let mut spawned = HashSet::new();
++        let mut target = shared.target.subscribe();
++        let mut initial_slots = shared.sup.layout.existing_slots();
++        initial_slots.extend(1..=initial);
++        for slot in initial_slots {
++            if spawned.insert(slot) {
++                let shared = shared.clone();
++                loops.spawn(async move {
++                    let retired = shared.clone().slot_loop(slot).await;
++                    (slot, retired)
++                });
++            }
+         }
+-        let signalled_first = tokio::select! {
+-            () = drain(&mut loops) => false,
+-            () = signalled(&mut shutdown) => true,
+-        };
+-        if !signalled_first {
+-            tracing::warn!(
+-                "no slot is running; the service stays up (control poll) until it is stopped"
+-            );
+-            signalled(&mut shutdown).await;
++        loop {
++            tokio::select! {
++                () = signalled(&mut shutdown) => break,
++                _ = target.changed() => {
++                    for slot in 1..=*target.borrow_and_update() {
++                        if spawned.insert(slot) {
++                            let shared = shared.clone();
++                            loops.spawn(async move { let retired = shared.clone().slot_loop(slot).await; (slot, retired) });
++                        }
++                    }
++                }
++                Some(outcome) = loops.join_next(), if !loops.is_empty() => {
++                    // Completed retired loops can be recreated by a later increase.
++                    if shared.sup.retiring && loops.is_empty() { break; }
++                    if let Ok((slot, retired)) = outcome && retired {
++                        spawned.remove(&slot);
++                        if slot <= *shared.target.borrow() {
++                            spawned.insert(slot);
++                            let shared = shared.clone();
++                            loops.spawn(async move { let retired = shared.clone().slot_loop(slot).await; (slot, retired) });
++                        }
++                    }
++                }
++            }
+         }
+         shared.stopping.send_replace(true);
+         shared.pause.set(STOPPING, true);
+@@ -368,7 +414,7 @@ async fn signalled(rx: &mut watch::Receiver<bool>) {
+     }
+ }
+ /// Waits for every slot loop; cancel-safe, so it can be raced and called again.
+-async fn drain(loops: &mut JoinSet<()>) {
++async fn drain<T: 'static>(loops: &mut JoinSet<T>) {
+     while loops.join_next().await.is_some() {}
+ }
+ /// Waits `backoff` (false when the service stops first), then doubles it up to `BACKOFF_MAX`.
+@@ -466,7 +512,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+         let _ = git.stop().await;
+         out
+     }
+-    async fn slot_loop(self: Arc<Self>, slot: u32) {
++    async fn slot_loop(self: Arc<Self>, slot: u32) -> bool {
+         let mut backoff = BACKOFF_START;
+         let mut stopping = self.stopping.subscribe();
+         let mut pause = self.pause.tx.subscribe();
+@@ -477,19 +523,19 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+                 Err(e) => tracing::error!(slot, "slot waits for its enrollment: {e:#}"),
+             }
+             if !back_off(&mut stopping, &mut backoff).await {
+-                return;
++                return false;
+             }
+         };
+         loop {
+             if *stopping.borrow() {
+-                return;
++                return false;
+             }
+             match self.settle(slot, node_id).await {
+                 Ok(true) => {}
+                 Ok(false) => {
+                     // Held: nothing more runs here, but the service stays up.
+                     let _ = stopping.wait_for(|v| *v).await;
+-                    return;
++                    return false;
+                 }
+                 Err(e) => {
+                     tracing::warn!(
+@@ -498,24 +544,28 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+                         backoff.as_secs()
+                     );
+                     if !back_off(&mut stopping, &mut backoff).await {
+-                        return;
++                        return false;
+                     }
+                     continue;
+                 }
+             }
+             loop {
++                if slot > *self.target.borrow() {
++                    return true;
++                }
+                 if *stopping.borrow() {
+-                    return;
++                    return false;
+                 }
+                 if !*pause.borrow() {
+                     break;
+                 }
+-                tokio::select! { _ = pause.changed() => {}, _ = stopping.changed() => {} }
++                let mut target = self.target.subscribe();
++                tokio::select! { _ = pause.changed() => {}, _ = stopping.changed() => {}, _ = target.changed() => {} }
+             }
+             match self.attempt(slot, node_id).await {
+                 Ok(AttemptOutcome::AttemptStopped) => backoff = BACKOFF_START,
+                 Ok(AttemptOutcome::Paused) => {}
+-                Ok(AttemptOutcome::ShutdownBeforeAdmission) => return,
++                Ok(AttemptOutcome::ShutdownBeforeAdmission) => return false,
+                 Err(e) => {
+                     tracing::warn!(
+                         slot,
+@@ -534,7 +584,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+                         );
+                     }
+                     if !back_off(&mut stopping, &mut backoff).await {
+-                        return;
++                        return false;
+                     }
+                 }
+             }
+@@ -544,17 +594,25 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+         let dir = self.sup.layout.fresh_current(slot)?;
+         let ctx = self.ctx(slot, node_id, dir.clone());
+         self.active.lock().unwrap().insert(slot);
++        let mut global = self.pause.tx.subscribe();
++        let mut target = self.target.subscribe();
++        let (tx, slot_pause) = watch::channel(*global.borrow() || slot > *target.borrow());
++        let merger = tokio::spawn(async move {
++            loop {
++                tx.send_replace(*global.borrow() || slot > *target.borrow());
++                tokio::select! {
++                    r = global.changed() => { if r.is_err() { break; } },
++                    r = target.changed() => { if r.is_err() { break; } },
++                }
++            }
++        });
+         let result = async {
+             let git = self.sup.git.start(&dir, &ctx.git_socket).await?;
+             let run = async {
+                 git.register(&self.sup.config.repositories).await?;
+                 self.sup
+                     .backend
+-                    .run_attempt(
+-                        ctx.clone(),
+-                        self.force.subscribe(),
+-                        self.pause.tx.subscribe(),
+-                    )
++                    .run_attempt(ctx.clone(), self.force.subscribe(), slot_pause)
+                     .await
+             }
+             .await;
+@@ -564,6 +622,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+             run
+         }
+         .await;
++        merger.abort();
+         self.active.lock().unwrap().remove(&slot);
+         // A claimed attempt's sandbox the node did not destroy (a killed driver, a failed
+         // transfer): on failure `current` stays, and `settle` releases it before archiving.
+@@ -647,7 +706,9 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+                     );
+                     self.pause.set(REVOKED, false);
+                 }
+-                self.apply(resp);
++                if let Err(e) = self.apply(resp).await {
++                    tracing::warn!("node control: {e:#}");
++                }
+             }
+             Err(e)
+                 if e.downcast_ref::<LinkError>()
+@@ -680,8 +741,26 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+     }
+     /// The qualification pin a reply may still carry is ignored: the worker runs whatever
+     /// model an offer names, under the template's renderer.
+-    fn apply(&self, resp: ControlResponse) {
++    async fn apply(&self, resp: ControlResponse) -> Result<()> {
+         let layout = &self.sup.layout;
++        if layout.node.is_some() {
++            let slots = if self.sup.retiring {
++                0
++            } else {
++                resp.node_slots()
++            };
++            layout.check_slots(slots)?;
++            let enrollment = EnrollmentFile::load(&layout.slot_enrollment(1))?;
++            // Explicit node retirement never registers a new boot over old claims.
++            if !self.sup.retiring {
++                self.sup
++                    .backend
++                    .node_control(self.ctx(1, enrollment.node_id, layout.current(1)), &resp)
++                    .await?;
++            }
++            self.target
++                .send_if_modified(|v| std::mem::replace(v, slots) != slots);
++        }
+         for id in resp.handoff {
+             if let Err(e) = mark_handoff(layout, &self.active_slots(), id, HandoffReason::OwnerStop)
+             {
+@@ -689,6 +768,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
+             }
+         }
+         self.pause.set(AWAITING_FIRST_CONTROL_REPLY, false);
++        Ok(())
+     }
+ }
+ 
+@@ -708,6 +788,7 @@ mod tests {
+         Finished,
+         /// Waits for the forced shutdown.
+         Hang,
++        Until(watch::Receiver<bool>),
+         /// Keeps the pause receiver, returns Paused when polling pauses.
+         Observe,
+         /// Admitted and running (journal and driver.json written) until the task is aborted.
+@@ -716,6 +797,8 @@ mod tests {
+     #[derive(Default)]
+     struct FakeBackend {
+         script: Mutex<HashMap<u32, VecDeque<Step>>>,
++        contexts: Mutex<Vec<SlotContext>>,
++        controls: Mutex<Vec<Uuid>>,
+         recovery: Mutex<HashMap<u32, VecDeque<Result<RecoverOutcome, ()>>>>,
+         calls: Mutex<Vec<String>>,
+         run_times: Mutex<Vec<Instant>>,
+@@ -728,12 +811,17 @@ mod tests {
+     }
+     #[async_trait::async_trait]
+     impl SlotBackend for FakeBackend {
++        async fn node_control(&self, ctx: SlotContext, _: &ControlResponse) -> Result<()> {
++            self.controls.lock().unwrap().push(ctx.node_id);
++            Ok(())
++        }
+         async fn run_attempt(
+             &self,
+             ctx: SlotContext,
+             mut shutdown: watch::Receiver<bool>,
+             mut pause: watch::Receiver<bool>,
+         ) -> Result<AttemptOutcome> {
++            self.contexts.lock().unwrap().push(ctx.clone());
+             self.calls.lock().unwrap().push(format!("run:{}", ctx.slot));
+             self.run_times.lock().unwrap().push(Instant::now());
+             let step = self
+@@ -759,6 +847,10 @@ mod tests {
+                     std::fs::write(dir.join("driver.json"), owner.to_string()).unwrap();
+                     anyhow::bail!("source transfer failed")
+                 }
++                Some(Step::Until(mut done)) => {
++                    let _ = done.wait_for(|v| *v).await;
++                    Ok(AttemptOutcome::AttemptStopped)
++                }
+                 Some(Step::Hang) => {
+                     let _ = shutdown.wait_for(|v| *v).await;
+                     *self.released.lock().unwrap() = Some(Instant::now());
+@@ -898,6 +990,7 @@ mod tests {
+             generation: 1,
+             handoff,
+             qualification,
++            slots: None,
+         })
+     }
+     fn wall() -> u64 {
+@@ -914,6 +1007,7 @@ mod tests {
+     fn rig(slots: u32) -> Rig {
+         let dir = tempfile::tempdir().unwrap();
+         let layout = Layout {
++            node: None,
+             config_dir: dir.path().join("cfg"),
+             state_root: dir.path().join("state"),
+             runtime_root: dir.path().join("run/t"),
+@@ -933,7 +1027,7 @@ mod tests {
+             schema_version: 1,
+             profile: "t".into(),
+             machine_key: "desk".into(),
+-            slots,
++            nodes: slots,
+             native_template: "/n.json".into(),
+             state_root: layout.state_root.clone(),
+             runtime_root: Some(layout.runtime_root.clone()),
+@@ -951,6 +1045,169 @@ mod tests {
+             config,
+         }
+     }
++    fn slots_reply(slots: u32) -> Result<ControlResponse, (u16, bool)> {
++        let mut r = reply(vec![], None).unwrap();
++        r.schema_version = 2;
++        r.slots = Some(slots);
++        Ok(r)
++    }
++    async fn spin() {
++        for _ in 0..100 {
++            tokio::task::yield_now().await;
++        }
++    }
++    #[tokio::test(start_paused = true)]
++    async fn node_slots_grow_and_shrink_without_interrupting_running_attempts() {
++        let mut rig = rig(1);
++        rig.layout.node = Some(1);
++        let backend = Arc::new(FakeBackend::default());
++        let (done, rx) = watch::channel(false);
++        for slot in 1..=3 {
++            script(&backend, slot, vec![Step::Until(rx.clone())]);
++        }
++        let ctl = control(vec![slots_reply(1)]);
++        let (handle, stop_tx) = start(&rig, &backend, &ctl);
++        spin().await;
++        assert_eq!(backend.contexts.lock().unwrap().len(), 1);
++        *ctl.replies.lock().unwrap() = vec![slots_reply(3)].into();
++        tokio::time::advance(CONTROL_INTERVAL).await;
++        spin().await;
++        assert_eq!(backend.contexts.lock().unwrap().len(), 3);
++        *ctl.replies.lock().unwrap() = vec![slots_reply(1)].into();
++        tokio::time::advance(CONTROL_INTERVAL).await;
++        spin().await;
++        assert!(
++            backend
++                .contexts
++                .lock()
++                .unwrap()
++                .iter()
++                .all(|c| c.state_dir.exists()),
++            "shrink keeps running attempts"
++        );
++        done.send_replace(true);
++        spin().await;
++        let contexts = backend.contexts.lock().unwrap().clone();
++        assert_eq!(contexts.iter().filter(|c| c.slot > 1).count(), 2);
++        assert!(
++            contexts.iter().all(|c| c.node_id == Uuid::from_u128(1)
++                && c.enrollment == rig.layout.slot_enrollment(1))
++        );
++        stop(handle, stop_tx).await;
++    }
++    #[tokio::test(start_paused = true)]
++    async fn two_nodes_each_run_three_independent_attempts() {
++        let mut rig = rig(2);
++        let backend = Arc::new(FakeBackend::default());
++        let (done, rx) = watch::channel(false);
++        for slot in 1..=3 {
++            script(
++                &backend,
++                slot,
++                vec![Step::Until(rx.clone()), Step::Until(rx.clone())],
++            );
++        }
++        rig.layout.node = Some(1);
++        let (a, a_stop) = start(&rig, &backend, &control(vec![slots_reply(3)]));
++        rig.layout.node = Some(2);
++        let (b, b_stop) = start(&rig, &backend, &control(vec![slots_reply(3)]));
++        spin().await;
++        let contexts = backend.contexts.lock().unwrap().clone();
++        assert_eq!(contexts.len(), 6);
++        let identities: HashSet<_> = contexts.iter().map(|c| (c.node_id, c.slot)).collect();
++        assert_eq!(identities.len(), 6);
++        assert_eq!(
++            contexts
++                .iter()
++                .map(|c| c.git_socket.clone())
++                .collect::<HashSet<_>>()
++                .len(),
++            6
++        );
++        for ctx in &contexts {
++            assert_eq!(
++                EnrollmentFile::load(&ctx.enrollment).unwrap().node_id,
++                ctx.node_id
++            );
++        }
++        done.send_replace(true);
++        spin().await;
++        stop(a, a_stop).await;
++        stop(b, b_stop).await;
++    }
++    #[tokio::test(start_paused = true)]
++    async fn held_slot_does_not_block_sibling_or_node_registration() {
++        let mut rig = rig(1);
++        rig.layout.node = Some(1);
++        let backend = Arc::new(FakeBackend::default());
++        std::fs::create_dir_all(rig.layout.current(1)).unwrap();
++        std::fs::write(rig.layout.current(1).join("journal"), "old").unwrap();
++        backend
++            .recovery
++            .lock()
++            .unwrap()
++            .insert(1, vec![Ok(RecoverOutcome::Held("unknown".into()))].into());
++        script(&backend, 2, vec![Step::Observe]);
++        let (handle, stop_tx) = start(&rig, &backend, &control(vec![slots_reply(2)]));
++        spin().await;
++        assert!(!backend.controls.lock().unwrap().is_empty());
++        assert_eq!(
++            backend
++                .contexts
++                .lock()
++                .unwrap()
++                .iter()
++                .map(|c| c.slot)
++                .collect::<Vec<_>>(),
++            vec![2]
++        );
++        assert!(rig.layout.slot_held(1).exists());
++        stop(handle, stop_tx).await;
++    }
++    #[tokio::test(start_paused = true)]
++    async fn lowering_machine_node_count_retires_six_nodes_using_their_own_identity() {
++        let mut rig = rig(8);
++        rig.config.nodes = 2;
++        let backend = Arc::new(FakeBackend::default());
++        let mut handles = Vec::new();
++        for node in 3..=8 {
++            let view = rig.layout.for_node(node);
++            std::fs::create_dir_all(view.current(1)).unwrap();
++            std::fs::write(view.current(1).join("journal"), "old").unwrap();
++            let sup = Supervisor::new(
++                rig.config.clone(),
++                view,
++                backend.clone(),
++                control(vec![slots_reply(3)]),
++                Arc::new(FakeGit),
++            )
++            .retiring(true);
++            handles.push(tokio::spawn(sup.run(watch::channel(false).1)));
++        }
++        spin().await;
++        for handle in handles {
++            handle.await.unwrap().unwrap();
++        }
++        assert!(backend.contexts.lock().unwrap().is_empty());
++        assert!(
++            backend.controls.lock().unwrap().is_empty(),
++            "retired nodes never register new boots"
++        );
++        assert_eq!(
++            backend
++                .calls
++                .lock()
++                .unwrap()
++                .iter()
++                .filter(|c| c.starts_with("recover:"))
++                .count(),
++            6
++        );
++        assert_eq!(rig.layout.enrolled_nodes(), (1..=8).collect::<Vec<_>>());
++        for node in 3..=8 {
++            assert!(!rig.layout.for_node(node).current(1).exists());
++        }
++    }
+     fn script(backend: &FakeBackend, slot: u32, steps: Vec<Step>) {
+         backend.script.lock().unwrap().insert(slot, steps.into());
+     }
+@@ -968,7 +1225,8 @@ mod tests {
+         control: &Arc<FakeControl>,
+         git: Arc<dyn GitFactory>,
+     ) -> (Handle, watch::Sender<bool>) {
+-        let layout = Layout::for_service(&rig.layout.config_dir, &rig.config);
++        let mut layout = Layout::for_service(&rig.layout.config_dir, &rig.config);
++        layout.node = rig.layout.node;
+         let sup = Supervisor::new(
+             rig.config.clone(),
+             layout,
+diff --git a/crates/aq-worker/src/backoff.rs b/crates/aq-worker/src/backoff.rs
+index aa9a613..c86f7f2 100644
+--- a/crates/aq-worker/src/backoff.rs
++++ b/crates/aq-worker/src/backoff.rs
+@@ -1,26 +1,2 @@
+-//! Retry delays with full jitter.
+-
+-use std::time::Duration;
+-
+-use rand::Rng;
+-
+-/// `uniform(0, min(60s, 1s * 2^attempt))`. Attempt 0 means a 1 s ceiling.
+-pub fn delay(attempt: u32, rng: &mut impl Rng) -> Duration {
+-    jittered(attempt, SECOND, SECOND * 60, rng)
+-}
+-const SECOND: Duration = Duration::from_secs(1);
+-
+-/// Equal jitter: `c/2 + uniform(0, c/2)` with `c = min(cap, base * 2^attempt)`, so a wait is
+-/// never under half its ceiling (R5: full jitter chose 9 ms waits).
+-pub fn equal_jittered(attempt: u32, base: Duration, cap: Duration, rng: &mut impl Rng) -> Duration {
+-    let half = jittered(attempt, base / 2, cap / 2, rng);
+-    (base / 2)
+-        .saturating_mul(1u32 << attempt.min(31))
+-        .min(cap / 2)
+-        + half
+-}
+-/// `uniform(0, min(cap, base * 2^attempt))`, never overflowing.
+-pub fn jittered(attempt: u32, base: Duration, cap: Duration, rng: &mut impl Rng) -> Duration {
+-    let ceiling = base.saturating_mul(1u32 << attempt.min(31)).min(cap);
+-    Duration::from_millis(rng.gen_range(0..=ceiling.as_millis() as u64))
+-}
++//! Retry delays shared with the node service.
++pub use aq_node_service::backoff::{delay, equal_jittered, jittered};
+diff --git a/crates/aq-worker/src/bin/aq-worker/host_terminal.rs b/crates/aq-worker/src/bin/aq-worker/host_terminal.rs
+index 0e2103d..96aad5b 100644
+--- a/crates/aq-worker/src/bin/aq-worker/host_terminal.rs
++++ b/crates/aq-worker/src/bin/aq-worker/host_terminal.rs
+@@ -115,7 +115,7 @@ pub async fn run(path: &Path) -> Result<()> {
+     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+     loop {
+         tokio::select! {_=terminate.recv()=>break,_=tokio::signal::ctrl_c()=>break,_=tick.tick()=>{}}
+-        for slot in 1..=config.slots {
++        for slot in 1..=config.nodes {
+             let Ok(file) = EnrollmentFile::load(&layout.slot_enrollment(slot)) else {
+                 continue;
+             };
+diff --git a/crates/aq-worker/src/bin/aq-worker/manual.rs b/crates/aq-worker/src/bin/aq-worker/manual.rs
+index 9f081c6..51f75d6 100644
+--- a/crates/aq-worker/src/bin/aq-worker/manual.rs
++++ b/crates/aq-worker/src/bin/aq-worker/manual.rs
+@@ -436,6 +436,7 @@ pub async fn run(
+     mut shutdown: watch::Receiver<bool>,
+     paused: BTreeMap<Uuid, watch::Sender<bool>>,
+     native_active: BTreeMap<Uuid, Arc<AtomicUsize>>,
++    sessions: BTreeMap<Uuid, Arc<aq_node_service::session::NodeSession>>,
+ ) -> Result<()> {
+     let Some(manual) = config.manual.as_ref() else {
+         return Ok(());
+@@ -450,13 +451,13 @@ pub async fn run(
+         bail!("manual sessions require the installed Claude sandbox")
+     };
+     let exe = manual.podman_executable.clone();
+-    let max_slots = manual.max_slots;
++    let legacy_max_slots = manual.max_slots;
+     let providers = provider::available(&config);
+     let root = config.state_root.join("manual-agents");
+     std::fs::create_dir_all(&root)?;
+     let mut nodes = Vec::new();
+     let mut recorders = Vec::new();
+-    for slot in 1..=config.slots {
++    for slot in layout.enrolled_nodes() {
+         let enrollment = EnrollmentFile::load(&layout.slot_enrollment(slot))?;
+         let mut agents = BTreeMap::new();
+         for entry in std::fs::read_dir(&root)? {
+@@ -467,7 +468,8 @@ pub async fn run(
+             }
+             if let Ok(a) = serde_json::from_slice::<Agent>(&std::fs::read(path)?)
+                 && a.node_id == enrollment.node_id
+-                && !matches!(a.status.as_str(), "stopped" | "failed")
++                && a.status != "stopped"
++                && (a.status != "failed" || a.sandbox.is_some())
+             {
+                 agents.insert(a.id, a);
+             }
+@@ -490,6 +492,14 @@ pub async fn run(
+     }
+     while !*shutdown.borrow() {
+         for node in &mut nodes {
++            let session = sessions
++                .get(&node.id)
++                .context("manual node session absent")?;
++            let max_slots = if session.aware() {
++                session.slots().clamp(1, 8)
++            } else {
++                legacy_max_slots
++            };
+             let mut pending = false;
+             let active = native_active
+                 .get(&node.id)
+@@ -502,7 +512,7 @@ pub async fn run(
+                 .values()
+                 .map(|a| a.report(node.snapshots.get(&a.id).cloned()))
+                 .collect::<Vec<_>>();
+-            let request = json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":active.load(Ordering::SeqCst)>0,"reports":reports});
++            let request = json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":session.retired() || if session.aware() { session.full() } else { active.load(Ordering::SeqCst)>0 },"reports":reports});
+             let response = match node.link.manual_poll(&request).await {
+                 Ok(v) => v,
+                 Err(_) => {
+@@ -607,21 +617,33 @@ pub async fn run(
+                             continue;
+                         }
+                     }
++                    session.release_manual(id);
+                     a.status = "stopped".into();
+                     a.stage = "Stopped; workspace retained".into();
+                     save(&root, a)?;
+                     continue;
+                 }
+                 if a.sandbox.is_none() {
+-                    if active.load(Ordering::SeqCst) > 0 {
++                    if session.retired() || session.slots() == 0 {
++                        continue;
++                    }
++                    if session.aware() {
++                        if !session.try_manual(id) {
++                            pending = true;
++                            continue;
++                        }
++                    } else if active.load(Ordering::SeqCst) > 0 {
+                         continue;
+                     }
+                     if !memory_available() {
++                        session.release_manual(id);
++                        pending = true;
+                         a.stage = "Waiting for memory to become available".into();
+                         save(&root, a)?;
+                         continue;
+                     }
+                     if let Err(_error) = create(&config, &settings, node.id, a, &root).await {
++                        // Creation may have left a live sandbox: retain occupancy until a confirmed stop.
+                         recording::startup_failed(&root, a.id);
+                         a.status = "failed".into();
+                         a.stage = "Startup failed; workspace retained for diagnosis".into();
+@@ -648,13 +670,30 @@ pub async fn run(
+                         a.stage = "Reconnecting to the same terminal".into();
+                     }
+                 }
++                if a.status == "stopped" {
++                    session.release_manual(id);
++                }
+                 save(&root, a)?;
+             }
+-            pause.send_replace(pending);
++            // v1 preserves its whole-node manual pause. For slot-aware nodes only waiting
++            // manual launches ask idle queued pollers to yield their local permits.
++            let waiting = node
++                .agents
++                .values()
++                .any(|a| a.desired_running && a.sandbox.is_none() && a.status != "failed");
++            pause.send_replace(if session.aware() { waiting } else { pending });
+         }
+         tokio::select! {_=tokio::time::sleep(std::time::Duration::from_millis(500))=>{},_=shutdown.changed()=>{}}
+     }
+     for node in &mut nodes {
++        let session = sessions
++            .get(&node.id)
++            .context("manual node session absent")?;
++        let max_slots = if session.aware() {
++            session.slots().clamp(1, 8)
++        } else {
++            legacy_max_slots
++        };
+         for a in node.agents.values_mut() {
+             if let Some(sandbox) = &a.sandbox {
+                 recording::drain_before_stop(
+@@ -668,6 +707,7 @@ pub async fn run(
+                 let mut backend =
+                     DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
+                 if backend.stop(sandbox).await.is_confirmed() {
++                    session.release_manual(a.id);
+                     a.status = "stopped".into();
+                     a.stage = "Worker stopped; workspace retained".into();
+                     save(&root, a)?;
+diff --git a/crates/aq-worker/src/bin/aq-worker/manual_stream.rs b/crates/aq-worker/src/bin/aq-worker/manual_stream.rs
+index a5a9f91..670e3ef 100644
+--- a/crates/aq-worker/src/bin/aq-worker/manual_stream.rs
++++ b/crates/aq-worker/src/bin/aq-worker/manual_stream.rs
+@@ -48,7 +48,7 @@ pub async fn run(path: &Path) -> Result<()> {
+         anyhow::bail!("installed local sandbox absent")
+     };
+     let mut enrollments = BTreeMap::new();
+-    for slot in 1..=config.slots {
++    for slot in 1..=config.nodes {
+         let p = layout.slot_enrollment(slot);
+         let e = EnrollmentFile::load(&p)?;
+         enrollments.insert(e.node_id, p);
+diff --git a/crates/aq-worker/src/bin/aq-worker/service.rs b/crates/aq-worker/src/bin/aq-worker/service.rs
+index 50bee9f..f59dd5e 100644
+--- a/crates/aq-worker/src/bin/aq-worker/service.rs
++++ b/crates/aq-worker/src/bin/aq-worker/service.rs
+@@ -1,6 +1,7 @@
+ //! `aq-worker run --service-config` and `aq-worker service ...` (spec 0007 phase 1):
+ //! the glue between `aq-node-service` and the native pipeline.
+ use anyhow::{Context, Result, bail, ensure};
++use aq_node_service::session::NodeSession;
+ use aq_node_service::{
+     AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError, MachineLink,
+     RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState, SlotBackend,
+@@ -15,9 +16,9 @@ use aq_worker::{
+     config::WorkerConfig,
+     native::journal::RecoveryHold,
+     native::runner::{
+-        ClaudeDockerExecutor, ExecutorConfig, NativeConfig, RunDisposition, SalvageDisposition,
+-        claimed_attempts, destroy_claimed_sandboxes, retained_attempts, run_until_attempt,
+-        salvage_interrupted,
++        ClaudeDockerExecutor, ExecutorConfig, NativeConfig, NativeExecutor, RunDisposition,
++        SalvageDisposition, claimed_attempts, destroy_claimed_sandboxes, retained_attempts,
++        run_node_slot, run_until_attempt, salvage_interrupted,
+     },
+ };
+ use clap::{Args, Subcommand};
+@@ -31,8 +32,8 @@ use uuid::Uuid;
+ #[derive(Subcommand)]
+ #[allow(clippy::large_enum_variant)]
+ pub enum ServiceCmd {
+-    /// Enroll slot 1 with a single-use code (prompted, or the first stdin line), claim the machine
+-    /// key, mint slots 2..N, write machine.json and service.toml. With --cf-service-token the next
++    /// Enroll node 1 with a single-use code (prompted, or the first stdin line), claim the machine
++    /// key, mint nodes 2..N, write machine.json and service.toml. With --cf-service-token the next
+     /// two prompts or lines are the node Access client id and secret.
+     Enroll(ServiceEnrollArgs),
+     /// Install and start the systemd user service for an enrolled profile.
+@@ -57,6 +58,9 @@ pub enum ServiceCmd {
+     ReleaseSandbox {
+         #[arg(long)]
+         profile: String,
++        /// Enrolled node index. Without this flag, --slot keeps its historical node-index meaning.
++        #[arg(long)]
++        node: Option<u32>,
+         #[arg(long)]
+         slot: u32,
+         #[arg(long)]
+@@ -74,8 +78,9 @@ pub struct ServiceEnrollArgs {
+     profile: String,
+     #[arg(long)]
+     server: String,
+-    #[arg(long, default_value_t = 1)]
+-    slots: u32,
++    /// Enrolled nodes on this machine. Agent slots are controlled by the server.
++    #[arg(long = "nodes", alias = "slots", default_value_t = 1)]
++    nodes: u32,
+     #[arg(long)]
+     name: Option<String>,
+     #[arg(long)]
+@@ -105,11 +110,12 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
+         ServiceCmd::Status { profile } => status(&profile),
+         ServiceCmd::ReleaseSandbox {
+             profile,
++            node,
+             slot,
+             attempt_id,
+             reason,
+             force,
+-        } => release_sandbox(&profile, slot, attempt_id, &reason, force).await,
++        } => release_sandbox(&profile, node, slot, attempt_id, &reason, force).await,
+     }
+ }
+ 
+@@ -121,6 +127,7 @@ pub struct NativeSlotBackend {
+     notified: std::sync::Mutex<std::collections::HashSet<Uuid>>,
+     manual_pause: std::collections::BTreeMap<Uuid, watch::Receiver<bool>>,
+     native_active: std::collections::BTreeMap<Uuid, Arc<std::sync::atomic::AtomicUsize>>,
++    sessions: std::collections::BTreeMap<Uuid, Arc<NodeSession>>,
+ }
+ impl NativeSlotBackend {
+     pub fn new(template: PathBuf) -> Self {
+@@ -129,6 +136,7 @@ impl NativeSlotBackend {
+             notified: Default::default(),
+             manual_pause: Default::default(),
+             native_active: Default::default(),
++            sessions: Default::default(),
+         }
+     }
+     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
+@@ -239,6 +247,7 @@ fn held_if_permanent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome
+ /// (aq-git's socket, the session host root). The renderer is the template's own.
+ fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
+     let mut cfg = NativeConfig::load(template)?;
++    cfg.capacity.slots = 1;
+     cfg.state_dir = ctx.state_dir.clone();
+     cfg.git_socket = ctx.git_socket.clone();
+     cfg.git_root = ctx.state_dir.join("git");
+@@ -400,12 +409,62 @@ fn restart_reason(ctx: &SlotContext, attempt: Uuid) -> HandoffReason {
+ 
+ #[async_trait::async_trait]
+ impl SlotBackend for NativeSlotBackend {
++    async fn node_control(
++        &self,
++        ctx: SlotContext,
++        reply: &aq_protocol::ControlResponse,
++    ) -> Result<()> {
++        let session = self
++            .sessions
++            .get(&ctx.node_id)
++            .context("node session absent")?;
++        session.update(reply)?;
++        if !session.aware() {
++            return Ok(());
++        }
++        session
++            .register_once(|| async {
++                let worker = WorkerConfig::load(&ctx.enrollment)?;
++                let config = NativeConfig::load(&self.template)?;
++                ClaudeDockerExecutor::configured(&worker)?.preflight(&config)?;
++                let client = aq_worker::native::http::NativeClient::from_config(&worker)?
++                    .for_node_slot(1, session.registered_slots());
++                client
++                    .register(&aq_admission::transport::Register {
++                        schema_version: 1,
++                        operation_id: session.registration_id,
++                        identity: aq_admission::transport::WorkerIdentity {
++                            node_id: worker.node_id,
++                            boot_id: session.boot_id,
++                        },
++                        runtime: config.runtime.runtime,
++                        capabilities: config.capabilities,
++                        features: config.features,
++                    })
++                    .await?;
++                Ok(())
++            })
++            .await
++    }
++
+     async fn run_attempt(
+         &self,
+         ctx: SlotContext,
+         shutdown: watch::Receiver<bool>,
+         pause: watch::Receiver<bool>,
+     ) -> Result<AttemptOutcome> {
++        let session = self.sessions.get(&ctx.node_id).cloned();
++        let _permit = if let Some(session) = &session
++            && session.aware()
++        {
++            let Some(permit) = session.try_queued() else {
++                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
++                return Ok(AttemptOutcome::Paused);
++            };
++            Some(permit)
++        } else {
++            None
++        };
+         struct Active(Arc<std::sync::atomic::AtomicUsize>);
+         impl Drop for Active {
+             fn drop(&mut self) {
+@@ -443,15 +502,27 @@ impl SlotBackend for NativeSlotBackend {
+         let worker = WorkerConfig::load(&ctx.enrollment)?;
+         let cfg = self.native_config(&ctx)?;
+         let mut executor = ClaudeDockerExecutor::configured(&worker)?;
+-        Ok(
+-            match run_until_attempt(&worker, cfg, &mut executor, shutdown, pause).await? {
+-                RunDisposition::AttemptStopped => AttemptOutcome::AttemptStopped,
+-                RunDisposition::PollingPaused => AttemptOutcome::Paused,
+-                RunDisposition::ShutdownBeforeAdmission | RunDisposition::NoOffer => {
+-                    AttemptOutcome::ShutdownBeforeAdmission
+-                }
+-            },
+-        )
++        let disposition = if let Some(session) = session {
++            run_node_slot(
++                &worker,
++                cfg,
++                &mut executor,
++                shutdown,
++                pause,
++                session,
++                ctx.slot,
++            )
++            .await?
++        } else {
++            run_until_attempt(&worker, cfg, &mut executor, shutdown, pause).await?
++        };
++        Ok(match disposition {
++            RunDisposition::AttemptStopped => AttemptOutcome::AttemptStopped,
++            RunDisposition::PollingPaused => AttemptOutcome::Paused,
++            RunDisposition::ShutdownBeforeAdmission | RunDisposition::NoOffer => {
++                AttemptOutcome::ShutdownBeforeAdmission
++            }
++        })
+     }
+     async fn recover(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
+         held_if_permanent(Box::pin(self.recover_attempts(ctx)).await)
+@@ -546,8 +617,8 @@ async fn enroll_in(
+             .context("pass --machine-key: the host name does not make a valid machine key")?,
+     };
+     ensure!(
+-        (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(&args.slots),
+-        "slots must be 1..={}",
++        (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(&args.nodes),
++        "nodes must be 1..={}",
+         aq_protocol::MAX_MACHINE_SLOTS
+     );
+     aq_node_service::checked_origin(&args.server)?;
+@@ -568,7 +639,7 @@ async fn enroll_in(
+         schema_version: 1,
+         profile: args.profile.clone(),
+         machine_key: machine_key.clone(),
+-        slots: args.slots,
++        nodes: args.nodes,
+         native_template: native.clone(),
+         state_root: layout.state_root.clone(),
+         runtime_root: None,
+@@ -631,7 +702,7 @@ async fn enroll_in(
+     };
+     // Claim the machine key and mint the siblings, always, even with one slot.
+     let minted = ServerLink::from_enrollment(&first)?
+-        .slots(&SlotsRequest { schema_version: 1, machine_key: machine_key.clone(), slots: args.slots })
++        .slots(&SlotsRequest { schema_version: 1, machine_key: machine_key.clone(), slots: args.nodes })
+         .await
+         .map_err(|e| match e.downcast_ref::<LinkError>() {
+             Some(l) if l.status == 409 => anyhow::anyhow!("machine key {machine_key} is in use by another machine; revoke it from the Swarm page or pass --machine-key (rerun this command: the code is not needed again)"),
+@@ -640,7 +711,7 @@ async fn enroll_in(
+             _ => e.context("the machine key claim failed; rerun this command to resume it (the code is not needed again)"),
+         })?;
+     let mut files = vec![first.clone()];
+-    for slot in 2..=args.slots {
++    for slot in 2..=args.nodes {
+         let entry = minted
+             .slots
+             .iter()
+@@ -669,7 +740,7 @@ async fn enroll_in(
+     for (slot, file) in (1..).zip(&files) {
+         file.save(&staged(&layout.slot_enrollment(slot)))?;
+     }
+-    for slot in 1..=args.slots {
++    for slot in 1..=args.nodes {
+         let path = layout.slot_enrollment(slot);
+         std::fs::rename(staged(&path), &path)
+             .with_context(|| format!("install {}", path.display()))?;
+@@ -682,7 +753,7 @@ async fn enroll_in(
+     config.save(&layout.service_toml())?;
+     std::fs::remove_file(&pending).context("remove the pending enrollment")?;
+     println!(
+-        "machine {machine_key}: slots {}",
++        "machine {machine_key}: nodes {}",
+         files
+             .iter()
+             .map(|f| f.node_id.to_string())
+@@ -774,9 +845,23 @@ fn status(profile: &str) -> Result<()> {
+     };
+     println!("aq-node@{profile} ({}): {state}", manager.kind());
+     if let Ok((layout, config)) = loaded(profile) {
+-        println!("machine {}: {} slot(s)", config.machine_key, config.slots);
+-        for slot in 1..=config.slots {
+-            println!("{}", slot_line(&layout, slot));
++        println!("machine {}: {} node(s)", config.machine_key, config.nodes);
++        for node in layout.enrolled_nodes() {
++            let view = layout.for_node(node);
++            let id = EnrollmentFile::load(&view.slot_enrollment(1))
++                .map(|e| e.node_id.to_string())
++                .unwrap_or_else(|_| "unenrolled".into());
++            println!(
++                "node {node}: {id}{}",
++                if node > config.nodes {
++                    " (retiring)"
++                } else {
++                    ""
++                }
++            );
++            for slot in view.existing_slots() {
++                println!("  {}", slot_line(&view, slot));
++            }
+         }
+     }
+     Ok(())
+@@ -807,17 +892,24 @@ fn held_for_salvage(
+ }
+ async fn release_sandbox(
+     profile: &str,
++    node_index: Option<u32>,
+     slot: u32,
+     attempt: Uuid,
+     reason: &str,
+     force: bool,
+ ) -> Result<()> {
+-    let (layout, config) = loaded(profile)?;
++    let (machine, config) = loaded(profile)?;
++    let (node_index, slot) = node_index.map_or((slot, 1), |n| (n, slot));
++    ensure!(
++        machine.enrolled_nodes().contains(&node_index),
++        "node {node_index} has no enrollment"
++    );
+     ensure!(
+-        (1..=config.slots).contains(&slot),
+-        "profile {profile} has slots 1..={}",
+-        config.slots
++        (1..=aq_protocol::MAX_NODE_SLOTS).contains(&slot),
++        "invalid agent slot"
+     );
++    // Retired nodes remain addressable: their old attempts still belong to their identity.
++    let layout = machine.for_node(node_index);
+     let node = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
+     // Only the executor settings matter here; the slot's state directory stands in for the
+     // attempt's own (which may be archived).
+@@ -922,27 +1014,65 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
+                 ))
+             },
+         );
+-    tracing::info!(profile = %config.profile, machine = %config.machine_key, slots = config.slots,
++    tracing::info!(profile = %config.profile, machine = %config.machine_key, nodes = config.nodes,
+         runtime = %layout.runtime_root.display(), "worker service starting");
+-    // Each slot's handoff notices go out under that slot's own credential (D4).
+-    let control = Arc::new(MachineLink::new(link.clone(), &layout, config.slots));
+     let mut manual_pause = std::collections::BTreeMap::new();
+     let mut manual_pause_tx = std::collections::BTreeMap::new();
+     let mut native_active = std::collections::BTreeMap::new();
+-    for slot in 1..=config.slots {
+-        let id = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
++    let mut sessions = std::collections::BTreeMap::new();
++    let mut node_views = Vec::new();
++    let mut node_indices = layout.enrolled_nodes();
++    for node in 1..=config.nodes {
++        if !node_indices.contains(&node) {
++            node_indices.push(node);
++        }
++    }
++    for node in node_indices {
++        let view = layout.for_node(node);
++        let enrollment = EnrollmentFile::load(&view.slot_enrollment(1))?;
++        let id = enrollment.node_id;
++        ensure!(
++            !sessions.contains_key(&id),
++            "two machine node entries share one node identity"
++        );
+         let (tx, rx) = watch::channel(false);
+         manual_pause.insert(id, rx);
+         manual_pause_tx.insert(id, tx);
+         native_active.insert(id, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
++        let session = Arc::new(NodeSession::pending());
++        if node > config.nodes {
++            session.retire();
++        }
++        sessions.insert(id, session);
++        node_views.push((
++            node,
++            view,
++            Arc::new(ServerLink::from_enrollment(&enrollment)?),
++        ));
++    }
++    // Restore manual occupancy synchronously, before queued loops can poll.
++    if let Ok(entries) = std::fs::read_dir(config.state_root.join("manual-agents")) {
++        for entry in entries.flatten() {
++            if let Ok(bytes) = std::fs::read(entry.path().join("state.json"))
++                && let Ok(agent) = serde_json::from_slice::<serde_json::Value>(&bytes)
++                && agent["status"] != "stopped"
++                && (agent["status"] != "failed" || !agent["sandbox"].is_null())
++                && let (Some(node), Some(id)) = (agent["node_id"].as_str(), agent["id"].as_str())
++                && let (Ok(node), Ok(id)) = (node.parse::<Uuid>(), id.parse::<Uuid>())
++                && let Some(session) = sessions.get(&node)
++            {
++                session.restore_manual(id);
++            }
++        }
+     }
+     let manual = if config.manual.is_some() {
+         Some(tokio::spawn(super::manual::run(
+             config.clone(),
+-            Layout::for_service(config_dir, &config),
++            layout.clone(),
+             rx.clone(),
+             manual_pause_tx,
+             native_active.clone(),
++            sessions.clone(),
+         )))
+     } else {
+         None
+@@ -950,11 +1080,62 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
+     let mut native_backend = NativeSlotBackend::new(config.native_template.clone());
+     native_backend.manual_pause = manual_pause;
+     native_backend.native_active = native_active;
++    native_backend.sessions = sessions;
+     let backend = Arc::new(native_backend);
+     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
+-    let result = Supervisor::new(config, layout, backend, control, git)
+-        .run(rx)
+-        .await;
++    let mut supervisors = tokio::task::JoinSet::new();
++    for (node, view, node_link) in node_views {
++        let control = Arc::new(MachineLink::new(node_link, &view, 1));
++        let (node_stop, node_rx) = watch::channel(false);
++        let mut machine_stop = rx.clone();
++        let forward = node_stop.clone();
++        let forwarding = tokio::spawn(async move {
++            let _ = machine_stop.wait_for(|v| *v).await;
++            forward.send_replace(true);
++        });
++        let worker = WorkerConfig::load(&view.slot_enrollment(1))?;
++        let supervisor_rx = node_rx.clone();
++        let heartbeat = tokio::spawn(async move {
++            let client = Client::from_config(&worker);
++            let mut stop = node_rx.clone();
++            let result: Result<()> = async {
++                let client = client?;
++                aq_worker::client::run_loop(&client, async move {
++                    let _ = stop.wait_for(|v| *v).await;
++                })
++                .await?;
++                Ok(())
++            }
++            .await;
++            if result.is_err() {
++                node_stop.send_replace(true);
++            }
++            result
++        });
++        let sup = Supervisor::new(config.clone(), view, backend.clone(), control, git.clone())
++            .retiring(node > config.nodes);
++        // Each node is isolated; a refused sibling never stops this supervisor.
++        supervisors.spawn(async move {
++            // heartbeat sends stop on fatal refusal; machine stop is forwarded above.
++            let result = sup.run(supervisor_rx).await;
++            forwarding.abort();
++            heartbeat.abort();
++            result
++        });
++    }
++    let mut result = Ok(());
++    while let Some(outcome) = supervisors.join_next().await {
++        match outcome {
++            Ok(Ok(())) => {}
++            Ok(Err(e)) => {
++                tracing::error!("node stopped: {e:#}");
++                result = Err(e);
++            }
++            Err(e) => {
++                result = Err(e.into());
++            }
++        }
++    }
+     if let Some(manual) = manual {
+         match manual.await {
+             Ok(Ok(())) => {}
+@@ -1079,6 +1260,7 @@ mod tests {
+         std::fs::write(dir.path().join("native.json"), b"{}").unwrap();
+         std::fs::write(dir.path().join("aq-git"), b"").unwrap();
+         let layout = Layout {
++            node: None,
+             config_dir: dir.path().join("cfg"),
+             state_root: dir.path().join("state"),
+             runtime_root: dir.path().join("run/local"),
+@@ -1091,7 +1273,7 @@ mod tests {
+             ServiceEnrollArgs {
+                 profile: "local".into(),
+                 server: server.into(),
+-                slots: 2,
++                nodes: 2,
+                 name: Some("Desk".into()),
+                 machine_key: Some("desk".into()),
+                 cf_service_token: false,
+@@ -1338,6 +1520,7 @@ mod tests {
+         config.save(&p.layout.service_toml()).unwrap();
+         std::fs::create_dir_all(custom.join("slots/1/current")).unwrap();
+         let defaults = Layout {
++            node: None,
+             config_dir: p.layout.config_dir.clone(),
+             state_root: p.dir.path().join("default-state"),
+             runtime_root: p.dir.path().join("default-run"),
+@@ -1799,6 +1982,7 @@ mod tests {
+ 
+         let dir = tempfile::tempdir().unwrap();
+         let layout = Layout {
++            node: None,
+             config_dir: dir.path().join("config"),
+             state_root: dir.path().join("state"),
+             runtime_root: dir.path().join("run"),
+@@ -1848,10 +2032,11 @@ mod tests {
+         let node = Uuid::from_u128(1);
+         let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
+         let (lost, other) = (Uuid::new_v4(), Uuid::new_v4());
++        let shared_boot = Uuid::new_v4();
+         for attempt_id in [lost, other] {
+             let owner = Ownership {
+                 node_id: node,
+-                boot_id: Uuid::new_v4(),
++                boot_id: shared_boot,
+                 attempt_id,
+             };
+             let request = CreateRequest::new(owner, template.clone(), 1 << 40, vec![]);
+diff --git a/crates/aq-worker/src/native/http.rs b/crates/aq-worker/src/native/http.rs
+index 3d44c88..017b117 100644
+--- a/crates/aq-worker/src/native/http.rs
++++ b/crates/aq-worker/src/native/http.rs
+@@ -12,7 +12,7 @@ use aq_admission::{
+     },
+ };
+ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+-use reqwest::{Response, StatusCode, header};
++use reqwest::{Response, header};
+ use serde::{Serialize, de::DeserializeOwned};
+ use std::{sync::Arc, time::Duration};
+ use tokio::sync::Semaphore;
+@@ -45,94 +45,21 @@ pub struct NativeClient {
+     phase_terminal_safety_slots: Arc<Semaphore>,
+     /// Boot-clock deadline before which fetch retries must end (`fetch_until`).
+     fetch_deadline_ns: u64,
++    node_slot: Option<(u32, u32)>,
+ }
+-/// A refused native request: its status and the `Retry-After` seconds it carried.
+-#[derive(Debug)]
+-pub struct HttpStatus(pub StatusCode, pub Option<Duration>);
+-impl std::fmt::Display for HttpStatus {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        write!(f, "native endpoint returned {}", self.0)
+-    }
+-}
+-impl std::error::Error for HttpStatus {}
+-/// A send that failed in transport (connect, timeout, reset): its disposition is unknown.
+-#[derive(Debug)]
+-pub struct TransportFailed(pub &'static str);
+-impl std::fmt::Display for TransportFailed {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        f.write_str(self.0)
+-    }
+-}
+-impl std::error::Error for TransportFailed {}
+-/// Logs a refused response (its body cut to 400 characters) and returns its `HttpStatus`.
+-pub(crate) async fn refused(response: Response) -> anyhow::Error {
+-    let status = response.status();
+-    let path = response.url().path().to_owned();
+-    let retry_after = (response.headers().get(header::RETRY_AFTER))
+-        .and_then(|v| v.to_str().ok()?.trim().parse().ok())
+-        .map(Duration::from_secs);
+-    let body = response.text().await.unwrap_or_default();
+-    let body: String = body.chars().take(400).collect();
+-    tracing::warn!(%path, %status, %body, "native endpoint refused");
+-    let gone = status == StatusCode::CONFLICT && body.contains("execution cancelled"); // released: 410, never retried
+-    HttpStatus([status, StatusCode::GONE][gone as usize], retry_after).into()
+-}
+-/// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
+-/// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.
+-pub const FETCH_TRIES: u32 = 5;
+-pub const FETCH_SPAN: Duration = Duration::from_secs(10);
+-pub const FETCH_BACKOFF: (Duration, Duration) =
+-    (Duration::from_millis(500), Duration::from_secs(8));
+-/// The wait before retry `attempt` (0-based) of a read-only fetch that failed with `e`, or None
+-/// when `e` is final: only 502/503/504, 408, 429 and transport failures are transient. A
+-/// `Retry-After` longer than the backoff is waited instead; one beyond the cap ends the retries.
+-pub fn fetch_retry_wait(e: &anyhow::Error, attempt: u32) -> Option<Duration> {
+-    let (base, cap) = FETCH_BACKOFF;
+-    let after = match e.downcast_ref::<HttpStatus>() {
+-        Some(HttpStatus(s, after)) if matches!(s.as_u16(), 408 | 429 | 502 | 503 | 504) => *after,
+-        Some(_) => return None,
+-        None => {
+-            e.downcast_ref::<TransportFailed>()?;
+-            None
+-        }
+-    };
+-    let backoff = crate::backoff::equal_jittered(attempt, base, cap, &mut rand::thread_rng());
+-    after.map_or(Some(backoff), |d| (d <= cap).then_some(d.max(backoff)))
+-}
+-/// Retries an idempotent read while it fails transiently, until it has had `FETCH_TRIES` tries
+-/// and `FETCH_SPAN` has passed, and only while the next wait ends before `deadline_ns` (R1: one
+-/// `503 overloaded` failed a whole attempt; R5: five fast tries did not outlast a restart).
+-pub(crate) async fn fetch_retried<T, F>(deadline_ns: u64, mut call: impl FnMut() -> F) -> Result<T>
++pub(crate) use aq_node_service::native_transport::refused;
++pub use aq_node_service::native_transport::{
++    FETCH_BACKOFF, FETCH_SPAN, FETCH_TRIES, HttpStatus, TransportFailed, fetch_retry_wait,
++};
++pub async fn fetch_retried<T, F>(deadline_ns: u64, call: impl FnMut() -> F) -> Result<T>
+ where
+     F: Future<Output = Result<T>>,
+ {
+-    let (mut attempt, started) = (0, tokio::time::Instant::now());
+-    loop {
+-        let e = match call().await {
+-            Ok(value) => return Ok(value),
+-            Err(e) => e,
+-        };
+-        let ends = |w: &Duration| boot_ns().is_ok_and(|n| n + (w.as_nanos() as u64) < deadline_ns);
+-        let more = attempt + 1 < FETCH_TRIES || started.elapsed() < FETCH_SPAN;
+-        let wait = fetch_retry_wait(&e, attempt).filter(|w| more && ends(w));
+-        let Some(wait) = wait else {
+-            (attempt > 0).then(|| tracing::warn!(tries = attempt + 1, "{e:#}; not retried again"));
+-            return Err(e);
+-        };
+-        attempt += 1;
+-        tracing::warn!(attempt, "{e:#}; retrying in {wait:?}");
+-        tokio::time::sleep(wait).await;
+-    }
++    aq_node_service::native_transport::fetch_retried(deadline_ns, call, boot_ns).await
+ }
+ 
+-/// `fetch_retried`, for the integration tests.
+ #[cfg(feature = "test-support")]
+-pub async fn fetch_retried_for_test<T, F>(deadline_ns: u64, call: impl FnMut() -> F) -> Result<T>
+-where
+-    F: Future<Output = Result<T>>,
+-{
+-    fetch_retried(deadline_ns, call).await
+-}
++pub use fetch_retried as fetch_retried_for_test;
+ /// No Debug/Serialize: private body bytes must not become logs or journal JSON.
+ pub struct PrivateMaterial {
+     pub(super) delivery: MaterialDelivery,
+@@ -197,40 +124,11 @@ pub(super) fn boot_ns() -> Result<u64> {
+     if let Some(now) = test_clock::now() {
+         return Ok(now);
+     }
+-    let mut time = libc::timespec {
+-        tv_sec: 0,
+-        tv_nsec: 0,
+-    };
+-    ensure!(
+-        unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut time) } == 0,
+-        "boot clock unavailable"
+-    );
+-    let seconds = u64::try_from(time.tv_sec)?;
+-    let nanos = u64::try_from(time.tv_nsec)?;
+-    seconds
+-        .checked_mul(1_000_000_000)
+-        .and_then(|n| n.checked_add(nanos))
+-        .ok_or_else(|| anyhow::anyhow!("boot clock overflow"))
+-}
+-pub(crate) async fn body(mut response: Response, limit: usize) -> Result<Zeroizing<Vec<u8>>> {
+-    ensure!(
+-        response.content_length().is_none_or(|n| n <= limit as u64),
+-        "native response size"
+-    );
+-    let mut bytes = Zeroizing::new(Vec::new());
+-    while let Some(chunk) = response
+-        .chunk()
+-        .await
+-        .map_err(|_| anyhow::anyhow!("native response read failed"))?
+-    {
+-        ensure!(
+-            chunk.len() <= limit.saturating_sub(bytes.len()),
+-            "native response size"
+-        );
+-        bytes.extend_from_slice(&chunk);
+-    }
+-    Ok(bytes)
++    aq_node_service::native_transport::boot_ns()
+ }
++
++pub(crate) use aq_node_service::native_transport::body;
++
+ impl NativeClient {
+     pub fn from_config(config: &WorkerConfig) -> Result<Self> {
+         let url = reqwest::Url::parse(&config.server_url)
+@@ -284,10 +182,30 @@ impl NativeClient {
+             phase_terminal_safety: client()?,
+             phase_terminal_safety_slots: Arc::new(Semaphore::new(1)),
+             fetch_deadline_ns: u64::MAX,
++            node_slot: None,
+         })
+     }
+     /// This client, on the same lanes, with fetch retries that end before `deadline_ns`: the
+     /// boot-clock preparation or retrieval deadline of the inputs it reads.
++    pub fn for_node_slot(mut self, slot: u32, registered_slots: u32) -> Self {
++        self.node_slot = Some((slot, registered_slots));
++        self
++    }
++    fn slot_headers(
++        &self,
++        request: reqwest::RequestBuilder,
++        path: &str,
++    ) -> reqwest::RequestBuilder {
++        match (self.node_slot, path) {
++            (Some((slot, _)), "poll") => {
++                request.header(aq_admission::node_slots::SLOT_HEADER, slot)
++            }
++            (Some((_, slots)), "register") => {
++                request.header(aq_admission::node_slots::SLOTS_HEADER, slots)
++            }
++            _ => request,
++        }
++    }
+     pub fn fetch_until(&self, deadline_ns: u64) -> Self {
+         let mut client = self.clone();
+         client.fetch_deadline_ns = deadline_ns;
+@@ -309,14 +227,15 @@ impl NativeClient {
+     ) -> Result<Response> {
+         let bytes = serde_json::to_vec(request)?;
+         ensure!(bytes.len() <= limit, "native request size");
+-        let response = client
++        let request = client
+             .post(format!("{}/v1/worker/profiled/{path}", self.base))
+             .header(header::AUTHORIZATION, self.credential.clone())
+             .header(header::CONTENT_TYPE, "application/json")
+-            .body(bytes)
+-            .send()
+-            .await
+-            .map_err(|_| TransportFailed("native request transport failed; disposition unknown"))?;
++            .body(bytes);
++        let response =
++            self.slot_headers(request, path).send().await.map_err(|_| {
++                TransportFailed("native request transport failed; disposition unknown")
++            })?;
+         if !response.status().is_success() {
+             return Err(refused(response).await);
+         }
+@@ -482,3 +401,46 @@ impl NativeClient {
+ 
+ #[cfg(test)]
+ mod refresh_terminal_tests;
++
++#[cfg(test)]
++mod node_slot_tests {
++    use super::*;
++    #[test]
++    fn headers_are_per_slot_only_on_poll_and_registration_and_never_on_legacy() {
++        let config = WorkerConfig {
++            server_url: "https://aq.example".into(),
++            node_id: Uuid::new_v4(),
++            credential: "synthetic".into(),
++            cf_client_id: None,
++            cf_client_secret: None,
++        };
++        let legacy = NativeClient::from_config(&config).unwrap();
++        for slot in [1, 2, 1024] {
++            let node = legacy.clone().for_node_slot(slot, 3);
++            for path in ["poll", "register", "started", "stopped"] {
++                let request = node
++                    .slot_headers(node.control.post("https://aq.example"), path)
++                    .build()
++                    .unwrap();
++                let expected = match path {
++                    "poll" => Some(("aq-node-slot", slot)),
++                    "register" => Some(("aq-node-slots", 3)),
++                    _ => None,
++                };
++                if let Some((name, value)) = expected {
++                    assert_eq!(request.headers()[name], value.to_string());
++                } else {
++                    assert!(request.headers().is_empty());
++                }
++                assert!(
++                    legacy
++                        .slot_headers(legacy.control.post("https://aq.example"), path)
++                        .build()
++                        .unwrap()
++                        .headers()
++                        .is_empty()
++                );
++            }
++        }
++    }
++}
+diff --git a/crates/aq-worker/src/native/http/control.rs b/crates/aq-worker/src/native/http/control.rs
+index f86244b..c2e4459 100644
+--- a/crates/aq-worker/src/native/http/control.rs
++++ b/crates/aq-worker/src/native/http/control.rs
+@@ -134,15 +134,16 @@ impl NativeClient {
+         ensure!(bytes.len() <= 65_536, "native control request size");
+         let nonce = Uuid::new_v4();
+         let sent_ns = boot_ns()?;
+-        let response = client
++        let request = client
+             .post(format!("{}/v1/worker/profiled/{path}", self.base))
+             .header(header::AUTHORIZATION, self.credential.clone())
+             .header(header::CONTENT_TYPE, "application/json")
+             .header("aq-delivery-nonce", nonce.to_string())
+-            .body(bytes)
+-            .send()
+-            .await
+-            .map_err(|_| anyhow::anyhow!("native control transport failed; disposition unknown"))?;
++            .body(bytes);
++        let response =
++            self.slot_headers(request, path).send().await.map_err(|_| {
++                anyhow::anyhow!("native control transport failed; disposition unknown")
++            })?;
+         if !response.status().is_success() {
+             return Err(refused(response).await);
+         }
+diff --git a/crates/aq-worker/src/native/journal.rs b/crates/aq-worker/src/native/journal.rs
+index 2f704fe..ded8e3d 100644
+--- a/crates/aq-worker/src/native/journal.rs
++++ b/crates/aq-worker/src/native/journal.rs
+@@ -435,15 +435,7 @@ impl Journal {
+             limits,
+         )
+     }
+-    #[cfg(any(test, feature = "test-support"))]
+-    pub fn create_with_identity_for_test(
+-        root: &Path,
+-        identity: WorkerIdentity,
+-        limits: Limits,
+-    ) -> Result<Self> {
+-        Self::create_identity(root, identity, limits)
+-    }
+-    fn create_identity(root: &Path, identity: WorkerIdentity, limits: Limits) -> Result<Self> {
++    pub fn create_identity(root: &Path, identity: WorkerIdentity, limits: Limits) -> Result<Self> {
+         identity.validate()?;
+         limits.validate()?;
+         let kernel_boot_id = kernel_boot_id()?;
+diff --git a/crates/aq-worker/src/native/preparation.rs b/crates/aq-worker/src/native/preparation.rs
+index bfce299..13ec5f5 100644
+--- a/crates/aq-worker/src/native/preparation.rs
++++ b/crates/aq-worker/src/native/preparation.rs
+@@ -64,7 +64,7 @@ pub struct InputPipeline {
+     scoped_presence_owned: std::sync::atomic::AtomicBool,
+     /// Sequence of this node's last acknowledged inventory (0 = none yet);
+     /// the server refuses a poll that names any other sequence.
+-    inventory_sequence: std::sync::atomic::AtomicU64,
++    pub(crate) inventory: Arc<aq_node_service::session::InventoryState>,
+ }
+ impl InputPipeline {
+     /// Reserve through the original live journal and install its process-local
+@@ -108,9 +108,16 @@ impl InputPipeline {
+             launch,
+             results: result::Registry::default(),
+             scoped_presence_owned: std::sync::atomic::AtomicBool::new(false),
+-            inventory_sequence: std::sync::atomic::AtomicU64::new(0),
++            inventory: Arc::default(),
+         }
+     }
++    pub(crate) fn with_inventory(
++        mut self,
++        inventory: Arc<aq_node_service::session::InventoryState>,
++    ) -> Self {
++        self.inventory = inventory;
++        self
++    }
+     async fn storage<T: Send + 'static>(
+         &self,
+         operation: impl FnOnce(&mut Owned) -> Result<T> + Send + 'static,
+@@ -156,12 +163,15 @@ impl InputPipeline {
+     /// cancellations first. Errors mean "unknown", never "not cancelled".
+     /// Records the node's acknowledged inventory sequence for later polls.
+     pub fn record_inventory_sequence(&self, sequence: u64) {
+-        self.inventory_sequence
++        self.inventory
++            .acknowledged
+             .store(sequence, std::sync::atomic::Ordering::SeqCst);
+     }
+     pub async fn poll_cancellation(&self, id: Uuid) -> Result<Option<Uuid>> {
++        let _inventory = self.inventory.gate.lock().await;
+         let inventory_sequence = self
+-            .inventory_sequence
++            .inventory
++            .acknowledged
+             .load(std::sync::atomic::Ordering::SeqCst);
+         anyhow::ensure!(
+             inventory_sequence > 0,
+diff --git a/crates/aq-worker/src/native/preparation/granted/presence.rs b/crates/aq-worker/src/native/preparation/granted/presence.rs
+index 08b61c5..e8f5b15 100644
+--- a/crates/aq-worker/src/native/preparation/granted/presence.rs
++++ b/crates/aq-worker/src/native/preparation/granted/presence.rs
+@@ -423,11 +423,7 @@ impl ScopedPresenceProducer {
+                 "unresolved inventory operation retained"
+             );
+         }
+-        let sequence = state
+-            .inventory_sequence
+-            .checked_add(1)
+-            .filter(|s| *s <= i64::MAX as u64)
+-            .context("inventory highwater exhausted")?;
++        let sequence = self.pipeline.inventory.next(state.inventory_sequence)?;
+         let request = self.inventory_request(Uuid::new_v4(), sequence, ttl_ms)?;
+         request.validate()?;
+         let operation = InventoryOperation {
+diff --git a/crates/aq-worker/src/native/preparation/granted/reservation_tests.rs b/crates/aq-worker/src/native/preparation/granted/reservation_tests.rs
+index c438575..5fbc72e 100644
+--- a/crates/aq-worker/src/native/preparation/granted/reservation_tests.rs
++++ b/crates/aq-worker/src/native/preparation/granted/reservation_tests.rs
+@@ -39,8 +39,7 @@ fn setup() -> (
+     let old: aq_admission::transport::WorkerIdentity =
+         serde_json::from_value(fixture["requests"]["accept"]["identity"].clone()).unwrap();
+     let journal =
+-        Journal::create_with_identity_for_test(&dir.path().join("journal"), old.clone(), limits())
+-            .unwrap();
++        Journal::create_identity(&dir.path().join("journal"), old.clone(), limits()).unwrap();
+     let identity = journal.state().identity.clone();
+     let offer = serde_json::from_value(fixture["native_offer"].clone()).unwrap();
+     let path = dir.path().join("materials");
+diff --git a/crates/aq-worker/src/native/runner.rs b/crates/aq-worker/src/native/runner.rs
+index 48bac2c..695aa66 100644
+--- a/crates/aq-worker/src/native/runner.rs
++++ b/crates/aq-worker/src/native/runner.rs
+@@ -38,7 +38,7 @@ use aq_admission::{
+ pub use config::{ConfiguredPreparation, NativeConfig};
+ use std::{
+     future::Future,
+-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
++    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+     pin::Pin,
+     sync::Arc,
+ };
+@@ -93,7 +93,7 @@ pub async fn run_once<E: NativeExecutor>(
+     executor: &mut E,
+     shutdown: watch::Receiver<bool>,
+ ) -> Result<RunDisposition> {
+-    run_admitted(worker, config, executor, shutdown, None).await
++    run_admitted(worker, config, executor, shutdown, None, None).await
+ }
+ /// Poll until offer/pause/shutdown, renewing acknowledged inventory near expiry.
+ pub async fn run_until_attempt<E: NativeExecutor>(
+@@ -103,16 +103,39 @@ pub async fn run_until_attempt<E: NativeExecutor>(
+     shutdown: watch::Receiver<bool>,
+     pause: watch::Receiver<bool>,
+ ) -> Result<RunDisposition> {
+-    run_admitted(worker, config, executor, shutdown, Some(pause)).await
++    run_admitted(worker, config, executor, shutdown, Some(pause), None).await
+ }
+-async fn run_admitted<E: NativeExecutor>(
++/// A slot in a node boot already registered by the service, independently of recovery.
++pub async fn run_node_slot<E: NativeExecutor>(
+     worker: &WorkerConfig,
+     config: NativeConfig,
+     executor: &mut E,
+     shutdown: watch::Receiver<bool>,
++    pause: watch::Receiver<bool>,
++    node: Arc<aq_node_service::session::NodeSession>,
++    slot: u32,
++) -> Result<RunDisposition> {
++    run_admitted(
++        worker,
++        config,
++        executor,
++        shutdown,
++        Some(pause),
++        Some((node, slot)),
++    )
++    .await
++}
++async fn run_admitted<E: NativeExecutor>(
++    worker: &WorkerConfig,
++    mut config: NativeConfig,
++    executor: &mut E,
++    shutdown: watch::Receiver<bool>,
+     pause: Option<watch::Receiver<bool>>,
++    node: Option<(Arc<aq_node_service::session::NodeSession>, u32)>,
+ ) -> Result<RunDisposition> {
+     config.validate()?;
++    config.capacity.slots = 1;
++    let node = node.filter(|(n, _)| n.aware());
+     // No network or state-directory publication precedes this implementation gate.
+     executor.preflight(&config)?;
+     if *shutdown.borrow() {
+@@ -125,37 +148,62 @@ async fn run_admitted<E: NativeExecutor>(
+         disk <= config.capacity.disk_bytes,
+         "native Git reservation exceeds configured capacity"
+     );
+-    let client = NativeClient::from_config(worker)?;
++    let mut client = NativeClient::from_config(worker)?;
++    if let Some((node, slot)) = &node {
++        client = client.for_node_slot(*slot, node.registered_slots());
++    }
+     let held = std::fs::OpenOptions::new()
+         .read(true)
+         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+         .open(&config.state_dir)?;
+     fs2::FileExt::try_lock_exclusive(&held).context("native state scope already owned")?;
+     check_root(&config, &held)?;
+-    let journal = open_journal(&config, worker.node_id)?;
++    let journal = if let Some((node, _)) = &node {
++        Journal::create_identity(
++            &config.state_dir.join("journal"),
++            aq_admission::transport::WorkerIdentity {
++                node_id: worker.node_id,
++                boot_id: node.boot_id,
++            },
++            config.capacity.clone(),
++        )?
++    } else {
++        open_journal(&config, worker.node_id)?
++    };
+     ensure!(
+         !journal.recovery_required(),
+         "native history cannot admit new work; use reconcile-native to report retained outcome"
+     );
+-    let (heartbeat, shutdown) = heartbeat::Heartbeat::start(worker, shutdown).await?;
++    let (heartbeat, shutdown) = if node.is_some() {
++        (None, shutdown)
++    } else {
++        let (heartbeat, shutdown) = heartbeat::Heartbeat::start(worker, shutdown).await?;
++        (Some(heartbeat), shutdown)
++    };
+     let identity = journal.state().identity.clone();
+     std::fs::DirBuilder::new()
+         .mode(0o700)
+         .create(config.state_dir.join("materials"))?;
+     held.sync_all()?;
+     let materials = MaterialStore::open(&config.state_dir.join("materials"), identity.clone(), 32)?;
+-    let pipeline = Arc::new(InputPipeline::new(journal, materials, client.clone()));
++    let mut pipeline = InputPipeline::new(journal, materials, client.clone());
++    if let Some((node, _)) = &node {
++        pipeline = pipeline.with_inventory(node.inventory.clone());
++    }
++    let pipeline = Arc::new(pipeline);
+     check_root(&config, &held)?;
+-    client
+-        .register(&Register {
+-            schema_version: 1,
+-            operation_id: Uuid::new_v4(),
+-            identity: identity.clone(),
+-            runtime: config.runtime.runtime.clone(),
+-            capabilities: config.capabilities.clone(),
+-            features: config.features.clone(),
+-        })
+-        .await?;
++    if node.is_none() {
++        client
++            .register(&Register {
++                schema_version: 1,
++                operation_id: Uuid::new_v4(),
++                identity: identity.clone(),
++                runtime: config.runtime.runtime.clone(),
++                capabilities: config.capabilities.clone(),
++                features: config.features.clone(),
++            })
++            .await?;
++    }
+     let producer = pipeline
+         .scoped_presence(profile, config.harness_qualifications.clone(), 0)
+         .await?;
+@@ -163,10 +211,18 @@ async fn run_admitted<E: NativeExecutor>(
+     // Keep the acknowledged snapshot stable while its offer is assembled.
+     let inventory_cache = tokio::sync::Mutex::new(None::<(u64, u64)>);
+     let poll_once = || async {
+-        heartbeat.check()?;
++        if let Some(h) = &heartbeat {
++            h.check()?;
++        }
++        let _inventory = pipeline.inventory.gate.lock().await;
+         let now = super::http::boot_ns()?;
+         let mut cached = inventory_cache.lock().await;
+         let sequence = if let Some((sequence, deadline)) = *cached
++            && sequence
++                == pipeline
++                    .inventory
++                    .acknowledged
++                    .load(std::sync::atomic::Ordering::SeqCst)
+             && deadline.saturating_sub(now) > 5_000_000_000
+         {
+             sequence
+@@ -254,7 +310,9 @@ async fn run_admitted<E: NativeExecutor>(
+         .await?;
+     let grant = prepare::collect(&pipeline, &producer, &config, id, &offer, deadline, git).await?;
+     check_root(&config, &held)?;
+-    heartbeat.check()?;
++    if let Some(h) = &heartbeat {
++        h.check()?;
++    }
+     let prepared_state = pipeline.snapshot().await?;
+     ensure!(
+         profile::TerminalProfile::for_execution(
+@@ -286,21 +344,13 @@ async fn run_admitted<E: NativeExecutor>(
+             .complete(state.attempts.get(&id).unwrap())?,
+         "native executor missing matching durable lifecycle acknowledgments"
+     );
+-    heartbeat.check()?;
++    if let Some(h) = &heartbeat {
++        h.check()?;
++    }
+     Ok(RunDisposition::AttemptStopped)
+ }
+ fn check_root(config: &NativeConfig, held: &std::fs::File) -> Result<()> {
+-    let a = held.metadata()?;
+-    let b = std::fs::symlink_metadata(&config.state_dir)?;
+-    ensure!(
+-        b.is_dir()
+-            && a.dev() == b.dev()
+-            && a.ino() == b.ino()
+-            && b.uid() == unsafe { libc::geteuid() }
+-            && b.mode() & 0o7777 == 0o700,
+-        "native state directory changed"
+-    );
+-    Ok(())
++    aq_node_service::session::check_state_root(&config.state_dir, held)
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/aq-worker/src/native/runner/config.rs b/crates/aq-worker/src/native/runner/config.rs
+index a1e274d..7346a29 100644
+--- a/crates/aq-worker/src/native/runner/config.rs
++++ b/crates/aq-worker/src/native/runner/config.rs
+@@ -175,11 +175,11 @@ impl NativeConfig {
+     pub fn validate(&self) -> Result<()> {
+         ensure!(
+             self.schema_version == 1
+-                && self.capacity.slots == 1
++                && (1..=aq_protocol::MAX_NODE_SLOTS).contains(&self.capacity.slots)
+                 && self.capacity.memory_bytes > 0
+                 && self.capacity.cpu_millis > 0
+                 && self.capacity.disk_bytes > 0,
+-            "native single-attempt capacity/version"
++            "native capacity/version"
+         );
+         ensure!(
+             self.state_dir.is_absolute()
+diff --git a/crates/aq-worker/src/native/runner/prepare.rs b/crates/aq-worker/src/native/runner/prepare.rs
+index 5cad080..29d2559 100644
+--- a/crates/aq-worker/src/native/runner/prepare.rs
++++ b/crates/aq-worker/src/native/runner/prepare.rs
+@@ -68,6 +68,7 @@ macro_rules! collect_profile {
+             let workspace = pipeline
+                 .$hydrate(id, preparation.clone(), spec, git)
+                 .await?;
++            let _inventory = pipeline.inventory.gate.lock().await;
+             let refreshed = inventory.begin_inventory(config.inventory_ttl_ms)?;
+             inventory.publish_inventory(&refreshed).await?;
+             pipeline.record_inventory_sequence(refreshed.request().sequence);
+diff --git a/crates/aq-worker/src/native/runner/tests.rs b/crates/aq-worker/src/native/runner/tests.rs
+index 9a9119f..b28ac9b 100644
+--- a/crates/aq-worker/src/native/runner/tests.rs
++++ b/crates/aq-worker/src/native/runner/tests.rs
+@@ -124,7 +124,7 @@ fn private_config_refuses_symlink_public_mode_and_oversize() {
+ #[test]
+ fn native_config_rejects_unsupported_capacity_and_changed_executable() {
+     let (_dir, mut c) = config();
+-    c.capacity.slots = 2;
++    c.capacity.slots = aq_protocol::MAX_NODE_SLOTS + 1;
+     assert!(c.validate().is_err());
+     c.capacity.slots = 1;
+     assert!(c.installed_adapter().is_ok());
+@@ -203,6 +203,13 @@ fn native_config_load_accepts_exact_long_profiles_and_refuses_changed_contract()
+     }
+ }
+ 
++#[test]
++fn previous_single_slot_template_and_larger_capacity_both_load() {
++    let (_dir, mut config) = config();
++    config.validate().unwrap();
++    config.capacity.slots = 3;
++    config.validate().unwrap();
++}
+ #[test]
+ fn existing_native_state_is_opened_for_validated_recovery() {
+     let (dir, c) = config();
+diff --git a/crates/aq-worker/tests/native_control.rs b/crates/aq-worker/tests/native_control.rs
+index a9e370f..7761dce 100644
+--- a/crates/aq-worker/tests/native_control.rs
++++ b/crates/aq-worker/tests/native_control.rs
+@@ -470,8 +470,7 @@ mod preparation_failure {
+         let dir = tempfile::tempdir().unwrap();
+         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+         let root = dir.path().join("journal");
+-        let mut journal =
+-            Journal::create_with_identity_for_test(&root, identity(), limits()).unwrap();
++        let mut journal = Journal::create_identity(&root, identity(), limits()).unwrap();
+         let mut offer: NativeOffer =
+             serde_json::from_value(fixture()["native_offer"].clone()).unwrap();
+         offer.offered.reservation_ttl_ms = window_ms + 1000;
+@@ -741,3 +740,108 @@ async fn preparation_outlasts_a_three_second_server_outage() {
+     );
+     p.task = revived;
+ }
++
++/// Separate journals under a shared boot keep every attempt and its replies in its own slot.
++#[cfg(feature = "test-support")]
++#[test]
++fn six_agent_journals_preserve_node_slot_and_old_boot_recovery_fences() {
++    use aq_session_protocol::{ArtifactRef, Digest, Text};
++    use aq_worker::native::journal::{Journal, RuntimeIdentity};
++    let dir = tempfile::tempdir().unwrap();
++    let base: NativeOffer = serde_json::from_value(fixture()["native_offer"].clone()).unwrap();
++    let reference = |name: &str| ArtifactRef {
++        id: Text::new(name).unwrap(),
++        version: Text::new("1").unwrap(),
++        digest: Digest::of(name.as_bytes()),
++    };
++    let mut journals = Vec::new();
++    for node in 1..=2 {
++        let identity = WorkerIdentity {
++            node_id: Uuid::from_u128(1000 + node),
++            boot_id: Uuid::from_u128(2000 + node),
++        };
++        for slot in 1..=3 {
++            let id = Uuid::from_u128(3000 + node * 10 + slot);
++            let mut offer = base.clone();
++            let mut session = offer.offered.offer.binding.session.clone();
++            if let aq_session_protocol::SessionIdentity::Remote {
++                node_id,
++                boot_id,
++                attempt_id,
++                session_id,
++                ..
++            } = &mut session
++            {
++                *node_id = identity.node_id;
++                *boot_id = identity.boot_id;
++                *attempt_id = id;
++                *session_id = id;
++            }
++            offer.offered.offer.binding.attempt_id = id;
++            offer.offered.offer.binding.session = session.clone();
++            offer.offered.offer.manifest.bindings.attempt_id = id;
++            offer.offered.offer.manifest.bindings.session = session;
++            offer.offered.offer.binding.launch_manifest_digest =
++                aq_session_protocol::canonical_digest(&offer.offered.offer.manifest).unwrap();
++            offer.offered.lifecycle_binding =
++                aq_admission::transport::lifecycle_binding(&offer.offered.offer).unwrap();
++            offer.offered.reservation_ttl_ms = 60_000;
++            let root = dir.path().join(format!("node-{node}-slot-{slot}"));
++            let mut journal =
++                Journal::create_identity(&root, identity.clone(), preparation_failure::limits())
++                    .unwrap();
++            journal
++                .reserve(
++                    offer,
++                    RuntimeIdentity {
++                        runtime: reference("synthetic.runtime"),
++                        qualification: reference("synthetic.qualification"),
++                    },
++                    boot_ns() + 50_000_000_000,
++                    1024,
++                )
++                .unwrap();
++            journals.push((root, identity.clone(), id, journal));
++        }
++    }
++    for i in 0..journals.len() {
++        let sibling_attempt = journals[(i + 1) % journals.len()].2;
++        let (_, identity, id, journal) = &mut journals[i];
++        let before = journal.state().revision;
++        assert!(
++            journal.begin_accept(sibling_attempt, vec![]).is_err(),
++            "an earlier or sibling attempt cannot mutate this slot"
++        );
++        assert_eq!(journal.state().revision, before);
++        let accepted = journal
++            .begin_accept(
++                *id,
++                request::<Accept>("accept")
++                    .acceptance
++                    .advertised_capabilities,
++            )
++            .unwrap();
++        assert_eq!(accepted.identity, *identity);
++        assert_eq!(accepted.acceptance.binding.attempt_id, *id);
++    }
++    for (root, identity, id, journal) in journals {
++        drop(journal);
++        let reopened =
++            Journal::open(&root, identity.node_id, preparation_failure::limits()).unwrap();
++        assert!(reopened.recovery_required());
++        assert_eq!(reopened.state().identity, identity);
++        assert_eq!(
++            reopened
++                .state()
++                .attempts
++                .keys()
++                .copied()
++                .collect::<Vec<_>>(),
++            vec![id]
++        );
++        assert!(
++            reopened.available().is_err(),
++            "old boot recovery cannot silently admit new work"
++        );
++    }
++}
+diff --git a/handoff/multi-agent-worker.md b/handoff/multi-agent-worker.md
+new file mode 100644
+index 0000000..249d711
+--- /dev/null
++++ b/handoff/multi-agent-worker.md
+@@ -0,0 +1,49 @@
++# Worker progress — 2026-11-17
++
++Owner correction governs: machine -> enrolled nodes -> agent slots. Never collapse nodes.
++
++Part 1: `ServiceConfig.nodes` loads the legacy `slots` key unchanged; new saves use `nodes`.
++The node view of Layout uses `slots/<node>/worker.toml` for every agent of that node.
++Agent 1 retains the exact legacy state and runtime paths. Additional agents use
++`nodes/<node>/slots/<agent>` durable state and `<runtime>/<node>-<agent>` runtime roots.
++No credentials are copied or retired. Two-node/three-agent tests assert six distinct roots,
++sockets and host directories, and independent archival. Disk discovery preserves all eight
++legacy nodes after an explicit node-count reduction.
++
++Validation: CARGO_BUILD_JOBS=8 timeout 900 cargo test -p aq-node-service --locked
++-- --test-threads=8: 62 passed, 11 failed, 1 ignored. Failures are socket creation denied
++by this execution sandbox (EPERM), including the child aq-git fixtures.
++Filtered `layout::tests`: 9 passed; `config::tests`: 11 passed.
++CARGO_BUILD_JOBS=8 timeout 900 cargo test -p aq-worker --locked --all-features --bin aq-worker
++-- --test-threads=8: compiles; 50 passed, 15 failed, 4 ignored. Socket fixtures are denied.
++Logs in the private target/part1-*.log. No tests were skipped in code to hide restrictions.
++
++Next: dynamic per-node supervisors, one native boot/registration and shared inventory,
++manual occupancy, retire nodes above the configured count, packaging and final verification.
++
++## Progress 2026-11-17 — node supervisor and native integration
++
++Implemented per-node supervisors with live control growth/shrink, recovery of every retained
++agent slot, explicit retirement of nodes above the machine count, node-specific registration
++independent of recovery, one shared boot/registration operation, one inventory sequence and
++publication gate, slot-specific poll headers, and local queued/manual permits. Legacy v1
++control fallback is cached and retains per-attempt registration and one queued slot per node.
++
++The supported aq-node-service run passes 71 tests (1 ignored; 11 socket-dependent tests
++explicitly filtered after the full run demonstrated EPERM). The new tests cover two nodes
++with three concurrent agents, live 1->3->1 capacity, held-slot isolation, six-node retirement,
++register-once retries and mixed manual/queued capacity. Native header test: 1 passed.
++Native six-journal identity/recovery/cross-slot attempt fence: 1 passed. Service tests without
++socket fixtures: 14 passed. Workspace clippy with all targets/features and -D warnings: passed.
++The original full worker lib run hit timeout 900 at the existing unrelated-fork-child test;
++separate runs are validating the remainder. Exact final evidence will be in verification.md.
++
++Sandbox limits: original Git index/ref/object metadata is outside the writable root, so
++committing on the checkout's actual branch fails with read-only index.lock. The shared
++handoff file also fails with read-only filesystem. A delivery Git repository under target/
++and bundle/patches under handoff/ preserve logical commits without changing shared metadata.
++Nothing was pushed. The actual checkout branch remains at d30c933 until those commits are
++imported by a session allowed to write its Git metadata.
++
++Remaining: finish packaging/documentation verification, full workspace test attempt under
++900-second hard rule, release build and requested scratchpad copy; report any constraints.
+-- 
+2.43.0
+

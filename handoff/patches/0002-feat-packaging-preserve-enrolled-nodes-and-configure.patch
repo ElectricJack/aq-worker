@@ -1,0 +1,499 @@
+From 84ed26324c0f847301fd734180f1af333cdf58d9 Mon Sep 17 00:00:00 2001
+From: Jack Kern <jack.w.kern@gmail.com>
+Date: Tue, 17 Nov 2026 05:58:50 -0800
+Subject: [PATCH 2/4] feat(packaging): preserve enrolled nodes and configure
+ agent capacity remotely
+
+---
+ docs/operations/install-service.md         | 30 ++++++----
+ docs/operations/multi-agent-nodes.md       | 69 +++++++++++++++++++++-
+ handoff/multi-agent-worker.md              | 17 +++++-
+ handoff/open-contract-questions.md         | 32 ++++++++++
+ packaging/service/aq-bootstrap.sh          | 20 +++----
+ packaging/service/aq-install.sh            | 12 ++--
+ packaging/service/tests/test_install.py    | 24 +++++++-
+ packaging/service/worker-install-config.py | 21 ++++---
+ 8 files changed, 183 insertions(+), 42 deletions(-)
+ create mode 100644 handoff/open-contract-questions.md
+
+diff --git a/docs/operations/install-service.md b/docs/operations/install-service.md
+index bd9aabd..150e902 100644
+--- a/docs/operations/install-service.md
++++ b/docs/operations/install-service.md
+@@ -1,7 +1,7 @@
+ # Install the aq-worker service (Linux and WSL2)
+ 
+ This installs `aq-worker` as an always-on systemd user service with one or more
+-slots, enrolled with a single-use code. It is separate from the per-profile
++nodes, each running a server-controlled count of agent slots, enrolled with a single-use code. It is separate from the per-profile
+ container worker in [install-worker.md](install-worker.md). macOS is not
+ supported yet; the script refuses it.
+ 
+@@ -43,11 +43,11 @@ override the two defaults.
+ 
+ ```sh
+ packaging/service/aq-install.sh --server https://aq.example --bundle ~/aq-bundle \
+-  --profile local --slots 4 --machine-key my-box
++  --profile local --nodes 2 --machine-key my-box
+ ```
+ 
+ Options: `--profile` (default `local`; lower-case letters, digits and `-`, at
+-most 32 characters), `--slots` (default 1, at most 8), `--name`,
++most 32 characters), `--nodes` (default 1, at most 8; `--slots` is its legacy alias), `--name`,
+ `--machine-key`, `--cf-service-token`, `--native-template`, `--repositories`,
+ `--sandbox-bundle` and `--reconfigure`.
+ 
+@@ -94,22 +94,22 @@ If the machine key claim fails after the code was redeemed (for example the key
+ is in use), run the same command again: it resumes at the claim and needs no
+ new code. If Cloudflare Access refused the stored token at the claim, resume
+ with `--reconfigure --cf-service-token` and the new Access client id and secret.
+-The slot credentials are written only once the claim succeeds, all of them
+-together. If a run stopped after the claim but before it saved the slots, the
++The node credentials are written only once the claim succeeds, all of them
++together. If a run stopped after the claim but before it saved the nodes, the
+ rerun says so: revoke the machine and enroll again with a new code.
+ 
+ ### The machine key
+ 
+ The machine key is the one name for the machine: the Swarm page shows it, and
+ start, stop, drain and revoke act on it. It is `--machine-key`, or else the
+-lower-cased host name. It must match `[a-z0-9][a-z0-9-]{0,62}`. Slot 1 claims it
+-on the server; the other slots are minted under it. The machine's label is the
++lower-cased host name. It must match `[a-z0-9][a-z0-9-]{0,62}`. Node 1 claims it
++on the server; the other nodes are minted under it. The machine's label is the
+ key too, unless `--name` gives another.
+ 
+ ### Where the service keeps its files
+ 
+ - Configuration: `~/.config/agent-q/service/PROFILE/` (`service.toml`,
+-  `machine.json`, `native.json`, one `slots/N/worker.toml` per slot).
++  `machine.json`, `native.json`, one `slots/N/worker.toml` per enrolled node).
+ - Durable state: `state_root` in `service.toml`, by default
+   `~/.local/state/agent-q/service/PROFILE/`: each slot's journal, Git state,
+   materials and archives. Today nothing deletes old archives or kept sandboxes;
+@@ -123,7 +123,8 @@ key too, unless `--name` gives another.
+   the session host's per-launch directories live under a short runtime root,
+   `$XDG_RUNTIME_DIR/aq/PROFILE/` (for example `/run/user/1000/aq/local/`), or
+   `/tmp/aq-UID/PROFILE/` when `XDG_RUNTIME_DIR` is unset. Each slot has
+-  `N/git.sock` and the host root `N/host/` there. The service creates the root
++  `K/git.sock` and `K/host/` for node K's first agent; later agents use
++  `K-N/git.sock` and `K-N/host/`. The service creates the root
+   0700 and refuses one that is a symlink, belongs to another user or is open to
+   others. These files do not survive a reboot, and need not.
+ 
+@@ -135,6 +136,11 @@ default runtime root this only happens for a long profile name (more than about
+ `runtime_root = "/absolute/short/dir"` in `service.toml`: its parent must be
+ owned by you and writable only by you.
+ 
++Agent capacity is a server Setting per node. Increasing it does not mint or enroll another
++node. Existing `service.toml` files with `slots = N` still describe N nodes; new files say
++`nodes = N`. A binary update keeps every node. See [multi-agent nodes](multi-agent-nodes.md)
++for independent recovery, shared manual/queued capacity and explicit node retirement.
++
+ ### Allowing the machine
+ 
+ There is no allow-list step. An enrolled machine is allowed automatically on
+@@ -156,7 +162,7 @@ All four are on the machine's pane on the Swarm page.
+   workspace is copied back, the work is committed and a handoff note is posted
+   on the task thread. The task gets a new attempt that starts from that saved
+   commit.
+-- **Revoke machine**: every slot's credential is revoked and the service stops
++- **Revoke machine**: every node's credential is revoked and the service stops
+   polling. Nothing can be minted under the key until a fresh enrollment.
+ 
+ Handoffs caused by Stop (`service_stop`) or by the owner taking over
+@@ -219,7 +225,7 @@ destroyed by the service, and other claimed sandboxes are still released.
+ Release a preserved one once you have looked at it:
+ 
+ ```sh
+-aq-worker service release-sandbox --profile local --slot 2 \
++aq-worker service release-sandbox --profile local --node 2 --slot 1 \
+   --attempt-id ATTEMPT --reason "inspected; work not needed"
+ ```
+ 
+@@ -368,7 +374,7 @@ queued, installed, or failed status. A failed installation can be retried with a
+ new push. An uncertain request is retried with the same operation identity.
+ 
+ A worker installed before this receiver was shipped needs the current hosted
+-install command once. It retains its enrollment, configured slots and runtime.
++install command once. It retains its enrollment, configured node count and runtime.
+ Subsequent login pushes require no terminal command or new enrollment code.
+ 
+ The receiver uses each enrolled slot's credential over the installation's pinned
+diff --git a/docs/operations/multi-agent-nodes.md b/docs/operations/multi-agent-nodes.md
+index a82fe66..f7b2695 100644
+--- a/docs/operations/multi-agent-nodes.md
++++ b/docs/operations/multi-agent-nodes.md
+@@ -34,4 +34,71 @@ Rules for the worker:
+   no longer start, renew, or fetch material or artifacts.
+ - `POST /v1/worker/manual-agents`: `max_slots` stays in the body (`1..=8`) for old servers. A
+   slot-aware server ignores it and admits manual sessions against the node's slot count.
+-- `POST /v1/worker/slots` (minting one node per slot) is for old workers only.
++- `POST /v1/worker/slots` mints additional enrolled **nodes** for a machine. Increasing a node's agent count never calls it.
++
++## Machine, nodes and agent slots
++
++A machine can run several enrolled nodes. `service.toml` calls this count `nodes` (1..=8);
++old files with `slots` still load with exactly the same meaning. `aq-worker service enroll
++--nodes N` mints node credentials, and accepts the historical `--slots` alias. An update never
++folds or renames the existing nodes. Each node polls control using its own credential and gets
++its own agent count (0..=1024). On an old server each node runs one queued agent and retains the
++legacy manual-session behavior.
++
++Each node has one boot, one successful registration, one inventory stream and one connector
++heartbeat for this service invocation. Register retries use the same boot and operation id.
++Changing the server count does not register another boot. A slot failure or refusal does not
++reset the node session. The registration count is pinned on the first registration attempt;
++the live server control count governs later admissions.
++
++The service isolates each `(node, agent slot)`:
++
++| Resource | Agent slot 1, including previous builds | Agent slots 2 and above |
++| --- | --- | --- |
++| Enrollment | `config/slots/K/worker.toml` | Same node K enrollment |
++| State, journal, material, Git root | `state/slots/K/current/` | `state/nodes/K/slots/N/current/` |
++| Held reason, archives | `state/slots/K/{held,archive}` | `state/nodes/K/slots/N/{held,archive}` |
++| Git socket and session host | `runtime/K/{git.sock,host}` | `runtime/K-N/{git.sock,host}` |
++
++A previous build's `current/host` stays in use while that attempt recovers, since its journal
++already names those paths. New agent slots have no enrollment files. The service checks socket
++path lengths before it admits a higher count. Sandbox and agent-channel scopes include the
++attempt identity; cleanup lists by node and then filters by attempt, including when sibling
++attempts share a boot.
++
++Growth starts new slot loops. Shrinkage pauses new admission on the highest slots, lets their
++running attempts finish, recovers any outstanding journal and retires the idle loops. Retained
++state and archives remain available. On restart, every discovered slot recovers independently,
++even above the new count. One held slot does not prevent the node from registering or its
++siblings from running. Superseded-boot reports keep their original identity.
++
++Queued polling and manual sandbox creation reserve from one local count, in addition to the
++server's authoritative count. Pending manual launches pause idle queued polling long enough
++to acquire a free permit; running queued attempts finish. A manual session releases its permit
++only after a confirmed stop. `[manual] max_slots` still parses for old-server compatibility;
++it is ignored for slot-aware nodes and omitted from newly written configuration.
++
++## Explicitly reducing machine node count
++
++An eight-node machine remains eight nodes after a binary-only update. To run two, the operator
++must lower `nodes` to 2 (or the old `slots` key to 2) and restart the service. Nodes 3..8 are
++discovered from their existing enrollment directories. They recover or release their own
++outstanding attempts using their own credentials, take no new work, do not register a new
++boot, and stop once recovery completes. A held recovery remains visible and retained. The
++server/operator separately marks these nodes removed. Their credentials and history are kept.
++The current binary-only remote receiver preserves node count; it does not carry a node-count
++change. The local installer/enrollment `--reconfigure --nodes N` is another explicit change.
++
++`service status` lists nodes and their retained slots. For a sandbox in node K, agent slot N,
++use `service release-sandbox --node K --slot N ...`; retired nodes remain addressable. Without
++`--node`, the historical `--slot K` command still addresses node K's first agent slot.
++
++## Server behavior required
++
++The server must implement the v2 contract, per-slot offer redelivery and attempt correlation,
++shared queued/manual admission, and terminal reports for superseded boots. The worker
++serializes inventory publication with polls, cancellation polls, and the final inventory
++refresh through phase-execution admission, so sibling publications cannot invalidate those
++requests. It does not interpret an arbitrary conflict as permission to register a new boot.
++An old server's v2 `400 bad_request` is cached as a v1 fallback for the link's lifetime;
++revocations, edge errors and transient failures never trigger that fallback.
+diff --git a/handoff/multi-agent-worker.md b/handoff/multi-agent-worker.md
+index 249d711..0ccedc9 100644
+--- a/handoff/multi-agent-worker.md
++++ b/handoff/multi-agent-worker.md
+@@ -42,8 +42,21 @@ Sandbox limits: original Git index/ref/object metadata is outside the writable r
+ committing on the checkout's actual branch fails with read-only index.lock. The shared
+ handoff file also fails with read-only filesystem. A delivery Git repository under target/
+ and bundle/patches under handoff/ preserve logical commits without changing shared metadata.
+-Nothing was pushed. The actual checkout branch remains at d30c933 until those commits are
+-imported by a session allowed to write its Git metadata.
++Nothing was pushed. The actual checkout branch stays at the upstream wire baseline until those commits are
++imported by a session allowed to write its Git metadata. That baseline is now fb9f19d, added
++independently by the vendor owner after initial reading.
+ 
+ Remaining: finish packaging/documentation verification, full workspace test attempt under
+ 900-second hard rule, release build and requested scratchpad copy; report any constraints.
++
++## Progress 2026-11-17 — packaging and operator documentation
++
++Installer and bootstrap accept --nodes (with --slots compatibility); new service files name
++nodes, and receiver helpers read either key without changing credentials. New manual sections
++omit max_slots. Receiver held-slot repair also recognizes nested node/agent state.
++Operations docs explain eight nodes remain eight after update, explicit local reduction to
++two followed by restart, and that binary-only remote updates preserve the count.
++Packaging tests: 34 passed, 30 failed, 1 skipped; all remaining failures occur at the test's
++Unix-socket fixture, EPERM. Shell syntax and Python compilation checks passed. No live service,
++container, configuration or stack endpoint was touched. See open-contract-questions.md here
++for the worker's exact contract choices and required server behavior.
+diff --git a/handoff/open-contract-questions.md b/handoff/open-contract-questions.md
+new file mode 100644
+index 0000000..13e3298
+--- /dev/null
++++ b/handoff/open-contract-questions.md
+@@ -0,0 +1,32 @@
++# Worker contract dispositions — 2026-11-17
++
++The external handoff directory is read-only in this session, so this copy records the worker's
++choices for the server implementer. No wire or vendor source was changed by this worker work.
++
++1. Inventory: the worker shares one allocation high-water and acknowledged sequence per node
++   boot. It holds a node gate across publication and offer poll, publication through final
++   phase execution, and cancellation polls. A running slot reads the shared latest sequence.
++   This avoids requiring the server to accept stale inventory for these operations.
++2. Registration: once successfully acknowledged per node invocation; retries preserve one
++   operation id, boot and initial header count. Live capacity updates never re-register. No
++   undocumented conflict triggers re-registration. A server that loses a registered boot
++   must accept replay/history consistently, or require a service restart; arbitrary conflict
++   responses are not authority to silently replace a boot.
++3. Old server: only v2 400 bad_request negotiates down, cached until restart. Each enrolled
++   node runs one queued slot without headers, preserving the old per-attempt boot/register
++   path. V1 manual max_slots remains a compatibility setting; v2 ignores it locally and the
++   server must ignore it for admission too.
++4. Machines retain all enrolled nodes. Lowering nodes explicitly and restarting creates
++   recovery-only supervisors for extra credentials. They never register a new boot or poll
++   for new work. Every report/release remains under that old node and journal identity.
++5. Count zero: registration header is at least 1 (the header forbids 0); live control count 0
++   admits no queued or new manual work. Server authority must use its current setting.
++6. Superseded boot terminal operations and per-slot offer redelivery/correlation are required
++   server behavior. They have not been validated against a running server in this sandbox.
++   The requested server spec did not exist when this implementation began.
++
++The server/vendor owner independently added baseline commit fb9f19d after initial reading.
++Our delivery commits descend from that commit; their file lists contain no protocol/vendor
++changes. The original checkout branch cannot be advanced from this session (shared Git
++metadata is read-only), so commits are preserved in target/delivery.git and the delivery
++bundle exported under handoff/.
+diff --git a/packaging/service/aq-bootstrap.sh b/packaging/service/aq-bootstrap.sh
+index 130df93..d83a54f 100644
+--- a/packaging/service/aq-bootstrap.sh
++++ b/packaging/service/aq-bootstrap.sh
+@@ -85,23 +85,23 @@ if [[ ! -d "$package" ]]; then
+ fi
+ 
+ profile=local
+-slots=1
+-explicit_slots=0
++nodes=1
++explicit_nodes=0
+ args=("$@")
+ for ((i=0; i<${#args[@]}; i++)); do
+   case "${args[i]}" in
+     --profile) profile="${args[i+1]:-}" ;;
+-    --slots) slots="${args[i+1]:-}"; explicit_slots=1 ;;
++    --nodes|--slots) nodes="${args[i+1]:-}"; explicit_nodes=1 ;;
+   esac
+ done
+-[[ "$profile" =~ ^[a-z0-9][a-z0-9-]{0,31}$ && "$slots" =~ ^[1-8]$ ]] || {
+-  echo 'Choose a valid profile and between one and eight slots.' >&2; exit 2;
++[[ "$profile" =~ ^[a-z0-9][a-z0-9-]{0,31}$ && "$nodes" =~ ^[1-8]$ ]] || {
++  echo 'Choose a valid profile and between one and eight nodes.' >&2; exit 2;
+ }
+ config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/service/$profile"
+-if [[ -f "$config_dir/service.toml" && "$explicit_slots" == 0 ]]; then
+-  slots="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["slots"])' "$config_dir/service.toml")"
+-  [[ "$slots" =~ ^[1-8]$ ]] || { echo 'The existing worker slot count is invalid.' >&2; exit 2; }
+-  args+=(--slots "$slots")
++if [[ -f "$config_dir/service.toml" && "$explicit_nodes" == 0 ]]; then
++  nodes="$(python3 -c 'import sys,tomllib; print((lambda c: c.get("nodes", c.get("slots")))(tomllib.load(open(sys.argv[1], "rb"))))' "$config_dir/service.toml")"
++  [[ "$nodes" =~ ^[1-8]$ ]] || { echo 'The existing worker slot count is invalid.' >&2; exit 2; }
++  args+=(--nodes "$nodes")
+ fi
+ podman="$HOME/.local/opt/aq-sandbox-podman/podman-linux-amd64/usr/local/bin/podman"
+ socket="$XDG_RUNTIME_DIR/aq-sandbox/podman.sock"
+@@ -144,7 +144,7 @@ image="$(cat "$work/image")"
+ if ! "$podman" --remote --url "unix://$socket" image exists "$image"; then
+   "$podman" --remote --url "unix://$socket" pull "$image"
+ fi
+-python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest" "${configure_args[@]}"
++python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$nodes" "$digest" "${configure_args[@]}"
+ worker="$HOME/.local/share/agent-q/runtime/aq-worker"
+ "$worker" service install --profile "$profile"
+ "$worker" service status --profile "$profile"
+diff --git a/packaging/service/aq-install.sh b/packaging/service/aq-install.sh
+index 72c3a81..934fe10 100755
+--- a/packaging/service/aq-install.sh
++++ b/packaging/service/aq-install.sh
+@@ -7,7 +7,7 @@ set -euo pipefail
+ 
+ usage() {
+   cat >&2 <<'USAGE'
+-usage: aq-install.sh --server URL --bundle DIR [--profile NAME=local] [--slots N=1] [--name NAME]
++usage: aq-install.sh --server URL --bundle DIR [--profile NAME=local] [--nodes N=1] [--name NAME]
+                      [--machine-key KEY] [--cf-service-token]
+                      [--native-template FILE=DIR/native.json] [--repositories FILE=DIR/repositories.json]
+                      [--sandbox-bundle podman-linux-amd64.tar.gz] [--reconfigure] [--defer-start]
+@@ -16,14 +16,14 @@ USAGE
+ }
+ 
+ KEY_GIVEN=0 RECONFIGURE=0 DEFER_START=0
+-SERVER="" BUNDLE="" PROFILE="local" SLOTS="1" NAME="" MACHINE_KEY="" CF=0
++SERVER="" BUNDLE="" PROFILE="local" NODES="1" NAME="" MACHINE_KEY="" CF=0
+ TEMPLATE="" REPOS="" SANDBOX_BUNDLE=""
+ while [[ $# -gt 0 ]]; do
+   case "$1" in
+     --cf-service-token) CF=1; shift; continue ;;
+     --reconfigure) RECONFIGURE=1; shift; continue ;;
+     --defer-start) DEFER_START=1; shift; continue ;;
+-    --server|--bundle|--profile|--slots|--name|--machine-key|--native-template|--repositories|\
++    --server|--bundle|--profile|--nodes|--slots|--name|--machine-key|--native-template|--repositories|\
+     --sandbox-bundle)
+       [[ $# -ge 2 ]] || usage ;;
+     *) usage ;;
+@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
+     --server) SERVER="$2" ;;
+     --bundle) BUNDLE="$2" ;;
+     --profile) PROFILE="$2" ;;
+-    --slots) SLOTS="$2" ;;
++    --nodes|--slots) NODES="$2" ;;
+     --name) NAME="$2" ;;
+     --machine-key) MACHINE_KEY="$2"; KEY_GIVEN=1 ;;
+     --native-template) TEMPLATE="$2" ;;
+@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
+ done
+ [[ -n "$SERVER" && -n "$BUNDLE" ]] || usage
+ [[ -d "$BUNDLE" ]] || { echo "bundle directory $BUNDLE not found." >&2; exit 2; }
+-[[ "$SLOTS" =~ ^[0-9]+$ ]] || { echo "--slots must be a number." >&2; exit 2; }
++[[ "$NODES" =~ ^[0-9]+$ ]] || { echo "--nodes must be a number." >&2; exit 2; }
+ # The service config's rule (aq-node-service valid_profile).
+ [[ "$PROFILE" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo "invalid --profile: lower-case letters, digits and '-', at most 32 characters." >&2; exit 2; }
+ TEMPLATE="${TEMPLATE:-$BUNDLE/native.json}"
+@@ -215,7 +215,7 @@ WORKER="$RUNTIME_DIR/aq-worker"
+ if [[ -f "$PROFILE_DIR/service.toml" && ! -f "$PROFILE_DIR/enroll-pending.toml" && "$RECONFIGURE" == 0 ]]; then
+   echo "Profile $PROFILE is already enrolled; enrollment skipped. Pass --reconfigure to enroll it again (after a revoke)."
+ else
+-  ENROLL=("$WORKER" service enroll --profile "$PROFILE" --server "$SERVER" --slots "$SLOTS")
++  ENROLL=("$WORKER" service enroll --profile "$PROFILE" --server "$SERVER" --nodes "$NODES")
+   [[ -n "$NAME" ]] && ENROLL+=(--name "$NAME")
+   [[ -n "$MACHINE_KEY" ]] && ENROLL+=(--machine-key "$MACHINE_KEY")
+   [[ "$CF" == 1 ]] && ENROLL+=(--cf-service-token)
+diff --git a/packaging/service/tests/test_install.py b/packaging/service/tests/test_install.py
+index 460892b..8b44989 100644
+--- a/packaging/service/tests/test_install.py
++++ b/packaging/service/tests/test_install.py
+@@ -186,7 +186,7 @@ def test_installs_binaries_and_calls_enroll_install_status_in_order(host):
+     steps = [c["args"][:2] for c in worker_calls(host)]
+     assert steps == [["service", "enroll"], ["service", "install"], ["service", "status"]]
+     enroll = worker_calls(host)[0]["args"]
+-    assert enroll[enroll.index("--slots") + 1] == "3"
++    assert enroll[enroll.index("--nodes") + 1] == "3"
+     assert enroll[enroll.index("--name") + 1] == "box"
+     assert enroll[enroll.index("--machine-key") + 1] == "box-1"
+     assert enroll[enroll.index("--aq-git") + 1] == str(runtime / "aq-git")
+@@ -202,7 +202,7 @@ def test_defaults_template_and_repositories_from_the_bundle(host):
+     assert enroll[enroll.index("--native-template") + 1] == str(host["bundle"] / "native.json")
+     assert enroll[enroll.index("--repositories") + 1] == str(host["bundle"] / "repositories.json")
+     assert enroll[enroll.index("--profile") + 1] == "local"
+-    assert enroll[enroll.index("--slots") + 1] == "1"
++    assert enroll[enroll.index("--nodes") + 1] == "1"
+ 
+ 
+ @pytest.mark.parametrize("key", ["Bad", "-x", "a_b", "a" * 64, ""])
+@@ -448,7 +448,7 @@ def test_hosted_install_writes_manual_sessions_with_their_claude_token_file(tmp_
+         assert "measurement" not in written
+         if manual_sessions and with_token:
+             assert written["manual"] == {
+-                "podman_executable": "/usr/bin/podman", "max_slots": 1,
++                "podman_executable": "/usr/bin/podman",
+                 "claude_token_file": "/private/claude-token", "source_slugs": {"repo": "owner/repo"},
+             }
+             assert "Use Push logins" not in result.stdout
+@@ -1013,3 +1013,21 @@ def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(t
+     assert report["log"][1] == "token [redacted] seen" and len(report["log"][2]) == 240
+     assert len(json.dumps(report)) < 12000
+ 
++
++
++@pytest.mark.parametrize("key", ["nodes", "slots"])
++def test_hosted_install_node_count_preserves_each_enrollment(tmp_path, key):
++    (tmp_path / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}}))
++    (tmp_path / "service.toml").write_text(f"{key} = 2\n")
++    for node in (1, 2):
++        path = tmp_path / f"slots/{node}/worker.toml"
++        path.parent.mkdir(parents=True)
++        path.write_text(f"credential = 'node-{node}'\n")
++    argv = [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
++            "configure", str(tmp_path), str(tmp_path), "https://worker.example",
++            "/usr/bin/podman", "2", "a" * 64]
++    result = subprocess.run(argv, capture_output=True, text=True, timeout=20)
++    assert result.returncode == 0, result.stderr
++    assert tomllib.loads((tmp_path / "service.toml").read_text()) == {key: 2}
++    for node in (1, 2):
++        assert (tmp_path / f"slots/{node}/worker.toml").read_text() == f"credential = 'node-{node}'\n"
+diff --git a/packaging/service/worker-install-config.py b/packaging/service/worker-install-config.py
+index 196ee3a..074a2ef 100644
+--- a/packaging/service/worker-install-config.py
++++ b/packaging/service/worker-install-config.py
+@@ -32,6 +32,11 @@ def atomic_text(path, contents):
+         staging.unlink(missing_ok=True)
+ 
+ 
++def node_count(config):
++    """The old service key `slots` counts enrolled nodes, never agents within a node."""
++    return config.get("nodes", config.get("slots"))
++
++
+ def read_toml(path):
+     with path.open("rb") as stream:
+         return tomllib.load(stream)
+@@ -40,7 +45,7 @@ def read_toml(path):
+ def prepare(package, work, origin, socket, config, digest):
+     # A profile installed from this server's installer may take a newer bundle
+     # from the same server: that is an update. Its runtime binaries and native
+-    # template are then replaced; its enrollment, slots and identity are kept.
++    # template are then replaced; its enrollments, node count and identities are kept.
+     marker = config / "hosted-install.json"
+     update = False
+     if marker.exists():
+@@ -97,7 +102,7 @@ def manual_settings(package, podman, slots, source_slugs, claude_token):
+     is readable."""
+     lines = [
+         "", "[manual]", f"podman_executable = {json.dumps(str(podman))}",
+-        f"max_slots = {slots}", f"claude_token_file = {json.dumps(str(claude_token))}",
++        f"claude_token_file = {json.dumps(str(claude_token))}",
+         "", "[manual.source_slugs]",
+     ]
+     lines.extend(f"{json.dumps(key)} = {json.dumps(slug)}" for key, slug in source_slugs.items())
+@@ -116,8 +121,8 @@ def configure(package, config, origin, podman, slots, digest, claude_token=None)
+     service = config / "service.toml"
+     contents = service.read_text()
+     current = tomllib.loads(contents)
+-    if current["slots"] != slots:
+-        raise ValueError("The profile already has a different slot count. Keep the existing count or choose another profile.")
++    if node_count(current) != slots:
++        raise ValueError("The profile already has a different node count. Keep the existing count or choose another profile.")
+     metadata = json.loads((package / "bootstrap.json").read_text())
+     manual = "manual" in current
+     if metadata["manual_sessions"] and not manual and claude_token is not None:
+@@ -299,7 +304,7 @@ def worker_binary_update(config, installer, origin):
+     # those workers held the slot for good even when the server had answered with a refusal.
+     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agent-q/service" / config.name
+     released = []
+-    for held in sorted(state.glob("slots/*/held")):
++    for held in sorted([*state.glob("slots/*/held"), *state.glob("nodes/*/slots/*/held")]):
+         current = held.parent / "current"
+         if held.read_text().startswith("prepare_disposition_unknown") and current.is_dir() and not (current / "server-refused").exists():
+             atomic_text(current / "server-refused", "released by a remote worker update")
+@@ -618,7 +623,7 @@ def apply_logins(package, config, logins):
+     metadata = json.loads((package / "bootstrap.json").read_text())
+     if "manual" not in current:
+         settings = json.loads((config / "login-sync.json").read_text())
+-        contents = contents.rstrip() + manual_settings(package, settings["podman"], current["slots"], metadata["source_slugs"], claude)
++        contents = contents.rstrip() + manual_settings(package, settings["podman"], node_count(current), metadata["source_slugs"], claude)
+     elif "anthropic" in providers or not current["manual"].get("claude_token_file"):
+         contents = set_toml_value(contents, "manual", "claude_token_file", claude)
+     if "openai" in providers:
+@@ -632,9 +637,9 @@ def sync_logins(package, config):
+     state = None
+     try:
+         state = read_toml(config / "service.toml")
+-        count = state["slots"]
++        count = node_count(state)
+         if type(count) is not int or not 1 <= count <= 8:
+-            raise ValueError("Invalid slot count")
++            raise ValueError("Invalid node count")
+         slots = list(range(1, count + 1))
+     except (ValueError, OSError, KeyError):
+         # Control traffic must survive the broken configuration it diagnoses.
+-- 
+2.43.0
+
