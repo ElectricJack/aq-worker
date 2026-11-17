@@ -2,10 +2,10 @@
 resolver = "3"
 members = ["protocol/aq-admission", "crates/aq-responses-transport", "crates/aq-codex-mapper", "crates/aq-agent-client", "crates/aq-agent-channel", "crates/aq-agent-result-local", "crates/aq-observation-engine", "crates/aq-observation-redb-prototype", "crates/aq-observation", "crates/aq-lifecycle-protocol", "crates/aq-protocol", "crates/aq-session-protocol", "crates/aq-session-host", "crates/aq-terminal-bridge", "crates/aq-terminal-renderer", "crates/aq-worker-protocol", "crates/aq-worker", "crates/aq-machine-load", "crates/aq-finite-responses", "crates/aq-handoff-note", "crates/aq-node-service"]
 
-exclude = [".aq", "vendor/aq-admission-0.1.12", "vendor/aq-phase-terminal-protocol-0.1.2", "vendor/aq-admission-0.1.10", "vendor/aq-phase-terminal-protocol-0.1.1", "vendor/aq-phase-terminal-protocol-0.1.0", "vendor/aq-admission-0.1.9", "vendor/aq-admission-0.1.7", "vendor/aq-admission-0.1.6", "vendor/aq-agent-api-0.1.0", "vendor/aq-terminal-relay-protocol-0.1.0", "vendor/aq-terminal-relay-0.1.0", "vendor/aq-session-api-0.1.0"]
+exclude = [".aq", "vendor/aq-admission-0.1.13", "vendor/aq-phase-terminal-protocol-0.1.3", "vendor/aq-admission-0.1.12", "vendor/aq-phase-terminal-protocol-0.1.2", "vendor/aq-admission-0.1.10", "vendor/aq-phase-terminal-protocol-0.1.1", "vendor/aq-phase-terminal-protocol-0.1.0", "vendor/aq-admission-0.1.9", "vendor/aq-admission-0.1.7", "vendor/aq-admission-0.1.6", "vendor/aq-agent-api-0.1.0", "vendor/aq-terminal-relay-protocol-0.1.0", "vendor/aq-terminal-relay-0.1.0", "vendor/aq-session-api-0.1.0"]
 
 [patch.crates-io]
-aq-admission = { path = "vendor/aq-admission-0.1.12" }
+aq-admission = { path = "vendor/aq-admission-0.1.13" }
 aq-lifecycle-protocol = { path = "crates/aq-lifecycle-protocol" }
 aq-session-protocol = { path = "crates/aq-session-protocol" }
 aq-session-api = { path = "vendor/aq-session-api-0.1.0" }
@@ -21,7 +21,7 @@ aq-agent-result-local = { path = "crates/aq-agent-result-local", version = "=0.1
 aq-responses-transport = { path = "crates/aq-responses-transport", version = "=0.1.0" }
 aq-session-host = { path = "crates/aq-session-host", version = "=0.1.7" }
 aq-session-protocol = { path = "crates/aq-session-protocol", version = "=0.1.0" }
-aq-protocol = { path = "crates/aq-protocol", version = "=0.1.2" }
+aq-protocol = { path = "crates/aq-protocol", version = "=0.1.3" }
 aq-worker-protocol = { path = "crates/aq-worker-protocol", version = "=0.2.0" }
 anyhow = "1"
 axum = "0.8"

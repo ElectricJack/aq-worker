@@ -91,6 +91,13 @@ pub struct CompatibilityError {
 
 pub const MAX_MACHINE_SLOTS: u32 = 8;
 pub const MACHINE_SCHEMA_VERSION: u32 = 1;
+/// `ControlRequest.schema_version` of a worker that runs several agents on one node (spec
+/// 0015). The reply to it carries the node's slot count. A server that does not know it
+/// answers 400 `bad_request`; the worker then asks with `MACHINE_SCHEMA_VERSION` and runs
+/// one slot.
+pub const NODE_SLOTS_SCHEMA_VERSION: u32 = 2;
+/// A format bound on a node's slot count, not a limit: the limit is the server's Setting.
+pub const MAX_NODE_SLOTS: u32 = 1024;
 
 /// The worker-machine/v1 `machine.key` rule: 1-63 characters of [a-z0-9-], not starting with '-'.
 pub fn valid_machine_key(key: &str) -> bool {
@@ -152,7 +159,8 @@ pub enum DesiredState {
     Stopped,
 }
 
-/// POST /v1/worker/control, under any slot node's bearer.
+/// POST /v1/worker/control, under the node's bearer. `schema_version` is
+/// `MACHINE_SCHEMA_VERSION`, or `NODE_SLOTS_SCHEMA_VERSION` to be told the node's slot count.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ControlRequest {
@@ -170,6 +178,18 @@ pub struct ControlResponse {
     pub handoff: Vec<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qualification: Option<QualificationPin>,
+    /// Spec 0015: how many agents this node may run at once, queued attempts and
+    /// hand-started sessions together (the server's Setting for the node, `0..=MAX_NODE_SLOTS`;
+    /// 0 admits nothing new). Sent only in the reply to a `NODE_SLOTS_SCHEMA_VERSION` request,
+    /// with that `schema_version`. Absent (an older server): one slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slots: Option<u32>,
+}
+impl ControlResponse {
+    /// The node's slot count; one when the server names none.
+    pub fn node_slots(&self) -> u32 {
+        self.slots.unwrap_or(1).min(MAX_NODE_SLOTS)
+    }
 }
 
 /// `digest` is 64 lowercase hex characters.
@@ -410,7 +430,13 @@ mod tests {
         let f: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/machine-v1.json")).unwrap();
         let o = f.as_object().unwrap();
-        assert_eq!(o.len(), 7);
+        assert_eq!(o.len(), 8);
+        rt::<ControlResponse>(&o["control_response_slots"]);
+        let old: ControlResponse = serde_json::from_value(o["control_response"].clone()).unwrap();
+        assert_eq!((old.slots, old.node_slots()), (None, 1));
+        let new: ControlResponse =
+            serde_json::from_value(o["control_response_slots"].clone()).unwrap();
+        assert_eq!((new.schema_version, new.node_slots()), (2, 8));
         rt::<SlotsRequest>(&o["slots_request"]);
         rt::<SlotsResponse>(&o["slots_response"]);
         rt::<ControlRequest>(&o["control_request"]);
