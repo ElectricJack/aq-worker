@@ -61,16 +61,33 @@ pub fn holds_claude_token_shape(bytes: &[u8]) -> bool {
 }
 
 fn holds_token_shape(bytes: &[u8], prefix: &str, min_tail: usize) -> bool {
+    token_shapes(bytes, prefix, min_tail).next().is_some()
+}
+
+/// Every agent-credential-shaped string in `bytes`: the prefix and its whole run of
+/// token characters. The leak guard compares these with the ones the base workspace
+/// already held (a fixture in a repository's own source is not a leak).
+pub fn agent_credentials(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
+    token_shapes(bytes, CREDENTIAL_PREFIX, MIN_CREDENTIAL_TAIL)
+}
+
+fn token_shapes<'a>(
+    bytes: &'a [u8],
+    prefix: &'a str,
+    min_tail: usize,
+) -> impl Iterator<Item = &'a [u8]> {
     let prefix = prefix.as_bytes();
     let token = |b: &u8| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_';
-    bytes.windows(prefix.len()).enumerate().any(|(at, w)| {
-        w == prefix
-            && bytes[at + prefix.len()..]
+    bytes
+        .windows(prefix.len())
+        .enumerate()
+        .filter_map(move |(at, w)| {
+            let tail = bytes[at + prefix.len()..]
                 .iter()
                 .take_while(|b| token(b))
-                .count()
-                >= min_tail
-    })
+                .count();
+            (w == prefix && tail >= min_tail).then(|| &bytes[at..at + prefix.len() + tail])
+        })
 }
 
 /// Where the sandbox template installs the `aq` CLI (0006 §9 step 3).

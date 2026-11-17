@@ -1,7 +1,7 @@
 //! Reading Claude's stream-json transcript: the proven-success rule, the
 //! bounded conclusion line and the pane rendering of one event.
+use crate::Secrets;
 use crate::claim::{blocked, claimed_changes, field, names_paths};
-use crate::holds_secret;
 use std::io::Write;
 
 /// The last stream-json `result` event Claude printed, if any.
@@ -152,15 +152,15 @@ pub fn pane_line(line: &[u8]) -> Option<String> {
     }
 }
 
-/// Prints complete runner lines to the pane. A line holding the token is
+/// Prints complete runner lines to the pane. A line holding a secret is
 /// never printed (a note is); returns whether that happened.
-pub fn print_logs(bytes: &[u8], partial: &mut Vec<u8>, token: &[u8]) -> bool {
+pub fn print_logs(bytes: &[u8], partial: &mut Vec<u8>, secrets: &Secrets) -> bool {
     let mut leaked = false;
     partial.extend_from_slice(bytes);
     while let Some(pos) = partial.iter().position(|b| *b == b'\n') {
         let line: Vec<u8> = partial.drain(..=pos).collect();
         let line = &line[..line.len() - 1];
-        if holds_secret(line, token) {
+        if secrets.holds(line) {
             leaked = true;
             println!("aq-sandbox-harness: [a runner output line was withheld: it held a secret]");
             continue;

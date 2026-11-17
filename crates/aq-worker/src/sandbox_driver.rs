@@ -28,11 +28,11 @@ use crate::backend::{
     SandboxIdentity, TemplateDigest,
 };
 use anyhow::{Context, Result, bail, ensure};
-use aq_handoff_note::print_logs;
 pub use aq_handoff_note::{
     CopyBackIncomplete, HANDOFF_MARKER, HandoffMarker, PRESERVED_MARKER, conclusion, fold_claim,
     handoff_note, holds_secret, holds_token, parse_token, proven_success, read_handoff_marker,
 };
+use aq_handoff_note::{Secrets, print_logs};
 use aq_handoff_note::{final_message, now_ms, preserved_claim, read_private, write_exit};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -482,10 +482,8 @@ fn claim_outcome(
         );
     }
     write_exit(config_path, proven.is_ok());
-    let (on, root) = (
-        config.agent_channel && leak.is_none(),
-        &config.docker_local.channel_root,
-    );
+    let on = config.agent_channel && leak.is_none();
+    let root = &config.docker_local.channel_root;
     let posting = on && root.is_some();
     submit_claim(
         config,
@@ -542,23 +540,22 @@ struct Drove {
     handoff: Option<aq_protocol::HandoffReason>,
 }
 
-/// MS1 review S3b: the agent's tools can read the token from the claude
-/// process environment. Refuse the copy-back (it would reach central
-/// retention and, under D1, the remote) when any copied-back file or link,
-/// or the transcript, holds the token's exact bytes. Never names the bytes.
-pub fn token_leak(entries: &[TreeEntry], stream: &[u8], token: &[u8]) -> Option<&'static str> {
-    let in_tree = entries.iter().any(|e| match e {
-        TreeEntry::File { path, data, .. } => {
-            holds_secret(data, token) || holds_secret(path.as_bytes(), token)
-        }
-        TreeEntry::Symlink { path, target, .. } => {
-            holds_secret(target.as_bytes(), token) || holds_secret(path.as_bytes(), token)
-        }
-        TreeEntry::Dir { path, .. } => holds_secret(path.as_bytes(), token),
-    });
-    if in_tree {
+/// An entry's path and its content or link target.
+fn tree_bytes(e: &TreeEntry) -> [&[u8]; 2] {
+    let held: &[u8] = match e {
+        TreeEntry::File { data, .. } => data,
+        TreeEntry::Symlink { target, .. } => target.as_bytes(),
+        TreeEntry::Dir { .. } => b"",
+    };
+    [e.path().as_bytes(), held]
+}
+
+/// MS1 review S3b: the agent's tools can read the token from the claude environment. Refuse the
+/// copy-back when a copied-back entry or the transcript holds a secret the base tree did not.
+pub fn token_leak(entries: &[TreeEntry], stream: &[u8], by: &Secrets) -> Option<&'static str> {
+    if entries.iter().flat_map(tree_bytes).any(|b| by.holds(b)) {
         Some("a secret (login token or AQ credential) appeared in the workspace")
-    } else if holds_secret(stream, token) {
+    } else if by.holds(stream) {
         Some("a secret (login token or AQ credential) appeared in the Claude transcript")
     } else {
         None
@@ -577,6 +574,7 @@ async fn drive(
     handoff: &Path,
 ) -> Result<Drove> {
     let workspace = collect_tree(&config.workspace, config.max_workspace_bytes)?;
+    let secrets = &Secrets::new(token, workspace.iter().flat_map(tree_bytes));
     backend
         .put_archive(
             sandbox,
@@ -603,7 +601,7 @@ async fn drive(
         }
         let poll = now_ms() / 1000;
         if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
-            pane_leak |= print_logs(&bytes, &mut partial, token);
+            pane_leak |= print_logs(&bytes, &mut partial, secrets);
             since = poll;
         }
         if let Some(reason) = read_handoff_marker(handoff) {
@@ -614,7 +612,7 @@ async fn drive(
         }
         if let Ok(exit) = backend.runner_exit(sandbox).await {
             if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
-                pane_leak |= print_logs(&bytes, &mut partial, token);
+                pane_leak |= print_logs(&bytes, &mut partial, secrets);
             }
             break exit;
         }
@@ -641,7 +639,7 @@ async fn drive(
         .await
         .context("workspace copy-back")?;
     let entries = read_tree(&archive, config.max_workspace_bytes)?;
-    let leak = token_leak(&entries, &stream, token).or(pane_leak
+    let leak = token_leak(&entries, &stream, secrets).or(pane_leak
         .then_some("a secret (login token or AQ credential) appeared in the runner output"));
     if leak.is_some() {
         // Nothing the sandbox produced is copied back.
@@ -742,26 +740,27 @@ mod tests {
             data: data.to_vec(),
         };
         let clean = vec![file("src/lib.rs", b"pub fn hello() {}\n")];
-        assert_eq!(token_leak(&clean, b"{\"type\":\"result\"}", &token), None);
+        let by = &Secrets::new(&token, None);
+        assert_eq!(token_leak(&clean, b"{\"type\":\"result\"}", by), None);
         let mut leaked = token.clone();
         leaked.splice(0..0, b"export TOKEN=".iter().copied());
-        assert!(token_leak(&[file("notes.txt", &leaked)], b"", &token).is_some());
+        assert!(token_leak(&[file("notes.txt", &leaked)], b"", by).is_some());
         let name = format!("x{}", String::from_utf8(token.clone()).unwrap());
-        assert!(token_leak(&[file(&name, b"ok")], b"", &token).is_some());
+        assert!(token_leak(&[file(&name, b"ok")], b"", by).is_some());
         let link = TreeEntry::Symlink {
             path: "l".into(),
             target: String::from_utf8(token.clone()).unwrap(),
         };
-        assert!(token_leak(&[link], b"", &token).is_some());
-        assert!(token_leak(&clean, &leaked, &token).is_some_and(|w| w.contains("transcript")));
+        assert!(token_leak(&[link], b"", by).is_some());
+        assert!(token_leak(&clean, &leaked, by).is_some_and(|w| w.contains("transcript")));
         // A near miss is not the token.
-        assert_eq!(token_leak(&clean, &token[..token.len() - 1], &token), None);
+        assert_eq!(token_leak(&clean, &token[..token.len() - 1], by), None);
         let mut partial = Vec::new();
         let mut lines = b"fine\n".to_vec();
         lines.extend_from_slice(&leaked);
         lines.push(b'\n');
-        assert!(print_logs(&lines, &mut partial, &token));
-        assert!(!print_logs(b"also fine\n", &mut partial, &token));
+        assert!(print_logs(&lines, &mut partial, by));
+        assert!(!print_logs(b"also fine\n", &mut partial, by));
     }
 
     /// MS1 review S3a: the token file is read and removed before anything that
@@ -831,15 +830,16 @@ mod tests {
             mode: 0o644,
             data: data.into(),
         };
-        let token = b"fixture-login-0123456789abcdef";
+        let token = &Secrets::new(b"fixture-login-0123456789abcdef", None);
         assert!(token_leak(&[file(&credential)], b"", token).is_some());
         assert!(token_leak(&[], credential.as_bytes(), token).is_some());
         assert!(token_leak(&[file("starts_with(\"aqa_\")")], b"", token).is_none());
-        assert!(print_logs(
-            format!("x {credential}\n").as_bytes(),
-            &mut Vec::new(),
-            token
-        ));
+        let line = format!("x {credential}\n");
+        assert!(print_logs(line.as_bytes(), &mut Vec::new(), token));
+        // A shape the base tree already held (a fixture in the repository) is no leak.
+        let kept = &Secrets::new(b"fixture-login-0123456789abcdef", [credential.as_bytes()]);
+        assert!(token_leak(&[file(&credential)], credential.as_bytes(), kept).is_none());
+        assert!(token_leak(&[file(&format!("{credential}x"))], b"", kept).is_some());
     }
 
     #[test]

@@ -157,6 +157,31 @@ pub fn holds_secret(haystack: &[u8], token: &[u8]) -> bool {
     holds_token(haystack, token) || aq_agent_channel::holds_agent_credential(haystack)
 }
 
+/// What the driver refuses to copy back, record or print: the exact login token
+/// anywhere, and any AQ agent credential shape that the base workspace did not
+/// already hold. A credential-shaped string that was in the repository before the
+/// agent ran (a test fixture in AQ's own source) is not a leak; the same shape with
+/// any other value is, and so is the login token wherever it appears.
+pub struct Secrets<'a> {
+    token: &'a [u8],
+    base: std::collections::BTreeSet<Vec<u8>>,
+}
+impl<'a> Secrets<'a> {
+    /// `base`: every path, file content and link target of the workspace as it was
+    /// given to the sandbox.
+    pub fn new(token: &'a [u8], base: impl IntoIterator<Item = &'a [u8]>) -> Self {
+        let shapes = |bytes| aq_agent_channel::agent_credentials(bytes).map(<[u8]>::to_vec);
+        Self {
+            token,
+            base: base.into_iter().flat_map(shapes).collect(),
+        }
+    }
+    pub fn holds(&self, haystack: &[u8]) -> bool {
+        holds_token(haystack, self.token)
+            || aq_agent_channel::agent_credentials(haystack).any(|c| !self.base.contains(c))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +228,30 @@ mod tests {
         );
         assert!(!note.contains("Last agent message") && !note.contains("sekrit"));
         assert!(note.contains("node restart"));
+    }
+    /// The aq-worker repository's own tree holds a credential-shaped fixture
+    /// (`manual_stream/redact.rs`), and every attempt on it was refused.
+    #[test]
+    fn a_credential_shape_already_in_the_base_is_not_a_leak_and_a_new_one_is() {
+        let token = b"fixture-login-0123456789abcdef";
+        let fixture = b"let sample = b\"x aqa_abcdefghijklmnopqrstuvwxyz0123456789.\";";
+        let other = format!("aqa_{}", "Q".repeat(43));
+        let base: [&[u8]; 2] = [b"src/redact.rs", fixture];
+        let secrets = Secrets::new(token, base);
+        // Unchanged, moved into another file, or read into the transcript.
+        assert!(!secrets.holds(fixture));
+        assert!(!secrets.holds(b"notes: aqa_abcdefghijklmnopqrstuvwxyz0123456789 again"));
+        // Any other value of the shape, also a longer or shorter one.
+        assert!(secrets.holds(other.as_bytes()));
+        assert!(secrets.holds(b"aqa_abcdefghijklmnopqrstuvwxyz0123456789A"));
+        assert!(secrets.holds(b"aqa_abcdefghijklmnopqrstuvwxyz012345678"));
+        // The login token is refused wherever it is, base or not.
+        assert!(secrets.holds(b"export T=fixture-login-0123456789abcdef"));
+        let with_token: [&[u8]; 1] = [b"T=fixture-login-0123456789abcdef"];
+        assert!(Secrets::new(token, with_token).holds(with_token[0]));
+        // Without a base, the same fixture is refused (it was newly written).
+        assert!(Secrets::new(token, None).holds(fixture));
+        assert!(!Secrets::new(token, None).holds(b"if t.starts_with(\"aqa_\") {}"));
     }
     #[test]
     fn handoff_note_without_changes_says_none() {
