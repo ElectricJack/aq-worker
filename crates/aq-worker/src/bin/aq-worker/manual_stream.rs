@@ -48,7 +48,7 @@ pub async fn run(path: &Path) -> Result<()> {
         anyhow::bail!("installed local sandbox absent")
     };
     let mut enrollments = BTreeMap::new();
-    for slot in 1..=config.slots {
+    for slot in 1..=config.nodes {
         let p = layout.slot_enrollment(slot);
         let e = EnrollmentFile::load(&p)?;
         enrollments.insert(e.node_id, p);

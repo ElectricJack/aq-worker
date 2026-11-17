@@ -436,6 +436,7 @@ pub async fn run(
     mut shutdown: watch::Receiver<bool>,
     paused: BTreeMap<Uuid, watch::Sender<bool>>,
     native_active: BTreeMap<Uuid, Arc<AtomicUsize>>,
+    sessions: BTreeMap<Uuid, Arc<aq_node_service::session::NodeSession>>,
 ) -> Result<()> {
     let Some(manual) = config.manual.as_ref() else {
         return Ok(());
@@ -450,13 +451,13 @@ pub async fn run(
         bail!("manual sessions require the installed Claude sandbox")
     };
     let exe = manual.podman_executable.clone();
-    let max_slots = manual.max_slots;
+    let legacy_max_slots = manual.max_slots;
     let providers = provider::available(&config);
     let root = config.state_root.join("manual-agents");
     std::fs::create_dir_all(&root)?;
     let mut nodes = Vec::new();
     let mut recorders = Vec::new();
-    for slot in 1..=config.slots {
+    for slot in layout.enrolled_nodes() {
         let enrollment = EnrollmentFile::load(&layout.slot_enrollment(slot))?;
         let mut agents = BTreeMap::new();
         for entry in std::fs::read_dir(&root)? {
@@ -467,7 +468,8 @@ pub async fn run(
             }
             if let Ok(a) = serde_json::from_slice::<Agent>(&std::fs::read(path)?)
                 && a.node_id == enrollment.node_id
-                && !matches!(a.status.as_str(), "stopped" | "failed")
+                && a.status != "stopped"
+                && (a.status != "failed" || a.sandbox.is_some())
             {
                 agents.insert(a.id, a);
             }
@@ -490,6 +492,14 @@ pub async fn run(
     }
     while !*shutdown.borrow() {
         for node in &mut nodes {
+            let session = sessions
+                .get(&node.id)
+                .context("manual node session absent")?;
+            let max_slots = if session.aware() {
+                session.slots().clamp(1, 8)
+            } else {
+                legacy_max_slots
+            };
             let mut pending = false;
             let active = native_active
                 .get(&node.id)
@@ -502,7 +512,7 @@ pub async fn run(
                 .values()
                 .map(|a| a.report(node.snapshots.get(&a.id).cloned()))
                 .collect::<Vec<_>>();
-            let request = json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":active.load(Ordering::SeqCst)>0,"reports":reports});
+            let request = json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":session.retired() || if session.aware() { session.full() } else { active.load(Ordering::SeqCst)>0 },"reports":reports});
             let response = match node.link.manual_poll(&request).await {
                 Ok(v) => v,
                 Err(_) => {
@@ -607,21 +617,33 @@ pub async fn run(
                             continue;
                         }
                     }
+                    session.release_manual(id);
                     a.status = "stopped".into();
                     a.stage = "Stopped; workspace retained".into();
                     save(&root, a)?;
                     continue;
                 }
                 if a.sandbox.is_none() {
-                    if active.load(Ordering::SeqCst) > 0 {
+                    if session.retired() || session.slots() == 0 {
+                        continue;
+                    }
+                    if session.aware() {
+                        if !session.try_manual(id) {
+                            pending = true;
+                            continue;
+                        }
+                    } else if active.load(Ordering::SeqCst) > 0 {
                         continue;
                     }
                     if !memory_available() {
+                        session.release_manual(id);
+                        pending = true;
                         a.stage = "Waiting for memory to become available".into();
                         save(&root, a)?;
                         continue;
                     }
                     if let Err(_error) = create(&config, &settings, node.id, a, &root).await {
+                        // Creation may have left a live sandbox: retain occupancy until a confirmed stop.
                         recording::startup_failed(&root, a.id);
                         a.status = "failed".into();
                         a.stage = "Startup failed; workspace retained for diagnosis".into();
@@ -648,13 +670,30 @@ pub async fn run(
                         a.stage = "Reconnecting to the same terminal".into();
                     }
                 }
+                if a.status == "stopped" {
+                    session.release_manual(id);
+                }
                 save(&root, a)?;
             }
-            pause.send_replace(pending);
+            // v1 preserves its whole-node manual pause. For slot-aware nodes only waiting
+            // manual launches ask idle queued pollers to yield their local permits.
+            let waiting = node
+                .agents
+                .values()
+                .any(|a| a.desired_running && a.sandbox.is_none() && a.status != "failed");
+            pause.send_replace(if session.aware() { waiting } else { pending });
         }
         tokio::select! {_=tokio::time::sleep(std::time::Duration::from_millis(500))=>{},_=shutdown.changed()=>{}}
     }
     for node in &mut nodes {
+        let session = sessions
+            .get(&node.id)
+            .context("manual node session absent")?;
+        let max_slots = if session.aware() {
+            session.slots().clamp(1, 8)
+        } else {
+            legacy_max_slots
+        };
         for a in node.agents.values_mut() {
             if let Some(sandbox) = &a.sandbox {
                 recording::drain_before_stop(
@@ -668,6 +707,7 @@ pub async fn run(
                 let mut backend =
                     DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
                 if backend.stop(sandbox).await.is_confirmed() {
+                    session.release_manual(a.id);
                     a.status = "stopped".into();
                     a.stage = "Worker stopped; workspace retained".into();
                     save(&root, a)?;

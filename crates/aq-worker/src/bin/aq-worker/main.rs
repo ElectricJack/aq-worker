@@ -1,14 +1,8 @@
-/// The scripted Docker API double, for the measurement tests.
-#[cfg(test)]
-#[allow(dead_code)]
-#[path = "../../../tests/support/docker_double.rs"]
-mod docker_double;
 #[cfg(feature = "test-support")]
 mod fixture_responses_cli;
 mod host_terminal;
 mod manual;
 mod manual_stream;
-mod measure;
 mod native_diagnostics;
 #[cfg(feature = "test-support")]
 mod native_fixture;

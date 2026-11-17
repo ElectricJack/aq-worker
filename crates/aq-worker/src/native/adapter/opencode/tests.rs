@@ -117,6 +117,43 @@ fn proxy_recipe_runs_headless_json_with_private_config_at_loopback_proxy() {
     assert_eq!(c["permission"]["websearch"], "deny");
 }
 
+/// `default` reasoning sets no `reasoningEffort` on either `openai` route; the
+/// named values set exactly theirs; anything else is refused by name.
+#[test]
+fn reasoning_default_sets_no_effort_and_unknown_values_are_refused() {
+    let (harness, model) = container();
+    let with = |value: &str| {
+        let mut changed = model.clone();
+        changed.reasoning = Text::new(value).unwrap();
+        changed
+    };
+    for route in [PROXY, OpenCodeRoute::Subscription] {
+        let map = |m: &ModelSettings| map(&harness, m, paths(), ConfinementMode::Container, route);
+        for value in ["low", "medium", "high"] {
+            let c = config_json(&map(&with(value)).unwrap());
+            let options = &c["provider"]["openai"]["models"]["gpt-5.5"]["options"];
+            assert_eq!(options["reasoningEffort"], value);
+        }
+        let c = config_json(&map(&with("default")).unwrap());
+        assert_eq!(
+            c["provider"]["openai"]["models"]["gpt-5.5"],
+            serde_json::json!({}),
+            "no effort option at all"
+        );
+        assert!(
+            !String::from_utf8_lossy(&map(&with("default")).unwrap().config_json)
+                .contains("reasoningEffort")
+        );
+        for value in ["Default", "off", "none", "minimal", "xhigh", "max"] {
+            let Err(refused) = map(&with(value)) else {
+                panic!("{value} accepted")
+            };
+            let expected = "expected default, low, medium or high";
+            assert!(format!("{refused:#}").contains(expected), "{refused:#}");
+        }
+    }
+}
+
 #[test]
 fn subscription_recipe_keeps_the_stock_endpoint() {
     let (harness, model) = container();

@@ -175,11 +175,11 @@ impl NativeConfig {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.schema_version == 1
-                && self.capacity.slots == 1
+                && (1..=aq_protocol::MAX_NODE_SLOTS).contains(&self.capacity.slots)
                 && self.capacity.memory_bytes > 0
                 && self.capacity.cpu_millis > 0
                 && self.capacity.disk_bytes > 0,
-            "native single-attempt capacity/version"
+            "native capacity/version"
         );
         ensure!(
             self.state_dir.is_absolute()

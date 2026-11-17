@@ -130,6 +130,8 @@ impl NativeClient {
         let bytes = serde_json::to_vec(request)?;
         ensure!(bytes.len() <= phase::MAX_BYTES, "phase request bound");
         let _slot = self.control_slots.try_acquire()?;
+        let mut tries = 0;
+        let (response, nonce, sent_ns) = loop {
         let nonce = Uuid::new_v4();
         let sent_ns = boot_ns()?;
         ensure!(sent_ns < send_by_ns, "phase send window expired");
@@ -139,10 +141,13 @@ impl NativeClient {
             .header(header::AUTHORIZATION, self.credential.clone())
             .header(header::CONTENT_TYPE, "application/json")
             .header("aq-delivery-nonce", nonce.to_string())
-            .body(bytes)
+            .body(bytes.clone())
             .send()
             .await
             .map_err(|_| anyhow::anyhow!("phase transport failed; disposition unknown"))?;
+        // A 503 asks for the same operation again: resent in place, not failed.
+        if !retry_same(&response, &mut tries, send_by_ns, sent_ns).await { break (response, nonce, sent_ns); }
+        };
         if !response.status().is_success() { return Err(refused(response).await); }
         let bytes = body(response, phase::MAX_BYTES).await?;
         let received_ns = boot_ns()?;

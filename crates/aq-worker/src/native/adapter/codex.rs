@@ -5,7 +5,7 @@ use crate::native::runner::sandbox::confinement::{AuthorizedConfinement, Confine
 use anyhow::Context;
 use aq_admission::startup::NativeOffer;
 use aq_session_host::LocalCommand;
-use aq_session_protocol::{HarnessSettings, ModelSettings};
+use aq_session_protocol::HarnessSettings;
 use std::{io::Write, path::Path};
 
 pub use aq_codex_mapper::CODEX_CLI_VERSION;
@@ -16,8 +16,9 @@ pub(crate) use chatgpt::validated_chatgpt_auth_json;
 /// Operator-selected exact settings, not settings inferred from an offer.
 pub struct CodexExecProfile {
     pub harness: HarnessSettings,
-    pub model: ModelSettings,
-    pub permissions_digest: Digest,
+    /// A template's legacy key: never compared with an offered plan (spec 0014);
+    /// it only keeps an installed host profile's digest unchanged.
+    pub permissions_digest: Option<Digest>,
     pub renderer: ArtifactRef,
     /// The sandbox's proof for container confinement. `None` maps native only;
     /// a container-declaring harness is refused without a `Container` proof.
@@ -186,15 +187,12 @@ impl CodexExecProfile {
             super::super::journal::canonical_digest(manifest)? == *expected_manifest
                 && manifest.harness == self.harness
                 && *adapter == self.harness.adapter
-                && *renderer == self.renderer
-                && manifest.model == self.model
-                && super::super::journal::canonical_digest(&manifest.permissions)?
-                    == self.permissions_digest,
+                && *renderer == self.renderer,
             "Codex exact installed settings mismatch"
         );
         let settings = aq_codex_mapper::Settings {
             harness: &self.harness,
-            model: &self.model,
+            model: &manifest.model,
             terminal_input_enabled: manifest.terminal.input_enabled,
         };
         if interactive {
@@ -205,8 +203,7 @@ impl CodexExecProfile {
         descriptor.validate()?;
         descriptor.verify_payload(&payload)?;
         ensure!(
-            descriptor.renderer_qualification == self.renderer
-                && manifest.modules.contains(&descriptor.artifact()?)
+            manifest.modules.contains(&descriptor.artifact()?)
                 && manifest
                     .modules
                     .iter()
@@ -249,7 +246,7 @@ impl CodexExecProfile {
         }
         let settings = aq_codex_mapper::Settings {
             harness: &self.harness,
-            model: &self.model,
+            model: &manifest.model,
             terminal_input_enabled: manifest.terminal.input_enabled,
         };
         let paths = aq_codex_mapper::Paths {

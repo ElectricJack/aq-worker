@@ -132,17 +132,24 @@ impl NativeClient {
     ) -> Result<Received> {
         let bytes = serde_json::to_vec(request)?;
         ensure!(bytes.len() <= 65_536, "native control request size");
-        let nonce = Uuid::new_v4();
-        let sent_ns = boot_ns()?;
-        let response = client
-            .post(format!("{}/v1/worker/profiled/{path}", self.base))
-            .header(header::AUTHORIZATION, self.credential.clone())
-            .header(header::CONTENT_TYPE, "application/json")
-            .header("aq-delivery-nonce", nonce.to_string())
-            .body(bytes)
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("native control transport failed; disposition unknown"))?;
+        let mut tries = 0;
+        let (response, nonce, sent_ns) = loop {
+            let (nonce, sent_ns) = (Uuid::new_v4(), boot_ns()?);
+            let request = client
+                .post(format!("{}/v1/worker/profiled/{path}", self.base))
+                .header(header::AUTHORIZATION, self.credential.clone())
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("aq-delivery-nonce", nonce.to_string())
+                .body(bytes.clone());
+            let sent = self.slot_headers(request, path).send().await;
+            let response = sent.map_err(|_| {
+                anyhow::anyhow!("native control transport failed; disposition unknown")
+            })?;
+            // A 503 asks for the same operation again: resent in place, not failed.
+            if !retry_same(&response, &mut tries, u64::MAX, sent_ns).await {
+                break (response, nonce, sent_ns);
+            }
+        };
         if !response.status().is_success() {
             return Err(refused(response).await);
         }

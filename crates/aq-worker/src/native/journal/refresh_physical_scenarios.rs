@@ -37,7 +37,6 @@ async fn phase_physical(
     Arc<crate::native::http::preparation_refresh_v1::AcceptedPreparation>,
     Vec<crate::native::VerifiedArtifact>,
     crate::native::preparation::HydratedWorkspace,
-    ArtifactRef,
 ) {
     let accepted = h.phase.as_ref().unwrap().clone();
     let before = h.pipeline().snapshot().await.unwrap();
@@ -66,17 +65,16 @@ async fn phase_physical(
             .await
             .unwrap();
     }
-    let renderer = a.reservation.offer.startup.renderer_qualification.clone();
-    (accepted, all, workspace, renderer)
+    (accepted, all, workspace)
 }
 async fn phase_join(
     h: &Inputs,
     git: GitClient,
 ) -> crate::native::preparation::PreparedRefreshInputs {
-    let (accepted, all, workspace, renderer) = phase_physical(h, git).await;
+    let (accepted, all, workspace) = phase_physical(h, git).await;
     let joined = h
         .pipeline()
-        .prepare_inputs_refresh(h.id, accepted.clone(), all, workspace, renderer)
+        .prepare_inputs_refresh(h.id, accepted.clone(), all, workspace)
         .await
         .unwrap();
     let state = h.pipeline().snapshot().await.unwrap();

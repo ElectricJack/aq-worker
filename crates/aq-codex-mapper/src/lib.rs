@@ -38,6 +38,18 @@ pub fn validate_settings(settings: Settings<'_>) -> Result<()> {
 pub fn validate_interactive_settings(settings: Settings<'_>) -> Result<()> {
     validate_settings_mode(settings, true)
 }
+/// `model.reasoning` for the Codex CLI: `default` passes no
+/// `model_reasoning_effort` override (the CLI's own setting), the others are
+/// that override's value. Closed set: an unknown value is refused, never passed on.
+fn reasoning_effort<'a>(settings: &Settings<'a>) -> Result<Option<&'a str>> {
+    match settings.model.reasoning.as_str() {
+        "default" => Ok(None),
+        value @ ("low" | "medium" | "high") => Ok(Some(value)),
+        value => anyhow::bail!(
+            "Codex recipe unsupported reasoning {value:?}: expected default, low, medium or high"
+        ),
+    }
+}
 fn validate_settings_mode(settings: Settings<'_>, interactive: bool) -> Result<()> {
     ensure!(
         settings.harness.required_capabilities.len() <= 64,
@@ -48,10 +60,10 @@ fn validate_settings_mode(settings: Settings<'_>, interactive: bool) -> Result<(
             && settings.harness.cli_version.as_str() == CODEX_CLI_VERSION
             && settings.model.provider.as_str() == "openai"
             && settings.model.spending_budget.is_none()
-            && matches!(settings.model.reasoning.as_str(), "low" | "medium" | "high")
             && settings.terminal_input_enabled == interactive,
         "Codex exec unsupported settings"
     );
+    reasoning_effort(&settings)?;
     for cap in &settings.harness.required_capabilities {
         ensure!(
             matches!(
@@ -159,11 +171,13 @@ fn map_mode(
             workspace.to_str().context("Codex workspace UTF8")?.into(),
         ]
     };
-    let overrides = [
+    let effort = reasoning_effort(&settings)?.map(|value| {
         format!(
             "model_reasoning_effort={}",
-            toml::Value::String(settings.model.reasoning.as_str().into())
-        ),
+            toml::Value::String(value.into())
+        )
+    });
+    let overrides = [
         "approval_policy=\"never\"".into(),
         "project_doc_max_bytes=0".into(),
         "project_doc_fallback_filenames=[]".into(),
@@ -203,7 +217,7 @@ fn map_mode(
             toml::Value::String(if interactive { "trusted" } else { "untrusted" }.into())
         ),
     ];
-    for value in overrides {
+    for value in effort.into_iter().chain(overrides) {
         arguments.push("--config".into());
         arguments.push(value);
     }

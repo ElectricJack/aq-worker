@@ -11,7 +11,9 @@ pub struct ResponsesPolicy {
     owner_scope: Digest,
     scope_digest: Digest,
     model: String,
-    reasoning: String,
+    /// The selected effort every request must carry; `None` for `default`, where the
+    /// harness's own setting stands and the request's effort is not compared.
+    reasoning: Option<String>,
     cap: u64,
     deadline_ns: u64,
 }
@@ -24,10 +26,16 @@ impl ResponsesPolicy {
             model.provider.as_str() == "openai"
                 && model.spending_budget.is_none()
                 && model.max_output_tokens >= 16
-                && model.max_output_tokens <= 1048576
-                && matches!(model.reasoning.as_str(), "low" | "medium" | "high"),
+                && model.max_output_tokens <= 1048576,
             "unsupported Responses selection"
         );
+        let reasoning = match model.reasoning.as_str() {
+            "default" => None,
+            value @ ("low" | "medium" | "high") => Some(value.to_owned()),
+            value => anyhow::bail!(
+                "unsupported Responses reasoning {value:?}: expected default, low, medium or high"
+            ),
+        };
         let mut recipe = serde_json::json!({"contract":"aq.responses-policy-1","owner_scope":owner_scope,"model":model,"original_deadline_boot_ns":deadline_ns});
         recipe.sort_all_objects();
         let scope_digest = Digest::of(&serde_json::to_vec(&recipe)?);
@@ -35,7 +43,7 @@ impl ResponsesPolicy {
             owner_scope,
             scope_digest,
             model: model.model.as_str().into(),
-            reasoning: model.reasoning.as_str().into(),
+            reasoning,
             cap: model.max_output_tokens,
             deadline_ns,
         };
@@ -116,11 +124,13 @@ impl ResponsesPolicy {
             "Responses request selection/stream/storage mismatch"
         );
         ensure!(
-            object
-                .get("reasoning")
-                .and_then(|r| r.get("effort"))
-                .and_then(Value::as_str)
-                == Some(self.reasoning.as_str()),
+            self.reasoning.as_deref().is_none_or(|selected| {
+                object
+                    .get("reasoning")
+                    .and_then(|r| r.get("effort"))
+                    .and_then(Value::as_str)
+                    == Some(selected)
+            }),
             "Responses reasoning selection mismatch"
         );
         ensure!(
@@ -247,6 +257,41 @@ pub(super) mod tests {
             boot_ns().unwrap() + 10_000_000_000,
         )
         .unwrap()
+    }
+    /// `default` reasoning selects no effort: a request with any effort, or none, is
+    /// admitted; every other part of the selection still binds. Unknown values refuse.
+    #[test]
+    fn default_reasoning_leaves_the_request_effort_to_the_harness() {
+        let model = |reasoning: &str| -> ModelSettings {
+            serde_json::from_value(serde_json::json!({"provider":"openai","model":"offline-model","reasoning":reasoning,"max_output_tokens":100,"spending_budget":null})).unwrap()
+        };
+        let new = |reasoning: &str| {
+            let deadline = boot_ns().unwrap() + 10_000_000_000;
+            ResponsesPolicy::new(
+                Digest::of(b"opaque fixture owner"),
+                &model(reasoning),
+                deadline,
+            )
+        };
+        let scope = new("default").unwrap();
+        for effort in [Some("medium"), Some("high"), Some("xhigh"), None] {
+            let mut body: Value = serde_json::from_slice(&body()).unwrap();
+            match effort {
+                Some(effort) => body["reasoning"]["effort"] = effort.into(),
+                None => drop(body.as_object_mut().unwrap().remove("reasoning")),
+            }
+            scope.prepare(&serde_json::to_vec(&body).unwrap()).unwrap();
+        }
+        let mut other: Value = serde_json::from_slice(&body()).unwrap();
+        other["model"] = "other-model".into();
+        assert!(scope.prepare(&serde_json::to_vec(&other).unwrap()).is_err());
+        for value in ["off", "none", "xhigh", "max"] {
+            let Err(refused) = new(value) else {
+                panic!("{value} accepted")
+            };
+            let expected = "expected default, low, medium or high";
+            assert!(format!("{refused:#}").contains(expected), "{refused:#}");
+        }
     }
     pub fn body() -> Vec<u8> {
         br#"{"model":"offline-model","stream":true,"store":false,"input":[{"type":"message","role":"user","content":"literal startup"}],"reasoning":{"effort":"medium","summary":"auto"},"tools":[],"tool_choice":"auto","parallel_tool_calls":true,"text":{"verbosity":"low"},"include":[],"client_metadata":{"a":"b"}}"#.to_vec()

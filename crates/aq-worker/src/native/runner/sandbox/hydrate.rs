@@ -85,10 +85,7 @@ pub async fn hydrate(
     let (workspace, native) = blocking(move || {
         let native = staged.verify(&manifest)?;
         staged.publish(&manifest)?;
-        if git.validate_binding(&b).is_err() {
-            git.exchange(&GitAction::Register.request(&b, Uuid::new_v4()))?;
-            git.validate_binding(&b)?;
-        }
+        git.registering(&b, || git.validate_binding(&b))?;
         let imported = git.exchange(
             &GitAction::Import {
                 artifact_handle: manifest.artifact_id,

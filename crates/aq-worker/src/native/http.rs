@@ -12,7 +12,7 @@ use aq_admission::{
     },
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use reqwest::{Response, StatusCode, header};
+use reqwest::{Response, header};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
@@ -45,94 +45,21 @@ pub struct NativeClient {
     phase_terminal_safety_slots: Arc<Semaphore>,
     /// Boot-clock deadline before which fetch retries must end (`fetch_until`).
     fetch_deadline_ns: u64,
+    node_slot: Option<(u32, u32)>,
 }
-/// A refused native request: its status and the `Retry-After` seconds it carried.
-#[derive(Debug)]
-pub struct HttpStatus(pub StatusCode, pub Option<Duration>);
-impl std::fmt::Display for HttpStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "native endpoint returned {}", self.0)
-    }
-}
-impl std::error::Error for HttpStatus {}
-/// A send that failed in transport (connect, timeout, reset): its disposition is unknown.
-#[derive(Debug)]
-pub struct TransportFailed(pub &'static str);
-impl std::fmt::Display for TransportFailed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-impl std::error::Error for TransportFailed {}
-/// Logs a refused response (its body cut to 400 characters) and returns its `HttpStatus`.
-pub(crate) async fn refused(response: Response) -> anyhow::Error {
-    let status = response.status();
-    let path = response.url().path().to_owned();
-    let retry_after = (response.headers().get(header::RETRY_AFTER))
-        .and_then(|v| v.to_str().ok()?.trim().parse().ok())
-        .map(Duration::from_secs);
-    let body = response.text().await.unwrap_or_default();
-    let body: String = body.chars().take(400).collect();
-    tracing::warn!(%path, %status, %body, "native endpoint refused");
-    let gone = status == StatusCode::CONFLICT && body.contains("execution cancelled"); // released: 410, never retried
-    HttpStatus([status, StatusCode::GONE][gone as usize], retry_after).into()
-}
-/// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
-/// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.
-pub const FETCH_TRIES: u32 = 5;
-pub const FETCH_SPAN: Duration = Duration::from_secs(10);
-pub const FETCH_BACKOFF: (Duration, Duration) =
-    (Duration::from_millis(500), Duration::from_secs(8));
-/// The wait before retry `attempt` (0-based) of a read-only fetch that failed with `e`, or None
-/// when `e` is final: only 502/503/504, 408, 429 and transport failures are transient. A
-/// `Retry-After` longer than the backoff is waited instead; one beyond the cap ends the retries.
-pub fn fetch_retry_wait(e: &anyhow::Error, attempt: u32) -> Option<Duration> {
-    let (base, cap) = FETCH_BACKOFF;
-    let after = match e.downcast_ref::<HttpStatus>() {
-        Some(HttpStatus(s, after)) if matches!(s.as_u16(), 408 | 429 | 502 | 503 | 504) => *after,
-        Some(_) => return None,
-        None => {
-            e.downcast_ref::<TransportFailed>()?;
-            None
-        }
-    };
-    let backoff = crate::backoff::equal_jittered(attempt, base, cap, &mut rand::thread_rng());
-    after.map_or(Some(backoff), |d| (d <= cap).then_some(d.max(backoff)))
-}
-/// Retries an idempotent read while it fails transiently, until it has had `FETCH_TRIES` tries
-/// and `FETCH_SPAN` has passed, and only while the next wait ends before `deadline_ns` (R1: one
-/// `503 overloaded` failed a whole attempt; R5: five fast tries did not outlast a restart).
-pub(crate) async fn fetch_retried<T, F>(deadline_ns: u64, mut call: impl FnMut() -> F) -> Result<T>
+pub use aq_node_service::native_transport::{
+    FETCH_BACKOFF, FETCH_SPAN, FETCH_TRIES, HttpStatus, TransportFailed, fetch_retry_wait,
+};
+pub(crate) use aq_node_service::native_transport::{refused, retry_same};
+pub async fn fetch_retried<T, F>(deadline_ns: u64, call: impl FnMut() -> F) -> Result<T>
 where
     F: Future<Output = Result<T>>,
 {
-    let (mut attempt, started) = (0, tokio::time::Instant::now());
-    loop {
-        let e = match call().await {
-            Ok(value) => return Ok(value),
-            Err(e) => e,
-        };
-        let ends = |w: &Duration| boot_ns().is_ok_and(|n| n + (w.as_nanos() as u64) < deadline_ns);
-        let more = attempt + 1 < FETCH_TRIES || started.elapsed() < FETCH_SPAN;
-        let wait = fetch_retry_wait(&e, attempt).filter(|w| more && ends(w));
-        let Some(wait) = wait else {
-            (attempt > 0).then(|| tracing::warn!(tries = attempt + 1, "{e:#}; not retried again"));
-            return Err(e);
-        };
-        attempt += 1;
-        tracing::warn!(attempt, "{e:#}; retrying in {wait:?}");
-        tokio::time::sleep(wait).await;
-    }
+    aq_node_service::native_transport::fetch_retried(deadline_ns, call, boot_ns).await
 }
 
-/// `fetch_retried`, for the integration tests.
 #[cfg(feature = "test-support")]
-pub async fn fetch_retried_for_test<T, F>(deadline_ns: u64, call: impl FnMut() -> F) -> Result<T>
-where
-    F: Future<Output = Result<T>>,
-{
-    fetch_retried(deadline_ns, call).await
-}
+pub use fetch_retried as fetch_retried_for_test;
 /// No Debug/Serialize: private body bytes must not become logs or journal JSON.
 pub struct PrivateMaterial {
     pub(super) delivery: MaterialDelivery,
@@ -197,40 +124,11 @@ pub(super) fn boot_ns() -> Result<u64> {
     if let Some(now) = test_clock::now() {
         return Ok(now);
     }
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    ensure!(
-        unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut time) } == 0,
-        "boot clock unavailable"
-    );
-    let seconds = u64::try_from(time.tv_sec)?;
-    let nanos = u64::try_from(time.tv_nsec)?;
-    seconds
-        .checked_mul(1_000_000_000)
-        .and_then(|n| n.checked_add(nanos))
-        .ok_or_else(|| anyhow::anyhow!("boot clock overflow"))
+    aq_node_service::native_transport::boot_ns()
 }
-pub(crate) async fn body(mut response: Response, limit: usize) -> Result<Zeroizing<Vec<u8>>> {
-    ensure!(
-        response.content_length().is_none_or(|n| n <= limit as u64),
-        "native response size"
-    );
-    let mut bytes = Zeroizing::new(Vec::new());
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| anyhow::anyhow!("native response read failed"))?
-    {
-        ensure!(
-            chunk.len() <= limit.saturating_sub(bytes.len()),
-            "native response size"
-        );
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(bytes)
-}
+
+pub(crate) use aq_node_service::native_transport::body;
+
 impl NativeClient {
     pub fn from_config(config: &WorkerConfig) -> Result<Self> {
         let url = reqwest::Url::parse(&config.server_url)
@@ -284,10 +182,30 @@ impl NativeClient {
             phase_terminal_safety: client()?,
             phase_terminal_safety_slots: Arc::new(Semaphore::new(1)),
             fetch_deadline_ns: u64::MAX,
+            node_slot: None,
         })
     }
     /// This client, on the same lanes, with fetch retries that end before `deadline_ns`: the
     /// boot-clock preparation or retrieval deadline of the inputs it reads.
+    pub fn for_node_slot(mut self, slot: u32, registered_slots: u32) -> Self {
+        self.node_slot = Some((slot, registered_slots));
+        self
+    }
+    fn slot_headers(
+        &self,
+        request: reqwest::RequestBuilder,
+        path: &str,
+    ) -> reqwest::RequestBuilder {
+        match (self.node_slot, path) {
+            (Some((slot, _)), "poll") => {
+                request.header(aq_admission::node_slots::SLOT_HEADER, slot)
+            }
+            (Some((_, slots)), "register") => {
+                request.header(aq_admission::node_slots::SLOTS_HEADER, slots)
+            }
+            _ => request,
+        }
+    }
     pub fn fetch_until(&self, deadline_ns: u64) -> Self {
         let mut client = self.clone();
         client.fetch_deadline_ns = deadline_ns;
@@ -309,14 +227,15 @@ impl NativeClient {
     ) -> Result<Response> {
         let bytes = serde_json::to_vec(request)?;
         ensure!(bytes.len() <= limit, "native request size");
-        let response = client
+        let request = client
             .post(format!("{}/v1/worker/profiled/{path}", self.base))
             .header(header::AUTHORIZATION, self.credential.clone())
             .header(header::CONTENT_TYPE, "application/json")
-            .body(bytes)
-            .send()
-            .await
-            .map_err(|_| TransportFailed("native request transport failed; disposition unknown"))?;
+            .body(bytes);
+        let response =
+            self.slot_headers(request, path).send().await.map_err(|_| {
+                TransportFailed("native request transport failed; disposition unknown")
+            })?;
         if !response.status().is_success() {
             return Err(refused(response).await);
         }
@@ -482,3 +401,46 @@ impl NativeClient {
 
 #[cfg(test)]
 mod refresh_terminal_tests;
+
+#[cfg(test)]
+mod node_slot_tests {
+    use super::*;
+    #[test]
+    fn headers_are_per_slot_only_on_poll_and_registration_and_never_on_legacy() {
+        let config = WorkerConfig {
+            server_url: "https://aq.example".into(),
+            node_id: Uuid::new_v4(),
+            credential: "synthetic".into(),
+            cf_client_id: None,
+            cf_client_secret: None,
+        };
+        let legacy = NativeClient::from_config(&config).unwrap();
+        for slot in [1, 2, 1024] {
+            let node = legacy.clone().for_node_slot(slot, 3);
+            for path in ["poll", "register", "started", "stopped"] {
+                let request = node
+                    .slot_headers(node.control.post("https://aq.example"), path)
+                    .build()
+                    .unwrap();
+                let expected = match path {
+                    "poll" => Some(("aq-node-slot", slot)),
+                    "register" => Some(("aq-node-slots", 3)),
+                    _ => None,
+                };
+                if let Some((name, value)) = expected {
+                    assert_eq!(request.headers()[name], value.to_string());
+                } else {
+                    assert!(request.headers().is_empty());
+                }
+                assert!(
+                    legacy
+                        .slot_headers(legacy.control.post("https://aq.example"), path)
+                        .build()
+                        .unwrap()
+                        .headers()
+                        .is_empty()
+                );
+            }
+        }
+    }
+}

@@ -98,16 +98,9 @@ impl InputPipeline {
         preparation: Arc<Preparation>,
         artifacts: Vec<VerifiedArtifact>,
         workspace: HydratedWorkspace,
-        renderer: ArtifactRef,
     ) -> Result<PreparedInputs> {
         let p = self
-            .join_inputs(
-                id,
-                InputContext::Legacy(preparation),
-                artifacts,
-                workspace,
-                renderer,
-            )
+            .join_inputs(id, InputContext::Legacy(preparation), artifacts, workspace)
             .await?;
         let JoinedRequest::Legacy(request) = p.request else {
             anyhow::bail!("legacy join protocol mismatch")
@@ -128,16 +121,9 @@ impl InputPipeline {
         preparation: Arc<crate::native::http::preparation_v2::AcceptedPreparation>,
         artifacts: Vec<VerifiedArtifact>,
         workspace: HydratedWorkspace,
-        renderer: ArtifactRef,
     ) -> Result<PreparedPhaseInputs> {
         let p = self
-            .join_inputs(
-                id,
-                InputContext::Phase(preparation),
-                artifacts,
-                workspace,
-                renderer,
-            )
+            .join_inputs(id, InputContext::Phase(preparation), artifacts, workspace)
             .await?;
         let JoinedRequest::Phase(request) = p.request else {
             anyhow::bail!("phase join protocol mismatch")
@@ -158,16 +144,9 @@ impl InputPipeline {
         preparation: Arc<crate::native::http::preparation_refresh_v1::AcceptedPreparation>,
         artifacts: Vec<VerifiedArtifact>,
         workspace: HydratedWorkspace,
-        renderer: ArtifactRef,
     ) -> Result<PreparedRefreshInputs> {
         let p = self
-            .join_inputs(
-                id,
-                InputContext::Refresh(preparation),
-                artifacts,
-                workspace,
-                renderer,
-            )
+            .join_inputs(id, InputContext::Refresh(preparation), artifacts, workspace)
             .await?;
         let JoinedRequest::Refresh(request) = p.request else {
             anyhow::bail!("phase join protocol mismatch")
@@ -188,7 +167,6 @@ impl InputPipeline {
         preparation: InputContext,
         mut artifacts: Vec<VerifiedArtifact>,
         workspace: HydratedWorkspace,
-        renderer: ArtifactRef,
     ) -> Result<JoinedInputs> {
         // Keep the same finite bulk lane across validation and durable commit.
         let _bulk = self
@@ -268,7 +246,7 @@ impl InputPipeline {
                 retained_inline_bytes <= crate::native::MAX_INLINE_SET_BYTES,
                 "retained input byte bound"
             );
-            let startup = crate::native::prepare_startup(offer, &renderer, descriptor, payload)?;
+            let startup = crate::native::prepare_startup(offer, descriptor, payload)?;
             let mut materials = Vec::new();
             let mut receipts = Vec::new();
             for lease in preparation.materials() {

@@ -1,22 +1,27 @@
 # Multiple projects on one Claude docker-local worker
 
-A result adapter retains `permission_digest` as its independently installed
-primary plan. Operators may install up to 31 additional distinct, exact plan
-digests in `additional_permission_digests` on the Claude docker-local profile.
-An omitted or empty list preserves existing canonical definition bytes. Other
-adapter profiles reject a nonempty list.
+Since spec 0014 (roles and profiles) a worker launches whatever permission plan
+a valid manifest carries. The server compiles the plan from the task's role,
+scopes it to the task's project and repository, and enforces it for the
+attempt's token; the plan is covered by the manifest digest the grant binds. A
+worker therefore serves any project and any role without being reinstalled.
 
-Each entry hashes the whole canonical manifest permission plan, including
-requested, effective, required, and omitted permissions. Install a new immutable
-adapter definition and matching runtime/harness qualification references when
-changing this list. Keep every project's catalog permissions and ceiling scoped
-to that project and repository. The list grants no authority: admission, retained
-execution scope, material delivery, and live grants still control execution.
+Installed files may still carry `executor.settings.permissions_digest` (native
+template) and `permission_digest` / `additional_permission_digests` (result
+adapter definition). They are read and ignored. The template key can be
+deleted; the definition keys stay part of its canonical bytes and digest, so
+leave an installed definition as it is.
 
-The result channel pins the actual admitted plan from the retained original
-manifest. Result installation checks that same plan after validating it against
-the installed adapter. An unlisted plan, duplicate entry, or changed permission
-field is refused. Sharing a worker does not require sharing project permissions.
+The result channel still records the digest of the attempt's actual admitted
+plan from the retained original manifest. The worker keeps checking the
+adapter, environment, runtime, result client and contract, and the manifest's
+own validity. Sharing a worker does not require sharing project permissions.
+
+A granted execution the worker closes before any launch intent (for example a
+manifest it refuses) no longer holds its slot: recovery archives the attempt's
+state and frees the slot, with an ERROR log line naming the attempt. The worker
+cannot report that closure yet, so the server keeps the attempt until an
+operator settles it.
 
 Idle polls reuse the acknowledged capability snapshot until it is within five
 seconds of expiry. Replacing it on every work check invalidated an offer whose

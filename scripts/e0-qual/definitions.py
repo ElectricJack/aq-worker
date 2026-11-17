@@ -400,10 +400,7 @@ def build(stack):
                      "settings": {"host_root": f"{STATE}/host", "columns": 80, "rows": 24,
                                   "permissions_digest": permission_digest,
                                   "harness": {"harness": "codex", "cli_version": "0.166.0", "adapter": adapter,
-                                              "environment": environment, "required_capabilities": CAPABILITIES[2:]},
-                                  "model": {"provider": model["provider"], "model": model["model"],
-                                            "reasoning": model["native_reasoning"],
-                                            "max_output_tokens": MAX_OUTPUT_TOKENS, "spending_budget": None}}}}
+                                              "environment": environment, "required_capabilities": CAPABILITIES[2:]}}}}
     files = {"native.json": canonical(native), "adapter.json": canonical(primary), "client.json": canonical(client_manifest),
              "composite.json": canonical(composite), "inventory.json": canonical(presence)}
     stack.require(all(len(v.encode()) <= 65536 for v in files.values())

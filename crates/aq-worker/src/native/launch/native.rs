@@ -100,7 +100,6 @@ impl NativeCodexHostProfile {
             adapter: &mapper.harness.adapter,
             runtime: &runtime,
             environment: &mapper.harness.environment,
-            permission_digest: &mapper.permissions_digest,
         })?;
         definition.validate_installed_client(&client)?;
         let pins = ResultInstallationPins {
@@ -110,7 +109,8 @@ impl NativeCodexHostProfile {
             client_executable: client.artifact().clone(),
             environment: client.environment().clone(),
             recipe: definition.recipe.clone(),
-            permission_digest: mapper.permissions_digest.clone(),
+            // Replaced by the offered plan's digest before a result channel is created.
+            permission_digest: definition.permission_digest.clone(),
             reserved_client_bytes: client.reserved_bytes(),
         };
         pins.validate()?;
@@ -161,11 +161,7 @@ impl NativeCodexHostProfile {
         ensure!(
             mapper.harness.harness.as_str() == "codex"
                 && mapper.harness.cli_version.as_str()
-                    == crate::native::adapter::codex::CODEX_CLI_VERSION
-                && mapper.model.provider.as_str() == "openai"
-                && mapper.model.spending_budget.is_none()
-                && (16..=1_048_576).contains(&mapper.model.max_output_tokens)
-                && matches!(mapper.model.reasoning.as_str(), "low" | "medium" | "high"),
+                    == crate::native::adapter::codex::CODEX_CLI_VERSION,
             "unsupported native Codex settings"
         );
         installation.revalidate()?;
@@ -180,7 +176,7 @@ impl NativeCodexHostProfile {
             "fixed-openai-responses-https-v1"
         };
         let digest = crate::native::journal::canonical_digest(
-            &serde_json::json!({"schema_version":1,"profile":"codex-scoped-responses-native-host-v1","image_profile":installation.kind(),"upstream_policy":upstream_policy,"root":root,"installation":installation.digest(),"harness":mapper.harness,"model":mapper.model,"permissions":mapper.permissions_digest,"renderer":mapper.renderer,"columns":columns,"rows":rows}),
+            &serde_json::json!({"schema_version":1,"profile":"codex-scoped-responses-native-host-v1","image_profile":installation.kind(),"upstream_policy":upstream_policy,"root":root,"installation":installation.digest(),"harness":mapper.harness,"permissions":mapper.permissions_digest,"renderer":mapper.renderer,"columns":columns,"rows":rows}),
         )?;
         Ok(Self {
             root: guard,

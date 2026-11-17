@@ -1,7 +1,7 @@
 # Install the aq-worker service (Linux and WSL2)
 
 This installs `aq-worker` as an always-on systemd user service with one or more
-slots, enrolled with a single-use code. It is separate from the per-profile
+nodes, each running a server-controlled count of agent slots, enrolled with a single-use code. It is separate from the per-profile
 container worker in [install-worker.md](install-worker.md). macOS is not
 supported yet; the script refuses it.
 
@@ -39,17 +39,39 @@ build. `native.json` pins exact image and tool digests, so a file from another
 build will not match the binaries. `--native-template` and `--repositories`
 override the two defaults.
 
+`repositories.json` only pre-registers repositories. A worker runs work for any
+repository: one that is not listed is registered with the slot's `aq-git` from the
+offer that names it (its id, identity and binding generation come with the offer's
+source), the first time the slot sees it. `aq-worker service enroll` runs without
+`--repositories`, and `service.toml` needs no `repositories` key. Manual sessions are
+the exception: they clone from `[manual] source_slugs` (or a listed repository whose
+identity is an `owner/name`), so they run only for listed repositories.
+
+### After a failed attempt
+
+A slot whose attempt failed is settled at once and comes up again. It reports to the
+server (heartbeat, inventory) while it waits and only asks for no offer until the pause
+has passed. Optional `[retry]` keys in `service.toml` set the pauses, in milliseconds:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `offer_pause_ms` | 3000 | After the server refused the slot (409, another 4xx, 503), one offer failed before its launch (its source, a local `aq-git` refusal), or the server was not reached. |
+| `offer_pause_max_ms` | 30000 | Ceiling of that pause. It doubles while the same kind of failure repeats and starts again after another kind or a finished attempt. |
+| `fault_backoff_start_ms` | 30000 | After any other failure (the sandbox, the disk, a refused credential) and after a failed recovery. Doubles until an attempt finishes. |
+| `fault_backoff_max_ms` | 300000 | Ceiling of that back-off. |
+
+A slot that fails as it starts cannot report; it waits the same time without reporting.
+
 ## Install
 
 ```sh
 packaging/service/aq-install.sh --server https://aq.example --bundle ~/aq-bundle \
-  --profile local --slots 4 --machine-key my-box
+  --profile local --nodes 2 --machine-key my-box
 ```
 
 Options: `--profile` (default `local`; lower-case letters, digits and `-`, at
-most 32 characters), `--slots` (default 1, at most 8), `--name`,
+most 32 characters), `--nodes` (default 1, at most 8; `--slots` is its legacy alias), `--name`,
 `--machine-key`, `--cf-service-token`, `--native-template`, `--repositories`,
-`--measurement-token-file` (an absolute path) with `--measurement-model`,
 `--sandbox-bundle` and `--reconfigure`.
 
 The script refuses to replace a `~/.local/bin/aq-worker` that is not its own
@@ -68,11 +90,8 @@ The script, in order:
    is already enrolled is skipped (pass `--reconfigure` to enroll it again);
 5. runs `aq-worker service install` (writes the user unit `aq-node@PROFILE`
    and starts it, or restarts it when it is already running);
-6. runs `aq-worker service measure` when a measurement token file was given.
-   It holds the profile's measurement lock, so the service does not start a
-   second measurement meanwhile;
-7. prints the Windows probe command on WSL2 if needed;
-8. prints `aq-worker service status`.
+6. prints the Windows probe command on WSL2 if needed;
+7. prints `aq-worker service status`.
 
 Rerunning the installer on an enrolled profile also repairs boot startup without
 consuming another enrollment code. To check an existing installation:
@@ -91,29 +110,29 @@ With `--cf-service-token` the next two prompts (or lines) are the node's Access
 client id and secret. Nothing secret is ever put in an argument, the
 environment, a log or a unit file. The code works once.
 
-`enroll` checks every argument (the server origin, the repositories file, the
-token file path) before it reads the code, so a typo never uses it up. The
+`enroll` checks every argument (the server origin, the repositories file)
+before it reads the code, so a typo never uses it up. The
 server must be `https`; plain `http` is accepted only to `127.0.0.1` or `::1`.
 If the machine key claim fails after the code was redeemed (for example the key
 is in use), run the same command again: it resumes at the claim and needs no
 new code. If Cloudflare Access refused the stored token at the claim, resume
 with `--reconfigure --cf-service-token` and the new Access client id and secret.
-The slot credentials are written only once the claim succeeds, all of them
-together. If a run stopped after the claim but before it saved the slots, the
+The node credentials are written only once the claim succeeds, all of them
+together. If a run stopped after the claim but before it saved the nodes, the
 rerun says so: revoke the machine and enroll again with a new code.
 
 ### The machine key
 
 The machine key is the one name for the machine: the Swarm page shows it, and
 start, stop, drain and revoke act on it. It is `--machine-key`, or else the
-lower-cased host name. It must match `[a-z0-9][a-z0-9-]{0,62}`. Slot 1 claims it
-on the server; the other slots are minted under it. The machine's label is the
+lower-cased host name. It must match `[a-z0-9][a-z0-9-]{0,62}`. Node 1 claims it
+on the server; the other nodes are minted under it. The machine's label is the
 key too, unless `--name` gives another.
 
 ### Where the service keeps its files
 
 - Configuration: `~/.config/agent-q/service/PROFILE/` (`service.toml`,
-  `machine.json`, `native.json`, one `slots/N/worker.toml` per slot).
+  `machine.json`, `native.json`, one `slots/N/worker.toml` per enrolled node).
 - Durable state: `state_root` in `service.toml`, by default
   `~/.local/state/agent-q/service/PROFILE/`: each slot's journal, Git state,
   materials and archives. Today nothing deletes old archives or kept sandboxes;
@@ -127,7 +146,8 @@ key too, unless `--name` gives another.
   the session host's per-launch directories live under a short runtime root,
   `$XDG_RUNTIME_DIR/aq/PROFILE/` (for example `/run/user/1000/aq/local/`), or
   `/tmp/aq-UID/PROFILE/` when `XDG_RUNTIME_DIR` is unset. Each slot has
-  `N/git.sock` and the host root `N/host/` there. The service creates the root
+  `K/git.sock` and `K/host/` for node K's first agent; later agents use
+  `K-N/git.sock` and `K-N/host/`. The service creates the root
   0700 and refuses one that is a symlink, belongs to another user or is open to
   others. These files do not survive a reboot, and need not.
 
@@ -138,6 +158,11 @@ default runtime root this only happens for a long profile name (more than about
 20 characters under `/run/user/1000`). Use a shorter profile, or set
 `runtime_root = "/absolute/short/dir"` in `service.toml`: its parent must be
 owned by you and writable only by you.
+
+Agent capacity is a server Setting per node. Increasing it does not mint or enroll another
+node. Existing `service.toml` files with `slots = N` still describe N nodes; new files say
+`nodes = N`. A binary update keeps every node. See [multi-agent nodes](multi-agent-nodes.md)
+for independent recovery, shared manual/queued capacity and explicit node retirement.
 
 ### Allowing the machine
 
@@ -160,7 +185,7 @@ All four are on the machine's pane on the Swarm page.
   workspace is copied back, the work is committed and a handoff note is posted
   on the task thread. The task gets a new attempt that starts from that saved
   commit.
-- **Revoke machine**: every slot's credential is revoked and the service stops
+- **Revoke machine**: every node's credential is revoked and the service stops
   polling. Nothing can be minted under the key until a fresh enrollment.
 
 Handoffs caused by Stop (`service_stop`) or by the owner taking over
@@ -223,7 +248,7 @@ destroyed by the service, and other claimed sandboxes are still released.
 Release a preserved one once you have looked at it:
 
 ```sh
-aq-worker service release-sandbox --profile local --slot 2 \
+aq-worker service release-sandbox --profile local --node 2 --slot 1 \
   --attempt-id ATTEMPT --reason "inspected; work not needed"
 ```
 
@@ -289,7 +314,8 @@ install AQ's existing Claude and Codex subscription logins. Manual sessions are
 enabled automatically after the first successful delivery.
 
 Separate local accounts remain optional: supply a Claude token with
-`AQ_CLAUDE_TOKEN_FILE` when installing, or sign into Codex locally before install.
+`AQ_CLAUDE_TOKEN_FILE` (an absolute path) when installing, or sign into Codex
+locally before install.
 AQ-managed delivery switches AQ's auth paths to its private profile files and
 keeps those personal login files intact.
 
@@ -306,8 +332,21 @@ It resumes an unfinished enrollment or reuses the saved enrollment. Use a fresh
 distro or the regular upgrade procedure if another worker runtime already owns
 the installation paths.
 Configuration fixes can be delivered in the pinned bootstrap while reusing
-the existing runtime bundle and enrollment. Rerunning the latest command
-repairs the manual-session section written by an earlier tokenless install.
+the existing runtime bundle and enrollment.
+
+Manual Claude sessions log in with the subscription token file named by
+`claude_token_file` in the `[manual]` section of `service.toml` (an absolute
+path; required whenever `[manual]` is present). The installer and Push logins
+write it. The worker runs whatever model and reasoning effort an offer names:
+there is no qualification measurement and no `[measurement]` section. A
+`service.toml` that still has one (a machine updated remotely keeps the file its
+installer wrote) is rewritten once by the worker when it loads the file: the
+section is removed, and if the profile has a `[manual]` section without
+`claude_token_file`, the old `token_file` value is set there. Everything else
+is kept, and the file as it was stays beside it as
+`service.toml.before-measurement-removal`. If `[manual]` is present and no token
+file is named anywhere, the service then stops with `missing field
+`claude_token_file``: add the key by hand or use Push logins.
 
 ### Prepare the download on the server
 
@@ -358,7 +397,7 @@ queued, installed, or failed status. A failed installation can be retried with a
 new push. An uncertain request is retried with the same operation identity.
 
 A worker installed before this receiver was shipped needs the current hosted
-install command once. It retains its enrollment, configured slots and runtime.
+install command once. It retains its enrollment, configured node count and runtime.
 Subsequent login pushes require no terminal command or new enrollment code.
 
 The receiver uses each enrolled slot's credential over the installation's pinned

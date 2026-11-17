@@ -64,7 +64,7 @@ pub struct InputPipeline {
     scoped_presence_owned: std::sync::atomic::AtomicBool,
     /// Sequence of this node's last acknowledged inventory (0 = none yet);
     /// the server refuses a poll that names any other sequence.
-    inventory_sequence: std::sync::atomic::AtomicU64,
+    pub(crate) inventory: Arc<aq_node_service::session::InventoryState>,
 }
 impl InputPipeline {
     /// Reserve through the original live journal and install its process-local
@@ -108,8 +108,15 @@ impl InputPipeline {
             launch,
             results: result::Registry::default(),
             scoped_presence_owned: std::sync::atomic::AtomicBool::new(false),
-            inventory_sequence: std::sync::atomic::AtomicU64::new(0),
+            inventory: Arc::default(),
         }
+    }
+    pub(crate) fn with_inventory(
+        mut self,
+        inventory: Arc<aq_node_service::session::InventoryState>,
+    ) -> Self {
+        self.inventory = inventory;
+        self
     }
     async fn storage<T: Send + 'static>(
         &self,
@@ -154,14 +161,11 @@ impl InputPipeline {
     /// MS1/B3: read this attempt's pending cancellation from the node's own
     /// poll. A zero-capacity poll asks for no offers; the server answers
     /// cancellations first. Errors mean "unknown", never "not cancelled".
-    /// Records the node's acknowledged inventory sequence for later polls.
-    pub fn record_inventory_sequence(&self, sequence: u64) {
-        self.inventory_sequence
-            .store(sequence, std::sync::atomic::Ordering::SeqCst);
-    }
     pub async fn poll_cancellation(&self, id: Uuid) -> Result<Option<Uuid>> {
+        let _inventory = self.inventory.gate.lock().await;
         let inventory_sequence = self
-            .inventory_sequence
+            .inventory
+            .acknowledged
             .load(std::sync::atomic::Ordering::SeqCst);
         anyhow::ensure!(
             inventory_sequence > 0,

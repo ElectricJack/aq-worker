@@ -63,12 +63,10 @@ fn composite_selection_is_canonical_closed_and_independently_pinned() {
             adapter: &adapter,
             runtime: &runtime,
             environment: &value.environment,
-            permission_digest: &value.permission_digest,
         })
         .unwrap();
-    for mode in 0..4 {
+    for mode in 0..3 {
         let wrong = reference("wrong");
-        let wrong_digest = Digest::of(b"wrong");
         let runtime = RuntimeIdentity {
             runtime: if mode == 1 {
                 wrong.clone()
@@ -86,11 +84,6 @@ fn composite_selection_is_canonical_closed_and_independently_pinned() {
                         &wrong
                     } else {
                         &value.environment
-                    },
-                    permission_digest: if mode == 3 {
-                        &wrong_digest
-                    } else {
-                        &value.permission_digest
                     },
                 })
                 .is_err()
@@ -129,7 +122,6 @@ fn selected_definition_revision_preserves_schema_and_exact_retained_pins() {
             adapter: &selected,
             runtime: &runtime,
             environment: &value.environment,
-            permission_digest: &value.permission_digest,
         })
         .unwrap();
     let mut descriptor = descriptor(&value);
@@ -151,7 +143,6 @@ fn selected_definition_revision_preserves_schema_and_exact_retained_pins() {
                 adapter: &tampered,
                 runtime: &runtime,
                 environment: &value.environment,
-                permission_digest: &value.permission_digest,
             })
             .is_err()
     );
@@ -209,8 +200,8 @@ fn retained_definition_requires_its_original_role_descriptor_bytes_and_selection
             .is_err()
     );
 }
-#[test]
-fn result_profile_preserves_existing_permission_domain_and_pins_whole_plan() {
+/// The published manifest, as a Codex (`claude == false`) or Claude docker-local launch.
+fn manifest(claude: bool) -> LaunchManifest {
     let published: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../../vendor/aq-admission-0.1.7/artifacts/control.fixture.json"
     ))
@@ -218,56 +209,15 @@ fn result_profile_preserves_existing_permission_domain_and_pins_whole_plan() {
     let mut manifest: LaunchManifest =
         serde_json::from_value(published["native_offer"]["offered"]["offer"]["manifest"].clone())
             .unwrap();
-    manifest.harness.harness = Text::new("codex").unwrap();
-    manifest.harness.cli_version = Text::new("0.166.0").unwrap();
     manifest.terminal.input_enabled = false;
-    manifest.model.provider = Text::new("openai").unwrap();
-    manifest.model.reasoning = Text::new("low").unwrap();
     manifest.model.spending_budget = None;
-    let mut value = definition();
-    value.environment = manifest.harness.environment.clone();
-    value.permission_digest = permission_digest(&manifest.permissions);
-    manifest.harness.adapter = value.artifact().unwrap();
-    value.validate_manifest(&manifest).unwrap();
-    let original_adapter = manifest.harness.adapter.clone();
-    manifest.harness.adapter = value
-        .artifact_at_revision(&Text::new("2").unwrap())
-        .unwrap();
-    value.validate_manifest(&manifest).unwrap();
-    manifest.harness.adapter = original_adapter;
-    let mut changed = manifest.clone();
-    changed
-        .permissions
-        .omissions
-        .push(Text::new("unavailable optional scope").unwrap());
-    changed.validate().unwrap();
-    assert!(
-        value.validate_manifest(&changed).is_err(),
-        "whole compiled permission plan is pinned"
-    );
-    let mut selected_changed = value.clone();
-    selected_changed.permission_digest = permission_digest(&changed.permissions);
-    changed.harness.adapter = selected_changed.artifact().unwrap();
-    selected_changed.validate_manifest(&changed).unwrap();
-    let mut wrong_adapter = manifest;
-    wrong_adapter.harness.adapter = reference("other adapter");
-    assert!(value.validate_manifest(&wrong_adapter).is_err());
-}
-
-fn permission_digest(value: &impl serde::Serialize) -> Digest {
-    let mut value = serde_json::to_value(value).unwrap();
-    value.sort_all_objects();
-    Digest::of(&serde_json::to_vec(&value).unwrap())
-}
-#[test]
-fn claude_accepts_only_the_explicitly_installed_permission_plans() {
-    let published: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../../vendor/aq-admission-0.1.7/artifacts/control.fixture.json"
-    ))
-    .unwrap();
-    let mut manifest: LaunchManifest =
-        serde_json::from_value(published["native_offer"]["offered"]["offer"]["manifest"].clone())
-            .unwrap();
+    if !claude {
+        manifest.harness.harness = Text::new("codex").unwrap();
+        manifest.harness.cli_version = Text::new("0.166.0").unwrap();
+        manifest.model.provider = Text::new("openai").unwrap();
+        manifest.model.reasoning = Text::new("low").unwrap();
+        return manifest;
+    }
     manifest.harness.harness = Text::new("claude").unwrap();
     manifest.harness.cli_version = Text::new("2.1.318").unwrap();
     manifest
@@ -282,31 +232,121 @@ fn claude_accepts_only_the_explicitly_installed_permission_plans() {
             version: 1,
         });
     manifest.model.provider = Text::new("anthropic").unwrap();
-    manifest.model.spending_budget = None;
-    manifest.terminal.input_enabled = false;
-    let mut value = definition();
-    value.profile = ResultAdapterKind::Claude2318DockerLocalV1;
-    value.recipe = value.recipe_artifact();
-    value.environment = manifest.harness.environment.clone();
-    value.permission_digest = permission_digest(&manifest.permissions);
-    let mut second = manifest.clone();
-    second
-        .permissions
-        .omissions
-        .push(Text::new("unavailable optional scope").unwrap());
-    value.additional_permission_digests = vec![permission_digest(&second.permissions)];
-    let selected = value.artifact().unwrap();
-    manifest.harness.adapter = selected.clone();
-    second.harness.adapter = selected;
-    value.validate_manifest(&manifest).unwrap();
-    value.validate_manifest(&second).unwrap();
-    second
-        .permissions
-        .omissions
-        .push(Text::new("unapproved change").unwrap());
-    assert!(value.validate_manifest(&second).is_err());
-    value
-        .additional_permission_digests
-        .push(value.permission_digest.clone());
-    assert!(ResultAdapterDefinition::decode(&value.encode().unwrap()).is_err());
+    // The published fixture says "standard", which the Claude recipe cannot map.
+    manifest.model.reasoning = Text::new("default").unwrap();
+    manifest
+}
+/// A role's operations as the server scopes them to one project and repository.
+fn plan(
+    operations: &[&str],
+    project: u128,
+    repository: u128,
+) -> aq_session_protocol::PermissionPlan {
+    let scopes: Vec<_> = operations
+        .iter()
+        .map(|operation| aq_session_protocol::Scope {
+            operation: Text::new(*operation).unwrap(),
+            resource: Text::new(format!(
+                "project:{}/repository:{}",
+                uuid::Uuid::from_u128(project),
+                uuid::Uuid::from_u128(repository)
+            ))
+            .unwrap(),
+        })
+        .collect();
+    aq_session_protocol::PermissionPlan {
+        requested: scopes.clone(),
+        effective: scopes.clone(),
+        required: scopes,
+        omissions: vec![],
+    }
+}
+const DEVELOPER: &[&str] = &["task.read", "knowledge.read", "source.write"];
+const REVIEWER: &[&str] = &["task.read", "knowledge.read"];
+
+/// Spec 0014: the worker launches whatever permission plan a valid manifest carries. Another
+/// role's operations, and the same operations on another project and repository, validate on
+/// both result profiles against one installed definition; the adapter, the environment and the
+/// manifest's own validity are still checked.
+#[test]
+fn any_permission_plan_of_a_valid_manifest_is_accepted_on_both_result_profiles() {
+    for claude in [false, true] {
+        let mut manifest = manifest(claude);
+        let mut value = definition();
+        if claude {
+            value.profile = ResultAdapterKind::Claude2318DockerLocalV1;
+            value.recipe = value.recipe_artifact();
+        }
+        value.environment = manifest.harness.environment.clone();
+        // What the definition was installed with: one project's developer plan.
+        value.permission_digest = permission_digest(&plan(DEVELOPER, 1, 1));
+        manifest.harness.adapter = value.artifact().unwrap();
+        for offered in [
+            plan(DEVELOPER, 1, 1),
+            plan(REVIEWER, 1, 1),
+            plan(DEVELOPER, 2, 7),
+            plan(REVIEWER, 2, 7),
+            plan(&[], 3, 3),
+        ] {
+            let mut launch = manifest.clone();
+            launch.permissions = offered;
+            launch.validate().unwrap();
+            value.validate_manifest(&launch).unwrap();
+        }
+        let mut invalid = manifest.clone();
+        invalid.permissions = plan(REVIEWER, 1, 1);
+        invalid.permissions.effective.clear();
+        assert!(
+            value.validate_manifest(&invalid).is_err(),
+            "a plan that denies a required scope is not a valid manifest"
+        );
+        let mut wrong_adapter = manifest.clone();
+        wrong_adapter.harness.adapter = reference("other adapter");
+        assert!(value.validate_manifest(&wrong_adapter).is_err());
+        let mut wrong_environment = manifest.clone();
+        wrong_environment.harness.environment = reference("other environment");
+        assert!(value.validate_manifest(&wrong_environment).is_err());
+        let mut wrong_harness = manifest.clone();
+        wrong_harness.harness.cli_version = Text::new("0.0.1").unwrap();
+        assert!(value.validate_manifest(&wrong_harness).is_err());
+    }
+}
+
+fn permission_digest(value: &impl serde::Serialize) -> Digest {
+    let mut value = serde_json::to_value(value).unwrap();
+    value.sort_all_objects();
+    Digest::of(&serde_json::to_vec(&value).unwrap())
+}
+/// Installed definitions keep their bytes and digest: the old permission keys are still read
+/// (on either profile, whatever they list) and no longer decide anything.
+#[test]
+fn a_definition_still_carrying_the_old_permission_keys_loads_and_is_selected() {
+    for claude in [false, true] {
+        let mut value = definition();
+        if claude {
+            value.profile = ResultAdapterKind::Claude2318DockerLocalV1;
+            value.recipe = value.recipe_artifact();
+        }
+        let without = value.artifact().unwrap();
+        value.additional_permission_digests = vec![
+            permission_digest(&plan(REVIEWER, 1, 1)),
+            value.permission_digest.clone(),
+        ];
+        let bytes = value.encode().unwrap();
+        let loaded = ResultAdapterDefinition::decode(&bytes).unwrap();
+        assert_eq!(loaded.encode().unwrap(), bytes);
+        let adapter = loaded.artifact().unwrap();
+        assert_ne!(adapter, without, "the keys stay part of the installed body");
+        let runtime = RuntimeIdentity {
+            runtime: loaded.runtime.clone(),
+            qualification: reference("independent-runtime-qualification"),
+        };
+        loaded
+            .validate_selected(ExpectedResultAdapter {
+                adapter: &adapter,
+                runtime: &runtime,
+                environment: &loaded.environment,
+            })
+            .unwrap();
+    }
 }

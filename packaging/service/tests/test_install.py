@@ -174,12 +174,9 @@ def test_never_passes_secrets_in_argv(host):
     assert CODE not in result.stdout + result.stderr
 
 
-def test_installs_binaries_and_calls_enroll_install_measure_in_order(host):
-    token = host["tmp"] / "token"
-    token.write_text("x")
+def test_installs_binaries_and_calls_enroll_install_status_in_order(host):
     with with_socket(host):
-        result = run(host, "--profile", "p1", "--slots", "3", "--name", "box", "--machine-key", "box-1",
-                     "--measurement-token-file", str(token), "--measurement-model", "claude-sonnet-5-5")
+        result = run(host, "--profile", "p1", "--slots", "3", "--name", "box", "--machine-key", "box-1")
     assert result.returncode == 0, result.stderr
     runtime = Path(host["env"]["HOME"]) / ".local/share/agent-q/runtime"
     for name in BINARIES:
@@ -187,14 +184,13 @@ def test_installs_binaries_and_calls_enroll_install_measure_in_order(host):
     link = Path(host["env"]["HOME"]) / ".local/bin/aq-worker"
     assert link.is_symlink() and link.resolve() == (runtime / "aq-worker").resolve()
     steps = [c["args"][:2] for c in worker_calls(host)]
-    assert steps == [["service", "enroll"], ["service", "install"], ["service", "measure"],
-                     ["service", "status"]]
+    assert steps == [["service", "enroll"], ["service", "install"], ["service", "status"]]
     enroll = worker_calls(host)[0]["args"]
-    assert enroll[enroll.index("--slots") + 1] == "3"
+    assert enroll[enroll.index("--nodes") + 1] == "3"
     assert enroll[enroll.index("--name") + 1] == "box"
     assert enroll[enroll.index("--machine-key") + 1] == "box-1"
     assert enroll[enroll.index("--aq-git") + 1] == str(runtime / "aq-git")
-    assert enroll[enroll.index("--measurement-token-file") + 1] == str(token)
+    assert not any("measurement" in arg for arg in enroll)
     assert "allow_enrolled_nodes" in result.stdout
 
 
@@ -206,8 +202,7 @@ def test_defaults_template_and_repositories_from_the_bundle(host):
     assert enroll[enroll.index("--native-template") + 1] == str(host["bundle"] / "native.json")
     assert enroll[enroll.index("--repositories") + 1] == str(host["bundle"] / "repositories.json")
     assert enroll[enroll.index("--profile") + 1] == "local"
-    assert enroll[enroll.index("--slots") + 1] == "1"
-    assert "--measurement-token-file" not in enroll
+    assert enroll[enroll.index("--nodes") + 1] == "1"
 
 
 @pytest.mark.parametrize("key", ["Bad", "-x", "a_b", "a" * 64, ""])
@@ -435,39 +430,48 @@ def test_deferred_install_enrolls_without_starting_a_service(host):
 
 @pytest.mark.parametrize("manual_sessions", [False, True])
 @pytest.mark.parametrize("with_token", [False, True])
-def test_hosted_install_keeps_the_bundled_worker_config_schema(tmp_path, manual_sessions, with_token):
+def test_hosted_install_writes_manual_sessions_with_their_claude_token_file(tmp_path, manual_sessions, with_token):
     (tmp_path / "bootstrap.json").write_text(json.dumps({
-        "manual_sessions": manual_sessions, "source_slugs": {},
+        "manual_sessions": manual_sessions, "source_slugs": {"repo": "owner/repo"},
     }))
     service = tmp_path / "service.toml"
-    contents = "slots = 1\n"
+    service.write_text("slots = 1\n")
+    argv = [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
+            "configure", str(tmp_path), str(tmp_path), "https://worker.example",
+            "/usr/bin/podman", "1", "a" * 64]
     if with_token:
-        contents += '\n[measurement]\ntoken_file = "/private/claude-token"\n'
-    service.write_text(contents)
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
-         "configure", str(tmp_path), str(tmp_path), "https://worker.example",
-         "/usr/bin/podman", "1", "a" * 64],
-        capture_output=True, text=True, timeout=20,
-    )
-    assert result.returncode == 0, result.stderr
-    assert ("manual" in tomllib.loads(service.read_text())) == (manual_sessions and with_token)
+        argv.append("/private/claude-token")
+    for _ in range(2):
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=20)
+        assert result.returncode == 0, result.stderr
+        written = tomllib.loads(service.read_text())
+        assert "measurement" not in written
+        if manual_sessions and with_token:
+            assert written["manual"] == {
+                "podman_executable": "/usr/bin/podman",
+                "claude_token_file": "/private/claude-token", "source_slugs": {"repo": "owner/repo"},
+            }
+            assert "Use Push logins" not in result.stdout
+        else:
+            assert written == {"slots": 1}
+            assert "Use Push logins" in result.stdout
 
 
-def test_hosted_install_repairs_the_tokenless_manual_section_and_keeps_enrollment(tmp_path):
+def test_hosted_install_keeps_an_existing_manual_section_and_enrollment(tmp_path):
     (tmp_path / "bootstrap.json").write_text(json.dumps({
         "manual_sessions": True, "source_slugs": {},
     }))
     service = tmp_path / "service.toml"
-    original = 'slots = 1\nmachine_key = "existing-pc"\n\n[measurement]\nenabled = false\n'
-    service.write_text(original.rstrip() + '\n\n[manual]\npodman_executable = "/usr/bin/podman"\nmax_slots = 1\n\n[manual.source_slugs]\n')
+    original = ('slots = 1\nmachine_key = "existing-pc"\n\n[manual]\npodman_executable = "/usr/bin/podman"\n'
+                'max_slots = 1\nclaude_token_file = "/private/first"\n\n[manual.source_slugs]\n')
+    service.write_text(original)
     enrollment = tmp_path / "worker.toml"
     enrollment.write_text('credential = "existing-enrollment"\n')
     for _ in range(2):
         result = subprocess.run(
             [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
              "configure", str(tmp_path), str(tmp_path), "https://worker.example",
-             "/usr/bin/podman", "1", "a" * 64],
+             "/usr/bin/podman", "1", "a" * 64, "/private/second"],
             capture_output=True, text=True, timeout=20,
         )
         assert result.returncode == 0, result.stderr
@@ -489,7 +493,7 @@ def login_profile(tmp_path):
     (package / "codex-bundle").mkdir()
     (package / "bootstrap.json").write_text(json.dumps({"source_slugs": {"repo": "owner/repo"}}))
     (config / "login-sync.json").write_text(json.dumps({"podman": "/opt/podman"}))
-    (config / "service.toml").write_text('profile = "local"\nslots = 1\n[measurement]\nenabled = false\nmodel = "fixture-model"\n')
+    (config / "service.toml").write_text('profile = "local"\nslots = 1\n')
     return package, config
 
 
@@ -501,9 +505,8 @@ def test_server_logins_enable_manual_both_providers_and_remain_private(tmp_path)
     assert helper.apply_logins(package, config, logins)
     parsed = helper.read_toml(config / "service.toml")
     assert parsed["manual"]["source_slugs"] == {"repo": "owner/repo"}
-    assert parsed["measurement"]["enabled"] is True, "a machine installed from the dashboard takes queued work"
-    assert parsed["measurement"]["model"] == "fixture-model"
-    assert parsed["measurement"]["token_file"] == str(config / "provider-auth/claude-token")
+    assert "measurement" not in parsed
+    assert parsed["manual"]["claude_token_file"] == str(config / "provider-auth/claude-token")
     assert parsed["manual"]["codex"]["auth_file"] == str(config / "provider-auth/codex-auth.json")
     for path in (config / "provider-auth").iterdir():
         assert path.stat().st_mode & 0o777 == 0o600
@@ -516,7 +519,11 @@ def test_codex_only_then_claude_requests_capability_restart(tmp_path):
     auth = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "a", "refresh_token": "r", "id_token": "i", "account_id": "acct"}})
     assert helper.apply_logins(package, config, [{"provider": "openai", "material": auth}])
     assert not (config / "provider-auth/claude-token").exists()
+    # The worker requires the key; it offers Claude only once the file exists.
+    token = str(config / "provider-auth/claude-token")
+    assert helper.read_toml(config / "service.toml")["manual"]["claude_token_file"] == token
     assert helper.apply_logins(package, config, [{"provider": "anthropic", "material": "synthetic"}])
+    assert helper.read_toml(config / "service.toml")["manual"]["claude_token_file"] == token
 
 
 def test_invalid_delivery_writes_no_secrets(tmp_path):
@@ -979,31 +986,6 @@ def test_an_update_stops_the_running_workers_before_replacing_their_files(host):
 
 
 
-def test_rerunning_the_installer_enables_queued_work_once_a_claude_login_was_delivered(tmp_path):
-    package, config = tmp_path / "package", tmp_path / "config"
-    package.mkdir()
-    config.mkdir()
-    (package / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}, "measurement_model": "bundle-model"}))
-    token = config / "claude-token"
-    service = config / "service.toml"
-    service.write_text(f'slots = 1\n\n[measurement]\nenabled = false\ntoken_file = "{token}"\n')
-    args = ("configure", package, config, "https://worker.example", "/usr/bin/podman", "1", "a" * 64)
-    # No login has been delivered yet: nothing to measure with, so it stays off.
-    waiting = run_config(tmp_path, *args)
-    assert waiting.returncode == 0, waiting.stderr
-    assert "Use Push logins" in waiting.stdout
-    assert tomllib.loads(service.read_text())["measurement"]["enabled"] is False
-    token.write_text("synthetic-claude")
-    enabled = run_config(tmp_path, *args)
-    assert enabled.returncode == 0, enabled.stderr
-    assert "Queued work is enabled" in enabled.stdout
-    measurement = tomllib.loads(service.read_text())["measurement"]
-    assert measurement == {"enabled": True, "token_file": str(token), "model": "bundle-model"}
-    assert tomllib.loads(service.read_text())["slots"] == 1
-    again = run_config(tmp_path, *args)
-    assert again.returncode == 0 and "Queued work is enabled" not in again.stdout
-
-
 def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(tmp_path, monkeypatch):
     helper = login_helper()
     config = tmp_path / "local"
@@ -1016,7 +998,7 @@ def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(t
                   "docker_local": {"socket": str(present)}, "driver": {"path": str(present)},
                   "helper": {"path": str(present)}, "tmux": {"path": str(present)}}}}}
     (config / "native.json").write_text(json.dumps(native))
-    (config / "service.toml").write_text(f'slots = 1\nnative_template = "{config / "native.json"}"\n\n[measurement]\nenabled = true\nmodel = "m"\n')
+    (config / "service.toml").write_text(f'slots = 1\nnative_template = "{config / "native.json"}"\n')
     log = "attempt failed: No such file or directory\ntoken sk-ant-oat01-abcDEF_123 seen\n" + "x" * 500 + "\n"
     def fake_run(argv, **_):
         out = {"systemctl": "active\n", "journalctl": log}.get(Path(argv[0]).name, "aq-worker 0.5.1+abc\n")
@@ -1024,10 +1006,28 @@ def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(t
     monkeypatch.setattr(helper.subprocess, "run", fake_run)
     report = helper.worker_service_report(config)
     assert report["active"] == "active" and report["version"] == "aq-worker 0.5.1+abc"
-    assert report["measurement"] == {"enabled": True, "model": "m"}
+    assert "measurement" not in report
     assert report["missing"] == ["inventory_definition"]
     assert report["state_dir"] == {"mode": "0o700", "holds_git_root": True}
     assert report["log"][0] == "attempt failed: No such file or directory"
     assert report["log"][1] == "token [redacted] seen" and len(report["log"][2]) == 240
     assert len(json.dumps(report)) < 12000
 
+
+
+@pytest.mark.parametrize("key", ["nodes", "slots"])
+def test_hosted_install_node_count_preserves_each_enrollment(tmp_path, key):
+    (tmp_path / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}}))
+    (tmp_path / "service.toml").write_text(f"{key} = 2\n")
+    for node in (1, 2):
+        path = tmp_path / f"slots/{node}/worker.toml"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"credential = 'node-{node}'\n")
+    argv = [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
+            "configure", str(tmp_path), str(tmp_path), "https://worker.example",
+            "/usr/bin/podman", "2", "a" * 64]
+    result = subprocess.run(argv, capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert tomllib.loads((tmp_path / "service.toml").read_text()) == {key: 2}
+    for node in (1, 2):
+        assert (tmp_path / f"slots/{node}/worker.toml").read_text() == f"credential = 'node-{node}'\n"

@@ -21,18 +21,13 @@ fn settings(config: &NativeConfig) -> CodexSettings {
     harness.cli_version = Text::new("0.166.0").unwrap();
     harness.adapter = config.adapter.clone();
     harness.required_capabilities.clear();
-    let mut model: ModelSettings = serde_json::from_value(manifest["model"].clone()).unwrap();
-    model.provider = Text::new("openai").unwrap();
-    model.reasoning = Text::new("low").unwrap();
-    model.spending_budget = None;
     let root = config.state_dir.join("host");
     std::fs::create_dir(&root).unwrap();
     std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
     CodexSettings {
         host_root: root,
         harness,
-        model,
-        permissions_digest: Digest::of(b"permissions"),
+        permissions_digest: Some(Digest::of(b"permissions")),
         columns: 80,
         rows: 24,
     }
@@ -131,24 +126,29 @@ fn trusted_profile_requires_independent_matching_environment_before_installation
     assert!(!dir.path().join("journal").exists());
 }
 
+/// The executor settings name no model: the offered one is launched. A template that still
+/// carries the old installed `model` is refused as an unknown field.
 #[test]
-fn model_bound_is_per_response_and_never_an_aggregate_spending_budget() {
+fn executor_settings_carry_no_installed_model() {
     let (_dir, config) = super::super::tests::config();
-    let mut settings = settings(&config);
-    for cap in [0, 15, 1_048_577, u64::MAX] {
-        settings.model.max_output_tokens = cap;
-        assert!(settings.validate(&config).is_err());
-    }
-    for cap in [16, 4096, 1_048_576] {
-        settings.model.max_output_tokens = cap;
-        settings.validate(&config).unwrap();
-    }
-    settings.model.spending_budget = Some(aq_session_protocol::SpendingBudget {
-        basis: aq_session_protocol::BudgetBasis::TaskCumulativeEnforcedCost,
-        currency: Text::new("USD").unwrap(),
-        limit_microunits: 1_000_000,
+    let settings = settings(&config);
+    let mut wire = serde_json::json!({
+        "kind":"codex-0.166-exec-stdin-v1",
+        "settings": {
+            "host_root":settings.host_root,"harness":settings.harness,
+            "permissions_digest":settings.permissions_digest,"columns":80,"rows":24
+        }
     });
-    assert!(settings.validate(&config).is_err());
+    serde_json::from_value::<ExecutorConfig>(wire.clone()).unwrap();
+    wire["settings"]["model"] = serde_json::json!({"provider":"openai","model":"installed-model",
+        "reasoning":"low","max_output_tokens":4096,"spending_budget":null});
+    let refused = serde_json::from_value::<ExecutorConfig>(wire)
+        .err()
+        .unwrap();
+    assert!(
+        refused.to_string().contains("unknown field `model`"),
+        "{refused}"
+    );
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn trusted_profile_wire_is_closed_and_requires_environment_reference() {
     let mut wire = serde_json::json!({
         "kind":"codex-0.166-trusted-node-named-readonly-v1",
         "settings": {
-            "host_root":settings.host_root,"harness":settings.harness,"model":settings.model,
+            "host_root":settings.host_root,"harness":settings.harness,
             "permissions_digest":settings.permissions_digest,"columns":80,"rows":24
         },
         "environment":settings.harness.environment
@@ -233,7 +233,7 @@ fn result_configuration(
         client_executable: client.executable.artifact.clone(),
         contract: aq_agent_result_local::artifact(),
         recipe: aq_codex_mapper::result_local_recipe_artifact(),
-        permission_digest: selected.permissions_digest.clone(),
+        permission_digest: Digest::of(b"any installed plan"),
         additional_permission_digests: vec![],
         reserved_client_bytes:
             crate::native::adapter::result_client::MAX_RESULT_CLIENT_INSTALLATION_BYTES,
@@ -301,7 +301,7 @@ fn result_factory_wire_is_distinct_and_cannot_supply_arbitrary_folder() {
     let selected = settings(&config);
     let mut wire = serde_json::json!({
         "kind":"codex-0.166-trusted-node-named-readonly-result-local-v1",
-        "settings": {"host_root":selected.host_root,"harness":selected.harness,"model":selected.model,
+        "settings": {"host_root":selected.host_root,"harness":selected.harness,
             "permissions_digest":selected.permissions_digest,"columns":80,"rows":24},
         "environment":selected.harness.environment,
         "client_manifest":"/var/lib/aq/client-manifest.json",

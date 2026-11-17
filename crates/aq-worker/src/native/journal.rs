@@ -435,15 +435,7 @@ impl Journal {
             limits,
         )
     }
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn create_with_identity_for_test(
-        root: &Path,
-        identity: WorkerIdentity,
-        limits: Limits,
-    ) -> Result<Self> {
-        Self::create_identity(root, identity, limits)
-    }
-    fn create_identity(root: &Path, identity: WorkerIdentity, limits: Limits) -> Result<Self> {
+    pub fn create_identity(root: &Path, identity: WorkerIdentity, limits: Limits) -> Result<Self> {
         identity.validate()?;
         limits.validate()?;
         let kernel_boot_id = kernel_boot_id()?;

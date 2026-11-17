@@ -171,7 +171,6 @@ def build(args):
     if any(not SLUG.fullmatch(slug) for slug in slugs.values()):
         raise ValueError("Use owner/repository names in the source map.")
     metadata = {
-        "measurement_model": service.get("measurement", {}).get("model"),
         "manual_sessions": "manual" in service,
         "source_slugs": slugs,
     }

@@ -26,7 +26,8 @@
 //!   `@ai-sdk/openai-compatible`), with no credential file at all.
 //! - Requests: the output cap (`OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`) and,
 //!   on the `openai` routes, the model's `reasoningEffort` come from
-//!   [`ModelSettings`] (Ollama keeps the model's own thinking default), and
+//!   [`ModelSettings`] (Ollama keeps the model's own thinking default; so do
+//!   the `openai` routes for reasoning `default`, which sets no effort), and
 //!   title generation (a second, temperature-bearing request) and automatic
 //!   compaction are off, so every request is the selected turn the B6b
 //!   policy admits.
@@ -109,6 +110,20 @@ pub struct OpenCodeRecipe {
     pub config_json: Vec<u8>,
 }
 
+/// `model.reasoning` for OpenCode: `default` sets no `reasoningEffort` (the
+/// model's own setting), the others are that option's value. Closed set: an
+/// unknown value is refused, never passed on. These are the values the
+/// loopback Responses proxy of the API-key route also admits.
+fn reasoning_effort(model: &ModelSettings) -> Result<Option<&str>> {
+    match model.reasoning.as_str() {
+        "default" => Ok(None),
+        value @ ("low" | "medium" | "high") => Ok(Some(value)),
+        value => anyhow::bail!(
+            "OpenCode recipe unsupported reasoning {value:?}: expected default, low, medium or high"
+        ),
+    }
+}
+
 /// Crate-private: callers reach it only through `OpenCodeAgentHome::install`,
 /// which requires an `AuthorizedConfinement`.
 pub(crate) fn map(
@@ -129,6 +144,7 @@ pub(crate) fn map(
             && model.spending_budget.is_none(),
         "OpenCode recipe unsupported settings"
     );
+    let effort = reasoning_effort(model)?;
     let declares = |id: &str| {
         harness
             .required_capabilities
@@ -218,16 +234,22 @@ pub(crate) fn map(
         arguments,
         environment,
         working_directory: workspace.to_owned(),
-        config_json: serde_json::to_vec_pretty(&config(model, &model_ref, route))?,
+        config_json: serde_json::to_vec_pretty(&config(model, effort, &model_ref, route))?,
     })
 }
 
-fn config(settings: &ModelSettings, model: &str, route: OpenCodeRoute) -> serde_json::Value {
-    let mut provider = serde_json::json!({ "openai": { "models": {
-        settings.model.as_str(): {
-            "options": { "reasoningEffort": settings.reasoning.as_str() }
-        }
-    } } });
+fn config(
+    settings: &ModelSettings,
+    effort: Option<&str>,
+    model: &str,
+    route: OpenCodeRoute,
+) -> serde_json::Value {
+    let options = match effort {
+        Some(effort) => serde_json::json!({ "options": { "reasoningEffort": effort } }),
+        None => serde_json::json!({}),
+    };
+    let mut provider =
+        serde_json::json!({ "openai": { "models": { settings.model.as_str(): options } } });
     match route {
         OpenCodeRoute::ResponsesProxy { port } => {
             provider["openai"]["options"] =

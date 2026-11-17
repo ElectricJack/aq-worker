@@ -32,6 +32,11 @@ def atomic_text(path, contents):
         staging.unlink(missing_ok=True)
 
 
+def node_count(config):
+    """The old service key `slots` counts enrolled nodes, never agents within a node."""
+    return config.get("nodes", config.get("slots"))
+
+
 def read_toml(path):
     with path.open("rb") as stream:
         return tomllib.load(stream)
@@ -40,7 +45,7 @@ def read_toml(path):
 def prepare(package, work, origin, socket, config, digest):
     # A profile installed from this server's installer may take a newer bundle
     # from the same server: that is an update. Its runtime binaries and native
-    # template are then replaced; its enrollment, slots and identity are kept.
+    # template are then replaced; its enrollments, node count and identities are kept.
     marker = config / "hosted-install.json"
     update = False
     if marker.exists():
@@ -91,10 +96,14 @@ def prepare(package, work, origin, socket, config, digest):
     (work / "image").write_text(entry["image"] + "\n")
 
 
-def manual_settings(package, podman, slots, source_slugs):
+def manual_settings(package, podman, slots, source_slugs, claude_token):
+    """The `[manual]` section. `claude_token_file` is the Claude subscription token file manual
+    Claude sessions log in with; the worker requires the key and offers Claude only while the file
+    is readable."""
     lines = [
         "", "[manual]", f"podman_executable = {json.dumps(str(podman))}",
-        f"max_slots = {slots}", "", "[manual.source_slugs]",
+        f"claude_token_file = {json.dumps(str(claude_token))}",
+        "", "[manual.source_slugs]",
     ]
     lines.extend(f"{json.dumps(key)} = {json.dumps(slug)}" for key, slug in source_slugs.items())
     if (package / "codex-bundle").is_dir():
@@ -106,45 +115,19 @@ def manual_settings(package, podman, slots, source_slugs):
     return "\n" + "\n".join(lines) + "\n"
 
 
-def enable_measurement(package, config):
-    """A machine installed from the dashboard takes queued work (owner, 2026-11-15).
-
-    Queued work needs a qualification measurement, which needs a Claude login and a model. A worker
-    enrolled without a token file starts with measurement off; once a Claude login has been delivered
-    (`measurement.token_file` names a file that exists) it is turned on, with the bundle's model when
-    the profile names none. Without it the worker connects and serves manual sessions but never
-    reports its capabilities. Returns whether the configuration changed.
-    """
-    service = config / "service.toml"
-    contents = service.read_text()
-    measurement = tomllib.loads(contents).get("measurement", {})
-    model = measurement.get("model") or json.loads((package / "bootstrap.json").read_text()).get("measurement_model")
-    token = measurement.get("token_file")
-    if measurement.get("enabled") or not model or not token or not Path(token).is_file():
-        return False
-    contents = set_toml_value(contents, "measurement", "model", model)
-    atomic_text(service, set_toml_value(contents, "measurement", "enabled", True))
-    return True
-
-
-def configure(package, config, origin, podman, slots, digest):
+def configure(package, config, origin, podman, slots, digest, claude_token=None):
+    """`claude_token` is a Claude subscription token file found on this machine at install time
+    (none when logins arrive later through Push logins)."""
     service = config / "service.toml"
     contents = service.read_text()
     current = tomllib.loads(contents)
-    if current["slots"] != slots:
-        raise ValueError("The profile already has a different slot count. Keep the existing count or choose another profile.")
+    if node_count(current) != slots:
+        raise ValueError("The profile already has a different node count. Keep the existing count or choose another profile.")
     metadata = json.loads((package / "bootstrap.json").read_text())
-    measurement = current.get("measurement", {})
-    if metadata["manual_sessions"]:
-        suffix = manual_settings(package, podman, slots, metadata["source_slugs"])
-        if measurement.get("token_file"):
-            if "manual" not in current:
-                atomic_text(service, contents.rstrip() + suffix)
-        elif "manual" in current:
-            # Earlier installers appended this section before checking for the required token.
-            if not contents.endswith(suffix):
-                raise ValueError("This profile has custom manual settings. Configure its measurement token to enable manual sessions.")
-            atomic_text(service, contents.removesuffix(suffix) + "\n")
+    manual = "manual" in current
+    if metadata["manual_sessions"] and not manual and claude_token is not None:
+        atomic_text(service, contents.rstrip() + manual_settings(package, podman, slots, metadata["source_slugs"], claude_token))
+        manual = True
     # Without this directory the worker fails every attempt with "No such file or directory"
     # and never reports its capabilities.
     state = config / "state"
@@ -155,10 +138,8 @@ def configure(package, config, origin, podman, slots, digest):
         staged.replace(config / "native.json")
         print("This worker was updated to the bundle of this installer. Its enrollment was kept.")
     atomic_text(config / "hosted-install.json", json.dumps({"origin": origin, "bundle_sha256": digest}) + "\n")
-    if enable_measurement(package, config):
-        print("Queued work is enabled: this worker now measures with its delivered Claude login.")
-    elif not measurement.get("enabled"):
-        print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to enable agents and queued work.")
+    if not manual:
+        print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to deliver its provider logins.")
 
 
 
@@ -323,7 +304,7 @@ def worker_binary_update(config, installer, origin):
     # those workers held the slot for good even when the server had answered with a refusal.
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agent-q/service" / config.name
     released = []
-    for held in sorted(state.glob("slots/*/held")):
+    for held in sorted([*state.glob("slots/*/held"), *state.glob("nodes/*/slots/*/held")]):
         current = held.parent / "current"
         if held.read_text().startswith("prepare_disposition_unknown") and current.is_dir() and not (current / "server-refused").exists():
             atomic_text(current / "server-refused", "released by a remote worker update")
@@ -552,7 +533,6 @@ def worker_service_report(config):
     }
     try:
         service = read_toml(config / "service.toml")
-        report["measurement"] = {key: service.get("measurement", {}).get(key) for key in ("enabled", "model")}
         native = json.loads(Path(service["native_template"]).read_text())
         host = native["executor"]["settings"]["host"]
         paths = {
@@ -640,28 +620,26 @@ def apply_logins(package, config, logins):
     contents = previous
     current = tomllib.loads(contents)
     claude = str(private / "claude-token")
-    if "anthropic" in providers or not current.get("measurement", {}).get("token_file"):
-        contents = set_toml_value(contents, "measurement", "token_file", claude)
     metadata = json.loads((package / "bootstrap.json").read_text())
     if "manual" not in current:
         settings = json.loads((config / "login-sync.json").read_text())
-        contents = contents.rstrip() + manual_settings(package, settings["podman"], current["slots"], metadata["source_slugs"])
+        contents = contents.rstrip() + manual_settings(package, settings["podman"], node_count(current), metadata["source_slugs"], claude)
+    elif "anthropic" in providers or not current["manual"].get("claude_token_file"):
+        contents = set_toml_value(contents, "manual", "claude_token_file", claude)
     if "openai" in providers:
         contents = set_toml_value(contents, "manual.codex", "auth_file", str(private / "codex-auth.json"))
     if contents != previous:
         atomic_text(service, contents)
-    # A delivered Claude login also lets the worker qualify for queued work.
-    measuring = enable_measurement(package, config)
-    return contents != previous or new_provider or measuring
+    return contents != previous or new_provider
 
 
 def sync_logins(package, config):
     state = None
     try:
         state = read_toml(config / "service.toml")
-        count = state["slots"]
+        count = node_count(state)
         if type(count) is not int or not 1 <= count <= 8:
-            raise ValueError("Invalid slot count")
+            raise ValueError("Invalid node count")
         slots = list(range(1, count + 1))
     except (ValueError, OSError, KeyError):
         # Control traffic must survive the broken configuration it diagnoses.
@@ -880,8 +858,8 @@ def main():
         work, origin, socket, config, digest = args
         prepare(package, Path(work), origin, Path(socket), Path(config), digest)
     elif mode == "configure":
-        config, origin, podman, slots, digest = args
-        configure(package, Path(config), origin, Path(podman), int(slots), digest)
+        config, origin, podman, slots, digest, *claude_token = args
+        configure(package, Path(config), origin, Path(podman), int(slots), digest, *map(Path, claude_token[:1]))
     elif mode == "preflight":
         sandbox_preflight(package, Path(args[0]), Path(args[1]))
     elif mode == "upgrade-controls":

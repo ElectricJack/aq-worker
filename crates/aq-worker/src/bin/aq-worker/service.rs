@@ -1,24 +1,24 @@
 //! `aq-worker run --service-config` and `aq-worker service ...` (spec 0007 phase 1):
 //! the glue between `aq-node-service` and the native pipeline.
 use anyhow::{Context, Result, bail, ensure};
+use aq_node_service::session::NodeSession;
 use aq_node_service::{
     AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError, MachineLink,
-    MeasurementConfig, RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState,
-    SlotBackend, SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff,
-    write_machine_json, write_private,
+    RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState, SlotBackend,
+    SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff, write_machine_json,
+    write_private,
 };
 use aq_protocol::{
-    ArtifactPin, EnrollRequest, HandoffNotice, HandoffReason, MeasurementSubmission,
-    PROTOCOL_VERSION, SlotsRequest, valid_machine_key,
+    EnrollRequest, HandoffNotice, HandoffReason, PROTOCOL_VERSION, SlotsRequest, valid_machine_key,
 };
 use aq_worker::{
     client::Client,
     config::WorkerConfig,
     native::journal::RecoveryHold,
     native::runner::{
-        ClaudeDockerExecutor, ExecutorConfig, NativeConfig, RunDisposition, SalvageDisposition,
-        claimed_attempts, destroy_claimed_sandboxes, retained_attempts, run_until_attempt,
-        salvage_interrupted,
+        ClaudeDockerExecutor, ExecutorConfig, NativeConfig, NativeExecutor, RunDisposition,
+        SalvageDisposition, claimed_attempts, destroy_claimed_sandboxes, retained_attempts,
+        run_node_slot, run_until_attempt, salvage_interrupted,
     },
 };
 use clap::{Args, Subcommand};
@@ -32,8 +32,8 @@ use uuid::Uuid;
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 pub enum ServiceCmd {
-    /// Enroll slot 1 with a single-use code (prompted, or the first stdin line), claim the machine
-    /// key, mint slots 2..N, write machine.json and service.toml. With --cf-service-token the next
+    /// Enroll node 1 with a single-use code (prompted, or the first stdin line), claim the machine
+    /// key, mint nodes 2..N, write machine.json and service.toml. With --cf-service-token the next
     /// two prompts or lines are the node Access client id and secret.
     Enroll(ServiceEnrollArgs),
     /// Install and start the systemd user service for an enrolled profile.
@@ -58,6 +58,9 @@ pub enum ServiceCmd {
     ReleaseSandbox {
         #[arg(long)]
         profile: String,
+        /// Enrolled node index. Without this flag, --slot keeps its historical node-index meaning.
+        #[arg(long)]
+        node: Option<u32>,
         #[arg(long)]
         slot: u32,
         #[arg(long)]
@@ -68,15 +71,6 @@ pub enum ServiceCmd {
         #[arg(long)]
         force: bool,
     },
-    /// Run the qualification measurement now and submit it.
-    Measure {
-        #[arg(long)]
-        profile: String,
-        /// Write the outputs to <DIR>/measure (for `ms1-profiled.py` `measured()`) and do
-        /// not submit.
-        #[arg(long, hide = true)]
-        output: Option<PathBuf>,
-    },
 }
 #[derive(Args)]
 pub struct ServiceEnrollArgs {
@@ -84,8 +78,9 @@ pub struct ServiceEnrollArgs {
     profile: String,
     #[arg(long)]
     server: String,
-    #[arg(long, default_value_t = 1)]
-    slots: u32,
+    /// Enrolled nodes on this machine. Agent slots are controlled by the server.
+    #[arg(long = "nodes", alias = "slots", default_value_t = 1)]
+    nodes: u32,
     #[arg(long)]
     name: Option<String>,
     #[arg(long)]
@@ -98,13 +93,10 @@ pub struct ServiceEnrollArgs {
     aq_git: PathBuf,
     #[arg(long, default_value = "/usr/bin/git")]
     git_executable: PathBuf,
-    /// JSON array of RepositoryBinding.
+    /// JSON array of RepositoryBinding to register before any offer (optional: a repository
+    /// an offer names is registered from the offer when it is first seen).
     #[arg(long)]
-    repositories: PathBuf,
-    #[arg(long)]
-    measurement_token_file: Option<PathBuf>,
-    #[arg(long, requires = "measurement_token_file")]
-    measurement_model: Option<String>,
+    repositories: Option<PathBuf>,
     /// Enroll a profile that is already enrolled (after a revoke): redeems a new code and
     /// replaces its credentials and configuration. `service install` then restarts it.
     #[arg(long)]
@@ -117,36 +109,35 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Install { profile } => install(&profile),
         ServiceCmd::Uninstall { profile, purge } => uninstall(&profile, purge),
         ServiceCmd::Status { profile } => status(&profile),
-        ServiceCmd::Measure { profile, output } => measure(&profile, output.as_deref()).await,
         ServiceCmd::ReleaseSandbox {
             profile,
+            node,
             slot,
             attempt_id,
             reason,
             force,
-        } => release_sandbox(&profile, slot, attempt_id, &reason, force).await,
+        } => release_sandbox(&profile, node, slot, attempt_id, &reason, force).await,
     }
 }
 
 /// The native pipeline behind the supervisor: one `run_until_attempt` per call.
 pub struct NativeSlotBackend {
     template: PathBuf,
-    /// Slot 1's node: it owns the measurement sandbox.
-    measure_node: Uuid,
     /// Attempts whose restart handoff notice the server accepted; a retried recovery does
     /// not post them again.
     notified: std::sync::Mutex<std::collections::HashSet<Uuid>>,
     manual_pause: std::collections::BTreeMap<Uuid, watch::Receiver<bool>>,
     native_active: std::collections::BTreeMap<Uuid, Arc<std::sync::atomic::AtomicUsize>>,
+    sessions: std::collections::BTreeMap<Uuid, Arc<NodeSession>>,
 }
 impl NativeSlotBackend {
-    pub fn new(template: PathBuf, measure_node: Uuid) -> Self {
+    pub fn new(template: PathBuf) -> Self {
         Self {
             template,
-            measure_node,
             notified: Default::default(),
             manual_pause: Default::default(),
             native_active: Default::default(),
+            sessions: Default::default(),
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
@@ -208,6 +199,15 @@ impl NativeSlotBackend {
                 tracing::warn!(%attempt, "the server released this attempt; its unreported result is archived, not retried");
                 continue;
             }
+            // The server granted this execution and the worker closed it before any launch
+            // intent (for example a refused manifest). No host, sandbox or result exists, so
+            // nothing can still write for it and holding the slot protects nothing: one such
+            // refusal used to take the whole worker out for good. It is archived with the
+            // slot's state; a launch that recorded an intent is never released this way.
+            if never_launched(&salvaged) {
+                tracing::error!(%attempt, "granted execution was never launched (no launch intent, host or result recorded): its state is archived and the slot released. The worker cannot report this closure yet, so the server keeps the attempt and its task until an operator settles it");
+                continue;
+            }
             match salvaged? {
                 SalvageDisposition::Unsalvageable(why) => {
                     return Ok(RecoverOutcome::Held(why.to_owned()));
@@ -222,6 +222,12 @@ impl NativeSlotBackend {
         }
         Ok(outcome)
     }
+}
+/// Recovery's `launch_closure_pending`: an execution was granted and the journal holds no
+/// launch intent, host history or result for it (`runner::recovery::pre_launch`).
+fn never_launched<T>(recovered: &Result<T>) -> bool {
+    let hold = recovered.as_ref().err().and_then(|e| e.downcast_ref());
+    matches!(hold, Some(RecoveryHold("launch_closure_pending", _)))
 }
 /// R1: a recovery that retrying cannot change (an unreadable or inconsistent journal, a
 /// Prepare or launch whose disposition recovery cannot settle) holds the slot with its reason,
@@ -239,29 +245,20 @@ fn held_if_permanent(recovered: Result<RecoverOutcome>) -> Result<RecoverOutcome
     }
 }
 /// The native template, pointed at the slot's state (journal, Git) and runtime directory
-/// (aq-git's socket, the session host root), with the slot's renderer.
+/// (aq-git's socket, the session host root). The renderer is the template's own.
 fn slot_native_config(template: &Path, ctx: &SlotContext) -> Result<NativeConfig> {
     let mut cfg = NativeConfig::load(template)?;
+    cfg.capacity.slots = 1;
     cfg.state_dir = ctx.state_dir.clone();
     cfg.git_socket = ctx.git_socket.clone();
     cfg.git_root = ctx.state_dir.join("git");
     if let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = &mut cfg.executor {
         settings.host.root = ctx.host_root.clone();
-        if let Some(pin) = &ctx.renderer {
-            settings.host.renderer = to_artifact_ref(pin)?;
-        }
     } else {
         bail!("the worker service needs the Claude docker-local executor in its native template");
     }
-    if let Some(pin) = &ctx.renderer {
-        cfg.renderer = to_artifact_ref(pin)?;
-    }
     cfg.validate()?;
     Ok(cfg)
-}
-/// Converts a wire pin to the pipeline's artifact reference (same JSON shape).
-fn to_artifact_ref<T: serde::de::DeserializeOwned>(pin: &ArtifactPin) -> Result<T> {
-    serde_json::from_value(serde_json::to_value(pin)?).context("invalid renderer pin")
 }
 /// D2: a recovery that failed because the guardian was lost: the outside proof that its
 /// processes are dead, if one holds, and the reason. (The stopped contract carries only a
@@ -413,12 +410,67 @@ fn restart_reason(ctx: &SlotContext, attempt: Uuid) -> HandoffReason {
 
 #[async_trait::async_trait]
 impl SlotBackend for NativeSlotBackend {
+    async fn node_control(
+        &self,
+        ctx: SlotContext,
+        reply: &aq_protocol::ControlResponse,
+    ) -> Result<()> {
+        let session = self
+            .sessions
+            .get(&ctx.node_id)
+            .context("node session absent")?;
+        session.update(reply)?;
+        if !session.aware() {
+            return Ok(());
+        }
+        session
+            .register_once(|| async {
+                let worker = WorkerConfig::load(&ctx.enrollment)?;
+                let config = NativeConfig::load(&self.template)?;
+                ClaudeDockerExecutor::configured(&worker)?.preflight(&config)?;
+                let client = aq_worker::native::http::NativeClient::from_config(&worker)?
+                    .for_node_slot(1, session.registered_slots());
+                client
+                    .register(&aq_admission::transport::Register {
+                        schema_version: 1,
+                        operation_id: session.registration_id,
+                        identity: aq_admission::transport::WorkerIdentity {
+                            node_id: worker.node_id,
+                            boot_id: session.boot_id,
+                        },
+                        runtime: config.runtime.runtime,
+                        capabilities: config.capabilities,
+                        features: config.features,
+                    })
+                    .await?;
+                Ok(())
+            })
+            .await
+    }
+
+    async fn ready(&self, node_id: Uuid) {
+        if let Some(session) = self.sessions.get(&node_id) {
+            session.room().await;
+        }
+    }
     async fn run_attempt(
         &self,
         ctx: SlotContext,
         shutdown: watch::Receiver<bool>,
         pause: watch::Receiver<bool>,
     ) -> Result<AttemptOutcome> {
+        let session = self.sessions.get(&ctx.node_id).cloned();
+        let _permit = if let Some(session) = &session
+            && session.aware()
+        {
+            // Lost the race for the room `ready` saw: back to waiting there.
+            let Some(permit) = session.try_queued() else {
+                return Ok(AttemptOutcome::Paused);
+            };
+            Some(permit)
+        } else {
+            None
+        };
         struct Active(Arc<std::sync::atomic::AtomicUsize>);
         impl Drop for Active {
             fn drop(&mut self) {
@@ -456,15 +508,27 @@ impl SlotBackend for NativeSlotBackend {
         let worker = WorkerConfig::load(&ctx.enrollment)?;
         let cfg = self.native_config(&ctx)?;
         let mut executor = ClaudeDockerExecutor::configured(&worker)?;
-        Ok(
-            match run_until_attempt(&worker, cfg, &mut executor, shutdown, pause).await? {
-                RunDisposition::AttemptStopped => AttemptOutcome::AttemptStopped,
-                RunDisposition::PollingPaused => AttemptOutcome::Paused,
-                RunDisposition::ShutdownBeforeAdmission | RunDisposition::NoOffer => {
-                    AttemptOutcome::ShutdownBeforeAdmission
-                }
-            },
-        )
+        let disposition = if let Some(session) = session {
+            run_node_slot(
+                &worker,
+                cfg,
+                &mut executor,
+                shutdown,
+                (pause, ctx.hold),
+                session,
+                ctx.slot,
+            )
+            .await?
+        } else {
+            run_until_attempt(&worker, cfg, &mut executor, shutdown, pause, ctx.hold).await?
+        };
+        Ok(match disposition {
+            RunDisposition::AttemptStopped => AttemptOutcome::AttemptStopped,
+            RunDisposition::PollingPaused => AttemptOutcome::Paused,
+            RunDisposition::ShutdownBeforeAdmission | RunDisposition::NoOffer => {
+                AttemptOutcome::ShutdownBeforeAdmission
+            }
+        })
     }
     async fn recover(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
         held_if_permanent(Box::pin(self.recover_attempts(ctx)).await)
@@ -488,18 +552,46 @@ impl SlotBackend for NativeSlotBackend {
     fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>> {
         retained_attempts(&self.native_config(ctx)?, ctx.node_id)
     }
-    async fn measure(
-        &self,
-        token_file: &Path,
-        model: &str,
-        cancel: watch::Receiver<bool>,
-    ) -> Result<MeasurementSubmission> {
-        let node = self.measure_node;
-        let m = crate::measure::run(&self.template, token_file, model, node, cancel).await?;
-        Ok(m.measured.submission)
-    }
 }
 
+/// The node's one heartbeat. Only AQ's own refusal of the credential (revoked or invalid) stops
+/// the node; any other error (an edge 401/403, a 5xx AQ did not mark transient, a protocol
+/// refusal) is logged and the loop is started again after a jittered back-off.
+async fn node_heartbeat(
+    worker: WorkerConfig,
+    node_stop: watch::Sender<bool>,
+    stop: watch::Receiver<bool>,
+) -> Result<()> {
+    use aq_worker::client::CallError;
+    let node = worker.node_id;
+    let client = Client::from_config(&worker).inspect_err(|e| {
+        tracing::error!(%node, "node stopped: its heartbeat client was not built: {e:#}");
+        node_stop.send_replace(true);
+    })?;
+    let mut attempt = 0;
+    loop {
+        let (mut wait, mut ended) = (stop.clone(), stop.clone());
+        let started = tokio::time::Instant::now();
+        let stopped = async move { drop(wait.wait_for(|v| *v).await) };
+        match aq_worker::client::run_loop(&client, stopped).await {
+            Ok(()) => return Ok(()),
+            Err(e @ (CallError::Revoked | CallError::InvalidCredential)) => {
+                tracing::error!(%node, "node stopped: the server refused its credential: {e}");
+                node_stop.send_replace(true);
+                return Err(e.into());
+            }
+            Err(e) => {
+                if started.elapsed() > std::time::Duration::from_secs(120) {
+                    attempt = 0;
+                }
+                let delay = aq_node_service::backoff::delay(attempt, &mut rand::thread_rng());
+                tracing::warn!(%node, attempt, "heartbeat failed, retrying in {delay:?}: {e}");
+                attempt += 1;
+                tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = ended.wait_for(|v| *v) => return Ok(()) }
+            }
+        }
+    }
+}
 fn is_wsl() -> bool {
     std::fs::read_to_string("/proc/sys/kernel/osrelease")
         .is_ok_and(|r| r.to_lowercase().contains("microsoft"))
@@ -569,8 +661,8 @@ async fn enroll_in(
             .context("pass --machine-key: the host name does not make a valid machine key")?,
     };
     ensure!(
-        (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(&args.slots),
-        "slots must be 1..={}",
+        (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(&args.nodes),
+        "nodes must be 1..={}",
         aq_protocol::MAX_MACHINE_SLOTS
     );
     aq_node_service::checked_origin(&args.server)?;
@@ -579,11 +671,13 @@ async fn enroll_in(
         .clone()
         .or(hostname)
         .context("cannot determine hostname; pass --name")?;
-    let repositories: Vec<RepositoryBinding> = serde_json::from_slice(
-        &std::fs::read(&args.repositories)
-            .with_context(|| format!("read {}", args.repositories.display()))?,
-    )
-    .context("repositories must be a JSON array of repository bindings")?;
+    let repositories: Vec<RepositoryBinding> = match &args.repositories {
+        None => vec![],
+        Some(path) => serde_json::from_slice(
+            &std::fs::read(path).with_context(|| format!("read {}", path.display()))?,
+        )
+        .context("repositories must be a JSON array of repository bindings")?,
+    };
     let template = std::fs::read(&args.native_template)
         .with_context(|| format!("read {}", args.native_template.display()))?;
     let native = layout.config_dir.join("native.json");
@@ -591,7 +685,7 @@ async fn enroll_in(
         schema_version: 1,
         profile: args.profile.clone(),
         machine_key: machine_key.clone(),
-        slots: args.slots,
+        nodes: args.nodes,
         native_template: native.clone(),
         state_root: layout.state_root.clone(),
         runtime_root: None,
@@ -601,16 +695,11 @@ async fn enroll_in(
             git_executable: args.git_executable.clone(),
         },
         repositories,
-        measurement: MeasurementConfig {
-            enabled: args.measurement_token_file.is_some(),
-            token_file: args.measurement_token_file.clone(),
-            model: args.measurement_model.clone(),
-            ..MeasurementConfig::default()
-        },
         manual: None,
         shutdown_grace_ms: 120_000,
+        retry: Default::default(),
     };
-    // Repository count and format, absolute paths (the token file too), bounds, and the
+    // Repository count and format, absolute paths, bounds, and the
     // socket paths under the runtime root.
     config.validate()?;
 
@@ -660,7 +749,7 @@ async fn enroll_in(
     };
     // Claim the machine key and mint the siblings, always, even with one slot.
     let minted = ServerLink::from_enrollment(&first)?
-        .slots(&SlotsRequest { schema_version: 1, machine_key: machine_key.clone(), slots: args.slots })
+        .slots(&SlotsRequest { schema_version: 1, machine_key: machine_key.clone(), slots: args.nodes })
         .await
         .map_err(|e| match e.downcast_ref::<LinkError>() {
             Some(l) if l.status == 409 => anyhow::anyhow!("machine key {machine_key} is in use by another machine; revoke it from the Swarm page or pass --machine-key (rerun this command: the code is not needed again)"),
@@ -669,7 +758,7 @@ async fn enroll_in(
             _ => e.context("the machine key claim failed; rerun this command to resume it (the code is not needed again)"),
         })?;
     let mut files = vec![first.clone()];
-    for slot in 2..=args.slots {
+    for slot in 2..=args.nodes {
         let entry = minted
             .slots
             .iter()
@@ -698,7 +787,7 @@ async fn enroll_in(
     for (slot, file) in (1..).zip(&files) {
         file.save(&staged(&layout.slot_enrollment(slot)))?;
     }
-    for slot in 1..=args.slots {
+    for slot in 1..=args.nodes {
         let path = layout.slot_enrollment(slot);
         std::fs::rename(staged(&path), &path)
             .with_context(|| format!("install {}", path.display()))?;
@@ -711,7 +800,7 @@ async fn enroll_in(
     config.save(&layout.service_toml())?;
     std::fs::remove_file(&pending).context("remove the pending enrollment")?;
     println!(
-        "machine {machine_key}: slots {}",
+        "machine {machine_key}: nodes {}",
         files
             .iter()
             .map(|f| f.node_id.to_string())
@@ -803,9 +892,23 @@ fn status(profile: &str) -> Result<()> {
     };
     println!("aq-node@{profile} ({}): {state}", manager.kind());
     if let Ok((layout, config)) = loaded(profile) {
-        println!("machine {}: {} slot(s)", config.machine_key, config.slots);
-        for slot in 1..=config.slots {
-            println!("{}", slot_line(&layout, slot));
+        println!("machine {}: {} node(s)", config.machine_key, config.nodes);
+        for node in layout.enrolled_nodes() {
+            let view = layout.for_node(node);
+            let id = EnrollmentFile::load(&view.slot_enrollment(1))
+                .map(|e| e.node_id.to_string())
+                .unwrap_or_else(|_| "unenrolled".into());
+            println!(
+                "node {node}: {id}{}",
+                if node > config.nodes {
+                    " (retiring)"
+                } else {
+                    ""
+                }
+            );
+            for slot in view.existing_slots() {
+                println!("  {}", slot_line(&view, slot));
+            }
         }
     }
     Ok(())
@@ -820,61 +923,6 @@ fn slot_line(layout: &Layout, slot: u32) -> String {
         None => format!("slot {slot}: not held"),
     }
 }
-async fn measure(profile: &str, output: Option<&Path>) -> Result<()> {
-    let (layout, config) = loaded(profile)?;
-    let m = &config.measurement;
-    let (Some(file), Some(model)) = (&m.token_file, &m.model) else {
-        bail!("measurement is not configured for profile {profile}");
-    };
-    let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
-    // One measurement at a time: the service skips its own while this holds the lock.
-    let lock = match aq_node_service::measure::measure_lock(&layout.measure_lock(), false)? {
-        Some(lock) => lock,
-        None => {
-            println!(
-                "a measurement for profile {profile} is already running (the service started it); waiting for it to finish"
-            );
-            let path = layout.measure_lock();
-            tokio::task::spawn_blocking(move || aq_node_service::measure::measure_lock(&path, true))
-                .await??
-                .context("measurement lock")?
-        }
-    };
-    let (tx, cancel) = watch::channel(false);
-    let watcher = tokio::spawn(async move {
-        crate::shutdown_signal().await;
-        let _ = tx.send(true);
-    });
-    let done =
-        crate::measure::run(&config.native_template, file, model, slot1.node_id, cancel).await;
-    watcher.abort();
-    drop(lock);
-    let done = done?;
-    for (call, total, out) in &done.measured.totals {
-        println!("{call}: total_input={total} output={out}");
-    }
-    println!(
-        "capacity_tokens={} observed_at_ms={}",
-        done.measured.capacity_tokens, done.measured.observed_at_ms
-    );
-    if let Some(dir) = output {
-        aq_node_service::measure::write_output(dir, &done.files)?;
-        println!(
-            "written to {}; not submitted",
-            dir.join("measure").display()
-        );
-        return Ok(());
-    }
-    let pin = ServerLink::from_enrollment(&slot1)?
-        .submit_measurement(&done.measured.submission)
-        .await?;
-    println!(
-        "qualification accepted: effective at {} ms, until {} ms",
-        pin.effective_at_ms, pin.expires_at_ms
-    );
-    Ok(())
-}
-
 /// `service release-sandbox`: the operator release of a sandbox one of the slot's attempts
 /// preserved, through the slot's own node and the profile's native template.
 /// Whether the slot's recovery still holds `attempt` for salvage: its `current` journal retains
@@ -891,17 +939,24 @@ fn held_for_salvage(
 }
 async fn release_sandbox(
     profile: &str,
+    node_index: Option<u32>,
     slot: u32,
     attempt: Uuid,
     reason: &str,
     force: bool,
 ) -> Result<()> {
-    let (layout, config) = loaded(profile)?;
+    let (machine, config) = loaded(profile)?;
+    let (node_index, slot) = node_index.map_or((slot, 1), |n| (n, slot));
     ensure!(
-        (1..=config.slots).contains(&slot),
-        "profile {profile} has slots 1..={}",
-        config.slots
+        machine.enrolled_nodes().contains(&node_index),
+        "node {node_index} has no enrollment"
     );
+    ensure!(
+        (1..=aq_protocol::MAX_NODE_SLOTS).contains(&slot),
+        "invalid agent slot"
+    );
+    // Retired nodes remain addressable: their old attempts still belong to their identity.
+    let layout = machine.for_node(node_index);
     let node = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
     // Only the executor settings matter here; the slot's state directory stands in for the
     // attempt's own (which may be archived).
@@ -913,7 +968,7 @@ async fn release_sandbox(
         git_socket: layout.git_socket(slot),
         host_root: state_dir.join("host"),
         state_dir,
-        renderer: None,
+        hold: std::time::Duration::ZERO,
     };
     let cfg = slot_native_config(&config.native_template, &ctx)?;
     let current = layout.current(slot);
@@ -976,13 +1031,6 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     attest_prior_invocation();
     let slot1 = EnrollmentFile::load(&layout.slot_enrollment(1))?;
     let link = Arc::new(ServerLink::from_enrollment(&slot1)?);
-    // A measurement cut short (kill, crash, reboot) left its sandbox: release it before work.
-    let lock = layout.measure_lock();
-    match crate::measure::sweep(&config.native_template, slot1.node_id, &lock).await {
-        Ok(0) => {}
-        Ok(n) => tracing::info!("released {n} leftover measurement sandbox(es)"),
-        Err(e) => tracing::warn!("measurement sandbox sweep: {e:#}"),
-    }
     let (tx, rx) = watch::channel(false);
     let watcher = tokio::spawn(async move {
         crate::shutdown_signal().await;
@@ -1014,39 +1062,112 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
                 ))
             },
         );
-    tracing::info!(profile = %config.profile, machine = %config.machine_key, slots = config.slots,
+    tracing::info!(profile = %config.profile, machine = %config.machine_key, nodes = config.nodes,
         runtime = %layout.runtime_root.display(), "worker service starting");
-    // Each slot's handoff notices go out under that slot's own credential (D4).
-    let control = Arc::new(MachineLink::new(link.clone(), &layout, config.slots));
     let mut manual_pause = std::collections::BTreeMap::new();
     let mut manual_pause_tx = std::collections::BTreeMap::new();
     let mut native_active = std::collections::BTreeMap::new();
-    for slot in 1..=config.slots {
-        let id = EnrollmentFile::load(&layout.slot_enrollment(slot))?.node_id;
+    let mut sessions = std::collections::BTreeMap::new();
+    let mut node_views = Vec::new();
+    let mut node_indices = layout.enrolled_nodes();
+    for node in 1..=config.nodes {
+        if !node_indices.contains(&node) {
+            node_indices.push(node);
+        }
+    }
+    for node in node_indices {
+        let view = layout.for_node(node);
+        let enrollment = EnrollmentFile::load(&view.slot_enrollment(1))?;
+        let id = enrollment.node_id;
+        ensure!(
+            !sessions.contains_key(&id),
+            "two machine node entries share one node identity"
+        );
         let (tx, rx) = watch::channel(false);
         manual_pause.insert(id, rx);
         manual_pause_tx.insert(id, tx);
         native_active.insert(id, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+        let session = Arc::new(NodeSession::pending());
+        if node > config.nodes {
+            session.retire();
+        }
+        sessions.insert(id, session);
+        node_views.push((
+            node,
+            view,
+            Arc::new(ServerLink::from_enrollment(&enrollment)?),
+        ));
+    }
+    // Restore manual occupancy synchronously, before queued loops can poll.
+    if let Ok(entries) = std::fs::read_dir(config.state_root.join("manual-agents")) {
+        for entry in entries.flatten() {
+            if let Ok(bytes) = std::fs::read(entry.path().join("state.json"))
+                && let Ok(agent) = serde_json::from_slice::<serde_json::Value>(&bytes)
+                && agent["status"] != "stopped"
+                && (agent["status"] != "failed" || !agent["sandbox"].is_null())
+                && let (Some(node), Some(id)) = (agent["node_id"].as_str(), agent["id"].as_str())
+                && let (Ok(node), Ok(id)) = (node.parse::<Uuid>(), id.parse::<Uuid>())
+                && let Some(session) = sessions.get(&node)
+            {
+                session.restore_manual(id);
+            }
+        }
     }
     let manual = if config.manual.is_some() {
         Some(tokio::spawn(super::manual::run(
             config.clone(),
-            Layout::for_service(config_dir, &config),
+            layout.clone(),
             rx.clone(),
             manual_pause_tx,
             native_active.clone(),
+            sessions.clone(),
         )))
     } else {
         None
     };
-    let mut native_backend = NativeSlotBackend::new(config.native_template.clone(), slot1.node_id);
+    let mut native_backend = NativeSlotBackend::new(config.native_template.clone());
     native_backend.manual_pause = manual_pause;
     native_backend.native_active = native_active;
+    native_backend.sessions = sessions;
     let backend = Arc::new(native_backend);
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
-    let result = Supervisor::new(config, layout, backend, control, git)
-        .run(rx)
-        .await;
+    let mut supervisors = tokio::task::JoinSet::new();
+    for (node, view, node_link) in node_views {
+        let control = Arc::new(MachineLink::new(node_link, &view, 1));
+        let (node_stop, node_rx) = watch::channel(false);
+        let mut machine_stop = rx.clone();
+        let forward = node_stop.clone();
+        let forwarding = tokio::spawn(async move {
+            let _ = machine_stop.wait_for(|v| *v).await;
+            forward.send_replace(true);
+        });
+        let worker = WorkerConfig::load(&view.slot_enrollment(1))?;
+        let supervisor_rx = node_rx.clone();
+        let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, node_rx));
+        let sup = Supervisor::new(config.clone(), view, backend.clone(), control, git.clone())
+            .retiring(node > config.nodes);
+        // Each node is isolated; a refused sibling never stops this supervisor.
+        supervisors.spawn(async move {
+            // heartbeat sends stop on fatal refusal; machine stop is forwarded above.
+            let result = sup.run(supervisor_rx).await;
+            forwarding.abort();
+            heartbeat.abort();
+            result
+        });
+    }
+    let mut result = Ok(());
+    while let Some(outcome) = supervisors.join_next().await {
+        match outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                tracing::error!("node stopped: {e:#}");
+                result = Err(e);
+            }
+            Err(e) => {
+                result = Err(e.into());
+            }
+        }
+    }
     if let Some(manual) = manual {
         match manual.await {
             Ok(Ok(())) => {}
@@ -1074,7 +1195,7 @@ mod tests {
             state_dir: dir.join("current"),
             host_root: dir.join("run/1/host"),
             git_socket: dir.join("run/1/git.sock"),
-            renderer: None,
+            hold: std::time::Duration::ZERO,
         }
     }
     #[test]
@@ -1107,24 +1228,6 @@ mod tests {
             HandoffReason::Restart
         );
     }
-    #[test]
-    fn renderer_pin_converts_to_an_artifact_ref() {
-        let pin = ArtifactPin {
-            id: "aq-terminal-renderer".into(),
-            version: "0.1.0".into(),
-            digest: "a".repeat(64),
-        };
-        let r: aq_session_protocol::ArtifactRef = to_artifact_ref(&pin).unwrap();
-        assert_eq!(r.digest.as_str(), "a".repeat(64));
-        assert!(
-            to_artifact_ref::<aq_session_protocol::ArtifactRef>(&ArtifactPin {
-                digest: "x".into(),
-                ..pin
-            })
-            .is_err()
-        );
-    }
-
     /// A loopback stand-in for aq-server's enroll and slots routes. The slots route answers
     /// 409 for the first `refuse_claims` calls.
     struct FakeServer {
@@ -1190,6 +1293,7 @@ mod tests {
         std::fs::write(dir.path().join("native.json"), b"{}").unwrap();
         std::fs::write(dir.path().join("aq-git"), b"").unwrap();
         let layout = Layout {
+            node: None,
             config_dir: dir.path().join("cfg"),
             state_root: dir.path().join("state"),
             runtime_root: dir.path().join("run/local"),
@@ -1202,16 +1306,14 @@ mod tests {
             ServiceEnrollArgs {
                 profile: "local".into(),
                 server: server.into(),
-                slots: 2,
+                nodes: 2,
                 name: Some("Desk".into()),
                 machine_key: Some("desk".into()),
                 cf_service_token: false,
                 native_template: at("native.json"),
                 aq_git: at("aq-git"),
                 git_executable: "/usr/bin/git".into(),
-                repositories: at("repositories.json"),
-                measurement_token_file: None,
-                measurement_model: None,
+                repositories: Some(at("repositories.json")),
                 reconfigure: false,
             }
         }
@@ -1273,14 +1375,6 @@ mod tests {
             )
             .unwrap()
         };
-        let mut relative = p.args(&server.origin);
-        relative.measurement_token_file = Some("token".into());
-        relative.measurement_model = Some("m".into());
-        let e = p.enroll(&relative, None).await.unwrap_err();
-        assert!(
-            format!("{e:#}").contains("token_file must be an absolute path"),
-            "{e:#}"
-        );
         write_repos(vec![repo("sha1"); 17]);
         let e = p.enroll(&p.args(&server.origin), None).await.unwrap_err();
         assert!(
@@ -1444,9 +1538,9 @@ mod tests {
     }
 
     /// D9: the CLI uses service.toml's state and runtime roots, so purge removes a custom
-    /// state root (and `service measure` takes the service's measurement lock).
+    /// state root.
     #[tokio::test]
-    async fn purge_and_measure_use_the_configured_state_root() {
+    async fn purge_uses_the_configured_state_root() {
         let server = fake_server(0).await;
         let p = profile();
         p.enroll(&p.args(&server.origin), Some("code-1"))
@@ -1459,13 +1553,13 @@ mod tests {
         config.save(&p.layout.service_toml()).unwrap();
         std::fs::create_dir_all(custom.join("slots/1/current")).unwrap();
         let defaults = Layout {
+            node: None,
             config_dir: p.layout.config_dir.clone(),
             state_root: p.dir.path().join("default-state"),
             runtime_root: p.dir.path().join("default-run"),
         };
         let (layout, _) = loaded_in(defaults, "local").unwrap();
         assert_eq!(layout.state_root, custom);
-        assert_eq!(layout.measure_lock(), custom.join("measure.lock"));
         assert_eq!(layout.runtime_root, p.dir.path().join("run/local"));
         layout.prepare_runtime().unwrap();
         purge_dirs(&layout).unwrap();
@@ -1769,8 +1863,7 @@ mod tests {
             cf_client_secret: None,
         }));
         let path = PathBuf::from("/nonexistent");
-        let backend: &'static NativeSlotBackend =
-            Box::leak(Box::new(NativeSlotBackend::new(path, Uuid::nil())));
+        let backend: &'static NativeSlotBackend = Box::leak(Box::new(NativeSlotBackend::new(path)));
         // `recover_attempts` is the body the async_trait `recover` boxes. It awaits
         // `release_lost` with the real closures (a docker backend and the server link), so the
         // lost-guardian release is measured inside it as instantiated in the service.
@@ -1821,6 +1914,83 @@ mod tests {
         assert_eq!(outcome, RecoverOutcome::Lost);
         assert_eq!(record["released"], true);
     }
+    /// Spec 0014: an installed template still carries `executor.settings.permissions_digest`
+    /// and cannot be edited on a remote machine. The key is read and ignored, and a template
+    /// without it loads the same; an unknown key is still refused.
+    #[test]
+    fn a_template_with_or_without_the_old_permissions_digest_loads() {
+        let artifact = |id: &str| serde_json::json!({"id": id, "version": "1", "digest": aq_session_protocol::Digest::of(id.as_bytes())});
+        let pinned =
+            |id: &str, path: &str| serde_json::json!({"artifact": artifact(id), "path": path});
+        let template = "sha256:057ae952da10fff6c0812a4b8e41b09f0f34c2ba310763976357a786536b3950";
+        let old = serde_json::json!({
+            "kind": "claude-2.1.318-docker-local-result-local-v1",
+            "composite_definition": "/var/lib/aq/composite.json",
+            "settings": {
+                "environment": artifact("environment"),
+                "permissions_digest": aq_session_protocol::Digest::of(b"installed plan"),
+                "host": {
+                    "claude_executable": "/opt/aq/bin/claude", "columns": 120, "rows": 40,
+                    "docker_local": {"shared_root_fs": true, "socket": "/run/user/1000/aq-sandbox/podman.sock",
+                        "templates": [{"digest": template, "image": format!("registry.invalid/aq-template@{template}")}]},
+                    "driver": pinned("aq.claude-docker-local-driver", "/var/lib/aq/aq-sandbox-driver"),
+                    "helper": pinned("aq.host/aq-session-host", "/var/lib/aq/aq-session-host"),
+                    "tmux": pinned("aq.host/tmux", "/usr/bin/tmux"),
+                    "max_workspace_bytes": 268435456, "renderer": artifact("renderer"),
+                    "root": "/var/lib/aq/host", "template": template
+                }
+            }
+        });
+        let load =
+            |wire: &serde_json::Value| serde_json::from_value::<ExecutorConfig>(wire.clone());
+        let Ok(ExecutorConfig::ClaudeDockerLocalResultLocal { .. }) = load(&old) else {
+            panic!(
+                "the installed template shape is refused: {:?}",
+                load(&old).err()
+            );
+        };
+        let mut new = old.clone();
+        new["settings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("permissions_digest");
+        assert!(load(&new).is_ok(), "{:?}", load(&new).err());
+        new["settings"]["permission_plans"] = serde_json::json!([]);
+        assert!(load(&new).is_err(), "unknown keys stay refused");
+    }
+    /// A granted execution with no launch intent, host or result is released (archived, the
+    /// slot freed), also behind added context. Every other hold stays held: a Prepare whose
+    /// grant is unknown, an inconsistent journal (a host or result without its history), and
+    /// an ordinary error is neither.
+    #[test]
+    fn only_a_granted_execution_that_never_launched_is_released() {
+        use aq_worker::native::journal::RecoveryHold;
+        let hold = |reason, why: &'static str| -> Result<SalvageDisposition> {
+            Err(RecoveryHold(reason, anyhow::anyhow!(why)).into())
+        };
+        let never = hold(
+            "launch_closure_pending",
+            "execution granted, no launch recorded",
+        );
+        assert!(never_launched(&never));
+        assert!(never_launched(&never.context("recover slot 1")));
+        for (reason, why) in [
+            ("prepare_disposition_unknown", "Prepare journaled, no grant"),
+            ("journal_inconsistent", "runner native host history absent"),
+            ("journal_unreadable: format", "trailing bytes"),
+        ] {
+            let held = hold(reason, why);
+            assert!(!never_launched(&held), "{reason}");
+            assert!(matches!(
+                held_if_permanent(held.map(|_| RecoverOutcome::Clean)),
+                Ok(RecoverOutcome::Held(_))
+            ));
+        }
+        assert!(!never_launched(&Ok(SalvageDisposition::NotStarted)));
+        assert!(!never_launched::<()>(&Err(anyhow::anyhow!(
+            "server unreachable"
+        ))));
+    }
     /// R1: an inconsistent journal (missing or mixed history) holds the slot with its reason
     /// instead of failing every retry; any other recovery error is still retried.
     #[test]
@@ -1845,6 +2015,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let layout = Layout {
+            node: None,
             config_dir: dir.path().join("config"),
             state_root: dir.path().join("state"),
             runtime_root: dir.path().join("run"),
@@ -1894,10 +2065,11 @@ mod tests {
         let node = Uuid::from_u128(1);
         let template = TemplateDigest::parse(format!("sha256:{}", "1".repeat(64))).unwrap();
         let (lost, other) = (Uuid::new_v4(), Uuid::new_v4());
+        let shared_boot = Uuid::new_v4();
         for attempt_id in [lost, other] {
             let owner = Ownership {
                 node_id: node,
-                boot_id: Uuid::new_v4(),
+                boot_id: shared_boot,
                 attempt_id,
             };
             let request = CreateRequest::new(owner, template.clone(), 1 << 40, vec![]);
@@ -1947,5 +2119,61 @@ mod tests {
             matches!(&outcome, RecoverOutcome::Held(why) if why.contains("record was not written")),
             "{outcome:?}"
         );
+    }
+    /// The node's heartbeat survives a 500 and an edge 403 (logged, retried with back-off) and
+    /// stops the node only when AQ itself revokes the credential.
+    #[tokio::test]
+    async fn heartbeat_errors_are_retried_and_only_a_revocation_stops_the_node() {
+        use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse};
+        use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+        let beats = Arc::new(AtomicU32::new(0));
+        let probe = |Json(q): Json<serde_json::Value>| async move {
+            Json(serde_json::json!({"nonce": q["nonce"], "server_time": "2026-11-17T00:00:00Z"}))
+        };
+        let beat = |State(beats): State<Arc<AtomicU32>>| async move {
+            match beats.fetch_add(1, SeqCst) {
+                0 => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                1 => StatusCode::FORBIDDEN.into_response(),
+                2 => Json(serde_json::json!({"server_version": "t", "heartbeat_interval_secs": 1}))
+                    .into_response(),
+                _ => (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({"error": aq_protocol::CREDENTIAL_REVOKED, "message": "no"})),
+                )
+                    .into_response(),
+            }
+        };
+        let app = Router::new()
+            .route("/v1/worker/probe", axum::routing::post(probe))
+            .route("/v1/worker/heartbeat", axum::routing::post(beat))
+            .with_state(beats.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let worker = WorkerConfig {
+            server_url: format!("http://{}", listener.local_addr().unwrap()),
+            node_id: Uuid::from_u128(7),
+            credential: "c".into(),
+            cf_client_id: None,
+            cf_client_secret: None,
+        };
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (node_stop, stop) = watch::channel(false);
+        let mut stopped = stop.clone();
+        let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, stop));
+        // The 500 and the edge 403 are behind it: the third heartbeat was accepted, node still up.
+        while beats.load(SeqCst) < 3 {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(
+            !*stopped.borrow(),
+            "a 500 and an edge 403 did not stop the node"
+        );
+        assert!(!heartbeat.is_finished());
+        stopped.wait_for(|v| *v).await.unwrap();
+        let error = heartbeat.await.unwrap().unwrap_err();
+        assert!(
+            format!("{error:#}").contains("credential rejected"),
+            "{error:#}"
+        );
+        assert_eq!(beats.load(SeqCst), 4);
     }
 }

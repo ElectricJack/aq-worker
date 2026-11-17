@@ -5,7 +5,7 @@ use aq_session_protocol::{
     ArtifactRef, ContractError, Digest, LaunchBinding, SessionIdentity, Text, Validate,
     canonical_bytes, canonical_digest,
 };
-pub use permission_plans::{ResultAdapterKind, permission_plans_valid};
+pub use permission_plans::ResultAdapterKind;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

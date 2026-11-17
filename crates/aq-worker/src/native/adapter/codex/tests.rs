@@ -152,8 +152,7 @@ fn profile(o: &NativeOffer) -> CodexExecProfile {
     let m = &o.offered.offer.manifest;
     CodexExecProfile {
         harness: m.harness.clone(),
-        model: m.model.clone(),
-        permissions_digest: crate::native::journal::canonical_digest(&m.permissions).unwrap(),
+        permissions_digest: None,
         renderer: o.startup.renderer_qualification.clone(),
         confinement: None,
     }
@@ -256,66 +255,6 @@ fn tool_environment_config_starts_empty_and_adds_only_fixed_template_defaults() 
     assert_eq!(
         set["CARGO_PROFILE_TEST_DEBUG"].as_str(),
         Some("line-tables-only")
-    );
-}
-#[test]
-fn changed_payload_settings_private_mode_and_hard_budget_are_refused() {
-    let root = tempfile::tempdir().unwrap();
-    let home = root.path().join("home");
-    std::fs::create_dir(&home).unwrap();
-    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let (offer, payload) = fixture();
-    let digest = crate::native::journal::canonical_digest(&offer.offered.offer.manifest).unwrap();
-    let work = root.path().join("work");
-    std::fs::create_dir(&work).unwrap();
-    let selected = profile(&offer);
-    let mut adapter = installed(root.path(), &offer);
-    assert!(
-        selected
-            .prepare(
-                &mut adapter,
-                &offer,
-                &digest,
-                b"changed".to_vec(),
-                &work,
-                &home
-            )
-            .is_err()
-    );
-    let mut changed = selected;
-    changed.model.reasoning = Text::new("high").unwrap();
-    assert!(
-        changed
-            .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
-            .is_err()
-    );
-    let mut budgeted = offer.clone();
-    budgeted.offered.offer.manifest.model.spending_budget =
-        Some(aq_session_protocol::SpendingBudget {
-            currency: Text::new("USD").unwrap(),
-            basis: aq_session_protocol::BudgetBasis::TaskCumulativeEstimatedCost,
-            limit_microunits: 1000,
-        });
-    let budget_digest =
-        crate::native::journal::canonical_digest(&budgeted.offered.offer.manifest).unwrap();
-    budgeted.offered.offer.binding.launch_manifest_digest = budget_digest.clone();
-    assert!(
-        profile(&budgeted)
-            .prepare(
-                &mut adapter,
-                &budgeted,
-                &budget_digest,
-                payload.clone(),
-                &work,
-                &home
-            )
-            .is_err()
-    );
-    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert!(
-        profile(&offer)
-            .prepare(&mut adapter, &offer, &digest, payload, &work, &home)
-            .is_err()
     );
 }
 #[test]

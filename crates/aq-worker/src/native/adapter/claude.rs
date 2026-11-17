@@ -61,6 +61,21 @@ pub struct ClaudeRecipe {
     pub settings_json: Vec<u8>,
 }
 
+/// `model.reasoning` for the Claude CLI: `default` passes nothing, `off` sets
+/// `MAX_THINKING_TOKENS=0`, the others are `--effort <value>`. Closed set: an
+/// unknown value is refused, never passed to a command line.
+fn reasoning(model: &ModelSettings) -> Result<&str> {
+    let value = model.reasoning.as_str();
+    ensure!(
+        matches!(
+            value,
+            "default" | "off" | "low" | "medium" | "high" | "xhigh" | "max"
+        ),
+        "Claude recipe unsupported reasoning {value:?}: expected default, off, low, medium, high, xhigh or max"
+    );
+    Ok(value)
+}
+
 /// Crate-private: callers outside the crate reach it only through
 /// `ClaudeAgentHome::install`, which requires an `AuthorizedConfinement`.
 pub(crate) fn map(
@@ -76,6 +91,7 @@ pub(crate) fn map(
             && model.spending_budget.is_none(),
         "Claude recipe unsupported settings"
     );
+    let effort = reasoning(model)?;
     let declares = |id: &str| {
         harness
             .required_capabilities
@@ -119,7 +135,7 @@ pub(crate) fn map(
         ConfinementMode::Native => "acceptEdits",
         ConfinementMode::Container => "bypassPermissions",
     };
-    let arguments = [
+    let mut arguments = [
         "-p",
         "--output-format",
         "stream-json",
@@ -142,7 +158,10 @@ pub(crate) fn map(
     ]
     .map(String::from)
     .to_vec();
-    let environment = [
+    if !matches!(effort, "default" | "off") {
+        arguments.extend(["--effort".to_owned(), effort.to_owned()]);
+    }
+    let mut environment: BTreeMap<String, String> = [
         ("HOME", home),
         ("CLAUDE_CONFIG_DIR", home),
         ("PATH", "/usr/local/bin:/usr/bin:/bin"),
@@ -155,6 +174,9 @@ pub(crate) fn map(
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v.to_owned()))
     .collect();
+    if effort == "off" {
+        environment.insert("MAX_THINKING_TOKENS".into(), "0".into());
+    }
     Ok(ClaudeRecipe {
         executable: executable.to_owned(),
         arguments,
@@ -195,7 +217,7 @@ pub fn docker_local_recipe_artifact() -> aq_session_protocol::ArtifactRef {
     }
 }
 /// Manifest settings this recipe accepts: Claude 2.1.318 on an Anthropic
-/// subscription model, container confinement, no terminal input.
+/// subscription model, container confinement, no terminal input, known reasoning.
 pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -> Result<()> {
     let declares = |id: &str| {
         m.harness
@@ -213,7 +235,7 @@ pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -
             && !declares(NATIVE_CONFINEMENT_CAPABILITY),
         "Claude docker-local result recipe unsupported manifest settings"
     );
-    Ok(())
+    reasoning(&m.model).map(drop)
 }
 
 fn settings(mode: ConfinementMode) -> serde_json::Value {

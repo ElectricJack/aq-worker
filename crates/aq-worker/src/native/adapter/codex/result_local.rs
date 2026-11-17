@@ -40,7 +40,6 @@ impl CodexExecProfile {
             adapter: &self.harness.adapter,
             runtime: &runtime,
             environment: &self.harness.environment,
-            permission_digest: &self.permissions_digest,
         })?;
         result.definition.validate_manifest(manifest)?;
         result.definition.validate_installed_client(result.client)?;
@@ -51,7 +50,8 @@ impl CodexExecProfile {
             client_executable: result.client.artifact().clone(),
             environment: result.client.environment().clone(),
             recipe: result.definition.recipe_artifact(),
-            permission_digest: self.permissions_digest.clone(),
+            // The offered plan, as the channel was created for (spec 0014).
+            permission_digest: crate::native::journal::canonical_digest(&manifest.permissions)?,
             reserved_client_bytes: result.client.reserved_bytes(),
         };
         let workspace = input.workspace;
@@ -69,7 +69,7 @@ impl CodexExecProfile {
         );
         let settings = aq_codex_mapper::Settings {
             harness: &self.harness,
-            model: &self.model,
+            model: &manifest.model,
             terminal_input_enabled: manifest.terminal.input_enabled,
         };
         let paths = aq_codex_mapper::Paths {

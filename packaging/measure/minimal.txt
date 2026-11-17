@@ -1,1 +1,0 @@
-Measurement call (minimal). Reply with exactly OK and use no tools.

@@ -68,17 +68,12 @@ macro_rules! collect_profile {
             let workspace = pipeline
                 .$hydrate(id, preparation.clone(), spec, git)
                 .await?;
-            let refreshed = inventory.begin_inventory(config.inventory_ttl_ms)?;
-            inventory.publish_inventory(&refreshed).await?;
-            pipeline.record_inventory_sequence(refreshed.request().sequence);
+            let _inventory = pipeline.inventory.gate.lock().await;
+            // The execution request needs a live report, not a new one: a third of the TTL.
+            let (ttl, need) = (config.inventory_ttl_ms, config.inventory_ttl_ms * 333_333);
+            node_inventory(pipeline, inventory, ttl, need).await?;
             let inputs = pipeline
-                .$prepare(
-                    id,
-                    preparation,
-                    artifacts,
-                    workspace,
-                    config.renderer.clone(),
-                )
+                .$prepare(id, preparation, artifacts, workspace)
                 .await?;
             match pipeline.$execute(inputs, &accepted).await? {
                 PhaseExecutionCommit::Usable(grant) => Ok(grant),
