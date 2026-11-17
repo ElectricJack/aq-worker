@@ -1,9 +1,13 @@
 //! `service.toml` (0600, owner-only).
 use crate::enrollment_file::{read_private, write_private};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use aq_protocol::{MAX_MACHINE_SLOTS, valid_machine_key};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -87,8 +91,13 @@ impl ServiceConfig {
     pub fn stop_timeout_secs(&self) -> u64 {
         self.shutdown_grace_ms.div_ceil(1000) + STOP_MARGIN.as_secs()
     }
+    /// Loads the file. One written before qualification measurement was removed is rewritten
+    /// once without its `measurement` setting first (`retire_measurement`).
     pub fn load(path: &Path) -> Result<Self> {
-        let text = read_private(path)?;
+        let mut text = read_private(path)?;
+        if let Some(migrated) = retire_measurement(path, &text)? {
+            text = migrated;
+        }
         let config: Self =
             Self::parse(&text).with_context(|| format!("parse {}", path.display()))?;
         config
@@ -96,16 +105,8 @@ impl ServiceConfig {
             .with_context(|| format!("invalid {}", path.display()))?;
         Ok(config)
     }
-    /// Parses the document, refusing unknown keys. A `[measurement]` section (written before
-    /// qualification measurement was removed) is refused by name, with what replaces the one
-    /// setting of it that is still used.
+    /// Parses the document, refusing unknown keys.
     pub fn parse(text: &str) -> Result<Self> {
-        let table: toml::Table = toml::from_str(text)?;
-        if table.contains_key("measurement") {
-            bail!(
-                "the [measurement] section is no longer supported: qualification measurement was removed. Delete the section; if manual sessions are configured, move its token_file to claude_token_file in [manual]"
-            );
-        }
         Ok(toml::from_str(text)?)
     }
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -181,6 +182,121 @@ impl ServiceConfig {
     }
 }
 
+/// Suffix of the one-time copy of a `service.toml` as it was before `retire_measurement`.
+pub const BEFORE_MEASUREMENT_REMOVAL: &str = "before-measurement-removal";
+
+/// What `without_measurement` did about the Claude token file of manual sessions.
+#[derive(Debug, PartialEq, Eq)]
+enum CarriedToken {
+    /// No `[manual]` section: nothing needs the token file.
+    NoManual,
+    /// `[manual]` already named its `claude_token_file`.
+    Kept,
+    /// `measurement.token_file` became `[manual] claude_token_file`.
+    Moved,
+    /// `[manual]` names no token file and the old setting had none either.
+    Missing,
+}
+
+/// The document without its `measurement` setting (a `[measurement]` section, an inline table
+/// or dotted keys), or `None` when it has none or is not TOML (the caller's parse reports
+/// that). The old `token_file` is the Claude subscription token manual sessions log in with:
+/// it becomes `[manual] claude_token_file` when `[manual]` exists and names none. Every other
+/// key, its value, the comments and the order are kept.
+fn without_measurement(text: &str) -> Option<(String, CarriedToken)> {
+    let mut document: toml_edit::DocumentMut = text.parse().ok()?;
+    let old = document.as_table_mut().remove("measurement")?;
+    let token = (old.get("token_file"))
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty());
+    let manual = (document.get_mut("manual")).and_then(|m| m.as_table_like_mut());
+    let carried = match (manual, token) {
+        (None, _) => CarriedToken::NoManual,
+        (Some(manual), _) if manual.contains_key("claude_token_file") => CarriedToken::Kept,
+        (Some(manual), Some(token)) => {
+            manual.insert("claude_token_file", toml_edit::value(token));
+            CarriedToken::Moved
+        }
+        (Some(_), None) => CarriedToken::Missing,
+    };
+    Some((document.to_string(), carried))
+}
+
+/// Rewrites, once, a `service.toml` written before qualification measurement was removed, so
+/// the worker accepts it: see `without_measurement`. Returns the new text, or `None` when the
+/// file needs no change (it is then not touched).
+///
+/// This exists for machines updated remotely: the receiver such a machine already has replaces
+/// the worker binary and restarts the service, and nothing else rewrites the configuration, so
+/// a worker that refused the old file would leave the machine offline with no remote way back.
+/// It can be deleted once every machine has started a worker that has it.
+///
+/// Several programs load the same file (the service, the terminal relays) and may start
+/// together. Each derives the same text from the same old file and replaces the file by
+/// rename, so a reader sees the old file or the new one, never a part; one that finds the new
+/// file does nothing. The file as it was is kept beside it (0600) by whichever came first.
+fn retire_measurement(path: &Path, text: &str) -> Result<Option<String>> {
+    let Some((migrated, carried)) = without_measurement(text) else {
+        return Ok(None);
+    };
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(format!(".{BEFORE_MEASUREMENT_REMOVAL}"));
+    let backup = PathBuf::from(backup);
+    keep_first_copy(&backup, text.as_bytes())
+        .and_then(|()| write_private(path, migrated.as_bytes()))
+        .with_context(|| {
+            format!(
+                "{} still has the measurement setting, which was removed, and could not be rewritten without it",
+                path.display()
+            )
+        })?;
+    // Best effort: the rename is what readers see; this only makes it outlast a power cut.
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+    }
+    let token = match carried {
+        CarriedToken::NoManual => "it has no [manual] section, so no token file was needed",
+        CarriedToken::Kept => "[manual] claude_token_file was already set and is unchanged",
+        CarriedToken::Moved => "its token_file is now [manual] claude_token_file",
+        CarriedToken::Missing => {
+            "it named no token_file, so [manual] still needs claude_token_file"
+        }
+    };
+    tracing::warn!(
+        "rewrote {} once: the measurement setting was removed (qualification measurement no longer exists); {token}. The file as it was is kept at {}",
+        path.display(),
+        backup.display()
+    );
+    Ok(Some(migrated))
+}
+
+/// Writes `body` to `path` (0600) unless the file already exists; the first writer's complete
+/// copy stays.
+fn keep_first_copy(path: &Path, body: &[u8]) -> Result<()> {
+    let dir = match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    let tmp = dir.join(format!(".aq-config.{}.tmp", Uuid::new_v4().simple()));
+    let write = || -> std::io::Result<()> {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        f.write_all(body)?;
+        f.sync_all()?;
+        // A link, unlike a rename, never replaces an existing file.
+        match std::fs::hard_link(&tmp, path) {
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => Err(e),
+            _ => Ok(()),
+        }
+    };
+    let result = write();
+    let _ = std::fs::remove_file(&tmp);
+    result.with_context(|| format!("write {}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,40 +344,236 @@ git_executable = "/usr/bin/git"
         write_private(&path, text.as_bytes()).unwrap();
         ServiceConfig::load(&path)
     }
-    /// A `service.toml` written before measurement was removed is refused when loaded, naming
-    /// the key that replaces its token file; so is any other unknown key.
+    const MANUAL: &str = "[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\n";
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+    fn backup_of(path: &Path) -> PathBuf {
+        path.with_file_name(format!("service.toml.{BEFORE_MEASUREMENT_REMOVAL}"))
+    }
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = (std::fs::read_dir(dir).unwrap())
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    }
+    /// Loads `text` from a file and returns the result, the directory and the file's path.
+    fn migrate(text: &str) -> (Result<ServiceConfig>, tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("service.toml");
+        write_private(&path, text.as_bytes()).unwrap();
+        (ServiceConfig::load(&path), dir, path)
+    }
+    /// A machine updated remotely still has the configuration its installer wrote. The worker
+    /// rewrites it once: the measurement setting goes, its token file becomes the manual
+    /// sessions' token file, every other key keeps its value, the comments and the order
+    /// stay, the file as it was is kept (0600), and the result loads.
     #[test]
-    fn an_old_measurement_section_is_refused_naming_the_new_key() {
-        load_text(MINIMAL).unwrap();
+    fn an_old_measurement_setting_is_removed_once_and_its_token_file_carried() {
+        let slugs = "\n[manual.source_slugs]\n\"e0000000-0000-4000-8000-000000000002\" = \"o/r\"\n\n[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\nauth_file = \"/c/auth.json\"\n";
+        let section = "\n# set by Push logins\n[measurement]\nenabled = true\ntoken_file = \"/c/provider-auth/claude-token\"\nmodel = \"m\"\nrenew_before_ms = 14400000\n";
+        let inline = "measurement = { enabled = true, token_file = \"/c/provider-auth/claude-token\", model = \"m\" }\n";
+        let dotted = "measurement.token_file = \"/c/provider-auth/claude-token\"\n";
+        for old in [
+            // As the hosted installer leaves it: the section, then the manual settings.
+            format!(
+                "# the owner's note\nshutdown_grace_ms = 30000 # short\n{MINIMAL}{section}\n{MANUAL}{slugs}"
+            ),
+            format!("{MINIMAL}{MANUAL}{slugs}{section}"),
+            // As a hand-written file has it: one line among the top-level keys.
+            format!("{inline}{MINIMAL}\n{MANUAL}{slugs}"),
+            format!("{dotted}{MINIMAL}\n{MANUAL}{slugs}"),
+        ] {
+            let (loaded, _dir, path) = migrate(&old);
+            let loaded = loaded.unwrap();
+            let manual = loaded.manual.as_ref().unwrap();
+            assert_eq!(
+                manual.claude_token_file,
+                Path::new("/c/provider-auth/claude-token")
+            );
+            assert_eq!(manual.source_slugs.len(), 1);
+            let new = std::fs::read_to_string(&path).unwrap();
+            assert_eq!(mode(&path), 0o600);
+            // Apart from the two intended changes every key has the value it had.
+            let mut expected: toml::Table = toml::from_str(&old).unwrap();
+            expected.remove("measurement").unwrap();
+            expected["manual"].as_table_mut().unwrap().insert(
+                "claude_token_file".into(),
+                "/c/provider-auth/claude-token".into(),
+            );
+            assert_eq!(toml::from_str::<toml::Table>(&new).unwrap(), expected);
+            assert!(!new.contains("measurement"), "{new}");
+            assert_eq!(
+                new.contains("# the owner's note"),
+                old.contains("# the owner's note")
+            );
+            assert_eq!(new.contains("30000 # short"), old.contains("30000 # short"));
+            let backup = backup_of(&path);
+            assert_eq!(std::fs::read_to_string(&backup).unwrap(), old);
+            assert_eq!(mode(&backup), 0o600);
+            // A second start finds the new file and leaves it and the copy alone.
+            ServiceConfig::load(&path).unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), new);
+            assert_eq!(std::fs::read_to_string(&backup).unwrap(), old);
+            assert_eq!(
+                names(path.parent().unwrap()),
+                ["service.toml", "service.toml.before-measurement-removal"]
+            );
+        }
+        // The exact text of the common case: the key lands in `[manual]`, before its tables.
+        let (text, carried) =
+            without_measurement(&format!("{MINIMAL}{section}\n{MANUAL}{slugs}")).unwrap();
+        assert_eq!(carried, CarriedToken::Moved);
+        assert_eq!(
+            text,
+            format!(
+                "{MINIMAL}\n{MANUAL}claude_token_file = \"/c/provider-auth/claude-token\"\n{slugs}"
+            )
+        );
+    }
+    /// Without manual sessions nothing needs the token file; a token file `[manual]` already
+    /// names is kept, whatever the old setting said.
+    #[test]
+    fn the_measurement_setting_is_removed_without_manual_sessions_or_with_their_token_named() {
         for old in [
             "[measurement]\nenabled = false\nrenew_before_ms = 14400000\n",
             "[measurement]\nenabled = true\ntoken_file = \"/t\"\nmodel = \"m\"\n",
             "[measurement]\n",
         ] {
-            let e = format!("{:#}", load_text(&format!("{MINIMAL}{old}")).unwrap_err());
-            assert!(
-                e.contains("[measurement] section is no longer supported"),
-                "{e}"
-            );
-            assert!(e.contains("claude_token_file in [manual]"), "{e}");
+            let (loaded, _dir, path) = migrate(&format!("{MINIMAL}{old}"));
+            assert!(loaded.unwrap().manual.is_none());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), MINIMAL);
+            assert!(backup_of(&path).exists());
         }
+        let named = format!(
+            "{MINIMAL}{MANUAL}claude_token_file = \"/mine\"\n[measurement]\ntoken_file = \"/t\"\n"
+        );
+        let (loaded, _dir, path) = migrate(&named);
+        assert_eq!(
+            loaded.unwrap().manual.unwrap().claude_token_file,
+            Path::new("/mine")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            format!("{MINIMAL}{MANUAL}claude_token_file = \"/mine\"\n")
+        );
+    }
+    /// Manual sessions with no token file anywhere: no path is invented. The setting is
+    /// removed, the file is whole, and the load fails naming the key that is needed.
+    #[test]
+    fn manual_sessions_without_any_token_file_fail_naming_the_key() {
+        for old in [
+            "[measurement]\nenabled = false\n",
+            "[measurement]\ntoken_file = \"\"\n",
+        ] {
+            let (loaded, dir, path) = migrate(&format!("{MINIMAL}{MANUAL}{old}"));
+            let e = format!("{:#}", loaded.unwrap_err());
+            assert!(e.contains("missing field `claude_token_file`"), "{e}");
+            assert!(e.contains(path.to_str().unwrap()), "{e}");
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                format!("{MINIMAL}{MANUAL}")
+            );
+            assert_eq!(
+                names(dir.path()),
+                ["service.toml", "service.toml.before-measurement-removal"]
+            );
+        }
+    }
+    /// A file without the setting is not touched: same bytes, same file, no copy. Any other
+    /// unknown key is still refused, and so is a document that is not TOML.
+    #[test]
+    fn a_file_without_the_measurement_setting_is_not_rewritten() {
+        use std::os::unix::fs::MetadataExt;
+        let text = format!("# kept\n{MINIMAL}{MANUAL}claude_token_file = \"/t\"\n");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("service.toml");
+        write_private(&path, text.as_bytes()).unwrap();
+        let before = std::fs::metadata(&path).unwrap();
+        ServiceConfig::load(&path).unwrap();
+        let after = std::fs::metadata(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        assert_eq!(
+            (before.ino(), before.mtime(), before.mtime_nsec()),
+            (after.ino(), after.mtime(), after.mtime_nsec())
+        );
+        assert_eq!(names(dir.path()), ["service.toml"]);
         let e = format!(
             "{:#}",
             load_text(&format!("{MINIMAL}[other]\n")).unwrap_err()
         );
         assert!(e.contains("unknown field `other`"), "{e}");
-        let manual = "[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\n";
         let e = format!(
             "{:#}",
-            load_text(&format!("{MINIMAL}{manual}token_file = \"/t\"\n")).unwrap_err()
+            load_text(&format!("{MINIMAL}{MANUAL}token_file = \"/t\"\n")).unwrap_err()
         );
         assert!(e.contains("unknown field `token_file`"), "{e}");
+        let (broken, dir, _path) = migrate("[measurement\nslots = ");
+        assert!(broken.is_err());
+        assert_eq!(names(dir.path()), ["service.toml"]);
+    }
+    /// The service and the terminal relays load the same file and may start together: every
+    /// one of them loads, and what is left is one whole file and one copy of the old one.
+    #[test]
+    fn programs_starting_together_leave_one_whole_file() {
+        let old = format!("{MINIMAL}[measurement]\ntoken_file = \"/t\"\n{MANUAL}");
+        for _ in 0..20 {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("service.toml");
+            write_private(&path, old.as_bytes()).unwrap();
+            let start = std::sync::Barrier::new(8);
+            std::thread::scope(|scope| {
+                for _ in 0..8 {
+                    scope.spawn(|| {
+                        start.wait();
+                        let loaded = ServiceConfig::load(&path).unwrap();
+                        assert_eq!(loaded.manual.unwrap().claude_token_file, Path::new("/t"));
+                    });
+                }
+            });
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                format!("{MINIMAL}{MANUAL}claude_token_file = \"/t\"\n")
+            );
+            assert_eq!(std::fs::read_to_string(backup_of(&path)).unwrap(), old);
+            assert_eq!(
+                names(dir.path()),
+                ["service.toml", "service.toml.before-measurement-removal"]
+            );
+        }
+    }
+    /// A directory the worker cannot write to: the error names the file, which is unchanged.
+    #[test]
+    fn a_file_that_cannot_be_rewritten_is_refused_naming_it() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 {
+            return; // root writes anywhere
+        }
+        let old = format!("{MINIMAL}[measurement]\nenabled = false\n");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("service.toml");
+        write_private(&path, old.as_bytes()).unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let e = format!("{:#}", ServiceConfig::load(&path).unwrap_err());
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(
+            e.contains(&format!(
+                "{} still has the measurement setting, which was removed, and could not be rewritten without it",
+                path.display()
+            )),
+            "{e}"
+        );
+        assert!(e.contains("Permission denied"), "{e}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        assert_eq!(names(dir.path()), ["service.toml"]);
     }
     /// Manual sessions name their Claude subscription token file in `[manual]`; it is
     /// required there and must be absolute.
     #[test]
     fn manual_sessions_name_their_claude_token_file() {
-        let manual = "[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\n";
+        let manual = MANUAL;
         let c = load_text(&format!(
             "{MINIMAL}{manual}claude_token_file = \"/etc/aq/token\"\n"
         ))

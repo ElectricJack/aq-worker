@@ -310,9 +310,14 @@ Manual Claude sessions log in with the subscription token file named by
 path; required whenever `[manual]` is present). The installer and Push logins
 write it. The worker runs whatever model and reasoning effort an offer names:
 there is no qualification measurement and no `[measurement]` section. A
-`service.toml` that still has one is refused when the service loads it. Delete
-the section, and if the profile has a `[manual]` section, move the old
-`token_file` value to `claude_token_file` there.
+`service.toml` that still has one (a machine updated remotely keeps the file its
+installer wrote) is rewritten once by the worker when it loads the file: the
+section is removed, and if the profile has a `[manual]` section without
+`claude_token_file`, the old `token_file` value is set there. Everything else
+is kept, and the file as it was stays beside it as
+`service.toml.before-measurement-removal`. If `[manual]` is present and no token
+file is named anywhere, the service then stops with `missing field
+`claude_token_file``: add the key by hand or use Push logins.
 
 ### Prepare the download on the server
 
