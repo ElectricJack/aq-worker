@@ -38,6 +38,8 @@ class SandboxPackaging(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / path, target)
         shutil.copytree(ROOT / 'packaging/sandbox', repo / 'packaging/sandbox')
+        (repo / 'packaging/native-runtime').mkdir()
+        shutil.copyfile(ROOT / 'packaging/native-runtime/pins.json', repo / 'packaging/native-runtime/pins.json')
         (repo / 'vendor').mkdir()
         (repo / 'vendor/public.txt').write_text('public dependency')
         (repo / 'protocol/aq-admission/src').mkdir(parents=True)
@@ -121,12 +123,13 @@ class SandboxPackaging(unittest.TestCase):
             names = archive.getnames()
         self.assertIn('Cargo.lock', names)
         embedded = {'packaging/sandbox/template_tool.py', 'packaging/sandbox/credential_scan.py',
-                    'packaging/sandbox/boat_materialize.py'}
+                    'packaging/sandbox/boat_materialize.py', 'packaging/native-runtime/pins.json'}
         self.assertTrue(embedded <= set(names), 'runtime source must include embedded template tools')
         self.assertIn('protocol/aq-admission/src/lib.rs', names)
         self.assertNotIn('protocol/unrelated-private.txt', names)
         self.assertTrue(all(n.startswith(('crates/', 'vendor/', 'protocol/aq-admission/')) or n in
                             {'crates', 'vendor', 'Cargo.lock', 'Cargo.toml', 'packaging', 'packaging/sandbox',
+                             'packaging/native-runtime',
                              'protocol', 'protocol/aq-admission'} | embedded for n in names))
         self.assertNotIn('crates/private-untracked.txt', names)
         self.assertFalse(any(n.startswith(('.aq/', '.git/', 'secrets/')) for n in names))

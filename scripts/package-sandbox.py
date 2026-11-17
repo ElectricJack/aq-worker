@@ -106,7 +106,9 @@ def package(revision, inputs, destination, *, pins=None):
         with (runtime / 'worker-source.tar').open('xb') as output:
             subprocess.run(['git', 'archive', '--format=tar', revision, 'Cargo.toml', 'Cargo.lock', 'crates', 'vendor',
                             PACKAGE + 'template_tool.py', PACKAGE + 'credential_scan.py',
-                            PACKAGE + 'boat_materialize.py', 'protocol/aq-admission'],
+                            PACKAGE + 'boat_materialize.py', 'protocol/aq-admission',
+                            # aq-worker embeds it (manual/provider.rs): without it the runner does not compile.
+                            'packaging/native-runtime/pins.json'],
                            cwd=ROOT, stdout=output, check=True)
         archive_digest = digest(runtime / 'worker-source.tar')
         source = {
