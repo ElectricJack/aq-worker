@@ -46,7 +46,9 @@ mod tests {
         assert_eq!(poll_slot(Some("3")).unwrap(), 3);
         assert_eq!(registered_slots(None).unwrap(), None);
         assert_eq!(registered_slots(Some("1024")).unwrap(), Some(1024));
-        for bad in ["", "0", "01", "+1", " 1", "1 ", "1025", "-1", "1.0", "99999"] {
+        for bad in [
+            "", "0", "01", "+1", " 1", "1 ", "1025", "-1", "1.0", "99999",
+        ] {
             assert!(parse(bad).is_err(), "{bad:?}");
             assert!(poll_slot(Some(bad)).is_err());
             assert!(registered_slots(Some(bad)).is_err());
