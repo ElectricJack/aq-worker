@@ -13,6 +13,8 @@ pub struct ResultInstallationPins {
     pub client_executable: ArtifactRef,
     pub environment: ArtifactRef,
     pub recipe: ArtifactRef,
+    /// The digest of the attempt's offered permission plan (from its retained
+    /// manifest), not an installed pin: any plan of a valid manifest launches.
     pub permission_digest: Digest,
     pub reserved_client_bytes: u64,
 }

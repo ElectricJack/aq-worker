@@ -27,7 +27,7 @@ fn settings(config: &NativeConfig) -> CodexSettings {
     CodexSettings {
         host_root: root,
         harness,
-        permissions_digest: Digest::of(b"permissions"),
+        permissions_digest: Some(Digest::of(b"permissions")),
         columns: 80,
         rows: 24,
     }
@@ -233,7 +233,7 @@ fn result_configuration(
         client_executable: client.executable.artifact.clone(),
         contract: aq_agent_result_local::artifact(),
         recipe: aq_codex_mapper::result_local_recipe_artifact(),
-        permission_digest: selected.permissions_digest.clone(),
+        permission_digest: Digest::of(b"any installed plan"),
         additional_permission_digests: vec![],
         reserved_client_bytes:
             crate::native::adapter::result_client::MAX_RESULT_CLIENT_INSTALLATION_BYTES,

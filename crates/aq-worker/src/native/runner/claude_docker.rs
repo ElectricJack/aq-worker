@@ -17,7 +17,10 @@ use std::path::PathBuf;
 pub struct ClaudeDockerSettings {
     pub host: ClaudeDockerHostConfig,
     pub environment: ArtifactRef,
-    pub permissions_digest: Digest,
+    /// Accepted and ignored since spec 0014 (any offered plan is launched). It can
+    /// be deleted from templates; it is still read so installed ones load.
+    #[serde(default)]
+    pub permissions_digest: Option<Digest>,
 }
 
 pub struct ClaudeDockerExecutor {
@@ -86,7 +89,6 @@ impl NativeExecutor for ClaudeDockerExecutor {
             adapter: &config.adapter,
             runtime: &config.runtime,
             environment: &settings.environment,
-            permission_digest: &settings.permissions_digest,
         })?;
         let pins = ResultInstallationPins {
             adapter: config.adapter.clone(),

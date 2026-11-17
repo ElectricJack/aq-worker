@@ -27,7 +27,10 @@ const CODEX_INSTALLATION_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 pub struct CodexSettings {
     pub host_root: PathBuf,
     pub harness: HarnessSettings,
-    pub permissions_digest: Digest,
+    /// Accepted and ignored since spec 0014 (any offered plan is launched). It can
+    /// be deleted from templates; it is still read so installed ones load.
+    #[serde(default)]
+    pub permissions_digest: Option<Digest>,
     pub columns: u16,
     pub rows: u16,
 }
@@ -367,7 +370,6 @@ impl NativeExecutor for CodexExecutor {
                 adapter: &config.adapter,
                 runtime: &config.runtime,
                 environment,
-                permission_digest: &settings.permissions_digest,
             })?;
             ensure!(
                 definition.client_manifest.digest == *client_digest,
@@ -503,7 +505,8 @@ impl NativeExecutor for CodexExecutor {
             } else {
                 None
             };
-            let launched = if let Some(pins) = result_pins {
+            let launched = if let Some(mut pins) = result_pins {
+                pins.permission_digest = pipeline.phase_permission_digest(&grant).await?;
                 let root = self
                     .result_root
                     .clone()

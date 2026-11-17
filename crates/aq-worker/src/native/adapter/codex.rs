@@ -16,7 +16,9 @@ pub(crate) use chatgpt::validated_chatgpt_auth_json;
 /// Operator-selected exact settings, not settings inferred from an offer.
 pub struct CodexExecProfile {
     pub harness: HarnessSettings,
-    pub permissions_digest: Digest,
+    /// A template's legacy key: never compared with an offered plan (spec 0014);
+    /// it only keeps an installed host profile's digest unchanged.
+    pub permissions_digest: Option<Digest>,
     pub renderer: ArtifactRef,
     /// The sandbox's proof for container confinement. `None` maps native only;
     /// a container-declaring harness is refused without a `Container` proof.
@@ -185,9 +187,7 @@ impl CodexExecProfile {
             super::super::journal::canonical_digest(manifest)? == *expected_manifest
                 && manifest.harness == self.harness
                 && *adapter == self.harness.adapter
-                && *renderer == self.renderer
-                && super::super::journal::canonical_digest(&manifest.permissions)?
-                    == self.permissions_digest,
+                && *renderer == self.renderer,
             "Codex exact installed settings mismatch"
         );
         let settings = aq_codex_mapper::Settings {

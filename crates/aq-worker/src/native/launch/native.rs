@@ -100,7 +100,6 @@ impl NativeCodexHostProfile {
             adapter: &mapper.harness.adapter,
             runtime: &runtime,
             environment: &mapper.harness.environment,
-            permission_digest: &mapper.permissions_digest,
         })?;
         definition.validate_installed_client(&client)?;
         let pins = ResultInstallationPins {
@@ -110,7 +109,8 @@ impl NativeCodexHostProfile {
             client_executable: client.artifact().clone(),
             environment: client.environment().clone(),
             recipe: definition.recipe.clone(),
-            permission_digest: mapper.permissions_digest.clone(),
+            // Replaced by the offered plan's digest before a result channel is created.
+            permission_digest: definition.permission_digest.clone(),
             reserved_client_bytes: client.reserved_bytes(),
         };
         pins.validate()?;

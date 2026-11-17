@@ -222,7 +222,7 @@ mod codex_settings {
         let m = &o.offered.offer.manifest;
         CodexExecProfile {
             harness: m.harness.clone(),
-            permissions_digest: canonical_digest(&m.permissions).unwrap(),
+            permissions_digest: None,
             renderer: o.startup.renderer_qualification.clone(),
             confinement: None,
         }
@@ -288,6 +288,66 @@ mod codex_settings {
             profile(&offer)
                 .prepare(&mut adapter, &offer, &digest, payload, &work, &home)
                 .is_err()
+        );
+    }
+    /// Spec 0014: the installation pins no permission plan (the digest an old template
+    /// still carries is ignored). Another role's operations and another project's scope
+    /// start; a manifest for another adapter is still refused.
+    #[test]
+    fn codex_starts_with_any_offered_permission_plan() {
+        let (root, home, work) = dirs();
+        let (offer, payload) = fixture();
+        let mut adapter = installed(root.path(), &offer, &offer.startup.renderer_qualification);
+        let mut selected = profile(&offer);
+        selected.permissions_digest = Some(Digest::of(b"the plan an old template pinned"));
+        let offered = |change: &dyn Fn(&mut aq_session_protocol::LaunchManifest)| {
+            let mut offer = offer.clone();
+            let m = &mut offer.offered.offer.manifest;
+            change(m);
+            let digest = canonical_digest(m).unwrap();
+            offer.offered.offer.binding.launch_manifest_digest = digest.clone();
+            (offer, digest)
+        };
+        for (operations, scope) in [
+            (
+                &["task.read", "knowledge.read", "source.write"][..],
+                "project:1/repository:1",
+            ),
+            (
+                &["task.read", "knowledge.read"][..],
+                "project:1/repository:1",
+            ),
+            (
+                &["task.read", "knowledge.read", "source.write"][..],
+                "project:2/repository:7",
+            ),
+        ] {
+            let (offer, digest) = offered(&|m| {
+                let scopes: Vec<_> = operations
+                    .iter()
+                    .map(|operation| aq_session_protocol::Scope {
+                        operation: Text::new(*operation).unwrap(),
+                        resource: Text::new(scope).unwrap(),
+                    })
+                    .collect();
+                m.permissions.requested = scopes.clone();
+                m.permissions.effective = scopes.clone();
+                m.permissions.required = scopes;
+            });
+            offer.validate().unwrap();
+            selected
+                .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
+                .unwrap();
+        }
+        let (other, digest) = offered(&|m| m.harness.adapter.digest = Digest::of(b"other adapter"));
+        let refused =
+            selected.prepare(&mut adapter, &other, &digest, payload.clone(), &work, &home);
+        assert!(refused.is_err(), "another adapter is not this installation");
+        let (other, digest) = offered(&|m| m.harness.environment.digest = Digest::of(b"other"));
+        let refused = selected.prepare(&mut adapter, &other, &digest, payload, &work, &home);
+        assert!(
+            refused.is_err(),
+            "another environment is not this installation"
         );
     }
     /// The installation names no model, and its renderer differs from the one the

@@ -18,8 +18,9 @@ pub struct ResultAdapterDefinition {
     pub client_executable: ArtifactRef,
     pub contract: ArtifactRef,
     pub recipe: ArtifactRef,
+    /// Ignored since spec 0014: the worker launches whatever plan a valid manifest
+    /// carries. Both keys only keep an installed definition's bytes and digest.
     pub permission_digest: Digest,
-    /// Additional exact permission plans explicitly installed by the operator.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_permission_digests: Vec<Digest>,
     pub reserved_client_bytes: u64,
@@ -29,7 +30,6 @@ pub struct ExpectedResultAdapter<'a> {
     pub adapter: &'a ArtifactRef,
     pub runtime: &'a RuntimeIdentity,
     pub environment: &'a ArtifactRef,
-    pub permission_digest: &'a Digest,
 }
 impl ResultAdapterDefinition {
     pub fn encode(&self) -> Result<Vec<u8>> {
@@ -90,14 +90,6 @@ impl ResultAdapterDefinition {
     }
     fn validate(&self) -> Result<()> {
         ensure!(
-            aq_agent_result_local::permission_plans_valid(
-                &self.permission_digest,
-                &self.additional_permission_digests,
-                self.is_claude_docker()
-            ),
-            "unsupported or duplicate additional permission plan"
-        );
-        ensure!(
             self.schema_version == 1
                 && self.encode()?.len() <= MAX_MANIFEST
                 && self.contract == aq_agent_result_local::artifact()
@@ -124,8 +116,7 @@ impl ResultAdapterDefinition {
         ensure!(
             self.artifact_at_revision(&expected.adapter.version)? == *expected.adapter
                 && self.runtime == expected.runtime.runtime
-                && self.environment == *expected.environment
-                && self.permission_digest == *expected.permission_digest,
+                && self.environment == *expected.environment,
             "result adapter differs from independently selected runtime/settings"
         );
         // The qualifier is checked against the actual installed native runtime
@@ -161,14 +152,10 @@ impl ResultAdapterDefinition {
         ensure!(
             manifest.harness.adapter
                 == self.artifact_at_revision(&manifest.harness.adapter.version)?
-                && manifest.harness.environment == self.environment
-                && {
-                    let digest = super::super::journal::canonical_digest(&manifest.permissions)?;
-                    digest == self.permission_digest
-                        || self.additional_permission_digests.contains(&digest)
-                },
-            "result adapter manifest opt-in/settings/permissions differ"
+                && manifest.harness.environment == self.environment,
+            "result adapter manifest opt-in/settings differ"
         );
+        // The permission plan is server-authored and server-enforced (spec 0014): any is accepted.
         if self.is_claude_docker() {
             return super::claude::validate_docker_local_manifest(manifest);
         }
