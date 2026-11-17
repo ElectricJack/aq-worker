@@ -85,23 +85,23 @@ if [[ ! -d "$package" ]]; then
 fi
 
 profile=local
-slots=1
-explicit_slots=0
+nodes=1
+explicit_nodes=0
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
   case "${args[i]}" in
     --profile) profile="${args[i+1]:-}" ;;
-    --slots) slots="${args[i+1]:-}"; explicit_slots=1 ;;
+    --nodes|--slots) nodes="${args[i+1]:-}"; explicit_nodes=1 ;;
   esac
 done
-[[ "$profile" =~ ^[a-z0-9][a-z0-9-]{0,31}$ && "$slots" =~ ^[1-8]$ ]] || {
-  echo 'Choose a valid profile and between one and eight slots.' >&2; exit 2;
+[[ "$profile" =~ ^[a-z0-9][a-z0-9-]{0,31}$ && "$nodes" =~ ^[1-8]$ ]] || {
+  echo 'Choose a valid profile and between one and eight nodes.' >&2; exit 2;
 }
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/agent-q/service/$profile"
-if [[ -f "$config_dir/service.toml" && "$explicit_slots" == 0 ]]; then
-  slots="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["slots"])' "$config_dir/service.toml")"
-  [[ "$slots" =~ ^[1-8]$ ]] || { echo 'The existing worker slot count is invalid.' >&2; exit 2; }
-  args+=(--slots "$slots")
+if [[ -f "$config_dir/service.toml" && "$explicit_nodes" == 0 ]]; then
+  nodes="$(python3 -c 'import sys,tomllib; print((lambda c: c.get("nodes", c.get("slots")))(tomllib.load(open(sys.argv[1], "rb"))))' "$config_dir/service.toml")"
+  [[ "$nodes" =~ ^[1-8]$ ]] || { echo 'The existing worker slot count is invalid.' >&2; exit 2; }
+  args+=(--nodes "$nodes")
 fi
 podman="$HOME/.local/opt/aq-sandbox-podman/podman-linux-amd64/usr/local/bin/podman"
 socket="$XDG_RUNTIME_DIR/aq-sandbox/podman.sock"
@@ -144,7 +144,7 @@ image="$(cat "$work/image")"
 if ! "$podman" --remote --url "unix://$socket" image exists "$image"; then
   "$podman" --remote --url "unix://$socket" pull "$image"
 fi
-python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$slots" "$digest" "${configure_args[@]}"
+python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$nodes" "$digest" "${configure_args[@]}"
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
 "$worker" service install --profile "$profile"
 "$worker" service status --profile "$profile"

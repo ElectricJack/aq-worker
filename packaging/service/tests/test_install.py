@@ -186,7 +186,7 @@ def test_installs_binaries_and_calls_enroll_install_status_in_order(host):
     steps = [c["args"][:2] for c in worker_calls(host)]
     assert steps == [["service", "enroll"], ["service", "install"], ["service", "status"]]
     enroll = worker_calls(host)[0]["args"]
-    assert enroll[enroll.index("--slots") + 1] == "3"
+    assert enroll[enroll.index("--nodes") + 1] == "3"
     assert enroll[enroll.index("--name") + 1] == "box"
     assert enroll[enroll.index("--machine-key") + 1] == "box-1"
     assert enroll[enroll.index("--aq-git") + 1] == str(runtime / "aq-git")
@@ -202,7 +202,7 @@ def test_defaults_template_and_repositories_from_the_bundle(host):
     assert enroll[enroll.index("--native-template") + 1] == str(host["bundle"] / "native.json")
     assert enroll[enroll.index("--repositories") + 1] == str(host["bundle"] / "repositories.json")
     assert enroll[enroll.index("--profile") + 1] == "local"
-    assert enroll[enroll.index("--slots") + 1] == "1"
+    assert enroll[enroll.index("--nodes") + 1] == "1"
 
 
 @pytest.mark.parametrize("key", ["Bad", "-x", "a_b", "a" * 64, ""])
@@ -448,7 +448,7 @@ def test_hosted_install_writes_manual_sessions_with_their_claude_token_file(tmp_
         assert "measurement" not in written
         if manual_sessions and with_token:
             assert written["manual"] == {
-                "podman_executable": "/usr/bin/podman", "max_slots": 1,
+                "podman_executable": "/usr/bin/podman",
                 "claude_token_file": "/private/claude-token", "source_slugs": {"repo": "owner/repo"},
             }
             assert "Use Push logins" not in result.stdout
@@ -1013,3 +1013,21 @@ def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(t
     assert report["log"][1] == "token [redacted] seen" and len(report["log"][2]) == 240
     assert len(json.dumps(report)) < 12000
 
+
+
+@pytest.mark.parametrize("key", ["nodes", "slots"])
+def test_hosted_install_node_count_preserves_each_enrollment(tmp_path, key):
+    (tmp_path / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}}))
+    (tmp_path / "service.toml").write_text(f"{key} = 2\n")
+    for node in (1, 2):
+        path = tmp_path / f"slots/{node}/worker.toml"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"credential = 'node-{node}'\n")
+    argv = [sys.executable, str(SCRIPT.with_name("worker-install-config.py")),
+            "configure", str(tmp_path), str(tmp_path), "https://worker.example",
+            "/usr/bin/podman", "2", "a" * 64]
+    result = subprocess.run(argv, capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert tomllib.loads((tmp_path / "service.toml").read_text()) == {key: 2}
+    for node in (1, 2):
+        assert (tmp_path / f"slots/{node}/worker.toml").read_text() == f"credential = 'node-{node}'\n"

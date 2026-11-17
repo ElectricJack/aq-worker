@@ -42,8 +42,21 @@ Sandbox limits: original Git index/ref/object metadata is outside the writable r
 committing on the checkout's actual branch fails with read-only index.lock. The shared
 handoff file also fails with read-only filesystem. A delivery Git repository under target/
 and bundle/patches under handoff/ preserve logical commits without changing shared metadata.
-Nothing was pushed. The actual checkout branch remains at d30c933 until those commits are
-imported by a session allowed to write its Git metadata.
+Nothing was pushed. The actual checkout branch stays at the upstream wire baseline until those commits are
+imported by a session allowed to write its Git metadata. That baseline is now fb9f19d, added
+independently by the vendor owner after initial reading.
 
 Remaining: finish packaging/documentation verification, full workspace test attempt under
 900-second hard rule, release build and requested scratchpad copy; report any constraints.
+
+## Progress 2026-11-17 — packaging and operator documentation
+
+Installer and bootstrap accept --nodes (with --slots compatibility); new service files name
+nodes, and receiver helpers read either key without changing credentials. New manual sections
+omit max_slots. Receiver held-slot repair also recognizes nested node/agent state.
+Operations docs explain eight nodes remain eight after update, explicit local reduction to
+two followed by restart, and that binary-only remote updates preserve the count.
+Packaging tests: 34 passed, 30 failed, 1 skipped; all remaining failures occur at the test's
+Unix-socket fixture, EPERM. Shell syntax and Python compilation checks passed. No live service,
+container, configuration or stack endpoint was touched. See open-contract-questions.md here
+for the worker's exact contract choices and required server behavior.

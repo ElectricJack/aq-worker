@@ -1,7 +1,7 @@
 # Install the aq-worker service (Linux and WSL2)
 
 This installs `aq-worker` as an always-on systemd user service with one or more
-slots, enrolled with a single-use code. It is separate from the per-profile
+nodes, each running a server-controlled count of agent slots, enrolled with a single-use code. It is separate from the per-profile
 container worker in [install-worker.md](install-worker.md). macOS is not
 supported yet; the script refuses it.
 
@@ -43,11 +43,11 @@ override the two defaults.
 
 ```sh
 packaging/service/aq-install.sh --server https://aq.example --bundle ~/aq-bundle \
-  --profile local --slots 4 --machine-key my-box
+  --profile local --nodes 2 --machine-key my-box
 ```
 
 Options: `--profile` (default `local`; lower-case letters, digits and `-`, at
-most 32 characters), `--slots` (default 1, at most 8), `--name`,
+most 32 characters), `--nodes` (default 1, at most 8; `--slots` is its legacy alias), `--name`,
 `--machine-key`, `--cf-service-token`, `--native-template`, `--repositories`,
 `--sandbox-bundle` and `--reconfigure`.
 
@@ -94,22 +94,22 @@ If the machine key claim fails after the code was redeemed (for example the key
 is in use), run the same command again: it resumes at the claim and needs no
 new code. If Cloudflare Access refused the stored token at the claim, resume
 with `--reconfigure --cf-service-token` and the new Access client id and secret.
-The slot credentials are written only once the claim succeeds, all of them
-together. If a run stopped after the claim but before it saved the slots, the
+The node credentials are written only once the claim succeeds, all of them
+together. If a run stopped after the claim but before it saved the nodes, the
 rerun says so: revoke the machine and enroll again with a new code.
 
 ### The machine key
 
 The machine key is the one name for the machine: the Swarm page shows it, and
 start, stop, drain and revoke act on it. It is `--machine-key`, or else the
-lower-cased host name. It must match `[a-z0-9][a-z0-9-]{0,62}`. Slot 1 claims it
-on the server; the other slots are minted under it. The machine's label is the
+lower-cased host name. It must match `[a-z0-9][a-z0-9-]{0,62}`. Node 1 claims it
+on the server; the other nodes are minted under it. The machine's label is the
 key too, unless `--name` gives another.
 
 ### Where the service keeps its files
 
 - Configuration: `~/.config/agent-q/service/PROFILE/` (`service.toml`,
-  `machine.json`, `native.json`, one `slots/N/worker.toml` per slot).
+  `machine.json`, `native.json`, one `slots/N/worker.toml` per enrolled node).
 - Durable state: `state_root` in `service.toml`, by default
   `~/.local/state/agent-q/service/PROFILE/`: each slot's journal, Git state,
   materials and archives. Today nothing deletes old archives or kept sandboxes;
@@ -123,7 +123,8 @@ key too, unless `--name` gives another.
   the session host's per-launch directories live under a short runtime root,
   `$XDG_RUNTIME_DIR/aq/PROFILE/` (for example `/run/user/1000/aq/local/`), or
   `/tmp/aq-UID/PROFILE/` when `XDG_RUNTIME_DIR` is unset. Each slot has
-  `N/git.sock` and the host root `N/host/` there. The service creates the root
+  `K/git.sock` and `K/host/` for node K's first agent; later agents use
+  `K-N/git.sock` and `K-N/host/`. The service creates the root
   0700 and refuses one that is a symlink, belongs to another user or is open to
   others. These files do not survive a reboot, and need not.
 
@@ -134,6 +135,11 @@ default runtime root this only happens for a long profile name (more than about
 20 characters under `/run/user/1000`). Use a shorter profile, or set
 `runtime_root = "/absolute/short/dir"` in `service.toml`: its parent must be
 owned by you and writable only by you.
+
+Agent capacity is a server Setting per node. Increasing it does not mint or enroll another
+node. Existing `service.toml` files with `slots = N` still describe N nodes; new files say
+`nodes = N`. A binary update keeps every node. See [multi-agent nodes](multi-agent-nodes.md)
+for independent recovery, shared manual/queued capacity and explicit node retirement.
 
 ### Allowing the machine
 
@@ -156,7 +162,7 @@ All four are on the machine's pane on the Swarm page.
   workspace is copied back, the work is committed and a handoff note is posted
   on the task thread. The task gets a new attempt that starts from that saved
   commit.
-- **Revoke machine**: every slot's credential is revoked and the service stops
+- **Revoke machine**: every node's credential is revoked and the service stops
   polling. Nothing can be minted under the key until a fresh enrollment.
 
 Handoffs caused by Stop (`service_stop`) or by the owner taking over
@@ -219,7 +225,7 @@ destroyed by the service, and other claimed sandboxes are still released.
 Release a preserved one once you have looked at it:
 
 ```sh
-aq-worker service release-sandbox --profile local --slot 2 \
+aq-worker service release-sandbox --profile local --node 2 --slot 1 \
   --attempt-id ATTEMPT --reason "inspected; work not needed"
 ```
 
@@ -368,7 +374,7 @@ queued, installed, or failed status. A failed installation can be retried with a
 new push. An uncertain request is retried with the same operation identity.
 
 A worker installed before this receiver was shipped needs the current hosted
-install command once. It retains its enrollment, configured slots and runtime.
+install command once. It retains its enrollment, configured node count and runtime.
 Subsequent login pushes require no terminal command or new enrollment code.
 
 The receiver uses each enrolled slot's credential over the installation's pinned

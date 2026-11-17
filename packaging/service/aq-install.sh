@@ -7,7 +7,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-usage: aq-install.sh --server URL --bundle DIR [--profile NAME=local] [--slots N=1] [--name NAME]
+usage: aq-install.sh --server URL --bundle DIR [--profile NAME=local] [--nodes N=1] [--name NAME]
                      [--machine-key KEY] [--cf-service-token]
                      [--native-template FILE=DIR/native.json] [--repositories FILE=DIR/repositories.json]
                      [--sandbox-bundle podman-linux-amd64.tar.gz] [--reconfigure] [--defer-start]
@@ -16,14 +16,14 @@ USAGE
 }
 
 KEY_GIVEN=0 RECONFIGURE=0 DEFER_START=0
-SERVER="" BUNDLE="" PROFILE="local" SLOTS="1" NAME="" MACHINE_KEY="" CF=0
+SERVER="" BUNDLE="" PROFILE="local" NODES="1" NAME="" MACHINE_KEY="" CF=0
 TEMPLATE="" REPOS="" SANDBOX_BUNDLE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cf-service-token) CF=1; shift; continue ;;
     --reconfigure) RECONFIGURE=1; shift; continue ;;
     --defer-start) DEFER_START=1; shift; continue ;;
-    --server|--bundle|--profile|--slots|--name|--machine-key|--native-template|--repositories|\
+    --server|--bundle|--profile|--nodes|--slots|--name|--machine-key|--native-template|--repositories|\
     --sandbox-bundle)
       [[ $# -ge 2 ]] || usage ;;
     *) usage ;;
@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
     --server) SERVER="$2" ;;
     --bundle) BUNDLE="$2" ;;
     --profile) PROFILE="$2" ;;
-    --slots) SLOTS="$2" ;;
+    --nodes|--slots) NODES="$2" ;;
     --name) NAME="$2" ;;
     --machine-key) MACHINE_KEY="$2"; KEY_GIVEN=1 ;;
     --native-template) TEMPLATE="$2" ;;
@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$SERVER" && -n "$BUNDLE" ]] || usage
 [[ -d "$BUNDLE" ]] || { echo "bundle directory $BUNDLE not found." >&2; exit 2; }
-[[ "$SLOTS" =~ ^[0-9]+$ ]] || { echo "--slots must be a number." >&2; exit 2; }
+[[ "$NODES" =~ ^[0-9]+$ ]] || { echo "--nodes must be a number." >&2; exit 2; }
 # The service config's rule (aq-node-service valid_profile).
 [[ "$PROFILE" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo "invalid --profile: lower-case letters, digits and '-', at most 32 characters." >&2; exit 2; }
 TEMPLATE="${TEMPLATE:-$BUNDLE/native.json}"
@@ -215,7 +215,7 @@ WORKER="$RUNTIME_DIR/aq-worker"
 if [[ -f "$PROFILE_DIR/service.toml" && ! -f "$PROFILE_DIR/enroll-pending.toml" && "$RECONFIGURE" == 0 ]]; then
   echo "Profile $PROFILE is already enrolled; enrollment skipped. Pass --reconfigure to enroll it again (after a revoke)."
 else
-  ENROLL=("$WORKER" service enroll --profile "$PROFILE" --server "$SERVER" --slots "$SLOTS")
+  ENROLL=("$WORKER" service enroll --profile "$PROFILE" --server "$SERVER" --nodes "$NODES")
   [[ -n "$NAME" ]] && ENROLL+=(--name "$NAME")
   [[ -n "$MACHINE_KEY" ]] && ENROLL+=(--machine-key "$MACHINE_KEY")
   [[ "$CF" == 1 ]] && ENROLL+=(--cf-service-token)

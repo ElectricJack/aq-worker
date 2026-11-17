@@ -32,6 +32,11 @@ def atomic_text(path, contents):
         staging.unlink(missing_ok=True)
 
 
+def node_count(config):
+    """The old service key `slots` counts enrolled nodes, never agents within a node."""
+    return config.get("nodes", config.get("slots"))
+
+
 def read_toml(path):
     with path.open("rb") as stream:
         return tomllib.load(stream)
@@ -40,7 +45,7 @@ def read_toml(path):
 def prepare(package, work, origin, socket, config, digest):
     # A profile installed from this server's installer may take a newer bundle
     # from the same server: that is an update. Its runtime binaries and native
-    # template are then replaced; its enrollment, slots and identity are kept.
+    # template are then replaced; its enrollments, node count and identities are kept.
     marker = config / "hosted-install.json"
     update = False
     if marker.exists():
@@ -97,7 +102,7 @@ def manual_settings(package, podman, slots, source_slugs, claude_token):
     is readable."""
     lines = [
         "", "[manual]", f"podman_executable = {json.dumps(str(podman))}",
-        f"max_slots = {slots}", f"claude_token_file = {json.dumps(str(claude_token))}",
+        f"claude_token_file = {json.dumps(str(claude_token))}",
         "", "[manual.source_slugs]",
     ]
     lines.extend(f"{json.dumps(key)} = {json.dumps(slug)}" for key, slug in source_slugs.items())
@@ -116,8 +121,8 @@ def configure(package, config, origin, podman, slots, digest, claude_token=None)
     service = config / "service.toml"
     contents = service.read_text()
     current = tomllib.loads(contents)
-    if current["slots"] != slots:
-        raise ValueError("The profile already has a different slot count. Keep the existing count or choose another profile.")
+    if node_count(current) != slots:
+        raise ValueError("The profile already has a different node count. Keep the existing count or choose another profile.")
     metadata = json.loads((package / "bootstrap.json").read_text())
     manual = "manual" in current
     if metadata["manual_sessions"] and not manual and claude_token is not None:
@@ -299,7 +304,7 @@ def worker_binary_update(config, installer, origin):
     # those workers held the slot for good even when the server had answered with a refusal.
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agent-q/service" / config.name
     released = []
-    for held in sorted(state.glob("slots/*/held")):
+    for held in sorted([*state.glob("slots/*/held"), *state.glob("nodes/*/slots/*/held")]):
         current = held.parent / "current"
         if held.read_text().startswith("prepare_disposition_unknown") and current.is_dir() and not (current / "server-refused").exists():
             atomic_text(current / "server-refused", "released by a remote worker update")
@@ -618,7 +623,7 @@ def apply_logins(package, config, logins):
     metadata = json.loads((package / "bootstrap.json").read_text())
     if "manual" not in current:
         settings = json.loads((config / "login-sync.json").read_text())
-        contents = contents.rstrip() + manual_settings(package, settings["podman"], current["slots"], metadata["source_slugs"], claude)
+        contents = contents.rstrip() + manual_settings(package, settings["podman"], node_count(current), metadata["source_slugs"], claude)
     elif "anthropic" in providers or not current["manual"].get("claude_token_file"):
         contents = set_toml_value(contents, "manual", "claude_token_file", claude)
     if "openai" in providers:
@@ -632,9 +637,9 @@ def sync_logins(package, config):
     state = None
     try:
         state = read_toml(config / "service.toml")
-        count = state["slots"]
+        count = node_count(state)
         if type(count) is not int or not 1 <= count <= 8:
-            raise ValueError("Invalid slot count")
+            raise ValueError("Invalid node count")
         slots = list(range(1, count + 1))
     except (ValueError, OSError, KeyError):
         # Control traffic must survive the broken configuration it diagnoses.
