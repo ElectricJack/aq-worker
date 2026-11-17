@@ -352,8 +352,17 @@ impl ResultHistory {
                 }
                 _ => anyhow::bail!("unknown result source operation"),
             };
+            let request = action.request(&s.source, id);
+            // An export intent journaled before exports named their base as a
+            // prerequisite stays valid, so a result already finishing when the
+            // worker is replaced keeps its original operation.
+            let mut whole = request.clone();
+            if let Some(params) = whole["params"].as_object_mut() {
+                params.remove("confirmed_prerequisites");
+            }
             ensure!(
-                op.operation_id == id && op.request == action.request(&s.source, id),
+                op.operation_id == id
+                    && (op.request == request || (key == "export" && op.request == whole)),
                 "result source original request changed"
             );
             if let Some(value) = &op.result {
