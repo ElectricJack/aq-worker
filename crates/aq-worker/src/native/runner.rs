@@ -238,15 +238,9 @@ async fn run_admitted<E: NativeExecutor>(
             page.page.offers.len() <= 1 && page.page.offers.len() == page.offer_deadlines_ns.len(),
             "native poll cardinality"
         );
-        let offer = page.page.offers.pop();
+        let found = page.page.offers.pop().zip(page.offer_deadlines_ns.pop());
         // From here a renewal of the node's report waits for this slot (see `poll_need`).
-        Ok(offer.map(|offer| {
-            (
-                offer,
-                page.offer_deadlines_ns[0],
-                pipeline.inventory.flight(),
-            )
-        }))
+        Ok(found.map(|(offer, deadline)| (offer, deadline, pipeline.inventory.flight())))
     };
     let (first, interval) = aq_node_service::polling::staggered(IDLE_POLL_INTERVAL);
     let (offer, offer_deadline, in_flight) = match pause {
@@ -340,14 +334,13 @@ async fn node_inventory(
     }
     let inventory = producer.begin_inventory(ttl_ms)?;
     let deadline = producer.publish_inventory(&inventory).await?.deadline_ns();
-    ensure!(
+    let (live, sequence) = (
         super::http::boot_ns()? < deadline,
-        "native inventory expired"
+        inventory.request().sequence,
     );
-    pipeline
-        .inventory
-        .record(inventory.request().sequence, deadline);
-    Ok(inventory.request().sequence)
+    ensure!(live, "native inventory expired before poll");
+    pipeline.inventory.record(sequence, deadline);
+    Ok(sequence)
 }
 fn check_root(config: &NativeConfig, held: &std::fs::File) -> Result<()> {
     aq_node_service::session::check_state_root(&config.state_dir, held)
