@@ -10,6 +10,7 @@ pub use preserve::{
 };
 pub mod claim;
 pub mod final_message;
+pub mod input;
 mod stream;
 pub use secret_file::{parse_token, read_private};
 pub use stream::{conclusion, final_text, pane_line, print_logs, proven_success};
