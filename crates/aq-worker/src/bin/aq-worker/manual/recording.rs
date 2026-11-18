@@ -103,6 +103,15 @@ impl Normalizer {
         out
     }
 }
+/// Apply the terminal recorder's credential/control masking to already structured text.
+pub(super) fn sanitize_message(text: &str) -> String {
+    Normalizer::default()
+        .feed(text.replace("\r\n", "\n").as_bytes(), true)
+        .chars()
+        .filter(|&ch| !ch.is_control() || ch == '\n' || ch == '\t')
+        .collect()
+}
+
 #[derive(Serialize, Deserialize)]
 struct Identity {
     id: Uuid,
