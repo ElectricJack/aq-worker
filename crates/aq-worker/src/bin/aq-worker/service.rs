@@ -8,6 +8,10 @@ use aq_node_service::{
     SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff, write_machine_json,
     write_private,
 };
+use aq_observation_redb_prototype::{
+    HttpOwnerPeer,
+    node::{Node as ObservationNode, NodeLimits, Observations},
+};
 use aq_protocol::{
     EnrollRequest, HandoffNotice, HandoffReason, PROTOCOL_VERSION, SlotsRequest, valid_machine_key,
 };
@@ -130,6 +134,59 @@ pub struct NativeSlotBackend {
     manual_pause: std::collections::BTreeMap<Uuid, watch::Receiver<bool>>,
     native_active: std::collections::BTreeMap<Uuid, Arc<std::sync::atomic::AtomicUsize>>,
     sessions: std::collections::BTreeMap<Uuid, Arc<NodeSession>>,
+    /// Each node's observation registrar. A launch registers its transcript with
+    /// `Observations::register`; the docker-local executor does not take it yet.
+    #[allow(dead_code)]
+    observations: std::collections::BTreeMap<Uuid, Observations>,
+}
+/// Starts a node's observation service: its store under `<state_root>/observations/<node id>`,
+/// the transport owner handshake and delivery. A failure leaves the node running unobserved.
+fn start_observations(
+    config: &ServiceConfig,
+    worker: &WorkerConfig,
+    boot_id: Uuid,
+) -> Option<ObservationNode> {
+    let (o, node) = (&config.observations, worker.node_id);
+    let ms = std::time::Duration::from_millis;
+    let start = || -> Result<ObservationNode> {
+        let edge: Vec<(&str, &str)> = match (&worker.cf_client_id, &worker.cf_client_secret) {
+            (Some(id), Some(secret)) => vec![
+                ("cf-access-client-id", id),
+                ("cf-access-client-secret", secret),
+            ],
+            _ => vec![],
+        };
+        let peer = HttpOwnerPeer::for_node(
+            &worker.server_url,
+            node,
+            &worker.credential,
+            &edge,
+            ms(o.request_timeout_ms),
+        )?;
+        let limits = NodeLimits {
+            store_file_bytes: o.store_file_bytes,
+            store_data_bytes: o.store_data_bytes,
+            store_cache_bytes: o.store_cache_bytes as usize,
+            tracked_identities: o.tracked_identities as usize,
+            discovery_entries: o.discovery_entries as usize,
+            poll: ms(o.poll_ms),
+            retry_start: ms(o.retry_start_ms),
+            retry_max: ms(o.retry_max_ms),
+            finish_drain: ms(o.finish_drain_ms),
+        };
+        let directory = config.state_root.join("observations");
+        ObservationNode::start(
+            &directory,
+            node,
+            boot_id,
+            limits,
+            peer,
+            move |line| tracing::info!(%node, "{line}"),
+        )
+    };
+    start()
+        .inspect_err(|e| tracing::error!(%node, "node observations not started: {e:#}"))
+        .ok()
 }
 impl NativeSlotBackend {
     pub fn new(template: PathBuf) -> Self {
@@ -140,6 +197,7 @@ impl NativeSlotBackend {
             manual_pause: Default::default(),
             native_active: Default::default(),
             sessions: Default::default(),
+            observations: Default::default(),
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
@@ -774,6 +832,7 @@ async fn enroll_in(
         manual: None,
         shutdown_grace_ms: 120_000,
         retry: Default::default(),
+        observations: Default::default(),
     };
     // Repository count and format, absolute paths, bounds, and the
     // socket paths under the runtime root.
@@ -1206,6 +1265,16 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     native_backend.conversation_root = Some(conversation_root.clone());
     native_backend.manual_pause = manual_pause;
     native_backend.native_active = native_active;
+    // One observation service per node, for the life of this process (its boot).
+    let mut observation_nodes = Vec::new();
+    for (_, view, _) in &node_views {
+        let worker = WorkerConfig::load(&view.slot_enrollment(1))?;
+        let boot_id = sessions[&worker.node_id].boot_id;
+        if let Some(node) = start_observations(&config, &worker, boot_id) {
+            (native_backend.observations).insert(worker.node_id, node.observations());
+            observation_nodes.push(node);
+        }
+    }
     native_backend.sessions = sessions;
     let backend = Arc::new(native_backend);
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
@@ -1260,6 +1329,7 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
             ),
         }
     }
+    drop(observation_nodes);
     watcher.abort();
     if let Some(machine) = machine {
         machine.abort();
