@@ -4,7 +4,10 @@
 use super::*;
 use crate::native::{
     adapter::result_profile::{ExpectedResultAdapter, ResultAdapterDefinition},
-    launch::claude_docker::{ClaudeDockerHostConfig, ClaudeDockerHostProfile},
+    launch::claude_docker::{
+        ClaudeDockerHostConfig, ClaudeDockerHostProfile, CodexDockerHost, DockerHarness,
+        select_harness,
+    },
     result::ResultInstallationPins,
 };
 use aq_session_protocol::{ArtifactRef, Digest};
@@ -21,6 +24,83 @@ pub struct ClaudeDockerSettings {
     /// be deleted from templates; it is still read so installed ones load.
     #[serde(default)]
     pub permissions_digest: Option<Digest>,
+    /// Codex in the same sandbox template, for offers that select the `codex`
+    /// harness. Absent: this node launches Claude only.
+    #[serde(default)]
+    pub codex: Option<CodexDockerSettings>,
+}
+
+/// The node's Codex harness beside Claude: the same docker-local host, sandbox
+/// template and driver, with Codex's own result adapter selection.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodexDockerSettings {
+    /// The selected Codex docker-local result adapter
+    /// (`aq.codex-docker-result-local-adapter`) that Codex offers name.
+    pub adapter: ArtifactRef,
+    /// The template environment that Codex offers name (`harness.environment`).
+    pub environment: ArtifactRef,
+    /// Its exact canonical result adapter Definition bytes (0600 file).
+    pub composite_definition: PathBuf,
+    /// Codex CLI inside the template image (`/opt/aq/bin/codex`).
+    pub executable: PathBuf,
+}
+
+/// The result pins of one selected docker-local result adapter definition.
+fn result_pins(
+    adapter: &ArtifactRef,
+    definition: &ResultAdapterDefinition,
+) -> Result<ResultInstallationPins> {
+    let pins = ResultInstallationPins {
+        adapter: adapter.clone(),
+        contract: definition.contract.clone(),
+        client_manifest: definition.client_manifest.clone(),
+        client_executable: definition.client_executable.clone(),
+        environment: definition.environment.clone(),
+        recipe: definition.recipe.clone(),
+        permission_digest: definition.permission_digest.clone(),
+        reserved_client_bytes: definition.reserved_client_bytes,
+    };
+    pins.validate()?;
+    Ok(pins)
+}
+/// Codex pins from the node's Codex settings: a Codex docker-local definition,
+/// selected independently of the Claude one.
+fn codex_result_pins(
+    config: &NativeConfig,
+    codex: &CodexDockerSettings,
+) -> Result<ResultInstallationPins> {
+    ensure!(
+        codex.adapter != config.adapter && codex.executable.is_absolute(),
+        "Codex docker-local settings must select their own result adapter"
+    );
+    let definition = ResultAdapterDefinition::decode(&config::private_file(
+        &codex.composite_definition,
+        16384,
+    )?)?;
+    ensure!(
+        definition.is_codex_docker(),
+        "selected Codex result adapter is not the Codex docker-local profile"
+    );
+    definition.validate_selected(ExpectedResultAdapter {
+        adapter: &codex.adapter,
+        runtime: &config.runtime,
+        environment: &codex.environment,
+    })?;
+    result_pins(&codex.adapter, &definition)
+}
+/// The result pins for the harness an offer selects (`harness.harness`).
+pub fn launch_pins(
+    harness: &str,
+    claude: Option<&ResultInstallationPins>,
+    codex: Option<&ResultInstallationPins>,
+) -> Result<(DockerHarness, ResultInstallationPins)> {
+    let selected = select_harness(harness, codex.is_some())?;
+    let pins = match selected {
+        DockerHarness::Claude => claude.context("Claude result pins absent")?,
+        DockerHarness::Codex => codex.context("Codex result pins absent")?,
+    };
+    Ok((selected, pins.clone()))
 }
 
 pub struct ClaudeDockerExecutor {
@@ -29,6 +109,8 @@ pub struct ClaudeDockerExecutor {
     transfer: crate::transfer_client::TransferClient,
     profile: Option<Arc<ClaudeDockerHostProfile>>,
     pins: Option<ResultInstallationPins>,
+    /// Set when the node also runs Codex (`ClaudeDockerSettings::codex`).
+    codex_pins: Option<ResultInstallationPins>,
     result_root: Option<PathBuf>,
     conversation_outbox: Option<PathBuf>,
     /// The node's enrollment (origin, credential, Access), for the agent channel.
@@ -57,6 +139,7 @@ impl ClaudeDockerExecutor {
             transfer: crate::transfer_client::TransferClient::from_config(worker, 1)?,
             profile: None,
             pins: None,
+            codex_pins: None,
             result_root: None,
             conversation_outbox: None,
             issuance: aq_agent_channel::NodeLink::new(
@@ -98,17 +181,12 @@ impl NativeExecutor for ClaudeDockerExecutor {
             runtime: &config.runtime,
             environment: &settings.environment,
         })?;
-        let pins = ResultInstallationPins {
-            adapter: config.adapter.clone(),
-            contract: definition.contract.clone(),
-            client_manifest: definition.client_manifest.clone(),
-            client_executable: definition.client_executable.clone(),
-            environment: definition.environment.clone(),
-            recipe: definition.recipe.clone(),
-            permission_digest: definition.permission_digest.clone(),
-            reserved_client_bytes: definition.reserved_client_bytes,
-        };
-        pins.validate()?;
+        let pins = result_pins(&config.adapter, &definition)?;
+        let codex_pins = settings
+            .codex
+            .as_ref()
+            .map(|codex| codex_result_pins(config, codex))
+            .transpose()?;
         // The service keeps it outside the state, in a short runtime dir (socket paths).
         ensure!(
             settings.host.renderer == config.renderer
@@ -116,12 +194,17 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 && !settings.host.root.starts_with(&config.git_root),
             "Claude host root must be separate from the state and Git roots"
         );
-        self.profile = Some(Arc::new(
-            ClaudeDockerHostProfile::new(settings.host.clone())?
-                .with_issuance(self.issuance.clone())
-                .with_conversation_outbox(self.conversation_outbox.clone()),
-        ));
+        let mut profile = ClaudeDockerHostProfile::new(settings.host.clone())?
+            .with_issuance(self.issuance.clone())
+            .with_conversation_outbox(self.conversation_outbox.clone());
+        if let Some(codex) = &settings.codex {
+            profile = profile.with_codex(CodexDockerHost {
+                executable: codex.executable.clone(),
+            })?;
+        }
+        self.profile = Some(Arc::new(profile));
         self.pins = Some(pins);
+        self.codex_pins = codex_pins;
         self.result_root = Some(config.state_dir.join("result"));
         Ok(())
     }
@@ -137,9 +220,17 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 .profile
                 .clone()
                 .context("Claude executor not preflighted")?;
-            let mut pins = self.pins.clone().context("Claude result pins absent")?;
-            let root = self.result_root.clone().context("result root absent")?;
             let id = grant.history().attempt_id();
+            // The offer selects the harness; the launch profile maps the same manifest.
+            let harness = {
+                let state = pipeline.snapshot().await?;
+                let attempt = state.attempts.get(&id).context("native attempt absent")?;
+                let m = &attempt.reservation.offer.offered.offer.manifest;
+                m.harness.harness.as_str().to_owned()
+            };
+            let (_, mut pins) =
+                launch_pins(&harness, self.pins.as_ref(), self.codex_pins.as_ref())?;
+            let root = self.result_root.clone().context("result root absent")?;
             pins.permission_digest = pipeline.phase_permission_digest(&grant).await?;
             let channel = pipeline
                 .create_result_channel_in_namespace(&grant, root, pins)

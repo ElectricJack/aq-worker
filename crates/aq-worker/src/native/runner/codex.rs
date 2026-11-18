@@ -366,6 +366,10 @@ impl NativeExecutor for CodexExecutor {
                 definition.interactive() == interactive_clock.is_some(),
                 "executor and selected result mode differ"
             );
+            ensure!(
+                !definition.is_claude_docker() && !definition.is_codex_docker(),
+                "docker-local result definitions select the docker-local executor"
+            );
             definition.validate_selected(ExpectedResultAdapter {
                 adapter: &config.adapter,
                 runtime: &config.runtime,

@@ -1,12 +1,15 @@
 //! Read the provider conversation from a Docker sandbox.
-use crate::backend::{BackendError, SandboxIdentity, docker_local::DockerLocalBackend};
+use crate::backend::{
+    BackendError, SandboxIdentity,
+    docker_local::{DockerLocalBackend, DockerTransport},
+};
 use aq_sandbox_archive::conversation::{MAX_LOG_BYTES, from_archive};
 pub use aq_sandbox_archive::conversation::{MAX_SNAPSHOT_BYTES, Provider, Snapshot};
 use uuid::Uuid;
 
 /// Load one provider session from the fresh sandbox's private log directory.
-pub async fn read_snapshot(
-    backend: &mut DockerLocalBackend,
+pub async fn read_snapshot<T: DockerTransport>(
+    backend: &mut DockerLocalBackend<T>,
     sandbox: &SandboxIdentity,
     provider: Provider,
     directory: &str,

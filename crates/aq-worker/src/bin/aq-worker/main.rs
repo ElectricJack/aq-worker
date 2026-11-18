@@ -517,6 +517,7 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
         }
         Cmd::Ms1Definitions => {
             let recipe = aq_worker::native::adapter::claude::docker_local_recipe_artifact();
+            let codex = aq_codex_mapper::docker_local::recipe_artifact();
             println!(
                 "{}",
                 serde_json::json!({
@@ -525,6 +526,13 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                         "version": recipe.version.as_str(),
                         "digest": recipe.digest.as_str(),
                         "body": aq_worker::native::adapter::claude::docker_local_recipe_body(),
+                    },
+                    // Codex in the same docker-local sandbox (harness `codex`).
+                    "codex_recipe": {
+                        "id": codex.id.as_str(),
+                        "version": codex.version.as_str(),
+                        "digest": codex.digest.as_str(),
+                        "body": aq_codex_mapper::docker_local::recipe_body(),
                     },
                     "contract": aq_agent_result_local::artifact(),
                     "startup": aq_agent_result_local::startup_artifact(),

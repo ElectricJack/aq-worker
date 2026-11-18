@@ -50,6 +50,8 @@ impl ResultAdapterDefinition {
         Ok(ArtifactRef {
             id: aq_session_protocol::Text::new(if self.is_claude_docker() {
                 "aq.claude-result-local-adapter"
+            } else if self.is_codex_docker() {
+                "aq.codex-docker-result-local-adapter"
             } else {
                 "aq.codex-result-local-adapter"
             })?,
@@ -79,9 +81,15 @@ impl ResultAdapterDefinition {
     pub fn is_claude_docker(&self) -> bool {
         matches!(self.profile, ResultAdapterKind::Claude2318DockerLocalV1)
     }
+    /// Codex in the docker-local sandbox, beside Claude (`runner::claude_docker`).
+    pub fn is_codex_docker(&self) -> bool {
+        matches!(self.profile, ResultAdapterKind::Codex0166DockerLocalV1)
+    }
     pub fn recipe_artifact(&self) -> ArtifactRef {
         if self.is_claude_docker() {
             super::claude::docker_local_recipe_artifact()
+        } else if self.is_codex_docker() {
+            aq_codex_mapper::docker_local::recipe_artifact()
         } else if self.interactive() {
             aq_codex_mapper::interactive_result_local_recipe_artifact()
         } else {
@@ -158,6 +166,9 @@ impl ResultAdapterDefinition {
         // The permission plan is server-authored and server-enforced (spec 0014): any is accepted.
         if self.is_claude_docker() {
             return super::claude::validate_docker_local_manifest(manifest);
+        }
+        if self.is_codex_docker() {
+            return aq_codex_mapper::docker_local::validate_manifest(manifest);
         }
         let settings = aq_codex_mapper::Settings {
             harness: &manifest.harness,

@@ -60,6 +60,31 @@ impl ChannelMode {
         *self == Self::Required
     }
 }
+/// Codex in the same docker-local sandbox template, beside Claude.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodexDockerHost {
+    /// Codex CLI inside the template image (`/opt/aq/bin/codex`).
+    pub executable: PathBuf,
+}
+/// The harness an offer selects on a docker-local node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DockerHarness {
+    Claude,
+    Codex,
+}
+/// The offered manifest's `harness.harness` to the harness this node launches.
+/// Codex needs the node's Codex configuration; anything else is refused.
+pub fn select_harness(harness: &str, codex_configured: bool) -> Result<DockerHarness> {
+    match harness {
+        "claude" => Ok(DockerHarness::Claude),
+        "codex" if codex_configured => Ok(DockerHarness::Codex),
+        "codex" => anyhow::bail!("this docker-local node has no Codex harness configured"),
+        other => anyhow::bail!("docker-local harness {other:?} is not supported"),
+    }
+}
+/// In-sandbox private home of a Codex attempt (`CODEX_HOME`).
+pub const CODEX_HOME: &str = "/aq/home/codex";
 pub struct ClaudeDockerHostProfile {
     pub(super) config: ClaudeDockerHostConfig,
     pub(super) root: RootGuard,
@@ -68,6 +93,8 @@ pub struct ClaudeDockerHostProfile {
     /// The node's enrollment, for agent-credential issuance. Memory only.
     issuance: Option<aq_agent_channel::NodeLink>,
     conversation_outbox: Option<PathBuf>,
+    /// Codex beside Claude; None runs Claude only.
+    codex: Option<CodexDockerHost>,
 }
 fn hash_file(path: &Path, max: u64) -> Result<(String, u64)> {
     let mut f = std::fs::OpenOptions::new()
@@ -144,6 +171,7 @@ impl ClaudeDockerHostProfile {
             pool,
             issuance: None,
             conversation_outbox: None,
+            codex: None,
         };
         profile.verify_installation()?;
         // Channels die with their node process; drop what a dead one left.
@@ -172,6 +200,22 @@ impl ClaudeDockerHostProfile {
     pub(crate) fn with_conversation_outbox(mut self, directory: Option<PathBuf>) -> Self {
         self.conversation_outbox = directory;
         self
+    }
+    /// Lets offers select Codex as well. The profile digest then covers the Codex
+    /// settings too; a Claude-only profile keeps its digest.
+    pub fn with_codex(mut self, codex: CodexDockerHost) -> Result<Self> {
+        ensure!(
+            codex.executable.is_absolute()
+                && codex.executable.to_str().is_some()
+                && codex.executable != self.config.claude_executable,
+            "closed Codex docker-local host profile"
+        );
+        self.digest = crate::native::journal::canonical_digest(&(&self.config, &codex))?;
+        self.codex = Some(codex);
+        Ok(self)
+    }
+    pub fn codex(&self) -> Option<&CodexDockerHost> {
+        self.codex.as_ref()
     }
     fn channel_root(&self) -> PathBuf {
         self.config.root.join("channels")
@@ -286,12 +330,141 @@ fn wall_ms() -> Result<u64> {
         .as_millis()
         .try_into()?)
 }
+/// What one harness puts into the driver: its private login material and the
+/// in-sandbox command.
+struct HarnessLaunch {
+    token: zeroize::Zeroizing<Vec<u8>>,
+    executable: String,
+    arguments: Vec<String>,
+    environment: std::collections::BTreeMap<String, String>,
+    settings_json: String,
+    harness: crate::sandbox_driver::DriverHarness,
+}
+/// Exactly one material of `provider` that this manifest asks for.
+fn provider_material<'a>(
+    scope: &'a LaunchExecutionScope,
+    m: &aq_session_protocol::LaunchManifest,
+    provider: &str,
+) -> Vec<&'a crate::native::materials::InstalledMaterial> {
+    scope
+        .inputs
+        .materials()
+        .iter()
+        .filter(|material| {
+            let lease = &material.metadata().delivery.lease;
+            lease.provider.as_str() == provider
+                && m.credentials.iter().any(|r| {
+                    r.credential_profile == lease.credential_profile
+                        && r.purpose.as_str() == lease.purpose.as_str()
+                })
+        })
+        .collect()
+}
+fn claude_launch(
+    scope: &LaunchExecutionScope,
+    m: &aq_session_protocol::LaunchManifest,
+    profile: &ClaudeDockerHostProfile,
+) -> Result<HarnessLaunch> {
+    use crate::native::runner::sandbox::confinement::ConfinementMode;
+    // Exactly one Anthropic subscription material for this manifest.
+    let logins = provider_material(scope, m, "anthropic");
+    ensure!(
+        logins.len() == 1,
+        "Claude docker-local requires one exact Anthropic login material"
+    );
+    let token = logins[0].read_private()?;
+    let token = crate::sandbox_driver::parse_token(&token)?;
+    let mode = ConfinementMode::declared(m)?;
+    ensure!(
+        mode == ConfinementMode::Container,
+        "Claude docker-local runs in container confinement only (C2: no user-namespace mapping)"
+    );
+    let home = PathBuf::from("/aq/home");
+    let recipe = crate::native::adapter::claude::map(
+        &m.harness,
+        &m.model,
+        crate::native::adapter::claude::ClaudePaths {
+            executable: &profile.config.claude_executable,
+            workspace: Path::new(crate::backend::docker_local::config::WORK_TARGET),
+            private_home: &home,
+        },
+        mode,
+    )?;
+    Ok(HarnessLaunch {
+        token,
+        executable: recipe
+            .executable
+            .to_str()
+            .context("Claude executable UTF-8")?
+            .into(),
+        arguments: recipe.arguments,
+        environment: recipe.environment,
+        settings_json: String::from_utf8(recipe.settings_json)?,
+        harness: crate::sandbox_driver::DriverHarness::Claude,
+    })
+}
+/// Codex in the same template: the ChatGPT login (`auth.json`) is this attempt's
+/// private material, delivered like the Claude token; the runner installs it
+/// read-only in the attempt's own `CODEX_HOME` and nothing is written back.
+fn codex_launch(
+    scope: &LaunchExecutionScope,
+    m: &aq_session_protocol::LaunchManifest,
+    profile: &ClaudeDockerHostProfile,
+) -> Result<HarnessLaunch> {
+    use crate::native::runner::sandbox::confinement::ConfinementMode;
+    let codex = profile
+        .codex
+        .as_ref()
+        .context("Codex docker-local settings absent")?;
+    let logins = provider_material(scope, m, "openai");
+    ensure!(
+        logins.len() == 1,
+        "Codex docker-local requires one exact OpenAI ChatGPT login material"
+    );
+    let auth = logins[0].read_private()?;
+    aq_session_host::PrivateLaunchInput::validate_chatgpt_auth_json(&auth)?;
+    let mode = ConfinementMode::declared(m)?;
+    ensure!(
+        mode == ConfinementMode::Container,
+        "Codex docker-local runs in container confinement only"
+    );
+    let channel = profile.config.agent_channel.is_required().then_some(
+        aq_codex_mapper::docker_local::AgentChannel {
+            socket: aq_agent_channel::AQ_CHANNEL,
+            bin_dir: aq_agent_channel::AQ_BIN,
+        },
+    );
+    let recipe = aq_codex_mapper::docker_local::map_docker_local(
+        aq_codex_mapper::Settings {
+            harness: &m.harness,
+            model: &m.model,
+            terminal_input_enabled: m.terminal.input_enabled,
+        },
+        aq_codex_mapper::Paths {
+            executable: &codex.executable,
+            workspace: Path::new(crate::backend::docker_local::config::WORK_TARGET),
+            private_home: Path::new(CODEX_HOME),
+        },
+        channel,
+    )?;
+    Ok(HarnessLaunch {
+        token: auth,
+        executable: recipe
+            .executable
+            .to_str()
+            .context("Codex executable UTF-8")?
+            .into(),
+        arguments: recipe.arguments,
+        environment: recipe.environment,
+        settings_json: String::new(),
+        harness: crate::sandbox_driver::DriverHarness::Codex,
+    })
+}
 pub(super) fn bootstrap(
     owner: &Arc<Mutex<Owned>>,
     entry: &Arc<Entry>,
     profile: &Arc<ClaudeDockerHostProfile>,
 ) -> Result<()> {
-    use crate::native::runner::sandbox::confinement::ConfinementMode;
     let scope = entry.scope.as_ref().context("native launch scope absent")?;
     let (offer, runtime) = {
         let mut owner = lock(owner)?;
@@ -322,42 +495,10 @@ pub(super) fn bootstrap(
         .context("native launch intent absent")?;
     let i = &h.intent;
     let m = &offer.offered.offer.manifest;
-    // Exactly one Anthropic subscription material for this manifest.
-    let logins: Vec<_> = scope
-        .inputs
-        .materials()
-        .iter()
-        .filter(|material| {
-            let lease = &material.metadata().delivery.lease;
-            lease.provider.as_str() == "anthropic"
-                && m.credentials.iter().any(|r| {
-                    r.credential_profile == lease.credential_profile
-                        && r.purpose.as_str() == lease.purpose.as_str()
-                })
-        })
-        .collect();
-    ensure!(
-        logins.len() == 1,
-        "Claude docker-local requires one exact Anthropic login material"
-    );
-    let token = logins[0].read_private()?;
-    let token = crate::sandbox_driver::parse_token(&token)?;
-    let mode = ConfinementMode::declared(m)?;
-    ensure!(
-        mode == ConfinementMode::Container,
-        "Claude docker-local runs in container confinement only (C2: no user-namespace mapping)"
-    );
-    let home = PathBuf::from("/aq/home");
-    let recipe = crate::native::adapter::claude::map(
-        &m.harness,
-        &m.model,
-        crate::native::adapter::claude::ClaudePaths {
-            executable: &profile.config.claude_executable,
-            workspace: Path::new(crate::backend::docker_local::config::WORK_TARGET),
-            private_home: &home,
-        },
-        mode,
-    )?;
+    let launch = match select_harness(m.harness.harness.as_str(), profile.codex.is_some())? {
+        DockerHarness::Claude => claude_launch(scope, m, profile)?,
+        DockerHarness::Codex => codex_launch(scope, m, profile)?,
+    };
     let (node_id, boot_id) = match &i.binding.session {
         aq_session_protocol::SessionIdentity::Remote {
             node_id, boot_id, ..
@@ -384,8 +525,8 @@ pub(super) fn bootstrap(
     std::fs::DirBuilder::new().mode(0o700).create(&private)?;
     let token_file = private.join("token");
     let mut guard = TokenGuard(Some(token_file.clone()));
-    private_write(&token_file, &token)?;
-    drop(token);
+    private_write(&token_file, &launch.token)?;
+    drop(launch.token);
     let result_dir = entry
         .result_channel
         .as_ref()
@@ -407,18 +548,15 @@ pub(super) fn bootstrap(
         },
         workspace: scope.inputs.workspace().workspace().path.clone(),
         token_file,
-        executable: recipe
-            .executable
-            .to_str()
-            .context("Claude executable UTF-8")?
-            .into(),
-        arguments: recipe.arguments,
-        environment: recipe.environment,
-        settings_json: String::from_utf8(recipe.settings_json)?,
+        executable: launch.executable,
+        arguments: launch.arguments,
+        environment: launch.environment,
+        settings_json: launch.settings_json,
         result_dir,
         max_workspace_bytes: profile.config.max_workspace_bytes,
         agent_channel,
         conversation_outbox: profile.conversation_outbox.clone(),
+        harness: launch.harness,
     };
     let driver_file = private.join("driver.json");
     private_write(&driver_file, &serde_json::to_vec(&driver)?)?;

@@ -350,3 +350,54 @@ fn a_definition_still_carrying_the_old_permission_keys_loads_and_is_selected() {
             .unwrap();
     }
 }
+
+/// Codex in the docker-local sandbox has its own result profile: its own adapter id
+/// and recipe, and it accepts only container-confined Codex manifests.
+#[test]
+fn codex_docker_local_profile_selects_container_codex_manifests_only() {
+    let mut value = definition();
+    value.profile = ResultAdapterKind::Codex0166DockerLocalV1;
+    value.recipe = value.recipe_artifact();
+    assert_eq!(
+        value.recipe,
+        aq_codex_mapper::docker_local::recipe_artifact()
+    );
+    let bytes = value.encode().unwrap();
+    let loaded = ResultAdapterDefinition::decode(&bytes).unwrap();
+    assert!(loaded.is_codex_docker() && !loaded.is_claude_docker() && !loaded.interactive());
+    let adapter = loaded.artifact().unwrap();
+    assert_eq!(adapter.id.as_str(), "aq.codex-docker-result-local-adapter");
+
+    let container = |mut m: LaunchManifest| {
+        m.harness
+            .required_capabilities
+            .retain(|c| c.id.as_str() != aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY);
+        m.harness
+            .required_capabilities
+            .push(aq_session_protocol::Capability {
+                id: Text::new(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY).unwrap(),
+                version: 1,
+            });
+        m
+    };
+    let mut codex = container(manifest(false));
+    let mut value = loaded;
+    value.environment = codex.harness.environment.clone();
+    codex.harness.adapter = value.artifact().unwrap();
+    value.validate_manifest(&codex).unwrap();
+
+    let mut native = manifest(false);
+    native.harness.adapter = codex.harness.adapter.clone();
+    native.harness.environment = codex.harness.environment.clone();
+    assert!(
+        value.validate_manifest(&native).is_err(),
+        "Codex's own sandbox is not this recipe"
+    );
+    let mut claude = manifest(true);
+    claude.harness.adapter = codex.harness.adapter.clone();
+    claude.harness.environment = codex.harness.environment.clone();
+    assert!(value.validate_manifest(&claude).is_err());
+    let mut interactive = codex.clone();
+    interactive.terminal.input_enabled = true;
+    assert!(value.validate_manifest(&interactive).is_err());
+}
