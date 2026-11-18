@@ -1,4 +1,6 @@
 //! Native CLI refusals expose useful causes before their conservative disposition.
+#[path = "native_cli/docker_local_executor.rs"]
+mod docker_local_executor;
 #[path = "native_cli/result_profile.rs"]
 mod result_profile;
 use aq_admission::preparation_v2::{contract_artifact, required_features};

@@ -83,6 +83,9 @@ struct State {
     volume_sizes: BTreeMap<String, i64>,
     /// `DriverOpts` sent with each volume create.
     volume_opts: BTreeMap<String, Value>,
+    /// Extra files the fixture runner writes when it starts with material
+    /// (a harness's own output, for driver tests).
+    start_files: Vec<(String, Vec<u8>)>,
 }
 
 #[derive(Clone)]
@@ -118,6 +121,7 @@ impl ScriptedDocker {
                 container_sizes: BTreeMap::new(),
                 volume_sizes: BTreeMap::new(),
                 volume_opts: BTreeMap::new(),
+                start_files: Vec::new(),
             })),
             paused: Arc::new(watch::channel(false).0),
         }
@@ -159,6 +163,14 @@ impl ScriptedDocker {
     pub fn runner(self, runner: Runner) -> Self {
         self.state.lock().unwrap().runner = runner;
         self
+    }
+    /// The fixture runner also writes `data` at `path` when it starts with material.
+    pub fn on_start_write(&self, path: &str, data: Vec<u8>) {
+        self.state
+            .lock()
+            .unwrap()
+            .start_files
+            .push((path.into(), data));
     }
     pub fn pause(&self) {
         self.paused.send_replace(true);
@@ -453,6 +465,24 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
         (Get, ["containers", name, "archive"]) => {
             let path = query.get("path").cloned().unwrap_or_default();
             match read_file(state, name, &path) {
+                // A directory: every file below it, as `<dir name>/<relative path>`.
+                Err(response) if response.status == 404 => {
+                    let files = files_under(state, name, &path);
+                    if files.is_empty() {
+                        return response;
+                    }
+                    let base = path
+                        .trim_end_matches('/')
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or_default();
+                    let mut body = Vec::new();
+                    for (rel, file) in files {
+                        body.extend(tar_entry(&format!("{base}/{rel}"), &file));
+                    }
+                    body.extend_from_slice(&[0u8; 1024]);
+                    DockerResponse { status: 200, body }
+                }
                 Err(response) => response,
                 Ok(file) => {
                     let base = path.rsplit('/').next().unwrap_or_default();
@@ -492,6 +522,15 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
                     gid: 0,
                 };
                 write_file(state, name, "/aq/work/fixture-output", output);
+                for (path, data) in state.start_files.clone() {
+                    let file = File {
+                        data,
+                        mode: 0o644,
+                        uid: 0,
+                        gid: 0,
+                    };
+                    write_file(state, name, &path, file);
+                }
             }
             empty(204)
         }
@@ -614,6 +653,36 @@ fn write_file(state: &mut State, container: &str, path: &str, file: File) {
     }
 }
 
+/// Files below directory `dir` of a container (its layer or the volume mounted there).
+fn files_under(state: &State, container: &str, dir: &str) -> Vec<(String, File)> {
+    let dir = dir.trim_end_matches('/');
+    let below = |key: &str, root: &str| {
+        key.strip_prefix(root)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .map(str::to_owned)
+    };
+    let Some(c) = state.containers.get(container) else {
+        return Vec::new();
+    };
+    match volume_for(state, container, dir) {
+        Some((volume, inner)) => state
+            .volumes
+            .get(&volume)
+            .map(|v| {
+                v.files
+                    .iter()
+                    .filter_map(|(k, f)| below(k, &inner).map(|rel| (rel, f.clone())))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        None => c
+            .layer
+            .iter()
+            .filter_map(|(k, f)| below(k, dir).map(|rel| (rel, f.clone())))
+            .collect(),
+    }
+}
+
 fn read_file(state: &State, container: &str, path: &str) -> Result<File, DockerResponse> {
     let c = state
         .containers
@@ -706,6 +775,13 @@ fn parse_tar(archive: &[u8]) -> Option<Vec<(String, File)>> {
 }
 
 pub fn tar_file(name: &str, file: &File) -> Vec<u8> {
+    let mut out = tar_entry(name, file);
+    out.extend_from_slice(&[0u8; 1024]);
+    out
+}
+
+/// One ustar file entry, without the end-of-archive blocks.
+pub fn tar_entry(name: &str, file: &File) -> Vec<u8> {
     let mut header = [0u8; 512];
     header[..name.len()].copy_from_slice(name.as_bytes());
     let fields: [(usize, usize, u64); 5] = [
@@ -728,6 +804,5 @@ pub fn tar_file(name: &str, file: &File) -> Vec<u8> {
     let mut out = header.to_vec();
     out.extend_from_slice(&file.data);
     out.resize(out.len().div_ceil(512) * 512, 0);
-    out.extend_from_slice(&[0u8; 1024]);
     out
 }

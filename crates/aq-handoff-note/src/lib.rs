@@ -10,9 +10,10 @@ pub use preserve::{
 };
 pub mod claim;
 pub mod final_message;
+pub mod harness;
 mod stream;
 pub use secret_file::{parse_token, read_private};
-pub use stream::{conclusion, final_text, pane_line, print_logs, proven_success};
+pub use stream::{conclusion, conclusion_of, final_text, pane_line, print_logs, proven_success};
 
 /// Review R2-M3, R3-M2: a character the result text keeps. Dropped: control
 /// characters other than tab; every Unicode format (Cf) character (bidi embeddings,
@@ -163,21 +164,26 @@ pub fn holds_secret(haystack: &[u8], token: &[u8]) -> bool {
 /// agent ran (a test fixture in AQ's own source) is not a leak; the same shape with
 /// any other value is, and so is the login token wherever it appears.
 pub struct Secrets<'a> {
-    token: &'a [u8],
+    tokens: Vec<&'a [u8]>,
     base: std::collections::BTreeSet<Vec<u8>>,
 }
 impl<'a> Secrets<'a> {
     /// `base`: every path, file content and link target of the workspace as it was
     /// given to the sandbox.
     pub fn new(token: &'a [u8], base: impl IntoIterator<Item = &'a [u8]>) -> Self {
+        Self::of_tokens(vec![token], base)
+    }
+    /// `new` for a login made of several secrets (a Codex ChatGPT login: its id,
+    /// access and refresh tokens). Each one is refused wherever it appears.
+    pub fn of_tokens(tokens: Vec<&'a [u8]>, base: impl IntoIterator<Item = &'a [u8]>) -> Self {
         let shapes = |bytes| aq_agent_channel::agent_credentials(bytes).map(<[u8]>::to_vec);
         Self {
-            token,
+            tokens,
             base: base.into_iter().flat_map(shapes).collect(),
         }
     }
     pub fn holds(&self, haystack: &[u8]) -> bool {
-        holds_token(haystack, self.token)
+        self.tokens.iter().any(|token| holds_token(haystack, token))
             || aq_agent_channel::agent_credentials(haystack).any(|c| !self.base.contains(c))
     }
 }
@@ -252,6 +258,21 @@ mod tests {
         // Without a base, the same fixture is refused (it was newly written).
         assert!(Secrets::new(token, None).holds(fixture));
         assert!(!Secrets::new(token, None).holds(b"if t.starts_with(\"aqa_\") {}"));
+    }
+    /// A Codex login is several secrets; each one is refused on its own.
+    #[test]
+    fn every_token_of_a_multi_token_login_is_refused() {
+        let (id, access, refresh) = (
+            b"fixture-id-0123456789".as_slice(),
+            b"fixture-access-0123456789".as_slice(),
+            b"fixture-refresh-0123456789".as_slice(),
+        );
+        let secrets = Secrets::of_tokens(vec![id, access, refresh], None);
+        for token in [id, access, refresh] {
+            assert!(secrets.holds(&[b"x=", token].concat()));
+        }
+        assert!(!secrets.holds(b"fixture-refresh-012345678"));
+        assert!(!secrets.holds(b"nothing secret here"));
     }
     #[test]
     fn handoff_note_without_changes_says_none() {

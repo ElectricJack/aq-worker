@@ -70,6 +70,19 @@ const CLIPPED_TO_COMMENT: &str =
 /// a post of the whole final message to the task comments follows the claim
 /// (R3-M1: it may still be refused, so the marker does not promise it).
 pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String], in_comment: bool) -> String {
+    conclusion_of("Claude", stream, rc, changed, in_comment)
+}
+
+/// `conclusion` for the named harness (`Claude exit 0`, `Codex exit 0`): `stream`
+/// is in the stream-json shape (`aq_codex_mapper::docker_local::result_stream`
+/// maps Codex's output to it).
+pub fn conclusion_of(
+    harness: &str,
+    stream: &[u8],
+    rc: Option<i32>,
+    changed: &[String],
+    in_comment: bool,
+) -> String {
     let text = final_text(stream).unwrap_or_else(|| "no final message".into());
     // R2-M3: no control, bidi or invisible format characters reach the summary.
     let text: String = text
@@ -102,7 +115,7 @@ pub fn conclusion(stream: &[u8], rc: Option<i32>, changed: &[String], in_comment
         message
     };
     let line = format!(
-        "Outcome: {outcome}; Changes: {claim}; Copied: {copied}; Claude exit {rc}; Result: {message}"
+        "Outcome: {outcome}; Changes: {claim}; Copied: {copied}; {harness} exit {rc}; Result: {message}"
     );
     let mut line = line.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.len() > CONCLUSION_BYTES {
@@ -148,6 +161,23 @@ pub fn pane_line(line: &[u8]) -> Option<String> {
             v["session_id"].as_str().unwrap_or("?"),
             v["model"].as_str().unwrap_or("?")
         )),
+        // Codex `exec --json` events (Claude never prints these types).
+        "item.completed" => {
+            let item = &v["item"];
+            match item["type"].as_str()? {
+                "agent_message" => Some(format!("codex: {}", item["text"].as_str()?)),
+                "command_execution" => {
+                    Some(format!("codex tool: command (exit {})", item["exit_code"]))
+                }
+                kind => Some(format!("codex tool: {kind}")),
+            }
+        }
+        "thread.started" => Some(format!(
+            "codex thread {}",
+            v["thread_id"].as_str().unwrap_or("?")
+        )),
+        "turn.completed" => Some("codex result: turn completed".into()),
+        "turn.failed" | "error" => Some("codex result: turn failed".into()),
         _ => None,
     }
 }
@@ -253,6 +283,44 @@ mod tests {
             serde_json::json!({"type":"result","subtype":"success","is_error":false,"result":text})
         )
         .into_bytes()
+    }
+
+    /// The Claude line is unchanged; another harness names itself in the exit field.
+    #[test]
+    fn conclusion_names_the_harness_that_ran() {
+        let stream = result_of("Done.\nChanges: a.rs; Checks: none; Limits: none");
+        let changed = ["a.rs".to_string()];
+        let claude = conclusion(&stream, Some(0), &changed, false);
+        assert_eq!(
+            claude,
+            conclusion_of("Claude", &stream, Some(0), &changed, false)
+        );
+        assert!(claude.contains("; Claude exit 0; "), "{claude}");
+        let codex = conclusion_of("Codex", &stream, Some(0), &changed, false);
+        assert_eq!(codex, claude.replace("Claude exit", "Codex exit"));
+    }
+
+    #[test]
+    fn codex_events_render_as_pane_lines() {
+        let line = |v: serde_json::Value| pane_line(v.to_string().as_bytes());
+        assert_eq!(
+            line(
+                serde_json::json!({"type":"item.completed","item":{"type":"agent_message","text":"hi"}})
+            ),
+            Some("codex: hi".into())
+        );
+        assert_eq!(
+            line(
+                serde_json::json!({"type":"item.completed","item":{"type":"command_execution","command":"cat secret","exit_code":0}})
+            ),
+            Some("codex tool: command (exit 0)".into()),
+            "never the command itself"
+        );
+        assert_eq!(
+            line(serde_json::json!({"type":"turn.completed"})),
+            Some("codex result: turn completed".into())
+        );
+        assert_eq!(line(serde_json::json!({"type":"turn.started"})), None);
     }
 
     /// Review I-2: a claim of changes that did not arrive is refused; this is a

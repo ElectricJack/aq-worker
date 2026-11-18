@@ -22,24 +22,25 @@
 //! socket directory at `/aq/channel` and sets `AQ_CHANNEL`. No channel socket,
 //! no launch (`agent_channel_unavailable`).
 use crate::backend::docker_local::tar::{TreeEntry, read_tree, tree_archive};
-use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig};
+use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig, DockerTransport};
 use crate::backend::{
-    CreateRequest, Ownership, PlacementBackend, PrivateMaterial, ResourceLimits, RunnerExit,
-    SandboxIdentity, TemplateDigest,
+    BackendError, CreateRequest, Ownership, PlacementBackend, PrivateMaterial, ResourceLimits,
+    RunnerExit, SandboxIdentity, TemplateDigest,
 };
 use anyhow::{Context, Result, bail, ensure};
 pub use aq_handoff_note::{
-    CopyBackIncomplete, HANDOFF_MARKER, HandoffMarker, PRESERVED_MARKER, conclusion, fold_claim,
-    handoff_note, holds_secret, holds_token, parse_token, proven_success, read_handoff_marker,
+    CopyBackIncomplete, HANDOFF_MARKER, HandoffMarker, PRESERVED_MARKER, conclusion, conclusion_of,
+    fold_claim, handoff_note, holds_secret, holds_token, parse_token, proven_success,
+    read_handoff_marker,
 };
 use aq_handoff_note::{Secrets, print_logs};
 use aq_handoff_note::{final_message, now_ms, preserved_claim, read_private, write_exit};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
-    path::{Component, Path, PathBuf},
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
     time::Duration,
 };
 use zeroize::Zeroizing;
@@ -66,6 +67,17 @@ login_file=false; [ -e "$HOME/.credentials.json" ] && login_file=true
 echo "aq-runner: claude exit $rc login_file=$login_file"
 exit "$rc"
 "#;
+
+pub use aq_codex_mapper::docker_local::CODEX_RUNNER;
+
+pub use aq_handoff_note::harness::DriverHarness;
+/// The fixed in-sandbox runner of a harness.
+fn runner(harness: DriverHarness) -> &'static str {
+    match harness {
+        DriverHarness::Claude => RUNNER,
+        DriverHarness::Codex => CODEX_RUNNER,
+    }
+}
 
 /// Appended to the startup context inside the sandbox.
 pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the \
@@ -103,189 +115,13 @@ pub struct DriverConfig {
     /// Worker-private outbox. The sandbox can write only its own provider file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_outbox: Option<PathBuf>,
+    /// The harness in the sandbox; absent (Claude) in a Claude configuration.
+    #[serde(default, skip_serializing_if = "DriverHarness::is_claude")]
+    pub harness: DriverHarness,
 }
 
-fn relative(path: &Path, root: &Path) -> Result<String> {
-    let rel = path.strip_prefix(root)?;
-    let text = rel.to_str().context("workspace path UTF-8")?;
-    ensure!(
-        rel.components().all(|c| matches!(c, Component::Normal(_))),
-        "workspace path shape"
-    );
-    Ok(text.to_owned())
-}
-
-/// The worktree as archive entries, without `.git` at its root.
-pub fn collect_tree(root: &Path, max_bytes: u64) -> Result<Vec<TreeEntry>> {
-    use std::os::unix::fs::MetadataExt;
-    let mut entries = Vec::new();
-    let mut total = 0u64;
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let mut children: Vec<_> = std::fs::read_dir(&dir)?.collect::<std::io::Result<_>>()?;
-        children.sort_by_key(|e| e.file_name());
-        for child in children {
-            let path = child.path();
-            if dir == root && child.file_name() == ".git" {
-                continue;
-            }
-            let rel = relative(&path, root)?;
-            let meta = std::fs::symlink_metadata(&path)?;
-            let mode = meta.mode() & 0o777;
-            if meta.file_type().is_symlink() {
-                let target = std::fs::read_link(&path)?;
-                entries.push(TreeEntry::Symlink {
-                    path: rel,
-                    target: target.to_str().context("symlink UTF-8")?.into(),
-                });
-            } else if meta.is_dir() {
-                entries.push(TreeEntry::Dir { path: rel, mode });
-                stack.push(path);
-            } else if meta.is_file() {
-                total = total.saturating_add(meta.len());
-                ensure!(
-                    total <= max_bytes,
-                    "workspace exceeds the sandbox copy bound"
-                );
-                entries.push(TreeEntry::File {
-                    path: rel,
-                    mode,
-                    data: std::fs::read(&path)?,
-                });
-            } else {
-                bail!("workspace holds an unsupported file type");
-            }
-        }
-    }
-    Ok(entries)
-}
-
-/// Make `root` (except `.git`) hold exactly `entries`. Writes never follow an
-/// existing symlink; removed paths are deleted. Returns the changed paths.
-pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
-    let mut wanted = BTreeSet::new();
-    let git = |p: &str| p == ".git" || p.starts_with(".git/");
-    for entry in entries {
-        let rel = entry.path();
-        ensure!(
-            Path::new(rel)
-                .components()
-                .all(|c| matches!(c, Component::Normal(_))),
-            "copy-back path shape"
-        );
-        if git(rel) {
-            continue;
-        }
-        if let TreeEntry::Symlink { target, .. } = entry {
-            // A link may only point inside the workspace, relatively.
-            let target = Path::new(target);
-            ensure!(
-                !target.is_absolute()
-                    && target
-                        .components()
-                        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir)),
-                "copy-back symlink target must be relative and stay inside the workspace"
-            );
-        }
-        wanted.insert(rel.to_owned());
-    }
-    // No entry may sit below a path the archive itself makes a symlink: a
-    // later write would otherwise go through that link.
-    let links: BTreeSet<&str> = entries
-        .iter()
-        .filter(|e| matches!(e, TreeEntry::Symlink { .. }))
-        .map(|e| e.path())
-        .collect();
-    for entry in entries {
-        let mut parent = Path::new(entry.path()).parent();
-        while let Some(p) = parent.filter(|p| !p.as_os_str().is_empty()) {
-            ensure!(
-                !links.contains(p.to_str().unwrap_or_default()),
-                "copy-back entry below a symlinked parent"
-            );
-            parent = p.parent();
-        }
-    }
-    // From here the worktree changes: a failure leaves part of the tree behind.
-    apply_tree(root, entries, &wanted).context(CopyBackIncomplete)
-}
-fn apply_tree(
-    root: &Path,
-    entries: &[TreeEntry],
-    wanted: &BTreeSet<String>,
-) -> Result<Vec<String>> {
-    let (mut changed, git) = (Vec::new(), |p: &str| p == ".git" || p.starts_with(".git/"));
-    // Remove what the sandbox no longer has (deepest first).
-    let current = collect_tree(root, u64::MAX)?;
-    let mut stale: Vec<_> = current
-        .iter()
-        .map(|e| e.path().to_owned())
-        .filter(|p| !wanted.contains(p))
-        .collect();
-    stale.sort_by_key(|p| std::cmp::Reverse(p.len()));
-    for rel in stale {
-        let path = root.join(&rel);
-        let meta = std::fs::symlink_metadata(&path)?;
-        if meta.is_dir() {
-            std::fs::remove_dir_all(&path)?;
-        } else {
-            std::fs::remove_file(&path)?;
-        }
-        changed.push(rel);
-    }
-    let current: BTreeMap<String, TreeEntry> = collect_tree(root, u64::MAX)?
-        .into_iter()
-        .map(|e| (e.path().to_owned(), e))
-        .collect();
-    for entry in entries {
-        let rel = entry.path();
-        if git(rel) {
-            continue;
-        }
-        let path = root.join(rel);
-        let existing = current.get(rel);
-        if existing == Some(entry) {
-            continue;
-        }
-        // Replace any differing kind; never write through a symlink.
-        if let Ok(meta) = std::fs::symlink_metadata(&path) {
-            let same_kind = matches!(
-                (entry, existing),
-                (TreeEntry::Dir { .. }, Some(TreeEntry::Dir { .. }))
-                    | (TreeEntry::File { .. }, Some(TreeEntry::File { .. }))
-            );
-            if !same_kind {
-                if meta.is_dir() {
-                    std::fs::remove_dir_all(&path)?;
-                } else {
-                    std::fs::remove_file(&path)?;
-                }
-            }
-        }
-        match entry {
-            TreeEntry::Dir { mode, .. } => {
-                std::fs::create_dir_all(&path)?;
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(*mode | 0o700))?;
-            }
-            TreeEntry::File { mode, data, .. } => {
-                let mut file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .custom_flags(libc::O_NOFOLLOW)
-                    .mode(*mode)
-                    .open(&path)?;
-                file.write_all(data)?;
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(*mode | 0o600))?;
-            }
-            TreeEntry::Symlink { target, .. } => {
-                std::os::unix::fs::symlink(target, &path)?;
-            }
-        }
-        changed.push(rel.to_owned());
-    }
-    Ok(changed)
-}
+use aq_sandbox_archive::workspace::tree_bytes;
+pub use aq_sandbox_archive::workspace::{collect_tree, sync_tree, token_leak};
 
 /// The non-secret runner inputs under `/aq/in`.
 pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEntry>> {
@@ -341,6 +177,22 @@ pub struct DriverOutcome {
 /// Entrypoint for `aq-worker sandbox-harness`. Exit code 0 only when Claude
 /// exited 0, the workspace was copied back and the claim was submitted.
 pub async fn run(config_path: &Path) -> Result<i32> {
+    run_with(config_path, None, DockerLocalBackend::connect_unix).await
+}
+
+/// `run` with the backend connection given (the scripted Docker double in tests)
+/// and, when `session` is set, that session directory instead of
+/// `AQ_SESSION_DIRECTORY`.
+pub async fn run_with<T, C, F>(
+    config_path: &Path,
+    session: Option<&Path>,
+    connect: C,
+) -> Result<i32>
+where
+    T: DockerTransport,
+    C: FnOnce(DockerLocalConfig) -> F,
+    F: std::future::Future<Output = std::result::Result<DockerLocalBackend<T>, BackendError>>,
+{
     // MS1 review S3a: the leased token leaves the disk before anything else
     // can fail: read and unlink it first, then parse the rest.
     let parsed = read_private(config_path, 1024 * 1024)
@@ -352,7 +204,7 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     let raw = read_private(&token_file, 64 * 1024);
     let _ = std::fs::remove_file(&token_file);
     let mut config = parsed?;
-    if config.conversation_outbox.is_some() {
+    if config.conversation_outbox.is_some() && config.harness.is_claude() {
         config
             .arguments
             .retain(|arg| arg != "--no-session-persistence");
@@ -361,8 +213,24 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             config.owner.attempt_id.to_string(),
         ]);
     }
-    let token = parse_token(&raw?)?;
-    let session = std::env::var_os("AQ_SESSION_DIRECTORY").context("session directory")?;
+    // The private material and the secrets that must never leave the sandbox.
+    let (token, secrets) = match config.harness {
+        DriverHarness::Claude => {
+            let token = parse_token(&raw?)?;
+            let secrets = vec![token.clone()];
+            (token, secrets)
+        }
+        DriverHarness::Codex => {
+            let raw = raw?;
+            aq_session_host::PrivateLaunchInput::validate_chatgpt_auth_json(&raw)?;
+            let secrets = aq_handoff_note::harness::codex_login_tokens(&raw)?;
+            (raw, secrets)
+        }
+    };
+    let session = match session {
+        Some(session) => session.as_os_str().to_owned(),
+        None => std::env::var_os("AQ_SESSION_DIRECTORY").context("session directory")?,
+    };
     let prompt = std::fs::read(Path::new(&session).join("context-0.bin"))?;
     println!(
         "aq-sandbox-harness: attempt {} template {}",
@@ -372,7 +240,11 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let mut docker = config.docker_local.clone();
-    docker.runner_command = Some(vec!["/bin/bash".into(), "-c".into(), RUNNER.into()]);
+    docker.runner_command = Some(vec![
+        "/bin/bash".into(),
+        "-c".into(),
+        runner(config.harness).into(),
+    ]);
     let mut request = CreateRequest::new(
         config.owner.clone(),
         config.template.clone(),
@@ -384,7 +256,7 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         channel_ready(&config)?;
         request = request.with_agent_channel();
     }
-    let mut backend = DockerLocalBackend::connect_unix(docker).await?;
+    let mut backend = connect(docker).await?;
     let sandbox = match backend.create(&request).await {
         Ok(s) => s,
         Err(_) => {
@@ -399,6 +271,7 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         &sandbox,
         &prompt,
         &token,
+        &secrets,
         &mut term,
         &mut hup,
         &config_path.with_file_name(HANDOFF_MARKER),
@@ -408,6 +281,7 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         rc,
         changed,
         stream,
+        transcript,
         leak,
         handoff,
     } = match outcome {
@@ -434,13 +308,21 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         }
     };
     let note = match (handoff, leak) {
-        (Some(reason), None) => Some(handoff_note(reason, &changed, &stream, &token)),
+        (Some(reason), None) => Some(handoff_note(reason, &changed, &stream, &secrets[0])),
         _ => None,
     };
+    // A login of several secrets: a note that holds any other one keeps no agent text.
+    let note = note.map(|text| match (handoff, secrets.get(1..)) {
+        (Some(reason), Some(rest)) if rest.iter().any(|t| holds_token(text.as_bytes(), t)) => {
+            handoff_note(reason, &changed, &[], &[])
+        }
+        _ => text,
+    });
     if leak.is_none() {
         save_conversation(&mut backend, &config, &sandbox, &token).await;
     }
     drop(token);
+    drop(secrets);
     // Non-secret transcript beside the driver config (evidence),
     // in the private driver directory, and never when it held the token.
     if let Some(dir) = config_path.parent()
@@ -450,8 +332,8 @@ pub async fn run(config_path: &Path) -> Result<i32> {
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(dir.join("claude.jsonl"))
-            .and_then(|mut f| f.write_all(&stream));
+            .open(dir.join(config.harness.transcript_file()))
+            .and_then(|mut f| f.write_all(transcript.as_deref().unwrap_or(&stream)));
     }
     let stopped = backend.stop(&sandbox).await;
     // The node destroys the stopped sandbox once it sees the claim: the host stop may kill
@@ -508,7 +390,8 @@ fn claim_outcome(
             Some(place) => {
                 format!("Changes: none (copy-back refused); Refused: {place}; the attempt failed")
             }
-            None => conclusion(stream, rc, changed, posting),
+            None if config.harness.is_claude() => conclusion(stream, rc, changed, posting),
+            None => conclusion_of(config.harness.label(), stream, rc, changed, posting),
         },
     );
     // R2-M2: after the claim, best effort and bounded, so it never delays the result.
@@ -551,46 +434,29 @@ fn submit_claim(config: &DriverConfig, text: String) {
 struct Drove {
     rc: Option<i32>,
     changed: Vec<String>,
+    /// The final-result stream (for Codex, mapped from its own output).
     stream: Vec<u8>,
+    /// The harness's own output when it differs from `stream` (Codex).
+    transcript: Option<Vec<u8>>,
     leak: Option<&'static str>,
     handoff: Option<aq_protocol::HandoffReason>,
 }
 
-/// An entry's path and its content or link target.
-fn tree_bytes(e: &TreeEntry) -> [&[u8]; 2] {
-    let held: &[u8] = match e {
-        TreeEntry::File { data, .. } => data,
-        TreeEntry::Symlink { target, .. } => target.as_bytes(),
-        TreeEntry::Dir { .. } => b"",
-    };
-    [e.path().as_bytes(), held]
-}
-
-/// MS1 review S3b: the agent's tools can read the token from the claude environment. Refuse the
-/// copy-back when a copied-back entry or the transcript holds a secret the base tree did not.
-pub fn token_leak(entries: &[TreeEntry], stream: &[u8], by: &Secrets) -> Option<&'static str> {
-    if entries.iter().flat_map(tree_bytes).any(|b| by.holds(b)) {
-        Some("a secret (login token or AQ credential) appeared in the workspace")
-    } else if by.holds(stream) {
-        Some("a secret (login token or AQ credential) appeared in the Claude transcript")
-    } else {
-        None
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
-async fn drive(
-    backend: &mut DockerLocalBackend,
+async fn drive<T: DockerTransport>(
+    backend: &mut DockerLocalBackend<T>,
     config: &DriverConfig,
     sandbox: &SandboxIdentity,
     prompt: &[u8],
     token: &Zeroizing<Vec<u8>>,
+    login: &[Zeroizing<Vec<u8>>],
     term: &mut tokio::signal::unix::Signal,
     hup: &mut tokio::signal::unix::Signal,
     handoff: &Path,
 ) -> Result<Drove> {
     let workspace = collect_tree(&config.workspace, config.max_workspace_bytes)?;
-    let secrets = &Secrets::new(token, workspace.iter().flat_map(tree_bytes));
+    let tokens = login.iter().map(|t| t.as_slice()).collect();
+    let secrets = &Secrets::of_tokens(tokens, workspace.iter().flat_map(tree_bytes));
     backend
         .put_archive(
             sandbox,
@@ -641,7 +507,7 @@ async fn drive(
         RunnerExit::Signalled => None,
     };
     let stream = backend
-        .get_archive(sandbox, "/aq/out/claude.jsonl", 16 * 1024 * 1024)
+        .get_archive(sandbox, config.harness.stream_path(), 16 * 1024 * 1024)
         .await
         .ok()
         .and_then(|a| read_tree_file(&a))
@@ -663,22 +529,31 @@ async fn drive(
             rc,
             changed: Vec::new(),
             stream: Vec::new(),
+            transcript: None,
             leak,
             handoff: None,
         });
     }
     let changed = sync_tree(&config.workspace, &entries)?;
+    let (stream, transcript) = match config.harness {
+        DriverHarness::Claude => (stream, None),
+        DriverHarness::Codex => (
+            aq_codex_mapper::docker_local::result_stream(&stream),
+            Some(stream),
+        ),
+    };
     Ok(Drove {
         rc,
         changed,
         stream,
+        transcript,
         leak: None,
         handoff: handoff_reason,
     })
 }
 
-async fn save_conversation(
-    backend: &mut DockerLocalBackend,
+async fn save_conversation<T: DockerTransport>(
+    backend: &mut DockerLocalBackend<T>,
     config: &DriverConfig,
     sandbox: &SandboxIdentity,
     token: &[u8],
@@ -686,6 +561,10 @@ async fn save_conversation(
     let Some(directory) = &config.conversation_outbox else {
         return;
     };
+    // Codex runs `--ephemeral`: it keeps no session to save.
+    if !config.harness.is_claude() {
+        return;
+    }
     let attempt = config.owner.attempt_id;
     let captured = tokio::time::timeout(
         Duration::from_secs(2),
@@ -725,100 +604,6 @@ fn read_tree_file(archive: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn copy_back_refuses_symlinked_parents_and_escaping_links() {
-        let root = tempfile::tempdir().unwrap();
-        let link = |path: &str, target: &str| TreeEntry::Symlink {
-            path: path.into(),
-            target: target.into(),
-        };
-        let file = |path: &str| TreeEntry::File {
-            path: path.into(),
-            mode: 0o644,
-            data: b"x".to_vec(),
-        };
-        for bad in [
-            vec![link("out", "/etc")],
-            vec![link("out", "../outside")],
-            vec![link("out", "sub/../../x")],
-            vec![link("d", "sub"), file("d/escape.txt")],
-        ] {
-            assert!(sync_tree(root.path(), &bad).is_err());
-        }
-        assert!(!root.path().join("d").exists() && !root.path().join("out").exists());
-        sync_tree(
-            root.path(),
-            &[file("a.txt"), link("b", "a.txt"), link("c", "./a.txt")],
-        )
-        .unwrap();
-        assert!(root.path().join("b").is_symlink());
-    }
-
-    /// Review #8: a copy-back that fails after it began writing is marked incomplete and
-    /// claims nothing; a refusal before any write still claims the preserved sandbox.
-    #[test]
-    fn partial_copy_back_is_never_claimed() {
-        let root = tempfile::tempdir().unwrap();
-        let file = |path: &str| TreeEntry::File {
-            path: path.into(),
-            mode: 0o644,
-            data: b"x".to_vec(),
-        };
-        let partial = sync_tree(root.path(), &[file("a.txt"), file("missing/b.txt")]).unwrap_err();
-        assert!(
-            root.path().join("a.txt").exists(),
-            "a.txt was already written"
-        );
-        let config = tempfile::tempdir().unwrap();
-        let config = config.path().join("driver.json");
-        assert_eq!(preserved_claim(&partial, "sb", &config), None);
-        let link = TreeEntry::Symlink {
-            path: "out".into(),
-            target: "/etc".into(),
-        };
-        let refused = sync_tree(root.path(), &[link]).unwrap_err();
-        assert!(
-            preserved_claim(&refused, "sb", &config)
-                .unwrap()
-                .starts_with("Sandbox sb preserved;")
-        );
-    }
-
-    /// MS1 review S3b: copy-back and success are refused when the token's
-    /// exact bytes appear in a copied-back file, path or link, the transcript
-    /// or a pane line (which is then withheld).
-    #[test]
-    fn token_in_workspace_transcript_or_pane_is_refused() {
-        let token: Vec<u8> = [b"fixture-login-", &b"0123456789abcdef"[..]].concat();
-        let file = |path: &str, data: &[u8]| TreeEntry::File {
-            path: path.into(),
-            mode: 0o644,
-            data: data.to_vec(),
-        };
-        let clean = vec![file("src/lib.rs", b"pub fn hello() {}\n")];
-        let by = &Secrets::new(&token, None);
-        assert_eq!(token_leak(&clean, b"{\"type\":\"result\"}", by), None);
-        let mut leaked = token.clone();
-        leaked.splice(0..0, b"export TOKEN=".iter().copied());
-        assert!(token_leak(&[file("notes.txt", &leaked)], b"", by).is_some());
-        let name = format!("x{}", String::from_utf8(token.clone()).unwrap());
-        assert!(token_leak(&[file(&name, b"ok")], b"", by).is_some());
-        let link = TreeEntry::Symlink {
-            path: "l".into(),
-            target: String::from_utf8(token.clone()).unwrap(),
-        };
-        assert!(token_leak(&[link], b"", by).is_some());
-        assert!(token_leak(&clean, &leaked, by).is_some_and(|w| w.contains("transcript")));
-        // A near miss is not the token.
-        assert_eq!(token_leak(&clean, &token[..token.len() - 1], by), None);
-        let mut partial = Vec::new();
-        let mut lines = b"fine\n".to_vec();
-        lines.extend_from_slice(&leaked);
-        lines.push(b'\n');
-        assert!(print_logs(&lines, &mut partial, by));
-        assert!(!print_logs(b"also fine\n", &mut partial, by));
-    }
 
     /// MS1 review S3a: the token file is read and removed before anything that
     /// can fail, even when the driver config itself is unreadable.
@@ -933,45 +718,8 @@ mod tests {
             max_workspace_bytes: 1,
             agent_channel: false,
             conversation_outbox: None,
+            harness: Default::default(),
         };
         assert!(input_entries(&config, b"p").is_err(), "API key env refused");
-    }
-
-    #[test]
-    fn copy_back_applies_adds_edits_and_deletes_but_never_touches_git() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        std::fs::create_dir_all(root.join(".git")).unwrap();
-        std::fs::write(root.join(".git/HEAD"), "ref").unwrap();
-        std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::write(root.join("src/lib.rs"), "old").unwrap();
-        std::fs::write(root.join("gone.txt"), "x").unwrap();
-        let mut entries = collect_tree(root, 1 << 20).unwrap();
-        assert!(entries.iter().all(|e| !e.path().starts_with(".git")));
-        entries.retain(|e| e.path() != "gone.txt");
-        for e in &mut entries {
-            if let TreeEntry::File { path, data, .. } = e
-                && path == "src/lib.rs"
-            {
-                *data = b"new".to_vec();
-            }
-        }
-        entries.push(TreeEntry::File {
-            path: "README.md".into(),
-            mode: 0o644,
-            data: b"hello".to_vec(),
-        });
-        entries.push(TreeEntry::File {
-            path: ".git/HEAD".into(),
-            mode: 0o644,
-            data: b"evil".to_vec(),
-        });
-        let mut changed = sync_tree(root, &entries).unwrap();
-        changed.sort();
-        assert_eq!(changed, ["README.md", "gone.txt", "src/lib.rs"]);
-        assert_eq!(std::fs::read(root.join("src/lib.rs")).unwrap(), b"new");
-        assert!(!root.join("gone.txt").exists());
-        assert_eq!(std::fs::read(root.join(".git/HEAD")).unwrap(), b"ref");
-        assert!(sync_tree(root, &entries).unwrap().is_empty(), "idempotent");
     }
 }

@@ -180,6 +180,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "aq-session-protocol",
+ "serde_json",
  "toml",
 ]
 
@@ -364,9 +365,12 @@ dependencies = [
 name = "aq-sandbox-archive"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "aq-handoff-note",
+ "libc",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "uuid",
  "zeroize",

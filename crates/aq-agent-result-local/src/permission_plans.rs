@@ -9,4 +9,7 @@ pub enum ResultAdapterKind {
     /// MS1: Claude Code in a docker-local sandbox driven from the node.
     #[serde(rename = "claude-2.1.318-docker-local-result-local-v1")]
     Claude2318DockerLocalV1,
+    /// Codex CLI 0.166 in the same docker-local sandbox, driven from the node.
+    #[serde(rename = "codex-0.166-docker-local-result-local-v1")]
+    Codex0166DockerLocalV1,
 }

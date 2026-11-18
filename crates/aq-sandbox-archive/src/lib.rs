@@ -3,3 +3,4 @@
 pub mod conversation;
 pub mod redact;
 pub mod tar;
+pub mod workspace;

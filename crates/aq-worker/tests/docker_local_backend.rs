@@ -1783,3 +1783,260 @@ async fn measured_disk_usage_sizes_volume_only_preserved_sandboxes() {
     let usage = backend.measured_disk_usage(&[sandbox]).await;
     assert_eq!(usage.preserved_bytes, None);
 }
+
+/// A ChatGPT login document built at run time (no credential-shaped literal).
+fn codex_login() -> (Vec<u8>, String) {
+    let token = |name: &str| format!("fixture-{name}-{}", "z".repeat(24));
+    let refresh = token("refresh");
+    let auth = json!({
+        "auth_mode": "chatgpt",
+        "tokens": {"id_token": token("id"), "access_token": token("access"),
+            "refresh_token": refresh, "account_id": "fixture-account"},
+    });
+    (serde_json::to_vec(&auth).unwrap(), refresh)
+}
+
+struct CodexDriverRun {
+    code: i32,
+    docker: ScriptedDocker,
+    dir: tempfile::TempDir,
+    auth: Vec<u8>,
+}
+/// Runs the node driver's Codex launch (harness `codex`, the docker-local Codex
+/// recipe) against the scripted double; `extra` are files the runner fixture writes.
+async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> CodexDriverRun {
+    use aq_session_protocol::{Capability, HarnessSettings, ModelSettings, Text};
+    use aq_worker::sandbox_driver::{DriverConfig, DriverHarness, run_with};
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let socket = owned_socket();
+    let (cache, scratch) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let docker_local = base_config(&socket, &cache, &scratch);
+    let docker = ScriptedDocker::new();
+    let events = [
+        json!({"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000001"}),
+        json!({"type":"turn.started"}),
+        json!({"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":final_message}}),
+        json!({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}),
+    ];
+    let stream: String = events.iter().map(|e| e.to_string() + "\n").collect();
+    docker.on_start_write("/aq/out/codex.jsonl", stream.into_bytes());
+    for (path, data) in extra {
+        docker.on_start_write(path, data.clone());
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    for d in ["work", "session", "private"] {
+        std::fs::create_dir(dir.path().join(d)).unwrap();
+        std::fs::set_permissions(dir.path().join(d), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+    }
+    let work = dir.path().join("work");
+    std::fs::write(work.join("README.md"), "# scratch\n").unwrap();
+    std::fs::write(
+        dir.path().join("session/context-0.bin"),
+        "Write the fixture.",
+    )
+    .unwrap();
+    let private = |path: &std::path::Path, data: &[u8]| {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .unwrap();
+        std::io::Write::write_all(&mut f, data).unwrap();
+    };
+    let (auth, _) = codex_login();
+    let token_file = dir.path().join("private/token");
+    private(&token_file, &auth);
+
+    let artifact = |id: &str| aq_session_protocol::ArtifactRef {
+        id: Text::new(id).unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: aq_session_protocol::Digest::of(id.as_bytes()),
+    };
+    let harness = HarnessSettings {
+        harness: Text::new("codex").unwrap(),
+        cli_version: Text::new(aq_codex_mapper::CODEX_CLI_VERSION).unwrap(),
+        adapter: artifact("aq.codex-docker-result-local-adapter"),
+        environment: artifact("environment"),
+        required_capabilities: vec![Capability {
+            id: Text::new(aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY).unwrap(),
+            version: 1,
+        }],
+    };
+    let model = ModelSettings {
+        provider: Text::new("openai").unwrap(),
+        model: Text::new("gpt-5.5").unwrap(),
+        reasoning: Text::new("high").unwrap(),
+        max_output_tokens: 4096,
+        spending_budget: None,
+    };
+    let recipe = aq_codex_mapper::docker_local::map_docker_local(
+        aq_codex_mapper::Settings {
+            harness: &harness,
+            model: &model,
+            terminal_input_enabled: false,
+        },
+        aq_codex_mapper::Paths {
+            executable: std::path::Path::new("/opt/aq/bin/codex"),
+            workspace: std::path::Path::new("/aq/work"),
+            private_home: std::path::Path::new("/aq/home/codex"),
+        },
+        None,
+    )
+    .unwrap();
+    let config = DriverConfig {
+        docker_local,
+        template: digest(),
+        owner: owner(1, 2, 3),
+        hard_deadline_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+            + 600_000,
+        resources: LIMITS,
+        workspace: work,
+        token_file: token_file.clone(),
+        executable: recipe.executable.to_str().unwrap().into(),
+        arguments: recipe.arguments,
+        environment: recipe.environment,
+        settings_json: String::new(),
+        result_dir: None,
+        max_workspace_bytes: 1 << 20,
+        agent_channel: false,
+        conversation_outbox: None,
+        harness: DriverHarness::Codex,
+    };
+    let config_file = dir.path().join("private/driver.json");
+    private(&config_file, &serde_json::to_vec(&config).unwrap());
+    let session = dir.path().join("session");
+    let connect = |c| DockerLocalBackend::connect(c, docker.clone());
+    let code = tokio::time::timeout(
+        Duration::from_secs(60),
+        run_with(&config_file, Some(&session), connect),
+    )
+    .await
+    .expect("driver hung")
+    .unwrap();
+    assert!(!token_file.exists(), "the leased login never stays on disk");
+    CodexDriverRun {
+        code,
+        docker,
+        dir,
+        auth,
+    }
+}
+
+/// Epic 0 W1: the Codex launch path in the docker-local sandbox, against the Docker
+/// double: the same sandbox, copy-in/copy-out and stop as Claude; the Codex runner and
+/// `codex exec --sandbox danger-full-access` with the offered model and effort; the
+/// ChatGPT login only as private material; the claim from Codex's final message.
+#[tokio::test]
+async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
+    let run = run_codex_driver(
+        "Done.\nChanges: fixture-output; Checks: none; Limits: none",
+        &[],
+    )
+    .await;
+    assert_eq!(run.code, 0, "proven success");
+    let work = run.dir.path().join("work");
+    assert_eq!(
+        std::fs::read(work.join("fixture-output")).unwrap(),
+        b"fixture-complete\n",
+        "the runner's work was copied back"
+    );
+    let names = run.docker.container_names();
+    assert_eq!(names.len(), 1);
+    let container = run.docker.container(&names[0]).unwrap();
+    assert_eq!(container.status, "exited", "the sandbox is stopped");
+    let body = container.body.to_string();
+    assert!(body.contains("CODEX_HOME/auth.json") && !body.contains("CLAUDE_CODE_OAUTH_TOKEN"));
+    let text = |path: &str| String::from_utf8(container.layer[path].data.clone()).unwrap();
+    let args: Vec<String> = text("/aq/in/args").lines().map(Into::into).collect();
+    let at = |flag: &str| args[args.iter().position(|a| a == flag).unwrap() + 1].clone();
+    assert_eq!(&args[..2], ["--no-daemon", "exec"]);
+    assert_eq!(at("--sandbox"), "danger-full-access");
+    assert_eq!(at("--model"), "gpt-5.5");
+    assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
+    assert_eq!(text("/aq/in/executable"), "/opt/aq/bin/codex");
+    assert_eq!(text("/aq/in/env"), "CODEX_HOME=/aq/home/codex\n");
+    // The login reaches the sandbox only as private material, never argv, env or a path.
+    assert_eq!(container.layer["/aq/private/material"].data, run.auth);
+    let (_, refresh) = codex_login();
+    assert!(!body.contains(&refresh));
+    for (_, path) in run.docker.requests() {
+        assert!(!path.contains(&refresh));
+    }
+    let private = run.dir.path().join("private");
+    let exit: Value =
+        serde_json::from_slice(&std::fs::read(private.join("exit.json")).unwrap()).unwrap();
+    assert_eq!(exit["success"], true);
+    assert!(private.join("codex.jsonl").exists() && !private.join("claude.jsonl").exists());
+}
+
+/// A login token that the agent writes into the workspace is refused: nothing is
+/// copied back and the attempt is not a success.
+#[tokio::test]
+async fn sandbox_driver_refuses_a_codex_login_token_in_the_workspace() {
+    let (_, refresh) = codex_login();
+    let leak = format!("export T={refresh}\n").into_bytes();
+    let run = run_codex_driver(
+        "Done.\nChanges: leak.txt; Checks: none; Limits: none",
+        &[("/aq/work/leak.txt", leak)],
+    )
+    .await;
+    assert_ne!(run.code, 0);
+    let work = run.dir.path().join("work");
+    assert!(!work.join("leak.txt").exists() && !work.join("fixture-output").exists());
+    let private = run.dir.path().join("private");
+    assert!(
+        !private.join("codex.jsonl").exists(),
+        "no transcript when a secret leaked"
+    );
+}
+
+/// A Claude driver configuration keeps its bytes (no `harness` key); a Codex one names
+/// its harness and reads back the same.
+#[test]
+fn claude_driver_config_has_no_harness_key_and_codex_round_trips() {
+    use aq_worker::sandbox_driver::{DriverConfig, DriverHarness};
+    let claude = json!({
+        "docker_local": DockerLocalConfig::new("/run/x.sock".into()),
+        "template": format!("sha256:{HEX}"),
+        "owner": {"node_id": Uuid::from_u128(1), "boot_id": Uuid::from_u128(2),
+            "attempt_id": Uuid::from_u128(3)},
+        "hard_deadline_ms": 1, "resources": {"cpu_millis": 1000, "memory_bytes": 1u64 << 30, "pids": 64},
+        "workspace": "/w", "token_file": "/t", "executable": "/opt/aq/bin/claude", "arguments": ["-p"],
+        "environment": {}, "settings_json": "{}", "result_dir": null, "max_workspace_bytes": 1,
+    });
+    let config: DriverConfig = serde_json::from_value(claude).unwrap();
+    assert_eq!(config.harness, DriverHarness::Claude);
+    let written = serde_json::to_value(&config).unwrap();
+    assert!(written.get("harness").is_none(), "{written}");
+    let mut codex = config;
+    codex.harness = DriverHarness::Codex;
+    let written = serde_json::to_value(&codex).unwrap();
+    assert_eq!(written["harness"], "codex");
+    let back: DriverConfig = serde_json::from_value(written).unwrap();
+    assert_eq!(back.harness, DriverHarness::Codex);
+    assert_eq!(back.harness.stream_path(), "/aq/out/codex.jsonl");
+}
+
+/// The three tokens of a ChatGPT login are the secrets the driver refuses to let out.
+#[test]
+fn codex_login_tokens_are_the_three_login_secrets() {
+    use aq_handoff_note::{Secrets, harness::codex_login_tokens};
+    let (auth, refresh) = codex_login();
+    let tokens = codex_login_tokens(&auth).unwrap();
+    assert_eq!(tokens.len(), 3);
+    assert_eq!(tokens[2].as_slice(), refresh.as_bytes());
+    let by = Secrets::of_tokens(tokens.iter().map(|t| t.as_slice()).collect(), None);
+    for token in &tokens {
+        assert!(by.holds(&[b"leak ".as_slice(), token].concat()));
+    }
+    assert!(!by.holds(b"fixture-refresh"));
+    let api = json!({"OPENAI_API_KEY": "fixture-key-0123456789"}).to_string();
+    assert!(codex_login_tokens(api.as_bytes()).is_err());
+    assert!(codex_login_tokens(b"not json").is_err());
+}
