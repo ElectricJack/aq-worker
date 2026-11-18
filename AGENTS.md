@@ -58,8 +58,9 @@ sessions and in AQ task sessions.
 
 ### Budgets
 
-`build-budget.toml` holds ratchets, and `scripts/build-budget.py` (CI) fails
-when a number goes above its recorded value:
+`build-budget.toml` holds ceilings, and `scripts/build-budget.py` (CI)
+compares this tree with `origin/main`: the test binary count and each ratcheted
+crate's lib lines may not be higher than on main.
 
 | Budget | Recorded 2026-11-05 | Rule |
 | --- | --- | --- |
@@ -67,12 +68,10 @@ when a number goes above its recorded value:
 | Lines in one crate's lib (`src/`, minus bin targets) | target 40,000 | No crate lib may grow past the target. |
 | aq-worker lib lines | 68,081 (ratchet) | Over the target until it is split into crates. May only go down. |
 
-- Check locally with `python3 scripts/build-budget.py`.
-- **When a number goes down**, lower the recorded value in the same PR. Run
-  `python3 scripts/build-budget.py --update`, which only ever lowers values.
-  CI fails if the test binary count is below its recorded value, so a removed
-  binary cannot be quietly replaced by a new one later. Line ratchets print a
-  note instead.
+- Check locally with `python3 scripts/build-budget.py` (after `git fetch`).
+- **When a number goes down**, nothing to do: main's lower value is the next
+  limit. Pull requests do not edit `build-budget.toml` to keep a gain, so two
+  pull requests never conflict on it.
 - **Raising a number** needs an explicit edit of `build-budget.toml` in its own
   commit, a reason in the commit message, and the owner's review. Prefer
   moving code into another crate or tests into an existing binary.

@@ -1,5 +1,7 @@
 //! MS1 live check of the node-side sandbox driver against the dedicated
-//! sandbox daemon and a real Claude Code session (subscription token).
+//! sandbox daemon and a real interactive Claude Code session (subscription
+//! token). The TUI is relayed to this process's stdout; run it in a terminal (or
+//! a tmux pane) to watch it.
 //! Ignored by default. Inputs:
 //! `AQ_MS1_CLAUDE_TOKEN_FILE` (0600 token file), `AQ_SANDBOX_SOCKET`,
 //! `AQ_MS1_TEMPLATE_IMAGE` (pullable `...@sha256:...`).
@@ -76,13 +78,10 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         workspace: work.clone(),
         token_file: token_file.clone(),
         executable: "/opt/aq/bin/claude".into(),
+        // The interactive recipe (`native::adapter::claude::map`, container mode).
         arguments: [
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--input-format",
-            "text",
+            "--model",
+            "sonnet",
             "--permission-mode",
             "bypassPermissions",
             "--setting-sources",
@@ -90,10 +89,7 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
             "--settings",
             "/aq/home/settings.json",
             "--strict-mcp-config",
-            "--no-session-persistence",
             "--disable-slash-commands",
-            "--max-turns",
-            "8",
         ]
         .map(String::from)
         .to_vec(),
@@ -109,12 +105,22 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect(),
-        settings_json: r#"{"permissions":{"defaultMode":"bypassPermissions"},"sandbox":{"enabled":false},"disableAllHooks":true,"enableAllProjectMcpServers":false,"cleanupPeriodDays":1,"forceLoginMethod":"claudeai"}"#.into(),
+        settings_json: serde_json::json!({
+            "permissions": {"defaultMode": "bypassPermissions"}, "sandbox": {"enabled": false},
+            "skipDangerousModePermissionPrompt": true, "enableAllProjectMcpServers": false,
+            "cleanupPeriodDays": 1, "forceLoginMethod": "claudeai",
+            "hooks": {
+                "Stop": [{"hooks": [{"type": "command", "command": aq_handoff_note::harness::STOP_HOOK}]}],
+                "StopFailure": [{"hooks": [{"type": "command", "command": aq_handoff_note::harness::STOP_HOOK}]}],
+            },
+        })
+        .to_string(),
         result_dir: None,
         max_workspace_bytes: 64 * 1024 * 1024,
         agent_channel: false,
         conversation_outbox: None,
         harness: Default::default(),
+        codex_runtime_bundle: None,
     };
     let config_file = root.join("private/driver.json");
     std::fs::OpenOptions::new()
