@@ -46,25 +46,6 @@ const PULL_TIMEOUT: Duration = Duration::from_secs(600);
 /// on the host is never offered by docker-local.
 pub const CONFINEMENT: &[ConfinementMode] = &[ConfinementMode::Container];
 
-/// Docker's non-TTY log stream frames each chunk with an 8-byte header
-/// (stream, 0, 0, 0, big-endian length). Unframed bodies pass through.
-pub fn demux_logs(body: &[u8]) -> Vec<u8> {
-    let framed = |b: &[u8]| b.len() >= 8 && matches!(b[0], 0..=2) && b[1..4] == [0, 0, 0];
-    if !framed(body) {
-        return body.to_vec();
-    }
-    let mut out = Vec::with_capacity(body.len());
-    let mut rest = body;
-    while framed(rest) {
-        let len = u32::from_be_bytes([rest[4], rest[5], rest[6], rest[7]]) as usize;
-        let end = (8 + len).min(rest.len());
-        out.extend_from_slice(&rest[8..end]);
-        rest = &rest[end..];
-    }
-    out.extend_from_slice(rest);
-    out
-}
-
 pub fn require_confinement(mode: ConfinementMode) -> Result<(), BackendError> {
     if CONFINEMENT.contains(&mode) {
         Ok(())
@@ -535,31 +516,16 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         }
     }
 
-    /// Runner stdout and stderr since `since_secs` (Unix seconds), demultiplexed.
-    /// Observation only: never stop proof or a result.
-    pub async fn logs_since(
+    /// Sets the size of a running sandbox's terminal (`runner_tty`).
+    pub async fn resize(
         &mut self,
         sandbox: &SandboxIdentity,
-        since_secs: u64,
-        max_bytes: usize,
-    ) -> Result<Vec<u8>, BackendError> {
-        let request = format!(
-            "/containers/{}/logs?stdout=1&stderr=1&since={since_secs}",
-            sandbox.backend_id
-        );
-        let response = self
-            .call(
-                DockerMethod::Get,
-                &request,
-                None,
-                Zeroizing::default(),
-                max_bytes,
-                self.api_timeout(),
-            )
-            .await?;
-        match response.status {
-            200 => Ok(demux_logs(&response.body)),
-            404 => Err(BackendError::NotFound),
+        (columns, rows): (u16, u16),
+    ) -> Result<(), BackendError> {
+        let id = &sandbox.backend_id;
+        let path = format!("/containers/{id}/resize?h={rows}&w={columns}");
+        match self.send(DockerMethod::Post, &path, None).await?.status {
+            200 | 201 => Ok(()),
             _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }
     }

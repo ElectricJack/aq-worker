@@ -150,58 +150,11 @@ pub(super) fn plan(
             .and_then(|m| m.codex.as_ref())
             .and_then(|c| c.runtime_bundle.as_ref())
         {
-            entries.extend(runtime_bundle(bundle)?);
+            entries.extend(aq_sandbox_archive::codex_runtime::bundle(bundle)?);
         }
     }
     Ok(Plan { entries, secret })
 }
-/// Only these public, exact-version runtime artifacts may enter a session.
-fn runtime_bundle(path: &std::path::Path) -> Result<Vec<TreeEntry>> {
-    let pins: Value = serde_json::from_str(include_str!(
-        "../../../../../../packaging/native-runtime/pins.json"
-    ))?;
-    let mut entries = vec![file(
-        "codex-digest",
-        pins["inputs"]["codex"]["sha256"]
-            .as_str()
-            .context("Codex executable pin")?,
-    )];
-    for name in [
-        "codex-runtime",
-        "codex-runtime/codex-path",
-        "codex-runtime/codex-resources",
-    ] {
-        entries.push(TreeEntry::Dir {
-            path: name.into(),
-            mode: 0o700,
-        });
-    }
-    for name in [
-        "codex-code-mode-host",
-        "codex-path/rg",
-        "codex-resources/bwrap",
-    ] {
-        let pin = &pins["inputs"][name];
-        let expected = pin["bytes"].as_u64().context("Codex helper size")?;
-        let file = std::fs::File::open(path.join(name)).context("Codex helper unavailable")?;
-        ensure!(
-            file.metadata()?.is_file() && file.metadata()?.len() == expected,
-            "Codex helper size mismatch"
-        );
-        let mut bytes = Vec::new();
-        use std::io::Read;
-        file.take(expected + 1).read_to_end(&mut bytes)?;
-        ensure!(
-            bytes.len() as u64 == expected
-                && aq_session_protocol::Digest::of(&bytes).as_str()
-                    == pin["sha256"].as_str().context("Codex helper digest")?,
-            "Codex helper digest mismatch"
-        );
-        entries.push(super::file(&format!("codex-runtime/{name}"), bytes));
-    }
-    Ok(entries)
-}
-
 fn codex_config(spec: &Value) -> Result<String> {
     // JSON strings are valid TOML basic strings; only these known scalar options
     // cross into CLI configuration. Never copy a host config or arbitrary options.
@@ -274,7 +227,7 @@ mod tests {
     fn runtime_bundle_refuses_unpinned_helper_bytes() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("codex-code-mode-host"), b"wrong helper").unwrap();
-        assert!(runtime_bundle(root.path()).is_err());
+        assert!(aq_sandbox_archive::codex_runtime::bundle(root.path()).is_err());
     }
     #[test]
     fn rejects_api_key_material_and_unsupported_provider_options() {

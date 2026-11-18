@@ -218,7 +218,7 @@ pub fn token_leak(entries: &[TreeEntry], stream: &[u8], by: &Secrets) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aq_handoff_note::{preserved_claim, print_logs};
+    use aq_handoff_note::preserved_claim;
 
     #[test]
     fn copy_back_refuses_symlinked_parents_and_escaping_links() {
@@ -344,11 +344,5 @@ mod tests {
         assert!(token_leak(&clean, &leaked, by).is_some_and(|w| w.contains("transcript")));
         // A near miss is not the token.
         assert_eq!(token_leak(&clean, &token[..token.len() - 1], by), None);
-        let mut partial = Vec::new();
-        let mut lines = b"fine\n".to_vec();
-        lines.extend_from_slice(&leaked);
-        lines.push(b'\n');
-        assert!(print_logs(&lines, &mut partial, by));
-        assert!(!print_logs(b"also fine\n", &mut partial, by));
     }
 }
