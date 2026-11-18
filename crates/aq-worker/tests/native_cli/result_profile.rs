@@ -401,3 +401,43 @@ fn codex_docker_local_profile_selects_container_codex_manifests_only() {
     interactive.terminal.input_enabled = true;
     assert!(value.validate_manifest(&interactive).is_err());
 }
+
+/// The long phase admits a docker-local harness only as its exact table row:
+/// Codex 0.166 under the docker adapter, without terminal input, in a container.
+#[test]
+fn long_phase_admits_docker_local_codex_without_terminal_input() {
+    use aq_admission::preparation_refresh_v1::PhasePolicy;
+    let policy = PhasePolicy {
+        schema_version: 3,
+        maximum_preparation_ms: 30000,
+        maximum_execution_lease_ms: 3600000,
+        maximum_observation_ms: 2000,
+    };
+    let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../aq-session-host/tests/fixtures/manifest.json"
+    ))
+    .unwrap();
+    value["harness"]["harness"] = "codex".into();
+    value["harness"]["cli_version"] = "0.166.0".into();
+    value["harness"]["adapter"]["id"] = "aq.codex-docker-result-local-adapter".into();
+    value["harness"]["required_capabilities"] = serde_json::json!([
+        {"id": "aq.harness.startup-context", "version": 1},
+        {"id": aq_session_protocol::CONTAINER_CONFINEMENT_CAPABILITY, "version": 1},
+        {"id": "aq.harness.stop", "version": 1}
+    ]);
+    value["terminal"]["input_enabled"] = false.into();
+    let admit = |value: &serde_json::Value| {
+        let manifest: LaunchManifest = serde_json::from_value(value.clone()).unwrap();
+        policy.validate_for_manifest(&manifest)
+    };
+    admit(&value).unwrap();
+    let mut input = value.clone();
+    input["terminal"]["input_enabled"] = true.into();
+    assert!(admit(&input).is_err());
+    let mut version = value.clone();
+    version["harness"]["cli_version"] = "0.167.0".into();
+    assert!(admit(&version).is_err());
+    let mut claude = value.clone();
+    claude["harness"]["adapter"]["id"] = "aq.claude-result-local-adapter".into();
+    assert!(admit(&claude).is_err());
+}
