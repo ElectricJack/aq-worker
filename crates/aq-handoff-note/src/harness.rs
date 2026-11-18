@@ -91,6 +91,43 @@ do the task. Your worktree is retained as is: keep build outputs out of it (for 
 pub const CHANNEL_NOTE: &str = "The aq CLI (/opt/aq/bin/aq, where installed) reaches AQ from this \
 sandbox through AQ_CHANNEL; no credential is needed or accepted. `aq commands` lists what you may run.\n";
 
+/// The print-mode arguments the unattended Claude recipe starts with.
+const CLAUDE_PRINT: [&str; 6] = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--input-format",
+    "text",
+];
+/// Turns the unattended container recipe (print mode, `settings.json` with all
+/// hooks disabled) into the interactive TUI for the docker-local sandbox: the
+/// print-mode arguments go (the runner gives the prompt as the last argument),
+/// the bypass-mode confirmation dialog is answered, and the only hooks (this file
+/// is the only settings source) report the end of the turn, finished or failed,
+/// to the node driver. Returns the new `settings.json`.
+pub fn claude_interactive(arguments: &mut Vec<String>, settings: &[u8]) -> Result<String> {
+    anyhow::ensure!(
+        arguments.len() > 6 && arguments[..6] == CLAUDE_PRINT,
+        "closed Claude print-mode recipe changed"
+    );
+    arguments.drain(..6);
+    arguments.retain(|a| a != "--no-session-persistence");
+    let mut value: serde_json::Value = serde_json::from_slice(settings)?;
+    let object = value.as_object_mut().context("Claude settings object")?;
+    anyhow::ensure!(
+        object.remove("disableAllHooks").is_some() && !object.contains_key("hooks"),
+        "closed Claude settings changed"
+    );
+    let hook = serde_json::json!([{ "hooks": [{ "type": "command", "command": STOP_HOOK }] }]);
+    object.insert("skipDangerousModePermissionPrompt".into(), true.into());
+    object.insert(
+        "hooks".into(),
+        serde_json::json!({ "Stop": hook, "StopFailure": hook }),
+    );
+    Ok(serde_json::to_string_pretty(&value)?)
+}
+
 /// The final-result stream of an interactive turn, from the stop hook's JSON:
 /// Claude's `Stop`/`StopFailure` hook input or Codex's `notify` payload. One
 /// `result` event in the shape `proven_success` and `conclusion` read; a failed
@@ -150,6 +187,64 @@ mod tests {
             None,
             "the title turn"
         );
+    }
+    #[test]
+    fn interactive_claude_drops_print_mode_answers_the_dialog_and_hooks_the_turn_end() {
+        let mut arguments: Vec<String> = [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--input-format",
+            "text",
+            "--model",
+            "m",
+            "--permission-mode",
+            "bypassPermissions",
+            "--setting-sources",
+            "user",
+            "--settings",
+            "/aq/home/settings.json",
+            "--strict-mcp-config",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+            "--effort",
+            "high",
+        ]
+        .map(String::from)
+        .to_vec();
+        let settings = br#"{"permissions":{"defaultMode":"bypassPermissions"},"sandbox":{"enabled":false},"disableAllHooks":true}"#;
+        let json = claude_interactive(&mut arguments, settings).unwrap();
+        assert_eq!(
+            arguments,
+            [
+                "--model",
+                "m",
+                "--permission-mode",
+                "bypassPermissions",
+                "--setting-sources",
+                "user",
+                "--settings",
+                "/aq/home/settings.json",
+                "--strict-mcp-config",
+                "--disable-slash-commands",
+                "--effort",
+                "high"
+            ]
+        );
+        let s: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(s["permissions"]["defaultMode"], "bypassPermissions");
+        assert_eq!(s["skipDangerousModePermissionPrompt"], true);
+        assert!(s.get("disableAllHooks").is_none());
+        assert_eq!(s["hooks"].as_object().unwrap().len(), 2);
+        for event in ["Stop", "StopFailure"] {
+            assert_eq!(s["hooks"][event][0]["hooks"][0]["command"], STOP_HOOK);
+        }
+        // A recipe that is not the closed print-mode one is refused, not guessed at.
+        let mut other = vec!["--model".to_string(); 8];
+        assert!(claude_interactive(&mut other, settings).is_err());
+        let mut again = arguments.clone();
+        assert!(claude_interactive(&mut again, settings).is_err());
     }
     #[test]
     fn claude_runner_is_valid_bash_keeps_the_token_out_of_argv_and_answers_the_dialogs() {

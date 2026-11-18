@@ -393,6 +393,10 @@ fn claude_launch(
         },
         mode,
     )?;
+    // Owner decision 2026-11-18: the interactive TUI on the sandbox's terminal.
+    let mut arguments = recipe.arguments;
+    let settings_json =
+        aq_handoff_note::harness::claude_interactive(&mut arguments, &recipe.settings_json)?;
     Ok(HarnessLaunch {
         token,
         executable: recipe
@@ -400,9 +404,9 @@ fn claude_launch(
             .to_str()
             .context("Claude executable UTF-8")?
             .into(),
-        arguments: recipe.arguments,
+        arguments,
         environment: recipe.environment,
-        settings_json: String::from_utf8(recipe.settings_json)?,
+        settings_json,
         harness: crate::sandbox_driver::DriverHarness::Claude,
         codex_runtime_bundle: None,
     })

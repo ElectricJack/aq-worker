@@ -106,21 +106,6 @@ fn container_claude_recipe_bypasses_permissions_with_harness_sandbox_off() {
             .get("disableBypassPermissionsMode")
             .is_none()
     );
-    // Interactive on the sandbox terminal: no print mode, no dialog, and the stop
-    // hooks (the only hooks) tell the node driver that the turn ended.
-    for absent in ["-p", "--output-format", "--no-session-persistence"] {
-        assert!(!recipe.arguments.iter().any(|a| a == absent), "{absent}");
-    }
-    assert_eq!(flag(&recipe, "--setting-sources"), "user");
-    assert_eq!(s["skipDangerousModePermissionPrompt"], true);
-    assert!(s.get("disableAllHooks").is_none());
-    for event in ["Stop", "StopFailure"] {
-        assert_eq!(
-            s["hooks"][event][0]["hooks"][0]["command"],
-            aq_handoff_note::harness::STOP_HOOK
-        );
-    }
-    assert_eq!(s["hooks"].as_object().unwrap().len(), 2);
     // The mode must match the manifest's declared capability in both directions.
     assert!(map(&harness, &model, paths(), ConfinementMode::Native).is_err());
     let (native, _) = settings(aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY);

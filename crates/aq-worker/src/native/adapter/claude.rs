@@ -12,9 +12,9 @@
 //!   start, unsandboxed commands are refused and the permission mode is
 //!   `acceptEdits`, with bypass mode disabled;
 //! - `container`: Claude's sandbox is off and the permission mode is
-//!   `bypassPermissions`, because the backend sandbox is the boundary. Claude runs
-//!   as the interactive TUI on the sandbox's terminal (owner decision 2026-11-18:
-//!   every agent runs in the session host's tmux pane).
+//!   `bypassPermissions`, because the backend sandbox is the boundary. The
+//!   docker-local launch turns this recipe into the interactive TUI
+//!   (`aq_handoff_note::harness::claude_interactive`).
 use crate::native::runner::sandbox::confinement::ConfinementMode;
 use anyhow::{Context, Result, ensure};
 use aq_session_protocol::{
@@ -137,40 +137,29 @@ pub(crate) fn map(
         ConfinementMode::Native => "acceptEdits",
         ConfinementMode::Container => "bypassPermissions",
     };
-    // Container: the interactive TUI on the sandbox's terminal; the node driver
-    // gives the prompt as the last argument and a stop hook ends the attempt.
-    // Native: one unattended print-mode turn.
-    let head: &[&str] = match mode {
-        ConfinementMode::Native => &[
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--input-format",
-            "text",
-            "--no-session-persistence",
-        ],
-        ConfinementMode::Container => &[],
-    };
-    let mut arguments: Vec<String> = head
-        .iter()
-        .copied()
-        .chain([
-            "--model",
-            model.model.as_str(),
-            "--permission-mode",
-            permission_mode,
-            // Only the private user settings; never the workspace's project or
-            // local settings, which the agent's repository content controls.
-            "--setting-sources",
-            "user",
-            "--settings",
-            settings_path.to_str().context("Claude settings UTF8")?,
-            "--strict-mcp-config",
-            "--disable-slash-commands",
-        ])
-        .map(String::from)
-        .collect();
+    let mut arguments = [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--input-format",
+        "text",
+        "--model",
+        model.model.as_str(),
+        "--permission-mode",
+        permission_mode,
+        // Only the private user settings; never the workspace's project or
+        // local settings, which the agent's repository content controls.
+        "--setting-sources",
+        "user",
+        "--settings",
+        settings_path.to_str().context("Claude settings UTF8")?,
+        "--strict-mcp-config",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+    ]
+    .map(String::from)
+    .to_vec();
     if !matches!(effort, "default" | "off") {
         arguments.extend(["--effort".to_owned(), effort.to_owned()]);
     }
@@ -253,40 +242,32 @@ pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -
 }
 
 fn settings(mode: ConfinementMode) -> serde_json::Value {
-    let mut value = serde_json::json!({
-        "permissions": { "defaultMode": "acceptEdits" },
-        "enableAllProjectMcpServers": false,
-        "cleanupPeriodDays": 1,
-        "forceLoginMethod": "claudeai",
-    });
-    match mode {
+    let mut permissions = serde_json::json!({ "defaultMode": "acceptEdits" });
+    let sandbox = match mode {
         ConfinementMode::Native => {
-            value["permissions"]["disableBypassPermissionsMode"] = "disable".into();
-            value["disableAllHooks"] = true.into();
-            value["sandbox"] = serde_json::json!({
+            permissions["disableBypassPermissionsMode"] = "disable".into();
+            serde_json::json!({
                 "enabled": true,
                 "autoAllowBashIfSandboxed": true,
                 "allowUnsandboxedCommands": false,
                 // Claude's sandbox is fail-open by default: if it cannot start
                 // it warns and runs commands unsandboxed (calm-delta-18.9.4).
                 "failIfUnavailable": true,
-            });
+            })
         }
         ConfinementMode::Container => {
-            value["permissions"]["defaultMode"] = "bypassPermissions".into();
-            value["sandbox"] = serde_json::json!({ "enabled": false });
-            // The interactive TUI: no bypass-mode confirmation dialog, and the
-            // only hooks (this file is the only settings source) report the end
-            // of the turn, finished or failed, to the node driver.
-            value["skipDangerousModePermissionPrompt"] = true.into();
-            let hook = serde_json::json!([{ "hooks": [{
-                "type": "command",
-                "command": aq_handoff_note::harness::STOP_HOOK,
-            }] }]);
-            value["hooks"] = serde_json::json!({ "Stop": hook, "StopFailure": hook });
+            permissions["defaultMode"] = "bypassPermissions".into();
+            serde_json::json!({ "enabled": false })
         }
-    }
-    value
+    };
+    serde_json::json!({
+        "permissions": permissions,
+        "sandbox": sandbox,
+        "disableAllHooks": true,
+        "enableAllProjectMcpServers": false,
+        "cleanupPeriodDays": 1,
+        "forceLoginMethod": "claudeai",
+    })
 }
 
 #[cfg(test)]
