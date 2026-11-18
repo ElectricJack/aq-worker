@@ -29,7 +29,6 @@ fn executor(codex: Option<Value>) -> Value {
                 "claude_executable": "/opt/aq/bin/claude", "columns": 120, "rows": 40,
                 "docker_local": {"shared_root_fs": true, "socket": "/run/user/1000/aq-sandbox/podman.sock",
                     "templates": [{"digest": template, "image": format!("registry.invalid/aq-template@{template}")}]},
-                "driver": pinned("aq.claude-docker-local-driver", "/var/lib/aq/aq-sandbox-driver"),
                 "helper": pinned("aq.host/aq-session-host", "/var/lib/aq/aq-session-host"),
                 "tmux": pinned("aq.host/tmux", "/usr/bin/tmux"),
                 "max_workspace_bytes": 268435456, "renderer": artifact("renderer"),
@@ -177,4 +176,32 @@ fn launch_selection_follows_the_offered_harness() {
         );
     }
     assert!(launch_pins("claude", None, Some(&codex)).is_err());
+}
+
+/// Gate 1 (2026-11-18): the driver is the worker's own executable, so the two cannot be
+/// out of step. A template that still names a separate driver is refused.
+#[test]
+fn the_driver_is_the_running_executable_and_cannot_be_configured() {
+    use sha2::Digest as _;
+    let (driver, bytes) = aq_worker::native::launch::claude_docker::own_driver().unwrap();
+    let own = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+    let image = std::fs::read(&own).unwrap();
+    assert_eq!(driver.path, own);
+    assert_eq!(bytes, image.len() as u64);
+    assert_eq!(driver.artifact.id.as_str(), "aq.claude-docker-local-driver");
+    assert_eq!(
+        driver.artifact.digest.as_str(),
+        format!("{:x}", sha2::Sha256::digest(&image))
+    );
+
+    assert!(serde_json::from_value::<ExecutorConfig>(executor(None)).is_ok());
+    let mut pinned = executor(None);
+    pinned["settings"]["host"]["driver"] = json!({
+        "artifact": artifact("aq.claude-docker-local-driver"),
+        "path": "/var/lib/aq/aq-sandbox-driver",
+    });
+    let refused = serde_json::from_value::<ExecutorConfig>(pinned)
+        .err()
+        .unwrap();
+    assert!(refused.to_string().contains("driver"), "{refused}");
 }

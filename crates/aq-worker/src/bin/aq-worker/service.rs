@@ -2017,7 +2017,6 @@ mod tests {
                     "claude_executable": "/opt/aq/bin/claude", "columns": 120, "rows": 40,
                     "docker_local": {"shared_root_fs": true, "socket": "/run/user/1000/aq-sandbox/podman.sock",
                         "templates": [{"digest": template, "image": format!("registry.invalid/aq-template@{template}")}]},
-                    "driver": pinned("aq.claude-docker-local-driver", "/var/lib/aq/aq-sandbox-driver"),
                     "helper": pinned("aq.host/aq-session-host", "/var/lib/aq/aq-session-host"),
                     "tmux": pinned("aq.host/tmux", "/usr/bin/tmux"),
                     "max_workspace_bytes": 268435456, "renderer": artifact("renderer"),

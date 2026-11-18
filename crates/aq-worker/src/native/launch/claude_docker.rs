@@ -8,8 +8,8 @@ use crate::backend::{Ownership, ResourceLimits, TemplateDigest};
 use aq_session_host::{
     AdapterLaunch, HarnessAdapter, HarnessReadiness, LocalCommand,
     observed::{
-        NativeExecObservationProfile, NativeExecPool, ObservedAdapterQualification,
-        ObservedHarnessAdapter,
+        MAX_NATIVE_EXEC_BYTES, MAX_NATIVE_EXEC_POOL_BYTES, NativeExecObservationProfile,
+        NativeExecPool, ObservedAdapterQualification, ObservedHarnessAdapter,
     },
 };
 use aq_session_protocol::{ArtifactRef, Validate};
@@ -33,8 +33,6 @@ pub struct ClaudeDockerHostConfig {
     pub root: PathBuf,
     pub helper: PinnedFile,
     pub tmux: PinnedFile,
-    /// The aq-worker binary that serves `sandbox-harness`.
-    pub driver: PinnedFile,
     pub renderer: ArtifactRef,
     pub columns: u16,
     pub rows: u16,
@@ -89,6 +87,7 @@ pub struct ClaudeDockerHostProfile {
     pub(super) config: ClaudeDockerHostConfig,
     pub(super) root: RootGuard,
     pub(super) digest: Digest,
+    driver: PinnedFile,
     pool: NativeExecPool,
     /// The node's enrollment, for agent-credential issuance. Memory only.
     issuance: Option<aq_agent_channel::NodeLink>,
@@ -120,11 +119,18 @@ fn hash_file(path: &Path, max: u64) -> Result<(String, u64)> {
     }
     Ok((format!("{:x}", hash.finalize()), total))
 }
+/// The driver is this worker's own executable, so the two are always one build.
+pub fn own_driver() -> Result<(PinnedFile, u64)> {
+    let path = std::fs::canonicalize(std::env::current_exe()?)?;
+    let (digest, bytes) = hash_file(&path, MAX_NATIVE_EXEC_BYTES)?;
+    let pin = serde_json::json!({"id": "aq.claude-docker-local-driver", "version": env!("CARGO_PKG_VERSION"), "digest": digest});
+    let artifact = serde_json::from_value(pin)?;
+    Ok((PinnedFile { path, artifact }, bytes))
+}
 impl ClaudeDockerHostProfile {
     pub fn new(config: ClaudeDockerHostConfig) -> Result<Self> {
         ensure!(
-            config.driver.artifact.id.as_str() == "aq.claude-docker-local-driver"
-                && config.columns >= 80
+            config.columns >= 80
                 && config.columns <= 240
                 && config.rows > 0
                 && config.rows <= 120
@@ -133,7 +139,7 @@ impl ClaudeDockerHostProfile {
                 && config.max_workspace_bytes > 0,
             "closed Claude docker-local host profile"
         );
-        for pin in [&config.helper, &config.tmux, &config.driver] {
+        for pin in [&config.helper, &config.tmux] {
             pin.artifact.id.validate()?;
             pin.artifact.version.validate()?;
             ensure!(
@@ -153,21 +159,14 @@ impl ClaudeDockerHostProfile {
         (config.docker_local).check_channel_root(&config.root.join("channels"))?;
         let root = RootGuard::open(&config.root, None)?;
         let digest = crate::native::journal::canonical_digest(&config)?;
-        let (_, driver_bytes) = hash_file(
-            &config.driver.path,
-            aq_session_host::observed::MAX_NATIVE_EXEC_BYTES,
-        )?;
-        let pool = NativeExecPool::new(
-            driver_bytes
-                .checked_add(1 << 20)
-                .context("driver pool size")?
-                .min(aq_session_host::observed::MAX_NATIVE_EXEC_POOL_BYTES),
-            1,
-        )?;
+        let (driver, driver_bytes) = own_driver()?;
+        let pool_bytes = (driver_bytes + (1 << 20)).min(MAX_NATIVE_EXEC_POOL_BYTES);
+        let pool = NativeExecPool::new(pool_bytes, 1)?;
         let profile = Self {
             config,
             root,
             digest,
+            driver,
             pool,
             issuance: None,
             conversation_outbox: None,
@@ -180,7 +179,7 @@ impl ClaudeDockerHostProfile {
     }
     pub fn verify_installation(&self) -> Result<()> {
         self.root.verify()?;
-        for pin in [&self.config.helper, &self.config.tmux, &self.config.driver] {
+        for pin in [&self.config.helper, &self.config.tmux, &self.driver] {
             let (digest, _) =
                 hash_file(&pin.path, aq_session_host::observed::MAX_NATIVE_EXEC_BYTES)?;
             ensure!(
@@ -474,7 +473,7 @@ pub(super) fn bootstrap(
         let offer = a.reservation.offer.clone();
         let c = &profile.config;
         let [executable, helper, tmux] =
-            [&c.driver, &c.helper, &c.tmux].map(|p| p.artifact.clone());
+            [&profile.driver, &c.helper, &c.tmux].map(|p| p.artifact.clone());
         let pins = HostPins {
             root: (c.root.clone(), profile.root.identity()),
             profile_digest: profile.digest.clone(),
@@ -562,7 +561,7 @@ pub(super) fn bootstrap(
     private_write(&driver_file, &serde_json::to_vec(&driver)?)?;
     let image = profile
         .pool
-        .load_verified(&profile.config.driver.path, &profile.config.driver.artifact)?;
+        .load_verified(&profile.driver.path, &profile.driver.artifact)?;
     let startup = aq_session_host::observed::ObservedStartup::native_exec(
         scope.inputs.startup().clone(),
         i.terminal.clone(),
@@ -604,7 +603,7 @@ pub(super) fn bootstrap(
     environment.insert("RUST_LOG".to_string(), "warn".to_string());
     let adapter = Adapter {
         command: LocalCommand {
-            executable: profile.config.driver.path.clone(),
+            executable: profile.driver.path.clone(),
             arguments: vec![
                 "sandbox-harness".into(),
                 "--driver-config".into(),
@@ -612,7 +611,7 @@ pub(super) fn bootstrap(
             ],
             environment,
         },
-        executable: profile.config.driver.artifact.clone(),
+        executable: profile.driver.artifact.clone(),
         renderer: i.renderer.clone(),
         manifest_digest: crate::native::journal::canonical_digest(m)?,
     };

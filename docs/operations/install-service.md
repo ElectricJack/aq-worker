@@ -30,8 +30,8 @@ supported yet; the script refuses it.
 
 `--bundle DIR` holds:
 
-- the five binaries `aq-worker`, `aq-session-host`, `aq-agent`, `aq-git` and
-  `aq-sandbox-driver`;
+- the four binaries `aq-worker`, `aq-session-host`, `aq-agent` and `aq-git`
+  (the sandbox driver is `aq-worker` itself: `aq-worker sandbox-harness`);
 - `native.json` and `repositories.json`.
 
 Copy `native.json` and `repositories.json` from an enrolled machine of the same
@@ -84,7 +84,7 @@ The script, in order:
    keepalive. A startup setup failure stops the installer before enrollment;
 2. makes sure the sandbox daemon is running and enabled for the next boot,
    even when its socket already exists;
-3. installs the five binaries into `~/.local/share/agent-q/runtime/` and links
+3. installs the four binaries into `~/.local/share/agent-q/runtime/` and links
    `~/.local/bin/aq-worker`;
 4. runs `aq-worker service enroll`, which prompts for the code. A profile that
    is already enrolled is skipped (pass `--reconfigure` to enroll it again);
@@ -266,7 +266,7 @@ The stop timeout of the unit is the profile's `shutdown_grace_ms` plus 30 s
 Install the new bundle's binaries over the old ones, then restart the unit:
 
 ```sh
-for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
+for f in aq-worker aq-session-host aq-agent aq-git; do
   install -m 0755 ~/aq-new-bundle/$f ~/.local/share/agent-q/runtime/$f
 done
 systemctl --user restart aq-node@local
