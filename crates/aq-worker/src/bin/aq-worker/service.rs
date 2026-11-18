@@ -123,6 +123,7 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
 /// The native pipeline behind the supervisor: one `run_until_attempt` per call.
 pub struct NativeSlotBackend {
     template: PathBuf,
+    conversation_root: Option<PathBuf>,
     /// Attempts whose restart handoff notice the server accepted; a retried recovery does
     /// not post them again.
     notified: std::sync::Mutex<std::collections::HashSet<Uuid>>,
@@ -134,6 +135,7 @@ impl NativeSlotBackend {
     pub fn new(template: PathBuf) -> Self {
         Self {
             template,
+            conversation_root: None,
             notified: Default::default(),
             manual_pause: Default::default(),
             native_active: Default::default(),
@@ -524,7 +526,11 @@ impl SlotBackend for NativeSlotBackend {
         let _merge = Merger(merge);
         let worker = WorkerConfig::load(&ctx.enrollment)?;
         let cfg = self.native_config(&ctx)?;
-        let mut executor = ClaudeDockerExecutor::configured(&worker)?;
+        let mut executor = ClaudeDockerExecutor::configured(&worker)?.with_conversation_outbox(
+            self.conversation_root
+                .as_ref()
+                .map(|root| root.join(ctx.node_id.to_string())),
+        );
         let disposition = if let Some(session) = session {
             run_node_slot(
                 &worker,
@@ -568,6 +574,59 @@ impl SlotBackend for NativeSlotBackend {
     }
     fn retained_attempts(&self, ctx: &SlotContext) -> Result<Vec<Uuid>> {
         retained_attempts(&self.native_config(ctx)?, ctx.node_id)
+    }
+}
+
+/// The outbox survives slot rotation and worker restart. An attempt may still
+/// be settling when its snapshot appears, so retry until the server accepts it.
+async fn upload_attempt_conversations(
+    directory: PathBuf,
+    link: Arc<ServerLink>,
+    mut stop: watch::Receiver<bool>,
+) {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    while !*stop.borrow() {
+        tokio::select! {
+            _ = stop.wait_for(|v| *v) => break,
+            _ = tick.tick() => {}
+        }
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(attempt) = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_suffix(".json"))
+                .and_then(|n| Uuid::parse_str(n).ok())
+            else {
+                continue;
+            };
+            let result = async {
+                let body = aq_handoff_note::read_private(
+                    &path,
+                    aq_worker::conversation::MAX_SNAPSHOT_BYTES as u64,
+                )?;
+                let receipt = link
+                    .attempt_conversation(attempt, &serde_json::from_slice(&body)?)
+                    .await?;
+                ensure!(
+                    receipt["attempt_id"] == attempt.to_string(),
+                    "unexpected attempt conversation acknowledgement"
+                );
+                std::fs::remove_file(path)?;
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            if let Err(error) = result {
+                tracing::debug!(attempt_id = %attempt, %error, "provider conversation upload pending");
+            }
+            if *stop.borrow() {
+                return;
+            }
+        }
     }
 }
 
@@ -1143,6 +1202,8 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
         None
     };
     let mut native_backend = NativeSlotBackend::new(config.native_template.clone());
+    let conversation_root = config.state_root.join("attempt-conversations");
+    native_backend.conversation_root = Some(conversation_root.clone());
     native_backend.manual_pause = manual_pause;
     native_backend.native_active = native_active;
     native_backend.sessions = sessions;
@@ -1150,7 +1211,7 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
     let mut supervisors = tokio::task::JoinSet::new();
     for (node, view, node_link) in node_views {
-        let control = Arc::new(MachineLink::new(node_link, &view, 1));
+        let control = Arc::new(MachineLink::new(node_link.clone(), &view, 1));
         let (node_stop, node_rx) = watch::channel(false);
         let mut machine_stop = rx.clone();
         let forward = node_stop.clone();
@@ -1160,6 +1221,11 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
         });
         let worker = WorkerConfig::load(&view.slot_enrollment(1))?;
         let supervisor_rx = node_rx.clone();
+        let conversations = tokio::spawn(upload_attempt_conversations(
+            conversation_root.join(worker.node_id.to_string()),
+            node_link,
+            node_rx.clone(),
+        ));
         let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, node_rx));
         let sup = Supervisor::new(config.clone(), view, backend.clone(), control, git.clone())
             .retiring(node > config.nodes);
@@ -1169,6 +1235,7 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
             let result = sup.run(supervisor_rx).await;
             forwarding.abort();
             heartbeat.abort();
+            conversations.abort();
             result
         });
     }

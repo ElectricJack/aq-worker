@@ -6,7 +6,6 @@ mod manual_stream;
 mod native_diagnostics;
 #[cfg(feature = "test-support")]
 mod native_fixture;
-mod redact;
 mod service;
 use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;

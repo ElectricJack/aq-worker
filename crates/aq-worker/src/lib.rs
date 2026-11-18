@@ -8,6 +8,7 @@ pub mod client;
 pub mod clock;
 pub mod config;
 pub mod controller;
+pub mod conversation;
 pub mod execution_client;
 pub mod fixture;
 #[cfg(feature = "synthetic-runtime")]

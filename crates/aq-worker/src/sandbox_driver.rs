@@ -100,6 +100,9 @@ pub struct DriverConfig {
     /// Mount the node's channel for this attempt; launch fails without it.
     #[serde(default)]
     pub agent_channel: bool,
+    /// Worker-private outbox. The sandbox can write only its own provider file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_outbox: Option<PathBuf>,
 }
 
 fn relative(path: &Path, root: &Path) -> Result<String> {
@@ -348,7 +351,16 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     };
     let raw = read_private(&token_file, 64 * 1024);
     let _ = std::fs::remove_file(&token_file);
-    let config = parsed?;
+    let mut config = parsed?;
+    if config.conversation_outbox.is_some() {
+        config
+            .arguments
+            .retain(|arg| arg != "--no-session-persistence");
+        config.arguments.extend([
+            "--session-id".to_owned(),
+            config.owner.attempt_id.to_string(),
+        ]);
+    }
     let token = parse_token(&raw?)?;
     let session = std::env::var_os("AQ_SESSION_DIRECTORY").context("session directory")?;
     let prompt = std::fs::read(Path::new(&session).join("context-0.bin"))?;
@@ -408,6 +420,7 @@ pub async fn run(config_path: &Path) -> Result<i32> {
                 sandbox.backend_id,
                 stopped.is_confirmed()
             );
+            save_conversation(&mut backend, &config, &sandbox, &token).await;
             write_exit(config_path, false);
             // The marker precedes the claim: the node never destroys a preserved sandbox.
             let Some(claim) = preserved_claim(&error, &sandbox.backend_id, config_path) else {
@@ -424,6 +437,9 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         (Some(reason), None) => Some(handoff_note(reason, &changed, &stream, &token)),
         _ => None,
     };
+    if leak.is_none() {
+        save_conversation(&mut backend, &config, &sandbox, &token).await;
+    }
     drop(token);
     // Non-secret transcript beside the driver config (evidence),
     // in the private driver directory, and never when it held the token.
@@ -661,6 +677,47 @@ async fn drive(
     })
 }
 
+async fn save_conversation(
+    backend: &mut DockerLocalBackend,
+    config: &DriverConfig,
+    sandbox: &SandboxIdentity,
+    token: &[u8],
+) {
+    let Some(directory) = &config.conversation_outbox else {
+        return;
+    };
+    let attempt = config.owner.attempt_id;
+    let captured = tokio::time::timeout(
+        Duration::from_secs(2),
+        crate::conversation::read_snapshot(
+            backend,
+            sandbox,
+            crate::conversation::Provider::Claude,
+            "/aq/home/projects/-aq-work",
+            Some(attempt),
+            Some(token),
+        ),
+    )
+    .await;
+    match captured {
+        Ok(Ok(Some(snapshot))) => {
+            let saved = serde_json::to_vec(&snapshot)
+                .map_err(anyhow::Error::from)
+                .and_then(|body| {
+                    aq_node_service::enrollment_file::write_private(
+                        &directory.join(format!("{attempt}.json")),
+                        &body,
+                    )
+                });
+            if saved.is_err() {
+                tracing::warn!(attempt_id = %attempt, "could not queue provider conversation");
+            }
+        }
+        Ok(Ok(None)) => {}
+        _ => tracing::warn!(attempt_id = %attempt, "could not read provider conversation"),
+    }
+}
+
 fn read_tree_file(archive: &[u8]) -> Option<Vec<u8>> {
     crate::backend::docker_local::tar::single_file(archive, 16 * 1024 * 1024).ok()
 }
@@ -875,6 +932,7 @@ mod tests {
             result_dir: None,
             max_workspace_bytes: 1,
             agent_channel: false,
+            conversation_outbox: None,
         };
         assert!(input_entries(&config, b"p").is_err(), "API key env refused");
     }

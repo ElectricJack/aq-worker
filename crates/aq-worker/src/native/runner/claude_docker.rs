@@ -30,6 +30,7 @@ pub struct ClaudeDockerExecutor {
     profile: Option<Arc<ClaudeDockerHostProfile>>,
     pins: Option<ResultInstallationPins>,
     result_root: Option<PathBuf>,
+    conversation_outbox: Option<PathBuf>,
     /// The node's enrollment (origin, credential, Access), for the agent channel.
     issuance: aq_agent_channel::NodeLink,
 }
@@ -57,6 +58,7 @@ impl ClaudeDockerExecutor {
             profile: None,
             pins: None,
             result_root: None,
+            conversation_outbox: None,
             issuance: aq_agent_channel::NodeLink::new(
                 &worker.server_url,
                 &worker.credential,
@@ -64,6 +66,12 @@ impl ClaudeDockerExecutor {
                 worker.cf_client_secret.as_deref(),
             )?,
         })
+    }
+}
+impl ClaudeDockerExecutor {
+    pub fn with_conversation_outbox(mut self, directory: Option<PathBuf>) -> Self {
+        self.conversation_outbox = directory;
+        self
     }
 }
 impl NativeExecutor for ClaudeDockerExecutor {
@@ -110,7 +118,8 @@ impl NativeExecutor for ClaudeDockerExecutor {
         );
         self.profile = Some(Arc::new(
             ClaudeDockerHostProfile::new(settings.host.clone())?
-                .with_issuance(self.issuance.clone()),
+                .with_issuance(self.issuance.clone())
+                .with_conversation_outbox(self.conversation_outbox.clone()),
         ));
         self.pins = Some(pins);
         self.result_root = Some(config.state_dir.join("result"));
