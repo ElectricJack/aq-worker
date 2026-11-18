@@ -1790,6 +1790,26 @@ fn quiet_drained_reader_renews_but_undrained_reader_expires_without_stopping_har
     host.stop().unwrap();
     host.wait_stopped(Duration::from_secs(3)).unwrap();
 }
+/// On a busy machine the guardian can be held between reading its clock and
+/// receiving a drain receipt. A receipt stamped in that gap is fresh, not from
+/// the future: refusing it closed the one-shot reader, and the attempt's
+/// terminal output stopped for good while the agent kept working.
+#[test]
+#[ignore = "explicit local tmux guardian read-lease qualification"]
+fn drain_receipt_stamped_during_a_slow_guardian_tick_keeps_the_reader() {
+    let (_case, mut host, io, _lease) = io_setup_mode("output-flood");
+    std::fs::write(host.directory().join("test-reader-receive-delay"), b"").unwrap();
+    let mut observer = terminal_output::OutputObserver::open(&io).unwrap();
+    let client = ownership::verified_pidfd(observer.process()).unwrap();
+    let end = Instant::now() + Duration::from_millis(3000);
+    while Instant::now() < end {
+        observer.poll().unwrap();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(ownership::pidfd_is_live(&client).unwrap());
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(3)).unwrap();
+}
 #[test]
 #[ignore = "explicit local tmux independent owner failure qualification"]
 fn dead_or_stopped_owner_and_lost_ready_or_ack_cannot_leave_a_blocking_reader() {
