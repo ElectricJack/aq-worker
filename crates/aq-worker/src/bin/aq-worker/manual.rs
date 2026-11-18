@@ -1,7 +1,6 @@
 //! Persistent, owner-started tmux sessions in the fixed local sandbox.
 mod conversation;
 mod provider;
-mod recording;
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::{
     config::ServiceConfig,
@@ -56,15 +55,9 @@ while ! timeout 40 git -c core.hooksPath=/dev/null -c http.lowSpeedLimit=1 -c ht
 stage 'Checking out project source'
 git -c core.hooksPath=/dev/null checkout --detach FETCH_HEAD
 stage 'Starting interactive agent'
-tmux -S /aq/out/manual.sock new-session -d -s aq -x 120 -y 40 'while [ ! -e /aq/out/record-ready ]; do sleep 0.05; done; exec /bin/bash /aq/in/agent.sh'
-if ! tmux -S /aq/out/manual.sock pipe-pane -O -t aq 'umask 077; if head -c 134217728 > /aq/out/transcript.raw; then : > /aq/out/transcript.done; else : > /aq/out/transcript.failed; fi'; then
-  : > /aq/out/transcript.failed
-fi
-: > /aq/out/record-ready
+tmux -S /aq/out/manual.sock new-session -d -s aq -x 120 -y 40 'exec /bin/bash /aq/in/agent.sh'
 stage 'Ready to connect'
 while tmux -S /aq/out/manual.sock has-session -t aq 2>/dev/null; do sleep 1; done
-stage 'Agent exited; saving transcript'
-while [ ! -e /aq/out/transcript.drained ]; do sleep 1; done
 stage 'Agent exited; workspace retained'
 kill "$watchdog" 2>/dev/null || true
 "#;
@@ -227,7 +220,6 @@ async fn create(
     let sandbox = backend.create(&request).await?;
     a.sandbox = Some(sandbox.clone());
     save(root, a)?;
-    recording::initialize(root, a.id, node, &sandbox.backend_id)?;
     let context = format!(
         "You are an interactive coding agent for {} in an isolated workspace. Wait for the owner's instructions. Read AGENTS.md and .aq/PRIME.md before doing project work. Keep build outputs outside the retained source tree. Do not change other projects, host services, credentials or pools. This session stays open between requests; the owner stops it explicitly.\n",
         a.spec["project_name"].as_str().unwrap_or("this project")
@@ -333,7 +325,12 @@ async fn observe(
     .await
     {
         let stage = String::from_utf8_lossy(&bytes);
-        a.stage = stage.chars().take(128).collect();
+        if stage.starts_with("Agent exited;") && backend.stop(sandbox).await.is_confirmed() {
+            a.status = "stopped".into();
+            a.stage = "Agent stopped; workspace retained".into();
+        } else {
+            a.stage = stage.chars().take(128).collect();
+        }
     }
     Ok(None)
 }
@@ -457,7 +454,7 @@ pub async fn run(
     let root = config.state_root.join("manual-agents");
     std::fs::create_dir_all(&root)?;
     let mut nodes = Vec::new();
-    let mut recorders = Vec::new();
+    let mut conversation_tasks = Vec::new();
     for slot in layout.enrolled_nodes() {
         let enrollment = EnrollmentFile::load(&layout.slot_enrollment(slot))?;
         let mut agents = BTreeMap::new();
@@ -475,15 +472,7 @@ pub async fn run(
                 agents.insert(a.id, a);
             }
         }
-        recorders.push(tokio::spawn(recording::run(
-            root.clone(),
-            enrollment.node_id,
-            ServerLink::from_enrollment(&enrollment)?,
-            exe.clone(),
-            settings.host.docker_local.clone(),
-            shutdown.clone(),
-        )));
-        recorders.push(tokio::spawn(conversation::run(
+        conversation_tasks.push(tokio::spawn(conversation::run(
             root.clone(),
             enrollment.node_id,
             ServerLink::from_enrollment(&enrollment)?,
@@ -585,36 +574,6 @@ pub async fn run(
                             )
                             .await;
                         }
-                        if !recording::request_stop(
-                            &root,
-                            a.id,
-                            &exe,
-                            &settings.host.docker_local,
-                            &sandbox.backend_id,
-                        )
-                        .await
-                        {
-                            // Keep the sandbox alive while the recorder drains. Neither
-                            // HTTP upload nor backlog size holds up the poll loop.
-                            let _ = cli(
-                                &exe,
-                                &settings.host.docker_local.socket,
-                                &[
-                                    "exec",
-                                    "-i",
-                                    &sandbox.backend_id,
-                                    "/bin/sh",
-                                    "-c",
-                                    "umask 077; cat > /aq/out/lease",
-                                ],
-                                Some((node.lease_until / 1000).to_string().as_bytes()),
-                            )
-                            .await;
-                            a.status = "stopping".into();
-                            a.stage = "Saving terminal output".into();
-                            save(&root, a)?;
-                            continue;
-                        }
                         let mut backend =
                             DockerLocalBackend::connect_unix(settings.host.docker_local.clone())
                                 .await?;
@@ -652,7 +611,6 @@ pub async fn run(
                     }
                     if let Err(_error) = create(&config, &settings, node.id, a, &root).await {
                         // Creation may have left a live sandbox: retain occupancy until a confirmed stop.
-                        recording::startup_failed(&root, a.id);
                         a.status = "failed".into();
                         a.stage = "Startup failed; workspace retained for diagnosis".into();
                         save(&root, a)?;
@@ -704,14 +662,6 @@ pub async fn run(
         };
         for a in node.agents.values_mut() {
             if let Some(sandbox) = &a.sandbox {
-                recording::drain_before_stop(
-                    &root,
-                    a.id,
-                    &exe,
-                    &settings.host.docker_local,
-                    &sandbox.backend_id,
-                )
-                .await;
                 let mut backend =
                     DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
                 if backend.stop(sandbox).await.is_confirmed() {
@@ -724,8 +674,8 @@ pub async fn run(
         }
         let _=node.link.manual_poll(&json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":true,"reports":node.agents.values().map(|a|a.report(None)).collect::<Vec<_>>()})).await;
     }
-    for recorder in recorders {
-        recorder.abort();
+    for task in conversation_tasks {
+        task.abort();
     }
     for pause in paused.values() {
         pause.send_replace(false);

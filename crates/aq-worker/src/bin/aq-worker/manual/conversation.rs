@@ -1,6 +1,7 @@
 //! Save native user and assistant messages from stopped manual sandboxes.
 //! This also discovers older sessions that still have their provider logs.
-use super::{Agent, recording};
+use super::Agent;
+use crate::redact::Redactor;
 use aq_node_service::{enrollment_file::write_private, link::ServerLink};
 use aq_worker::backend::{
     BackendError,
@@ -129,9 +130,48 @@ impl Provider {
                 .collect::<Vec<_>>()
                 .join("\n")
         };
-        let text = recording::sanitize_message(&text);
+        let text = sanitize_message(&text);
         (!text.trim().is_empty()).then_some(Message { role, text })
     }
+}
+
+// Provider messages are plain text. Drop terminal controls (including payloads
+// within control strings) before applying the shared credential masking.
+fn sanitize_message(text: &str) -> String {
+    enum Escape {
+        Text,
+        Start,
+        Csi,
+        String,
+        StringEnd,
+    }
+    let mut state = Escape::Text;
+    let mut visible = String::with_capacity(text.len());
+    for ch in text.replace("\r\n", "\n").chars() {
+        state = match (state, ch) {
+            (Escape::Text, '\x1b') => Escape::Start,
+            (Escape::Text, '\u{009b}') => Escape::Csi,
+            (Escape::Text, '\u{0090}' | '\u{009d}' | '\u{009e}' | '\u{009f}') => Escape::String,
+            (Escape::Text, ch) => {
+                if !ch.is_control() || matches!(ch, '\n' | '\t') {
+                    visible.push(ch);
+                } else if ch == '\r' {
+                    visible.push('\n');
+                }
+                Escape::Text
+            }
+            (Escape::Start, '[') => Escape::Csi,
+            (Escape::Start, ']' | 'P' | '^' | '_') => Escape::String,
+            (Escape::Start, _) | (Escape::Csi, '@'..='~') => Escape::Text,
+            (Escape::Csi, _) => Escape::Csi,
+            (Escape::String | Escape::StringEnd, '\x07' | '\u{009c}')
+            | (Escape::StringEnd, '\\') => Escape::Text,
+            (Escape::String | Escape::StringEnd, '\x1b') => Escape::StringEnd,
+            (Escape::String | Escape::StringEnd, _) => Escape::String,
+        };
+    }
+    String::from_utf8(Redactor::default().frame(visible.as_bytes()))
+        .expect("masking preserves UTF-8")
 }
 
 fn parse(provider: Provider, id: Uuid, data: &[u8]) -> Snapshot {
