@@ -24,10 +24,12 @@ mod engine_store;
 mod http_owner;
 mod intent_files;
 mod local_intent;
+pub mod node;
 pub use http_owner::{HttpOwnerConfig, HttpOwnerPeer};
 mod owner;
 pub use local_intent::{AuthenticatedOwnerPeer, LocalIntent, LocalStage};
 mod reader;
+mod release;
 mod reparse;
 pub use reader::{
     FileGenerationPlan, HistoryBoundary, ReaderState, SourceAuthority, VerifiedFileGeneration,
@@ -730,6 +732,7 @@ impl Store {
         };
         {
             let mut out = tx.open_table(OUTBOX)?;
+            let mut ids = tx.open_table(EVENTS)?;
             for event in &batch.events {
                 let retained = out
                     .get(event.body.sequence)?
@@ -739,6 +742,11 @@ impl Store {
                 drop(retained);
                 out.remove(event.body.sequence)?;
                 meta.logical_bytes -= bytes.len() as u64;
+                // A delivered ID cannot recur while its source's dedupe rows exist;
+                // dropping it keeps a long-lived store from growing without bound.
+                if let Some(id) = ids.remove(event.event_id.as_bytes().as_slice())? {
+                    meta.logical_bytes -= id.value().len() as u64;
+                }
                 if budget::is_urgent(event) {
                     meta.gaps -= 1;
                     meta.gap_bytes -= bytes.len() as u64;

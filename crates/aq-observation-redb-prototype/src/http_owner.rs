@@ -74,6 +74,25 @@ pub struct HttpOwnerPeer {
     url: Url,
     node_id: Uuid,
     authorization: HeaderValue,
+    /// Edge headers of the node's link (Cloudflare Access), sent on every request.
+    headers: Vec<(header::HeaderName, HeaderValue)>,
+}
+fn client(timeout: Duration) -> Result<Client> {
+    Client::builder()
+        .http1_only()
+        .pool_max_idle_per_host(0)
+        .referer(false)
+        .no_gzip()
+        .no_brotli()
+        .no_zstd()
+        .no_deflate()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .no_proxy()
+        .timeout(timeout)
+        .connect_timeout(timeout.min(Duration::from_secs(3)))
+        .build()
+        .map_err(|_| anyhow::anyhow!("owner HTTP client construction failed"))
 }
 impl HttpOwnerPeer {
     pub fn from_config(config: &HttpOwnerConfig) -> Result<Self> {
@@ -91,38 +110,90 @@ impl HttpOwnerPeer {
         let mut authorization = HeaderValue::from_bytes(&[b"Bearer ".as_slice(), bytes].concat())
             .map_err(|_| anyhow::anyhow!("invalid node credential header"))?;
         authorization.set_sensitive(true);
-        let client = Client::builder()
-            .http1_only()
-            .pool_max_idle_per_host(0)
-            .referer(false)
-            .no_gzip()
-            .no_brotli()
-            .no_zstd()
-            .no_deflate()
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
-            .no_proxy()
-            .timeout(Duration::from_secs(10))
-            .connect_timeout(Duration::from_secs(3))
-            .build()
-            .map_err(|_| anyhow::anyhow!("owner HTTP client construction failed"))?;
         Ok(Self {
-            client,
+            client: client(Duration::from_secs(10))?,
             url,
             node_id: config.node_id,
             authorization,
+            headers: vec![],
         })
     }
+    /// The node service's peer: its enrolled server (HTTPS, or HTTP on loopback
+    /// as the node's link allows), its bearer and its link's edge headers.
+    pub fn for_node(
+        server_url: &str,
+        node_id: Uuid,
+        bearer: &str,
+        edge_headers: &[(&str, &str)],
+        timeout: Duration,
+    ) -> Result<Self> {
+        let parsed = Url::parse(server_url).map_err(|_| anyhow::anyhow!("invalid server URL"))?;
+        let url = HttpOwnerConfig {
+            version: 1,
+            origin: parsed.origin().ascii_serialization(),
+            node_id,
+            boot_id: node_id,
+            credential_file: PathBuf::new(),
+            allow_loopback_http: true,
+        }
+        .endpoint()?;
+        ensure!(
+            parsed.path() == "/" && parsed.username().is_empty() && parsed.query().is_none(),
+            "server URL must be a bare origin"
+        );
+        let secret = |value: &str| -> Result<HeaderValue> {
+            let mut value = HeaderValue::from_str(value)
+                .map_err(|_| anyhow::anyhow!("invalid node link header"))?;
+            value.set_sensitive(true);
+            Ok(value)
+        };
+        let headers = edge_headers
+            .iter()
+            .map(|(name, value)| Ok((name.parse::<header::HeaderName>()?, secret(value)?)))
+            .collect::<Result<_>>()?;
+        Ok(Self {
+            client: client(timeout)?,
+            url,
+            node_id,
+            authorization: secret(&format!("Bearer {bearer}"))?,
+            headers,
+        })
+    }
+    /// One batch upload. Any error leaves the sealed packet for an identical retry.
+    pub fn batch(&self, packet: &Packet) -> Result<Receipt> {
+        let url = self.url.join("/v1/worker/observations/batch")?;
+        let bytes = self.send(
+            reqwest::Method::POST,
+            url,
+            Some(encode(packet)?),
+            MAX_BATCH_BYTES,
+        )?;
+        let receipt: Receipt = decode(&bytes)?;
+        receipt.validate_against(packet)?;
+        Ok(receipt)
+    }
     fn request(&self, method: reqwest::Method, body: Option<Vec<u8>>) -> Result<Vec<u8>> {
+        self.send(method, self.url.clone(), body, admission::MAX_BYTES)
+    }
+    fn send(
+        &self,
+        method: reqwest::Method,
+        url: Url,
+        body: Option<Vec<u8>>,
+        bound: usize,
+    ) -> Result<Vec<u8>> {
         let mut request = self
             .client
-            .request(method, self.url.clone())
+            .request(method, url)
             .header(header::AUTHORIZATION, self.authorization.clone())
             .header(header::ACCEPT, "application/json")
             .header(header::ACCEPT_ENCODING, "identity")
             .header(header::CACHE_CONTROL, "no-store");
+        for (name, value) in &self.headers {
+            request = request.header(name, value);
+        }
         if let Some(body) = body {
-            ensure!(body.len() <= admission::MAX_BYTES, "owner request bound");
+            ensure!(body.len() <= bound, "owner request bound");
             request = request
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(body);

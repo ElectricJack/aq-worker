@@ -529,6 +529,7 @@ pub mod preparation_v2;
 pub mod scoped_presence;
 
 pub mod node_slots;
+pub mod observation_source;
 
 pub mod preparation_refresh_v1;
 mod preparation_shared;

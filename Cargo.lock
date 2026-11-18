@@ -307,6 +307,7 @@ name = "aq-observation-redb-prototype"
 version = "0.0.5"
 dependencies = [
  "anyhow",
+ "aq-admission 0.1.13",
  "aq-lifecycle-protocol",
  "aq-observation",
  "aq-observation-admission",
