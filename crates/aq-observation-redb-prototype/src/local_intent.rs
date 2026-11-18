@@ -51,7 +51,7 @@ pub(super) fn validate_managed(meta: &Meta) -> Result<()> {
                 && m.owner.marker.initial_boot_id == meta.limits.boot_id
                 && m.owner.marker.owner_id == initial.transport_owner_id
                 && m.owner.current_boot_id == meta.active_boot
-                && m.owner.boot_transitions as usize == meta.boot_history.len(),
+                && m.owner.boot_transitions == meta.boots_trimmed + meta.boot_history.len() as u64,
             "managed marker/boot history mismatch"
         );
         if m.owner.phase == Phase::Prepared {
@@ -176,8 +176,15 @@ pub struct LocalIntent {
     store: Option<Store>,
     host_boot: Uuid,
     reconciled: bool,
+    fence_at_boot: bool,
 }
 impl LocalIntent {
+    /// A boot advance then leaves the ended boot's sources collectable, so a
+    /// surviving attempt resumes from its stored cursor. The caller fences the
+    /// sources nobody resumes (`Store::fence_source`).
+    pub fn resume_sources_after_boot(&mut self) {
+        self.fence_at_boot = false;
+    }
     pub fn create(root: &Path, limits: Limits, operation_id: Uuid, store_id: Uuid) -> Result<Self> {
         limits.validate()?;
         let prepare = Request {
@@ -209,6 +216,7 @@ impl LocalIntent {
             store: None,
             host_boot: limits.boot_id,
             reconciled: false,
+            fence_at_boot: true,
         })
     }
     pub fn open(root: &Path, host_boot: Uuid) -> Result<Self> {
@@ -244,6 +252,7 @@ impl LocalIntent {
             store,
             host_boot,
             reconciled: false,
+            fence_at_boot: true,
         };
         if this.state.stage == LocalStage::CreationStarted {
             this.save(|s| s.stage = LocalStage::StoreCreated)?;
@@ -578,6 +587,7 @@ impl LocalIntent {
         else {
             anyhow::bail!("boot operation")
         };
+        let fence = self.fence_at_boot;
         let store = self.store.as_ref().context("existing store required")?;
         let projection = store.snapshot()?;
         ensure!(
@@ -594,7 +604,7 @@ impl LocalIntent {
             owner_receipt: receipt_artifact(&r.receipt)?,
         };
         self.files
-            .step(|| store.apply_boot(&plan, observed_at_ms, Some(&r.current_owner)))?;
+            .step(|| store.apply_boot(&plan, observed_at_ms, Some(&r.current_owner), fence))?;
         self.save(|s| {
             s.owner = Some(r.current_owner);
             s.boot = None;

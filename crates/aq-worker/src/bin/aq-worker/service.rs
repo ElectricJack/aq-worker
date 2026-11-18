@@ -168,6 +168,8 @@ fn start_observations(
             store_data_bytes: o.store_data_bytes,
             store_cache_bytes: o.store_cache_bytes as usize,
             tracked_identities: o.tracked_identities as usize,
+            max_sources: u64::from(o.max_sources),
+            resume_grace: ms(o.resume_grace_ms),
             discovery_entries: o.discovery_entries as usize,
             poll: ms(o.poll_ms),
             retry_start: ms(o.retry_start_ms),

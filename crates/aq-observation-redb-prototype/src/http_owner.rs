@@ -160,7 +160,7 @@ impl HttpOwnerPeer {
         })
     }
     /// One batch upload. Any error leaves the sealed packet for an identical retry.
-    pub fn batch(&self, packet: &Packet) -> Result<Receipt> {
+    pub fn batch(&self, packet: &Packet) -> Result<admission::BatchReply> {
         let url = self.url.join("/v1/worker/observations/batch")?;
         let bytes = self.send(
             reqwest::Method::POST,
@@ -168,9 +168,9 @@ impl HttpOwnerPeer {
             Some(encode(packet)?),
             MAX_BATCH_BYTES,
         )?;
-        let receipt: Receipt = decode(&bytes)?;
-        receipt.validate_against(packet)?;
-        Ok(receipt)
+        let reply: admission::BatchReply = decode(&bytes)?;
+        reply.validate_against(packet)?;
+        Ok(reply)
     }
     fn request(&self, method: reqwest::Method, body: Option<Vec<u8>>) -> Result<Vec<u8>> {
         self.send(method, self.url.clone(), body, admission::MAX_BYTES)

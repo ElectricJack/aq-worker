@@ -13,8 +13,24 @@ const SNAPSHOTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("counter_s
 const MUTATIONS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("native_mutations");
 const DISPLAY_IDS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("display_ids");
 const DISPLAY_ORDINALS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("display_ordinals");
-pub(super) const TABLES: [TableDefinition<&[u8], &[u8]>; 5] =
-    [NATIVE, SNAPSHOTS, MUTATIONS, DISPLAY_IDS, DISPLAY_ORDINALS];
+const SEEN_ORDER: TableDefinition<&[u8], &[u8]> = TableDefinition::new("seen_order");
+pub(super) const TABLES: [TableDefinition<&[u8], &[u8]>; 6] = [
+    NATIVE,
+    SNAPSHOTS,
+    MUTATIONS,
+    DISPLAY_IDS,
+    DISPLAY_ORDINALS,
+    SEEN_ORDER,
+];
+const ROW_TABLES: [RowTable; 7] = [
+    RowTable::Seen,
+    RowTable::Native,
+    RowTable::Snapshot,
+    RowTable::Mutation,
+    RowTable::DisplayById,
+    RowTable::DisplayByOrdinal,
+    RowTable::SeenOrder,
+];
 fn definition(table: RowTable) -> TableDefinition<'static, &'static [u8], &'static [u8]> {
     match table {
         RowTable::Seen => SEEN,
@@ -23,6 +39,7 @@ fn definition(table: RowTable) -> TableDefinition<'static, &'static [u8], &'stat
         RowTable::Mutation => MUTATIONS,
         RowTable::DisplayById => DISPLAY_IDS,
         RowTable::DisplayByOrdinal => DISPLAY_ORDINALS,
+        RowTable::SeenOrder => SEEN_ORDER,
     }
 }
 fn key(source: Uuid, epoch: u64, table: RowTable, native: &str) -> Result<Vec<u8>> {
@@ -156,7 +173,6 @@ impl Store {
             drop(table);
             return self.abort(tx);
         }
-        ensure!(meta.sources < budget::MAX_SOURCES, "source quota");
         let row = SourceRow {
             source: reference,
             cursor: 0,
@@ -477,14 +493,7 @@ impl Store {
         let sources = tx.open_table(SOURCES)?;
         let mut counts: BTreeMap<(Uuid, RowTable, u64), usize> = BTreeMap::new();
         let mut bytes = 0;
-        for kind in [
-            RowTable::Seen,
-            RowTable::Native,
-            RowTable::Snapshot,
-            RowTable::Mutation,
-            RowTable::DisplayById,
-            RowTable::DisplayByOrdinal,
-        ] {
+        for kind in ROW_TABLES {
             let table = tx.open_table(definition(kind))?;
             for entry in table.iter()? {
                 let (k, v) = entry?;
@@ -531,14 +540,7 @@ impl Store {
                         && state.completed_replays.len() <= 16,
                     "engine source metadata/bounds"
                 );
-                for kind in [
-                    RowTable::Seen,
-                    RowTable::Native,
-                    RowTable::Snapshot,
-                    RowTable::Mutation,
-                    RowTable::DisplayById,
-                    RowTable::DisplayByOrdinal,
-                ] {
+                for kind in ROW_TABLES {
                     let epoch = if epoch_scoped(kind) {
                         state.native_epoch
                     } else {

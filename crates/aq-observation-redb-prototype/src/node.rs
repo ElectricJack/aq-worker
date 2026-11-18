@@ -6,6 +6,12 @@
 //! Nothing here blocks a launch: `Observations::register` only validates its
 //! arguments and queues a command. A source that is missing, unreadable or
 //! refused is marked incomplete and skipped; the others keep their turn.
+//!
+//! The store keeps every source and its transcript cursor across a worker
+//! restart. An attempt that survived the restart is registered again with the
+//! same `SourceSpec` and continues from that cursor; a stored source nobody
+//! registers within `resume_grace` gets the store's explicit "fenced by worker
+//! restart" record and is released.
 use super::*;
 use aq_admission::observation_source;
 use aq_observation::{
@@ -13,6 +19,7 @@ use aq_observation::{
     source::SourceFile,
     spool::OverflowPolicy,
 };
+use aq_observation_admission::{BatchReply, FENCED_BY_RESTART, INCOMPLETE_UNREADABLE};
 use aq_observation_engine as engine;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -33,10 +40,12 @@ const STRIKES: u8 = 3;
 
 /// The server as the node sees it: transport ownership and batch upload.
 pub trait NodePeer: AuthenticatedOwnerPeer {
-    fn batch(&mut self, packet: &Packet) -> Result<Receipt>;
+    /// The receipt covers the whole batch; `refused_sources` lists the sources
+    /// whose records the server dropped.
+    fn batch(&mut self, packet: &Packet) -> Result<BatchReply>;
 }
 impl NodePeer for HttpOwnerPeer {
-    fn batch(&mut self, packet: &Packet) -> Result<Receipt> {
+    fn batch(&mut self, packet: &Packet) -> Result<BatchReply> {
         HttpOwnerPeer::batch(self, packet)
     }
 }
@@ -51,8 +60,15 @@ pub struct NodeLimits {
     pub store_data_bytes: u64,
     /// Page cache of the store, the service's main memory use.
     pub store_cache_bytes: usize,
-    /// Distinct transcript items remembered per source for deduplication.
+    /// Transcript items remembered per source for deduplication: the last N.
+    /// Older ones are forgotten; a session of any length keeps being collected.
     pub tracked_identities: usize,
+    /// Sources (running attempts) the store holds at once. A further one waits
+    /// for a finished source to be released.
+    pub max_sources: u64,
+    /// How long a stored source of an earlier boot waits to be registered
+    /// again before it is fenced and released.
+    pub resume_grace: Duration,
     /// Directory entries examined when a transcript is found by its session key.
     pub discovery_entries: usize,
     /// Pause between rounds when no source had new bytes.
@@ -70,6 +86,8 @@ impl Default for NodeLimits {
             store_data_bytes: 16 * 1024 * 1024,
             store_cache_bytes: 4 * 1024 * 1024,
             tracked_identities: 4096,
+            max_sources: 16,
+            resume_grace: Duration::from_secs(120),
             discovery_entries: 256,
             poll: Duration::from_millis(250),
             retry_start: Duration::from_secs(1),
@@ -170,6 +188,13 @@ impl Observations {
     /// begins when the file appears. Dropping the handle finishes the source: a
     /// last drain of the transcript, then its release once its events are
     /// acknowledged. An error means the arguments were refused.
+    ///
+    /// This is also how an attempt that survived a worker restart resumes: the
+    /// recovery code registers the same `SourceSpec` (the binding of the
+    /// original launch, so the same source ID at generation 1) within
+    /// `resume_grace` of the worker's start. The store still holds the source
+    /// and its cursor, so collection continues where it stopped, with no
+    /// duplicate and no missing sequence.
     pub fn register(&self, spec: SourceSpec) -> Result<SourceHandle> {
         let source = spec.source()?;
         let id = source.source_id;
@@ -233,7 +258,8 @@ impl Node {
     ) -> Result<Self> {
         ensure!(!node_id.is_nil() && !boot_id.is_nil(), "node identity");
         ensure!(
-            (16..=4096).contains(&limits.tracked_identities)
+            limits.tracked_identities >= 16
+                && limits.max_sources >= 1
                 && (1..=4096).contains(&limits.discovery_entries)
                 && !limits.poll.is_zero()
                 && !limits.retry_start.is_zero()
@@ -265,7 +291,7 @@ impl Node {
             log: Box::new(log),
             statuses: statuses.clone(),
             sources: BTreeMap::new(),
-            orphans: vec![],
+            orphans: BTreeMap::new(),
             released: BTreeSet::new(),
             turn: 0,
             transport: Retry::default(),
@@ -297,6 +323,14 @@ impl Drop for Node {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
     }
+}
+
+struct Orphan {
+    /// When the wait for a resuming registration ends.
+    deadline: Instant,
+    fenced: bool,
+    /// The store's acknowledged sequence at the last refused release.
+    release_tried: Option<u64>,
 }
 
 #[derive(Default)]
@@ -337,9 +371,9 @@ struct Service<P> {
     log: Box<dyn Fn(String) + Send>,
     statuses: Statuses,
     sources: BTreeMap<Uuid, Tracked>,
-    /// Store rows no handle owns (sources of earlier boots), with the
-    /// acknowledged sequence at their last refused release.
-    orphans: Vec<(Uuid, Option<u64>)>,
+    /// Store rows no handle owns: sources of earlier boots, waiting to be
+    /// registered again (resumed) or, after `resume_grace`, fenced and released.
+    orphans: BTreeMap<Uuid, Orphan>,
     /// Sources released during this boot. Re-reading one from the start would
     /// send its events twice.
     released: BTreeSet<Uuid>,
@@ -378,6 +412,8 @@ impl<P: NodePeer> Service<P> {
             Command::Register(registration) => {
                 let (spec, source) = *registration;
                 let id = source.source_id;
+                // A stored source of an earlier boot is resumed, not fenced.
+                self.orphans.remove(&id);
                 self.sources.insert(
                     id,
                     Tracked {
@@ -490,7 +526,8 @@ impl<P: NodePeer> Service<P> {
             intent = self.create()?;
         }
         let now = wall_ms();
-        self.orphans.clear();
+        // Sources of the ended boot stay collectable so their attempts can resume.
+        intent.resume_sources_after_boot();
         loop {
             let peer = &mut self.peer;
             match intent.stage() {
@@ -505,15 +542,18 @@ impl<P: NodePeer> Service<P> {
                 }
                 LocalStage::Active if intent.owner_boot() == Some(boot) => {
                     intent.resume(peer)?;
-                    let tracked = &self.sources;
-                    self.orphans = intent.with_active(|store| {
-                        Ok(store
-                            .source_ids()?
-                            .into_iter()
-                            .filter(|id| !tracked.contains_key(id))
-                            .map(|id| (id, None))
-                            .collect())
-                    })?;
+                    let stored = intent.with_active(|store| store.source_ids())?;
+                    let deadline = Instant::now() + self.node.resume_grace;
+                    self.orphans.retain(|id, _| stored.contains(id));
+                    for id in stored {
+                        if !self.sources.contains_key(&id) {
+                            self.orphans.entry(id).or_insert(Orphan {
+                                deadline,
+                                fenced: false,
+                                release_tried: None,
+                            });
+                        }
+                    }
                     return Ok(intent);
                 }
                 LocalStage::Active => intent.advance_boot(peer, Uuid::new_v4(), boot, now)?,
@@ -551,7 +591,10 @@ impl<P: NodePeer> Service<P> {
                     tracked.strikes += 1;
                     let reason = format!("{error:#}");
                     if tracked.strikes >= STRIKES {
-                        self.close(id, reason);
+                        // The server is told why this source stops, when the
+                        // store can still write; the local status says it too.
+                        let _ = store.fence_source(id, INCOMPLETE_UNREADABLE, wall_ms());
+                        self.close(id, format!("unreadable: {reason}"));
                     } else {
                         self.status(id, SourceStatus::Incomplete(reason));
                     }
@@ -575,13 +618,23 @@ impl<P: NodePeer> Service<P> {
         let Some(packet) = store.prepare()? else {
             return Ok(false);
         };
-        let receipt = self.peer.batch(&packet).and_then(|receipt| {
-            receipt.validate_against(&packet)?;
-            Ok(receipt)
+        let reply = self.peer.batch(&packet).and_then(|reply| {
+            reply.validate_against(&packet)?;
+            Ok(reply)
         });
-        match receipt {
-            Ok(receipt) => {
-                store.acknowledge(&receipt)?;
+        match reply {
+            Ok(reply) => {
+                store.acknowledge(&reply.receipt)?;
+                // The server dropped these sources' records and advanced past
+                // them: stop collecting each, keep the others going.
+                for refused in &reply.refused_sources {
+                    if self.sources.contains_key(&refused.source_id) {
+                        self.close(
+                            refused.source_id,
+                            format!("refused by the server: {:?}", refused.reason),
+                        );
+                    }
+                }
                 self.delivery = Retry::default();
                 self.note("transport owner active".into());
                 Ok(true)
@@ -594,17 +647,25 @@ impl<P: NodePeer> Service<P> {
         }
     }
     fn collect(&mut self, store: &Store, id: Uuid) -> Result<bool> {
-        let (entries, tracked_identities, boot) = (
+        let (entries, tracked_identities, boot, max_sources) = (
             self.node.discovery_entries,
             self.node.tracked_identities,
             self.limits.boot_id,
+            self.node.max_sources,
         );
         let tracked = self.sources.get_mut(&id).expect("tracked source");
         if tracked.closed {
             return Ok(false);
         }
         if tracked.file.is_none() {
-            match admit(store, tracked, entries, tracked_identities, boot)? {
+            match admit(
+                store,
+                tracked,
+                entries,
+                tracked_identities,
+                boot,
+                max_sources,
+            )? {
                 Admission::Ready(file) => tracked.file = Some(file),
                 Admission::Wait => return Ok(false),
                 Admission::Refused(reason) => {
@@ -663,13 +724,32 @@ impl<P: NodePeer> Service<P> {
                 self.statuses.lock().unwrap().remove(&id);
             }
         }
-        let mut kept = vec![];
-        for (id, tried) in std::mem::take(&mut self.orphans) {
-            if tried == Some(acked) || !store.release_source(id)? {
-                kept.push((id, Some(acked)));
+        for (id, mut orphan) in std::mem::take(&mut self.orphans) {
+            if now < orphan.deadline {
+                self.orphans.insert(id, orphan);
+                continue;
+            }
+            if !orphan.fenced {
+                // Nobody resumed it: the server gets the explicit "fenced by
+                // worker restart" record. A full gap quota is tried again.
+                match store.fence_source(id, FENCED_BY_RESTART, wall_ms()) {
+                    Ok(_) => orphan.fenced = true,
+                    Err(_) => {
+                        ensure!(
+                            !store.snapshot()?.persistence_uncertain,
+                            "a failed fence for source {id}"
+                        );
+                        self.orphans.insert(id, orphan);
+                        continue;
+                    }
+                }
+            }
+            let acked = store.snapshot()?.acked;
+            if orphan.release_tried == Some(acked) || !store.release_source(id)? {
+                orphan.release_tried = Some(acked);
+                self.orphans.insert(id, orphan);
             }
         }
-        self.orphans = kept;
         Ok(())
     }
 }
@@ -689,6 +769,7 @@ fn admit(
     entries: usize,
     tracked_identities: usize,
     boot: Uuid,
+    max_sources: u64,
 ) -> Result<Admission> {
     let (spec, source) = (&tracked.spec, &tracked.source);
     if let Some(row) = store.source_optional(source.source_id)? {
@@ -749,7 +830,7 @@ fn admit(
         Resolution::Missing | Resolution::NotReady => return Ok(Admission::Wait),
         other => return Ok(Admission::Refused(format!("transcript refused: {other:?}"))),
     };
-    if store.source_count()? >= budget::MAX_SOURCES {
+    if store.source_count()? >= max_sources {
         // Freed when a finished source is released.
         return Ok(Admission::Wait);
     }

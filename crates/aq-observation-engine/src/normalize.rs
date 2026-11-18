@@ -142,19 +142,29 @@ pub struct Context {
     pub context_gap: bool,
     pub counter_generation: u64,
     pub last_cumulative: Option<Value>,
+    /// Transcript identities remembered for deduplication: the last N. The
+    /// oldest is forgotten when a new one arrives; a session never stops
+    /// because of its length.
     pub maximum_tracked: usize,
     pub next_display_ordinal: u64,
+    /// The rolling window over `Table::Seen`: `Table::SeenOrder` ordinals of
+    /// the oldest remembered identity and of the next one. `seen_first` is
+    /// also the number forgotten so far.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub seen_first: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub seen_next: u64,
     /// Open oversized-record chain; absent between records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oversized_chain: Option<OversizedChain>,
 }
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
 impl Context {
     pub fn new(source: Source, maximum_tracked: usize) -> Result<Self> {
         source.validate()?;
-        ensure!(
-            (16..=4096).contains(&maximum_tracked),
-            "tracked identity bound"
-        );
+        ensure!(maximum_tracked >= 16, "tracked identity bound");
         let parser = source.parser();
         Ok(Self {
             source,
@@ -171,6 +181,8 @@ impl Context {
             last_cumulative: None,
             maximum_tracked,
             next_display_ordinal: 0,
+            seen_first: 0,
+            seen_next: 0,
             oversized_chain: None,
         })
     }
@@ -199,7 +211,8 @@ pub fn normalize(
     observed_at_ms: u64,
 ) -> Result<NormalizationDelta> {
     ensure!(
-        (16..=4096).contains(&context.maximum_tracked)
+        context.maximum_tracked >= 16
+            && context.seen_first <= context.seen_next
             && context.next_sequence > 0
             && context.counter_generation > 0,
         "context counter/bounds"
@@ -273,6 +286,32 @@ impl Normalizer<'_> {
             self.rows.put(Table::Snapshot, suffix.to_owned(), true)?;
         }
         self.rows.put(Table::Seen, key, value)
+    }
+    /// Remembers a new identity, forgetting the oldest ones beyond the window.
+    /// Forgetting is safe because the transcript cursor is committed with the
+    /// events and only moves forward: a forgotten line is never read again.
+    /// (A store must not re-read a transcript once `seen_first > 0`.)
+    fn seen_track(&mut self, key: &str) -> Result<()> {
+        while self.rows.count(Table::Seen)? >= self.maximum_tracked {
+            // Rows written before the window was ordered cannot be evicted.
+            ensure!(
+                self.seen_first < self.seen_next,
+                "native identity history full; hold cursor"
+            );
+            let ordinal = self.seen_first.to_string();
+            self.seen_first += 1;
+            if let Some(old) = self.rows.get::<String>(Table::SeenOrder, &ordinal)? {
+                self.rows.remove(Table::SeenOrder, ordinal)?;
+                if let Some(total) = old.strip_prefix("codex-total:") {
+                    let suffix = total.rsplit(':').next().unwrap_or(total);
+                    self.rows.remove(Table::Snapshot, suffix.to_owned())?;
+                }
+                self.rows.remove(Table::Seen, old)?;
+            }
+        }
+        let ordinal = self.seen_next;
+        self.seen_next = ordinal.checked_add(1).context("seen ordinal exhausted")?;
+        self.rows.put(Table::SeenOrder, ordinal.to_string(), key)
     }
     pub fn snapshot_known(&mut self, digest: &Digest) -> Result<bool> {
         Ok(self
@@ -508,11 +547,9 @@ impl Normalizer<'_> {
                     normalized_digest = canonical_digest(&draft.kind)?;
                 }
             }
-            ensure!(
-                next.rows.count(Table::Seen)? < next.maximum_tracked
-                    || next.seen_get(&draft.key)?.is_some(),
-                "native identity history full; hold cursor"
-            );
+            if next.seen_get(&draft.key)?.is_none() {
+                next.seen_track(&draft.key)?;
+            }
             let mut kind = draft.kind;
             if let ObservationKind::Usage { usage } = &mut kind {
                 usage.correction_of = next.seen_get(&draft.key)?.map(|v| v.event.clone());

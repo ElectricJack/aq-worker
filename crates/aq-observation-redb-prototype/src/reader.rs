@@ -447,6 +447,9 @@ impl Store {
                 && row.source.generation == plan.expected_generation
                 && row.source.native_session_key == plan.new_permit.native_session_key
                 && state.replay.is_none()
+                // A new generation re-reads history; identities the rolling
+                // window has forgotten would come back as duplicate facts.
+                && state.context.seen_first == 0
                 && state.context.parser == plan.parser
                 && state.context.parser == state.context.source.parser()
                 && matches!(row.source.binding.session,SessionIdentity::Remote{boot_id,..}if boot_id==meta.active_boot),

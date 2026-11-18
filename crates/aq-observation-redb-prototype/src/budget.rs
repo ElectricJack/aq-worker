@@ -6,7 +6,6 @@ pub const DELIVERY_ALLOWANCE: u64 = MAX_BATCH_BYTES as u64 + 8192;
 pub const ORDINARY_CONTROL_MARGIN: u64 = 512 * 1024;
 pub const BOOT_MARGIN: u64 = 256 * 1024;
 pub const SOURCE_CONTROL_GROWTH: u64 = 8192;
-pub const MAX_SOURCES: u64 = 16;
 pub const FORMAT: u32 = 5;
 pub const MIN_ORDINARY_BYTES: u64 = 4096;
 impl Limits {
@@ -178,6 +177,13 @@ mod tests {
         };
         let event = ObservationRecord::seal(Uuid::from_u128(9), body).unwrap();
         assert!(!is_urgent(&event));
+    }
+    /// The server admits control records by these IDs (the mirrored contract).
+    #[test]
+    fn control_parsers_are_the_ones_the_server_admits_by_kind() {
+        let ids: Vec<&str> = controls().iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, aq_observation_admission::CONTROL_PARSERS);
+        assert!(controls().iter().all(reserved_parser));
     }
     #[test]
     fn exact_public_monitor_refs_are_rejected_on_raw_ingress() {

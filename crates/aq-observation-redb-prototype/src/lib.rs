@@ -89,6 +89,9 @@ struct Meta {
     managed: Option<local_intent::Managed>,
     active_boot: Uuid,
     boot_history: Vec<aq_observation::BootTransition>,
+    /// Transitions dropped from the front of `boot_history` (rolling retention).
+    #[serde(default)]
+    boots_trimmed: u64,
     limits: Limits,
     next: u64,
     acked: u64,
@@ -330,6 +333,7 @@ impl Store {
                     managed,
                     active_boot: store.limits.boot_id,
                     boot_history: vec![],
+                    boots_trimmed: 0,
                     limits: store.limits.clone(),
                     next: 1,
                     acked: 0,
@@ -450,7 +454,6 @@ impl Store {
         }
         {
             let mut table = tx.open_table(SOURCES)?;
-            ensure!(meta.sources < budget::MAX_SOURCES, "source quota");
             table.insert(id.as_bytes().as_slice(), bytes.as_slice())?;
         }
         meta.sources += 1;
@@ -791,23 +794,18 @@ impl Store {
             artifact(&initial.owner_receipt)?;
         }
         let sources = tx.open_table(SOURCES)?;
-        ensure!(
-            sources.len()? == meta.sources && meta.sources <= budget::MAX_SOURCES,
-            "source count"
-        );
+        ensure!(sources.len()? == meta.sources, "source count");
         let seen = tx.open_table(SEEN)?;
-        ensure!(seen.len()? == meta.seen && meta.seen <= 65536, "seen count");
+        ensure!(seen.len()? == meta.seen, "seen count");
         let ids = tx.open_table(EVENTS)?;
         let out = tx.open_table(OUTBOX)?;
         let mut sequence = meta.acked + 1;
         let (mut ordinary, mut ordinary_bytes, mut gaps, mut gap_bytes) = (0, 0, 0, 0);
         let mut logical = 0;
-        let mut live_sources = 0;
         for value in sources.iter()? {
             let (k, v) = value?;
             let row: SourceRow = decode(v.value())?;
             budget::source_policy(&row)?;
-            live_sources += u64::from(budget::live(&row));
             ensure!(
                 !budget::live(&row) || row.last_control_sequence.is_none_or(|n| n <= meta.acked),
                 "live source retains urgent credit before ACK"
@@ -828,7 +826,7 @@ impl Store {
             }
             ensure!(
                 row.source.source_id.as_bytes().as_slice() == k.value()
-                    && matches!(row.source.binding.session,SessionIdentity::Remote{node_id,boot_id,..}if node_id==self.limits.node_id&&sessions::known_boot(&meta,boot_id)),
+                    && matches!(row.source.binding.session,SessionIdentity::Remote{node_id,boot_id,..}if node_id==self.limits.node_id&&(meta.boots_trimmed>0||sessions::known_boot(&meta,boot_id))),
                 "source identity"
             );
             ensure!(
@@ -926,7 +924,6 @@ impl Store {
                 && ordinary_bytes == meta.ordinary_bytes
                 && gaps == meta.gaps
                 && gap_bytes == meta.gap_bytes
-                && live_sources + gaps <= budget::MAX_SOURCES
                 && logical == meta.logical_bytes
                 && logical <= self.limits.data_limit(),
             "projection/quota counts"
