@@ -1,5 +1,5 @@
 use aq_observation_admission::{self as a, Operation, Request};
-use aq_observation_redb_prototype::{AuthenticatedOwnerPeer, HttpOwnerConfig, HttpOwnerPeer};
+use aq_observation_store::{AuthenticatedOwnerPeer, HttpOwnerConfig, HttpOwnerPeer};
 use std::{
     io::{Read, Write},
     net::TcpListener,

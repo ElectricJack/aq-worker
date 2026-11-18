@@ -4,7 +4,7 @@ mod support;
 use anyhow::{Result, ensure};
 use aq_lifecycle_protocol::*;
 use aq_observation_engine::{self as engine, framing::Frame};
-use aq_observation_redb_prototype::{
+use aq_observation_store::{
     Limits, ReplayAuthority, ReplayPlan, SourceRow, Store, VerifiedRetained,
 };
 use redb::{Durability, ReadableTable, TableDefinition};
@@ -310,7 +310,7 @@ fn replay_phase(store: &Store, replay: &VerifiedRetained, phase: &str) -> Result
         _ => panic!(),
     }
 }
-fn projection(store: &Store) -> (aq_observation_redb_prototype::Snapshot, SourceRow) {
+fn projection(store: &Store) -> (aq_observation_store::Snapshot, SourceRow) {
     (
         store.snapshot().unwrap(),
         store.source(Uuid::from_u128(8)).unwrap(),
@@ -335,13 +335,11 @@ fn replay_crash_child() {
     let replay = verified(plan, bytes);
     let store = Store::open(std::path::Path::new(&root), Limits::fixture()).unwrap();
     store.monitor().reset();
-    store
-        .monitor()
-        .fault(aq_observation_redb_prototype::backend::Fault {
-            operation: std::env::var("AQ_REPLAY_CUT").unwrap().parse().unwrap(),
-            after: std::env::var("AQ_REPLAY_AFTER").unwrap() == "true",
-            action: aq_observation_redb_prototype::backend::Action::Exit,
-        });
+    store.monitor().fault(aq_observation_store::backend::Fault {
+        operation: std::env::var("AQ_REPLAY_CUT").unwrap().parse().unwrap(),
+        after: std::env::var("AQ_REPLAY_AFTER").unwrap() == "true",
+        action: aq_observation_store::backend::Action::Exit,
+    });
     replay_phase(&store, &replay, &std::env::var("AQ_REPLAY_PHASE").unwrap()).unwrap();
     panic!("replay crash cut not reached");
 }
@@ -398,13 +396,11 @@ fn replay_intent_cursor_corrections_and_finish_share_every_mutating_crash_bounda
                     } else {
                         let store = Store::open(&path, Limits::fixture()).unwrap();
                         store.monitor().reset();
-                        store
-                            .monitor()
-                            .fault(aq_observation_redb_prototype::backend::Fault {
-                                operation: cut,
-                                after: is_after,
-                                action: aq_observation_redb_prototype::backend::Action::Error,
-                            });
+                        store.monitor().fault(aq_observation_store::backend::Fault {
+                            operation: cut,
+                            after: is_after,
+                            action: aq_observation_store::backend::Action::Error,
+                        });
                         assert!(replay_phase(&store, &replay, phase).is_err());
                         drop(store);
                         io_cuts += 1;

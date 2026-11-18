@@ -7,7 +7,7 @@ mod support;
 use aq_lifecycle_protocol::*;
 use aq_observation::{source::SourceFile, spool::OverflowPolicy};
 use aq_observation_engine as engine;
-use aq_observation_redb_prototype::{Limits, Store};
+use aq_observation_store::{Limits, Store};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, io::Write, time::Instant};
 use uuid::Uuid;

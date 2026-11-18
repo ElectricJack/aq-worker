@@ -1,4 +1,6 @@
-# Candidate embedded observation store
+# aq-observation-store
+
+The node's observation store (formerly `aq-observation-redb-prototype`). The worker runs one per node through `node::Node`: every running attempt registers its transcript as a source, the store assigns one gapless node sequence and delivers receipt-backed batches. A session of any length is collected (the last `tracked_identities` items are remembered for deduplication), a node restarts without limit (rolling boot history), and a source survives a worker restart: it is resumed by registering it again, or fenced with an explicit record after `resume_grace`. The sections below are the component's qualification history; where they say "16 sources", "65,536 identities" or "no history is evicted" they describe the earlier checkpoints.
 
 This unpublished0.0.5 component adds bounded row-view normalization and a durable local transport-owner handshake to the isolated redb experiment. It is not integrated with the worker runtime. The qualified JSON reference and published session/lifecycle protocols remain unchanged. There is no legacy spool migration, production HTTP adapter, provider call, raw transcript artifact transfer or new command. The initial0.0.1 and bounded-delta0.0.2 checkpoints retain independent immutable qualification evidence.
 
@@ -23,10 +25,10 @@ A reopened owner must reconcile freshly before `with_active` exposes its managed
 Boot advancement blocks local collection before the durable request and remote call. Its immutable operation ID, expected owner revision/boot and next node sequence survive unknown replies. After exact replay, the local transaction fences old live sources, retains old packets/facts and updates the active boot without resetting node-wide sequence. A crash between remote advancement and local fencing holds collection until that exact intent converges. Existing immutable retained replay is separate from old live collection. Transport ownership supplies no execution lease, source registration, fresh-zero accounting baseline, parser qualification, account authorization or cross-session dedupe.
 
 ```sh
-cargo test -p aq-observation-redb-prototype -p aq-observation-engine --offline -- --nocapture
-cargo clippy -p aq-observation-redb-prototype -p aq-observation-engine --all-targets --offline -- -D warnings
-cargo fmt --package aq-observation-redb-prototype --package aq-observation-engine --check
-AQ_OBSERVATION_BENCH_REPETITIONS=90 cargo run --release -p aq-observation-redb-prototype --example measure_engine --offline
+cargo test -p aq-observation-store -p aq-observation-engine --offline -- --nocapture
+cargo clippy -p aq-observation-store -p aq-observation-engine --all-targets --offline -- -D warnings
+cargo fmt --package aq-observation-store --package aq-observation-engine --check
+AQ_OBSERVATION_BENCH_REPETITIONS=90 cargo run --release -p aq-observation-store --example measure_engine --offline
 ```
 
 Measurement examples use synthetic inputs and no external services. Local latency varies with host/IO conditions; the evidence retains p50/p95/max and byte/sync/file growth samples. No production adoption, deployment or fixed performance guarantee follows from them.
@@ -66,7 +68,7 @@ actual daemon/Postgres qualification must remain distinct in the evidence.
 
 ## Managed capacity qualification
 
-`cargo run --release -p aq-observation-redb-prototype --example headroom --offline`
+`cargo run --release -p aq-observation-store --example headroom --offline`
 executes synthetic managed-owner workloads at the unchanged64MiB database-file
 and16MiB logical limits. One case collects32 distinct calls per batch; another
 retains32 raw fingerprints per call. A packet remains pending while more records
@@ -84,7 +86,7 @@ with ongoing writes may demonstrate reusable/preallocated pages; it does not
 establish compaction, physical shrinkage or unlimited disk headroom. Logical
 refusal must not be mislabeled as a backend physical write failure.
 
-`cargo test -p aq-observation-redb-prototype --example headroom --offline` checks
+`cargo test -p aq-observation-store --example headroom --offline` checks
 the report/recovery path for injected prepare/send/ACK failures. Complete
 qualified measurements and remaining limits belong to the implementation
 evidence, not a production storage guarantee.

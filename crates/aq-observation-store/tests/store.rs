@@ -6,7 +6,7 @@ use aq_observation::{
     source::SourceFile,
     spool::{Limits as ReferenceLimits, Node, OverflowPolicy, Spool},
 };
-use aq_observation_redb_prototype::{
+use aq_observation_store::{
     Limits, Store,
     backend::{CappedFile, Monitor},
 };

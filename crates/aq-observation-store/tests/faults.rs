@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 mod support;
-use aq_observation_redb_prototype::{
+use aq_observation_store::{
     Limits, Snapshot, SourceRow, Store,
     backend::{Action, Fault},
 };

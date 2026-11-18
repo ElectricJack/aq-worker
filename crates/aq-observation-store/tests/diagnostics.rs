@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 mod support;
-use aq_observation_redb_prototype::{Limits, Store};
+use aq_observation_store::{Limits, Store};
 #[test]
 fn cold_fingerprint_is_stable_after_reopen_and_changes_with_atomic_collection() {
     let t = tempfile::tempdir().unwrap();

@@ -8,7 +8,7 @@ use aq_node_service::{
     SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff, write_machine_json,
     write_private,
 };
-use aq_observation_redb_prototype::{
+use aq_observation_store::{
     HttpOwnerPeer,
     node::{Node as ObservationNode, NodeLimits, Observations},
 };

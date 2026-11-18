@@ -6,7 +6,7 @@ use aq_observation_admission::{
     self as a, BatchReply, Operation, Owner, RefusalReason, RefusedSource, Reply, Request, Status,
 };
 use aq_observation_engine::Format;
-use aq_observation_redb_prototype::{
+use aq_observation_store::{
     AuthenticatedOwnerPeer, LocalIntent,
     node::{Node, NodeLimits, NodePeer, Observations, SourceSpec, SourceStatus},
 };

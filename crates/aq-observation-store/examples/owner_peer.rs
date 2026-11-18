@@ -1,8 +1,6 @@
 //! Qualification example only: never prints or accepts credential values in argv.
 use anyhow::{Context, Result, ensure};
-use aq_observation_redb_prototype::{
-    HttpOwnerConfig, HttpOwnerPeer, Limits, LocalIntent, LocalStage,
-};
+use aq_observation_store::{HttpOwnerConfig, HttpOwnerPeer, Limits, LocalIntent, LocalStage};
 use std::path::Path;
 use uuid::Uuid;
 fn main() {

@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 mod support;
 use aq_observation_engine::{self as engine, framing::Frame, rows::Table};
-use aq_observation_redb_prototype::{Limits, Store};
+use aq_observation_store::{Limits, Store};
 use uuid::Uuid;
 fn source() -> engine::Source {
     serde_json::from_value(serde_json::to_value(support::source(8)).unwrap()).unwrap()
@@ -226,10 +226,7 @@ fn ordinary_quota_cannot_consume_reserved_gap_loss_is_atomic_and_fences_source()
     assert_eq!(result.facts_added, 1);
     assert_eq!(result.consumed_bytes, lost[0].bytes.len() as u64);
     let row = store.source(Uuid::from_u128(8)).unwrap();
-    assert_eq!(
-        row.hold,
-        Some(aq_observation_redb_prototype::HoldReason::SpoolLoss)
-    );
+    assert_eq!(row.hold, Some(aq_observation_store::HoldReason::SpoolLoss));
     assert!(
         store
             .collect_frame(Uuid::from_u128(8), &frames(1001, 1, row.cursor)[0], 102)

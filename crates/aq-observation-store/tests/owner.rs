@@ -3,7 +3,7 @@ mod support;
 use anyhow::{Result, ensure};
 use aq_lifecycle_protocol::*;
 use aq_observation::{BootTransition, InitialTransport, TransportAuthority, spool::Node};
-use aq_observation_redb_prototype::{Limits, Store, VerifiedNewStore};
+use aq_observation_store::{Limits, Store, VerifiedNewStore};
 use std::sync::atomic::{AtomicBool, Ordering};
 use uuid::Uuid;
 struct Owner {

@@ -4,9 +4,7 @@ mod node;
 mod support;
 use anyhow::{Result, ensure};
 use aq_observation_admission::{self as a, Owner, Receipt, Reply, Request, Status};
-use aq_observation_redb_prototype::{
-    AuthenticatedOwnerPeer, Limits, LocalIntent, LocalStage, Store,
-};
+use aq_observation_store::{AuthenticatedOwnerPeer, Limits, LocalIntent, LocalStage, Store};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
@@ -410,10 +408,10 @@ fn owner_crash_boundary_child() {
     } else {
         l.intent_monitor()
     };
-    monitor.fault(aq_observation_redb_prototype::backend::Fault {
+    monitor.fault(aq_observation_store::backend::Fault {
         operation: n,
         after,
-        action: aq_observation_redb_prototype::backend::Action::Exit,
+        action: aq_observation_store::backend::Action::Exit,
     });
     perform_owner_case(&mut l, &mut p, &stage).unwrap();
     panic!("fault boundary was not reached");
@@ -552,10 +550,10 @@ fn walk_owner_boundaries(exit: bool) -> u64 {
                     let mut l = LocalIntent::open(&root, boot_for(stage)).unwrap();
                     let mut p = Peer::load(&peer);
                     l.intent_monitor()
-                        .fault(aq_observation_redb_prototype::backend::Fault {
+                        .fault(aq_observation_store::backend::Fault {
                             operation: n,
                             after,
-                            action: aq_observation_redb_prototype::backend::Action::Error,
+                            action: aq_observation_store::backend::Action::Error,
                         });
                     assert!(perform_owner_case(&mut l, &mut p, stage).is_err());
                 }
@@ -710,13 +708,13 @@ fn walk_owner_backend_boundaries(exit: bool) -> u64 {
                 } else {
                     let mut l = LocalIntent::open(&root, boot_for(stage)).unwrap();
                     let mut p = Peer::load(&peer);
-                    l.store_monitor().unwrap().fault(
-                        aq_observation_redb_prototype::backend::Fault {
+                    l.store_monitor()
+                        .unwrap()
+                        .fault(aq_observation_store::backend::Fault {
                             operation: n,
                             after,
-                            action: aq_observation_redb_prototype::backend::Action::Error,
-                        },
-                    );
+                            action: aq_observation_store::backend::Action::Error,
+                        });
                     assert!(perform_owner_case(&mut l, &mut p, stage).is_err());
                 }
                 assert_owner_recovery(&root, &peer, stage);

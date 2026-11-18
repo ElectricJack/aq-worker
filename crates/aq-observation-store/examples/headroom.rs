@@ -8,7 +8,7 @@ use aq_lifecycle_protocol::*;
 use aq_observation::{source::SourceFile, spool::OverflowPolicy};
 use aq_observation_admission::{self as admission, Owner, Reply, Request, Status};
 use aq_observation_engine as engine;
-use aq_observation_redb_prototype::{AuthenticatedOwnerPeer, Limits, LocalIntent};
+use aq_observation_store::{AuthenticatedOwnerPeer, Limits, LocalIntent};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -637,8 +637,7 @@ fn main() {
         let intent = root.join("intent.json");
         let before = std::fs::read(&db).unwrap();
         let before_intent = std::fs::read(&intent).unwrap();
-        let store =
-            aq_observation_redb_prototype::Store::open(&root.join("store"), Limits::fixture());
+        let store = aq_observation_store::Store::open(&root.join("store"), Limits::fixture());
         let owner = LocalIntent::open(root, Uuid::from_u128(66));
         assert!(store.is_err() && owner.is_err());
         assert_eq!(before, std::fs::read(&db).unwrap());
@@ -676,7 +675,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aq_observation_redb_prototype::backend::{Action, Fault};
+    use aq_observation_store::backend::{Action, Fault};
     #[test]
     fn prepare_send_and_ack_errors_keep_report_and_exact_recovery() {
         for stage in ["prepare", "send", "ack"] {

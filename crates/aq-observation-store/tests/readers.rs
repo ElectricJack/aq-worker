@@ -3,7 +3,7 @@ mod support;
 use aq_lifecycle_protocol::*;
 use aq_observation::{source::SourceFile, spool::OverflowPolicy};
 use aq_observation_engine::{self as engine, framing::Frame};
-use aq_observation_redb_prototype::{Limits, Store};
+use aq_observation_store::{Limits, Store};
 use std::io::Write;
 use uuid::Uuid;
 fn source() -> engine::Source {
@@ -162,7 +162,7 @@ fn first_rotation_reports_one_control_gap_and_holds_until_owner_generation() {
     let row = store.source(Uuid::from_u128(8)).unwrap();
     assert_eq!(
         row.hold,
-        Some(aq_observation_redb_prototype::HoldReason::SourceChange)
+        Some(aq_observation_store::HoldReason::SourceChange)
     );
     assert_eq!(row.last_control_sequence, Some(1));
     assert_eq!(
@@ -208,10 +208,10 @@ fn foreign_handles_symlinks_and_root_replacement_refuse_original_cursor() {
     store.audit().unwrap();
 }
 struct Owner;
-impl aq_observation_redb_prototype::SourceAuthority for Owner {
+impl aq_observation_store::SourceAuthority for Owner {
     fn admit_generation(
         &self,
-        plan: &aq_observation_redb_prototype::FileGenerationPlan,
+        plan: &aq_observation_store::FileGenerationPlan,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
             plan.source_id == Uuid::from_u128(8) && plan.binding == support::binding(),
@@ -219,10 +219,7 @@ impl aq_observation_redb_prototype::SourceAuthority for Owner {
         );
         Ok(())
     }
-    fn admit_history(
-        &self,
-        plan: &aq_observation_redb_prototype::HistoryBoundary,
-    ) -> anyhow::Result<()> {
+    fn admit_history(&self, plan: &aq_observation_store::HistoryBoundary) -> anyhow::Result<()> {
         anyhow::ensure!(
             plan.source_id == Uuid::from_u128(8) && plan.binding == support::binding(),
             "fixture owner refused history"
@@ -254,7 +251,7 @@ fn explicit_generation_retains_native_identity_and_requires_owner_history_bounda
         Text::new("native-fixture").unwrap(),
     )
     .unwrap();
-    let plan = aq_observation_redb_prototype::FileGenerationPlan {
+    let plan = aq_observation_store::FileGenerationPlan {
         operation_id: Uuid::from_u128(500),
         source_id: Uuid::from_u128(8),
         binding: support::binding(),
@@ -265,8 +262,7 @@ fn explicit_generation_retains_native_identity_and_requires_owner_history_bounda
         owner_checkpoint: checkpoint("synthetic-current-host-source-generation"),
     };
     let verified =
-        aq_observation_redb_prototype::VerifiedFileGeneration::verify(plan.clone(), &Owner)
-            .unwrap();
+        aq_observation_store::VerifiedFileGeneration::verify(plan.clone(), &Owner).unwrap();
     store.adopt_file_generation(&verified, 101).unwrap();
     let after = store.snapshot().unwrap();
     store.adopt_file_generation(&verified, 101).unwrap();
@@ -285,7 +281,7 @@ fn explicit_generation_retains_native_identity_and_requires_owner_history_bounda
             .context
             .history_replay
     );
-    let boundary = aq_observation_redb_prototype::HistoryBoundary {
+    let boundary = aq_observation_store::HistoryBoundary {
         operation_id: Uuid::from_u128(501),
         source_id: Uuid::from_u128(8),
         binding: support::binding(),
@@ -293,8 +289,7 @@ fn explicit_generation_retains_native_identity_and_requires_owner_history_bounda
         cursor: raw.len() as u64,
         checkpoint: checkpoint("synthetic-authenticated-native-history-end"),
     };
-    let verified =
-        aq_observation_redb_prototype::VerifiedHistoryBoundary::verify(boundary, &Owner).unwrap();
+    let verified = aq_observation_store::VerifiedHistoryBoundary::verify(boundary, &Owner).unwrap();
     store.finish_file_history(&verified).unwrap();
     store.finish_file_history(&verified).unwrap();
     std::fs::OpenOptions::new()

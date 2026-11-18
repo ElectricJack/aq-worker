@@ -4,9 +4,7 @@ use anyhow::{Result, ensure};
 use aq_lifecycle_protocol::*;
 use aq_observation::{BootTransition, InitialTransport, TransportAuthority, spool::Node};
 use aq_observation_engine::{self as engine, framing::Frame};
-use aq_observation_redb_prototype::{
-    HoldReason, Limits, Store, VerifiedBootAdmission, VerifiedNewStore,
-};
+use aq_observation_store::{HoldReason, Limits, Store, VerifiedBootAdmission, VerifiedNewStore};
 use uuid::Uuid;
 struct Owner;
 impl TransportAuthority for Owner {

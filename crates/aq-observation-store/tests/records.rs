@@ -2,7 +2,7 @@
 mod support;
 use aq_lifecycle_protocol::*;
 use aq_observation_engine as engine;
-use aq_observation_redb_prototype::{Limits, Store};
+use aq_observation_store::{Limits, Store};
 use serde_json::json;
 use uuid::Uuid;
 fn source() -> engine::Source {

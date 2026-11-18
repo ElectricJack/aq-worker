@@ -1,6 +1,6 @@
-//! Candidate embedded observation store and durable owner handshake. Network
-//! authentication is supplied by a trusted adapter; no production worker wiring
-//! or migration from the qualified JSON reference is provided.
+//! The node's embedded observation store and durable owner handshake. Network
+//! authentication is supplied by a trusted adapter. `node` is the service the
+//! worker runs: one store per node, shared by the node's running attempts.
 pub mod backend;
 use anyhow::{Context, Result, ensure};
 use aq_lifecycle_protocol::*;

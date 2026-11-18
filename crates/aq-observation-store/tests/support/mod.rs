@@ -1,6 +1,6 @@
 use aq_lifecycle_protocol::*;
 use aq_observation::{Format, Normalizer, Source, framing::Frame};
-use aq_observation_redb_prototype::{SeenRow, Store};
+use aq_observation_store::{SeenRow, Store};
 use serde_json::json;
 use uuid::Uuid;
 pub fn binding() -> Binding {

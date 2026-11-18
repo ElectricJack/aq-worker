@@ -2,7 +2,7 @@
 #[allow(dead_code)]
 mod support;
 use aq_lifecycle_protocol::*;
-use aq_observation_redb_prototype::{Limits, Store};
+use aq_observation_store::{Limits, Store};
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 fn id(batch: &ObservationBatch) -> Uuid {
