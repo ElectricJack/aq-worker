@@ -14,10 +14,11 @@ const RECIPE_PATH: &str = "shell_environment_policy.set.PATH=\"/usr/local/bin:/u
 
 /// Fixed in-sandbox runner for Codex. Public configuration, no secret. The
 /// ChatGPT login (`auth.json`) arrives as this attempt's private material and is
-/// installed read-only in the attempt's own `CODEX_HOME`: Codex cannot write a
-/// refreshed login over it, and nothing under `CODEX_HOME` ever leaves the
-/// sandbox (only `/aq/work` is copied back), so no attempt rotates the shared
-/// login of another. Codex runs with `--sandbox danger-full-access`: the
+/// installed in the attempt's own `CODEX_HOME`, where Codex can write a refreshed
+/// login over it. Nothing under `CODEX_HOME` is copied back with the work; the
+/// node reads that one file from the stopped sandbox and writes a refreshed login
+/// back to the server's login store (`aq_agent_channel::login`), so a refresh in
+/// one sandbox does not strand the login of the others. Codex runs with `--sandbox danger-full-access`: the
 /// container is the confinement. It runs as the interactive TUI on the
 /// container's terminal, with the startup context as its first prompt. With the
 /// node's pinned helper bundle (`/aq/in/codex-runtime`, the same one a hand-started
@@ -30,7 +31,7 @@ mkdir -p "$out"
 [ -s "$m" ] || { echo "aq-runner: material missing"; exit 90; }
 while IFS= read -r kv; do [ -n "$kv" ] && export "$kv"; done < "$in/env"
 [ -n "${CODEX_HOME:-}" ] || { echo "aq-runner: CODEX_HOME unset"; exit 92; }
-mkdir -p "$CODEX_HOME" && cp "$m" "$CODEX_HOME/auth.json" && chmod 0400 "$CODEX_HOME/auth.json" || exit 92
+mkdir -p "$CODEX_HOME" && cp "$m" "$CODEX_HOME/auth.json" && chmod 0600 "$CODEX_HOME/auth.json" || exit 92
 rm -f "$m"
 [ -e "$m" ] && { echo "aq-runner: material not wiped"; exit 91; }
 set --; while IFS= read -r a; do set -- "$@" "$a"; done < "$in/args"
@@ -50,7 +51,6 @@ prompt="$(cat "$in/prompt")"
 [ "${#prompt}" -le 30000 ] || prompt="Your task is in the file $in/prompt. Read all of it now and carry it out."
 TERM=xterm-256color "$exe" "$@" "$prompt"
 rc=$?
-rm -f "$CODEX_HOME/auth.json"
 echo "$rc" > "$out/rc"
 echo "aq-runner: codex exit $rc"
 exit "$rc"
@@ -69,7 +69,7 @@ pub fn recipe_body() -> String {
         "confinement": "container",
         "codex_sandbox": "danger-full-access",
         "runner_digest": aq_session_protocol::Digest::of(CODEX_RUNNER.as_bytes()),
-        "login_delivery": "private_material_readonly_auth_json_v1",
+        "login_delivery": "private_material_auth_json_write_back_v1",
         "result_claim": "node_driver_notify_final_message_v1",
         "terminal": "interactive_tty_v1",
         "workspace": "copy_in_copy_out_v1",
@@ -293,17 +293,18 @@ mod tests {
     }
 
     /// The login is wiped from the material path before Codex starts, installed
-    /// read-only in the attempt's own CODEX_HOME, never put in argv or the
-    /// environment, and removed after the run; the prompt is the last argument.
+    /// privately in the attempt's own CODEX_HOME (where Codex may refresh it and the
+    /// node reads it back), never put in argv or the environment; the prompt is the
+    /// last argument.
     #[test]
     fn codex_runner_installs_the_login_read_only_and_wipes_the_material_first() {
         let at = |text: &str| CODEX_RUNNER.find(text).unwrap();
         let install = at("cp \"$m\" \"$CODEX_HOME/auth.json\"");
-        let readonly = at("chmod 0400 \"$CODEX_HOME/auth.json\"");
+        let private = at("chmod 0600 \"$CODEX_HOME/auth.json\"");
         let wipe = at("rm -f \"$m\"");
         let exec = at("\"$exe\" \"$@\" \"$prompt\"");
-        let removed = at("rm -f \"$CODEX_HOME/auth.json\"");
-        assert!(install < readonly && readonly < wipe && wipe < exec && exec < removed);
+        assert!(install < private && private < wipe && wipe < exec);
+        assert!(!CODEX_RUNNER.contains("rm -f \"$CODEX_HOME/auth.json\""));
         for absent in [
             "tee ",
             "codex.jsonl",
