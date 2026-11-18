@@ -2135,3 +2135,184 @@ fn codex_login_tokens_are_the_three_login_secrets() {
     assert!(codex_login_tokens(api.as_bytes()).is_err());
     assert!(codex_login_tokens(b"not json").is_err());
 }
+
+/// Unit checks of the node driver's public pieces (moved here from the library to
+/// keep it within its line budget).
+mod sandbox_driver_units {
+    use aq_handoff_note::Secrets;
+    use aq_worker::backend::docker_local::{DockerLocalConfig, tar::TreeEntry};
+    use aq_worker::sandbox_driver::{
+        CHANNEL_NOTE, DriverConfig, channel_ready, input_entries, run, token_leak,
+    };
+    use std::io::Write;
+
+    /// MS1 review S3a: the token file is read and removed before anything that
+    /// can fail, even when the driver config itself is unreadable.
+    #[tokio::test]
+    async fn token_file_is_removed_even_when_the_driver_config_is_bad() {
+        use std::os::unix::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("driver.json");
+        let token = dir.path().join("token");
+        for (path, data) in [
+            (&config, &b"{not a config"[..]),
+            (&token, b"fixture-login-0123456789"),
+        ] {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+                .unwrap()
+                .write_all(data)
+                .unwrap();
+        }
+        assert!(run(&config).await.is_err());
+        assert!(!token.exists(), "the leased token must not stay on disk");
+    }
+
+    /// 0006 §5.4/§8: no channel socket, no launch; the env names the socket;
+    /// an `aqa_` credential anywhere that leaves the sandbox is a leak.
+    #[test]
+    fn channel_is_required_named_in_env_and_its_credential_guarded() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config: DriverConfig = serde_json::from_value(serde_json::json!({
+            "docker_local": DockerLocalConfig::new("/run/x.sock".into()),
+            "template": format!("sha256:{}", "a".repeat(64)),
+            "owner": {"node_id": uuid::Uuid::from_u128(1), "boot_id": uuid::Uuid::from_u128(2),
+                "attempt_id": uuid::Uuid::from_u128(3)},
+            "hard_deadline_ms": 1, "resources": {"cpu_millis": 1000, "memory_bytes": 1u64 << 30, "pids": 64},
+            "workspace": "/w", "token_file": "/t", "executable": "/e", "arguments": [], "environment": {},
+            "settings_json": "{}", "result_dir": null, "max_workspace_bytes": 1, "agent_channel": true,
+        }))
+        .unwrap();
+        let error = channel_ready(&config).unwrap_err().to_string();
+        assert!(error.starts_with("agent_channel_unavailable"), "{error}");
+        config.docker_local.channel_root = Some(root.path().into());
+        let dir = root.path().join(uuid::Uuid::from_u128(3).to_string());
+        std::fs::create_dir(&dir).unwrap();
+        assert!(
+            channel_ready(&config).is_err(),
+            "a directory without a socket"
+        );
+        let _socket = std::os::unix::net::UnixListener::bind(dir.join("aq.sock")).unwrap();
+        channel_ready(&config).unwrap();
+        config.environment = [("PATH".into(), "/usr/bin:/bin".into())].into();
+        let inputs = input_entries(&config, b"p").unwrap();
+        let text = |name: &str| match inputs.iter().find(|e| e.path() == name) {
+            Some(TreeEntry::File { data, .. }) => String::from_utf8(data.clone()).unwrap(),
+            _ => panic!("{name}"),
+        };
+        let env = "PATH=/opt/aq/bin:/usr/bin:/bin\nAQ_CHANNEL=unix:/aq/channel/aq.sock\n";
+        assert_eq!(text("env"), env);
+
+        assert!(text("prompt").ends_with(CHANNEL_NOTE));
+        let credential = format!("aqa_{}", "Q".repeat(43));
+        let file = |data: &str| TreeEntry::File {
+            path: "f".into(),
+            mode: 0o644,
+            data: data.into(),
+        };
+        let token = &Secrets::new(b"fixture-login-0123456789abcdef", None);
+        assert!(token_leak(&[file(&credential)], b"", token).is_some());
+        assert!(token_leak(&[], credential.as_bytes(), token).is_some());
+        assert!(token_leak(&[file("starts_with(\"aqa_\")")], b"", token).is_none());
+        // A shape the base tree already held (a fixture in the repository) is no leak.
+        let kept = &Secrets::new(b"fixture-login-0123456789abcdef", [credential.as_bytes()]);
+        assert!(token_leak(&[file(&credential)], credential.as_bytes(), kept).is_none());
+        assert!(token_leak(&[file(&format!("{credential}x"))], b"", kept).is_some());
+        // A variable that would replace the subscription login is refused.
+        config.environment = [("ANTHROPIC_API_KEY".into(), "x".into())].into();
+        assert!(input_entries(&config, b"p").is_err(), "API key env refused");
+    }
+}
+
+/// C5b for the docker-local sandbox: a Codex login that the stopped sandbox holds
+/// refreshed (same account, later `last_refresh`) is written back to the server as
+/// the next version of that attempt's lease; an unchanged or foreign login, another
+/// attempt's sandbox, and an attempt without a lease file write nothing.
+#[tokio::test]
+async fn refreshed_codex_login_is_written_back_from_the_stopped_sandbox() {
+    use aq_agent_channel::login::{LEASE_FILE, LoginLease, WriteBack};
+    use aq_worker::native::runner::write_back_login;
+    use axum::{Router, body::Bytes, routing::post};
+    use std::os::unix::fs::OpenOptionsExt;
+    let login = |account: &str, refreshed: &str| {
+        json!({"auth_mode": "chatgpt", "last_refresh": refreshed,
+            "tokens": {"id_token": "fixture-id", "access_token": "fixture-access",
+                "refresh_token": "fixture-refresh", "account_id": account}})
+        .to_string()
+        .into_bytes()
+    };
+    let leased = login("fixture-account", "2026-11-12T00:00:00Z");
+    let refreshed = login("fixture-account", "2026-11-18T00:00:00Z");
+
+    let uploads = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Vec<u8>>::new()));
+    let seen = uploads.clone();
+    let app = Router::new().route(
+        "/v1/worker/profiled/material/refresh",
+        post(move |body: Bytes| async move {
+            seen.lock().unwrap().push(body.to_vec());
+            r#"{"accepted":true,"version":4,"replayed":false}"#
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let link =
+        aq_agent_channel::NodeLink::new(&origin, "node-credential-0123456789", None, None).unwrap();
+
+    let driver = tempfile::tempdir().unwrap();
+    let lease = LoginLease::of(&leased, json!({}), json!({}), Uuid::from_u128(9), 3).unwrap();
+    let write_lease = || {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(driver.path().join(LEASE_FILE))
+            .and_then(|mut f| {
+                std::io::Write::write_all(&mut f, &serde_json::to_vec(&lease).unwrap())
+            })
+            .unwrap()
+    };
+    // One sandbox per case: what the stopped sandbox's auth.json holds.
+    let cases = [
+        (3, refreshed.clone(), Some(WriteBack::Accepted(4))),
+        (4, leased.clone(), None),
+        (5, login("another-account", "2026-11-18T00:00:00Z"), None),
+        (6, b"{not a login".to_vec(), None),
+    ];
+    for (attempt, held, expected) in cases {
+        let docker = ScriptedDocker::new().runner(Runner::StaysRunning);
+        docker.on_start_write("/aq/home/codex/auth.json", held);
+        let mut h = harness_with(docker, |_| {}).await;
+        let request = self::request(1, 2, attempt);
+        let sandbox = bounded(h.backend.create(&request)).await.unwrap();
+        let material = PrivateMaterial::new(b"fixture".to_vec());
+        bounded(h.backend.deliver_private_material(&sandbox, material))
+            .await
+            .unwrap();
+        bounded(h.backend.start_runner(&sandbox)).await.unwrap();
+        assert!(bounded(h.backend.stop(&sandbox)).await.is_confirmed());
+        let ids = (Uuid::from_u128(1), Uuid::from_u128(attempt));
+        // No lease file (a Claude attempt): nothing is read or sent.
+        let none = write_back_login(&mut h.backend, ids, driver.path(), &link).await;
+        assert_eq!(none.unwrap(), None);
+        write_lease();
+        let other = (ids.0, Uuid::from_u128(99));
+        let foreign = write_back_login(&mut h.backend, other, driver.path(), &link).await;
+        assert_eq!(
+            foreign.unwrap(),
+            None,
+            "another attempt's sandbox is not read"
+        );
+        let written = write_back_login(&mut h.backend, ids, driver.path(), &link).await;
+        assert_eq!(written.unwrap(), expected, "attempt {attempt}");
+        std::fs::remove_file(driver.path().join(LEASE_FILE)).unwrap();
+    }
+    assert_eq!(
+        *uploads.lock().unwrap(),
+        vec![refreshed],
+        "only the refreshed login left the node"
+    );
+}
