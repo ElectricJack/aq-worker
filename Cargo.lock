@@ -361,6 +361,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-sandbox-archive"
+version = "0.1.0"
+dependencies = [
+ "aq-handoff-note",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "aq-session-api"
 version = "0.1.0"
 dependencies = [
@@ -484,6 +496,7 @@ dependencies = [
  "aq-phase-terminal-protocol",
  "aq-protocol",
  "aq-responses-transport",
+ "aq-sandbox-archive",
  "aq-session-host",
  "aq-session-protocol",
  "aq-terminal-bridge",

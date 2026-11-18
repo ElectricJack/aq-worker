@@ -14,6 +14,7 @@ aq-agent-channel = { path = "../aq-agent-channel", version = "=0.1.0" }
 aq-machine-load = { path = "../aq-machine-load", version = "=0.1.0" }
 aq-node-service = { path = "../aq-node-service", version = "=0.1.0" }
 aq-handoff-note = { path = "../aq-handoff-note", version = "=0.1.0" }
+aq-sandbox-archive = { path = "../aq-sandbox-archive", version = "=0.1.0" }
 aq-finite-responses = { path = "../aq-finite-responses", version = "=0.1.0" }
 aq-lifecycle-protocol = { path = "../aq-lifecycle-protocol", version = "=0.1.0" }
 aq-agent-result-local = { path = "../aq-agent-result-local", version = "=0.1.0" }

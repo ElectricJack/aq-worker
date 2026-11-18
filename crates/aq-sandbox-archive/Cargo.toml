@@ -1,0 +1,13 @@
+[package]
+name = "aq-sandbox-archive"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+aq-handoff-note = { path = "../aq-handoff-note" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zeroize = "1"

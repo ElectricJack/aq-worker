@@ -20,8 +20,6 @@ pub struct ServerLink {
 pub struct LinkError {
     pub status: u16,
     pub code: Option<String>,
-    /// Server-provided transcript cursor, when present in a conflict response.
-    pub next_sequence: Option<u64>,
 }
 impl LinkError {
     /// AQ itself refused the credential: 401 or 403 in AQ's own error schema.
@@ -130,21 +128,20 @@ impl ServerLink {
     pub async fn manual_poll(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
         self.post("/v1/worker/manual-agents", body).await
     }
-    /// Append an immutable transcript chunk or finalize an archive.
-    pub async fn manual_transcript(
-        &self,
-        id: uuid::Uuid,
-        body: &serde_json::Value,
-    ) -> Result<serde_json::Value> {
-        self.post(&format!("/v1/worker/manual-agents/{id}/transcript"), body)
-            .await
-    }
     pub async fn manual_conversation(
         &self,
         id: uuid::Uuid,
         body: &serde_json::Value,
     ) -> Result<serde_json::Value> {
         self.post(&format!("/v1/worker/manual-agents/{id}/conversation"), body)
+            .await
+    }
+    pub async fn attempt_conversation(
+        &self,
+        attempt: uuid::Uuid,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        self.post(&format!("/v1/worker/attempts/{attempt}/conversation"), body)
             .await
     }
     /// Refuses an origin outside `checked_origin`'s rule and an empty or non-ASCII credential.
@@ -251,13 +248,6 @@ impl ServerLink {
             return Err(LinkError {
                 status: status.as_u16(),
                 code,
-                next_sequence: if status.as_u16() == 409 {
-                    serde_json::from_slice::<serde_json::Value>(&bytes)
-                        .ok()
-                        .and_then(|v| v.get("next_sequence").and_then(|n| n.as_u64()))
-                } else {
-                    None
-                },
             }
             .into());
         }
@@ -349,7 +339,6 @@ mod tests {
                     Err(LinkError {
                         status: 400,
                         code: Some("bad_request".into()),
-                        next_sequence: None,
                     }
                     .into())
                 } else {
@@ -381,7 +370,6 @@ mod tests {
                         Err(LinkError {
                             status,
                             code: Some("unauthorized".into()),
-                            next_sequence: None,
                         }
                         .into())
                     }

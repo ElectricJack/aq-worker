@@ -67,6 +67,7 @@ pub struct ClaudeDockerHostProfile {
     pool: NativeExecPool,
     /// The node's enrollment, for agent-credential issuance. Memory only.
     issuance: Option<aq_agent_channel::NodeLink>,
+    conversation_outbox: Option<PathBuf>,
 }
 fn hash_file(path: &Path, max: u64) -> Result<(String, u64)> {
     let mut f = std::fs::OpenOptions::new()
@@ -142,6 +143,7 @@ impl ClaudeDockerHostProfile {
             digest,
             pool,
             issuance: None,
+            conversation_outbox: None,
         };
         profile.verify_installation()?;
         // Channels die with their node process; drop what a dead one left.
@@ -165,6 +167,10 @@ impl ClaudeDockerHostProfile {
     }
     pub fn with_issuance(mut self, issuance: aq_agent_channel::NodeLink) -> Self {
         self.issuance = Some(issuance);
+        self
+    }
+    pub(crate) fn with_conversation_outbox(mut self, directory: Option<PathBuf>) -> Self {
+        self.conversation_outbox = directory;
         self
     }
     fn channel_root(&self) -> PathBuf {
@@ -412,6 +418,7 @@ pub(super) fn bootstrap(
         result_dir,
         max_workspace_bytes: profile.config.max_workspace_bytes,
         agent_channel,
+        conversation_outbox: profile.conversation_outbox.clone(),
     };
     let driver_file = private.join("driver.json");
     private_write(&driver_file, &serde_json::to_vec(&driver)?)?;

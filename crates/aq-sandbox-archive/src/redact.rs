@@ -2,7 +2,7 @@
 //! by the snapshot adapter. Public prefixes can span frames/colour escapes; no
 //! lookahead or delay is imposed on ordinary typing.
 #[derive(Default)]
-pub(super) struct Redactor {
+pub struct Redactor {
     suffix: Vec<u8>,
     masked: bool,
     escape: u8,
