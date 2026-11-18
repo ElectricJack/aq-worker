@@ -64,6 +64,9 @@ impl ChannelMode {
 pub struct CodexDockerHost {
     /// Codex CLI inside the template image (`/opt/aq/bin/codex`).
     pub executable: PathBuf,
+    /// The pinned Codex helper bundle on the node, uploaded to each Codex sandbox.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_bundle: Option<PathBuf>,
 }
 /// The harness an offer selects on a docker-local node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -338,6 +341,7 @@ struct HarnessLaunch {
     environment: std::collections::BTreeMap<String, String>,
     settings_json: String,
     harness: crate::sandbox_driver::DriverHarness,
+    codex_runtime_bundle: Option<PathBuf>,
 }
 /// Exactly one material of `provider` that this manifest asks for.
 fn provider_material<'a>(
@@ -389,6 +393,10 @@ fn claude_launch(
         },
         mode,
     )?;
+    // Owner decision 2026-11-18: the interactive TUI on the sandbox's terminal.
+    let mut arguments = recipe.arguments;
+    let settings_json =
+        aq_handoff_note::harness::claude_interactive(&mut arguments, &recipe.settings_json)?;
     Ok(HarnessLaunch {
         token,
         executable: recipe
@@ -396,10 +404,11 @@ fn claude_launch(
             .to_str()
             .context("Claude executable UTF-8")?
             .into(),
-        arguments: recipe.arguments,
+        arguments,
         environment: recipe.environment,
-        settings_json: String::from_utf8(recipe.settings_json)?,
+        settings_json,
         harness: crate::sandbox_driver::DriverHarness::Claude,
+        codex_runtime_bundle: None,
     })
 }
 /// Codex in the same template: the ChatGPT login (`auth.json`) is this attempt's
@@ -457,6 +466,7 @@ fn codex_launch(
         environment: recipe.environment,
         settings_json: String::new(),
         harness: crate::sandbox_driver::DriverHarness::Codex,
+        codex_runtime_bundle: codex.runtime_bundle.clone(),
     })
 }
 pub(super) fn bootstrap(
@@ -556,6 +566,7 @@ pub(super) fn bootstrap(
         agent_channel,
         conversation_outbox: profile.conversation_outbox.clone(),
         harness: launch.harness,
+        codex_runtime_bundle: launch.codex_runtime_bundle,
     };
     let driver_file = private.join("driver.json");
     private_write(&driver_file, &serde_json::to_vec(&driver)?)?;
