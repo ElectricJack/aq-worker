@@ -43,6 +43,10 @@ use std::{
 use uuid::Uuid;
 pub mod users;
 pub const HOST_PROFILE: &str = "linux-subreaper-tmux-foreground-v1";
+/// Handshake timing, not an attempt limit: the longest window of one host
+/// permit that is not interactive. Such a permit is reissued before it ends
+/// for as long as the server keeps renewing the lease, so this bounds how
+/// stale a permit may get, never how long the work runs.
 pub const MAX_PERMIT_MS: u64 = 120000;
 const MAX_LOCAL_FILE: u64 = 2 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

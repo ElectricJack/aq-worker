@@ -31,7 +31,9 @@ removed. A schema-3 phase policy accepts any positive
 lease length is the owner's Setting, carried in the offer; this crate only
 refuses zero.
 
-- `src/preparation_shared.rs`: the same three hunks as the server file.
+- `src/preparation_shared.rs`: the same hunks as the server file, including
+  the manifest label `scope`, now `explicit-interactive-lease` (it named a
+  duration before).
 - `src/transport.rs`: `validate_interactive_session` has no upper bound and
   the deadline projection refuses an overflow instead of wrapping. The server
   keeps this code in `src/delivery_clock_interactive.rs` beside its byte-frozen
@@ -39,12 +41,12 @@ refuses zero.
 - `tests/preparation_refresh.rs`: the policy test follows the server's.
 
 The contract ids are unchanged and the digests of both long contracts change,
-because the long schema changed. No earlier digest is accepted:
+because the long schema and the manifest label changed. No earlier digest is accepted:
 
 | Contract id | Version | Digest |
 | --- | --- | --- |
-| `aq.admission.preparation-registry-refresh-v1-contract.interactive-long-v1` | 1 | `ff94a1ee6f91e6ccacaef136654fb49ddbdf713f2f7f6f8d6eff547783554b78` |
-| `aq.admission.preparation-v2-contract.interactive-long-v1` | 1 | `11b92feeaef04261dde6fce1a384d7367f127c0b0f76f98b11eb1b170bc23caf` |
+| `aq.admission.preparation-registry-refresh-v1-contract.interactive-long-v1` | 1 | `4c4ab2ae711614db55b4b8077ce9ff5ad0200aa62d9d7bd298231da632d851bf` |
+| `aq.admission.preparation-v2-contract.interactive-long-v1` | 1 | `809aeb50727556e43cf4b4a50612e875682b2d4aa994599c0b99707fcc08663b` |
 
 Recompute with
 `cargo test -p aq-worker --locked --all-features --test native_phase_terminal e0_qual -- --nocapture`.
