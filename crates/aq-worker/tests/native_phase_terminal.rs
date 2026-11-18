@@ -161,3 +161,21 @@ async fn phase_terminal_stopped_lane_progresses_while_started_slots_blocked() {
         task.await.unwrap().unwrap();
     }
 }
+
+/// The node's `negotiation.contract` is this artifact. Its digest follows the
+/// vendored schema, so the e0-qual definitions must carry the computed value.
+#[test]
+fn e0_qual_long_contract_is_the_computed_refresh_long_contract() {
+    let long = aq_admission::preparation_refresh_v1::long_contract_artifact().unwrap();
+    println!(
+        "LONG_REFRESH_CONTRACT {}",
+        serde_json::to_string(&long).unwrap()
+    );
+    println!(
+        "LONG_FROZEN_CONTRACT {}",
+        serde_json::to_string(&aq_admission::preparation_v2::long_contract_artifact().unwrap())
+            .unwrap()
+    );
+    let definitions = include_str!("../../../scripts/e0-qual/definitions.py");
+    assert!(definitions.contains(&format!("\"digest\": \"{}\"}}", long.digest.as_str())));
+}
