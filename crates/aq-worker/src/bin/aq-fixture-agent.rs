@@ -7,10 +7,7 @@ struct Args {
     guardian: bool,
 }
 fn main() -> anyhow::Result<()> {
-    if matches!(
-        std::env::args().nth(1).as_deref(),
-        Some("guardian" | "pane")
-    ) {
+    if std::env::args().nth(1).as_deref() == Some(aq_session_host::HELPER_SUBCOMMAND) {
         return aq_session_host::helper_main();
     }
     let args = Args::parse();

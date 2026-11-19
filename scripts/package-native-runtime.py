@@ -60,8 +60,7 @@ def package(revision, inputs, destination):
         for name in ('Dockerfile', 'smoke.py', 'pins.json'):
             shutil.copyfile(packaging / name, context / name)
         versions = {}
-        for binary, crate in [('aq-worker', 'aq-worker'), ('aq-agent', 'aq-agent-client'),
-                              ('aq-session-host', 'aq-session-host')]:
+        for binary, crate in [('aq-worker', 'aq-worker'), ('aq-agent', 'aq-agent-client')]:
             versions[binary] = tomllib.loads((source / 'crates' / crate / 'Cargo.toml').read_text())['package']['version']
         metadata = {'schema_version': 1, 'source_revision': revision,
                     'worker_archive_sha256': digest(archive), 'versions': versions}

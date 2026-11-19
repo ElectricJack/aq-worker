@@ -2102,7 +2102,6 @@ mod tests {
                     "claude_executable": "/opt/aq/bin/claude", "columns": 120, "rows": 40,
                     "docker_local": {"shared_root_fs": true, "socket": "/run/user/1000/aq-sandbox/podman.sock",
                         "templates": [{"digest": template, "image": format!("registry.invalid/aq-template@{template}")}]},
-                    "helper": pinned("aq.host/aq-session-host", "/var/lib/aq/aq-session-host"),
                     "tmux": pinned("aq.host/tmux", "/usr/bin/tmux"),
                     "max_workspace_bytes": 268435456, "renderer": artifact("renderer"),
                     "root": "/var/lib/aq/host", "template": template
@@ -2134,6 +2133,12 @@ mod tests {
         assert!(load(&new).is_ok(), "{:?}", load(&new).err());
         new["settings"]["permission_plans"] = serde_json::json!([]);
         assert!(load(&new).is_err(), "unknown keys stay refused");
+        // The session host is the worker's own executable: a template still pinning a separate
+        // helper is refused, not silently run with a different one.
+        let mut stale = old.clone();
+        stale["settings"]["host"]["helper"] =
+            pinned("aq.host/aq-session-host", "/var/lib/aq/aq-session-host");
+        assert!(load(&stale).is_err(), "a pinned helper is refused");
     }
     /// A granted execution with no launch intent, host or result is released (archived, the
     /// slot freed), also behind added context. Every other hold stays held: a Prepare whose

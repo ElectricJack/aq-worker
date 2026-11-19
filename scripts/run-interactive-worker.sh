@@ -19,7 +19,7 @@ interactive_rows=$(python3 - "$interactive_bundle/images.json" <<'PY'
 import json, pathlib, stat, sys
 v=json.loads(pathlib.Path(sys.argv[1]).read_bytes())
 assert set(v)=={'schema_version','programs'} and v['schema_version']==1
-expected={'aq-worker','aq-session-host','aq-agent','aq-git','codex','tmux'}
+expected={'aq-worker','aq-agent','aq-git','codex','tmux'}
 assert isinstance(v['programs'],list) and len(v['programs'])==len(expected)
 for p in v['programs']:
  assert set(p)=={'name','path','sha256','bytes'} and p['name'] in expected

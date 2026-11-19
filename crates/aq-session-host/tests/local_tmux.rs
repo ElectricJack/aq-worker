@@ -37,8 +37,9 @@ impl HarnessAdapter for Adapter {
             environment: m.harness.environment.clone(),
             capabilities: m.harness.required_capabilities.clone(),
             command: LocalCommand {
-                executable: env!("CARGO_BIN_EXE_aq-session-host").into(),
+                executable: env!("CARGO_BIN_EXE_aq-session-host-test-host").into(),
                 arguments: vec![
+                    HELPER_SUBCOMMAND.into(),
                     "fixture".into(),
                     self.dir.to_str().unwrap().into(),
                     self.mode.clone(),
@@ -147,7 +148,7 @@ impl Case {
         let local = LocalEnvironment {
             resource_policy: ResourcePolicy::CallerAdmission(manifest.harness.environment.clone()),
             workspace: temp.path().canonicalize().unwrap(),
-            helper_executable: env!("CARGO_BIN_EXE_aq-session-host").into(),
+            helper_executable: env!("CARGO_BIN_EXE_aq-session-host-test-host").into(),
             tmux_executable: "/usr/bin/tmux".into(),
             tmux_version: "tmux 3.4".into(),
             credential_profiles: manifest
@@ -572,7 +573,8 @@ fn tmux_pane_identifier_reuse_does_not_authorize_the_replacement_process() {
                 "-t",
                 &old_pane.pane_id,
                 "--",
-                env!("CARGO_BIN_EXE_aq-session-host"),
+                env!("CARGO_BIN_EXE_aq-session-host-test-host"),
+                HELPER_SUBCOMMAND,
                 "fixture",
                 replacement.to_str().unwrap(),
                 "terminal-journal"

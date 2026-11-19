@@ -3,7 +3,7 @@
 
 The workspace source closure retains Cargo.lock and every path dependency.
 No sibling checkout, mutable Git branch, registry AQ package or credentials are
-needed to build the helper or consume its library from this archive.
+needed to consume its library from this archive.
 """
 import argparse
 import gzip

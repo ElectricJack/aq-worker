@@ -278,7 +278,7 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     if config.observed.is_some() {
                         arguments.extend(["-x", &columns, "-y", &rows]);
                     }
-                    arguments.extend(["--", helper, "pane", launch_dir]);
+                    arguments.extend(["--", helper, crate::HELPER_SUBCOMMAND, "pane", launch_dir]);
                     tmux(&config, dir, &arguments)?;
                     fault_point(dir, "pane-created")?;
                     let (server_pid, pane_pid, dead, pane_id) = pane_status(&config, dir)?;

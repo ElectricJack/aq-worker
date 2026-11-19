@@ -44,7 +44,7 @@ def test_context_uses_committed_allowlist_and_never_walks_input_or_worktree(tmp_
     subprocess.run(['git', 'init', '-q', str(repo)], check=True)
     (repo / 'Cargo.toml').write_text('[workspace]\n')
     (repo / 'Cargo.lock').write_text('version = 4\n')
-    for crate in ('aq-worker', 'aq-agent-client', 'aq-session-host'):
+    for crate in ('aq-worker', 'aq-agent-client'):
         directory = repo / 'crates' / crate
         directory.mkdir(parents=True)
         (directory / 'Cargo.toml').write_text('[package]\nversion = "1.2.3"\n')
@@ -84,7 +84,7 @@ def test_context_uses_committed_allowlist_and_never_walks_input_or_worktree(tmp_
     monkeypatch.setattr(packager, 'ROOT', repo)
     output = tmp_path / 'context'
     result = packager.package('HEAD', inputs, output)
-    assert result['versions'] == {name: '1.2.3' for name in ('aq-worker', 'aq-agent', 'aq-session-host')}
+    assert result['versions'] == {name: '1.2.3' for name in ('aq-worker', 'aq-agent')}
     files = [path for path in output.rglob('*') if path.is_file()]
     assert {str(path.relative_to(output)) for path in files} == {
         'worker-source.tar', 'Dockerfile', 'smoke.py', 'pins.json', 'build.json', 'SHA256SUMS', *names}

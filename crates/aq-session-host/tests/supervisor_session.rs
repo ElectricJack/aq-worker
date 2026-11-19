@@ -308,7 +308,7 @@ impl Case {
         let local = LocalEnvironment {
             resource_policy: ResourcePolicy::CallerAdmission(pin("admission")),
             workspace: dir.path().canonicalize().unwrap(),
-            helper_executable: env!("CARGO_BIN_EXE_aq-session-host").into(),
+            helper_executable: env!("CARGO_BIN_EXE_aq-session-host-test-host").into(),
             tmux_executable: "/usr/bin/tmux".into(),
             tmux_version: String::from_utf8(version.stdout).unwrap().trim().into(),
             credential_profiles: vec![],

@@ -780,7 +780,7 @@ impl SessionHost {
         private_inputs::verify_at_exec(&config, &directory)?;
         let mut command = Command::new(&config.helper);
         command
-            .arg("guardian")
+            .args([HELPER_SUBCOMMAND, "guardian"])
             .arg(&directory)
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
@@ -1331,29 +1331,109 @@ fn tmux(config: &SealedLaunch, directory: &Path, args: &[&str]) -> Result<Vec<u8
     )
     .map_err(|error| anyhow!("{error} (tmux {})", args.first().unwrap_or(&"")))
 }
-/// Helper entrypoint must run in a dedicated single-threaded executable.
-pub fn helper_main() -> Result<()> {
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
-    ensure!(args.len() >= 2, "helper needs mode and launch directory");
-    let mode = args[0].to_str().context("helper mode")?;
-    let directory = Path::new(&args[1]);
-    match mode {
-        "guardian" => supervisor::run(directory),
-        "pane" => supervisor::exec_pane(directory),
+/// First argument of every helper command line: `<executable> session-host <mode> <launch
+/// directory>`. The worker runs its own executable as the helper (it checks for this argument
+/// before anything else), so the guardian and the pane program are always the worker's build.
+pub const HELPER_SUBCOMMAND: &str = "session-host";
+
+/// What a helper command line asks for.
+#[derive(Debug, PartialEq, Eq)]
+pub enum HelperMode {
+    Guardian,
+    Pane,
+    #[cfg(feature = "test-support")]
+    Fixture(String),
+}
+
+/// Reads the helper's arguments (without the program name): `session-host <mode> <directory>`.
+pub fn parse_helper_args(args: &[std::ffi::OsString]) -> Result<(HelperMode, &Path)> {
+    ensure!(
+        args.first().is_some_and(|a| a == HELPER_SUBCOMMAND),
+        "helper must be started as `{HELPER_SUBCOMMAND}`"
+    );
+    ensure!(args.len() >= 3, "helper needs mode and launch directory");
+    let directory = Path::new(&args[2]);
+    let mode = match args[1].to_str().context("helper mode")? {
+        "guardian" => HelperMode::Guardian,
+        "pane" => HelperMode::Pane,
         #[cfg(feature = "test-support")]
-        "fixture" => supervisor::fixture(
-            directory,
-            args.get(2)
+        "fixture" => HelperMode::Fixture(
+            args.get(3)
                 .and_then(|s| s.to_str())
-                .unwrap_or("interactive"),
+                .unwrap_or("interactive")
+                .to_owned(),
         ),
         _ => bail!("unknown helper mode"),
+    };
+    Ok((mode, directory))
+}
+
+/// Helper entrypoint: the process must be single-threaded when it runs, so call it before any
+/// runtime or thread exists. `args` are the process arguments after the program name.
+pub fn helper_run(args: &[std::ffi::OsString]) -> Result<()> {
+    let (mode, directory) = parse_helper_args(args)?;
+    match mode {
+        HelperMode::Guardian => supervisor::run(directory),
+        HelperMode::Pane => supervisor::exec_pane(directory),
+        #[cfg(feature = "test-support")]
+        HelperMode::Fixture(kind) => supervisor::fixture(directory, &kind),
     }
+}
+
+/// [`helper_run`] on this process's own arguments.
+pub fn helper_main() -> Result<()> {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    helper_run(&args)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn argv(items: &[&str]) -> Vec<std::ffi::OsString> {
+        items.iter().map(Into::into).collect()
+    }
+    #[test]
+    fn helper_arguments_name_the_subcommand_a_mode_and_a_launch_directory() {
+        let args = argv(&["session-host", "guardian", "/launch/1"]);
+        assert_eq!(
+            parse_helper_args(&args).unwrap(),
+            (HelperMode::Guardian, Path::new("/launch/1"))
+        );
+        let args = argv(&["session-host", "pane", "/launch/2", "extra"]);
+        assert_eq!(
+            parse_helper_args(&args).unwrap(),
+            (HelperMode::Pane, Path::new("/launch/2"))
+        );
+        // The pre-subcommand command line (`<helper> guardian <directory>`) is not accepted.
+        for refused in [
+            argv(&[]),
+            argv(&["guardian", "/launch/1"]),
+            argv(&["pane", "/launch/1", "x"]),
+            argv(&["session-host"]),
+            argv(&["session-host", "guardian"]),
+            argv(&["session-host", "unknown", "/launch/1"]),
+            argv(&["session-host", "--help", "/launch/1"]),
+            argv(&["session-hosts", "guardian", "/launch/1"]),
+        ] {
+            assert!(parse_helper_args(&refused).is_err(), "{refused:?}");
+        }
+        let error = parse_helper_args(&argv(&["session-host"])).unwrap_err();
+        assert_eq!(error.to_string(), "helper needs mode and launch directory");
+    }
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn the_fixture_mode_defaults_to_interactive() {
+        let args = argv(&["session-host", "fixture", "/launch/3"]);
+        assert_eq!(
+            parse_helper_args(&args).unwrap().0,
+            HelperMode::Fixture("interactive".into())
+        );
+        let args = argv(&["session-host", "fixture", "/launch/3", "exit"]);
+        assert_eq!(
+            parse_helper_args(&args).unwrap().0,
+            HelperMode::Fixture("exit".into())
+        );
+    }
     fn session() -> SessionIdentity {
         SessionIdentity::Central {
             authority_id: Uuid::from_u128(1),

@@ -60,8 +60,7 @@ def prepare(package, work, origin, socket, config, digest):
     entry, = host["docker_local"]["templates"]
     repo = entry["image"].split("/", 1)[1]
     entry["image"] = urlsplit(origin).netloc + "/" + repo
-    for key, name in [("helper", "aq-session-host"), ("tmux", "tmux")]:
-        host[key]["path"] = str(package / name)
+    host["tmux"]["path"] = str(package / "tmux")
     template["adapter_manifest"] = str(package / "adapter.json")
     template["executor"]["composite_definition"] = str(package / "composite.json")
     template["inventory_definition"] = str(package / "inventory.json")
@@ -86,7 +85,7 @@ def prepare(package, work, origin, socket, config, digest):
     # aq-install.sh shares these paths across its profiles. Refuse a binary swap
     # on a machine that already uses a different runtime.
     runtime = Path.home() / ".local/share/agent-q/runtime"
-    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git"):
+    for name in ("aq-worker", "aq-agent", "aq-git"):
         installed = runtime / name
         if installed.exists():
             with installed.open("rb") as current, (package / name).open("rb") as source:
@@ -540,7 +539,7 @@ def worker_service_report(config):
             "inventory_definition": native.get("inventory_definition"),
             "composite_definition": native["executor"].get("composite_definition"),
             "socket": host["docker_local"]["socket"],
-            "helper": host["helper"]["path"], "tmux": host["tmux"]["path"],
+            "tmux": host["tmux"]["path"],
         }
         report["missing"] = sorted(key for key, value in paths.items() if not (isinstance(value, str) and os.path.exists(value)))
         state = Path(str(paths["state_dir"]))

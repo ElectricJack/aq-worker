@@ -51,8 +51,10 @@ if [[ $qualification_probe == false ]]; then
     qualification_target=$AQ_NATIVE_TEST_BINARY
     qualification_target_name=aq-worker-tests
   fi
-  : "${AQ_NATIVE_HOST_BINARY:?explicit pinned helper required}"
-  : "${AQ_NATIVE_HOST_SHA256:?explicit helper digest required}"
+  # The session host is the worker executable (`aq-worker session-host`): bind a worker build at
+  # the helper path the qualification fixtures use.
+  : "${AQ_NATIVE_HOST_BINARY:?explicit aq-worker executable (the session host) required}"
+  : "${AQ_NATIVE_HOST_SHA256:?explicit aq-worker executable digest required}"
   : "${AQ_NATIVE_CODEX_BINARY:?explicit pinned image required}"
   : "${AQ_NATIVE_CODEX_SHA256:?explicit image digest required}"
   : "${AQ_NATIVE_TMUX_BINARY:?explicit pinned tmux required}"

@@ -394,6 +394,21 @@ async fn gemini_proxy_cli(
 }
 
 fn main() -> ExitCode {
+    // The session host (guardian and pane program) is this executable: `aq-worker session-host
+    // <mode> <launch directory>`, started by the host library. It is hidden, takes no worker
+    // options, and must run before any thread or runtime exists.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument == aq_session_host::HELPER_SUBCOMMAND)
+    {
+        return match aq_session_host::helper_main() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("aq-worker session-host: {error:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let cli = Cli::parse();
     let sandbox_agent = if matches!(&cli.command, Cmd::SandboxRun { .. }) {
         match aq_session_host::users::bootstrap_sandbox_users() {

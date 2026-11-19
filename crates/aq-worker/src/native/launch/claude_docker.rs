@@ -29,7 +29,6 @@ pub struct PinnedFile {
 #[serde(deny_unknown_fields)]
 pub struct ClaudeDockerHostConfig {
     pub root: PathBuf,
-    pub helper: PinnedFile,
     pub tmux: PinnedFile,
     pub renderer: ArtifactRef,
     pub columns: u16,
@@ -123,14 +122,13 @@ impl ClaudeDockerHostProfile {
                 && config.max_workspace_bytes > 0,
             "closed Claude docker-local host profile"
         );
-        for pin in [&config.helper, &config.tmux] {
-            pin.artifact.id.validate()?;
-            pin.artifact.version.validate()?;
-            ensure!(
-                pin.path.is_absolute() && std::fs::canonicalize(&pin.path)? == pin.path,
-                "pinned program path canonical"
-            );
-        }
+        let tmux = &config.tmux;
+        tmux.artifact.id.validate()?;
+        tmux.artifact.version.validate()?;
+        ensure!(
+            tmux.path.is_absolute() && std::fs::canonicalize(&tmux.path)? == tmux.path,
+            "pinned program path canonical"
+        );
         ensure!(
             config
                 .docker_local
@@ -165,7 +163,7 @@ impl ClaudeDockerHostProfile {
     }
     pub fn verify_installation(&self) -> Result<()> {
         self.root.verify()?;
-        for pin in [&self.config.helper, &self.config.tmux, &self.driver] {
+        for pin in [&self.config.tmux, &self.driver] {
             let (digest, _) =
                 hash_file(&pin.path, aq_session_host::observed::MAX_NATIVE_EXEC_BYTES)?;
             ensure!(
@@ -480,12 +478,12 @@ pub(super) fn bootstrap(
         let a = &state.attempts[&entry.id];
         let offer = a.reservation.offer.clone();
         let c = &profile.config;
-        let [executable, helper, tmux] =
-            [&profile.driver, &c.helper, &c.tmux].map(|p| p.artifact.clone());
+        // The session host is this same executable, so the intent pins it once, as both.
+        let [executable, tmux] = [&profile.driver, &c.tmux].map(|p| p.artifact.clone());
         let pins = HostPins {
             root: (c.root.clone(), profile.root.identity()),
             profile_digest: profile.digest.clone(),
-            programs: [executable, helper, tmux, c.renderer.clone()],
+            programs: [executable.clone(), executable, tmux, c.renderer.clone()],
             size: (c.columns, c.rows),
         };
         let intent = launch_intent(scope, state.revision, a, pins, "PID namespace text")?;
@@ -609,7 +607,7 @@ pub(super) fn bootstrap(
             m.harness.environment.clone(),
         ),
         workspace: scope.inputs.workspace().workspace().path.clone(),
-        helper_executable: profile.config.helper.path.clone(),
+        helper_executable: profile.driver.path.clone(),
         tmux_executable: profile.config.tmux.path.clone(),
         tmux_version: "tmux 3.4".into(),
         credential_profiles: m

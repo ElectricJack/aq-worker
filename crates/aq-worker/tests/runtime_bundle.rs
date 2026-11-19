@@ -100,7 +100,6 @@ fn runtime_bundle_lists_pinned_harness_versions() {
     let root = bundle.path();
     for (path, contents) in [
         ("bin/aq-worker", "runner"),
-        ("bin/aq-session-host", "host"),
         ("bin/aq", "aq"),
         ("bin/aq-agent", "#!/bin/sh\nexec /opt/aq/bin/aq \"$@\"\n"),
         ("bin/aq-git", "git"),
@@ -117,7 +116,6 @@ fn runtime_bundle_lists_pinned_harness_versions() {
     let source = serde_json::json!({
         "revision": "a".repeat(40),
         "runner_version": env!("CARGO_PKG_VERSION"),
-        "session_host_version": "0.1.5",
         "archive_sha256": "b".repeat(64)
     });
     fs::write(
@@ -201,7 +199,6 @@ fn runtime_bundle_lists_pinned_harness_versions() {
         &manifest["agent_client"],
         &manifest["agent_client_wrapper"],
         &manifest["runner"],
-        &manifest["session_host"],
         &manifest["aq_git"],
         &manifest["node"],
     ] {

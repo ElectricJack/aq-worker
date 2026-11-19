@@ -10,8 +10,8 @@ RUN mkdir /worker /aq-git /out && tar -xf worker-source.tar -C /worker \
 WORKDIR /worker
 ENV CARGO_BUILD_JOBS=2
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    cargo build --locked --release -p aq-worker --bin aq-worker -p aq-session-host --bin aq-session-host -p aq-agent-client --bin aq-agent \
-    && cp target/release/aq-worker target/release/aq-session-host target/release/aq-agent /out/
+    cargo build --locked --release -p aq-worker --bin aq-worker -p aq-agent-client --bin aq-agent \
+    && cp target/release/aq-worker target/release/aq-agent /out/
 WORKDIR /aq-git
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo build --locked --release -p aq-git-cli && cp target/release/aq-git /out/
@@ -47,7 +47,7 @@ COPY --from=tools /opt/aq-git-runtime /opt/aq-git-runtime
 COPY --from=build /inputs/build.json /inputs/pins.json /usr/share/agent-q/
 COPY --from=build /inputs/smoke.py /usr/local/lib/aq-native-runtime-smoke.py
 RUN chmod 755 /opt/aq-runtime/* /opt/aq-runtime/codex-path/rg /opt/aq-runtime/codex-resources/bwrap \
-    && for name in aq-worker aq-session-host aq-agent aq-git codex tmux; do ln -s /opt/aq-runtime/$name /usr/local/bin/$name; done \
+    && for name in aq-worker aq-agent aq-git codex tmux; do ln -s /opt/aq-runtime/$name /usr/local/bin/$name; done \
     && ln -s /opt/aq-git-runtime/bin/git /usr/bin/git \
     && dpkg-query -W -f='${Package}=${Version}\n' > /usr/share/agent-q/debian-packages.txt \
     && python3 /usr/local/lib/aq-native-runtime-smoke.py --record
