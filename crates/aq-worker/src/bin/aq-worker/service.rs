@@ -1279,7 +1279,12 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     let mut observation_nodes = Vec::new();
     for (_, view, _) in &node_views {
         let worker = WorkerConfig::load(&view.slot_enrollment(1))?;
-        let boot_id = sessions[&worker.node_id].boot_id;
+        let session = &sessions[&worker.node_id];
+        // A retired node never registers this boot, so the server refuses its Prepare forever.
+        if session.retired() {
+            continue;
+        }
+        let boot_id = session.boot_id;
         if let Some(node) = start_observations(&config, &worker, boot_id) {
             (native_backend.observations).insert(worker.node_id, node.observations());
             observation_nodes.push(node);
