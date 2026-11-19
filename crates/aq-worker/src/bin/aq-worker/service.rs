@@ -134,9 +134,8 @@ pub struct NativeSlotBackend {
     manual_pause: std::collections::BTreeMap<Uuid, watch::Receiver<bool>>,
     native_active: std::collections::BTreeMap<Uuid, Arc<std::sync::atomic::AtomicUsize>>,
     sessions: std::collections::BTreeMap<Uuid, Arc<NodeSession>>,
-    /// Each node's observation registrar. A launch registers its transcript with
-    /// `Observations::register`; the docker-local executor does not take it yet.
-    #[allow(dead_code)]
+    /// Each node's observation registrar. The docker-local executor registers each
+    /// launched attempt's transcript with it.
     observations: std::collections::BTreeMap<Uuid, Observations>,
 }
 /// Starts a node's observation service: its store under `<state_root>/observations/<node id>`,
@@ -589,6 +588,7 @@ impl SlotBackend for NativeSlotBackend {
                 .as_ref()
                 .map(|root| root.join(ctx.node_id.to_string())),
         );
+        executor.observations = self.observations.get(&ctx.node_id).cloned();
         let disposition = if let Some(session) = session {
             run_node_slot(
                 &worker,

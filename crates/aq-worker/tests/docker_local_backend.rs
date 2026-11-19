@@ -475,6 +475,65 @@ async fn agent_channel_mount_is_fixed_to_the_attempt_directory() {
     }
 }
 
+/// The transcript mount is a fixed mount kind: the node's own 0700 directory at the
+/// harness's transcript directory, read-write, and nothing else of the harness home.
+#[tokio::test]
+async fn transcript_mount_is_only_the_harness_transcript_directory() {
+    use aq_worker::sandbox_driver::DriverHarness;
+    use std::os::unix::fs::PermissionsExt;
+    let slot = tempfile::tempdir().unwrap();
+    let host = slot.path().join("transcript");
+    std::fs::create_dir(&host).unwrap();
+    let mode = |mode| std::fs::set_permissions(&host, std::fs::Permissions::from_mode(mode));
+    for (attempt, harness) in [(3, DriverHarness::Claude), (4, DriverHarness::Codex)] {
+        let target = harness.transcript_dir();
+        assert!(target.starts_with("/aq/home/") && !target.starts_with("/aq/work"));
+        let mount = Some((host.clone(), target.to_owned()));
+        let mut h = harness_with(ScriptedDocker::new(), |c| c.transcript = mount).await;
+        let request = request(1, 2, attempt);
+        mode(0o750).unwrap();
+        assert_eq!(
+            bounded(h.backend.create(&request)).await,
+            Err(BackendError::InvalidRequest(
+                "transcript directory must be the node's own 0700 directory"
+            ))
+        );
+        mode(0o700).unwrap();
+        bounded(h.backend.create(&request)).await.unwrap();
+        let body = h.docker.container(&request.name).unwrap().body;
+        let mounts = body["HostConfig"]["Mounts"].as_array().unwrap();
+        assert_eq!(
+            mounts[1..],
+            [
+                json!({"Type": "bind", "Source": host.to_str().unwrap(), "Target": target, "ReadOnly": false})
+            ]
+        );
+        assert_eq!(mounts[0]["Target"], "/aq/work");
+        // The request, and so the sandbox's name binding, does not carry the mount.
+        assert_eq!(body["Labels"], expected_labels(&request));
+    }
+    let socket = owned_socket();
+    let (cache, scratch) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let claude = DriverHarness::Claude.transcript_dir();
+    let refused: [&dyn Fn(&mut DockerLocalConfig); 7] = [
+        // The whole private harness home, a parent, a child, the workspace.
+        &|c| c.transcript.as_mut().unwrap().1 = "/aq/home".into(),
+        &|c| c.transcript.as_mut().unwrap().1 = "/aq/home/codex".into(),
+        &|c| c.transcript.as_mut().unwrap().1 = format!("{claude}/x"),
+        &|c| c.transcript.as_mut().unwrap().1 = "/aq/work/transcript".into(),
+        &|c| c.transcript.as_mut().unwrap().0 = "relative".into(),
+        &|c| c.mount_aliases.get_mut("scratch").unwrap().target = "/aq/home".into(),
+        &|c| c.mount_aliases.get_mut("scratch").unwrap().host_path = slot.path().into(),
+    ];
+    for edit in refused {
+        let mut config = base_config(&socket, &cache, &scratch);
+        config.transcript = Some((host.clone(), claude.into()));
+        config.validate().unwrap();
+        edit(&mut config);
+        assert!(config.validate().is_err());
+    }
+}
+
 /// Finding 8 (PR #43 review): a mount alias whose host path equals, contains
 /// or sits under the channel root would expose other attempts' sockets. It is
 /// refused at config load, through a symlink too and before the root exists.
@@ -1824,7 +1883,7 @@ async fn run_codex_driver_on(
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let socket = owned_socket();
     let (cache, scratch) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let docker_local = base_config(&socket, &cache, &scratch);
+    let mut docker_local = base_config(&socket, &cache, &scratch);
     let docker = ScriptedDocker::new().runner(Runner::StaysRunning);
     let marker = json!({"type":"agent-turn-complete","last-assistant-message":final_message});
     docker.on_start_write("/aq/out/stop.json", marker.to_string().into_bytes());
@@ -1833,12 +1892,15 @@ async fn run_codex_driver_on(
     }
 
     let dir = tempfile::tempdir().unwrap();
-    for d in ["work", "session", "private"] {
+    for d in ["work", "session", "private", "private/transcript"] {
         std::fs::create_dir(dir.path().join(d)).unwrap();
         std::fs::set_permissions(dir.path().join(d), std::fs::Permissions::from_mode(0o700))
             .unwrap();
     }
     let work = dir.path().join("work");
+    let sessions = DriverHarness::Codex.transcript_dir();
+    docker_local.transcript = Some((dir.path().join("private/transcript"), sessions.into()));
+    docker.on_start_write(&format!("{sessions}/2026/rollout.jsonl"), b"{}\n".to_vec());
     std::fs::write(work.join("README.md"), "# scratch\n").unwrap();
     std::fs::write(
         dir.path().join("session/context-0.bin"),
@@ -1988,6 +2050,24 @@ async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
     assert_eq!(names.len(), 1);
     let container = run.docker.container(&names[0]).unwrap();
     assert_eq!(container.status, "exited", "the sandbox is stopped");
+    // Of Codex's home only `sessions` is mounted; the transcript written there is not
+    // part of the workspace that is copied back.
+    let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
+    let targets: Vec<_> = mounts
+        .iter()
+        .map(|m| m["Target"].as_str().unwrap())
+        .collect();
+    assert_eq!(targets, ["/aq/work", "/aq/home/codex/sessions"]);
+    assert!(
+        container
+            .layer
+            .contains_key("/aq/home/codex/sessions/2026/rollout.jsonl")
+    );
+    let mut copied: Vec<_> = (std::fs::read_dir(&work).unwrap())
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    copied.sort();
+    assert_eq!(copied, ["README.md", "fixture-output"]);
     let body = container.body.to_string();
     assert!(body.contains("CODEX_HOME/auth.json") && !body.contains("CLAUDE_CODE_OAUTH_TOKEN"));
     let text = |path: &str| String::from_utf8(container.layer[path].data.clone()).unwrap();
@@ -2315,4 +2395,109 @@ async fn refreshed_codex_login_is_written_back_from_the_stopped_sandbox() {
         vec![refreshed],
         "only the refreshed login left the node"
     );
+}
+
+/// Unit tests of `backend::types`, kept here so they do not count as library lines.
+mod backend_types {
+    use aq_worker::backend::*;
+    use uuid::Uuid;
+
+    fn request() -> CreateRequest {
+        CreateRequest::new(
+            Ownership {
+                node_id: Uuid::from_u128(1),
+                boot_id: Uuid::from_u128(2),
+                attempt_id: Uuid::from_u128(3),
+            },
+            TemplateDigest::parse(format!("sha256:{}", "a".repeat(64))).unwrap(),
+            100,
+            vec![],
+        )
+    }
+
+    #[test]
+    fn create_request_without_resources_deserializes() {
+        let mut value = serde_json::to_value(request()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("resources");
+        object.remove("mount_aliases");
+        let parsed: CreateRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.resources, None);
+        assert!(parsed.mount_aliases.is_empty());
+        assert_eq!(parsed, request());
+    }
+
+    #[test]
+    fn absent_disk_limit_keeps_pre_sbx20_encoding() {
+        let limits = ResourceLimits {
+            cpu_millis: 500,
+            memory_bytes: 64 * 1024 * 1024,
+            pids: 32,
+            disk_bytes: None,
+        };
+        let value = serde_json::to_value(limits).unwrap();
+        assert!(value.get("disk_bytes").is_none());
+        let parsed: ResourceLimits = serde_json::from_value(
+            serde_json::json!({"cpu_millis":500,"memory_bytes":67108864,"pids":32}),
+        )
+        .unwrap();
+        assert_eq!(parsed, limits);
+    }
+
+    #[test]
+    fn resource_limits_reject_zero() {
+        let ok = ResourceLimits {
+            cpu_millis: 500,
+            memory_bytes: 64 * 1024 * 1024,
+            pids: 32,
+            disk_bytes: None,
+        };
+        assert!(request().with_resources(ok).validate().is_ok());
+        let with_disk = ResourceLimits {
+            disk_bytes: Some(1),
+            ..ok
+        };
+        assert!(request().with_resources(with_disk).validate().is_ok());
+        for bad in [
+            ResourceLimits {
+                cpu_millis: 0,
+                ..ok
+            },
+            ResourceLimits { pids: 0, ..ok },
+            ResourceLimits {
+                memory_bytes: 6 * 1024 * 1024 - 1,
+                ..ok
+            },
+            ResourceLimits {
+                disk_bytes: Some(0),
+                ..ok
+            },
+        ] {
+            assert!(matches!(
+                request().with_resources(bad).validate(),
+                Err(BackendError::InvalidRequest(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn mount_alias_names_are_validated() {
+        for bad in ["", "../x", "a/b", "-x", "Upper"] {
+            assert!(
+                matches!(
+                    request()
+                        .with_mount_aliases(vec![bad.to_owned()])
+                        .validate(),
+                    Err(BackendError::InvalidRequest(_))
+                ),
+                "{bad:?} must be refused"
+            );
+        }
+        assert!(
+            request()
+                .with_mount_aliases(vec!["repo-cache".to_owned()])
+                .validate()
+                .is_ok()
+        );
+    }
 }

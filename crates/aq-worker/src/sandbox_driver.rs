@@ -200,7 +200,8 @@ where
     let raw = read_private(&token_file, 64 * 1024);
     let _ = std::fs::remove_file(&token_file);
     let mut config = parsed?;
-    if config.conversation_outbox.is_some() && config.harness.is_claude() {
+    let named = config.conversation_outbox.is_some() || config.docker_local.transcript.is_some();
+    if named && config.harness.is_claude() {
         config.arguments.extend([
             "--session-id".to_owned(),
             config.owner.attempt_id.to_string(),
@@ -575,7 +576,7 @@ async fn save_conversation<T: DockerTransport>(
             backend,
             sandbox,
             crate::conversation::Provider::Claude,
-            "/aq/home/projects/-aq-work",
+            config.harness.transcript_dir(),
             Some(attempt),
             Some(token),
         ),

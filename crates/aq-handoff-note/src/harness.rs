@@ -24,6 +24,16 @@ impl DriverHarness {
             Self::Codex => "codex.jsonl",
         }
     }
+    /// Where the harness writes its session transcripts inside the sandbox: Claude's
+    /// project directory of `/aq/work` in its config directory `/aq/home`, Codex's
+    /// `sessions` in its `CODEX_HOME` `/aq/home/codex`. The only part of the private
+    /// harness home the node mounts.
+    pub fn transcript_dir(&self) -> &'static str {
+        match self {
+            Self::Claude => "/aq/home/projects/-aq-work",
+            Self::Codex => "/aq/home/codex/sessions",
+        }
+    }
     /// The harness's name in the conclusion line (`Codex exit 0`).
     pub fn label(&self) -> &'static str {
         match self {

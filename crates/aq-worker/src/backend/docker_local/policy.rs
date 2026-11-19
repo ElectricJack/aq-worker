@@ -135,6 +135,9 @@ pub fn create_body(
             "ReadOnly": false,
         }));
     }
+    if let Some((host, target)) = &config.transcript {
+        mounts.push(json!({ "Type": "bind", "Source": host, "Target": target, "ReadOnly": false }));
+    }
     let mut body = json!({
         "Image": image,
         "Labels": labels(request),

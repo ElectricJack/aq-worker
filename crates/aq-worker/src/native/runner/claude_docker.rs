@@ -123,6 +123,8 @@ pub struct ClaudeDockerExecutor {
     conversation_outbox: Option<PathBuf>,
     /// The node's enrollment (origin, credential, Access), for the agent channel.
     issuance: aq_agent_channel::NodeLink,
+    /// The node's observation store, set by the service before the preflight.
+    pub observations: Option<aq_observation_redb_prototype::node::Observations>,
 }
 impl ClaudeDockerExecutor {
     pub fn configured(worker: &WorkerConfig) -> Result<Self> {
@@ -150,6 +152,7 @@ impl ClaudeDockerExecutor {
             codex_pins: None,
             result_root: None,
             conversation_outbox: None,
+            observations: None,
             issuance: aq_agent_channel::NodeLink::new(
                 &worker.server_url,
                 &worker.credential,
@@ -212,6 +215,7 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 max_login_age_secs: codex.max_login_age_secs,
             })?;
         }
+        profile.observations = self.observations.clone();
         self.profile = Some(Arc::new(profile));
         self.pins = Some(pins);
         self.codex_pins = codex_pins;
