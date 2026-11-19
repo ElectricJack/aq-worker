@@ -755,13 +755,15 @@ pub async fn run(
                 }
                 save(&root, a)?;
             }
-            // v1 preserves its whole-node manual pause. For slot-aware nodes only waiting
-            // manual launches ask idle queued pollers to yield their local permits.
+            // v1 preserves its whole-node manual pause. For slot-aware nodes, waiting manual
+            // launches, and launches the server still holds as pending, ask idle queued pollers
+            // to yield their local permits. Without `pending` the server never assigns (the node
+            // reports busy while pollers hold every permit) and nothing is ever waiting here.
             let waiting = node
                 .agents
                 .values()
                 .any(|a| a.desired_running && a.sandbox.is_none() && a.status != "failed");
-            pause.send_replace(if session.aware() { waiting } else { pending });
+            pause.send_replace(if session.aware() { waiting || pending } else { pending });
         }
         tokio::select! {_=tokio::time::sleep(std::time::Duration::from_millis(500))=>{},_=shutdown.changed()=>{}}
     }
