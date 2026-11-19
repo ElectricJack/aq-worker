@@ -101,6 +101,7 @@ pub struct ClaudeDockerHostProfile {
     codex: Option<CodexDockerHost>,
     /// The node's observation store; None leaves attempts unobserved.
     pub(crate) observations: Option<aq_observation_store::node::Observations>,
+    pub(crate) transcript_bound: Option<aq_handoff_note::TranscriptBound>,
 }
 use aq_sandbox_archive::hash_file;
 /// The driver is this worker's own executable, so the two are always one build.
@@ -156,6 +157,7 @@ impl ClaudeDockerHostProfile {
             conversation_outbox: None,
             codex: None,
             observations: None,
+            transcript_bound: None,
         };
         profile.verify_installation()?;
         // Channels die with their node process; drop what a dead one left.
@@ -472,34 +474,29 @@ fn codex_launch(
         login_lease,
     })
 }
-/// Registers the launched attempt's transcript with the node's observation store.
+/// Registers the launched attempt's transcript with the node's observation store;
+/// `account` is the account reference of the launch's login lease of a provider.
 /// Nothing here can fail the launch: an attempt without a source runs unobserved.
-fn observe(
-    profile: &ClaudeDockerHostProfile,
-    scope: &LaunchExecutionScope,
+pub fn observe(
+    observations: Option<&aq_observation_store::node::Observations>,
     offer: &aq_session_protocol::ProfiledOffer,
+    account: impl Fn(&str) -> Option<String>,
     transcript: PathBuf,
 ) -> Option<aq_observation_store::node::SourceHandle> {
     use aq_observation_store::node::SourceSpec;
-    let (observations, m) = (profile.observations.as_ref()?, &offer.manifest);
-    let attempt_id = offer.binding.attempt_id;
+    let (m, attempt_id) = (&offer.manifest, offer.binding.attempt_id);
     let harness = m.harness.harness.as_str();
-    let provider = if harness == "codex" {
-        "openai"
-    } else {
-        "anthropic"
-    };
+    let provider = ["anthropic", "openai"][usize::from(harness == "codex")];
     let registered = (|| {
-        let logins = provider_material(scope, m, provider);
-        let lease = &logins.first().context("lease")?.metadata().delivery.lease;
+        let account = account(provider).context("login lease absent")?;
         let binding = aq_admission::transport::lifecycle_binding(offer)?;
-        let account = lease.account_reference.as_str();
-        SourceSpec::of_launch(binding, &m.modules, harness, transcript, provider, account)?
-            .map(|spec| observations.register(spec))
-            .transpose()
+        let (store, modules) = (observations, &m.modules);
+        let spec = SourceSpec::of_launch(binding, modules, harness, transcript, provider, &account);
+        let registered = spec?.and_then(|spec| Some(store?.register(spec)));
+        registered.transpose()
     })();
     match &registered {
-        Ok(None) => tracing::info!(%attempt_id, "no observation catalog entry: not observed"),
+        Ok(None) => tracing::info!(%attempt_id, "no observation store or catalog entry"),
         Err(error) => tracing::warn!(%attempt_id, "transcript not observed: {error:#}"),
         Ok(Some(_)) => {}
     }
@@ -610,6 +607,7 @@ pub(super) fn bootstrap(
         max_workspace_bytes: profile.config.max_workspace_bytes,
         agent_channel,
         conversation_outbox: profile.conversation_outbox.clone(),
+        transcript_bound: profile.transcript_bound,
         harness: launch.harness,
         codex_runtime_bundle: launch.codex_runtime_bundle,
     };
@@ -713,7 +711,15 @@ pub(super) fn bootstrap(
             state.observer = Some(observer);
             state.pending_output = bootstrap_output;
             state.outcome = Outcome::Running;
-            state.observation = observe(profile, scope, &offer.offered.offer, transcript);
+            let account = |provider: &str| {
+                let lease = &provider_material(scope, m, provider)
+                    .first()?
+                    .metadata()
+                    .delivery;
+                Some(lease.lease.account_reference.as_str().to_owned())
+            };
+            let store = profile.observations.as_ref();
+            state.observation = observe(store, &offer.offered.offer, account, transcript);
             guard.disarm();
             return Ok(());
         }

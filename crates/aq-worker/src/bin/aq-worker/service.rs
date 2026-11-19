@@ -137,6 +137,8 @@ pub struct NativeSlotBackend {
     /// Each node's observation registrar. The docker-local executor registers each
     /// launched attempt's transcript with it.
     observations: std::collections::BTreeMap<Uuid, Observations>,
+    /// `[observations] transcript_max_bytes` and `transcript_max_files`.
+    transcript_bound: Option<aq_handoff_note::TranscriptBound>,
 }
 /// Starts a node's observation service: its store under `<state_root>/observations/<node id>`,
 /// the transport owner handshake and delivery. A failure leaves the node running unobserved.
@@ -199,6 +201,7 @@ impl NativeSlotBackend {
             native_active: Default::default(),
             sessions: Default::default(),
             observations: Default::default(),
+            transcript_bound: None,
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
@@ -591,6 +594,7 @@ impl SlotBackend for NativeSlotBackend {
                 .map(|root| root.join(ctx.node_id.to_string())),
         );
         executor.observations = self.observations.get(&ctx.node_id).cloned();
+        executor.transcript_bound = self.transcript_bound;
         let disposition = if let Some(session) = session {
             run_node_slot(
                 &worker,
@@ -1267,6 +1271,10 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     native_backend.conversation_root = Some(conversation_root.clone());
     native_backend.manual_pause = manual_pause;
     native_backend.native_active = native_active;
+    native_backend.transcript_bound = Some(aq_handoff_note::TranscriptBound {
+        max_bytes: config.observations.transcript_max_bytes,
+        max_files: config.observations.transcript_max_files,
+    });
     // One observation service per node, for the life of this process (its boot).
     let mut observation_nodes = Vec::new();
     for (_, view, _) in &node_views {

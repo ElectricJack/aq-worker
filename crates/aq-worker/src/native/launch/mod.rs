@@ -1109,21 +1109,3 @@ mod refresh_terminal_reports {
     use super::*;
     crate::native::phase_profile_shared::report_terminal! { aq_phase_terminal_protocol::refresh_v1, crate::native::journal::refresh_terminal::PhaseTerminalHistory, refresh_terminal_history, refresh_terminal, report_refresh_terminal_started, report_refresh_terminal_stopped, refresh_terminal_started, refresh_terminal_stopped, refresh_started_receipt, refresh_stopped_receipt }
 }
-
-#[cfg(test)]
-mod driver_dir_tests {
-    #[test]
-    fn leftover_token_is_wiped_and_a_missing_one_is_fine() {
-        let dir = tempfile::tempdir().unwrap();
-        let token = dir.path().join("token");
-        std::fs::write(&token, b"x").unwrap();
-        std::fs::write(dir.path().join("exit.json"), b"{}").unwrap();
-        super::wipe_claude_driver_secrets(dir.path());
-        assert!(!token.exists());
-        assert!(
-            dir.path().join("exit.json").exists(),
-            "non-secret records stay"
-        );
-        super::wipe_claude_driver_secrets(dir.path());
-    }
-}

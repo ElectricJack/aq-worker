@@ -70,6 +70,11 @@ pub struct ObservationConfig {
     pub request_timeout_ms: u64,
     /// How long a finished attempt's transcript may still be drained.
     pub finish_drain_ms: u64,
+    /// Disk space one attempt's transcript mount may take, and the directory entries it
+    /// may hold, before the node stops the attempt (the mount is outside the sandbox's
+    /// disk limit). They apply whether or not the attempt is observed.
+    pub transcript_max_bytes: u64,
+    pub transcript_max_files: u64,
 }
 impl Default for ObservationConfig {
     fn default() -> Self {
@@ -86,6 +91,8 @@ impl Default for ObservationConfig {
             retry_max_ms: 30_000,
             request_timeout_ms: 10_000,
             finish_drain_ms: 5_000,
+            transcript_max_bytes: 1024 * 1024 * 1024,
+            transcript_max_files: 10_000,
         }
     }
 }
@@ -276,8 +283,10 @@ impl ServiceConfig {
                 && (100..=600_000).contains(&o.retry_start_ms)
                 && (o.retry_start_ms..=3_600_000).contains(&o.retry_max_ms)
                 && (1_000..=60_000).contains(&o.request_timeout_ms)
-                && o.finish_drain_ms <= 600_000,
-            "invalid [observations]: store_file_bytes 1 MiB..=128 MiB > store_data_bytes 2 MiB..=16 MiB, store_cache_bytes 64 KiB..=8 MiB, tracked_identities >= 16, max_sources >= 1, resume_grace_ms <= 3600000, discovery_entries 1..=4096, poll_ms 10..=60000, retry_start_ms 100..=600000 <= retry_max_ms <= 3600000, request_timeout_ms 1000..=60000, finish_drain_ms <= 600000"
+                && o.finish_drain_ms <= 600_000
+                && o.transcript_max_bytes >= MIB
+                && (16..=1_000_000).contains(&o.transcript_max_files),
+            "invalid [observations]: transcript_max_bytes >= 1 MiB, transcript_max_files 16..=1000000, store_file_bytes 1 MiB..=128 MiB > store_data_bytes 2 MiB..=16 MiB, store_cache_bytes 64 KiB..=8 MiB, tracked_identities >= 16, max_sources >= 1, resume_grace_ms <= 3600000, discovery_entries 1..=4096, poll_ms 10..=60000, retry_start_ms 100..=600000 <= retry_max_ms <= 3600000, request_timeout_ms 1000..=60000, finish_drain_ms <= 600000"
         );
         if let Some(m) = &self.manual {
             ensure!(

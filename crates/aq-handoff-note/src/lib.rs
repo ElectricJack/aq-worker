@@ -95,18 +95,79 @@ fn last_assistant_text(stream: &[u8]) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
-/// The claim text for a stopped-and-handed-off attempt (at most 500 characters).
+/// Why the node driver stopped an unfinished attempt and saved its work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    Handoff(aq_protocol::HandoffReason),
+    /// The transcript mount passed the node's byte or entry limit.
+    TranscriptBytes,
+    TranscriptFiles,
+}
+impl From<aq_protocol::HandoffReason> for Stop {
+    fn from(reason: aq_protocol::HandoffReason) -> Self {
+        Self::Handoff(reason)
+    }
+}
+/// The reason a transcript-limit stop carries in its claim.
+pub const TRANSCRIPT_LIMIT: &str = "transcript_limit_exceeded";
+
+/// The node's limits on one attempt's transcript mount. The mount is outside the
+/// sandbox's disk limit, so the node driver stops an attempt that outgrows them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranscriptBound {
+    /// Disk space of all files under the mount.
+    pub max_bytes: u64,
+    /// Directory entries under the mount, of any kind.
+    pub max_files: u64,
+}
+impl TranscriptBound {
+    /// The limit `directory` is over, if any. The sandbox wrote the tree: a link is
+    /// one entry and is never followed, and the walk ends at the first entry past
+    /// `max_files`, so it reads at most `max_files + 1` entries.
+    pub fn exceeded(&self, directory: &Path) -> Option<Stop> {
+        use std::os::unix::fs::MetadataExt;
+        let (mut bytes, mut files, mut pending) = (0u64, 0u64, vec![directory.to_owned()]);
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(directory).into_iter().flatten().flatten() {
+                files += 1;
+                if files > self.max_files {
+                    return Some(Stop::TranscriptFiles);
+                }
+                // `DirEntry::metadata` does not follow a link.
+                let Ok(metadata) = entry.metadata() else {
+                    continue;
+                };
+                if metadata.is_dir() {
+                    pending.push(entry.path());
+                } else if metadata.is_file() {
+                    // Allocated blocks: a sparse file costs what it occupies.
+                    bytes = bytes.saturating_add(metadata.blocks().saturating_mul(512));
+                    if bytes > self.max_bytes {
+                        return Some(Stop::TranscriptBytes);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+/// The claim text for a stopped attempt whose work was saved (at most 500
+/// characters): a handoff, or a stop at the node's transcript limit.
 pub fn handoff_note(
-    reason: aq_protocol::HandoffReason,
+    reason: impl Into<Stop>,
     changed: &[String],
     stream: &[u8],
     token: &[u8],
 ) -> String {
     use aq_protocol::HandoffReason::*;
-    let words = match reason {
-        OwnerStop => "owner stop",
-        ServiceStop => "service stop",
-        Restart => "node restart",
+    let head = match reason.into() {
+        Stop::Handoff(OwnerStop) => "Handoff (owner stop)".to_owned(),
+        Stop::Handoff(ServiceStop) => "Handoff (service stop)".to_owned(),
+        Stop::Handoff(Restart) => "Handoff (node restart)".to_owned(),
+        Stop::TranscriptBytes => format!("Stopped ({TRANSCRIPT_LIMIT}: bytes)"),
+        Stop::TranscriptFiles => format!("Stopped ({TRANSCRIPT_LIMIT}: files)"),
     };
     let paths = if changed.is_empty() {
         "none".to_string()
@@ -120,7 +181,7 @@ pub fn handoff_note(
         }
     };
     let mut note = format!(
-        "Handoff ({words}): the agent was stopped before it finished; its work so far is saved. Changed: {paths}."
+        "{head}: the agent was stopped before it finished; its work so far is saved. Changed: {paths}."
     );
     if let Some(text) = last_assistant_text(stream).filter(|t| !holds_secret(t.as_bytes(), token)) {
         let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -223,6 +284,42 @@ mod tests {
         assert!(note.contains("(+5 more)"));
         assert!(note.contains("Last agent message: Working on the parser."));
         assert!(note.len() <= 500);
+    }
+    /// A directory past the byte limit, and one past the entry limit, each name
+    /// their own stop; a link out of the directory is one entry and is not followed.
+    #[test]
+    fn transcript_bound_names_the_limit_passed_and_follows_no_link() {
+        let (inside, outside) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let bound = TranscriptBound {
+            max_bytes: 64 * 1024,
+            max_files: 4,
+        };
+        std::fs::write(outside.path().join("big"), vec![1u8; 1 << 20]).unwrap();
+        for n in 0..8 {
+            std::fs::write(outside.path().join(format!("f{n}")), b"x").unwrap();
+        }
+        let nested = inside.path().join("2026/11");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::os::unix::fs::symlink(outside.path(), nested.join("out")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("big"), nested.join("big")).unwrap();
+        assert_eq!(
+            bound.exceeded(inside.path()),
+            None,
+            "four entries, no bytes"
+        );
+        assert_eq!(bound.exceeded(&inside.path().join("absent")), None);
+        std::fs::remove_file(nested.join("out")).unwrap();
+        let transcript = nested.join("session.jsonl");
+        std::fs::write(&transcript, vec![1u8; 32 * 1024]).unwrap();
+        assert_eq!(bound.exceeded(inside.path()), None);
+        std::fs::write(&transcript, vec![1u8; 256 * 1024]).unwrap();
+        assert_eq!(bound.exceeded(inside.path()), Some(Stop::TranscriptBytes));
+        std::fs::write(&transcript, b"x").unwrap();
+        std::fs::write(nested.join("another"), b"x").unwrap();
+        assert_eq!(bound.exceeded(inside.path()), Some(Stop::TranscriptFiles));
+        let note = handoff_note(Stop::TranscriptFiles, &["a.rs".to_owned()], &[], &[]);
+        assert!(note.starts_with("Stopped (transcript_limit_exceeded: files): the agent"));
+        assert!(note.contains("its work so far is saved. Changed: a.rs."));
     }
     #[test]
     fn handoff_note_never_carries_a_secret() {

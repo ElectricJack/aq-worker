@@ -125,6 +125,7 @@ pub struct ClaudeDockerExecutor {
     issuance: aq_agent_channel::NodeLink,
     /// The node's observation store, set by the service before the preflight.
     pub observations: Option<aq_observation_store::node::Observations>,
+    pub transcript_bound: Option<aq_handoff_note::TranscriptBound>,
 }
 impl ClaudeDockerExecutor {
     pub fn configured(worker: &WorkerConfig) -> Result<Self> {
@@ -153,6 +154,7 @@ impl ClaudeDockerExecutor {
             result_root: None,
             conversation_outbox: None,
             observations: None,
+            transcript_bound: None,
             issuance: aq_agent_channel::NodeLink::new(
                 &worker.server_url,
                 &worker.credential,
@@ -216,6 +218,7 @@ impl NativeExecutor for ClaudeDockerExecutor {
             })?;
         }
         profile.observations = self.observations.clone();
+        profile.transcript_bound = self.transcript_bound;
         self.profile = Some(Arc::new(profile));
         self.pins = Some(pins);
         self.codex_pins = codex_pins;
