@@ -137,11 +137,21 @@ pub struct ManualConfig {
 pub struct ManualCodexConfig {
     /// Executable inside the fixed sandbox template.
     pub executable: PathBuf,
-    /// Owner-only ChatGPT subscription auth document; never a host config directory.
-    pub auth_file: PathBuf,
+    /// Retired: a session leases its Codex login from the server's login store and no
+    /// login file is read on the node. Accepted so a `service.toml` written before that
+    /// still loads on a machine updated remotely; never read, never written.
+    #[serde(default, skip_serializing, rename = "auth_file")]
+    pub retired_auth_file: Option<PathBuf>,
+    /// How often a running session's login is compared with the server's login store
+    /// (a refreshed login is written back, a newer stored one installed).
+    #[serde(default = "default_login_check_secs")]
+    pub login_check_secs: u64,
     /// Optional pinned Codex helpers copied into this manual session only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_bundle: Option<PathBuf>,
+}
+fn default_login_check_secs() -> u64 {
+    60
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -284,9 +294,12 @@ impl ServiceConfig {
             if let Some(c) = &m.codex {
                 ensure!(
                     c.executable.is_absolute()
-                        && c.auth_file.is_absolute()
                         && c.runtime_bundle.as_ref().is_none_or(|p| p.is_absolute()),
                     "manual Codex paths must be absolute"
+                );
+                ensure!(
+                    (1..=86_400).contains(&c.login_check_secs),
+                    "manual.codex.login_check_secs must be 1..=86400"
                 );
             }
             ensure!(

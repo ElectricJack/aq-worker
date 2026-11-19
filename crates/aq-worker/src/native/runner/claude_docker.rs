@@ -48,10 +48,6 @@ pub struct CodexDockerSettings {
     /// `[manual.codex] runtime_bundle` names). Codex's shell tool needs it.
     #[serde(default)]
     pub runtime_bundle: Option<PathBuf>,
-    /// Refuse a Codex launch whose leased login was last refreshed longer ago than
-    /// this (seconds). Absent: no limit.
-    #[serde(default)]
-    pub max_login_age_secs: Option<u64>,
 }
 
 /// The result pins of one selected docker-local result adapter definition.
@@ -212,7 +208,6 @@ impl NativeExecutor for ClaudeDockerExecutor {
             profile = profile.with_codex(CodexDockerHost {
                 executable: codex.executable.clone(),
                 runtime_bundle: codex.runtime_bundle.clone(),
-                max_login_age_secs: codex.max_login_age_secs,
             })?;
         }
         profile.observations = self.observations.clone();

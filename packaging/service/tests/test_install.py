@@ -451,10 +451,10 @@ def test_hosted_install_writes_manual_sessions_with_their_claude_token_file(tmp_
                 "podman_executable": "/usr/bin/podman",
                 "claude_token_file": "/private/claude-token", "source_slugs": {"repo": "owner/repo"},
             }
-            assert "Use Push logins" not in result.stdout
+            assert "Use Push Claude token" not in result.stdout
         else:
             assert written == {"slots": 1}
-            assert "Use Push logins" in result.stdout
+            assert "Use Push Claude token" in result.stdout
 
 
 def test_hosted_install_keeps_an_existing_manual_section_and_enrollment(tmp_path):
@@ -497,38 +497,28 @@ def login_profile(tmp_path):
     return package, config
 
 
-def test_server_logins_enable_manual_both_providers_and_remain_private(tmp_path):
+def test_server_login_enables_manual_sessions_and_remains_private(tmp_path):
     helper = login_helper()
     package, config = login_profile(tmp_path)
-    codex = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "test-access", "refresh_token": "test-refresh", "id_token": "test-id", "account_id": "test-account"}})
-    logins = [{"provider": "anthropic", "material": "synthetic-claude"}, {"provider": "openai", "material": codex}]
+    logins = [{"provider": "anthropic", "material": "synthetic-claude"}]
     assert helper.apply_logins(package, config, logins)
     parsed = helper.read_toml(config / "service.toml")
     assert parsed["manual"]["source_slugs"] == {"repo": "owner/repo"}
     assert "measurement" not in parsed
     assert parsed["manual"]["claude_token_file"] == str(config / "provider-auth/claude-token")
-    assert parsed["manual"]["codex"]["auth_file"] == str(config / "provider-auth/codex-auth.json")
+    # Codex is installed without a login file: its login is leased from the server.
+    assert parsed["manual"]["codex"] == {"executable": "/opt/aq/bin/codex", "runtime_bundle": str(package / "codex-bundle")}
     for path in (config / "provider-auth").iterdir():
         assert path.stat().st_mode & 0o777 == 0o600
     assert (config / "provider-auth").stat().st_mode & 0o777 == 0o700
     assert not helper.apply_logins(package, config, logins)
 
 
-def test_codex_only_then_claude_requests_capability_restart(tmp_path):
-    helper = login_helper(); package, config = login_profile(tmp_path)
-    auth = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "a", "refresh_token": "r", "id_token": "i", "account_id": "acct"}})
-    assert helper.apply_logins(package, config, [{"provider": "openai", "material": auth}])
-    assert not (config / "provider-auth/claude-token").exists()
-    # The worker requires the key; it offers Claude only once the file exists.
-    token = str(config / "provider-auth/claude-token")
-    assert helper.read_toml(config / "service.toml")["manual"]["claude_token_file"] == token
-    assert helper.apply_logins(package, config, [{"provider": "anthropic", "material": "synthetic"}])
-    assert helper.read_toml(config / "service.toml")["manual"]["claude_token_file"] == token
-
-
 def test_invalid_delivery_writes_no_secrets(tmp_path):
     helper = login_helper(); package, config = login_profile(tmp_path)
-    for logins in ([], [{"provider": "anthropic", "material": "bad\nvalue"}], [{"provider": "openai", "material": '{"OPENAI_API_KEY":"test"}'}]):
+    codex = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "a", "refresh_token": "r", "id_token": "i", "account_id": "acct"}})
+    # A Codex login is never installed on a machine, with or without the Claude token.
+    for logins in ([], [{"provider": "anthropic", "material": "bad\nvalue"}], [{"provider": "openai", "material": codex}], [{"provider": "anthropic", "material": "synthetic"}, {"provider": "openai", "material": codex}]):
         with pytest.raises(ValueError):
             helper.apply_logins(package, config, logins)
         assert not (config / "provider-auth").exists()
