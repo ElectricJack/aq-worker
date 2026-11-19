@@ -213,7 +213,7 @@ pub async fn salvage_interrupted(
             Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
         }
     };
-    let git = GitClient::new(&config.git_socket, &config.git_root)?;
+    let git = config.git_client(worker)?;
     let transfer = crate::transfer_client::TransferClient::from_config(worker, 1)?;
     let client = NativeClient::from_config(worker)?;
     check_root(config, &held)?;
@@ -566,6 +566,7 @@ async fn replay(
                 .as_ref()
                 .context("result actual stop absent")?
                 .stopped_receipt,
+            history.source.pushed_headers(),
         )
         .await?;
     retain(Receipt::Result(intent.digest.clone(), receipt))?;

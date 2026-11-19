@@ -50,9 +50,7 @@ pub(super) fn validate(
     );
     let source = a.source.as_ref().context("prepare source absent")?;
     ensure!(
-        source.verified.is_some()
-            && source.complete()
-            && p.prepared_at_ns < source.preparation.deadline_ns(),
+        source.ready() && p.prepared_at_ns < source.preparation.deadline_ns(),
         "prepared source history absent/expired"
     );
     let expected = receipts(a)?;

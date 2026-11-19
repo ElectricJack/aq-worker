@@ -6,15 +6,17 @@
 //!
 //! The sandbox never sees any of this: it gets the worktree's tree without
 //! `.git` (`aq_sandbox_archive::workspace::collect_tree`). Only the node, outside
-//! the sandbox, fetches and pushes, with a credential scoped to one attempt.
+//! the sandbox, fetches and pushes, with the node credential and the attempt
+//! named on every request; the server applies that attempt's grant.
 //!
 //! Slots of one node share the repository. Fetch, worktree add/remove and gc
 //! take the repository's lock; work inside one worktree needs none.
-//! Every call blocks (it runs git); async callers use `spawn_blocking`.
+//! [`NodeGit`] blocks (it runs git); [`Node`] is its async face.
 pub mod transport;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use fs2::FileExt as _;
+use serde::{Deserialize, Serialize};
 use std::{
     io::Read as _,
     os::unix::process::CommandExt as _,
@@ -28,89 +30,100 @@ use uuid::Uuid;
 /// Where the fetched heads live in the local repository.
 const TRACKING: &str = "refs/remotes/central/";
 
-/// The git part of an attempt's offer (aq-admission `startup::GitGrant`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// An attempt's git grant, `GET /v1/git/grants/<attempt>` (spec 0016 §5.2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Grant {
+    /// `/v1/git/<repository_id>` on the worker API origin.
+    pub endpoint: String,
     pub repository_id: Uuid,
-    /// The commit a new task starts from.
+    /// The commit a task without a branch starts from (the retained main head).
     pub base: String,
     /// `refs/heads/aq/<task-id>`, the only ref the attempt pushes.
     pub task_ref: String,
-    /// The task ref's head in central aq-git at offer time; `None`: no branch yet.
+    /// The task ref's head in central aq-git at offer time. Present: the
+    /// attempt starts from the task branch; absent: from `base`.
     pub lease: Option<String>,
-    /// The followed default branch, fetched read-only.
-    pub main_ref: String,
+    /// From the task's latest `returned` delivery decision.
+    pub update_from_main: bool,
 }
 
 impl Grant {
-    /// Every value later reaches git's argv: refuse anything that is not a
-    /// full object id or a plain branch name.
+    /// Every value later reaches git's argv or a path: refuse anything that is
+    /// not a full object id or a plain task branch.
     pub fn validate(&self) -> Result<()> {
         let oid = |v: &str| v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit());
-        let branch = |v: &str| {
-            v.starts_with("refs/heads/")
-                && !v.contains("..")
-                && !v.ends_with('/')
-                && !v.ends_with(".lock")
-                && !v
-                    .bytes()
-                    .any(|b| b <= b' ' || b == 127 || b"~^:?*[\\@".contains(&b))
-        };
+        let task = self
+            .task_ref
+            .strip_prefix("refs/heads/aq/")
+            .unwrap_or_default();
         ensure!(
-            oid(&self.base)
+            self.endpoint == format!("/v1/git/{}", self.repository_id)
+                && oid(&self.base)
                 && self.lease.as_deref().is_none_or(oid)
-                && branch(&self.main_ref)
-                && branch(&self.task_ref)
-                && self.task_ref.starts_with("refs/heads/aq/"),
+                && !task.is_empty()
+                && task
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+                && !task.starts_with('.')
+                && !task.contains("..")
+                && !task.ends_with(".lock"),
             "git grant shape"
         );
         Ok(())
     }
-    fn tracking(r: &str) -> String {
-        format!("{TRACKING}{}", r.trim_start_matches("refs/heads/"))
+    fn branch(&self) -> &str {
+        self.task_ref.trim_start_matches("refs/heads/")
     }
 }
 
-/// How an attempt starts.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Start {
-    /// A new task: from the grant's base.
-    #[default]
-    Base,
-    /// A task a playbook returned (`work.return`): from its task branch head.
-    TaskBranch,
+/// The node's git configuration (the worker service sets it per slot).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    /// Node-wide, shared by every slot: `<root>/<repository-id>.git`.
+    pub repositories: PathBuf,
+    pub git: PathBuf,
+    /// Author and committer of the node's commits.
+    pub author_name: String,
+    pub author_email: String,
+    /// Each git command and the grant request are stopped after this.
+    pub command_timeout_ms: u64,
+    /// Push attempts in total, all under the same lease.
+    pub push_attempts: u32,
+    pub retry_delay_ms: u64,
 }
 
 /// Limits come from the node's configuration, never constants here.
 #[derive(Clone, Debug)]
 pub struct Limits {
-    /// Each git command is killed after this.
     pub command_timeout: Duration,
-    /// Push attempts in total, all under the same lease.
     pub push_attempts: u32,
     pub retry_delay: Duration,
 }
 
-/// The node's git state: `root/repositories/<id>.git` per project and
-/// `root/worktrees/<attempt>` per attempt.
+/// The node's git state: one repository per project under `repositories`.
+/// Worktrees live wherever the caller puts them.
 pub struct NodeGit {
     git: PathBuf,
-    root: PathBuf,
-    /// Author and committer of the node's commits.
+    repositories: PathBuf,
     identity: (String, String),
     limits: Limits,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Synced {
     /// The node had no repository for the project and cloned it.
     Cloned,
     Fetched,
 }
 
-/// One attempt's worktree. Removed by [`NodeGit::end`].
-#[derive(Debug)]
+/// One attempt's worktree. Its record is kept beside it (`<path>.grant.json`,
+/// outside the tree the sandbox gets), so a later boot can finish or end it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Worktree {
+    pub attempt: Uuid,
     pub repository: PathBuf,
     pub path: PathBuf,
     pub grant: Grant,
@@ -123,7 +136,7 @@ pub struct Worktree {
 pub enum Pushed {
     /// The task ref is at `commit` in central aq-git.
     Pushed { task_ref: String, commit: String },
-    /// The task ref is no longer at the lease: report `push_conflict`.
+    /// The task ref is no longer at the lease: `push_conflict`.
     Conflict,
 }
 
@@ -134,27 +147,103 @@ struct Output {
     stderr: String,
 }
 
+fn record(path: &Path) -> PathBuf {
+    path.with_extension("grant.json")
+}
+
+/// [`NodeGit`] with the node's [`Remote`], for async callers.
+pub struct Node {
+    git: std::sync::Arc<NodeGit>,
+    remote: Remote,
+}
+
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Node { .. }")
+    }
+}
+
+impl Config {
+    pub fn node(&self, remote: Remote) -> Node {
+        let limits = Limits {
+            command_timeout: Duration::from_millis(self.command_timeout_ms),
+            push_attempts: self.push_attempts,
+            retry_delay: Duration::from_millis(self.retry_delay_ms),
+        };
+        let identity = (self.author_name.clone(), self.author_email.clone());
+        let git = NodeGit::new(
+            self.git.clone(),
+            self.repositories.clone(),
+            identity,
+            limits,
+        );
+        Node {
+            git: git.into(),
+            remote,
+        }
+    }
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .context("node git worker failed")?
+}
+
+impl Node {
+    /// Reads the attempt's grant and adds its worktree at `path`.
+    pub async fn start(&self, attempt: Uuid, path: PathBuf) -> Result<Worktree> {
+        let grant = self
+            .remote
+            .grant(attempt, self.git.limits.command_timeout)
+            .await?;
+        let (git, remote) = (self.git.clone(), self.remote.clone());
+        blocking(move || git.start(&remote, &grant, attempt, &path)).await
+    }
+    /// Commits and pushes the attempt's worktree at `path` ([`NodeGit::finish`]).
+    pub async fn finish(&self, path: PathBuf, message: String) -> Result<(Worktree, Pushed)> {
+        let (git, remote) = (self.git.clone(), self.remote.clone());
+        blocking(move || {
+            let worktree = NodeGit::open(&path)?;
+            let pushed = git.finish(&remote, &worktree, &message)?;
+            Ok((worktree, pushed))
+        })
+        .await
+    }
+    /// Removes the attempt's worktree at `path`, if it is still there.
+    pub async fn end(&self, path: PathBuf) -> Result<()> {
+        let git = self.git.clone();
+        blocking(move || match record(&path).exists() {
+            true => git.end(&NodeGit::open(&path)?),
+            false => Ok(()),
+        })
+        .await
+    }
+}
+
 impl NodeGit {
-    pub fn new(git: PathBuf, root: PathBuf, identity: (String, String), limits: Limits) -> Self {
+    pub fn new(
+        git: PathBuf,
+        repositories: PathBuf,
+        identity: (String, String),
+        limits: Limits,
+    ) -> Self {
         Self {
             git,
-            root,
+            repositories,
             identity,
             limits,
         }
     }
 
     pub fn repository(&self, id: Uuid) -> PathBuf {
-        self.root.join("repositories").join(format!("{id}.git"))
+        self.repositories.join(format!("{id}.git"))
     }
 
-    pub fn worktree_path(&self, attempt: Uuid) -> PathBuf {
-        self.root.join("worktrees").join(attempt.to_string())
-    }
-
-    /// The project's repository is current: cloned the first time, fetched after.
-    /// Fetches the main ref and, when the task branch exists, the task ref.
-    fn sync(&self, remote: &Remote, grant: &Grant, repo: &Path) -> Result<Synced> {
+    /// The project's repository is current: cloned the first time, fetched
+    /// (and pruned) after. Every branch of central aq-git is mirrored under
+    /// `refs/remotes/central/`; the grant's commits must be among them.
+    fn sync(&self, remote: &Remote, grant: &Grant, attempt: Uuid, repo: &Path) -> Result<Synced> {
         let synced = if repo.join("HEAD").exists() {
             Synced::Fetched
         } else {
@@ -164,72 +253,74 @@ impl NodeGit {
             self.ok(repo, &["init", "--bare", "--quiet"], None)?;
             Synced::Cloned
         };
-        let url = remote.url(grant.repository_id);
-        let main = format!("+{}:{}", grant.main_ref, Grant::tracking(&grant.main_ref));
-        let task = format!("+{}:{}", grant.task_ref, Grant::tracking(&grant.task_ref));
-        let mut args = vec![
+        let url = remote.url(grant);
+        let refspec = format!("+refs/heads/*:{TRACKING}*");
+        let fetch = [
             "fetch",
             "--quiet",
+            "--prune",
             "--no-tags",
             "--no-write-fetch-head",
-            &url,
-            &main,
         ];
-        if grant.lease.is_some() {
-            args.push(&task);
-        }
-        self.ok(repo, &args, Some(remote))?;
+        let args: Vec<&str> = fetch.into_iter().chain([url.as_str(), &refspec]).collect();
+        self.ok(repo, &args, Some((remote, attempt)))?;
         for commit in std::iter::once(&grant.base).chain(&grant.lease) {
-            self.ok(
-                repo,
-                &["cat-file", "-e", &format!("{commit}^{{commit}}")],
-                None,
-            )
-            .context("the grant's commit is not in central aq-git")?;
+            let object = format!("{commit}^{{commit}}");
+            self.ok(repo, &["cat-file", "-e", &object], None)
+                .context("the grant's commit is not in central aq-git")?;
         }
         Ok(synced)
     }
 
-    /// Syncs the project's repository and adds the attempt's worktree on the
-    /// task branch, from the base or (a returned task) the task branch head.
+    /// Syncs the project's repository and adds the attempt's worktree at
+    /// `path` on the task branch: from the task branch head when the grant has
+    /// a lease (a returned task), else from the base.
     pub fn start(
         &self,
         remote: &Remote,
         grant: &Grant,
         attempt: Uuid,
-        start: Start,
+        path: &Path,
     ) -> Result<Worktree> {
         grant.validate()?;
+        ensure!(path.is_absolute(), "worktree path must be absolute");
         let repo = self.repository(grant.repository_id);
-        let path = self.worktree_path(attempt);
         let _lock = self.lock(grant.repository_id)?;
-        let synced = self.sync(remote, grant, &repo)?;
-        let from = match start {
-            Start::Base => grant.base.clone(),
-            Start::TaskBranch => grant
-                .lease
-                .clone()
-                .context("a returned task has no task branch")?,
-        };
+        let synced = self.sync(remote, grant, attempt, &repo)?;
+        let from = grant.lease.clone().unwrap_or_else(|| grant.base.clone());
         // A worktree an earlier boot left behind for this attempt is replaced.
-        self.remove_worktree(&repo, &path)?;
+        self.remove_worktree(&repo, path)?;
         std::fs::create_dir_all(path.parent().context("worktree parent")?)?;
-        let branch = grant.task_ref.trim_start_matches("refs/heads/");
         let target = path.to_str().context("worktree path UTF-8")?;
-        self.ok(
-            &repo,
-            &[
-                "worktree", "add", "--quiet", "--force", "-B", branch, target, &from,
-            ],
-            None,
-        )?;
-        Ok(Worktree {
+        let add = [
+            "worktree",
+            "add",
+            "--quiet",
+            "--force",
+            "-B",
+            grant.branch(),
+            target,
+            &from,
+        ];
+        self.ok(&repo, &add, None)?;
+        let worktree = Worktree {
+            attempt,
             repository: repo,
-            path,
+            path: path.to_owned(),
             grant: grant.clone(),
             start: from,
             synced,
-        })
+        };
+        std::fs::write(record(path), serde_json::to_vec(&worktree)?)?;
+        Ok(worktree)
+    }
+
+    /// The worktree [`NodeGit::start`] made at `path`.
+    pub fn open(path: &Path) -> Result<Worktree> {
+        let worktree: Worktree = serde_json::from_slice(&std::fs::read(record(path))?)?;
+        worktree.grant.validate()?;
+        ensure!(worktree.path == path, "worktree record moved");
+        Ok(worktree)
     }
 
     /// After the stopped-writer proof and the copy-back (whose secret scan runs
@@ -254,7 +345,7 @@ impl NodeGit {
             grant.task_ref,
             grant.lease.as_deref().unwrap_or_default()
         );
-        let url = remote.url(grant.repository_id);
+        let url = remote.url(grant);
         let refspec = format!("{commit}:{}", grant.task_ref);
         let args = ["push", "--porcelain", "--no-verify", &lease, &url, &refspec];
         let mut last = String::new();
@@ -262,15 +353,15 @@ impl NodeGit {
             if n > 0 {
                 std::thread::sleep(self.limits.retry_delay);
             }
-            let out = self.run(dir, &args, Some(remote))?;
+            let out = self.run(dir, &args, Some((remote, worktree.attempt)))?;
             // Porcelain: `<flag>\t<from>:<to>\t<summary>`; `=` is "up to date",
             // which is what a retry sees after a push whose reply was lost.
-            let line = out.stdout.lines().find(|l| {
+            let ours = |l: &&str| {
                 l.split('\t')
                     .nth(1)
                     .is_some_and(|r| r.ends_with(&grant.task_ref))
-            });
-            match line {
+            };
+            match out.stdout.lines().find(ours) {
                 Some(l) if out.ok && !l.starts_with('!') => {
                     return Ok(Pushed::Pushed {
                         task_ref: grant.task_ref.clone(),
@@ -291,29 +382,23 @@ impl NodeGit {
         )
     }
 
-    /// Removes the attempt's worktree, its local branch and fetched task ref,
-    /// then lets git pack and prune the shared repository.
+    /// Removes the attempt's worktree, its record and its local branch, then
+    /// lets git pack and prune the shared repository.
     pub fn end(&self, worktree: &Worktree) -> Result<()> {
         let _lock = self.lock(worktree.grant.repository_id)?;
         let repo = &worktree.repository;
         self.remove_worktree(repo, &worktree.path)?;
-        let branch = &worktree.grant.task_ref;
-        for r in [branch.clone(), Grant::tracking(branch)] {
-            self.ok(repo, &["update-ref", "-d", &r], None)?;
-        }
+        self.ok(repo, &["update-ref", "-d", &worktree.grant.task_ref], None)?;
         self.ok(repo, &["gc", "--auto", "--quiet"], None)?;
+        std::fs::remove_file(record(&worktree.path))?;
         Ok(())
     }
 
     fn remove_worktree(&self, repo: &Path, path: &Path) -> Result<()> {
         if path.exists() {
             let target = path.to_str().context("worktree path UTF-8")?;
-            let out = self.run(
-                repo,
-                &["worktree", "remove", "--force", "--force", target],
-                None,
-            )?;
-            if !out.ok {
+            let remove = ["worktree", "remove", "--force", "--force", target];
+            if !self.run(repo, &remove, None)?.ok {
                 std::fs::remove_dir_all(path)?;
             }
         }
@@ -322,18 +407,17 @@ impl NodeGit {
     }
 
     fn lock(&self, id: Uuid) -> Result<std::fs::File> {
-        let dir = self.root.join("repositories");
-        std::fs::create_dir_all(&dir)?;
-        let file = std::fs::File::create(dir.join(format!("{id}.lock")))?;
+        std::fs::create_dir_all(&self.repositories)?;
+        let file = std::fs::File::create(self.repositories.join(format!("{id}.lock")))?;
         file.lock_exclusive()?;
         Ok(file)
     }
 
-    fn ok(&self, dir: &Path, args: &[&str], remote: Option<&Remote>) -> Result<String> {
+    fn ok(&self, dir: &Path, args: &[&str], remote: Option<(&Remote, Uuid)>) -> Result<String> {
         let out = self.run(dir, args, remote)?;
         if !out.ok {
             let said = format!("{}{}", out.stdout, out.stderr);
-            let said = remote.map_or(said.clone(), |r| r.redact(&said));
+            let said = remote.map_or(said.clone(), |(r, _)| r.redact(&said));
             bail!("git {} failed ({:?}): {}", args[0], out.code, said.trim());
         }
         Ok(out.stdout.trim().to_owned())
@@ -341,7 +425,7 @@ impl NodeGit {
 
     /// Runs the node's git with no inherited configuration, prompts or hooks,
     /// killed with its process group after the command timeout.
-    fn run(&self, dir: &Path, args: &[&str], remote: Option<&Remote>) -> Result<Output> {
+    fn run(&self, dir: &Path, args: &[&str], remote: Option<(&Remote, Uuid)>) -> Result<Output> {
         let mut command = Command::new(&self.git);
         command.arg("-C").arg(dir);
         for setting in [
@@ -373,8 +457,8 @@ impl NodeGit {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0);
-        if let Some(remote) = remote {
-            remote.apply(&mut command);
+        if let Some((remote, attempt)) = remote {
+            remote.apply(&mut command, attempt);
         }
         let mut child = command.spawn().context("git could not start")?;
         let drain = |mut pipe: Box<dyn std::io::Read + Send>| {
@@ -415,5 +499,7 @@ impl NodeGit {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 #[cfg(test)]
 mod tests;

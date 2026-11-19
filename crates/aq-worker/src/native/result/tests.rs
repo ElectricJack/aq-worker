@@ -354,3 +354,17 @@ fn result_namespace_is_owned_and_allocates_disjoint_attempt_children() {
         .unwrap();
     assert!(ns.attempt(&path, Uuid::from_u128(3)).is_err());
 }
+/// Spec 0016 §5.3 / S6: a pushed result names its task ref and head, not a retention receipt.
+#[cfg(feature = "delivery_playbook")]
+#[test]
+fn a_pushed_result_names_its_ref_and_head_instead_of_a_retention_receipt() {
+    let mut h = history();
+    assert!(h.source.receipt_ids().is_err() && h.source.pushed_headers().is_empty());
+    h.source.pushed = Some(("refs/heads/aq/t".into(), "b".repeat(40)));
+    assert!(h.source.receipt_ids().unwrap().is_empty());
+    let named = [
+        ("AQ-Pushed-Ref", "refs/heads/aq/t".into()),
+        ("AQ-Pushed-Head", "b".repeat(40)),
+    ];
+    assert_eq!(h.source.pushed_headers(), named);
+}

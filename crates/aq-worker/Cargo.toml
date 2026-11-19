@@ -60,6 +60,7 @@ async-trait = "0.1"
 aq-node-git = { path = "../aq-node-git", optional = true }
 
 [dev-dependencies]
+aq-node-git = { path = "../aq-node-git", features = ["test-support"] }
 # Lets plain `cargo test` integration tests reach backend::conformance.
 aq-worker = { path = ".", features = ["backend-conformance", "synthetic-runtime"] }
 aq-responses-transport = { workspace = true, features = ["test-support"] }

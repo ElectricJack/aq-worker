@@ -11,8 +11,9 @@ src: agent
 ---
 
 ## Decided
-- Epic 0 W2/W3 git mechanics live in `crates/aq-node-git` (the aq-worker lib may not grow). aq-worker only forwards feature `delivery_playbook` to it until the vendored aq-admission carries the offer's `GitGrant` and the report's pushed ref (aq-server S5/S6).
-- Everything that depends on the server's `/v1/git` contract (URL, `Authorization: Bearer` node credential, `aq-git-token` header) is in `transport.rs`. Headers reach git only as `GIT_CONFIG_COUNT`/`http.extraHeader` environment, never argv.
+- Epic 0 W2/W3 git mechanics live in `crates/aq-node-git` (the aq-worker lib may not grow); aq-worker has only glue under feature `delivery_playbook`, selected at runtime by `NativeConfig.node_git` (absent: the bundle path, which is what every existing test still runs with `--all-features`).
+- The grant is plain JSON from `GET /v1/git/grants/<attempt>` (aq-server #198), not an aq-admission type, so no vendored protocol change. Everything that depends on the server contract (grant route, `/v1/git/<repo>`, `Authorization: Bearer` node credential, `AQ-Attempt`, S6 `AQ-Pushed-Ref`/`AQ-Pushed-Head`) is in `transport.rs`. Headers reach git only as `GIT_CONFIG_COUNT`/`http.extraHeader` environment, never argv.
+- The worktree lives under the slot's aq-git root (`<git root>/worktrees/<attempt>`) because result custody (`result/roots.rs`) requires the workspace inside that root; the repository itself is node-wide. A `<path>.grant.json` record beside the worktree lets salvage finish it after a restart.
 - A worktree keeps its `.git` file; `collect_tree`/`sync_tree` already skip `.git` at the root, so the sandbox still gets only the tree.
 
 ## Watch out
