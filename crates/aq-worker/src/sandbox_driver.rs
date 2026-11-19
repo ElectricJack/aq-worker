@@ -477,11 +477,8 @@ where
         )
         .await?;
     let image = config.docker_local.template_image(&config.template);
-    let socket = &config.docker_local.socket;
-    let archive = match cache {
-        Some(cache) => cache.work_archive(&workspace, socket, image).await?,
-        None => tree_archive("aq/work", &workspace)?,
-    };
+    let daemon = (config.docker_local.socket.as_path(), image);
+    let archive = aq_sandbox_archive::build_cache::work_archive(cache, &workspace, daemon).await?;
     backend.put_archive(sandbox, archive).await?;
     backend
         .deliver_private_material(sandbox, PrivateMaterial::new(token.to_vec()))
@@ -515,6 +512,7 @@ where
         }
         let mount = (config.docker_local.transcript.as_ref()).zip(config.transcript_bound);
         let over = || mount.and_then(|((directory, _), bound)| bound.exceeded(directory));
+        let over = || over().or_else(|| cache.and_then(|c| c.exceeded()));
         if let Some(reason) = read_handoff_marker(handoff).map(Into::into).or_else(over) {
             handoff_reason = Some(reason);
             // A stopped container still serves get_archive for the copy-back.

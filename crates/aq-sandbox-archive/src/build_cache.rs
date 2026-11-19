@@ -37,13 +37,14 @@ use uuid::Uuid;
 
 /// Paths the driver copies in or out, scans or mounts itself. A cache may not
 /// overlap them, so copy-back and the secret scan never see a cache.
-const RESERVED: [&str; 8] = [
+const RESERVED: [&str; 9] = [
     "/aq/work",
     "/aq/in",
     "/aq/out",
     "/aq/private",
     "/aq/channel",
     "/aq/home/projects",
+    "/aq/home/codex",
     "/aq/src",
     "/aq/warm",
 ];
@@ -55,8 +56,11 @@ pub struct Limits {
     /// Bound on one project's caches on this node. Above it the least recently
     /// used idle slots go first, then generations no slot overlays.
     pub max_bytes: u64,
-    /// An idle slot larger than this is deleted; its task starts from the generation again.
+    /// A slot may not grow past this: the attempt using it is stopped, and the
+    /// slot is deleted so the task starts from the generation again.
     pub slot_max_bytes: u64,
+    /// How often a running attempt's slot is measured against `slot_max_bytes`.
+    pub slot_watch_interval_ms: u64,
     /// An idle slot unused for this long is deleted.
     pub slot_max_age_ms: u64,
     /// A changed source tree starts a new generation only when the newest one is this old.
@@ -367,6 +371,7 @@ impl SlotCache {
             slot,
             generation,
             fresh,
+            watched: now.into(),
             _held: held,
         })
     }
@@ -452,7 +457,17 @@ pub struct Opened {
     slot: PathBuf,
     generation: Option<PathBuf>,
     fresh: bool,
+    /// When the slot was last measured (Unix ms).
+    watched: std::sync::atomic::AtomicU64,
     _held: fs::File,
+}
+impl Drop for Opened {
+    /// The driver may be killed before this runs; the next open's sweep does the same.
+    fn drop(&mut self) {
+        if disk_bytes(&self.slot) > self.cache.limits.slot_max_bytes {
+            remove(&self.slot);
+        }
+    }
 }
 
 /// What `stamp` decided for one upload of the workspace.
@@ -489,6 +504,20 @@ impl Opened {
                 }
             })
             .collect()
+    }
+
+    /// The disk watchdog for the slot, which the daemon's own disk samples do
+    /// not cover: the stop reason once the slot is larger than `slot_max_bytes`.
+    /// Measures once per watch interval.
+    pub fn exceeded(&self) -> Option<aq_handoff_note::Stop> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (now, limits) = (now_ms(), &self.cache.limits);
+        if now.saturating_sub(self.watched.load(Relaxed)) < limits.slot_watch_interval_ms {
+            return None;
+        }
+        self.watched.store(now, Relaxed);
+        let over = disk_bytes(&self.slot) > limits.slot_max_bytes;
+        over.then_some(aq_handoff_note::Stop::BuildCacheBytes)
     }
 
     /// The workspace upload for this attempt (`tree_archive` with the ledger's
@@ -611,6 +640,19 @@ impl Opened {
     }
 }
 
+/// The workspace upload: `Opened::work_archive` on `daemon` (its socket and the
+/// template image) with a cache, the plain `tree_archive` without one.
+pub async fn work_archive(
+    cache: Option<&Opened>,
+    entries: &[TreeEntry],
+    daemon: (&Path, Option<&str>),
+) -> Result<Vec<u8>> {
+    match cache {
+        Some(cache) => cache.work_archive(entries, daemon.0, daemon.1).await,
+        None => Ok(crate::tar::tree_archive("aq/work", entries)?),
+    }
+}
+
 /// A generation to build: a container of the attempt's template with the tree,
 /// no agent, no login and no channel. It seals the generation when it succeeds.
 pub struct WarmJob {
@@ -697,6 +739,7 @@ mod tests {
             "root": root,
             "limits": {
                 "max_bytes": max_bytes, "slot_max_bytes": 1 << 30, "slot_max_age_ms": 10_000,
+                "slot_watch_interval_ms": 0,
                 "refresh_interval_ms": 1000, "warm_timeout_ms": 500, "warm_cpu_millis": 2000,
                 "warm_memory_bytes": 1 << 30, "warm_pids": 64,
             },
@@ -916,12 +959,34 @@ mod tests {
     }
 
     #[test]
+    fn a_slot_past_its_size_limit_is_reported_and_deleted_when_the_attempt_lets_go() {
+        let (root, work) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let project = Uuid::new_v4();
+        let mut settings = serde_json::to_value(config(root.path(), project, u64::MAX)).unwrap();
+        settings["limits"]["slot_max_bytes"] = 200_000.into();
+        let config: BuildCacheConfig = serde_json::from_value(settings).unwrap();
+        let slot = config.slot(project, Uuid::new_v4(), "aa").unwrap();
+        let opened = slot.open(work.path()).unwrap();
+        fs::write(opened.slot.join("p0/upper/small"), vec![1u8; 4096]).unwrap();
+        assert_eq!(opened.exceeded(), None);
+        fs::write(opened.slot.join("p0/upper/big"), vec![1u8; 400_000]).unwrap();
+        assert_eq!(
+            opened.exceeded(),
+            Some(aq_handoff_note::Stop::BuildCacheBytes)
+        );
+        let slot = opened.slot.clone();
+        drop(opened);
+        assert!(!slot.exists());
+    }
+
+    #[test]
     fn settings_refuse_targets_the_driver_copies_scans_or_mounts() {
         let parse = |target: &str, env: &str| {
             serde_json::from_value::<BuildCacheConfig>(serde_json::json!({
                 "root": "/var/cache/aq",
                 "limits": {
                     "max_bytes": 1, "slot_max_bytes": 1, "slot_max_age_ms": 1, "refresh_interval_ms": 1,
+                    "slot_watch_interval_ms": 1,
                     "warm_timeout_ms": 1, "warm_cpu_millis": 1, "warm_memory_bytes": 1, "warm_pids": 1,
                 },
                 "projects": { Uuid::new_v4().to_string(): { "paths": [
@@ -940,6 +1005,8 @@ mod tests {
             "/aq/private/material",
             "/aq/channel",
             "/aq/home/projects/-aq-work",
+            "/aq/home/codex/sessions",
+            "/aq/home/codex/cargo",
             "/aq/home/.cargo/registry/cache",
             "/tmp",
             "tmp/x",

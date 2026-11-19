@@ -102,12 +102,16 @@ pub enum Stop {
     /// The transcript mount passed the node's byte or entry limit.
     TranscriptBytes,
     TranscriptFiles,
+    /// The attempt's build-cache slot passed the node's size limit (SBX20).
+    BuildCacheBytes,
 }
 impl From<aq_protocol::HandoffReason> for Stop {
     fn from(reason: aq_protocol::HandoffReason) -> Self {
         Self::Handoff(reason)
     }
 }
+/// The reason a stop at a disk limit carries in its claim (SBX20).
+pub const DISK_LIMIT: &str = "sandbox_disk_limit_exceeded";
 /// The reason a transcript-limit stop carries in its claim.
 pub const TRANSCRIPT_LIMIT: &str = "transcript_limit_exceeded";
 
@@ -168,6 +172,7 @@ pub fn handoff_note(
         Stop::Handoff(Restart) => "Handoff (node restart)".to_owned(),
         Stop::TranscriptBytes => format!("Stopped ({TRANSCRIPT_LIMIT}: bytes)"),
         Stop::TranscriptFiles => format!("Stopped ({TRANSCRIPT_LIMIT}: files)"),
+        Stop::BuildCacheBytes => format!("Stopped ({DISK_LIMIT}: build cache slot)"),
     };
     let paths = if changed.is_empty() {
         "none".to_string()
