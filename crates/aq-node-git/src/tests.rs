@@ -1,0 +1,248 @@
+//! Against the local double of the server's git routes (`test_support`).
+use crate::test_support::*;
+use crate::*;
+use std::sync::atomic::Ordering;
+
+#[test]
+fn first_attempt_clones_later_attempts_fetch_and_push_under_the_lease() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let node = node(&state.path().join("repositories"));
+    let remote = remote(&central);
+    let path = at(state.path(), 1);
+    let first = node
+        .start(
+            &remote,
+            &central.grant("t1", None),
+            Uuid::from_u128(1),
+            &path,
+        )
+        .unwrap();
+    assert_eq!(first.synced, Synced::Cloned);
+    assert_eq!(first.start, central.head("refs/heads/main").unwrap());
+    std::fs::write(path.join("b.txt"), "two\n").unwrap();
+    let Pushed::Pushed { task_ref, commit } = node.finish(&remote, &first, "attempt 1").unwrap()
+    else {
+        panic!("first push conflicted")
+    };
+    assert_eq!(task_ref, "refs/heads/aq/t1");
+    assert_eq!(central.head("refs/heads/aq/t1").as_ref(), Some(&commit));
+    node.end(&NodeGit::open(&path).unwrap()).unwrap();
+    assert!(!path.exists() && !record(&path).exists());
+
+    // The repository is kept: a marker in it survives the next attempt, which
+    // has a lease and so starts from the task branch head.
+    let repo = node.repository(Uuid::from_u128(7));
+    std::fs::write(repo.join("kept"), "").unwrap();
+    let returned = central.grant("t1", Some(commit.clone()));
+    let path = at(state.path(), 2);
+    let second = node
+        .start(&remote, &returned, Uuid::from_u128(2), &path)
+        .unwrap();
+    assert_eq!(second.synced, Synced::Fetched);
+    assert!(repo.join("kept").exists());
+    assert_eq!(second.start, commit);
+    assert_eq!(
+        std::fs::read_to_string(path.join("b.txt")).unwrap(),
+        "two\n"
+    );
+    std::fs::remove_file(path.join("a.txt")).unwrap();
+    let Pushed::Pushed { commit: next, .. } = node.finish(&remote, &second, "attempt 2").unwrap()
+    else {
+        panic!("second push conflicted")
+    };
+    assert_eq!(
+        git(&central.remote(), &["rev-parse", &format!("{next}^")]),
+        commit
+    );
+    node.end(&second).unwrap();
+
+    // Every request carried the node credential and named its attempt.
+    let seen = central.seen.lock().unwrap().clone();
+    let attempts = [Uuid::from_u128(1), Uuid::from_u128(2)];
+    assert!(
+        seen.iter().all(|l| attempts
+            .iter()
+            .any(|a| l.ends_with(&format!("Bearer node-secret {a}")))),
+        "{seen:?}"
+    );
+    assert!(seen.iter().any(|l| l.starts_with("POST git-upload-pack")));
+}
+
+#[test]
+fn two_slots_work_in_separate_worktrees_of_one_repository_concurrently() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let tasks: Vec<_> = (0..2)
+        .map(|n| {
+            let (root, grant) = (
+                state.path().to_owned(),
+                central.grant(&format!("s{n}"), None),
+            );
+            let remote = remote(&central);
+            std::thread::spawn(move || {
+                // Each slot is its own process with its own NodeGit on the node's repositories.
+                let node = node(&root.join("repositories"));
+                let path = at(&root.join(format!("slot{n}")), 10 + n);
+                let wt = node
+                    .start(&remote, &grant, Uuid::from_u128(10 + n), &path)
+                    .unwrap();
+                std::fs::write(path.join(format!("slot{n}.txt")), "x").unwrap();
+                let pushed = node.finish(&remote, &wt, "slot").unwrap();
+                (wt, pushed)
+            })
+        })
+        .collect();
+    let done: Vec<_> = tasks.into_iter().map(|t| t.join().unwrap()).collect();
+    assert_ne!(done[0].0.path, done[1].0.path);
+    assert_eq!(done[0].0.repository, done[1].0.repository);
+    let synced: Vec<_> = done.iter().map(|(w, _)| &w.synced).collect();
+    assert!(synced.contains(&&Synced::Cloned) && synced.contains(&&Synced::Fetched));
+    for (n, (_, pushed)) in done.iter().enumerate() {
+        let Pushed::Pushed { commit, .. } = pushed else {
+            panic!("conflict")
+        };
+        assert_eq!(
+            central.head(&format!("refs/heads/aq/s{n}")).as_ref(),
+            Some(commit)
+        );
+    }
+    let node = node(&state.path().join("repositories"));
+    for (wt, _) in &done {
+        node.end(wt).unwrap();
+        assert!(!wt.path.exists());
+    }
+    let repo = &done[0].0.repository;
+    assert_eq!(
+        git(repo, &["worktree", "list", "--porcelain"])
+            .matches("worktree ")
+            .count(),
+        1
+    );
+    assert_eq!(
+        git(repo, &["for-each-ref", "--format=%(refname)", "refs/heads"]),
+        ""
+    );
+    let repositories = std::fs::read_dir(state.path().join("repositories")).unwrap();
+    assert_eq!(
+        repositories
+            .filter(|e| e.as_ref().unwrap().path().is_dir())
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_push_whose_connection_dropped_is_retried_with_the_same_lease() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let (node, remote) = (node(state.path()), remote(&central));
+    let path = at(state.path(), 3);
+    let wt = node
+        .start(
+            &remote,
+            &central.grant("r1", None),
+            Uuid::from_u128(3),
+            &path,
+        )
+        .unwrap();
+    std::fs::write(path.join("c.txt"), "three\n").unwrap();
+    central.drop_push.store(true, Ordering::SeqCst);
+    let Pushed::Pushed { commit, .. } = node.finish(&remote, &wt, "retried").unwrap() else {
+        panic!("a retry after a lost reply must see its own push, not a conflict")
+    };
+    assert_eq!(central.head("refs/heads/aq/r1").as_ref(), Some(&commit));
+    // Two push runs; the second found the ref already at its commit.
+    assert_eq!(
+        central.requests("GET info/refs?service=git-receive-pack"),
+        2
+    );
+    node.end(&wt).unwrap();
+}
+
+#[test]
+fn a_task_ref_moved_since_the_offer_is_a_push_conflict_and_never_forced() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let (node, remote) = (node(state.path()), remote(&central));
+    let other = git(
+        &central.remote(),
+        &["commit-tree", "main^{tree}", "-p", "main", "-m", "other"],
+    );
+    git(
+        &central.remote(),
+        &["update-ref", "refs/heads/aq/c1", &other],
+    );
+    // No lease (the offer saw no branch), and a stale lease.
+    let stale = central.head("refs/heads/main");
+    for (n, lease) in [None, stale].into_iter().enumerate() {
+        let grant = central.grant("c1", lease);
+        let path = at(state.path(), 20 + n as u128);
+        let wt = node
+            .start(&remote, &grant, Uuid::from_u128(20 + n as u128), &path)
+            .unwrap();
+        std::fs::write(path.join("d.txt"), "four\n").unwrap();
+        assert_eq!(
+            node.finish(&remote, &wt, "conflict").unwrap(),
+            Pushed::Conflict
+        );
+        assert_eq!(central.head("refs/heads/aq/c1"), Some(other.clone()));
+        node.end(&wt).unwrap();
+    }
+}
+
+#[test]
+fn a_grant_that_is_not_a_task_branch_is_refused_before_git_runs() {
+    let central = Central::start();
+    let mut grant = central.grant("v1", None);
+    grant.validate().unwrap();
+    for bad in [
+        "refs/heads/main",
+        "refs/heads/aq/",
+        "refs/heads/aq/a/../b",
+        "refs/heads/aq/-x y",
+    ] {
+        grant.task_ref = bad.into();
+        assert!(grant.validate().is_err(), "{bad}");
+    }
+    let mut grant = central.grant("v1", None);
+    grant.endpoint = "/v1/git/other".into();
+    assert!(grant.validate().is_err());
+    let mut grant = central.grant("v1", None);
+    grant.base = "--upload-pack=touch".into();
+    assert!(grant.validate().is_err());
+}
+
+/// The async face: the grant comes from the server, and a later call (a later
+/// boot) finishes and ends the worktree from its record alone.
+#[test]
+fn a_node_reads_its_grant_then_finishes_and_ends_from_the_worktree_record() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let attempt = Uuid::from_u128(40);
+    central
+        .grants
+        .lock()
+        .unwrap()
+        .insert(attempt, central.grant("n1", None));
+    let node = config(state.path()).node(remote(&central));
+    let path = at(state.path(), 40);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let wt = runtime.block_on(node.start(attempt, path.clone())).unwrap();
+    assert_eq!(wt.grant.task_ref, "refs/heads/aq/n1");
+    std::fs::write(path.join("e.txt"), "five\n").unwrap();
+    let again = config(state.path()).node(remote(&central));
+    let (_, pushed) = runtime
+        .block_on(again.finish(path.clone(), "done".into()))
+        .unwrap();
+    let Pushed::Pushed { commit, .. } = pushed else {
+        panic!("conflict")
+    };
+    assert_eq!(central.head("refs/heads/aq/n1"), Some(commit));
+    runtime.block_on(again.end(path.clone())).unwrap();
+    assert!(!path.exists() && !record(&path).exists());
+    runtime.block_on(again.end(path.clone())).unwrap();
+    // No grant for another node's (or an unknown) attempt.
+    let refused = runtime.block_on(node.start(Uuid::from_u128(41), at(state.path(), 41)));
+    assert!(refused.unwrap_err().to_string().contains("404"));
+}

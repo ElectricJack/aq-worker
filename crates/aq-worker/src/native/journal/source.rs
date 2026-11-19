@@ -42,6 +42,10 @@ pub struct SourceDownload {
     pub range_bytes: u32,
     pub verified: Option<GitManifest>,
     pub operations: BTreeMap<String, PendingGitOperation>,
+    /// The attempt's worktree of the node's repository; no bundle (spec 0016 §5.3).
+    #[cfg(feature = "delivery_playbook")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<PathBuf>,
 }
 fn default_range_bytes() -> u32 {
     262144
@@ -59,6 +63,14 @@ impl SourceDownload {
             .as_ref()
             .context("source manifest absent")?
             .source)
+    }
+    /// The source is on disk: downloaded and verified, or a node worktree.
+    pub fn ready(&self) -> bool {
+        #[cfg(feature = "delivery_playbook")]
+        if self.worktree.is_some() {
+            return true;
+        }
+        self.verified.is_some() && self.complete()
     }
     pub fn complete(&self) -> bool {
         self.manifest.as_ref().is_some_and(|m| {
@@ -289,6 +301,8 @@ impl Journal {
             range_bytes: default_range_bytes(),
             verified: None,
             operations: BTreeMap::new(),
+            #[cfg(feature = "delivery_playbook")]
+            worktree: None,
         };
         let mut next = self.next()?;
         next.attempts.get_mut(&id).unwrap().source = Some(plan.clone());
@@ -312,6 +326,17 @@ impl Journal {
                 s.range_bytes = maximum_range;
                 s.manifest = Some(m)
             }
+            Ok(())
+        })
+    }
+    #[cfg(feature = "delivery_playbook")]
+    pub(crate) fn source_worktree(&mut self, id: Uuid, path: PathBuf) -> Result<()> {
+        self.source_update(id, |s| {
+            ensure!(
+                s.ranges == 0 && s.operations.is_empty(),
+                "source already downloading"
+            );
+            s.worktree = Some(path);
             Ok(())
         })
     }
