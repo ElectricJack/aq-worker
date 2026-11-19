@@ -1211,7 +1211,6 @@ mod tests {
             manual: None,
             shutdown_grace_ms: 10_000,
             retry: Default::default(),
-            observations: Default::default(),
         };
         Rig {
             _dir: dir,

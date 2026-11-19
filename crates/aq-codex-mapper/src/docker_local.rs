@@ -1,12 +1,14 @@
 //! Codex in the node's docker-local sandbox: the closed recipe (container
-//! confinement, so `--sandbox danger-full-access` inside the container) for the
-//! interactive TUI on the sandbox's terminal.
+//! confinement, so `--sandbox danger-full-access` inside the container), and the
+//! mapping of Codex's `exec --json` output to the result-local conclusion.
 //!
 //! In the docker-local sandbox the AQ result client is not available. The node
 //! driver submits the claim from the agent's final message, as it does for
-//! Claude: Codex's `notify` program leaves the finished turn's payload (with its
-//! last assistant message) in the stop marker the driver waits for. Pure: no
-//! filesystem, credential, process or authority operations.
+//! Claude. This module turns Codex's JSONL into the same final-result shape the
+//! driver already reads for Claude (a `result` event that carries the final
+//! message and whether the turn succeeded), so the proven-success rule and the
+//! conclusion line are the same for both harnesses. Pure: no filesystem,
+//! credential, process or authority operations.
 use super::*;
 
 /// The fixed tool `PATH` of the closed recipe (`map_mode`).
@@ -14,16 +16,11 @@ const RECIPE_PATH: &str = "shell_environment_policy.set.PATH=\"/usr/local/bin:/u
 
 /// Fixed in-sandbox runner for Codex. Public configuration, no secret. The
 /// ChatGPT login (`auth.json`) arrives as this attempt's private material and is
-/// installed in the attempt's own `CODEX_HOME`, where Codex can write a refreshed
-/// login over it. Nothing under `CODEX_HOME` is copied back with the work; the
-/// node reads that one file from the stopped sandbox and writes a refreshed login
-/// back to the server's login store (`aq_agent_channel::login`), so a refresh in
-/// one sandbox does not strand the login of the others. Codex runs with `--sandbox danger-full-access`: the
-/// container is the confinement. It runs as the interactive TUI on the
-/// container's terminal, with the startup context as its first prompt. With the
-/// node's pinned helper bundle (`/aq/in/codex-runtime`, the same one a hand-started
-/// Codex agent gets) Codex runs from a private copy beside its helpers; without
-/// them its shell tool does not start.
+/// installed read-only in the attempt's own `CODEX_HOME`: Codex cannot write a
+/// refreshed login over it, and nothing under `CODEX_HOME` ever leaves the
+/// sandbox (only `/aq/work` is copied back), so no attempt rotates the shared
+/// login of another. Codex runs with `--sandbox danger-full-access`: the
+/// container is the confinement.
 pub const CODEX_RUNNER: &str = r#"set -uo pipefail
 umask 077
 in=/aq/in; out=/aq/out; m=/aq/private/material
@@ -31,26 +28,16 @@ mkdir -p "$out"
 [ -s "$m" ] || { echo "aq-runner: material missing"; exit 90; }
 while IFS= read -r kv; do [ -n "$kv" ] && export "$kv"; done < "$in/env"
 [ -n "${CODEX_HOME:-}" ] || { echo "aq-runner: CODEX_HOME unset"; exit 92; }
-mkdir -p "$CODEX_HOME" && cp "$m" "$CODEX_HOME/auth.json" && chmod 0600 "$CODEX_HOME/auth.json" || exit 92
+mkdir -p "$CODEX_HOME" && cp "$m" "$CODEX_HOME/auth.json" && chmod 0400 "$CODEX_HOME/auth.json" || exit 92
 rm -f "$m"
 [ -e "$m" ] && { echo "aq-runner: material not wiped"; exit 91; }
 set --; while IFS= read -r a; do set -- "$@" "$a"; done < "$in/args"
 exe="$(cat "$in/executable")"
 cd /aq/work || exit 93
 echo "aq-runner: codex $("$exe" --version 2>/dev/null) uid=$(id -u) capeff=$(awk '/^CapEff:/ {print $2}' /proc/self/status) nnp=$(awk '/^NoNewPrivs:/ {print $2}' /proc/self/status)"
-if [ -d "$in/codex-runtime" ]; then
-  actual=$(sha256sum "$exe"); actual=${actual%% *}
-  [ "$actual" = "$(cat "$in/codex-digest")" ] || { echo "aq-runner: installed Codex does not match its pinned helpers"; exit 94; }
-  runtime="$HOME/.codex-runtime"
-  mkdir -p "$runtime" && cp -L "$exe" "$runtime/codex" && cp -R "$in/codex-runtime/." "$runtime/" || exit 94
-  chmod 700 "$runtime/codex" "$runtime/codex-code-mode-host" "$runtime/codex-path/rg" "$runtime/codex-resources/bwrap"
-  exe="$runtime/codex"
-  export PATH="$runtime/codex-path:$PATH"
-fi
-prompt="$(cat "$in/prompt")"
-[ "${#prompt}" -le 30000 ] || prompt="Your task is in the file $in/prompt. Read all of it now and carry it out."
-TERM=xterm-256color "$exe" "$@" "$prompt"
-rc=$?
+"$exe" "$@" < "$in/prompt" 2> "$out/codex.err" | tee "$out/codex.jsonl"
+rc=${PIPESTATUS[0]}
+rm -f "$CODEX_HOME/auth.json"
 echo "$rc" > "$out/rc"
 echo "aq-runner: codex exit $rc"
 exit "$rc"
@@ -69,9 +56,8 @@ pub fn recipe_body() -> String {
         "confinement": "container",
         "codex_sandbox": "danger-full-access",
         "runner_digest": aq_session_protocol::Digest::of(CODEX_RUNNER.as_bytes()),
-        "login_delivery": "private_material_auth_json_write_back_v1",
-        "result_claim": "node_driver_notify_final_message_v1",
-        "terminal": "interactive_tty_v1",
+        "login_delivery": "private_material_readonly_auth_json_v1",
+        "result_claim": "node_driver_final_message_v1",
         "workspace": "copy_in_copy_out_v1",
     });
     value.sort_all_objects();
@@ -114,13 +100,8 @@ pub struct AgentChannel<'a> {
     pub bin_dir: &'a str,
 }
 
-/// Where Codex's `notify` program leaves a finished turn's payload, and the
-/// program: Codex gives the payload as the last argument.
-const NOTIFY: &str = r#"notify=["/bin/bash","-c","printf '%s' \"$1\" > /aq/out/stop.tmp && mv /aq/out/stop.tmp /aq/out/stop.json","aq-stop"]"#;
-
-/// The container recipe (`map_container_interactive`) for the Codex TUI in the
+/// The container recipe (`map_container`) for a non-interactive `codex exec` in the
 /// docker-local sandbox, reading the ChatGPT login from `CODEX_HOME/auth.json`.
-/// The arguments end with `--`; the runner appends the startup prompt.
 /// With an agent channel, Codex's tool environment (which inherits nothing) gets
 /// `AQ_CHANNEL` and the `aq` CLI directory, the way `result_local` adds the result
 /// channel variables.
@@ -129,28 +110,22 @@ pub fn map_docker_local(
     paths: Paths<'_>,
     channel: Option<AgentChannel<'_>>,
 ) -> Result<Recipe> {
-    let home = paths.private_home.to_str().context("Codex home UTF8")?;
-    let mut recipe = map_container_interactive(settings, paths)?;
+    let mut recipe = map_container(settings, paths)?;
     let end = recipe
         .arguments
         .len()
         .checked_sub(1)
-        .context("closed Codex prompt marker absent")?;
+        .context("closed Codex stdin marker absent")?;
     ensure!(
-        recipe.arguments[end] == "--",
-        "closed Codex prompt marker changed"
+        recipe.arguments[end] == "-",
+        "closed Codex stdin marker changed"
     );
     let mut additional = vec![
         "--config".to_string(),
+        "cli_auth_credentials_store=\"file\"".to_string(),
+        "--config".to_string(),
         "forced_login_method=\"chatgpt\"".to_string(),
-        "--config".to_string(),
-        "check_for_update_on_startup=false".to_string(),
-        "--config".to_string(),
-        NOTIFY.to_string(),
     ];
-    // The tools' PATH: the `aq` CLI first (with a channel), the template's fixed
-    // toolchain, then the helper bundle's programs (`rg`) where the runner puts them.
-    let mut path = format!("/usr/local/bin:/usr/bin:/bin:{home}/.codex-runtime/codex-path");
     if let Some(AgentChannel { socket, bin_dir }) = channel {
         for value in [socket, bin_dir] {
             ensure!(
@@ -162,34 +137,115 @@ pub fn map_docker_local(
             bin_dir.starts_with('/') && !bin_dir.contains(':'),
             "agent channel bin directory must be absolute"
         );
-        path = format!("{bin_dir}:{path}");
+        let positions: Vec<_> = recipe
+            .arguments
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| *a == RECIPE_PATH)
+            .map(|(i, _)| i)
+            .collect();
+        ensure!(
+            positions.len() == 1,
+            "closed Codex PATH setting absent or duplicated"
+        );
+        recipe.arguments[positions[0]] = format!(
+            "shell_environment_policy.set.PATH={}",
+            toml::Value::String(format!("{bin_dir}:/usr/local/bin:/usr/bin:/bin"))
+        );
         additional.push("--config".into());
         additional.push(format!(
             "shell_environment_policy.set.AQ_CHANNEL={}",
             toml::Value::String(socket.into())
         ));
     }
-    let positions: Vec<_> = recipe
-        .arguments
-        .iter()
-        .enumerate()
-        .filter(|(_, a)| *a == RECIPE_PATH)
-        .map(|(i, _)| i)
-        .collect();
-    ensure!(
-        positions.len() == 1,
-        "closed Codex PATH setting absent or duplicated"
-    );
-    recipe.arguments[positions[0]] = format!(
-        "shell_environment_policy.set.PATH={}",
-        toml::Value::String(path)
-    );
     recipe.arguments.splice(end..end, additional);
     ensure!(
         recipe.arguments.len() <= 128 && recipe.arguments.iter().all(|value| value.len() <= 4096),
         "docker-local recipe argument bound"
     );
     Ok(recipe)
+}
+
+/// What Codex's `exec --json` stream says about its one turn.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Outcome {
+    /// A `turn.completed` was seen and no `turn.failed` or `error` event.
+    pub succeeded: bool,
+    /// The text of the last completed `agent_message` item, else the last error message.
+    pub message: Option<String>,
+}
+
+fn events(stream: &[u8]) -> impl Iterator<Item = serde_json::Value> + '_ {
+    stream
+        .split(|b| *b == b'\n')
+        .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
+}
+fn agent_message(event: &serde_json::Value) -> Option<&str> {
+    (event["type"] == "item.completed" && event["item"]["type"] == "agent_message")
+        .then(|| event["item"]["text"].as_str())
+        .flatten()
+}
+fn error_message(event: &serde_json::Value) -> Option<&str> {
+    match event["type"].as_str()? {
+        "turn.failed" => event["error"]["message"].as_str(),
+        "error" => event["message"].as_str(),
+        _ => None,
+    }
+}
+
+/// None when the stream holds no terminal event (`turn.completed`, `turn.failed`
+/// or `error`): the run's end is unknown, never a success.
+pub fn outcome(stream: &[u8]) -> Option<Outcome> {
+    let (mut completed, mut failed) = (false, false);
+    let (mut message, mut error) = (None, None);
+    for event in events(stream) {
+        match event["type"].as_str() {
+            Some("turn.completed") => completed = true,
+            Some("turn.failed" | "error") => {
+                failed = true;
+                error = error_message(&event).map(str::to_owned).or(error);
+            }
+            _ => {}
+        }
+        if let Some(text) = agent_message(&event) {
+            message = Some(text.to_owned());
+        }
+    }
+    (completed || failed).then(|| Outcome {
+        succeeded: completed && !failed,
+        message: message.or(error),
+    })
+}
+
+/// The stream the node driver reads for its claim: one `assistant` event per
+/// completed agent message, then one final `result` event (`subtype` `success`
+/// with `is_error` false only when the turn succeeded). An unfinished stream has
+/// no `result` event.
+pub fn result_stream(stream: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for event in events(stream) {
+        if let Some(text) = agent_message(&event) {
+            let line = serde_json::json!({
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": text}]},
+            });
+            out.extend_from_slice(line.to_string().as_bytes());
+            out.push(b'\n');
+        }
+    }
+    if let Some(Outcome { succeeded, message }) = outcome(stream) {
+        let mut line = serde_json::json!({
+            "type": "result",
+            "subtype": if succeeded { "success" } else { "error" },
+            "is_error": !succeeded,
+        });
+        if let Some(message) = message {
+            line["result"] = message.into();
+        }
+        out.extend_from_slice(line.to_string().as_bytes());
+        out.push(b'\n');
+    }
+    out
 }
 
 #[cfg(test)]
@@ -223,35 +279,29 @@ mod tests {
     }
 
     #[test]
-    fn docker_local_recipe_is_the_tui_with_full_access_inside_the_container() {
+    fn docker_local_recipe_is_exec_with_full_access_inside_the_container() {
         let (harness, model) = container_settings();
         let recipe = map_docker_local(selected(&harness, &model), paths(), None).unwrap();
         let args = &recipe.arguments;
-        assert_eq!(args[0], "--no-daemon");
-        assert!(!args.iter().any(|a| a == "exec" || a == "--json"));
+        assert_eq!(&args[..2], ["--no-daemon", "exec"]);
         let at = |flag: &str| args.iter().position(|a| a == flag).unwrap() + 1;
         assert_eq!(args[at("--sandbox")], "danger-full-access");
-        assert_eq!(args[at("-m")], "gpt-5.1-codex-mini");
+        assert_eq!(args[at("--model")], "gpt-5.1-codex-mini");
         assert_eq!(args[at("--cd")], "/aq/work");
-        assert_eq!(args.last().map(String::as_str), Some("--"));
+        assert_eq!(args.last().map(String::as_str), Some("-"));
         let config = config_values(&recipe);
-        // The notify program is valid TOML and writes the stop marker atomically.
-        let notify: toml::Value = toml::from_str(NOTIFY).unwrap();
-        assert_eq!(notify["notify"].as_array().unwrap().len(), 4);
-        assert!(NOTIFY.contains("/aq/out/stop.json") && config.contains(&NOTIFY));
         for wanted in [
             "model_reasoning_effort=\"medium\"",
             "approval_policy=\"never\"",
             "cli_auth_credentials_store=\"file\"",
             "forced_login_method=\"chatgpt\"",
-            "shell_environment_policy.set.PATH=\"/usr/local/bin:/usr/bin:/bin:/aq/home/codex/.codex-runtime/codex-path\"",
+            RECIPE_PATH,
         ] {
             assert!(config.contains(&wanted), "{wanted} missing: {config:?}");
         }
         assert!(!config.iter().any(|c| c.contains("AQ_CHANNEL")));
         assert_eq!(recipe.environment["CODEX_HOME"], "/aq/home/codex");
-        assert_eq!(recipe.environment["HOME"], "/aq/home/codex");
-        assert_eq!(recipe.environment.len(), 2);
+        assert_eq!(recipe.environment.len(), 1);
     }
 
     #[test]
@@ -277,14 +327,14 @@ mod tests {
         let recipe = map_docker_local(selected(&harness, &model), paths(), Some(channel)).unwrap();
         let config = config_values(&recipe);
         assert!(config.contains(
-            &"shell_environment_policy.set.PATH=\"/opt/aq/bin:/usr/local/bin:/usr/bin:/bin:/aq/home/codex/.codex-runtime/codex-path\""
+            &"shell_environment_policy.set.PATH=\"/opt/aq/bin:/usr/local/bin:/usr/bin:/bin\""
         ));
         assert!(
             config
                 .contains(&"shell_environment_policy.set.AQ_CHANNEL=\"unix:/aq/channel/aq.sock\"")
         );
         assert!(!config.contains(&RECIPE_PATH));
-        assert_eq!(recipe.arguments.last().map(String::as_str), Some("--"));
+        assert_eq!(recipe.arguments.last().map(String::as_str), Some("-"));
         let bad = AgentChannel {
             socket: "unix:/aq/channel/aq.sock",
             bin_dir: "relative/bin",
@@ -293,21 +343,19 @@ mod tests {
     }
 
     /// The login is wiped from the material path before Codex starts, installed
-    /// privately in the attempt's own CODEX_HOME (where Codex may refresh it and the
-    /// node reads it back), never put in argv or the environment; the prompt is the
-    /// last argument.
+    /// read-only in the attempt's own CODEX_HOME, never put in argv or the
+    /// environment, and removed after the run; Codex reads the prompt on stdin.
     #[test]
     fn codex_runner_installs_the_login_read_only_and_wipes_the_material_first() {
         let at = |text: &str| CODEX_RUNNER.find(text).unwrap();
         let install = at("cp \"$m\" \"$CODEX_HOME/auth.json\"");
-        let private = at("chmod 0600 \"$CODEX_HOME/auth.json\"");
+        let readonly = at("chmod 0400 \"$CODEX_HOME/auth.json\"");
         let wipe = at("rm -f \"$m\"");
-        let exec = at("\"$exe\" \"$@\" \"$prompt\"");
-        assert!(install < private && private < wipe && wipe < exec);
-        assert!(!CODEX_RUNNER.contains("rm -f \"$CODEX_HOME/auth.json\""));
+        let exec = at("\"$exe\" \"$@\" < \"$in/prompt\"");
+        let removed = at("rm -f \"$CODEX_HOME/auth.json\"");
+        assert!(install < readonly && readonly < wipe && wipe < exec && exec < removed);
+        assert!(CODEX_RUNNER.contains("tee \"$out/codex.jsonl\""));
         for absent in [
-            "tee ",
-            "codex.jsonl",
             "OPENAI_API_KEY",
             "CODEX_API_KEY",
             "token=",
@@ -326,5 +374,91 @@ mod tests {
             recipe_artifact().digest,
             aq_session_protocol::Digest::of(recipe_body().as_bytes())
         );
+    }
+
+    fn line(value: serde_json::Value) -> String {
+        value.to_string() + "\n"
+    }
+    fn message(text: &str) -> String {
+        line(
+            serde_json::json!({"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":text}}),
+        )
+    }
+
+    #[test]
+    fn a_completed_turn_maps_to_a_successful_result_with_the_last_message() {
+        let stream = [
+            line(serde_json::json!({"type":"thread.started","thread_id":"t"})),
+            line(serde_json::json!({"type":"turn.started"})),
+            message("Looking."),
+            line(serde_json::json!({"type":"item.completed","item":{"type":"command_execution","command":"ls"}})),
+            message("Done.\nChanges: src/lib.rs; Checks: cargo test; Limits: none"),
+            line(serde_json::json!({"type":"turn.completed","usage":{"input_tokens":1}})),
+        ]
+        .concat();
+        let outcome = outcome(stream.as_bytes()).unwrap();
+        assert!(outcome.succeeded);
+        assert_eq!(
+            outcome.message.as_deref(),
+            Some("Done.\nChanges: src/lib.rs; Checks: cargo test; Limits: none")
+        );
+        let mapped = result_stream(stream.as_bytes());
+        let events: Vec<serde_json::Value> = mapped
+            .split(|b| *b == b'\n')
+            .filter(|l| !l.is_empty())
+            .map(|l| serde_json::from_slice(l).unwrap())
+            .collect();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0]["type"], "assistant");
+        assert_eq!(events[0]["message"]["content"][0]["text"], "Looking.");
+        assert_eq!(events[2]["type"], "result");
+        assert_eq!(events[2]["subtype"], "success");
+        assert_eq!(events[2]["is_error"], false);
+        assert_eq!(
+            events[2]["result"],
+            "Done.\nChanges: src/lib.rs; Checks: cargo test; Limits: none"
+        );
+    }
+
+    #[test]
+    fn a_failed_or_unfinished_turn_is_never_a_success() {
+        let failed = [
+            line(serde_json::json!({"type":"turn.started"})),
+            line(
+                serde_json::json!({"type":"turn.failed","error":{"message":"usage limit reached"}}),
+            ),
+        ]
+        .concat();
+        let o = outcome(failed.as_bytes()).unwrap();
+        assert!(!o.succeeded);
+        assert_eq!(o.message.as_deref(), Some("usage limit reached"));
+        let mapped = String::from_utf8(result_stream(failed.as_bytes())).unwrap();
+        assert!(mapped.contains("\"subtype\":\"error\"") && mapped.contains("\"is_error\":true"));
+        // A completion followed by an error event is a failure, with the agent's message kept.
+        let late = [
+            message("Changes: none; Checks: none; Limits: none"),
+            line(serde_json::json!({"type":"turn.completed"})),
+            line(serde_json::json!({"type":"error","message":"stream closed"})),
+        ]
+        .concat();
+        let o = outcome(late.as_bytes()).unwrap();
+        assert!(!o.succeeded);
+        assert_eq!(
+            o.message.as_deref(),
+            Some("Changes: none; Checks: none; Limits: none")
+        );
+        // No terminal event: unknown, and no result event at all.
+        let unfinished = [
+            line(serde_json::json!({"type":"turn.started"})),
+            message("half"),
+        ]
+        .concat();
+        assert_eq!(outcome(unfinished.as_bytes()), None);
+        assert!(
+            !String::from_utf8(result_stream(unfinished.as_bytes()))
+                .unwrap()
+                .contains("\"result\"")
+        );
+        assert_eq!(outcome(b"not json\n"), None);
     }
 }

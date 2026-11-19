@@ -60,7 +60,7 @@ def prepare(package, work, origin, socket, config, digest):
     entry, = host["docker_local"]["templates"]
     repo = entry["image"].split("/", 1)[1]
     entry["image"] = urlsplit(origin).netloc + "/" + repo
-    for key, name in [("helper", "aq-session-host"), ("tmux", "tmux")]:
+    for key, name in [("driver", "aq-sandbox-driver"), ("helper", "aq-session-host"), ("tmux", "tmux")]:
         host[key]["path"] = str(package / name)
     template["adapter_manifest"] = str(package / "adapter.json")
     template["executor"]["composite_definition"] = str(package / "composite.json")
@@ -86,7 +86,7 @@ def prepare(package, work, origin, socket, config, digest):
     # aq-install.sh shares these paths across its profiles. Refuse a binary swap
     # on a machine that already uses a different runtime.
     runtime = Path.home() / ".local/share/agent-q/runtime"
-    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git"):
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
         installed = runtime / name
         if installed.exists():
             with installed.open("rb") as current, (package / name).open("rb") as source:
@@ -108,8 +108,8 @@ def manual_settings(package, podman, slots, source_slugs, claude_token):
     lines.extend(f"{json.dumps(key)} = {json.dumps(slug)}" for key, slug in source_slugs.items())
     if (package / "codex-bundle").is_dir():
         lines.extend([
-            # No login file: every Codex session leases AQ's saved login from the server.
             "", "[manual.codex]", 'executable = "/opt/aq/bin/codex"',
+            f'auth_file = {json.dumps(str(Path.home() / ".codex/auth.json"))}',
             f'runtime_bundle = {json.dumps(str(package / "codex-bundle"))}',
         ])
     return "\n" + "\n".join(lines) + "\n"
@@ -117,7 +117,7 @@ def manual_settings(package, podman, slots, source_slugs, claude_token):
 
 def configure(package, config, origin, podman, slots, digest, claude_token=None):
     """`claude_token` is a Claude subscription token file found on this machine at install time
-    (none when it arrives later through Push Claude token)."""
+    (none when logins arrive later through Push logins)."""
     service = config / "service.toml"
     contents = service.read_text()
     current = tomllib.loads(contents)
@@ -139,7 +139,7 @@ def configure(package, config, origin, podman, slots, digest, claude_token=None)
         print("This worker was updated to the bundle of this installer. Its enrollment was kept.")
     atomic_text(config / "hosted-install.json", json.dumps({"origin": origin, "bundle_sha256": digest}) + "\n")
     if not manual:
-        print("The worker can connect now. Use Push Claude token on the worker in Agents → Swarm to deliver its Claude login.")
+        print("The worker can connect now. Use Push logins on the worker in Agents → Swarm to deliver its provider logins.")
 
 
 
@@ -539,7 +539,7 @@ def worker_service_report(config):
             "state_dir": native.get("state_dir"), "adapter_manifest": native.get("adapter_manifest"),
             "inventory_definition": native.get("inventory_definition"),
             "composite_definition": native["executor"].get("composite_definition"),
-            "socket": host["docker_local"]["socket"],
+            "socket": host["docker_local"]["socket"], "driver": host["driver"]["path"],
             "helper": host["helper"]["path"], "tmux": host["tmux"]["path"],
         }
         report["missing"] = sorted(key for key, value in paths.items() if not (isinstance(value, str) and os.path.exists(value)))
@@ -580,22 +580,38 @@ def sync_diagnostics_slot(package, config, slot):
 
 
 def apply_logins(package, config, logins):
-    """Installs the Claude token file. A Codex login is never delivered to a machine: each
-    Codex agent leases AQ's saved login from the server and writes a refreshed one back."""
-    if not isinstance(logins, list) or len(logins) != 1:
+    providers = {}
+    if not isinstance(logins, list) or not 1 <= len(logins) <= 2:
         raise ValueError("Invalid login delivery.")
-    provider, material = logins[0]["provider"], logins[0]["material"]
-    if provider != "anthropic" or not isinstance(material, str) or not 0 < len(material.encode()) <= 65536:
-        raise ValueError("Invalid login delivery.")
-    if not all(33 <= ord(c) <= 126 for c in material):
-        raise ValueError("Invalid Claude subscription login.")
-    providers = {provider: material}
+    for login in logins:
+        provider, material = login["provider"], login["material"]
+        if provider not in ("anthropic", "openai") or provider in providers or not isinstance(material, str) or not 0 < len(material.encode()) <= 65536:
+            raise ValueError("Invalid login delivery.")
+        if provider == "anthropic" and not all(33 <= ord(c) <= 126 for c in material):
+            raise ValueError("Invalid Claude subscription login.")
+        if provider == "openai":
+            auth = json.loads(material)
+            if not isinstance(auth, dict) or set(auth) - {"auth_mode", "OPENAI_API_KEY", "tokens", "last_refresh"} or auth.get("auth_mode") != "chatgpt" or auth.get("OPENAI_API_KEY") is not None:
+                raise ValueError("Invalid Codex subscription login.")
+            tokens = auth.get("tokens", {})
+            if not isinstance(tokens, dict) or set(tokens) != {"access_token", "refresh_token", "id_token", "account_id"}:
+                raise ValueError("Invalid Codex subscription login.")
+            for key, value in tokens.items():
+                bound = 512 if key == "account_id" else 32768
+                if not isinstance(value, str) or not 0 < len(value) <= bound or not all(33 <= ord(c) <= 126 for c in value):
+                    raise ValueError("Invalid Codex subscription login.")
+            refresh = auth.get("last_refresh")
+            if refresh is not None and (not isinstance(refresh, str) or len(refresh) > 128 or not all(33 <= ord(c) <= 126 for c in refresh)):
+                raise ValueError("Invalid Codex subscription login.")
+            if not (package / "codex-bundle").is_dir():
+                raise ValueError("This worker bundle does not include Codex.")
+        providers[provider] = material
     private = config / "provider-auth"
     if private.is_symlink():
         raise ValueError("The private login directory must not be a link.")
     private.mkdir(mode=0o700, exist_ok=True)
     private.chmod(0o700)
-    filenames = {"anthropic": "claude-token"}
+    filenames = {"anthropic": "claude-token", "openai": "codex-auth.json"}
     new_provider = any(not (private / filenames[provider]).exists() for provider in providers)
     for provider, material in providers.items():
         atomic_text(private / filenames[provider], material)
@@ -610,6 +626,8 @@ def apply_logins(package, config, logins):
         contents = contents.rstrip() + manual_settings(package, settings["podman"], node_count(current), metadata["source_slugs"], claude)
     elif "anthropic" in providers or not current["manual"].get("claude_token_file"):
         contents = set_toml_value(contents, "manual", "claude_token_file", claude)
+    if "openai" in providers:
+        contents = set_toml_value(contents, "manual.codex", "auth_file", str(private / "codex-auth.json"))
     if contents != previous:
         atomic_text(service, contents)
     return contents != previous or new_provider
@@ -640,7 +658,7 @@ def sync_logins(package, config):
                 failed = True
     # The worker process owns agent lifetime; its separate relay owns disposable
     # terminal attachments. Hosted installs must start both, including workers
-    # whose manual settings arrived later through Push Claude token.
+    # whose manual settings arrived later through Push logins.
     if state is not None:
         try:
             ensure_terminal_relay(package, config)
@@ -776,7 +794,7 @@ def sync_slot(package, config, slot):
             atomic_text(receipt, json.dumps({"generation": generation, "applied": True}))
         except Exception:
             login_request(config, {"generation": generation, "applied": False}, slot)
-            raise ValueError("Login installation failed. Check the worker configuration and retry Push Claude token.") from None
+            raise ValueError("Login installation failed. Check the worker configuration and retry Push logins.") from None
     login_request(config, {"generation": generation, "applied": True}, slot)
 
 

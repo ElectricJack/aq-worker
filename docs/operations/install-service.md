@@ -30,8 +30,8 @@ supported yet; the script refuses it.
 
 `--bundle DIR` holds:
 
-- the four binaries `aq-worker`, `aq-session-host`, `aq-agent` and `aq-git`
-  (the sandbox driver is `aq-worker` itself: `aq-worker sandbox-harness`);
+- the five binaries `aq-worker`, `aq-session-host`, `aq-agent`, `aq-git` and
+  `aq-sandbox-driver`;
 - `native.json` and `repositories.json`.
 
 Copy `native.json` and `repositories.json` from an enrolled machine of the same
@@ -84,7 +84,7 @@ The script, in order:
    keepalive. A startup setup failure stops the installer before enrollment;
 2. makes sure the sandbox daemon is running and enabled for the next boot,
    even when its socket already exists;
-3. installs the four binaries into `~/.local/share/agent-q/runtime/` and links
+3. installs the five binaries into `~/.local/share/agent-q/runtime/` and links
    `~/.local/bin/aq-worker`;
 4. runs `aq-worker service enroll`, which prompts for the code. A profile that
    is already enrolled is skipped (pass `--reconfigure` to enroll it again);
@@ -266,7 +266,7 @@ The stop timeout of the unit is the profile's `shutdown_grace_ms` plus 30 s
 Install the new bundle's binaries over the old ones, then restart the unit:
 
 ```sh
-for f in aq-worker aq-session-host aq-agent aq-git; do
+for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
   install -m 0755 ~/aq-new-bundle/$f ~/.local/share/agent-q/runtime/$f
 done
 systemctl --user restart aq-node@local
@@ -309,27 +309,15 @@ Windows autostart command is needed for this installer.
 
 Enrollment establishes the AQ connection without requiring provider accounts on
 that machine. The hosted installer also installs the login receiver described
-below. Select the connected worker in Agents → Swarm and use **Push Claude
-token** to install AQ's saved Claude subscription token. Manual sessions are
+below. Select the connected worker in Agents → Swarm and use **Push logins** to
+install AQ's existing Claude and Codex subscription logins. Manual sessions are
 enabled automatically after the first successful delivery.
 
-A Claude token can instead be supplied with `AQ_CLAUDE_TOKEN_FILE` (an absolute
-path) when installing. AQ-managed delivery writes AQ's private profile file and
-keeps a personal login file intact.
-
-No Codex login is installed on a worker. The server's login store holds the one
-copy of the owner's Codex (ChatGPT) login. Every Codex agent, queued or started
-by hand, leases the newest stored version when it starts and the worker writes a
-login that Codex refreshed back to the store, so no copy is left with a refresh
-token that another copy has already used. A hand-started session is checked
-every `login_check_secs` (default 60, `[manual.codex]` in `service.toml`) and
-once more when it stops; a newer stored version is installed into the running
-sandbox, where Codex picks it up. The owner puts their current login into the
-store with `aq-server import-login` on the server host. How old a stored login
-may be when it is leased is the owner's Setting (Settings → Providers); the
-server refuses an older one and the agent shows the reason. `[manual.codex]
-auth_file` no longer exists: remove the key from an older `service.toml`, or the
-worker refuses the file (`unknown field `auth_file``).
+Separate local accounts remain optional: supply a Claude token with
+`AQ_CLAUDE_TOKEN_FILE` (an absolute path) when installing, or sign into Codex
+locally before install.
+AQ-managed delivery switches AQ's auth paths to its private profile files and
+keeps those personal login files intact.
 
 Before reporting success, the hosted installer checks the daemon's rootless
 cgroup-v2 setup and runs a disposable container with the agent's bridge network,
@@ -348,8 +336,8 @@ the existing runtime bundle and enrollment.
 
 Manual Claude sessions log in with the subscription token file named by
 `claude_token_file` in the `[manual]` section of `service.toml` (an absolute
-path; required whenever `[manual]` is present). The installer and Push Claude
-token write it. The worker runs whatever model and reasoning effort an offer names:
+path; required whenever `[manual]` is present). The installer and Push logins
+write it. The worker runs whatever model and reasoning effort an offer names:
 there is no qualification measurement and no `[measurement]` section. A
 `service.toml` that still has one (a machine updated remotely keeps the file its
 installer wrote) is rewritten once by the worker when it loads the file: the
@@ -358,7 +346,7 @@ section is removed, and if the profile has a `[manual]` section without
 is kept, and the file as it was stays beside it as
 `service.toml.before-measurement-removal`. If `[manual]` is present and no token
 file is named anywhere, the service then stops with `missing field
-`claude_token_file``: add the key by hand or use Push Claude token.
+`claude_token_file``: add the key by hand or use Push logins.
 
 ### Prepare the download on the server
 
@@ -402,9 +390,8 @@ enrolling the first machine.
 ### Push saved logins to a connected worker
 
 The hosted installer installs a user timer, `aq-login-sync-<profile>.timer`, alongside
-`aq-node@<profile>.service`. In Agents → Swarm select a worker and select **Push
-Claude token** under Claude token. Only the Claude token is delivered this way;
-a Codex login is leased per agent (see above). Delivery is queued while
+`aq-node@<profile>.service`. In Agents → Swarm select a worker, choose Claude and/or
+Codex under Server logins, then select **Push logins**. Delivery is queued while
 the worker is disconnected or its machine has active agents. The dashboard shows
 queued, installed, or failed status. A failed installation can be retried with a
 new push. An uncertain request is retried with the same operation identity.
@@ -414,12 +401,12 @@ install command once. It retains its enrollment, configured node count and runti
 Subsequent login pushes require no terminal command or new enrollment code.
 
 The receiver uses each enrolled slot's credential over the installation's pinned
-HTTPS origin and refuses redirects. The server serves only the explicitly requested,
-permitted Claude subscription token, using its current versioned material owner. API
+HTTPS origin and refuses redirects. The server serves only explicitly requested,
+permitted subscription logins, using its current versioned material owner. API
 keys and other credentials are excluded. Neither the dashboard nor the SQL queue
 receives secret material. Worker files live in the profile's `provider-auth`
 directory (0700), with individual files written atomically as 0600. This changes
-AQ's configured token path without overwriting a personal Claude login file.
+AQ's configured auth paths without overwriting personal Claude/Codex login files.
 New provider support restarts the worker only while the machine is idle; updates
 to material at existing paths are available to the next agent without a restart.
 

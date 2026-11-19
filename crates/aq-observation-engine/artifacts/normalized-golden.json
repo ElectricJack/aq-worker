@@ -36,7 +36,7 @@
                 "category_semantics": {
                   "kind": "may_overlap",
                   "policy": {
-                    "digest": "feadbbde6a051b5f839c6592b92f3fdf04b42a609a2beb14aef2e832f5373b22",
+                    "digest": "048a19804f680b53ed5a14bc33f65984b4842da457c3bf42e1c443ccd9e5cad9",
                     "id": "codex-rollout-67f0994",
                     "version": "0.0.1-engine"
                   }
@@ -83,7 +83,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "feadbbde6a051b5f839c6592b92f3fdf04b42a609a2beb14aef2e832f5373b22",
+                "digest": "048a19804f680b53ed5a14bc33f65984b4842da457c3bf42e1c443ccd9e5cad9",
                 "id": "codex-rollout-67f0994",
                 "version": "0.0.1-engine"
               },
@@ -98,8 +98,8 @@
             },
             "sequence": 1
           },
-          "body_digest": "74e96546c2252e3ef1c85165a4661ebd699b61de3b7ec8ca1382fec396b5b95b",
-          "event_id": "4c37e0a0-5c39-8d20-bdb0-e6c1089f3950"
+          "body_digest": "c91c01d90eec2d777be3b8ba7daf9a69900ac9265a3e8b750cbdf22a9b9a3e41",
+          "event_id": "1f42e8c0-0757-8e07-9c90-873701d02d5d"
         },
         {
           "body": {
@@ -135,7 +135,7 @@
                 "category_semantics": {
                   "kind": "may_overlap",
                   "policy": {
-                    "digest": "feadbbde6a051b5f839c6592b92f3fdf04b42a609a2beb14aef2e832f5373b22",
+                    "digest": "048a19804f680b53ed5a14bc33f65984b4842da457c3bf42e1c443ccd9e5cad9",
                     "id": "codex-rollout-67f0994",
                     "version": "0.0.1-engine"
                   }
@@ -182,7 +182,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "feadbbde6a051b5f839c6592b92f3fdf04b42a609a2beb14aef2e832f5373b22",
+                "digest": "048a19804f680b53ed5a14bc33f65984b4842da457c3bf42e1c443ccd9e5cad9",
                 "id": "codex-rollout-67f0994",
                 "version": "0.0.1-engine"
               },
@@ -197,8 +197,8 @@
             },
             "sequence": 2
           },
-          "body_digest": "40eed38cda74fb3871705c4d336704e94c9cf7be1a956700487810defe4c9343",
-          "event_id": "8a2baed5-988e-8e31-bb2b-e05dd1416d61"
+          "body_digest": "69024d2cae34fe09ae2800812a33a73d6aa7a0420df3d676f935c45b900558a0",
+          "event_id": "da097405-6332-89d0-8d06-e7f2c0cf35ee"
         }
       ],
       "harness": "codex",
@@ -261,7 +261,7 @@
                 "category_semantics": {
                   "kind": "may_overlap",
                   "policy": {
-                    "digest": "5261dcb73fa8177af773c52ae07a54f9daf97f2ae66b283505e6239b343e6bf7",
+                    "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
                     "id": "claude-v1-9a9b8e8",
                     "version": "0.0.1-engine"
                   }
@@ -308,7 +308,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5261dcb73fa8177af773c52ae07a54f9daf97f2ae66b283505e6239b343e6bf7",
+                "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -323,8 +323,8 @@
             },
             "sequence": 1
           },
-          "body_digest": "42c7201be687eb850938646ddcd5f417104581404945e5e2636d6578b72b8a9d",
-          "event_id": "aba1e903-880a-8ef5-ae01-bf9a7fa6e1a6"
+          "body_digest": "efd1f13db3f94012456dde1dc7617b6794d616b6a703aeaddea8bb54d3a77f24",
+          "event_id": "b593ffd7-dbeb-80fd-b397-b5b20e06fdff"
         },
         {
           "body": {
@@ -362,7 +362,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5261dcb73fa8177af773c52ae07a54f9daf97f2ae66b283505e6239b343e6bf7",
+                "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -377,8 +377,8 @@
             },
             "sequence": 2
           },
-          "body_digest": "0de5f235ca85e4be9d13cb5e8dc1ce85505410689c09fe47ec91c13cc5799175",
-          "event_id": "c37ababa-5c29-84d2-98da-5f2a9a54f841"
+          "body_digest": "b9020d98c7d1017d816c11ff2497f17b38556ac966051dd08cdcf00236786058",
+          "event_id": "9d3b8681-0f13-8eb5-b17d-2997126ecf09"
         },
         {
           "body": {
@@ -416,7 +416,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5261dcb73fa8177af773c52ae07a54f9daf97f2ae66b283505e6239b343e6bf7",
+                "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -431,8 +431,8 @@
             },
             "sequence": 3
           },
-          "body_digest": "8d37f83c3496f9fe8922c855877aafa2824048d26437bc36edb6f31ace60f296",
-          "event_id": "a804e3f4-2ba9-8b68-8c47-4fcdd6c99e56"
+          "body_digest": "b283a86bcef935f6e4b492746590912f3b0a6c474b649f7b972f9de9e3abfcb9",
+          "event_id": "953c18d1-57f3-8116-aa26-2cffb977ef90"
         },
         {
           "body": {
@@ -466,7 +466,7 @@
                 "category_semantics": {
                   "kind": "may_overlap",
                   "policy": {
-                    "digest": "5261dcb73fa8177af773c52ae07a54f9daf97f2ae66b283505e6239b343e6bf7",
+                    "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
                     "id": "claude-v1-9a9b8e8",
                     "version": "0.0.1-engine"
                   }
@@ -476,8 +476,8 @@
                   "reason": "incomplete"
                 },
                 "correction_of": {
-                  "digest": "42c7201be687eb850938646ddcd5f417104581404945e5e2636d6578b72b8a9d",
-                  "event_id": "aba1e903-880a-8ef5-ae01-bf9a7fa6e1a6"
+                  "digest": "efd1f13db3f94012456dde1dc7617b6794d616b6a703aeaddea8bb54d3a77f24",
+                  "event_id": "b593ffd7-dbeb-80fd-b397-b5b20e06fdff"
                 },
                 "cost": {
                   "kind": "unknown",
@@ -516,7 +516,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5261dcb73fa8177af773c52ae07a54f9daf97f2ae66b283505e6239b343e6bf7",
+                "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -531,8 +531,8 @@
             },
             "sequence": 4
           },
-          "body_digest": "aac4164aab8dc533370c6f0d9a405c03c2e2dd193bfd29bb06a49cc515654137",
-          "event_id": "b84261ea-fe6f-8d47-8124-c7d112882eca"
+          "body_digest": "7764dbe25b430be7813b9627576f087b50a02d15df5f5e3d1a5e0097f9c71322",
+          "event_id": "4ece7192-8b32-827d-984b-d3da816c32d8"
         },
         {
           "body": {
@@ -570,7 +570,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5261dcb73fa8177af773c52ae07a54f9daf97f2ae66b283505e6239b343e6bf7",
+                "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -585,8 +585,8 @@
             },
             "sequence": 5
           },
-          "body_digest": "36d68b2dd4ff8661768831bb3a7ba0b5dbe93012c0db73d6daf48a7790d206d2",
-          "event_id": "cc6d3a44-904d-808a-9ea7-611885fdd2d8"
+          "body_digest": "487c769427552aa63b33371e856b13f03b812ff118af9f71b7e189f3a329dec2",
+          "event_id": "be353f10-8993-8ed0-8300-b50dcb5606ec"
         },
         {
           "body": {
@@ -618,7 +618,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5261dcb73fa8177af773c52ae07a54f9daf97f2ae66b283505e6239b343e6bf7",
+                "digest": "3b4c8920ee0fa58d587a3431d0dcef31f49d3490f063775febd5642054b92251",
                 "id": "claude-v1-9a9b8e8",
                 "version": "0.0.1-engine"
               },
@@ -633,8 +633,8 @@
             },
             "sequence": 6
           },
-          "body_digest": "05789b70ea33e0e5f8ffcf9ef727427ca003d05dd9a128f739373528e072b58a",
-          "event_id": "f81eadf3-c31b-8cbe-a7a1-4fb4c2d64e90"
+          "body_digest": "fa4ea21e8b2b6e570e940786e2048251542994284a6d187f39eb656a75cef4cb",
+          "event_id": "fd571ff0-be74-87ad-a1ad-96aeb843b603"
         }
       ],
       "harness": "claude",
@@ -697,7 +697,7 @@
                 "category_semantics": {
                   "kind": "may_overlap",
                   "policy": {
-                    "digest": "4fbcd171293386752578e6404535b37a783fe4e6e36204c28369447d110d97ec",
+                    "digest": "cea2ca3aecea14990edd065c011d42e73e752f2933dc1a9c3a1c1754fab071e4",
                     "id": "gemini-recording-6814e00",
                     "version": "0.0.1-engine"
                   }
@@ -744,7 +744,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "4fbcd171293386752578e6404535b37a783fe4e6e36204c28369447d110d97ec",
+                "digest": "cea2ca3aecea14990edd065c011d42e73e752f2933dc1a9c3a1c1754fab071e4",
                 "id": "gemini-recording-6814e00",
                 "version": "0.0.1-engine"
               },
@@ -759,8 +759,8 @@
             },
             "sequence": 1
           },
-          "body_digest": "1fe186b7f54d69b6bfe0aa5e7888139f71986eea283d129725ebc00d15ecc6fc",
-          "event_id": "b722e77c-6fcf-8239-b38c-b162df577e9e"
+          "body_digest": "74ae64e5fb2dcf3138110c68a817f6dd9d5d6590e6219293a720360f796dc0ea",
+          "event_id": "a3da4700-7bfb-84dc-8a9d-df57e1711ea5"
         },
         {
           "body": {
@@ -798,7 +798,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "4fbcd171293386752578e6404535b37a783fe4e6e36204c28369447d110d97ec",
+                "digest": "cea2ca3aecea14990edd065c011d42e73e752f2933dc1a9c3a1c1754fab071e4",
                 "id": "gemini-recording-6814e00",
                 "version": "0.0.1-engine"
               },
@@ -813,8 +813,8 @@
             },
             "sequence": 2
           },
-          "body_digest": "859ac96ee9ce6a399d1188857a001dcb82a684250d0f0948748e3788c2736b8a",
-          "event_id": "94074616-193c-88ba-912e-853895fe7960"
+          "body_digest": "d33513ebc2840d66951a1bbb720fccfc5fedf8a0fbb6bc0f4d06f142d7b05838",
+          "event_id": "887f20eb-ee93-836d-a1dd-af2068fdc596"
         },
         {
           "body": {
@@ -847,7 +847,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "4fbcd171293386752578e6404535b37a783fe4e6e36204c28369447d110d97ec",
+                "digest": "cea2ca3aecea14990edd065c011d42e73e752f2933dc1a9c3a1c1754fab071e4",
                 "id": "gemini-recording-6814e00",
                 "version": "0.0.1-engine"
               },
@@ -862,8 +862,8 @@
             },
             "sequence": 3
           },
-          "body_digest": "2f7aac729f8cd5f302adc17ed0e3734f73e27e7dd1df057b8e76da92a6d8189d",
-          "event_id": "580cfbda-af00-8002-af53-f628bd70ad60"
+          "body_digest": "14d8f44f3df8424f5a95ad8edc1355ca4914bdbbc2ea8a7fcee9617c63a07c62",
+          "event_id": "24c7f380-8332-8620-8619-38d7a201f0b4"
         },
         {
           "body": {
@@ -901,7 +901,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "4fbcd171293386752578e6404535b37a783fe4e6e36204c28369447d110d97ec",
+                "digest": "cea2ca3aecea14990edd065c011d42e73e752f2933dc1a9c3a1c1754fab071e4",
                 "id": "gemini-recording-6814e00",
                 "version": "0.0.1-engine"
               },
@@ -916,8 +916,8 @@
             },
             "sequence": 4
           },
-          "body_digest": "db202f204a0d1964f1296c125a9c8fbfb76a5f9b7c83920fbd3535faa18cfb81",
-          "event_id": "4ab2fb48-369b-84c6-b141-73da64cad037"
+          "body_digest": "b47016514acaef7be0763df3fd93e2c1a83fb5098c9dbc4ba491e77fd2d097fc",
+          "event_id": "1c3d5a7c-4fef-8a6f-afb6-e8dc2aa9f095"
         },
         {
           "body": {
@@ -950,7 +950,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "4fbcd171293386752578e6404535b37a783fe4e6e36204c28369447d110d97ec",
+                "digest": "cea2ca3aecea14990edd065c011d42e73e752f2933dc1a9c3a1c1754fab071e4",
                 "id": "gemini-recording-6814e00",
                 "version": "0.0.1-engine"
               },
@@ -965,8 +965,8 @@
             },
             "sequence": 5
           },
-          "body_digest": "b44acefcea237fdd38f235eb8d97fbb8d876544963963fb4f1df6ac174e4eaa3",
-          "event_id": "966f8fd1-d70e-834c-9aa0-ffee2076d234"
+          "body_digest": "53b738142146c9de53b95abacddf10be77c6157b9eb64cb386ec9f76183da303",
+          "event_id": "0146cc45-264e-892d-86e5-11621f6e4e02"
         }
       ],
       "harness": "gemini",
@@ -978,12 +978,12 @@
           "operation": "patch",
           "prior_events": [
             {
-              "digest": "1fe186b7f54d69b6bfe0aa5e7888139f71986eea283d129725ebc00d15ecc6fc",
-              "event_id": "b722e77c-6fcf-8239-b38c-b162df577e9e"
+              "digest": "74ae64e5fb2dcf3138110c68a817f6dd9d5d6590e6219293a720360f796dc0ea",
+              "event_id": "a3da4700-7bfb-84dc-8a9d-df57e1711ea5"
             },
             {
-              "digest": "859ac96ee9ce6a399d1188857a001dcb82a684250d0f0948748e3788c2736b8a",
-              "event_id": "94074616-193c-88ba-912e-853895fe7960"
+              "digest": "d33513ebc2840d66951a1bbb720fccfc5fedf8a0fbb6bc0f4d06f142d7b05838",
+              "event_id": "887f20eb-ee93-836d-a1dd-af2068fdc596"
             }
           ],
           "source_record_digest": "316557802d9de30e7b66f8f7a993b60c7cf1206ec8510c7809fef414138b6199"
@@ -995,12 +995,12 @@
           "operation": "rewind",
           "prior_events": [
             {
-              "digest": "1fe186b7f54d69b6bfe0aa5e7888139f71986eea283d129725ebc00d15ecc6fc",
-              "event_id": "b722e77c-6fcf-8239-b38c-b162df577e9e"
+              "digest": "74ae64e5fb2dcf3138110c68a817f6dd9d5d6590e6219293a720360f796dc0ea",
+              "event_id": "a3da4700-7bfb-84dc-8a9d-df57e1711ea5"
             },
             {
-              "digest": "db202f204a0d1964f1296c125a9c8fbfb76a5f9b7c83920fbd3535faa18cfb81",
-              "event_id": "4ab2fb48-369b-84c6-b141-73da64cad037"
+              "digest": "b47016514acaef7be0763df3fd93e2c1a83fb5098c9dbc4ba491e77fd2d097fc",
+              "event_id": "1c3d5a7c-4fef-8a6f-afb6-e8dc2aa9f095"
             }
           ],
           "source_record_digest": "658e68c76543e976047724777f7a781808ea25e91ce1ff3396a4076d7ee503b8"
@@ -1064,7 +1064,7 @@
                 "category_semantics": {
                   "kind": "may_overlap",
                   "policy": {
-                    "digest": "5c154310b07b589ca6fadedbf5894170997cf2b71aec1eeb3cd1a3550bf3e7bb",
+                    "digest": "68e8f61324c455603ce160d98379ab67049aa2b99112de19e33ffc8d36427fef",
                     "id": "opencode-session-dto-6c24ec9",
                     "version": "0.0.1-engine"
                   }
@@ -1110,7 +1110,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5c154310b07b589ca6fadedbf5894170997cf2b71aec1eeb3cd1a3550bf3e7bb",
+                "digest": "68e8f61324c455603ce160d98379ab67049aa2b99112de19e33ffc8d36427fef",
                 "id": "opencode-session-dto-6c24ec9",
                 "version": "0.0.1-engine"
               },
@@ -1125,8 +1125,8 @@
             },
             "sequence": 1
           },
-          "body_digest": "758f841e989eeab728beeed1b556e70ca2880ac0f1b16c8fe7ac37bc03bcdb1c",
-          "event_id": "8c1a5209-6404-8ebb-9275-addbdf17e76a"
+          "body_digest": "877e984a72fc5c55687a33759d3d71dcf13b58ebfcefcaad440a5679a0221c57",
+          "event_id": "b0429722-2d6f-8332-be1b-1b6553a03907"
         },
         {
           "body": {
@@ -1163,7 +1163,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5c154310b07b589ca6fadedbf5894170997cf2b71aec1eeb3cd1a3550bf3e7bb",
+                "digest": "68e8f61324c455603ce160d98379ab67049aa2b99112de19e33ffc8d36427fef",
                 "id": "opencode-session-dto-6c24ec9",
                 "version": "0.0.1-engine"
               },
@@ -1178,8 +1178,8 @@
             },
             "sequence": 2
           },
-          "body_digest": "7156023931d7a278706d7a8d01a8815c2860f7197e80b800807fd0d1e89e2041",
-          "event_id": "e0fade78-aabe-8a8a-aca8-b09dccc95518"
+          "body_digest": "9b96c7ba6c19e353c3b283504987a89e509b4c57bdf264e2afc9028926aafb56",
+          "event_id": "4438c738-cdde-827c-81e8-5996a126c8c7"
         },
         {
           "body": {
@@ -1211,7 +1211,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5c154310b07b589ca6fadedbf5894170997cf2b71aec1eeb3cd1a3550bf3e7bb",
+                "digest": "68e8f61324c455603ce160d98379ab67049aa2b99112de19e33ffc8d36427fef",
                 "id": "opencode-session-dto-6c24ec9",
                 "version": "0.0.1-engine"
               },
@@ -1226,8 +1226,8 @@
             },
             "sequence": 3
           },
-          "body_digest": "23b6145613a3c00679a4d525220c77c653d6b64ad58c0cb838bb9c22a0bbda0a",
-          "event_id": "2892c5fd-d1e5-8ec5-bd60-8442faa92936"
+          "body_digest": "e5b7e5badb1484b44c462f143c8d720c7f92f37b6b60184f4e60ccb20350a311",
+          "event_id": "33c2cd12-9fcc-8f8e-8d93-6e95c7385e2d"
         },
         {
           "body": {
@@ -1263,7 +1263,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5c154310b07b589ca6fadedbf5894170997cf2b71aec1eeb3cd1a3550bf3e7bb",
+                "digest": "68e8f61324c455603ce160d98379ab67049aa2b99112de19e33ffc8d36427fef",
                 "id": "opencode-session-dto-6c24ec9",
                 "version": "0.0.1-engine"
               },
@@ -1278,8 +1278,8 @@
             },
             "sequence": 4
           },
-          "body_digest": "bee17e0ca62dedd61c2932c2d3e71eaf4eb3fde779c835087589e17fe2add8cc",
-          "event_id": "c2edf887-5378-8e2b-a7ef-26d107a2ab22"
+          "body_digest": "178e67a6600061325f01d710d521252001bb4f24e259c3743293e88dec22fa23",
+          "event_id": "eafcc69d-04ee-84b5-a5c5-6a0f575a58e3"
         },
         {
           "body": {
@@ -1310,7 +1310,7 @@
               },
               "native_session_key": "native-fixture",
               "parser": {
-                "digest": "5c154310b07b589ca6fadedbf5894170997cf2b71aec1eeb3cd1a3550bf3e7bb",
+                "digest": "68e8f61324c455603ce160d98379ab67049aa2b99112de19e33ffc8d36427fef",
                 "id": "opencode-session-dto-6c24ec9",
                 "version": "0.0.1-engine"
               },
@@ -1325,8 +1325,8 @@
             },
             "sequence": 5
           },
-          "body_digest": "0c5495c0aa74b26b8e5df6813b4820e6a6a02c4008b970fa89a9106882709421",
-          "event_id": "41c6762b-806e-8ff8-8ba8-6875258ad4e2"
+          "body_digest": "dbacd2fd443fd26845efa5501b08844ecd56d8c2554b7626b21d4180ec9d51a4",
+          "event_id": "825462af-e499-8515-9e6b-80f7177a5e5e"
         }
       ],
       "harness": "opencode",

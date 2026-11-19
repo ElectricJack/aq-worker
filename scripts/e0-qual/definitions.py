@@ -62,7 +62,7 @@ TOKENS_PER_BYTE = 1
 QUALIFICATION_TTL_MS = 86400000
 WORKER_VOLUME = "aq-e0-qual-worker-state"
 LONG_CONTRACT = {"id": "aq.admission.preparation-registry-refresh-v1-contract.interactive-long-v1", "version": "1",
-                 "digest": "4c4ab2ae711614db55b4b8077ce9ff5ad0200aa62d9d7bd298231da632d851bf"}
+                 "digest": "bd9abe1d9ef02970beb7946c007418de90a6066a146698ac0c075da1c1f2a28f"}
 TERMINAL_CONTRACT = {"id": "aq.phase-terminal.registry-refresh-v1.contract", "version": "1",
                      "digest": "f9af55c49127a8cb93f03ef5bbb28313d13f94a221affa3e26d91d45bffd6c2d"}
 # Phase features the refresh-v1 long contract requires (aq-admission 0.1.11 preparation_shared.rs

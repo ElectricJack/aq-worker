@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-TOOLS = ("aq-worker", "aq-session-host", "aq-agent", "aq-git")
+TOOLS = ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver")
 DIGEST = re.compile(r"sha256:[a-f0-9]{64}")
 SLUG = re.compile(r"[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+")
 
@@ -183,8 +183,9 @@ def build(args):
         stage.mkdir()
         for name in TOOLS:
             src = args.worker if name == "aq-worker" else args.runtime / name
-            if name == "aq-session-host":
-                copy_pin(src, stage / name, host["helper"]["artifact"]["digest"])
+            if name in ("aq-session-host", "aq-sandbox-driver"):
+                ref = host["helper" if name == "aq-session-host" else "driver"]
+                copy_pin(src, stage / name, ref["artifact"]["digest"])
             else:
                 shutil.copyfile(src, stage / name)
             (stage / name).chmod(0o755)
@@ -197,7 +198,7 @@ def build(args):
         native["adapter_manifest"] = "/adapter.json"
         executor["composite_definition"] = "/composite.json"
         native["inventory_definition"] = "/inventory.json"
-        for key in ("helper", "tmux"):
+        for key in ("driver", "helper", "tmux"):
             host[key]["path"] = "/bundle/" + Path(host[key]["path"]).name
         for key in ("git_root", "git_socket", "state_dir"):
             native[key] = "/bundle/" + key

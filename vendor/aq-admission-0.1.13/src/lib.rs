@@ -529,7 +529,6 @@ pub mod preparation_v2;
 pub mod scoped_presence;
 
 pub mod node_slots;
-pub mod observation_source;
 
 mod docker_local;
 pub mod preparation_refresh_v1;

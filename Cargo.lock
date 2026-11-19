@@ -129,7 +129,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.22.1",
  "chrono",
  "libc",
  "reqwest",
@@ -304,11 +303,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "aq-observation-store"
+name = "aq-observation-redb-prototype"
 version = "0.0.5"
 dependencies = [
  "anyhow",
- "aq-admission 0.1.13",
  "aq-lifecycle-protocol",
  "aq-observation",
  "aq-observation-admission",
@@ -372,10 +370,8 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "thiserror",
- "tokio",
  "uuid",
  "zeroize",
 ]
@@ -499,9 +495,8 @@ dependencies = [
  "aq-machine-load",
  "aq-node-service",
  "aq-observation",
- "aq-observation-admission",
  "aq-observation-engine",
- "aq-observation-store",
+ "aq-observation-redb-prototype",
  "aq-phase-terminal-protocol",
  "aq-protocol",
  "aq-responses-transport",

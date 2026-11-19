@@ -26,6 +26,7 @@ export HOME=/aq/home CODEX_HOME=/aq/home/.codex TERM=xterm-256color
 mkdir -p "$CODEX_HOME"
 [ -s /aq/private/material ] || { echo 'ChatGPT subscription login is unavailable'; exit 90; }
 cat /aq/private/material > "$CODEX_HOME/auth.json"
+trap 'rm -f "$CODEX_HOME/auth.json"' EXIT
 rm -f /aq/private/material
 cat /aq/in/codex-config > "$CODEX_HOME/config.toml"
 cd /aq/work
@@ -46,9 +47,7 @@ model=$(cat /aq/in/model); effort=$(cat /aq/in/effort)
 "#;
 pub(super) struct Plan {
     pub entries: Vec<TreeEntry>,
-    /// The node's Claude token file. None for Codex: its login is leased from the
-    /// server's login store for this session.
-    pub secret: Option<PathBuf>,
+    pub secret: PathBuf,
 }
 pub(super) fn validate_material(spec: &Value, bytes: &[u8]) -> Result<()> {
     if spec["provider"] == "openai" {
@@ -74,9 +73,16 @@ pub(super) fn available(config: &ServiceConfig) -> Vec<&'static str> {
     {
         out.push("anthropic");
     }
-    // Codex needs no file here: a session leases its login from the server, which
-    // refuses with its reason when it has none to give.
-    if config.manual.as_ref().is_some_and(|m| m.codex.is_some()) {
+    if config
+        .manual
+        .as_ref()
+        .and_then(|m| m.codex.as_ref())
+        .is_some_and(|c| {
+            aq_handoff_note::read_private(&c.auth_file, 65536).is_ok_and(|b| {
+                validate_material(&serde_json::json!({"provider":"openai"}), &b).is_ok()
+            })
+        })
+    {
         out.push("openai");
     }
     out
@@ -105,13 +111,11 @@ pub(super) fn plan(
             );
             (
                 settings.host.claude_executable.clone(),
-                Some(
-                    config
-                        .manual
-                        .as_ref()
-                        .map(|m| m.claude_token_file.clone())
-                        .context("Claude subscription file")?,
-                ),
+                config
+                    .manual
+                    .as_ref()
+                    .map(|m| m.claude_token_file.clone())
+                    .context("Claude subscription file")?,
                 CLAUDE,
             )
         }
@@ -128,7 +132,7 @@ pub(super) fn plan(
                 .as_ref()
                 .and_then(|m| m.codex.as_ref())
                 .context("Codex is not installed for manual launch")?;
-            (c.executable.clone(), None, CODEX)
+            (c.executable.clone(), c.auth_file.clone(), CODEX)
         }
         _ => anyhow::bail!("interactive provider is not installed"),
     };
@@ -146,11 +150,58 @@ pub(super) fn plan(
             .and_then(|m| m.codex.as_ref())
             .and_then(|c| c.runtime_bundle.as_ref())
         {
-            entries.extend(aq_sandbox_archive::codex_runtime::bundle(bundle)?);
+            entries.extend(runtime_bundle(bundle)?);
         }
     }
     Ok(Plan { entries, secret })
 }
+/// Only these public, exact-version runtime artifacts may enter a session.
+fn runtime_bundle(path: &std::path::Path) -> Result<Vec<TreeEntry>> {
+    let pins: Value = serde_json::from_str(include_str!(
+        "../../../../../../packaging/native-runtime/pins.json"
+    ))?;
+    let mut entries = vec![file(
+        "codex-digest",
+        pins["inputs"]["codex"]["sha256"]
+            .as_str()
+            .context("Codex executable pin")?,
+    )];
+    for name in [
+        "codex-runtime",
+        "codex-runtime/codex-path",
+        "codex-runtime/codex-resources",
+    ] {
+        entries.push(TreeEntry::Dir {
+            path: name.into(),
+            mode: 0o700,
+        });
+    }
+    for name in [
+        "codex-code-mode-host",
+        "codex-path/rg",
+        "codex-resources/bwrap",
+    ] {
+        let pin = &pins["inputs"][name];
+        let expected = pin["bytes"].as_u64().context("Codex helper size")?;
+        let file = std::fs::File::open(path.join(name)).context("Codex helper unavailable")?;
+        ensure!(
+            file.metadata()?.is_file() && file.metadata()?.len() == expected,
+            "Codex helper size mismatch"
+        );
+        let mut bytes = Vec::new();
+        use std::io::Read;
+        file.take(expected + 1).read_to_end(&mut bytes)?;
+        ensure!(
+            bytes.len() as u64 == expected
+                && aq_session_protocol::Digest::of(&bytes).as_str()
+                    == pin["sha256"].as_str().context("Codex helper digest")?,
+            "Codex helper digest mismatch"
+        );
+        entries.push(super::file(&format!("codex-runtime/{name}"), bytes));
+    }
+    Ok(entries)
+}
+
 fn codex_config(spec: &Value) -> Result<String> {
     // JSON strings are valid TOML basic strings; only these known scalar options
     // cross into CLI configuration. Never copy a host config or arbitrary options.
@@ -216,15 +267,6 @@ mod tests {
         std::fs::write(&token, b"synthetic-subscription-token").unwrap();
         std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert_eq!(available(&config), ["anthropic"]);
-        // Codex is offered once it is installed: no login file is configured on the
-        // node, and the removed `auth_file` key is refused like any unknown key.
-        let codex = format!("{manual}[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\n");
-        let config = ServiceConfig::parse(&codex).unwrap();
-        config.validate().unwrap();
-        assert_eq!(available(&config), ["anthropic", "openai"]);
-        let old = format!("{codex}auth_file = \"/home/owner/.codex/auth.json\"\n");
-        let refused = ServiceConfig::parse(&old).unwrap_err().to_string();
-        assert!(refused.contains("unknown field `auth_file`"), "{refused}");
         let without_manual = ServiceConfig::parse(base).unwrap();
         assert!(available(&without_manual).is_empty());
     }
@@ -232,7 +274,7 @@ mod tests {
     fn runtime_bundle_refuses_unpinned_helper_bytes() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("codex-code-mode-host"), b"wrong helper").unwrap();
-        assert!(aq_sandbox_archive::codex_runtime::bundle(root.path()).is_err());
+        assert!(runtime_bundle(root.path()).is_err());
     }
     #[test]
     fn rejects_api_key_material_and_unsupported_provider_options() {

@@ -43,11 +43,9 @@ use std::{
 use uuid::Uuid;
 pub mod users;
 pub const HOST_PROFILE: &str = "linux-subreaper-tmux-foreground-v1";
-/// Handshake timing, not an attempt limit: the longest window of one host
-/// permit that is not interactive. Such a permit is reissued before it ends
-/// for as long as the server keeps renewing the lease, so this bounds how
-/// stale a permit may get, never how long the work runs.
 pub const MAX_PERMIT_MS: u64 = 120000;
+/// Only the sealed named interactive PTY factory selects this limit.
+pub const MAX_INTERACTIVE_PERMIT_MS: u64 = 3_600_000;
 const MAX_LOCAL_FILE: u64 = 2 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -77,8 +75,12 @@ impl ExecutionPermit {
         ensure!(
             self.sequence > 0
                 && self.expires_boot_ms > self.issued_boot_ms
-                // The interactive window is the lease the server granted: no cap here.
-                && (interactive || self.expires_boot_ms - self.issued_boot_ms <= MAX_PERMIT_MS)
+                && self.expires_boot_ms - self.issued_boot_ms
+                    <= if interactive {
+                        MAX_INTERACTIVE_PERMIT_MS
+                    } else {
+                        MAX_PERMIT_MS
+                    }
                 && now >= self.issued_boot_ms
                 && now < self.expires_boot_ms,
             "expired/invalid execution permit"
@@ -1387,7 +1389,7 @@ mod tests {
         assert!(excessive.validate_at(&s, &digest, 100).is_err());
     }
     #[test]
-    fn interactive_permit_has_no_window_cap_and_keeps_default_limit_and_expiry() {
+    fn explicit_interactive_permit_hour_does_not_widen_default_limit_or_expiry() {
         let session = session();
         let digest = Digest::of(b"manifest");
         let mut permit = ExecutionPermit {
@@ -1400,7 +1402,7 @@ mod tests {
         assert!(permit.validate_at(&session, &digest, 100).is_ok());
         permit.expires_boot_ms += 1;
         assert!(permit.validate_at(&session, &digest, 100).is_err());
-        permit.expires_boot_ms = 100 + 14_400_000;
+        permit.expires_boot_ms = 100 + MAX_INTERACTIVE_PERMIT_MS;
         assert!(permit.validate_at(&session, &digest, 100).is_err());
         assert!(
             permit
@@ -1417,12 +1419,11 @@ mod tests {
                 .validate_at_scoped(&session, &Digest::of(b"other"), 100, true)
                 .is_err()
         );
-        permit.expires_boot_ms = permit.issued_boot_ms;
+        permit.expires_boot_ms += 1;
         assert!(
             permit
                 .validate_at_scoped(&session, &digest, 100, true)
-                .is_err(),
-            "an empty window is still refused"
+                .is_err()
         );
     }
     #[test]

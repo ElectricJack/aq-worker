@@ -115,7 +115,7 @@ if grep -Eq '^[[:space:]]*libutempter\.so\.0[[:space:]]+=>[[:space:]]+not found'
     echo 'Install libutempter0, then rerun the command.' >&2; exit 3
   fi
 fi
-for tool in aq-worker aq-session-host aq-agent aq-git tmux; do
+for tool in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver tmux; do
   libraries="$(ldd "$package/$tool" 2>&1 || true)"
   if [[ "$libraries" == *'not found'* ]]; then
     echo "A system library required by $tool is missing." >&2
@@ -124,7 +124,7 @@ for tool in aq-worker aq-session-host aq-agent aq-git tmux; do
   fi
 done
 # A Claude subscription token file already on this machine enables manual Claude sessions at
-# install; otherwise the token arrives later through Push Claude token.
+# install; otherwise logins arrive later through Push logins.
 configure_args=()
 token_file="${AQ_CLAUDE_TOKEN_FILE:-$HOME/.config/aq-secrets/claude-oauth-token}"
 if [[ "$token_file" == /* && -r "$token_file" ]]; then

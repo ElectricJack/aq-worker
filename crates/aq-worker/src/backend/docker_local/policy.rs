@@ -135,18 +135,15 @@ pub fn create_body(
             "ReadOnly": false,
         }));
     }
-    if let Some((host, target)) = &config.transcript {
-        mounts.push(json!({ "Type": "bind", "Source": host, "Target": target, "ReadOnly": false }));
-    }
     let mut body = json!({
         "Image": image,
         "Labels": labels(request),
         "Env": [],
         "WorkingDir": WORK_TARGET,
         "ExposedPorts": {},
-        "AttachStdin": config.runner_tty,
-        "OpenStdin": config.runner_tty,
-        "Tty": config.runner_tty,
+        "AttachStdin": false,
+        "OpenStdin": false,
+        "Tty": false,
         "HostConfig": {
             "Privileged": false,
             "CapAdd": [],
@@ -161,7 +158,7 @@ pub fn create_body(
             "NetworkMode": "bridge",
             "PortBindings": {},
             "PublishAllPorts": false,
-            "Binds": config.cache_binds,
+            "Binds": [],
             "Mounts": mounts,
             "IpcMode": "private",
             "RestartPolicy": { "Name": "no" },

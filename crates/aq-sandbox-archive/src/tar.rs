@@ -144,19 +144,6 @@ impl TreeEntry {
 }
 
 fn push_member(out: &mut Vec<u8>, name: &str, mode: u32, size: usize, kind: u8, link: &str) {
-    push_member_at(out, name, mode, size, kind, link, 0)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_member_at(
-    out: &mut Vec<u8>,
-    name: &str,
-    mode: u32,
-    size: usize,
-    kind: u8,
-    link: &str,
-    mtime: u64,
-) {
     if name.len() >= 100 {
         // GNU long name record, then a truncated name in the real header.
         let mut long = name.as_bytes().to_vec();
@@ -168,9 +155,8 @@ fn push_member_at(
     }
     let short: String = name.chars().take(99).collect();
     let mut h = header(&short, mode, 0, 0, size, kind);
-    if !link.is_empty() || mtime != 0 {
+    if !link.is_empty() {
         h[157..157 + link.len().min(100)].copy_from_slice(&link.as_bytes()[..link.len().min(100)]);
-        h[136..148].copy_from_slice(format!("{mtime:011o}\0").as_bytes());
         h[148..156].copy_from_slice(b"        ");
         let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
         h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
@@ -181,16 +167,6 @@ fn push_member_at(
 /// Archive for upload at `/`: every entry is placed under `prefix` (relative,
 /// e.g. `aq/work`). Owner is root (the sandbox runner in single-UID mode).
 pub fn tree_archive(prefix: &str, entries: &[TreeEntry]) -> Result<Vec<u8>, InvalidArchive> {
-    tree_archive_at(prefix, entries, &|_| 0)
-}
-
-/// `tree_archive` with a modification time (Unix seconds) per file path, for
-/// build tools that judge freshness by mtime (`build_cache`).
-pub fn tree_archive_at(
-    prefix: &str,
-    entries: &[TreeEntry],
-    mtime: &dyn Fn(&str) -> u64,
-) -> Result<Vec<u8>, InvalidArchive> {
     let bad = InvalidArchive("tree archive path unsupported");
     if prefix.is_empty()
         || prefix.starts_with('/')
@@ -218,7 +194,7 @@ pub fn tree_archive_at(
                 push_member(&mut out, &format!("{name}/"), *mode, 0, b'5', "")
             }
             TreeEntry::File { mode, data, .. } => {
-                push_member_at(&mut out, &name, *mode, data.len(), b'0', "", mtime(rel));
+                push_member(&mut out, &name, *mode, data.len(), b'0', "");
                 let start = out.len();
                 out.extend_from_slice(data);
                 out.resize(start + padded(data.len()), 0);
@@ -514,21 +490,5 @@ mod tests {
         push_member(&mut bad, "/g", 0o644, 0, b'1', "/missing");
         bad.resize(bad.len() + 2 * BLOCK, 0);
         assert!(read_tree(&bad, 1 << 20).is_err());
-    }
-
-    #[test]
-    fn a_tree_archive_carries_each_files_mtime_and_still_reads_back() {
-        let file = |path: &str| TreeEntry::File {
-            path: path.into(),
-            mode: 0o644,
-            data: b"x".to_vec(),
-        };
-        let entries = [file("old.rs"), file("new.rs")];
-        let stamp = |path: &str| if path == "new.rs" { 1_800_000_000 } else { 0 };
-        let archive = tree_archive_at("work", &entries, &stamp).unwrap();
-        // One directory header, then one header and one data block per file.
-        let mtime = |block: usize| octal(&archive[block * BLOCK + 136..block * BLOCK + 148]);
-        assert_eq!((mtime(1), mtime(3)), (Some(0), Some(1_800_000_000)));
-        assert_eq!(read_tree(&archive, 16).unwrap(), entries);
     }
 }

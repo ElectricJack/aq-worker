@@ -154,7 +154,7 @@ fi
 systemctl --user enable --now aq-sandbox-podman.service
 
 # 3. Binaries.
-for f in aq-worker aq-session-host aq-agent aq-git; do
+for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
   [[ -f "$BUNDLE/$f" ]] || { echo "bundle is missing $f." >&2; exit 2; }
 done
 [[ -f "$TEMPLATE" ]] || { echo "native template $TEMPLATE not found." >&2; exit 2; }
@@ -166,7 +166,7 @@ done
 # profiles' services are started again here; this profile's is started by step
 # 5, or by the hosted installer, which checks it runs the installed worker.
 changed=0
-for f in aq-worker aq-session-host aq-agent aq-git; do
+for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
   if [[ -f "$RUNTIME_DIR/$f" ]] && ! cmp -s "$BUNDLE/$f" "$RUNTIME_DIR/$f"; then changed=1; fi
 done
 # A worker still running from files an earlier update replaced is the same case.
@@ -200,7 +200,7 @@ if [[ "$changed" == 1 ]]; then
     kill -KILL "${leftover[@]}" 2>/dev/null || true
   fi
 fi
-for f in aq-worker aq-session-host aq-agent aq-git; do
+for f in aq-worker aq-session-host aq-agent aq-git aq-sandbox-driver; do
   install -D -m 0755 "$BUNDLE/$f" "$RUNTIME_DIR/$f"
 done
 for unit in "${stopped[@]}"; do

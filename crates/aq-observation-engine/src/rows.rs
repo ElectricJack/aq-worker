@@ -11,9 +11,6 @@ pub enum Table {
     Mutation,
     DisplayById,
     DisplayByOrdinal,
-    /// Insertion ordinal -> `Seen` key: the order in which identities leave
-    /// the rolling window.
-    SeenOrder,
 }
 /// A storage adapter must scope every lookup to one immutable source revision.
 /// The engine bounds requested keys/ranges and never receives a full map.

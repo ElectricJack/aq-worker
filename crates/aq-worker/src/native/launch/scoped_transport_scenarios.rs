@@ -65,7 +65,6 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
             stopped: None,
             transport: Some(owner),
             channel: None,
-            observation: None,
             outcome: Outcome::Unknown,
         }),
     });
@@ -134,7 +133,6 @@ fn diagnostic_drain_prevents_adopting_a_complete_blank_baseline() {
         stopped: None,
         transport: None,
         channel: None,
-        observation: None,
         outcome: Outcome::Unknown,
     };
     physical.ensure_complete_output_available().unwrap();

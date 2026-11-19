@@ -125,9 +125,6 @@ struct Physical {
     transport: Option<crate::native::adapter::responses_transport::ScopedResponsesTransport>,
     /// Spec 0006 agent channel; closed with the host, removed after Stopped.
     channel: Option<aq_agent_channel::AgentChannel>,
-    /// The attempt's transcript source in the node's observation store; dropping it
-    /// drains and releases the source.
-    observation: Option<aq_observation_store::node::SourceHandle>,
     outcome: Outcome,
 }
 impl Physical {
@@ -199,7 +196,6 @@ impl Registry {
                             stopped: None,
                             transport: None,
                             channel: None,
-                            observation: None,
                             outcome: Outcome::Unknown,
                         }),
                     }),
@@ -352,7 +348,6 @@ impl Registry {
                 stopped: None,
                 transport: None,
                 channel: None,
-                observation: None,
                 outcome: Outcome::Pending,
             }),
         });
@@ -572,7 +567,6 @@ impl Entry {
                 return Ok(());
             }
             drop(physical.channel.take()); // removes the socket directory
-            drop(physical.observation.take());
             physical.transport.take()
         };
         if let Some(transport) = transport {
@@ -1108,4 +1102,22 @@ mod frozen_terminal_reports {
 mod refresh_terminal_reports {
     use super::*;
     crate::native::phase_profile_shared::report_terminal! { aq_phase_terminal_protocol::refresh_v1, crate::native::journal::refresh_terminal::PhaseTerminalHistory, refresh_terminal_history, refresh_terminal, report_refresh_terminal_started, report_refresh_terminal_stopped, refresh_terminal_started, refresh_terminal_stopped, refresh_started_receipt, refresh_stopped_receipt }
+}
+
+#[cfg(test)]
+mod driver_dir_tests {
+    #[test]
+    fn leftover_token_is_wiped_and_a_missing_one_is_fine() {
+        let dir = tempfile::tempdir().unwrap();
+        let token = dir.path().join("token");
+        std::fs::write(&token, b"x").unwrap();
+        std::fs::write(dir.path().join("exit.json"), b"{}").unwrap();
+        super::wipe_claude_driver_secrets(dir.path());
+        assert!(!token.exists());
+        assert!(
+            dir.path().join("exit.json").exists(),
+            "non-secret records stay"
+        );
+        super::wipe_claude_driver_secrets(dir.path());
+    }
 }

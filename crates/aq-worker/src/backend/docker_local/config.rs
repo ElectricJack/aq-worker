@@ -45,9 +45,6 @@ pub struct DockerLocalConfig {
     /// Fixed runner argv. `None` keeps the image's own command. Never secrets.
     #[serde(default)]
     pub runner_command: Option<Vec<String>>,
-    /// The runner gets a terminal (the node driver attaches its pane to it).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub runner_tty: bool,
     #[serde(default = "default_material_path")]
     pub material_path: String,
     #[serde(default)]
@@ -78,14 +75,6 @@ pub struct DockerLocalConfig {
     /// `agent_channel` mounts `<channel_root>/<attempt>` at `/aq/channel`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_root: Option<PathBuf>,
-    /// Set by the launch, per attempt: the node's own 0700 directory and the
-    /// harness's transcript directory (`DriverHarness::transcript_dir`, nothing
-    /// else) it is mounted at.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub transcript: Option<(PathBuf, String)>,
-    /// The attempt's build-cache binds; set by the driver, never read from a file.
-    #[serde(skip)]
-    pub cache_binds: Vec<String>,
 }
 
 fn default_material_path() -> String {
@@ -119,7 +108,6 @@ impl DockerLocalConfig {
             templates: Vec::new(),
             mount_aliases: BTreeMap::new(),
             runner_command: None,
-            runner_tty: false,
             material_path: default_material_path(),
             material_uid: 0,
             material_gid: 0,
@@ -131,8 +119,6 @@ impl DockerLocalConfig {
             shared_root_fs: false,
             hard_disk_limit: false,
             channel_root: None,
-            transcript: None,
-            cache_binds: Vec::new(),
         }
     }
 
@@ -159,19 +145,6 @@ impl DockerLocalConfig {
         }
         if let Some(root) = &self.channel_root {
             self.check_channel_root(root)?;
-        }
-        if let Some((host, target)) = &self.transcript {
-            use aq_handoff_note::harness::DriverHarness::{Claude, Codex};
-            let clear = |path: &str| !under(path, target) && !under(target, path);
-            if self.check_channel_root(host).is_err()
-                || ![Claude, Codex].iter().any(|h| h.transcript_dir() == target)
-                || !self.mount_aliases.values().all(|a| clear(&a.target))
-                || !clear(&self.material_path)
-            {
-                return Err(BackendError::InvalidRequest(
-                    "transcript mount must be a harness transcript directory clear of every alias",
-                ));
-            }
         }
         if !container_path_ok(&self.material_path)
             || under(&self.material_path, WORK_TARGET)

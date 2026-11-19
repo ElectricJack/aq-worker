@@ -17,7 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "packaging/service/aq-install.sh"
 CODE = "single-use-enrollment-code"
-BINARIES = ("aq-worker", "aq-session-host", "aq-agent", "aq-git")
+BINARIES = ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver")
 
 STUB = """#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -306,7 +306,7 @@ def test_downloadable_bundle_installs_windows_startup_without_a_checkout(host, m
     bundle = host["bundle"]
     shutil.copyfile(bundle / "aq-worker", bundle / "tmux")
     refs = {}
-    for name, binary in [("helper", "aq-session-host"), ("tmux", "tmux")]:
+    for name, binary in [("helper", "aq-session-host"), ("driver", "aq-sandbox-driver"), ("tmux", "tmux")]:
         path = bundle / binary
         refs[name] = {"path": str(path), "artifact": {"digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}}
     manifest = bundle / "manifest.json"
@@ -451,10 +451,10 @@ def test_hosted_install_writes_manual_sessions_with_their_claude_token_file(tmp_
                 "podman_executable": "/usr/bin/podman",
                 "claude_token_file": "/private/claude-token", "source_slugs": {"repo": "owner/repo"},
             }
-            assert "Use Push Claude token" not in result.stdout
+            assert "Use Push logins" not in result.stdout
         else:
             assert written == {"slots": 1}
-            assert "Use Push Claude token" in result.stdout
+            assert "Use Push logins" in result.stdout
 
 
 def test_hosted_install_keeps_an_existing_manual_section_and_enrollment(tmp_path):
@@ -497,28 +497,38 @@ def login_profile(tmp_path):
     return package, config
 
 
-def test_server_login_enables_manual_sessions_and_remains_private(tmp_path):
+def test_server_logins_enable_manual_both_providers_and_remain_private(tmp_path):
     helper = login_helper()
     package, config = login_profile(tmp_path)
-    logins = [{"provider": "anthropic", "material": "synthetic-claude"}]
+    codex = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "test-access", "refresh_token": "test-refresh", "id_token": "test-id", "account_id": "test-account"}})
+    logins = [{"provider": "anthropic", "material": "synthetic-claude"}, {"provider": "openai", "material": codex}]
     assert helper.apply_logins(package, config, logins)
     parsed = helper.read_toml(config / "service.toml")
     assert parsed["manual"]["source_slugs"] == {"repo": "owner/repo"}
     assert "measurement" not in parsed
     assert parsed["manual"]["claude_token_file"] == str(config / "provider-auth/claude-token")
-    # Codex is installed without a login file: its login is leased from the server.
-    assert parsed["manual"]["codex"] == {"executable": "/opt/aq/bin/codex", "runtime_bundle": str(package / "codex-bundle")}
+    assert parsed["manual"]["codex"]["auth_file"] == str(config / "provider-auth/codex-auth.json")
     for path in (config / "provider-auth").iterdir():
         assert path.stat().st_mode & 0o777 == 0o600
     assert (config / "provider-auth").stat().st_mode & 0o777 == 0o700
     assert not helper.apply_logins(package, config, logins)
 
 
+def test_codex_only_then_claude_requests_capability_restart(tmp_path):
+    helper = login_helper(); package, config = login_profile(tmp_path)
+    auth = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "a", "refresh_token": "r", "id_token": "i", "account_id": "acct"}})
+    assert helper.apply_logins(package, config, [{"provider": "openai", "material": auth}])
+    assert not (config / "provider-auth/claude-token").exists()
+    # The worker requires the key; it offers Claude only once the file exists.
+    token = str(config / "provider-auth/claude-token")
+    assert helper.read_toml(config / "service.toml")["manual"]["claude_token_file"] == token
+    assert helper.apply_logins(package, config, [{"provider": "anthropic", "material": "synthetic"}])
+    assert helper.read_toml(config / "service.toml")["manual"]["claude_token_file"] == token
+
+
 def test_invalid_delivery_writes_no_secrets(tmp_path):
     helper = login_helper(); package, config = login_profile(tmp_path)
-    codex = json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": "a", "refresh_token": "r", "id_token": "i", "account_id": "acct"}})
-    # A Codex login is never installed on a machine, with or without the Claude token.
-    for logins in ([], [{"provider": "anthropic", "material": "bad\nvalue"}], [{"provider": "openai", "material": codex}], [{"provider": "anthropic", "material": "synthetic"}, {"provider": "openai", "material": codex}]):
+    for logins in ([], [{"provider": "anthropic", "material": "bad\nvalue"}], [{"provider": "openai", "material": '{"OPENAI_API_KEY":"test"}'}]):
         with pytest.raises(ValueError):
             helper.apply_logins(package, config, logins)
         assert not (config / "provider-auth").exists()
@@ -880,7 +890,7 @@ def hosted_profile(tmp_path, digest):
     template = {
         "adapter_manifest": "/adapter.json", "inventory_definition": "/inventory.json",
         "executor": {"composite_definition": "/composite.json", "settings": {"host": {
-            "root": "/bundle/host",
+            "root": "/bundle/host", "driver": {"path": "/bundle/aq-sandbox-driver"},
             "helper": {"path": "/bundle/aq-session-host"}, "tmux": {"path": "/bundle/tmux"},
             "docker_local": {"socket": "/bundle/podman.sock", "templates": [{"image": "registry.invalid/owner/image", "digest": "sha256:" + "0" * 64}]},
         }}},
@@ -889,7 +899,7 @@ def hosted_profile(tmp_path, digest):
     for name in ("adapter.json", "composite.json", "inventory.json"):
         (package / name).write_text("{}")
         (package / name).chmod(0o644)
-    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git"):
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
         (package / name).write_text(name + digest)
     return package, config, runtime
 
@@ -913,7 +923,7 @@ def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_pat
     (config / "service.toml").write_text("slots = 1\n")
     (config / "slots/1/worker.toml").write_text(f'server_url = "{origin}"\n')
     (config / "hosted-install.json").write_text(json.dumps({"origin": origin, "bundle_sha256": old}))
-    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git"):
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
         (runtime / name).write_text((package / name).read_text())
     # A newer bundle from another server is refused.
     newer, _, _ = hosted_profile(tmp_path, new)
@@ -954,7 +964,7 @@ def test_an_update_stops_the_running_workers_before_replacing_their_files(host):
     (profile / "service.toml").write_text("")
     runtime = host["home"] / ".local/share/agent-q/runtime"
     runtime.mkdir(parents=True)
-    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git"):
+    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git", "aq-sandbox-driver"):
         (runtime / name).write_text("an older build of " + name)
     active = "aq-node@local.service aq-node@other.service"
     with with_socket(host):
@@ -985,7 +995,7 @@ def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(t
     native = {"state_dir": str(config / "state"), "git_root": str(config / "state/git"), "adapter_manifest": str(present),
               "inventory_definition": str(tmp_path / "absent.json"),
               "executor": {"composite_definition": str(present), "settings": {"host": {
-                  "docker_local": {"socket": str(present)},
+                  "docker_local": {"socket": str(present)}, "driver": {"path": str(present)},
                   "helper": {"path": str(present)}, "tmux": {"path": str(present)}}}}}
     (config / "native.json").write_text(json.dumps(native))
     (config / "service.toml").write_text(f'slots = 1\nnative_template = "{config / "native.json"}"\n')

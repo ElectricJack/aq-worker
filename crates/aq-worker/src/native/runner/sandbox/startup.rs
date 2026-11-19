@@ -25,6 +25,12 @@ impl<'a, A: HarnessAdapter> From<&'a A> for SandboxStartup<'a> {
     }
 }
 impl<'a> SandboxStartup<'a> {
+    pub(super) fn adapter(&self) -> &'a dyn HarnessAdapter {
+        match self {
+            Self::Unobserved(adapter) => *adapter,
+            Self::Observed { adapter, .. } => *adapter,
+        }
+    }
     pub fn observed(
         startup: &'a ObservedStartup,
         adapter: &'a impl ObservedHarnessAdapter,

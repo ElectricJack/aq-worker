@@ -2,7 +2,6 @@
 mod conversation;
 mod provider;
 use anyhow::{Context, Result, bail, ensure};
-use aq_agent_channel::login::LoginLease;
 use aq_node_service::{
     config::ServiceConfig,
     enrollment_file::{EnrollmentFile, write_private},
@@ -37,14 +36,13 @@ use tokio::{
     sync::watch,
 };
 use uuid::Uuid;
-use zeroize::Zeroizing;
 const SOCKET: &str = "/aq/out/manual.sock";
 const RUNNER: &str = r#"set -euo pipefail
 umask 077
 mkdir -p /aq/out /aq/work
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 stage(){ printf '%s' "$1" > /aq/out/stage; }
-trap 'tmux -S /aq/out/manual.sock kill-server 2>/dev/null || true; rm -f /aq/home/.codex/auth.json; exit 0' TERM INT HUP
+trap 'tmux -S /aq/out/manual.sock kill-server 2>/dev/null || true; exit 0' TERM INT HUP
 parent=$$
 (while sleep 2; do until=$(cat /aq/out/lease 2>/dev/null || echo 0); if [ "$(date +%s)" -ge "$until" ]; then printf 'Worker connection expired; workspace retained' > /aq/out/stage; kill -TERM "$parent"; exit; fi; done) &
 watchdog=$!
@@ -61,8 +59,6 @@ tmux -S /aq/out/manual.sock new-session -d -s aq -x 120 -y 40 'exec /bin/bash /a
 stage 'Ready to connect'
 while tmux -S /aq/out/manual.sock has-session -t aq 2>/dev/null; do sleep 1; done
 stage 'Agent exited; workspace retained'
-# The worker writes a login Codex refreshed back to the server, then removes it. The watchdog bounds the wait.
-while [ -e /aq/home/.codex/auth.json ]; do sleep 1; done
 kill "$watchdog" 2>/dev/null || true
 "#;
 #[derive(Clone, Serialize, Deserialize)]
@@ -78,89 +74,6 @@ struct Agent {
     sandbox: Option<SandboxIdentity>,
     #[serde(default)]
     acknowledged: Vec<Uuid>,
-    /// The public half of the Codex login leased for this session: its stored version
-    /// and what identifies a refresh. No token.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    login: Option<LoginLease>,
-    #[serde(skip)]
-    login_checked: Option<std::time::Instant>,
-}
-/// The server refused to lease the session's login; its reason is the session's stage.
-#[derive(Debug)]
-struct LoginRefused(String);
-impl std::fmt::Display for LoginRefused {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-impl std::error::Error for LoginRefused {}
-const CODEX_AUTH: &str = "/aq/home/.codex/auth.json";
-// Under Codex's own write lock (an exclusive flock on `auth.lock`, which Codex holds across
-// its read, refresh and write: codex-rs `login/src/auth/storage.rs` `lock_for_write`), so a
-// refresh in flight cannot write over the installed login. Replaced by rename: Codex reads
-// the file by path and never sees a part of it.
-const INSTALL_AUTH: &str = "umask 077; d=/aq/home/.codex; exec 9>>\"$d/auth.lock\" && flock 9 && cat > \"$d/auth.json.aq\" && mv -f \"$d/auth.json.aq\" \"$d/auth.json\"";
-/// Keeps a Codex session's login and the server's login store (the one source of truth)
-/// in step. A login Codex refreshed in the sandbox (the same account, refreshed later) is
-/// written back as the next stored version. A newer stored version (ours was superseded,
-/// or another copy refreshed and so ended the token ours holds) is installed over the
-/// sandbox's `auth.json`: Codex re-reads that file before it refreshes and after a 401
-/// (codex-rs `login/src/auth/manager.rs`, 0.166), so the running agent keeps working.
-/// `install` is false at stop, when only the write-back matters.
-async fn sync_login(
-    exe: &Path,
-    cfg: &DockerLocalConfig,
-    link: &ServerLink,
-    a: &mut Agent,
-    install: bool,
-) -> Result<()> {
-    let (Some(lease), Some(sandbox)) = (a.login.clone(), a.sandbox.as_ref()) else {
-        return Ok(());
-    };
-    let container = sandbox.backend_id.clone();
-    let valid = aq_session_host::PrivateLaunchInput::validate_chatgpt_auth_json;
-    let read = ["exec", &container, "cat", CODEX_AUTH];
-    let current = Zeroizing::new(cli(exe, &cfg.socket, &read, None).await?);
-    let mut superseded = false;
-    if valid(&current).is_ok() && lease.refreshed(&current) {
-        match link
-            .session_login_refresh(a.id, lease.base_version, &current)
-            .await?
-        {
-            (true, version) => {
-                a.login = Some(LoginLease::of_session(&current, a.id, version)?);
-                return Ok(());
-            }
-            (false, _) => superseded = true,
-        }
-    }
-    if !install {
-        return Ok(());
-    }
-    let (newest, version) = link.session_login(a.id).await?;
-    if superseded || version > lease.base_version {
-        valid(&newest)?;
-        let write = ["exec", "-i", &container, "/bin/sh", "-c", INSTALL_AUTH];
-        cli(exe, &cfg.socket, &write, Some(&newest)).await?;
-        a.login = Some(LoginLease::of_session(&newest, a.id, version)?);
-    }
-    Ok(())
-}
-/// Before a Codex session's sandbox stops: the last write-back, then the login leaves
-/// the retained workspace.
-async fn finish_login(exe: &Path, cfg: &DockerLocalConfig, link: &ServerLink, a: &mut Agent) {
-    if a.spec["provider"] != "openai" {
-        return;
-    }
-    if let Err(error) = sync_login(exe, cfg, link, a, false).await {
-        tracing::warn!(session_id=%a.id, %error, "Codex login write-back at stop");
-    }
-    if let Some(sandbox) = &a.sandbox {
-        let remove = ["exec", &sandbox.backend_id, "rm", "-f", CODEX_AUTH];
-        let _ = cli(exe, &cfg.socket, &remove, None).await;
-    }
-    // Written back once: a repeated stop has nothing left to compare.
-    a.login = None;
 }
 impl Agent {
     fn report(&self, snapshot: Option<String>) -> Value {
@@ -267,7 +180,6 @@ async fn create(
     config: &ServiceConfig,
     settings: &ClaudeDockerSettings,
     node: Uuid,
-    link: &ServerLink,
     a: &mut Agent,
     root: &Path,
 ) -> Result<()> {
@@ -286,17 +198,6 @@ async fn create(
         .unwrap_or(&repo.identity);
     ensure!(valid_slug(slug), "repository source is not configured");
     let plan = provider::plan(config, settings, &a.spec)?;
-    // Before any sandbox exists: a refused lease leaves nothing to retain.
-    let bytes = match &plan.secret {
-        Some(file) => aq_handoff_note::read_private(file, 65536)?,
-        None => {
-            let leased = link.session_login(a.id).await;
-            let (bytes, version) = leased.map_err(|e| LoginRefused(e.to_string()))?;
-            a.login = Some(LoginLease::of_session(&bytes, a.id, version)?);
-            bytes
-        }
-    };
-    provider::validate_material(&a.spec, &bytes)?;
     let mut docker = settings.host.docker_local.clone();
     docker.runner_command = Some(vec!["/bin/bash".into(), "-c".into(), RUNNER.into()]);
     let mut backend = DockerLocalBackend::connect_unix(docker).await?;
@@ -341,6 +242,8 @@ async fn create(
             )?,
         )
         .await?;
+    let bytes = aq_handoff_note::read_private(&plan.secret, 65536)?;
+    provider::validate_material(&a.spec, &bytes)?;
     backend
         .deliver_private_material(&sandbox, PrivateMaterial::new(bytes.to_vec()))
         .await?;
@@ -352,7 +255,6 @@ async fn create(
 async fn observe(
     exe: &Path,
     cfg: &DockerLocalConfig,
-    link: &ServerLink,
     a: &mut Agent,
     lease_until: u64,
 ) -> Result<Option<String>> {
@@ -423,14 +325,9 @@ async fn observe(
     .await
     {
         let stage = String::from_utf8_lossy(&bytes);
-        if stage.starts_with("Agent exited;") {
-            // The runner keeps the sandbox up until the login is collected.
-            finish_login(exe, cfg, link, a).await;
-            let sandbox = a.sandbox.as_ref().context("manual sandbox missing")?;
-            if backend.stop(sandbox).await.is_confirmed() {
-                a.status = "stopped".into();
-                a.stage = "Agent stopped; workspace retained".into();
-            }
+        if stage.starts_with("Agent exited;") && backend.stop(sandbox).await.is_confirmed() {
+            a.status = "stopped".into();
+            a.stage = "Agent stopped; workspace retained".into();
         } else {
             a.stage = stage.chars().take(128).collect();
         }
@@ -554,8 +451,6 @@ pub async fn run(
     let exe = manual.podman_executable.clone();
     let legacy_max_slots = manual.max_slots;
     let providers = provider::available(&config);
-    let login_check =
-        std::time::Duration::from_secs((manual.codex.as_ref()).map_or(60, |c| c.login_check_secs));
     let root = config.state_root.join("manual-agents");
     std::fs::create_dir_all(&root)?;
     let mut nodes = Vec::new();
@@ -660,15 +555,25 @@ pub async fn run(
                     desired_running: job["desired_running"] == true,
                     sandbox: None,
                     acknowledged: Vec::new(),
-                    login: None,
-                    login_checked: None,
                 });
                 a.desired_running = job["desired_running"] == true;
                 if !a.desired_running {
-                    if a.sandbox.is_some() {
-                        finish_login(&exe, &settings.host.docker_local, &node.link, a).await;
-                    }
                     if let Some(sandbox) = &a.sandbox {
+                        if a.spec["provider"] == "openai" {
+                            let _ = cli(
+                                &exe,
+                                &settings.host.docker_local.socket,
+                                &[
+                                    "exec",
+                                    &sandbox.backend_id,
+                                    "rm",
+                                    "-f",
+                                    "/aq/home/.codex/auth.json",
+                                ],
+                                None,
+                            )
+                            .await;
+                        }
                         let mut backend =
                             DockerLocalBackend::connect_unix(settings.host.docker_local.clone())
                                 .await?;
@@ -704,18 +609,9 @@ pub async fn run(
                         save(&root, a)?;
                         continue;
                     }
-                    if let Err(error) =
-                        create(&config, &settings, node.id, &node.link, a, &root).await
-                    {
-                        a.status = "failed".into();
-                        if let Some(refused) = error.downcast_ref::<LoginRefused>() {
-                            // Refused before any sandbox: the owner sees the server's reason.
-                            session.release_manual(id);
-                            a.stage = refused.0.chars().take(128).collect();
-                            save(&root, a)?;
-                            continue;
-                        }
+                    if let Err(_error) = create(&config, &settings, node.id, a, &root).await {
                         // Creation may have left a live sandbox: retain occupancy until a confirmed stop.
+                        a.status = "failed".into();
                         a.stage = "Startup failed; workspace retained for diagnosis".into();
                         save(&root, a)?;
                         continue;
@@ -731,17 +627,7 @@ pub async fn run(
                 {
                     tracing::warn!(session_id=%id,"manual terminal input is uncertain; bytes will not be replayed");
                 }
-                let docker = &settings.host.docker_local;
-                if a.status == "running"
-                    && a.login.is_some()
-                    && a.login_checked.is_none_or(|at| at.elapsed() >= login_check)
-                {
-                    a.login_checked = Some(std::time::Instant::now());
-                    if let Err(error) = sync_login(&exe, docker, &node.link, a, true).await {
-                        tracing::warn!(session_id=%id, %error, "Codex login sync");
-                    }
-                }
-                match observe(&exe, docker, &node.link, a, node.lease_until).await {
+                match observe(&exe, &settings.host.docker_local, a, node.lease_until).await {
                     Ok(Some(text)) => {
                         node.snapshots.insert(id, text);
                     }
@@ -775,9 +661,6 @@ pub async fn run(
             legacy_max_slots
         };
         for a in node.agents.values_mut() {
-            if a.sandbox.is_some() && a.status != "stopped" {
-                finish_login(&exe, &settings.host.docker_local, &node.link, a).await;
-            }
             if let Some(sandbox) = &a.sandbox {
                 let mut backend =
                     DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
@@ -871,135 +754,9 @@ mod tests {
             source(&json!({"source":{"kind":"named_ref","reference":"refs/heads/main:evil"}}))
                 .is_err()
         );
-        // The install script is valid shell and takes Codex's lock before it writes.
-        let checked = std::process::Command::new("sh")
-            .args(["-n", "-c", INSTALL_AUTH])
-            .status();
-        assert!(checked.unwrap().success());
-        let (lock, write) = (INSTALL_AUTH.find("flock 9"), INSTALL_AUTH.find("cat >"));
-        assert!(lock.is_some() && lock < write);
         assert!(valid_slug("ElectricJack/aq-server"));
         assert!(!valid_slug("../aq-server"));
         assert!(!valid_slug("https://evil/repo"));
         assert!(!valid_slug("owner/repo\ncommand"));
-    }
-    fn login(refreshed: &str) -> Vec<u8> {
-        json!({"auth_mode": "chatgpt", "last_refresh": refreshed,
-            "tokens": {"id_token": "i", "access_token": "a", "refresh_token": format!("secret-{refreshed}"), "account_id": "acct"}})
-        .to_string()
-        .into_bytes()
-    }
-    /// A running Codex session against a login store and a sandbox that are both
-    /// stand-ins: the store is the two session routes with compare-and-swap, the
-    /// sandbox one file behind a program that answers the `exec` calls made here.
-    #[tokio::test]
-    async fn a_session_writes_its_refresh_back_and_installs_a_newer_stored_login() {
-        use axum::{
-            Json, Router,
-            body::Bytes,
-            extract::{Query, State},
-            http::StatusCode,
-            routing::post,
-        };
-        use std::os::unix::fs::PermissionsExt;
-        type Store = Arc<std::sync::Mutex<(i64, Vec<u8>)>>;
-        let (t0, t1, t2, t3) = (
-            "2026-11-01T00:00:00Z",
-            "2026-11-02T00:00:00Z",
-            "2026-11-03T00:00:00Z",
-            "2026-11-04T00:00:00Z",
-        );
-        let store: Store = Arc::new(std::sync::Mutex::new((3, login(t0))));
-        let lease = |State(store): State<Store>| async move {
-            let (version, bytes) = store.lock().unwrap().clone();
-            ([("aq-material-version", version.to_string())], bytes)
-        };
-        let refresh = |State(store): State<Store>,
-                       Query(q): Query<BTreeMap<String, i64>>,
-                       body: Bytes| async move {
-            let mut store = store.lock().unwrap();
-            if q["base_version"] != store.0 {
-                let lost = json!({"accepted": false, "version": store.0, "replayed": false});
-                return (StatusCode::CONFLICT, Json(lost));
-            }
-            *store = (store.0 + 1, body.to_vec());
-            let won = json!({"accepted": true, "version": store.0, "replayed": false});
-            (StatusCode::OK, Json(won))
-        };
-        let app = Router::new()
-            .route("/v1/worker/manual-agents/{id}/login", post(lease))
-            .route("/v1/worker/manual-agents/{id}/login/refresh", post(refresh))
-            .with_state(store.clone());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let link = ServerLink::new(&origin, "node-credential-0123456789", None).unwrap();
-
-        let dir = tempfile::tempdir().unwrap();
-        let exe = dir.path().join("engine");
-        // argv: --remote --url URL exec [-i] CONTAINER PROGRAM ...
-        std::fs::write(&exe, "#!/bin/sh\nf=$(dirname \"$0\")/auth.json\nif [ \"$5\" = -i ]; then cat > \"$f\"; elif [ \"$6\" = cat ]; then cat \"$f\"; else rm -f \"$f\"; fi\n").unwrap();
-        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let sandbox = dir.path().join("auth.json");
-        let cfg: DockerLocalConfig =
-            serde_json::from_value(json!({"socket": "/nonexistent"})).unwrap();
-        let id = Uuid::new_v4();
-        let owner = Ownership {
-            node_id: id,
-            boot_id: id,
-            attempt_id: id,
-        };
-        let sandbox_id: SandboxIdentity = serde_json::from_value(
-            json!({"kind": "docker-local", "backend_id": "c", "owner": owner}),
-        )
-        .unwrap();
-        let (leased, version) = link.session_login(id).await.unwrap();
-        std::fs::write(&sandbox, &*leased).unwrap();
-        let mut a = Agent {
-            id,
-            node_id: id,
-            project_id: id,
-            spec: json!({"provider": "openai"}),
-            status: "running".into(),
-            stage: String::new(),
-            desired_running: true,
-            sandbox: Some(sandbox_id),
-            acknowledged: vec![],
-            login: Some(LoginLease::of_session(&leased, id, version).unwrap()),
-            login_checked: None,
-        };
-        let version = |a: &Agent| a.login.as_ref().unwrap().base_version;
-        let stored = || store.lock().unwrap().clone();
-        // Nothing changed anywhere: nothing is written.
-        sync_login(&exe, &cfg, &link, &mut a, true).await.unwrap();
-        assert_eq!((version(&a), stored()), (3, (3, login(t0))));
-        // Codex refreshed in the sandbox: version 4 based on 3.
-        std::fs::write(&sandbox, login(t1)).unwrap();
-        sync_login(&exe, &cfg, &link, &mut a, true).await.unwrap();
-        assert_eq!((version(&a), stored()), (4, (4, login(t1))));
-        // Another copy refreshed and stored version 5: it replaces the sandbox's login.
-        *store.lock().unwrap() = (5, login(t2));
-        sync_login(&exe, &cfg, &link, &mut a, true).await.unwrap();
-        assert_eq!(version(&a), 5);
-        assert_eq!(std::fs::read(&sandbox).unwrap(), login(t2));
-        // Both refreshed: ours is superseded, and the stored one is installed.
-        std::fs::write(&sandbox, login(t3)).unwrap();
-        *store.lock().unwrap() = (6, login(t2));
-        sync_login(&exe, &cfg, &link, &mut a, true).await.unwrap();
-        assert_eq!((version(&a), stored().0), (6, 6));
-        assert_eq!(std::fs::read(&sandbox).unwrap(), login(t2));
-        // The session's private state names the version and never holds a token.
-        let state = serde_json::to_string(&a).unwrap();
-        assert!(
-            state.contains("\"base_version\":6")
-                && !state.contains("secret-")
-                && !state.contains("acct")
-        );
-        // At stop the last refresh is written back and the login leaves the sandbox.
-        std::fs::write(&sandbox, login(t3)).unwrap();
-        finish_login(&exe, &cfg, &link, &mut a).await;
-        assert_eq!(stored(), (7, login(t3)));
-        assert!(!sandbox.exists());
-        assert!(a.login.is_none(), "written back once");
     }
 }

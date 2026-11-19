@@ -10,15 +10,13 @@
 //! 3. deliver the leased Claude token as private material; the fixed runner
 //!    reads it into `CLAUDE_CODE_OAUTH_TOKEN` for the `claude` process only and
 //!    deletes the file before Claude starts;
-//! 4. attach the sandbox's terminal to this pane (the harness's interactive TUI:
-//!    the owner watches it and types into it) and wait for the turn to end: the
-//!    harness's stop hook leaves its final message in `/aq/out/stop.json`;
-//! 5. stop the sandbox, then copy `/aq/work` back into the worktree;
+//! 4. stream the runner log to the pane and wait for the runner;
+//! 5. copy `/aq/work` back into the worktree, then stop the sandbox;
 //! 6. submit the AQ result claim through the attempt's local result channel; the node then
 //!    destroys the stopped sandbox. A copy-back that fails part way claims nothing.
 //!
-//! The token never appears in argv, the container create body, labels or logs,
-//! and the pane output is redacted before it is written (`pane::Relay`). The driver itself never talks to aq-server: with
+//! The token never appears in argv, the container create body, labels, logs
+//! or the pane. The driver itself never talks to aq-server: with
 //! `agent_channel` the node's per-attempt channel (spec 0006 §5, crate
 //! `aq-agent-channel`) holds the AQ credential, and the driver only mounts its
 //! socket directory at `/aq/channel` and sets `AQ_CHANNEL`. No channel socket,
@@ -30,16 +28,13 @@ use crate::backend::{
     RunnerExit, SandboxIdentity, TemplateDigest,
 };
 use anyhow::{Context, Result, bail, ensure};
-use aq_handoff_note::Secrets;
-pub use aq_handoff_note::harness::{CHANNEL_NOTE, CLAUDE_RUNNER as RUNNER, RUNNER_NOTE};
-use aq_handoff_note::harness::{STOP_MARKER, stop_stream};
 pub use aq_handoff_note::{
     CopyBackIncomplete, HANDOFF_MARKER, HandoffMarker, PRESERVED_MARKER, conclusion, conclusion_of,
     fold_claim, handoff_note, holds_secret, holds_token, parse_token, proven_success,
     read_handoff_marker,
 };
+use aq_handoff_note::{Secrets, print_logs};
 use aq_handoff_note::{final_message, now_ms, preserved_claim, read_private, write_exit};
-pub use aq_sandbox_archive::pane::{self, Pane};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -49,6 +44,29 @@ use std::{
     time::Duration,
 };
 use zeroize::Zeroizing;
+
+/// Fixed in-sandbox runner (I4a pattern). Public configuration, no secret.
+pub const RUNNER: &str = r#"set -uo pipefail
+umask 077
+in=/aq/in; out=/aq/out; m=/aq/private/material
+mkdir -p "$out"
+[ -s "$m" ] || { echo "aq-runner: material missing"; exit 90; }
+token="$(cat "$m")"; rm -f "$m"
+[ -e "$m" ] && { echo "aq-runner: material not wiped"; exit 91; }
+while IFS= read -r kv; do [ -n "$kv" ] && export "$kv"; done < "$in/env"
+mkdir -p "$HOME" && cp "$in/settings.json" "$HOME/settings.json" || exit 92
+set --; while IFS= read -r a; do set -- "$@" "$a"; done < "$in/args"
+exe="$(cat "$in/executable")"
+cd /aq/work || exit 93
+echo "aq-runner: claude $("$exe" --version 2>/dev/null) uid=$(id -u) capeff=$(awk '/^CapEff:/ {print $2}' /proc/self/status) nnp=$(awk '/^NoNewPrivs:/ {print $2}' /proc/self/status)"
+CLAUDE_CODE_OAUTH_TOKEN="$token" IS_SANDBOX=1 "$exe" "$@" < "$in/prompt" 2> "$out/claude.err" | tee "$out/claude.jsonl"
+rc=${PIPESTATUS[0]}
+unset token
+echo "$rc" > "$out/rc"
+login_file=false; [ -e "$HOME/.credentials.json" ] && login_file=true
+echo "aq-runner: claude exit $rc login_file=$login_file"
+exit "$rc"
+"#;
 
 pub use aq_codex_mapper::docker_local::CODEX_RUNNER;
 
@@ -60,6 +78,15 @@ fn runner(harness: DriverHarness) -> &'static str {
         DriverHarness::Codex => CODEX_RUNNER,
     }
 }
+
+/// Appended to the startup context inside the sandbox.
+pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the \
+result client. The node runner submits your final message as the AQ result claim, so end with exactly one line: Changes: ...; Checks: exact commands \
+and outcomes; Limits: ... (write Changes: none when you changed no file), and above it one line Outcome: done, or Outcome: blocked when you could not \
+do the task. Your worktree is retained as is: keep build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
+/// Appended when the attempt has an agent channel.
+pub const CHANNEL_NOTE: &str = "The aq CLI (/opt/aq/bin/aq, where installed) reaches AQ from this \
+sandbox through AQ_CHANNEL; no credential is needed or accepted. `aq commands` lists what you may run.\n";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,18 +115,9 @@ pub struct DriverConfig {
     /// Worker-private outbox. The sandbox can write only its own provider file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_outbox: Option<PathBuf>,
-    /// The node's limits on the transcript mount; past them the attempt is stopped.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub transcript_bound: Option<aq_handoff_note::TranscriptBound>,
     /// The harness in the sandbox; absent (Claude) in a Claude configuration.
     #[serde(default, skip_serializing_if = "DriverHarness::is_claude")]
     pub harness: DriverHarness,
-    /// The node's pinned Codex helper bundle, uploaded beside the launch inputs.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub codex_runtime_bundle: Option<PathBuf>,
-    /// This task's warm build cache, when the node keeps one for the project.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub build_cache: Option<aq_sandbox_archive::build_cache::SlotCache>,
 }
 
 use aq_sandbox_archive::workspace::tree_bytes;
@@ -128,9 +146,6 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     if config.agent_channel {
         env.push_str(&format!("AQ_CHANNEL={}\n", aq_agent_channel::AQ_CHANNEL));
     }
-    for (name, target) in config.build_cache.iter().flat_map(|c| c.environment()) {
-        env.push_str(&format!("{name}={target}\n"));
-    }
     let file = |path: &str, data: Vec<u8>| TreeEntry::File {
         path: path.into(),
         mode: 0o600,
@@ -143,19 +158,13 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     if config.agent_channel {
         prompt.extend_from_slice(CHANNEL_NOTE.as_bytes());
     }
-    let bundle = config.codex_runtime_bundle.as_deref();
-    let mut entries = bundle
-        .map(aq_sandbox_archive::codex_runtime::bundle)
-        .transpose()?
-        .unwrap_or_default();
-    entries.extend([
+    Ok(vec![
         file("prompt", prompt),
         file("args", (config.arguments.join("\n") + "\n").into_bytes()),
         file("env", env.into_bytes()),
         file("settings.json", config.settings_json.clone().into_bytes()),
         file("executable", config.executable.clone().into_bytes()),
-    ]);
-    Ok(entries)
+    ])
 }
 
 pub struct DriverOutcome {
@@ -165,38 +174,24 @@ pub struct DriverOutcome {
     pub destroyed: bool,
 }
 
-/// Entrypoint for `aq-worker sandbox-harness`. Exit code 0 only when the harness
-/// finished its turn, the workspace was copied back and the claim was submitted.
+/// Entrypoint for `aq-worker sandbox-harness`. Exit code 0 only when Claude
+/// exited 0, the workspace was copied back and the claim was submitted.
 pub async fn run(config_path: &Path) -> Result<i32> {
-    let terminal = |socket: PathBuf, path: String| async move {
-        Ok((pane::attach_unix(&socket, &path).await?, Pane::stdio()))
-    };
-    run_with(
-        config_path,
-        None,
-        DockerLocalBackend::connect_unix,
-        terminal,
-    )
-    .await
+    run_with(config_path, None, DockerLocalBackend::connect_unix).await
 }
 
-/// `run` with the backend connection and the terminal (the sandbox's attached
-/// terminal stream and the pane to relay it to) given, for the scripted Docker
-/// double in tests; when `session` is set, that session directory instead of
+/// `run` with the backend connection given (the scripted Docker double in tests)
+/// and, when `session` is set, that session directory instead of
 /// `AQ_SESSION_DIRECTORY`.
-pub async fn run_with<T, C, F, A, AF, S>(
+pub async fn run_with<T, C, F>(
     config_path: &Path,
     session: Option<&Path>,
     connect: C,
-    terminal: A,
 ) -> Result<i32>
 where
     T: DockerTransport,
     C: FnOnce(DockerLocalConfig) -> F,
     F: std::future::Future<Output = std::result::Result<DockerLocalBackend<T>, BackendError>>,
-    A: FnOnce(PathBuf, String) -> AF,
-    AF: std::future::Future<Output = Result<(S, Pane)>>,
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + 'static,
 {
     // MS1 review S3a: the leased token leaves the disk before anything else
     // can fail: read and unlink it first, then parse the rest.
@@ -209,8 +204,10 @@ where
     let raw = read_private(&token_file, 64 * 1024);
     let _ = std::fs::remove_file(&token_file);
     let mut config = parsed?;
-    let named = config.conversation_outbox.is_some() || config.docker_local.transcript.is_some();
-    if named && config.harness.is_claude() {
+    if config.conversation_outbox.is_some() && config.harness.is_claude() {
+        config
+            .arguments
+            .retain(|arg| arg != "--no-session-persistence");
         config.arguments.extend([
             "--session-id".to_owned(),
             config.owner.attempt_id.to_string(),
@@ -243,7 +240,6 @@ where
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let mut docker = config.docker_local.clone();
-    docker.runner_tty = true;
     docker.runner_command = Some(vec![
         "/bin/bash".into(),
         "-c".into(),
@@ -260,8 +256,6 @@ where
         channel_ready(&config)?;
         request = request.with_agent_channel();
     }
-    let cache = (config.build_cache.as_ref()).and_then(|c| c.open(&config.workspace));
-    docker.cache_binds = cache.iter().flat_map(|c| c.binds()).collect();
     let mut backend = connect(docker).await?;
     let sandbox = match backend.create(&request).await {
         Ok(s) => s,
@@ -281,14 +275,13 @@ where
         &mut term,
         &mut hup,
         &config_path.with_file_name(HANDOFF_MARKER),
-        terminal,
-        cache.as_ref(),
     )
     .await;
     let Drove {
         rc,
         changed,
         stream,
+        transcript,
         leak,
         handoff,
     } = match outcome {
@@ -340,7 +333,7 @@ where
             .create_new(true)
             .mode(0o600)
             .open(dir.join(config.harness.transcript_file()))
-            .and_then(|mut f| f.write_all(&stream));
+            .and_then(|mut f| f.write_all(transcript.as_deref().unwrap_or(&stream)));
     }
     let stopped = backend.stop(&sandbox).await;
     // The node destroys the stopped sandbox once it sees the claim: the host stop may kill
@@ -436,19 +429,21 @@ fn submit_claim(config: &DriverConfig, text: String) {
     }
 }
 
-/// Return code, copied-back changes, final result, where a secret leaked, and
+/// Return code, copied-back changes, transcript, where the token leaked, and
 /// the reason when the service asked for a handoff.
 struct Drove {
     rc: Option<i32>,
     changed: Vec<String>,
-    /// The final `result` event, from the harness's stop hook.
+    /// The final-result stream (for Codex, mapped from its own output).
     stream: Vec<u8>,
+    /// The harness's own output when it differs from `stream` (Codex).
+    transcript: Option<Vec<u8>>,
     leak: Option<&'static str>,
-    handoff: Option<aq_handoff_note::Stop>,
+    handoff: Option<aq_protocol::HandoffReason>,
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn drive<T, A, AF, S>(
+async fn drive<T: DockerTransport>(
     backend: &mut DockerLocalBackend<T>,
     config: &DriverConfig,
     sandbox: &SandboxIdentity,
@@ -458,15 +453,7 @@ async fn drive<T, A, AF, S>(
     term: &mut tokio::signal::unix::Signal,
     hup: &mut tokio::signal::unix::Signal,
     handoff: &Path,
-    terminal: A,
-    cache: Option<&aq_sandbox_archive::build_cache::Opened>,
-) -> Result<Drove>
-where
-    T: DockerTransport,
-    A: FnOnce(PathBuf, String) -> AF,
-    AF: std::future::Future<Output = Result<(S, Pane)>>,
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + 'static,
-{
+) -> Result<Drove> {
     let workspace = collect_tree(&config.workspace, config.max_workspace_bytes)?;
     let tokens = login.iter().map(|t| t.as_slice()).collect();
     let secrets = &Secrets::of_tokens(tokens, workspace.iter().flat_map(tree_bytes));
@@ -476,72 +463,55 @@ where
             tree_archive("aq/in", &input_entries(config, prompt)?)?,
         )
         .await?;
-    let image = config.docker_local.template_image(&config.template);
-    let daemon = (config.docker_local.socket.as_path(), image);
-    let archive = aq_sandbox_archive::build_cache::work_archive(cache, &workspace, daemon).await?;
-    backend.put_archive(sandbox, archive).await?;
+    backend
+        .put_archive(sandbox, tree_archive("aq/work", &workspace)?)
+        .await?;
     backend
         .deliver_private_material(sandbox, PrivateMaterial::new(token.to_vec()))
         .await?;
     backend.start_runner(sandbox).await?;
     println!("aq-sandbox-harness: runner started");
-    // The sandbox's terminal on this pane, from here until the sandbox stops.
-    let id = &sandbox.backend_id;
-    let attach = format!(
-        "{}/containers/{id}/attach?stream=1&stdin=1&stdout=1&stderr=1",
-        crate::backend::docker_local::API_VERSION
-    );
-    let (stream, pane) = terminal(config.docker_local.socket.clone(), attach)
-        .await
-        .context("sandbox terminal attach")?;
-    let relay = pane::Relay::start(stream, pane, login.to_vec());
-    let mut resized =
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())?;
-    // A resize also makes a TUI that started before the attach paint again.
-    let mut size = pane::window_size();
+    let mut since = now_ms() / 1000;
+    let mut partial = Vec::new();
+    let mut pane_leak = false;
     let mut handoff_reason = None;
-    let (exit, stream) = loop {
-        if let Some(size) = size.take() {
-            let _ = backend.resize(sandbox, size).await;
-        }
+    let exit = loop {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(2)) => {},
-            _ = resized.recv() => { size = pane::window_size(); continue; },
             _ = term.recv() => bail!("stop requested"),
             _ = hup.recv() => bail!("pane closed"),
         }
-        let mount = (config.docker_local.transcript.as_ref()).zip(config.transcript_bound);
-        let over = || mount.and_then(|((directory, _), bound)| bound.exceeded(directory));
-        let over = || over().or_else(|| cache.and_then(|c| c.exceeded()));
-        if let Some(reason) = read_handoff_marker(handoff).map(Into::into).or_else(over) {
+        let poll = now_ms() / 1000;
+        if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
+            pane_leak |= print_logs(&bytes, &mut partial, secrets);
+            since = poll;
+        }
+        if let Some(reason) = read_handoff_marker(handoff) {
             handoff_reason = Some(reason);
             // A stopped container still serves get_archive for the copy-back.
             let _ = backend.stop(sandbox).await;
-            break (RunnerExit::Signalled, Vec::new());
+            break RunnerExit::Signalled;
         }
-        // The harness's stop hook: the turn ended and this is its final message.
-        // The interactive harness does not exit by itself, so the turn's end is
-        // the attempt's end.
-        let turn = backend.read_file(sandbox, STOP_MARKER).await;
-        if let Some(stream) = turn.ok().as_deref().and_then(stop_stream) {
-            let _ = backend.stop(sandbox).await;
-            break (RunnerExit::Exited(0), stream);
-        }
-        // The harness left by itself (owner exit, crash): no final message.
         if let Ok(exit) = backend.runner_exit(sandbox).await {
-            break (exit, Vec::new());
+            if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
+                pane_leak |= print_logs(&bytes, &mut partial, secrets);
+            }
+            break exit;
         }
         if now_ms() >= config.hard_deadline_ms {
             bail!("sandbox deadline reached");
         }
     };
-    let pane_leak = relay.finish().await;
-    // Below the TUI's last screen, so the driver's own lines do not overwrite it.
-    print!("\r\n\x1b[J");
     let rc = match exit {
         RunnerExit::Exited(code) => Some(code),
         RunnerExit::Signalled => None,
     };
+    let stream = backend
+        .get_archive(sandbox, config.harness.stream_path(), 16 * 1024 * 1024)
+        .await
+        .ok()
+        .and_then(|a| read_tree_file(&a))
+        .unwrap_or_default();
     let archive = backend
         .get_archive(
             sandbox,
@@ -551,23 +521,32 @@ where
         .await
         .context("workspace copy-back")?;
     let entries = read_tree(&archive, config.max_workspace_bytes)?;
-    let leak = token_leak(&entries, &stream, secrets)
-        .or(pane_leak.then_some("a login secret appeared in the sandbox terminal output"));
+    let leak = token_leak(&entries, &stream, secrets).or(pane_leak
+        .then_some("a secret (login token or AQ credential) appeared in the runner output"));
     if leak.is_some() {
         // Nothing the sandbox produced is copied back.
         return Ok(Drove {
             rc,
             changed: Vec::new(),
             stream: Vec::new(),
+            transcript: None,
             leak,
             handoff: None,
         });
     }
     let changed = sync_tree(&config.workspace, &entries)?;
+    let (stream, transcript) = match config.harness {
+        DriverHarness::Claude => (stream, None),
+        DriverHarness::Codex => (
+            aq_codex_mapper::docker_local::result_stream(&stream),
+            Some(stream),
+        ),
+    };
     Ok(Drove {
         rc,
         changed,
         stream,
+        transcript,
         leak: None,
         handoff: handoff_reason,
     })
@@ -593,7 +572,7 @@ async fn save_conversation<T: DockerTransport>(
             backend,
             sandbox,
             crate::conversation::Provider::Claude,
-            config.harness.transcript_dir(),
+            "/aq/home/projects/-aq-work",
             Some(attempt),
             Some(token),
         ),
@@ -615,5 +594,132 @@ async fn save_conversation<T: DockerTransport>(
         }
         Ok(Ok(None)) => {}
         _ => tracing::warn!(attempt_id = %attempt, "could not read provider conversation"),
+    }
+}
+
+fn read_tree_file(archive: &[u8]) -> Option<Vec<u8>> {
+    crate::backend::docker_local::tar::single_file(archive, 16 * 1024 * 1024).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// MS1 review S3a: the token file is read and removed before anything that
+    /// can fail, even when the driver config itself is unreadable.
+    #[tokio::test]
+    async fn token_file_is_removed_even_when_the_driver_config_is_bad() {
+        use std::os::unix::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("driver.json");
+        let token = dir.path().join("token");
+        for (path, data) in [
+            (&config, &b"{not a config"[..]),
+            (&token, b"fixture-login-0123456789"),
+        ] {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+                .unwrap()
+                .write_all(data)
+                .unwrap();
+        }
+        assert!(run(&config).await.is_err());
+        assert!(!token.exists(), "the leased token must not stay on disk");
+    }
+
+    /// 0006 §5.4/§8: no channel socket, no launch; the env names the socket;
+    /// an `aqa_` credential anywhere that leaves the sandbox is a leak.
+    #[test]
+    fn channel_is_required_named_in_env_and_its_credential_guarded() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config: DriverConfig = serde_json::from_value(serde_json::json!({
+            "docker_local": DockerLocalConfig::new("/run/x.sock".into()),
+            "template": format!("sha256:{}", "a".repeat(64)),
+            "owner": {"node_id": uuid::Uuid::from_u128(1), "boot_id": uuid::Uuid::from_u128(2),
+                "attempt_id": uuid::Uuid::from_u128(3)},
+            "hard_deadline_ms": 1, "resources": {"cpu_millis": 1000, "memory_bytes": 1u64 << 30, "pids": 64},
+            "workspace": "/w", "token_file": "/t", "executable": "/e", "arguments": [], "environment": {},
+            "settings_json": "{}", "result_dir": null, "max_workspace_bytes": 1, "agent_channel": true,
+        }))
+        .unwrap();
+        let error = channel_ready(&config).unwrap_err().to_string();
+        assert!(error.starts_with("agent_channel_unavailable"), "{error}");
+        config.docker_local.channel_root = Some(root.path().into());
+        let dir = root.path().join(uuid::Uuid::from_u128(3).to_string());
+        std::fs::create_dir(&dir).unwrap();
+        assert!(
+            channel_ready(&config).is_err(),
+            "a directory without a socket"
+        );
+        let _socket = std::os::unix::net::UnixListener::bind(dir.join("aq.sock")).unwrap();
+        channel_ready(&config).unwrap();
+        config.environment = [("PATH".into(), "/usr/bin:/bin".into())].into();
+        let inputs = input_entries(&config, b"p").unwrap();
+        let text = |name: &str| match inputs.iter().find(|e| e.path() == name) {
+            Some(TreeEntry::File { data, .. }) => String::from_utf8(data.clone()).unwrap(),
+            _ => panic!("{name}"),
+        };
+        let env = "PATH=/opt/aq/bin:/usr/bin:/bin\nAQ_CHANNEL=unix:/aq/channel/aq.sock\n";
+        assert_eq!(text("env"), env);
+
+        assert!(text("prompt").ends_with(CHANNEL_NOTE));
+        let credential = format!("aqa_{}", "Q".repeat(43));
+        let file = |data: &str| TreeEntry::File {
+            path: "f".into(),
+            mode: 0o644,
+            data: data.into(),
+        };
+        let token = &Secrets::new(b"fixture-login-0123456789abcdef", None);
+        assert!(token_leak(&[file(&credential)], b"", token).is_some());
+        assert!(token_leak(&[], credential.as_bytes(), token).is_some());
+        assert!(token_leak(&[file("starts_with(\"aqa_\")")], b"", token).is_none());
+        let line = format!("x {credential}\n");
+        assert!(print_logs(line.as_bytes(), &mut Vec::new(), token));
+        // A shape the base tree already held (a fixture in the repository) is no leak.
+        let kept = &Secrets::new(b"fixture-login-0123456789abcdef", [credential.as_bytes()]);
+        assert!(token_leak(&[file(&credential)], credential.as_bytes(), kept).is_none());
+        assert!(token_leak(&[file(&format!("{credential}x"))], b"", kept).is_some());
+    }
+
+    #[test]
+    fn runner_keeps_the_token_out_of_argv_and_wipes_material_first() {
+        let read = RUNNER.find("token=\"$(cat \"$m\")\"").unwrap();
+        let wipe = RUNNER.find("rm -f \"$m\"").unwrap();
+        let exec = RUNNER.find("CLAUDE_CODE_OAUTH_TOKEN=\"$token\"").unwrap();
+        assert!(read < wipe && wipe < exec);
+        assert!(!RUNNER.contains("export CLAUDE_CODE_OAUTH_TOKEN"));
+        assert!(!RUNNER.contains("--dangerously-skip-permissions"));
+        assert!(!RUNNER.contains("echo \"$token"));
+        let config = DriverConfig {
+            docker_local: DockerLocalConfig::new("/run/aq-sandbox/podman.sock".into()),
+            template: TemplateDigest::parse(format!("sha256:{}", "a".repeat(64))).unwrap(),
+            owner: Ownership {
+                node_id: uuid::Uuid::new_v4(),
+                boot_id: uuid::Uuid::new_v4(),
+                attempt_id: uuid::Uuid::new_v4(),
+            },
+            hard_deadline_ms: 1,
+            resources: ResourceLimits {
+                cpu_millis: 1000,
+                memory_bytes: 1 << 30,
+                pids: 64,
+                disk_bytes: None,
+            },
+            workspace: "/w".into(),
+            token_file: "/t".into(),
+            executable: "/opt/aq/bin/claude".into(),
+            arguments: vec!["-p".into()],
+            environment: [("ANTHROPIC_API_KEY".to_string(), "x".to_string())].into(),
+            settings_json: "{}".into(),
+            result_dir: None,
+            max_workspace_bytes: 1,
+            agent_channel: false,
+            conversation_outbox: None,
+            harness: Default::default(),
+        };
+        assert!(input_entries(&config, b"p").is_err(), "API key env refused");
     }
 }

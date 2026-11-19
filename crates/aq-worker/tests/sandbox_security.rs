@@ -964,14 +964,14 @@ fn claude_recipe_maps_reasoning_to_effort() {
     }
 }
 
-/// The server pins the docker-local recipe by digest. A deliberate runner change
-/// updates this value together with the server's pinned Definition.
-/// 2026-11-18: the interactive TUI recipe (owner decision: every agent runs in
-/// tmux): new runner, `terminal` and `result_claim`.
+/// The server pins the docker-local recipe by digest, and the runner reads its
+/// arguments from `/aq/in/args`: mapping reasoning changed neither the runner
+/// nor these bytes. A deliberate runner change updates this value together with
+/// the server's pinned Definition.
 #[test]
 fn claude_docker_local_recipe_bytes_are_pinned() {
     assert_eq!(
         aq_worker::native::adapter::claude::docker_local_recipe_body(),
-        r#"{"cli_version":"2.1.318","confinement":"container","profile":"claude-2.1.318-docker-local-result-local-v1","result_claim":"node_driver_stop_hook_final_message_v1","runner_sha256":"9f104e358f7736b762d3c6248f9fe21f562ad37e1cafc02b71d13ae36c2a25ce","schema_version":1,"terminal":"interactive_tty_v1","token_delivery":"private_material_env_only_v1","workspace":"copy_in_copy_out_v1"}"#
+        r#"{"cli_version":"2.1.318","confinement":"container","profile":"claude-2.1.318-docker-local-result-local-v1","result_claim":"node_driver_final_message_v1","runner_sha256":"1317347ae593f6d120310d3161947cab2af0602388aec9730a1fc6b73e3b425e","schema_version":1,"token_delivery":"private_material_env_only_v1","workspace":"copy_in_copy_out_v1"}"#
     );
 }

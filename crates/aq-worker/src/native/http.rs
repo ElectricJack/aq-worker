@@ -67,8 +67,6 @@ pub struct PrivateMaterial {
     pub(super) operation_id: Uuid,
     pub(super) sent_ns: u64,
     pub(super) received_ns: u64,
-    /// C5b: the stored version of a subscription login (`aq-material-version`).
-    pub(super) login_version: Option<i64>,
     pub(super) bytes: Zeroizing<Vec<u8>>,
 }
 impl PrivateMaterial {
@@ -387,8 +385,6 @@ impl NativeClient {
             serde_json::to_value(&delivery.lease)? == serde_json::to_value(expected)?,
             "material lease changed"
         );
-        let version = response.headers().get("aq-material-version");
-        let login_version = version.and_then(|v| v.to_str().ok()?.parse().ok());
         let bytes = body(response, expected.material_bytes as usize).await?;
         let received_ns = boot_ns()?;
         let deadline = delivery.verify_received(&request.binding, &bytes, sent, received_ns)?;
@@ -398,7 +394,6 @@ impl NativeClient {
             operation_id: request.operation_id,
             sent_ns: sent,
             received_ns,
-            login_version,
             bytes,
         })
     }

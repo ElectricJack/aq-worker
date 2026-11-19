@@ -279,10 +279,6 @@ impl NodeLink {
             access,
         })
     }
-    /// The node's origin, credential and Access headers, for other node-authenticated calls.
-    pub(crate) fn parts(&self) -> (&str, &str, Option<&AccessHeaders>) {
-        (&self.origin, &self.node_credential, self.access.as_ref())
-    }
     /// Issue the attempt's credential and open its channel in `directory`.
     pub async fn open(
         &self,
