@@ -130,6 +130,9 @@ pub struct Worktree {
     /// The commit the attempt started from.
     pub start: String,
     pub synced: Synced,
+    /// Paths a merge of main left with conflict markers (spec 0016 §3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +153,18 @@ struct Output {
 
 fn record(path: &Path) -> PathBuf {
     path.with_extension("grant.json")
+}
+
+/// For the agent's task context: the paths that merging main into the task
+/// branch left with conflict markers, from the worktree's record at `path`.
+pub fn conflict_note(path: &Path) -> Option<String> {
+    let conflicts = NodeGit::open(path).ok()?.conflicts;
+    (!conflicts.is_empty()).then(|| {
+        format!(
+            "\n\nThis task was returned with `update_from_main`. Merging the current main into its branch left conflict markers in: {}. Resolve them as part of this task.\n",
+            conflicts.join(", ")
+        )
+    })
 }
 
 /// [`NodeGit`] with the node's [`Remote`], for async callers.
@@ -304,6 +319,10 @@ impl NodeGit {
             &from,
         ];
         self.ok(&repo, &add, None)?;
+        let conflicts = match (&grant.lease, grant.update_from_main) {
+            (Some(_), true) => self.merge_main(path, grant)?,
+            _ => vec![],
+        };
         let worktree = Worktree {
             attempt,
             repository: repo,
@@ -311,9 +330,52 @@ impl NodeGit {
             grant: grant.clone(),
             start: from,
             synced,
+            conflicts,
         };
         std::fs::write(record(path), serde_json::to_vec(&worktree)?)?;
         Ok(worktree)
+    }
+
+    /// A returned task with `update_from_main`: merges central aq-git's
+    /// `refs/heads/main` as just fetched (aq-git keeps it at the synced origin
+    /// head; the grant's base is the replaced attempt's, not current main) and
+    /// commits the merge. Conflicted files are committed with their markers;
+    /// their paths are returned.
+    fn merge_main(&self, dir: &Path, grant: &Grant) -> Result<Vec<String>> {
+        let main = format!("{TRACKING}main");
+        self.ok(dir, &["rev-parse", "--verify", "--quiet", &main], None)
+            .context("central aq-git has no refs/heads/main")?;
+        let message = format!("Merge main into {}", grant.branch());
+        let merge = [
+            "merge",
+            "--quiet",
+            "--no-ff",
+            "--no-edit",
+            "-m",
+            &message,
+            &main,
+        ];
+        let merged = self.run(dir, &merge, None)?;
+        if merged.ok {
+            return Ok(vec![]);
+        }
+        let unmerged = ["diff", "--name-only", "-z", "--diff-filter=U"];
+        let conflicts: Vec<String> = (self.ok(dir, &unmerged, None)?.split('\0'))
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned)
+            .collect();
+        ensure!(
+            !conflicts.is_empty(),
+            "merge of main failed: {}",
+            merged.stderr.trim()
+        );
+        self.ok(dir, &["add", "--all"], None)?;
+        self.ok(
+            dir,
+            &["commit", "--quiet", "--no-verify", "--no-edit"],
+            None,
+        )?;
+        Ok(conflicts)
     }
 
     /// The worktree [`NodeGit::start`] made at `path`.
