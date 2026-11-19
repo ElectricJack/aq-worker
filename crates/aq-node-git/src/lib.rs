@@ -336,10 +336,15 @@ impl NodeGit {
         Ok(worktree)
     }
 
-    /// A returned task with `update_from_main`: merges the grant's base (the
-    /// retained main head) into the task branch and commits the merge.
-    /// Conflicted files are committed with their markers; their paths returned.
+    /// A returned task with `update_from_main`: merges central aq-git's
+    /// `refs/heads/main` as just fetched (aq-git keeps it at the synced origin
+    /// head; the grant's base is the replaced attempt's, not current main) and
+    /// commits the merge. Conflicted files are committed with their markers;
+    /// their paths are returned.
     fn merge_main(&self, dir: &Path, grant: &Grant) -> Result<Vec<String>> {
+        let main = format!("{TRACKING}main");
+        self.ok(dir, &["rev-parse", "--verify", "--quiet", &main], None)
+            .context("central aq-git has no refs/heads/main")?;
         let message = format!("Merge main into {}", grant.branch());
         let merge = [
             "merge",
@@ -348,7 +353,7 @@ impl NodeGit {
             "--no-edit",
             "-m",
             &message,
-            &grant.base,
+            &main,
         ];
         let merged = self.run(dir, &merge, None)?;
         if merged.ok {

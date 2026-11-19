@@ -248,7 +248,8 @@ fn a_node_reads_its_grant_then_finishes_and_ends_from_the_worktree_record() {
 }
 
 /// A returned task: its branch has `b.txt` (and, when `clash`, its own `a.txt`);
-/// main has moved on with a new `a.txt` since. The grant's base is that main.
+/// main has moved on with a new `a.txt` since. The grant's base stays the
+/// replaced attempt's, so a merge of `base` would bring in nothing.
 fn returned_task(central: &Central, task: &str, clash: bool, update: bool) -> Grant {
     let base = central.head("refs/heads/main").unwrap();
     let task_ref = format!("refs/heads/aq/{task}");
@@ -258,7 +259,7 @@ fn returned_task(central: &Central, task: &str, clash: bool, update: bool) -> Gr
     }
     central.commit("refs/heads/main", &base, "a.txt", "main\n");
     let mut grant = central.grant(task, Some(head));
-    grant.update_from_main = update;
+    (grant.base, grant.update_from_main) = (base, update);
     grant
 }
 
@@ -295,10 +296,13 @@ fn update_from_main_commits_a_clean_merge_of_the_main_head() {
         .start(&remote, &grant, Uuid::from_u128(31), &path)
         .unwrap();
     let parents = git(&path, &["rev-list", "--parents", "-n1", "HEAD"]);
-    let lease = grant.lease.clone().unwrap();
+    let (lease, main) = (
+        grant.lease.clone().unwrap(),
+        central.head("refs/heads/main").unwrap(),
+    );
     assert_eq!(
         parents.split(' ').skip(1).collect::<Vec<_>>(),
-        [lease.as_str(), &grant.base]
+        [lease.as_str(), &main]
     );
     assert!(wt.conflicts.is_empty());
     assert_eq!(
