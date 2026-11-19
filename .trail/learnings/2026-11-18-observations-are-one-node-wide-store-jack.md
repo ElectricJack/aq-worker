@@ -23,7 +23,7 @@ touches:
 
 ## Decided
 
-One managed store per node under `<state_root>/observations/<node id>` (`aq_observation_redb_prototype::node`), one writer thread, one gapless node sequence. The thread drives the transport owner (Prepare, Activate, boot advance on every worker start because the boot ID is per process), collects each registered transcript in turn and delivers one sealed packet at a time. Launch code calls `Observations::register(SourceSpec)`; dropping the handle finishes the source. The in-sandbox runner's per-launch store was deleted: that runner is another process and cannot share a single-writer store.
+One managed store per node under `<state_root>/observations/<node id>` (`aq_observation_store::node`), one writer thread, one gapless node sequence. The thread drives the transport owner (Prepare, Activate, boot advance on every worker start because the boot ID is per process), collects each registered transcript in turn and delivers one sealed packet at a time. Launch code calls `Observations::register(SourceSpec)`; dropping the handle finishes the source. The in-sandbox runner's per-launch store was deleted: that runner is another process and cannot share a single-writer store.
 
 ## Tried and ruled out
 

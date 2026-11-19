@@ -51,8 +51,14 @@ pub struct ObservationConfig {
     pub store_data_bytes: u64,
     /// The store's page cache, the service's main memory use.
     pub store_cache_bytes: u64,
-    /// Distinct transcript items remembered per source for deduplication.
+    /// Transcript items remembered per source for deduplication: the last N. Older ones are
+    /// forgotten; a session of any length keeps being collected.
     pub tracked_identities: u32,
+    /// Sources (running attempts) the node's store holds at once.
+    pub max_sources: u32,
+    /// How long after a worker restart a stored source waits for its surviving attempt to
+    /// register again before it is fenced and released.
+    pub resume_grace_ms: u64,
     /// Directory entries examined when a transcript is found by its session key.
     pub discovery_entries: u32,
     /// Pause between collection rounds when no transcript grew.
@@ -77,6 +83,8 @@ impl Default for ObservationConfig {
             store_data_bytes: 16 * 1024 * 1024,
             store_cache_bytes: 4 * 1024 * 1024,
             tracked_identities: 4096,
+            max_sources: 16,
+            resume_grace_ms: 120_000,
             discovery_entries: 256,
             poll_ms: 250,
             retry_start_ms: 1_000,
@@ -267,7 +275,9 @@ impl ServiceConfig {
                 && (2 * MIB..=16 * MIB).contains(&o.store_data_bytes)
                 && o.store_data_bytes < o.store_file_bytes
                 && (65_536..=8 * MIB).contains(&o.store_cache_bytes)
-                && (16..=4096).contains(&o.tracked_identities)
+                && o.tracked_identities >= 16
+                && o.max_sources >= 1
+                && o.resume_grace_ms <= 3_600_000
                 && (1..=4096).contains(&o.discovery_entries)
                 && (10..=60_000).contains(&o.poll_ms)
                 && (100..=600_000).contains(&o.retry_start_ms)
@@ -276,7 +286,7 @@ impl ServiceConfig {
                 && o.finish_drain_ms <= 600_000
                 && o.transcript_max_bytes >= MIB
                 && (16..=1_000_000).contains(&o.transcript_max_files),
-            "invalid [observations]: transcript_max_bytes >= 1 MiB, transcript_max_files 16..=1000000, store_file_bytes 1 MiB..=128 MiB > store_data_bytes 2 MiB..=16 MiB, store_cache_bytes 64 KiB..=8 MiB, tracked_identities 16..=4096, discovery_entries 1..=4096, poll_ms 10..=60000, retry_start_ms 100..=600000 <= retry_max_ms <= 3600000, request_timeout_ms 1000..=60000, finish_drain_ms <= 600000"
+            "invalid [observations]: transcript_max_bytes >= 1 MiB, transcript_max_files 16..=1000000, store_file_bytes 1 MiB..=128 MiB > store_data_bytes 2 MiB..=16 MiB, store_cache_bytes 64 KiB..=8 MiB, tracked_identities >= 16, max_sources >= 1, resume_grace_ms <= 3600000, discovery_entries 1..=4096, poll_ms 10..=60000, retry_start_ms 100..=600000 <= retry_max_ms <= 3600000, request_timeout_ms 1000..=60000, finish_drain_ms <= 600000"
         );
         if let Some(m) = &self.manual {
             ensure!(

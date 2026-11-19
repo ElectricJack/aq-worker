@@ -127,7 +127,7 @@ struct Physical {
     channel: Option<aq_agent_channel::AgentChannel>,
     /// The attempt's transcript source in the node's observation store; dropping it
     /// drains and releases the source.
-    observation: Option<aq_observation_redb_prototype::node::SourceHandle>,
+    observation: Option<aq_observation_store::node::SourceHandle>,
     outcome: Outcome,
 }
 impl Physical {

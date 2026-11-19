@@ -124,7 +124,7 @@ pub struct ClaudeDockerExecutor {
     /// The node's enrollment (origin, credential, Access), for the agent channel.
     issuance: aq_agent_channel::NodeLink,
     /// The node's observation store, set by the service before the preflight.
-    pub observations: Option<aq_observation_redb_prototype::node::Observations>,
+    pub observations: Option<aq_observation_store::node::Observations>,
     pub transcript_bound: Option<aq_handoff_note::TranscriptBound>,
 }
 impl ClaudeDockerExecutor {

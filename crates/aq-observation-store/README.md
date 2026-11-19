@@ -1,0 +1,127 @@
+# aq-observation-store
+
+The node's observation store (formerly `aq-observation-redb-prototype`). The worker runs one per node through `node::Node`: every running attempt registers its transcript as a source, the store assigns one gapless node sequence and delivers receipt-backed batches. A session of any length is collected (the last `tracked_identities` items are remembered for deduplication), a node restarts without limit (rolling boot history), and a source survives a worker restart: it is resumed by registering it again, or fenced with an explicit record after `resume_grace`. The sections below are the component's qualification history; where they say "16 sources", "65,536 identities" or "no history is evicted" they describe the earlier checkpoints.
+
+This unpublished0.0.5 component adds bounded row-view normalization and a durable local transport-owner handshake to the isolated redb experiment. It is not integrated with the worker runtime. The qualified JSON reference and published session/lifecycle protocols remain unchanged. There is no legacy spool migration, production HTTP adapter, provider call, raw transcript artifact transfer or new command. The initial0.0.1 and bounded-delta0.0.2 checkpoints retain independent immutable qualification evidence.
+
+The exact redb4.4.0 dependency (MIT OR Apache-2.0) is an embedded Rust library requiring no external service. Source/context/native/dedupe/outbox/event-ID/delivery rows share a private database and exclusive owner. Every write uses `Durability::Immediate` and two-phase commit. Candidate bounds are64 MiB physical,16 MiB logical retained values/selected keys,4 MiB cache,16 sources,65,536 identities,256 ordinary queued facts/2 MiB plus16 reserved gaps/64 KiB and32 facts/256 KiB per packet. No history is automatically evicted. Long-cycle COW growth, compaction and reserve sizing remain open; raw source retention and whole-directory disk bounds are separate obligations.
+
+The backend checks private directory and file identity before writes. Files must be no-follow regular same-owner0600 single-link members. Positional writes/resizes cannot exceed the physical cap. Held database inode and root pathname identity must agree. Exclusive whole-file locking remains decisive if advisory owner-lock files are replaced. Existing files shorter than the pinned512-byte super-header are rejected before the engine entry point; missing/corrupt metadata and unknown formats are never reseeded. Startup audits the bounded retained projection; collection and small delivery operations do not scan unrelated history.
+
+`aq-observation-engine0.0.1` supplies bounded source-scoped point/range reads and row deltas. A collection batch commits source cursor/anchor, parser context, dedupe rows and matching facts atomically. Partial/idle file reads do not commit. File-backed and public DTO sources have distinct cursor/provenance paths. Verified retained replay preserves old parser/fact references, never fetches arbitrary server paths and does not recharge replayed history. All four selected native released CLI formats remain unqualified; source fixtures are clearly synthetic and complete accounting is false.
+
+Packets and retry metadata occupy separate rows. Prepare selects an exact bounded same-boot prefix using actual canonical record/envelope lengths, then seals once. Begin-send mutates only the tiny linked retry row. ACK validates the exact retained CON03 packet/receipt, deletes only that prefix and commits receipt/counters atomically. Unknown sends retain immutable packet identity. Process-exit and injected-error tests cover old-or-new projections, not hardware power-loss certification.
+
+## Local owner handshake
+
+`LocalIntent` consumes the exact frozen `aq-observation-admission0.1.0` contract. A trusted `AuthenticatedOwnerPeer` supplies fresh authenticated calls; credentials and network configuration never enter the intent. Deserialized receipts and status objects are recovery data, not create authority. This library has fake-peer qualification; a real mounted coordinator HTTP qualification is a separate gate.
+
+One fixed owner root per node contains a bounded64 KiB intent, at most one64 KiB atomic temporary, an owner lock and the bounded database subdirectory. The caller must not let remote input select owner roots. Intent persistence uses a private held directory, exclusive no-follow creation, file fsync, descriptor-relative rename and directory fsync. Root/lock/current intent identities and bytes are rechecked. An uncertain persistence error requires reopen; retained temporary files hold for explicit recovery and are not silently deleted.
+
+The exact Prepare request is durable before HTTP. Creation-start is durable before exclusive database creation, whose initial transaction embeds the immutable central marker and Prepared owner. Sources, collection and delivery are barred until activation. The exact Activate request is durable before HTTP. Lost activation replies can resume only an existing exact-marker store through a fresh owner call. Replayed initial receipts after central activation cannot recreate a missing store, even when accepted-through is zero. Empty/truncated/missing databases, corrupt intents and ambiguous incomplete creation preserve recovery holds.
+
+A reopened owner must reconcile freshly before `with_active` exposes its managed store. Status requires the exact marker, monotonic owner proof, current host boot and a central cursor within the retained local prefix. It never creates a store or invents a missing boot fence. Public anonymous/reference-fixture open and old callback admission APIs cannot open or control managed stores.
+
+Boot advancement blocks local collection before the durable request and remote call. Its immutable operation ID, expected owner revision/boot and next node sequence survive unknown replies. After exact replay, the local transaction fences old live sources, retains old packets/facts and updates the active boot without resetting node-wide sequence. A crash between remote advancement and local fencing holds collection until that exact intent converges. Existing immutable retained replay is separate from old live collection. Transport ownership supplies no execution lease, source registration, fresh-zero accounting baseline, parser qualification, account authorization or cross-session dedupe.
+
+```sh
+cargo test -p aq-observation-store -p aq-observation-engine --offline -- --nocapture
+cargo clippy -p aq-observation-store -p aq-observation-engine --all-targets --offline -- -D warnings
+cargo fmt --package aq-observation-store --package aq-observation-engine --check
+AQ_OBSERVATION_BENCH_REPETITIONS=90 cargo run --release -p aq-observation-store --example measure_engine --offline
+```
+
+Measurement examples use synthetic inputs and no external services. Local latency varies with host/IO conditions; the evidence retains p50/p95/max and byte/sync/file growth samples. No production adoption, deployment or fixed performance guarantee follows from them.
+
+## Finite HTTP owner peer candidate
+
+`HttpOwnerPeer` uses pinned reqwest0.12.28 and only GET/POST on the fixed
+`/v1/worker/observations/transport` route. A canonical bare HTTPS origin is
+required; an explicit fixture flag permits literal loopback HTTP. Userinfo,
+paths, queries, fragments, proxy inheritance, redirects, pooling, protocol-NACK
+retries and automatic compression are disabled/refused. Requests and responses
+are bounded16KiB, with3s connect/10s total timeout. Successful responses require
+JSON and `Cache-Control: no-store`. Any network/status/body/protocol error leaves
+the exact LocalIntent untouched; none is a claim that a mutation did not commit.
+There are no automatic mutation retries or credential rotations.
+
+The `owner_peer` example reads a private config file and a separate private node
+credential file. Both require no-follow regular same-owner single-link files in
+private canonical directories. The credential has no argv, debug, error, intent
+or output surface. This node-owned peer supplies no agent credentials or source
+admission. Cloudflare credential/header integration is not implemented here.
+
+A synthetic config shape is:
+
+```json
+{"version":1,"origin":"https://coordinator.example","node_id":"00000000-0000-0000-0000-000000000005","boot_id":"00000000-0000-0000-0000-000000000006","credential_file":"/private/node/credential","allow_loopback_http":false}
+```
+
+The experimental example actions are `initialize OPERATION_ID STORE_ID`,
+`prepare`, `create`, `activate OPERATION_ID`, `resume`, `advance OPERATION_ID` and
+`recover-boot`. The example receives only config/root/action/UUID arguments,
+prints bounded stage/sequence metadata and never generates a replacement intent.
+Its default limits are the candidate bounds above. It is not a production worker
+command or execution adapter. Local synthetic HTTP tests and separately invoked
+actual daemon/Postgres qualification must remain distinct in the evidence.
+
+
+## Managed capacity qualification
+
+`cargo run --release -p aq-observation-store --example headroom --offline`
+executes synthetic managed-owner workloads at the unchanged64MiB database-file
+and16MiB logical limits. One case collects32 distinct calls per batch; another
+retains32 raw fingerprints per call. A packet remains pending while more records
+are collected. The example stops at configured refusal/error, reopens with fresh
+owner reconciliation, compares the retained projection and replays exact packet
+and receipt identity. No retained dedupe history is deleted and no compaction is
+called. Raw fixtures are separate from the database cap and are reported.
+
+`audit_fingerprint` is an explicit cold O(retained rows) diagnostic. It streams
+domain-tagged table names/counts plus ordered length-prefixed keys/values after
+audit, and is never called by collection/send/ACK/admission. Capacity experiments
+use it outside operation timings; it is not a proof of source or execution
+authority. File extent and allocated blocks are reported separately. A plateau
+with ongoing writes may demonstrate reusable/preallocated pages; it does not
+establish compaction, physical shrinkage or unlimited disk headroom. Logical
+refusal must not be mislabeled as a backend physical write failure.
+
+`cargo test -p aq-observation-store --example headroom --offline` checks
+the report/recovery path for injected prepare/send/ACK failures. Complete
+qualified measurements and remaining limits belong to the implementation
+evidence, not a production storage guarantee.
+
+
+## Logical urgent reserve (format5)
+
+Format5 adds an immutable private `store.format` marker checked before opening
+redb, including a digest of the bounded codec/control policy. Missing, old or
+unknown markers refuse without engine repair or reseeding. Format4 remains
+readable only by its frozen old component; no upgrade/migration is qualified.
+
+Within the unchanged16MiB logical hard limit,256KiB is set aside for bounded
+metadata and264KiB for the maximum frozen packet plus retry/receipt rows. Of the
+remaining data budget,512KiB stays unavailable to ordinary history and256KiB
+stays unavailable to routine control, leaving a final boot-fence margin. Source
+control metadata growth is checked at8192bytes per source (at most16 sources).
+Impossible limits refuse before creating a root. These are logical admission
+reserves; a physical cap or filesystem ENOSPC can still refuse urgent writes.
+
+Native/malformed parser gaps and elective generation events count as ordinary.
+Only internally produced spool-loss, first file-change and boot-fence gaps use
+urgent credits. Raw ingress rejects reserved monitor provenance, including exact
+public ArtifactRefs, and native normalization cannot emit a reserved monitor.
+Current monitor slots remain reserved inside the16-entry parser history budget;
+matching caller parser IDs cannot occupy those slots as proof.
+
+A file-change gap holds its source; polls remain blocked and cannot mint more
+urgent credits. Its exact gap must be acknowledged before an elective generation
+reactivates the source. Boot fencing emits a gap only for live sources; already
+held sources retain their hold and do not allocate another gap. Together these
+rules bound live sources plus outstanding urgent gaps to16. Repeated boot
+ownership changes retain old history and do not fabricate more source events.
+
+Cold retained-history fingerprints can exclude at most16 queued, proven local
+control event IDs; they reject ordinary/caller exclusions. They verify that gap
+and boot metadata changes preserve all preexisting Seen/native/index/event-ID
+rows, without introducing a runtime/history scan.

@@ -304,7 +304,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "aq-observation-redb-prototype"
+name = "aq-observation-store"
 version = "0.0.5"
 dependencies = [
  "anyhow",
@@ -501,7 +501,7 @@ dependencies = [
  "aq-observation",
  "aq-observation-admission",
  "aq-observation-engine",
- "aq-observation-redb-prototype",
+ "aq-observation-store",
  "aq-phase-terminal-protocol",
  "aq-protocol",
  "aq-responses-transport",

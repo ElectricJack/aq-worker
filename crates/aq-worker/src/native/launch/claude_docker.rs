@@ -100,7 +100,7 @@ pub struct ClaudeDockerHostProfile {
     /// Codex beside Claude; None runs Claude only.
     codex: Option<CodexDockerHost>,
     /// The node's observation store; None leaves attempts unobserved.
-    pub(crate) observations: Option<aq_observation_redb_prototype::node::Observations>,
+    pub(crate) observations: Option<aq_observation_store::node::Observations>,
     pub(crate) transcript_bound: Option<aq_handoff_note::TranscriptBound>,
 }
 use aq_sandbox_archive::hash_file;
@@ -478,12 +478,12 @@ fn codex_launch(
 /// `account` is the account reference of the launch's login lease of a provider.
 /// Nothing here can fail the launch: an attempt without a source runs unobserved.
 pub fn observe(
-    observations: Option<&aq_observation_redb_prototype::node::Observations>,
+    observations: Option<&aq_observation_store::node::Observations>,
     offer: &aq_session_protocol::ProfiledOffer,
     account: impl Fn(&str) -> Option<String>,
     transcript: PathBuf,
-) -> Option<aq_observation_redb_prototype::node::SourceHandle> {
-    use aq_observation_redb_prototype::node::SourceSpec;
+) -> Option<aq_observation_store::node::SourceHandle> {
+    use aq_observation_store::node::SourceSpec;
     let (m, attempt_id) = (&offer.manifest, offer.binding.attempt_id);
     let harness = m.harness.harness.as_str();
     let provider = ["anthropic", "openai"][usize::from(harness == "codex")];

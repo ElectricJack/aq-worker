@@ -13,7 +13,7 @@ touches:
   - crates/aq-worker/src/backend/docker_local/config.rs
   - crates/aq-worker/src/backend/docker_local/policy.rs
   - crates/aq-worker/src/sandbox_driver.rs
-  - crates/aq-observation-redb-prototype/src/node.rs
+  - crates/aq-observation-store/src/node.rs
 ---
 
 ## Decided

@@ -2304,7 +2304,7 @@ struct ObservationServer {
         std::sync::Mutex<std::collections::BTreeMap<Uuid, aq_observation_admission::Receipt>>,
     >,
 }
-impl aq_observation_redb_prototype::AuthenticatedOwnerPeer for ObservationServer {
+impl aq_observation_store::AuthenticatedOwnerPeer for ObservationServer {
     fn mutate(
         &mut self,
         request: &aq_observation_admission::Request,
@@ -2342,22 +2342,23 @@ impl aq_observation_redb_prototype::AuthenticatedOwnerPeer for ObservationServer
         })
     }
 }
-impl aq_observation_redb_prototype::node::NodePeer for ObservationServer {
+impl aq_observation_store::node::NodePeer for ObservationServer {
     fn batch(
         &mut self,
         packet: &aq_lifecycle_protocol::Packet,
-    ) -> anyhow::Result<aq_lifecycle_protocol::Receipt> {
+    ) -> anyhow::Result<aq_observation_admission::BatchReply> {
         use aq_lifecycle_protocol::*;
         let Message::Batch(batch) = &packet.body.message else {
             anyhow::bail!("packet class")
         };
-        Ok(Receipt {
+        let receipt = Receipt {
             schema_version: SCHEMA_VERSION,
             message_id: packet.body.message_id,
             body_digest: packet.body_digest.clone(),
             disposition: ReceiptDisposition::ObservationRecorded,
             through_sequence: Some(batch.last_sequence),
-        })
+        };
+        Ok(aq_observation_admission::BatchReply::new(receipt, vec![]))
     }
 }
 
@@ -2368,7 +2369,7 @@ impl aq_observation_redb_prototype::node::NodePeer for ObservationServer {
 #[test]
 fn a_launch_registers_its_transcript_with_the_node_store() {
     use aq_admission::observation_source;
-    use aq_observation_redb_prototype::node::{Node, NodeLimits, SourceStatus};
+    use aq_observation_store::node::{Node, NodeLimits, SourceStatus};
     use aq_session_protocol::{ProfiledOffer, SessionIdentity, canonical_digest};
     use aq_worker::native::launch::claude_docker::observe;
     let temp = tempfile::tempdir().unwrap();

@@ -7,7 +7,7 @@ publish.workspace = true
 [dependencies]
 aq-observation = { path = "../aq-observation", version = "=0.1.0" }
 aq-observation-engine = { path = "../aq-observation-engine", version = "=0.0.1" }
-aq-observation-redb-prototype = { path = "../aq-observation-redb-prototype", version = "=0.0.5" }
+aq-observation-store = { path = "../aq-observation-store", version = "=0.0.5" }
 aq-admission-sandbox = { package = "aq-admission", path = "../../protocol/aq-admission", version = "=0.3.2" }
 aq-agent-client = { path = "../aq-agent-client", version = "=0.1.0" }
 aq-agent-channel = { path = "../aq-agent-channel", version = "=0.1.0" }
