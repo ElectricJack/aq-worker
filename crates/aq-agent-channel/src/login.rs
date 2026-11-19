@@ -8,7 +8,9 @@
 //! for the lease of that attempt only; a newer stored version wins.
 //!
 //! `LoginLease` is the public half the node keeps beside the attempt's driver: the
-//! write-back request and what identifies a refresh. It holds no token.
+//! write-back request and what identifies a refresh. It holds no token. A
+//! hand-started session keeps one too (`LoginLease::of_session`). How old a stored
+//! login may be is the owner's Setting, checked by the server when it leases one.
 use crate::channel::NodeLink;
 use anyhow::{Context, Result, ensure};
 use chrono::{DateTime, Utc};
@@ -80,23 +82,10 @@ impl LoginLease {
             account,
         })
     }
-    /// Seconds since the leased login was last refreshed; None when it does not say.
-    pub fn age_secs(&self, now: DateTime<Utc>) -> Option<i64> {
-        self.last_refresh.map(|at| (now - at).num_seconds())
-    }
-    /// Refuses a leased login that is older than the node's configured limit.
-    pub fn check_age(&self, max_age_secs: Option<u64>, now: DateTime<Utc>) -> Result<()> {
-        let (Some(max), Some(age)) = (max_age_secs, self.age_secs(now)) else {
-            return Ok(());
-        };
-        ensure!(
-            age <= i64::try_from(max)?,
-            "codex_login_stale: the stored Codex login was last refreshed {} days ago (limit {} days); \
-             import the owner's current login (aq-server login import) and retry",
-            age / 86400,
-            max / 86400
-        );
-        Ok(())
+    /// The lease of a hand-started session, which has no attempt binding: the server
+    /// identifies the session by the route, so only the version and the stamp matter.
+    pub fn of_session(auth: &[u8], session: Uuid, base_version: i64) -> Result<Self> {
+        Self::of(auth, Value::Null, Value::Null, session, base_version)
     }
     /// Whether `after` (the sandbox's `auth.json` when it stopped, shape-checked by
     /// the caller) is this login refreshed: the same account, refreshed later.
@@ -197,23 +186,6 @@ mod tests {
         // The lease file holds no token.
         let text = serde_json::to_string(&leased).unwrap();
         assert!(!text.contains("\"r\"") && !text.contains("acct"), "{text}");
-    }
-    #[test]
-    fn a_login_older_than_the_configured_age_refuses_the_launch() {
-        let leased = lease(&login("acct", Some("2026-11-12T00:00:00Z")));
-        let now = "2026-11-18T00:00:00Z".parse().unwrap();
-        assert_eq!(leased.age_secs(now), Some(6 * 86400));
-        leased.check_age(None, now).unwrap();
-        leased.check_age(Some(6 * 86400), now).unwrap();
-        let error = leased
-            .check_age(Some(5 * 86400), now)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.starts_with("codex_login_stale") && error.contains("6 days ago"),
-            "{error}"
-        );
-        lease(&login("acct", None)).check_age(Some(1), now).unwrap();
     }
     /// The write-back is the server's `MaterialRefresh` request under the node
     /// credential, and 200/409 are its two answers; anything else is an error.

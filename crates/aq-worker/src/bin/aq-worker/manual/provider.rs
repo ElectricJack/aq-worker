@@ -26,7 +26,6 @@ export HOME=/aq/home CODEX_HOME=/aq/home/.codex TERM=xterm-256color
 mkdir -p "$CODEX_HOME"
 [ -s /aq/private/material ] || { echo 'ChatGPT subscription login is unavailable'; exit 90; }
 cat /aq/private/material > "$CODEX_HOME/auth.json"
-trap 'rm -f "$CODEX_HOME/auth.json"' EXIT
 rm -f /aq/private/material
 cat /aq/in/codex-config > "$CODEX_HOME/config.toml"
 cd /aq/work
@@ -47,7 +46,9 @@ model=$(cat /aq/in/model); effort=$(cat /aq/in/effort)
 "#;
 pub(super) struct Plan {
     pub entries: Vec<TreeEntry>,
-    pub secret: PathBuf,
+    /// The node's Claude token file. None for Codex: its login is leased from the
+    /// server's login store for this session.
+    pub secret: Option<PathBuf>,
 }
 pub(super) fn validate_material(spec: &Value, bytes: &[u8]) -> Result<()> {
     if spec["provider"] == "openai" {
@@ -73,16 +74,9 @@ pub(super) fn available(config: &ServiceConfig) -> Vec<&'static str> {
     {
         out.push("anthropic");
     }
-    if config
-        .manual
-        .as_ref()
-        .and_then(|m| m.codex.as_ref())
-        .is_some_and(|c| {
-            aq_handoff_note::read_private(&c.auth_file, 65536).is_ok_and(|b| {
-                validate_material(&serde_json::json!({"provider":"openai"}), &b).is_ok()
-            })
-        })
-    {
+    // Codex needs no file here: a session leases its login from the server, which
+    // refuses with its reason when it has none to give.
+    if config.manual.as_ref().is_some_and(|m| m.codex.is_some()) {
         out.push("openai");
     }
     out
@@ -111,11 +105,13 @@ pub(super) fn plan(
             );
             (
                 settings.host.claude_executable.clone(),
-                config
-                    .manual
-                    .as_ref()
-                    .map(|m| m.claude_token_file.clone())
-                    .context("Claude subscription file")?,
+                Some(
+                    config
+                        .manual
+                        .as_ref()
+                        .map(|m| m.claude_token_file.clone())
+                        .context("Claude subscription file")?,
+                ),
                 CLAUDE,
             )
         }
@@ -132,7 +128,7 @@ pub(super) fn plan(
                 .as_ref()
                 .and_then(|m| m.codex.as_ref())
                 .context("Codex is not installed for manual launch")?;
-            (c.executable.clone(), c.auth_file.clone(), CODEX)
+            (c.executable.clone(), None, CODEX)
         }
         _ => anyhow::bail!("interactive provider is not installed"),
     };
@@ -220,6 +216,15 @@ mod tests {
         std::fs::write(&token, b"synthetic-subscription-token").unwrap();
         std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert_eq!(available(&config), ["anthropic"]);
+        // Codex is offered once it is installed: no login file is configured on the
+        // node, and the removed `auth_file` key is refused like any unknown key.
+        let codex = format!("{manual}[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\n");
+        let config = ServiceConfig::parse(&codex).unwrap();
+        config.validate().unwrap();
+        assert_eq!(available(&config), ["anthropic", "openai"]);
+        let old = format!("{codex}auth_file = \"/home/owner/.codex/auth.json\"\n");
+        let refused = ServiceConfig::parse(&old).unwrap_err().to_string();
+        assert!(refused.contains("unknown field `auth_file`"), "{refused}");
         let without_manual = ServiceConfig::parse(base).unwrap();
         assert!(available(&without_manual).is_empty());
     }

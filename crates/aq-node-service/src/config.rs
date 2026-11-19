@@ -152,11 +152,16 @@ pub struct ManualConfig {
 pub struct ManualCodexConfig {
     /// Executable inside the fixed sandbox template.
     pub executable: PathBuf,
-    /// Owner-only ChatGPT subscription auth document; never a host config directory.
-    pub auth_file: PathBuf,
+    /// How often a running session's login is compared with the server's login store
+    /// (a refreshed login is written back, a newer stored one installed).
+    #[serde(default = "default_login_check_secs")]
+    pub login_check_secs: u64,
     /// Optional pinned Codex helpers copied into this manual session only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_bundle: Option<PathBuf>,
+}
+fn default_login_check_secs() -> u64 {
+    60
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -303,9 +308,12 @@ impl ServiceConfig {
             if let Some(c) = &m.codex {
                 ensure!(
                     c.executable.is_absolute()
-                        && c.auth_file.is_absolute()
                         && c.runtime_bundle.as_ref().is_none_or(|p| p.is_absolute()),
                     "manual Codex paths must be absolute"
+                );
+                ensure!(
+                    (1..=86_400).contains(&c.login_check_secs),
+                    "manual.codex.login_check_secs must be 1..=86400"
                 );
             }
             ensure!(
@@ -518,7 +526,7 @@ git_executable = "/usr/bin/git"
     /// stay, the file as it was is kept (0600), and the result loads.
     #[test]
     fn an_old_measurement_setting_is_removed_once_and_its_token_file_carried() {
-        let slugs = "\n[manual.source_slugs]\n\"e0000000-0000-4000-8000-000000000002\" = \"o/r\"\n\n[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\nauth_file = \"/c/auth.json\"\n";
+        let slugs = "\n[manual.source_slugs]\n\"e0000000-0000-4000-8000-000000000002\" = \"o/r\"\n\n[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\n";
         let section = "\n# set by Push logins\n[measurement]\nenabled = true\ntoken_file = \"/c/provider-auth/claude-token\"\nmodel = \"m\"\nrenew_before_ms = 14400000\n";
         let inline = "measurement = { enabled = true, token_file = \"/c/provider-auth/claude-token\", model = \"m\" }\n";
         let dotted = "measurement.token_file = \"/c/provider-auth/claude-token\"\n";

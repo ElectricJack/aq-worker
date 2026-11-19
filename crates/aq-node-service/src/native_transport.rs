@@ -31,7 +31,21 @@ pub async fn refused(response: Response) -> anyhow::Error {
     let body: String = body.chars().take(400).collect();
     tracing::warn!(%path, %status, %body, "native endpoint refused");
     let gone = status == StatusCode::CONFLICT && body.contains("execution cancelled"); // released: 410, never retried
-    HttpStatus([status, StatusCode::GONE][gone as usize], retry_after).into()
+    let error = anyhow::Error::from(HttpStatus(
+        [status, StatusCode::GONE][gone as usize],
+        retry_after,
+    ));
+    // The owner's login age limit is a refusal the node shows, not only logs.
+    match serde_json::from_str::<serde_json::Value>(&body) {
+        Ok(v)
+            if v["message"]
+                .as_str()
+                .is_some_and(|m| m.starts_with("codex_login_stale")) =>
+        {
+            error.context(v["message"].as_str().unwrap_or_default().to_owned())
+        }
+        _ => error,
+    }
 }
 /// How often one request is resent after a `503`, and the first and longest wait between sends.
 pub const SAME_TRIES: u32 = 8;
@@ -214,5 +228,50 @@ mod tests {
             .await
             .unwrap();
         assert!(!retry_same(&response, &mut 0, 1_000, 999).await);
+    }
+    /// The owner's login age limit is refused by the server with a reason the node shows,
+    /// on the attempt's material fetch (`refused`) and on the session lease alike.
+    #[tokio::test]
+    async fn a_stale_login_refusal_keeps_the_servers_reason() {
+        use axum::{Json, Router, http::StatusCode as Status, routing::post};
+        const REASON: &str = "codex_login_stale: stored Codex login is 10 days old (limit 7): import your current login";
+        let stale = || async {
+            let body = serde_json::json!({"error": "conflict", "message": REASON});
+            (Status::CONFLICT, Json(body))
+        };
+        let other = || async {
+            let body = serde_json::json!({"error": "conflict", "message": "private material delivery is not currently authorized"});
+            (Status::CONFLICT, Json(body))
+        };
+        let id = uuid::Uuid::from_u128(7);
+        let app = Router::new()
+            .route("/stale", post(stale))
+            .route("/other", post(other))
+            .route(&format!("/v1/worker/manual-agents/{id}/login"), post(stale));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let post = |path: &'static str| {
+            reqwest::Client::new()
+                .post(format!("{origin}{path}"))
+                .send()
+        };
+        let error = refused(post("/stale").await.unwrap()).await;
+        assert_eq!(
+            format!("{error:#}"),
+            format!("{REASON}: native endpoint returned 409 Conflict")
+        );
+        assert_eq!(
+            error.downcast_ref::<HttpStatus>().unwrap().0,
+            StatusCode::CONFLICT
+        );
+        let error = refused(post("/other").await.unwrap()).await;
+        assert_eq!(error.to_string(), "native endpoint returned 409 Conflict");
+        let link =
+            crate::link::ServerLink::new(&origin, "node-credential-0123456789", None).unwrap();
+        assert_eq!(
+            link.session_login(id).await.unwrap_err().to_string(),
+            REASON
+        );
     }
 }

@@ -124,7 +124,7 @@ for tool in aq-worker aq-session-host aq-agent aq-git tmux; do
   fi
 done
 # A Claude subscription token file already on this machine enables manual Claude sessions at
-# install; otherwise logins arrive later through Push logins.
+# install; otherwise the token arrives later through Push Claude token.
 configure_args=()
 token_file="${AQ_CLAUDE_TOKEN_FILE:-$HOME/.config/aq-secrets/claude-oauth-token}"
 if [[ "$token_file" == /* && -r "$token_file" ]]; then

@@ -68,9 +68,6 @@ pub struct CodexDockerHost {
     /// The pinned Codex helper bundle on the node, uploaded to each Codex sandbox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_bundle: Option<PathBuf>,
-    /// A leased login last refreshed longer ago than this refuses the launch.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_login_age_secs: Option<u64>,
 }
 /// The harness an offer selects on a docker-local node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -403,9 +400,6 @@ fn codex_launch(
             )
         })
         .transpose()?;
-    if let Some(leased) = &login_lease {
-        leased.check_age(codex.max_login_age_secs, chrono::Utc::now())?;
-    }
     let mode = ConfinementMode::declared(m)?;
     ensure!(
         mode == ConfinementMode::Container,
