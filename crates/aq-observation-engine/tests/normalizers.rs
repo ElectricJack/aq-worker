@@ -449,6 +449,35 @@ fn gaps(events: &[ObservationRecord]) -> Vec<String> {
         .collect()
 }
 #[test]
+fn claude_metadata_records_are_skipped_without_gaps() {
+    let row = serde_json::to_vec(&fixtures()["claude"][0]).unwrap();
+    let mut stream = vec![];
+    for meta in [
+        r#"{"type":"mode","mode":"default"}"#,
+        r#"{"type":"api-request","sessionId":"native-fixture","requestId":"r1"}"#,
+        r#"{"type":"system","subtype":"turn_duration","sessionId":"native-fixture","durationMs":1}"#,
+        r#"{"type":"ai-title","title":"x"}"#,
+    ] {
+        stream.extend(meta.as_bytes());
+        stream.push(b'\n');
+    }
+    stream.extend(&row);
+    stream.push(b'\n');
+    stream.extend(br#"{"type":"some-future-record","sessionId":"native-fixture"}"#);
+    stream.push(b'\n');
+    let mut s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
+    let events = apply_stream(&mut s, &stream);
+    assert!(gaps(&events).is_empty(), "{:?}", gaps(&events));
+    assert_eq!(usages(&events).len(), 1);
+
+    // A metadata record naming another session is still refused.
+    let s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
+    let other = b"{\"type\":\"api-request\",\"sessionId\":\"another-session\"}\n";
+    let framed = frame(other, 0, false).unwrap();
+    assert!(s.apply(&framed.records[0], 100).is_err());
+}
+
+#[test]
 fn claude_oversized_prompt_snapshot_is_skipped_but_other_oversized_records_gap() {
     let tail = r#""},"type":"attachment","uuid":"snap-1","sessionId":"native-fixture"}"#;
     let snapshot = r#"{"parentUuid":"54e0b998-9228-4f63-80a9-4d7023dcffda","isSidechain":false,"attachment":{"type":"prompt_snapshot","systemPrompt":""#;
