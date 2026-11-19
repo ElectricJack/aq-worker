@@ -105,8 +105,9 @@ impl DeliveryClock {
     pub fn validate(&self) -> Result<()> {
         self.validate_bounded(120_000)
     }
+    /// No upper bound: the lease length is the owner's Setting, carried in the offer.
     pub fn validate_interactive_session(&self) -> Result<()> {
-        self.validate_bounded(3_600_000)
+        self.validate_bounded(u64::MAX)
     }
     fn validate_bounded(&self, maximum: u64) -> Result<()> {
         require(
@@ -128,8 +129,8 @@ impl DeliveryClock {
     }
     fn project_deadline(&self, sent_ns: u64, received_ns: u64) -> Result<u64> {
         require(received_ns >= sent_ns, "monotonic response interval")?;
-        let deadline = sent_ns
-            .checked_add(self.valid_for_ms * 1_000_000)
+        let deadline = (self.valid_for_ms.checked_mul(1_000_000))
+            .and_then(|valid_ns| sent_ns.checked_add(valid_ns))
             .ok_or(Invalid("monotonic deadline overflow"))?;
         require(received_ns < deadline, "delivery consumed remaining TTL")?;
         Ok(deadline)
