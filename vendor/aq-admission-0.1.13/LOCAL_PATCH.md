@@ -21,6 +21,18 @@ mirror. The contract is aq-server `docs/specs/0015-multi-agent-nodes.md`;
 `docs/operations/multi-agent-nodes.md` here lists the worker-facing fields.
 
 
+## 0.1.13 (W1, Codex in the docker-local sandbox)
+
+Mirror of aq-server `crates/aq-admission` 0.1.13 after W1s: adds
+`src/docker_local.rs` (`DOCKER_LOCAL_PROFILES`, the exact docker-local
+executors with their pinned recipe digests), and the long (schema 3) phase
+policy in `src/preparation_shared.rs` admits each row of that table instead of
+Claude alone. Both files are byte-identical to the server's; `src/lib.rs`
+gains only the module and its export. The server's `never_started` and
+`delivery_clock_interactive` modules are not mirrored: the worker does not use
+them.
+
+
 ## 0.1.13 observation source (aq-server PR #180)
 
 Adds `src/observation_source.rs`, byte-identical to aq-server

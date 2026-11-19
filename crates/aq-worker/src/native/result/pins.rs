@@ -13,8 +13,7 @@ pub struct ResultInstallationPins {
     pub client_executable: ArtifactRef,
     pub environment: ArtifactRef,
     pub recipe: ArtifactRef,
-    /// The digest of the attempt's offered permission plan (from its retained
-    /// manifest), not an installed pin: any plan of a valid manifest launches.
+    /// The attempt's offered permission plan digest, not an installed pin: any valid plan launches.
     pub permission_digest: Digest,
     pub reserved_client_bytes: u64,
 }
@@ -42,7 +41,8 @@ impl ResultInstallationPins {
         ensure!(
             self.recipe == aq_codex_mapper::result_local_recipe_artifact()
                 || self.recipe == aq_codex_mapper::interactive_result_local_recipe_artifact()
-                || self.recipe == crate::native::adapter::claude::docker_local_recipe_artifact(),
+                || self.recipe == crate::native::adapter::claude::docker_local_recipe_artifact()
+                || self.recipe == aq_codex_mapper::docker_local::recipe_artifact(),
             "result recipe identity"
         );
         Ok(())

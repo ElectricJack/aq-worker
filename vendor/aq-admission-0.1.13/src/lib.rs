@@ -531,5 +531,7 @@ pub mod scoped_presence;
 pub mod node_slots;
 pub mod observation_source;
 
+mod docker_local;
 pub mod preparation_refresh_v1;
 mod preparation_shared;
+pub use docker_local::*;

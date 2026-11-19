@@ -149,6 +149,22 @@ fn pins(adapter: &str) -> ResultInstallationPins {
         reserved_client_bytes: 64 * 1024 * 1024,
     }
 }
+/// Every recipe a result adapter profile can name is an installable pin, the
+/// Codex docker-local one included; an unknown recipe is not.
+#[test]
+fn installation_pins_accept_each_known_recipe_only() {
+    for recipe in [
+        aq_codex_mapper::result_local_recipe_artifact(),
+        aq_codex_mapper::interactive_result_local_recipe_artifact(),
+        aq_worker::native::adapter::claude::docker_local_recipe_artifact(),
+        aq_codex_mapper::docker_local::recipe_artifact(),
+    ] {
+        let mut known = pins("adapter");
+        known.recipe = recipe;
+        known.validate().unwrap();
+    }
+    assert!(pins("adapter").validate().is_err());
+}
 /// The offer's `harness.harness` picks the result pins and so the launch; Codex needs
 /// the node's Codex settings, and any other harness is refused before a launch.
 #[test]
