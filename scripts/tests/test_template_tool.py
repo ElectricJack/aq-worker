@@ -487,7 +487,11 @@ class BuildTests(unittest.TestCase):
                 tool.validate_config({**config(), **change})
 
     def test_cli_build_uses_embedded_tools_without_source_tree(self):
-        binary = os.environ['AQ_TEMPLATE_BINARY']
+        binary = os.environ.get('AQ_TEMPLATE_BINARY')
+        if not binary:
+            self.skipTest('AQ_TEMPLATE_BINARY is not set; build it with '
+                          '`cargo build -p aq-worker --locked --bin aq-worker` and set '
+                          'AQ_TEMPLATE_BINARY=<target dir>/debug/aq-worker')
         # The scanner itself is embedded in runtime bytes; its patterns must
         # not classify their own source representation as a credential.
         with open(binary, 'rb') as stream:
