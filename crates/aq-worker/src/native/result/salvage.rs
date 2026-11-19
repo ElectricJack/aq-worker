@@ -125,6 +125,10 @@ pub async fn finish_salvage(
         roots: roots.0,
         git,
     };
+    #[cfg(feature = "delivery_playbook")]
+    if super::source::push(&owner).await? {
+        return super::report::record_report(&owner, client).await;
+    }
     super::source::capture(&owner).await?;
     let bound = super::source::transfer_bound(&super::source::snapshot(&owner).await?)?;
     for _ in 0..bound {

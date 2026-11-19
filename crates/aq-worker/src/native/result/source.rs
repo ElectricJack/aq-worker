@@ -37,6 +37,54 @@ impl InputPipeline {
         transfer_step(&Live(self, stopped), client).await
     }
 }
+#[cfg(feature = "delivery_playbook")]
+impl InputPipeline {
+    /// Spec 0016 §5.3: a worktree attempt commits and pushes its task ref
+    /// instead of checkpoint, export and upload. False: not a worktree attempt.
+    pub async fn push_result_source(&self, stopped: &DurableStoppedResult) -> Result<bool> {
+        push(&Live(self, stopped)).await
+    }
+    /// Removes a worktree attempt's worktree once its report is recorded.
+    pub async fn end_result_source(&self, stopped: &DurableStoppedResult) {
+        let (o, id) = (Live(self, stopped), stopped.attempt_id());
+        let (Some(node), Ok(h)) = (o.git().node.clone(), snapshot(&o).await) else {
+            return;
+        };
+        if let Err(error) = node.end(h.scope.workspace.path).await {
+            tracing::warn!(attempt_id=%id, %error, "attempt worktree not removed");
+        }
+    }
+}
+/// After the stopped-writer proof: commit and push under the grant's lease.
+#[cfg(feature = "delivery_playbook")]
+pub(super) async fn push<O: StoppedOwner>(o: &O) -> Result<bool> {
+    o.verify()?;
+    let id = o.attempt_id();
+    let at = o
+        .journal(move |j| Ok(j.state().attempts[&id].source.clone()))
+        .await?;
+    let Some(path) = at.and_then(|s| s.worktree) else {
+        return Ok(false);
+    };
+    let expected = snapshot(o).await?;
+    if expected.source.pushed.is_some() {
+        return Ok(true);
+    }
+    let node = o.git().node.clone().context("node git is not configured")?;
+    o.roots().verify()?;
+    // A moved task ref is recorded as push_conflict and reported; never forced.
+    let (_, pushed) = node.finish(path, format!("AQ attempt {id}")).await?;
+    o.verify()?;
+    o.journal(move |journal| {
+        let digest = expected.digest()?;
+        journal.update_result(id, &digest, |h, _| {
+            h.source.pushed = Some(pushed);
+            Ok(())
+        })?;
+        Ok(true)
+    })
+    .await
+}
 pub(super) async fn snapshot<O: StoppedOwner>(o: &O) -> Result<ResultHistory> {
     o.verify()?;
     let id = o.attempt_id();

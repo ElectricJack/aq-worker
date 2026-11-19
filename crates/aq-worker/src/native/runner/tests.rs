@@ -82,6 +82,8 @@ pub(crate) fn config() -> (tempfile::TempDir, NativeConfig) {
         harness_qualifications: vec![artifact("harness-qualification")],
         inventory_ttl_ms: 1000,
         executor: None,
+        #[cfg(feature = "delivery_playbook")]
+        node_git: None,
     };
     (dir, c)
 }

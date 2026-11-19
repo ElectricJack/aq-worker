@@ -615,6 +615,8 @@ mod preparation_failure {
             harness_qualifications: vec![reference("harness-qualification")],
             inventory_ttl_ms: 1000,
             executor: None,
+            #[cfg(feature = "delivery_playbook")]
+            node_git: None,
             state_dir,
         }
     }

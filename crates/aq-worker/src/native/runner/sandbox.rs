@@ -18,7 +18,6 @@ pub(crate) fn boot_ns() -> anyhow::Result<u64> {
 }
 pub mod channels;
 pub mod disk_watch;
-pub mod hydrate;
 pub mod output;
 mod output_runtime;
 mod startup;
@@ -727,8 +726,6 @@ mod auth_tests;
 mod channels_tests;
 #[cfg(test)]
 mod confinement_tests;
-#[cfg(test)]
-mod hydrate_tests;
 #[cfg(test)]
 mod native_probe_tests;
 

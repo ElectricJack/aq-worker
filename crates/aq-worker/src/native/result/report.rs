@@ -51,11 +51,7 @@ pub(super) async fn record_report<O: StoppedOwner>(
             .as_ref()
             .context("explicit result claim required")?
             .submission()?;
-        let retained = h
-            .source
-            .receipt
-            .as_ref()
-            .context("central source retention required")?;
+        let receipts = h.source.receipt_ids()?;
         let stop = h.stop.as_ref().context("actual result stop required")?;
         let (evidence, _) = crate::native::journal::result_terminal_stop(a)?;
         let aq_session_protocol::SessionIdentity::Remote {
@@ -73,7 +69,7 @@ pub(super) async fn record_report<O: StoppedOwner>(
             supersedes: None,
             outcome: stop.outcome,
             stop: evidence,
-            source_receipt_ids: vec![retained.receipt_id],
+            source_receipt_ids: receipts,
             // This producer owns no complete effect ledger. Empty is an
             // honest known-ID claim, never proof of effect quiescence.
             pending_effect_ids: vec![],
@@ -138,6 +134,7 @@ async fn replay_report<J: ResultJournal>(
                 .as_ref()
                 .context("result actual stop absent")?
                 .stopped_receipt,
+            history.source.pushed_headers(),
         )
         .await?;
     let expected = intent.digest.clone();

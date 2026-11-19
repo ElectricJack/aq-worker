@@ -15,7 +15,8 @@ pub struct HydratedWorkspace {
     binding: aq_session_protocol::LaunchBinding,
     observed_ns: u64,
     deadline_ns: u64,
-    _stage_owner: Arc<files::Staging>,
+    /// None for a worktree of the node's repository (`delivery_playbook`).
+    _stage_owner: Option<Arc<files::Staging>>,
     git: GitClient,
 }
 impl HydratedWorkspace {
@@ -41,7 +42,14 @@ impl HydratedWorkspace {
                 && s.manifest.as_ref() == Some(&self.manifest),
             "source join association"
         );
-        self._stage_owner.verify(&self.manifest)?;
+        let Some(stage) = &self._stage_owner else {
+            ensure!(
+                s.ready() && self.workspace.path.is_dir(),
+                "source worktree absent"
+            );
+            return Ok(());
+        };
+        stage.verify(&self.manifest)?;
         let retention = self.git.exchange(
             &s.operations
                 .get("retention")
@@ -137,6 +145,35 @@ impl InputPipeline {
             owner.journal.source_manifest(id, m, maximum_range)
         })
         .await?;
+        #[cfg(feature = "delivery_playbook")]
+        if let Some(node) = git.node.clone() {
+            // Spec 0016 §5.3: a worktree of the node's repository, under the slot's
+            // aq-git root where result custody pins it. No bundle, no artifact.import.
+            let path = git.root().join("worktrees").join(id.to_string());
+            node.start(id, path.clone()).await?;
+            let (observed, worktree) = (preparation.clone(), path.clone());
+            self.storage(move |owner| {
+                observed.check(&owner.journal, id)?;
+                owner.journal.source_worktree(id, worktree)
+            })
+            .await?;
+            let observed_ns = boot_ns()?;
+            ensure!(observed_ns < deadline, "native source proof expired");
+            return Ok(HydratedWorkspace {
+                workspace: Workspace {
+                    workspace_id: id,
+                    generation: 1,
+                    path,
+                },
+                manifest,
+                attempt: id,
+                binding,
+                observed_ns,
+                deadline_ns: deadline,
+                _stage_owner: None,
+                git,
+            });
+        }
         let root = git.root().to_owned();
         let marker = serde_json::to_vec(
             &json!({"schema_version":1,"attempt":id,"spec":plan.spec_artifact,"manifest":manifest}),
@@ -237,7 +274,7 @@ impl InputPipeline {
                 binding: preparation.binding().clone(),
                 observed_ns,
                 deadline_ns,
-                _stage_owner: disk,
+                _stage_owner: Some(disk),
                 git,
             })
         })
