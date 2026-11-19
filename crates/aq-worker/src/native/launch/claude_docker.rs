@@ -14,9 +14,8 @@ use aq_session_host::{
 };
 use aq_session_protocol::{ArtifactRef, Validate};
 use serde::{Deserialize, Serialize};
-use sha2::Digest as _;
 use std::{
-    io::{Read, Write},
+    io::Write,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
@@ -67,6 +66,9 @@ pub struct CodexDockerHost {
     /// The pinned Codex helper bundle on the node, uploaded to each Codex sandbox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_bundle: Option<PathBuf>,
+    /// A leased login last refreshed longer ago than this refuses the launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_login_age_secs: Option<u64>,
 }
 /// The harness an offer selects on a docker-local node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,31 +99,10 @@ pub struct ClaudeDockerHostProfile {
     conversation_outbox: Option<PathBuf>,
     /// Codex beside Claude; None runs Claude only.
     codex: Option<CodexDockerHost>,
+    /// The node's observation store; None leaves attempts unobserved.
+    pub(crate) observations: Option<aq_observation_store::node::Observations>,
 }
-fn hash_file(path: &Path, max: u64) -> Result<(String, u64)> {
-    let mut f = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
-        .open(path)?;
-    let m = f.metadata()?;
-    ensure!(
-        m.is_file() && m.len() > 0 && m.len() <= max,
-        "pinned program bound"
-    );
-    let mut hash = sha2::Sha256::new();
-    let mut scratch = vec![0u8; 1 << 20];
-    let mut total = 0u64;
-    loop {
-        let n = f.read(&mut scratch)?;
-        if n == 0 {
-            break;
-        }
-        total += n as u64;
-        ensure!(total <= max, "pinned program grew");
-        hash.update(&scratch[..n]);
-    }
-    Ok((format!("{:x}", hash.finalize()), total))
-}
+use aq_sandbox_archive::hash_file;
 /// The driver is this worker's own executable, so the two are always one build.
 pub fn own_driver() -> Result<(PinnedFile, u64)> {
     let path = std::fs::canonicalize(std::env::current_exe()?)?;
@@ -174,6 +155,7 @@ impl ClaudeDockerHostProfile {
             issuance: None,
             conversation_outbox: None,
             codex: None,
+            observations: None,
         };
         profile.verify_installation()?;
         // Channels die with their node process; drop what a dead one left.
@@ -342,6 +324,8 @@ struct HarnessLaunch {
     settings_json: String,
     harness: crate::sandbox_driver::DriverHarness,
     codex_runtime_bundle: Option<PathBuf>,
+    /// The public half of a leased Codex login, kept for its write-back.
+    login_lease: Option<aq_agent_channel::login::LoginLease>,
 }
 /// Exactly one material of `provider` that this manifest asks for.
 fn provider_material<'a>(
@@ -409,6 +393,7 @@ fn claude_launch(
         settings_json,
         harness: crate::sandbox_driver::DriverHarness::Claude,
         codex_runtime_bundle: None,
+        login_lease: None,
     })
 }
 /// Codex in the same template: the ChatGPT login (`auth.json`) is this attempt's
@@ -431,6 +416,23 @@ fn codex_launch(
     );
     let auth = logins[0].read_private()?;
     aq_session_host::PrivateLaunchInput::validate_chatgpt_auth_json(&auth)?;
+    // C5b: without the stored version there is no base for a write-back.
+    let record = logins[0].metadata();
+    let lease = &record.delivery.lease;
+    let login_lease = (record.login_version)
+        .map(|version| {
+            aq_agent_channel::login::LoginLease::of(
+                &auth,
+                serde_json::to_value(&record.worker)?,
+                serde_json::to_value(&lease.binding)?,
+                lease.lease_id,
+                version,
+            )
+        })
+        .transpose()?;
+    if let Some(leased) = &login_lease {
+        leased.check_age(codex.max_login_age_secs, chrono::Utc::now())?;
+    }
     let mode = ConfinementMode::declared(m)?;
     ensure!(
         mode == ConfinementMode::Container,
@@ -467,7 +469,41 @@ fn codex_launch(
         settings_json: String::new(),
         harness: crate::sandbox_driver::DriverHarness::Codex,
         codex_runtime_bundle: codex.runtime_bundle.clone(),
+        login_lease,
     })
+}
+/// Registers the launched attempt's transcript with the node's observation store.
+/// Nothing here can fail the launch: an attempt without a source runs unobserved.
+fn observe(
+    profile: &ClaudeDockerHostProfile,
+    scope: &LaunchExecutionScope,
+    offer: &aq_session_protocol::ProfiledOffer,
+    transcript: PathBuf,
+) -> Option<aq_observation_store::node::SourceHandle> {
+    use aq_observation_store::node::SourceSpec;
+    let (observations, m) = (profile.observations.as_ref()?, &offer.manifest);
+    let attempt_id = offer.binding.attempt_id;
+    let harness = m.harness.harness.as_str();
+    let provider = if harness == "codex" {
+        "openai"
+    } else {
+        "anthropic"
+    };
+    let registered = (|| {
+        let logins = provider_material(scope, m, provider);
+        let lease = &logins.first().context("lease")?.metadata().delivery.lease;
+        let binding = aq_admission::transport::lifecycle_binding(offer)?;
+        let account = lease.account_reference.as_str();
+        SourceSpec::of_launch(binding, &m.modules, harness, transcript, provider, account)?
+            .map(|spec| observations.register(spec))
+            .transpose()
+    })();
+    match &registered {
+        Ok(None) => tracing::info!(%attempt_id, "no observation catalog entry: not observed"),
+        Err(error) => tracing::warn!(%attempt_id, "transcript not observed: {error:#}"),
+        Ok(Some(_)) => {}
+    }
+    registered.ok().flatten()
 }
 pub(super) fn bootstrap(
     owner: &Arc<Mutex<Owned>>,
@@ -532,10 +568,19 @@ pub(super) fn bootstrap(
     }
     let private = profile.config.root.join(format!("driver-{}", i.launch_id));
     std::fs::DirBuilder::new().mode(0o700).create(&private)?;
+    // Of the harness's private home, the node sees its transcript directory only.
+    let transcript = private.join("transcript");
+    std::fs::DirBuilder::new().mode(0o700).create(&transcript)?;
+    let target = launch.harness.transcript_dir().to_owned();
+    docker_local.transcript = Some((transcript.clone(), target));
     let token_file = private.join("token");
     let mut guard = TokenGuard(Some(token_file.clone()));
     private_write(&token_file, &launch.token)?;
     drop(launch.token);
+    if let Some(lease) = &launch.login_lease {
+        let file = private.join(aq_agent_channel::login::LEASE_FILE);
+        private_write(&file, &serde_json::to_vec(lease)?)?;
+    }
     let result_dir = entry
         .result_channel
         .as_ref()
@@ -668,6 +713,7 @@ pub(super) fn bootstrap(
             state.observer = Some(observer);
             state.pending_output = bootstrap_output;
             state.outcome = Outcome::Running;
+            state.observation = observe(profile, scope, &offer.offered.offer, transcript);
             guard.disarm();
             return Ok(());
         }

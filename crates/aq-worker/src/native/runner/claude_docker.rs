@@ -48,6 +48,10 @@ pub struct CodexDockerSettings {
     /// `[manual.codex] runtime_bundle` names). Codex's shell tool needs it.
     #[serde(default)]
     pub runtime_bundle: Option<PathBuf>,
+    /// Refuse a Codex launch whose leased login was last refreshed longer ago than
+    /// this (seconds). Absent: no limit.
+    #[serde(default)]
+    pub max_login_age_secs: Option<u64>,
 }
 
 /// The result pins of one selected docker-local result adapter definition.
@@ -119,6 +123,8 @@ pub struct ClaudeDockerExecutor {
     conversation_outbox: Option<PathBuf>,
     /// The node's enrollment (origin, credential, Access), for the agent channel.
     issuance: aq_agent_channel::NodeLink,
+    /// The node's observation store, set by the service before the preflight.
+    pub observations: Option<aq_observation_store::node::Observations>,
 }
 impl ClaudeDockerExecutor {
     pub fn configured(worker: &WorkerConfig) -> Result<Self> {
@@ -146,6 +152,7 @@ impl ClaudeDockerExecutor {
             codex_pins: None,
             result_root: None,
             conversation_outbox: None,
+            observations: None,
             issuance: aq_agent_channel::NodeLink::new(
                 &worker.server_url,
                 &worker.credential,
@@ -205,8 +212,10 @@ impl NativeExecutor for ClaudeDockerExecutor {
             profile = profile.with_codex(CodexDockerHost {
                 executable: codex.executable.clone(),
                 runtime_bundle: codex.runtime_bundle.clone(),
+                max_login_age_secs: codex.max_login_age_secs,
             })?;
         }
+        profile.observations = self.observations.clone();
         self.profile = Some(Arc::new(profile));
         self.pins = Some(pins);
         self.codex_pins = codex_pins;
@@ -251,8 +260,28 @@ impl NativeExecutor for ClaudeDockerExecutor {
             let driver_dir = host.claude_driver_dir();
             let docker_local = profile.config().docker_local.clone();
             let (docker, node) = (docker_local.clone(), self.node_id);
+            let (link, leased) = (self.issuance.clone(), driver_dir.clone());
             let pre_stop: super::codex::PreStop = Box::new(move || {
-                Box::pin(async move { stop_attempt_sandbox(&docker_local, node, id).await })
+                Box::pin(async move {
+                    stop_attempt_sandbox(&docker_local, node, id).await?;
+                    // Still before Stopped is reported: the lease is admitted until then.
+                    let Some(dir) = &leased else { return Ok(()) };
+                    let written = async {
+                        let mut backend =
+                            crate::backend::docker_local::DockerLocalBackend::connect_unix(
+                                docker_local.clone(),
+                            )
+                            .await?;
+                        write_back_login(&mut backend, (node, id), dir, &link).await
+                    };
+                    match written.await {
+                        Ok(None) => {}
+                        outcome => {
+                            tracing::warn!(attempt_id = %id, ?outcome, "Codex login write-back")
+                        }
+                    }
+                    Ok(())
+                })
             });
             let driven = super::codex::drive_running_owned(
                 pipeline,
@@ -309,6 +338,41 @@ pub(crate) async fn stop_attempt_sandbox(
         crate::backend::docker_local::DockerLocalBackend::connect_unix(docker_local.clone())
             .await?;
     stop_owned_sandboxes(&mut backend, node, attempt).await
+}
+
+/// C5b: a Codex login that the attempt's stopped sandbox refreshed goes back to the
+/// server's login store as the next version of this attempt's lease. Nothing to do
+/// without a lease file (Claude, or a login delivered without a version).
+pub async fn write_back_login<T: crate::backend::docker_local::DockerTransport>(
+    backend: &mut crate::backend::docker_local::DockerLocalBackend<T>,
+    (node, attempt): (uuid::Uuid, uuid::Uuid),
+    driver_dir: &std::path::Path,
+    link: &aq_agent_channel::NodeLink,
+) -> Result<Option<aq_agent_channel::login::WriteBack>> {
+    use crate::backend::PlacementBackend;
+    use aq_agent_channel::login::{LEASE_FILE, LoginLease};
+    let Ok(lease) = aq_handoff_note::read_private(&driver_dir.join(LEASE_FILE), 65536) else {
+        return Ok(None);
+    };
+    let lease: LoginLease = serde_json::from_slice(&lease)?;
+    let auth = [
+        crate::native::launch::claude_docker::CODEX_HOME,
+        "/auth.json",
+    ]
+    .concat();
+    for entry in backend.list_owned(node).await? {
+        if entry.sandbox.owner.attempt_id != attempt {
+            continue;
+        }
+        let after = zeroize::Zeroizing::new(backend.read_file(&entry.sandbox, &auth).await?);
+        if aq_session_host::PrivateLaunchInput::validate_chatgpt_auth_json(&after).is_ok()
+            && lease.refreshed(&after)
+        {
+            let digest = serde_json::to_value(Digest::of(&after))?;
+            return Ok(Some(link.write_back_login(&lease, &after, digest).await?));
+        }
+    }
+    Ok(None)
 }
 
 pub(crate) async fn stop_owned_sandboxes<B: crate::backend::PlacementBackend>(

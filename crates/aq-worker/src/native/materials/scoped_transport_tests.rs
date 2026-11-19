@@ -73,6 +73,7 @@ fn installed() -> (
         sent_ns: sent,
         received_ns: received,
         material_synced_ns: received + 1,
+        login_version: None,
     };
     record.validate().unwrap();
     let root = tempfile::tempdir().unwrap();

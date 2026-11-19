@@ -13,6 +13,7 @@
 mod channel;
 mod forward;
 mod issuer;
+pub mod login;
 mod loopback;
 #[cfg(test)]
 mod tests;

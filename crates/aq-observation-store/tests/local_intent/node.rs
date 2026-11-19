@@ -339,6 +339,67 @@ fn two_sources_share_one_gapless_sequence_with_the_progress_kinds_the_ladder_cou
     node.shutdown();
 }
 
+/// A docker-local launch: no catalog entry, no source. With one, Claude's source reads
+/// `<attempt>.jsonl` in the mounted directory and Codex's the rollout Codex named itself
+/// under `sessions/YYYY/MM/DD`; both carry the server-derived ID and leave the store when
+/// the attempt's handle is dropped.
+#[test]
+fn a_launch_registers_the_derived_source_for_both_harnesses_and_releases_it() {
+    use aq_admission::observation_source;
+    let temp = tempfile::tempdir().unwrap();
+    let server = Server::on(6);
+    let (node, observations, _) = start(&temp, 6, &server);
+    let modules = [entry(), observation_source::module(&entry()).unwrap().0];
+    let launch = |attempt: u128, harness: &str, modules: &[ArtifactRef]| {
+        let mount = transcripts(&temp, &format!("{harness}-{attempt}"));
+        let binding = spec(attempt, 6, &mount, "k").binding;
+        SourceSpec::of_launch(binding, modules, harness, mount, "provider", "account")
+    };
+    assert!(launch(20, "claude", &modules[..1]).unwrap().is_none());
+    assert!(launch(21, "gemini", &modules).is_err());
+    let (claude, codex) = (
+        launch(4, "claude", &modules).unwrap().unwrap(),
+        launch(9, "codex", &modules).unwrap().unwrap(),
+    );
+    assert_eq!(claude.format, Format::ClaudeV1Jsonl9a9b8e8);
+    assert_eq!(codex.format, Format::CodexRollout67f0994);
+    let session = Uuid::from_u128(4).to_string();
+    append(
+        &claude.transcript.join(format!("{session}.jsonl")),
+        &line(&session, 1, false),
+    );
+    // Another session's rollout comes later; a link and a stray file are never followed.
+    let rollout = "0199a213-81c0-7800-8aa1-bbab2a035a53";
+    let day = codex.transcript.join("2026/11/18");
+    std::fs::create_dir_all(&day).unwrap();
+    std::os::unix::fs::symlink(temp.path(), codex.transcript.join("2025")).unwrap();
+    append(&day.join("notes.jsonl"), b"{}\n");
+    for (time, id) in [("10-00-00", rollout), ("11-00-00", &session)] {
+        let meta = json!({"type":"session_meta","payload":{"id":id}}).to_string() + "\n";
+        let name = format!("rollout-2026-11-18T{time}-{id}.jsonl");
+        append(&day.join(name), meta.as_bytes());
+    }
+    let again = [claude.clone(), codex.clone()];
+    let handles = [claude, codex].map(|spec| observations.register(spec).unwrap());
+    for (handle, attempt) in handles.iter().zip([4, 9]) {
+        let derived = observation_source::source_id(Uuid::from_u128(attempt), 1, &entry());
+        assert_eq!(handle.source_id(), derived.unwrap());
+        wait("the launch's transcript collected", || {
+            handle.status() == Some(SourceStatus::Collecting)
+        });
+    }
+    wait("Claude's events", || server.state().events.len() == 2);
+    assert!(observations.register(again[1].clone()).is_err(), "held");
+    drop(handles);
+    // A source's ID is free again only once the store has released it.
+    for spec in again {
+        wait("the source released at the attempt's end", || {
+            observations.register(spec.clone()).is_ok()
+        });
+    }
+    node.shutdown();
+}
+
 #[test]
 fn a_missing_or_refused_transcript_is_incomplete_and_never_delays_the_others() {
     let temp = tempfile::tempdir().unwrap();

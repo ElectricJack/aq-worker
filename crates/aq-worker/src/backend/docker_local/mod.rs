@@ -624,6 +624,18 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
                 ));
             }
         }
+        if let Some((host, _)) = &self.config.transcript {
+            use std::os::unix::fs::MetadataExt;
+            // SAFETY: geteuid has no preconditions and cannot fail.
+            let own = |m: std::fs::Metadata| {
+                m.is_dir() && m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o777 == 0o700
+            };
+            if !std::fs::symlink_metadata(host).is_ok_and(own) {
+                return Err(BackendError::InvalidRequest(
+                    "transcript directory must be the node's own 0700 directory",
+                ));
+            }
+        }
         let supported = self.capabilities();
         if let Some(capability) = request
             .required_capabilities

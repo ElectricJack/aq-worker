@@ -78,6 +78,11 @@ pub struct DockerLocalConfig {
     /// `agent_channel` mounts `<channel_root>/<attempt>` at `/aq/channel`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_root: Option<PathBuf>,
+    /// Set by the launch, per attempt: the node's own 0700 directory and the
+    /// harness's transcript directory (`DriverHarness::transcript_dir`, nothing
+    /// else) it is mounted at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<(PathBuf, String)>,
 }
 
 fn default_material_path() -> String {
@@ -123,6 +128,7 @@ impl DockerLocalConfig {
             shared_root_fs: false,
             hard_disk_limit: false,
             channel_root: None,
+            transcript: None,
         }
     }
 
@@ -149,6 +155,19 @@ impl DockerLocalConfig {
         }
         if let Some(root) = &self.channel_root {
             self.check_channel_root(root)?;
+        }
+        if let Some((host, target)) = &self.transcript {
+            use aq_handoff_note::harness::DriverHarness::{Claude, Codex};
+            let clear = |path: &str| !under(path, target) && !under(target, path);
+            if self.check_channel_root(host).is_err()
+                || ![Claude, Codex].iter().any(|h| h.transcript_dir() == target)
+                || !self.mount_aliases.values().all(|a| clear(&a.target))
+                || !clear(&self.material_path)
+            {
+                return Err(BackendError::InvalidRequest(
+                    "transcript mount must be a harness transcript directory clear of every alias",
+                ));
+            }
         }
         if !container_path_ok(&self.material_path)
             || under(&self.material_path, WORK_TARGET)
