@@ -73,7 +73,9 @@ impl Pane {
         Self {
             input: Box::new(std::io::stdin()),
             output: Box::new(std::io::stdout()),
-            tty: unsafe { libc::isatty(0) } == 1,
+            // The session host may give the pane program its startup input on stdin; the pane
+            // itself is then stdout, and it still has to leave cooked mode (below).
+            tty: unsafe { libc::isatty(0) == 1 || libc::isatty(1) == 1 },
         }
     }
 }
@@ -83,21 +85,26 @@ pub fn window_size() -> Option<(u16, u16)> {
     (unsafe { libc::ioctl(0, libc::TIOCGWINSZ, &mut size) } == 0 && size.ws_col > 0)
         .then_some((size.ws_col, size.ws_row))
 }
-struct Raw(libc::termios);
+/// The pane's terminal in raw mode. A cooked pane echoes what tmux writes to its input
+/// (its replies to the program's DA1/XTVERSION queries) onto the screen as `^[P>|tmux 3.4…`.
+struct Raw(libc::termios, i32);
 impl Raw {
     fn enter() -> Option<Self> {
+        let fd = [0, 1]
+            .into_iter()
+            .find(|fd| unsafe { libc::isatty(*fd) } == 1)?;
         let mut old: libc::termios = unsafe { std::mem::zeroed() };
-        if unsafe { libc::tcgetattr(0, &mut old) } != 0 {
+        if unsafe { libc::tcgetattr(fd, &mut old) } != 0 {
             return None;
         }
         let mut raw = old;
         unsafe { libc::cfmakeraw(&mut raw) };
-        (unsafe { libc::tcsetattr(0, libc::TCSANOW, &raw) } == 0).then_some(Self(old))
+        (unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw) } == 0).then_some(Self(old, fd))
     }
 }
 impl Drop for Raw {
     fn drop(&mut self) {
-        unsafe { libc::tcsetattr(0, libc::TCSANOW, &self.0) };
+        unsafe { libc::tcsetattr(self.1, libc::TCSANOW, &self.0) };
     }
 }
 
