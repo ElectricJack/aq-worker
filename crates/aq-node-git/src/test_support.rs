@@ -123,6 +123,28 @@ impl Central {
             update_from_main: false,
         }
     }
+    /// Writes `file` on top of `parent` and moves `r` there.
+    pub fn commit(&self, r: &str, parent: &str, file: &str, text: &str) -> String {
+        let seed = self.dir.path().join("seed");
+        git(
+            &seed,
+            &[
+                "fetch",
+                "--quiet",
+                "origin",
+                "+refs/heads/*:refs/remotes/origin/*",
+            ],
+        );
+        git(&seed, &["checkout", "--quiet", "--detach", parent]);
+        std::fs::write(seed.join(file), text).unwrap();
+        git(&seed, &["add", file]);
+        git(&seed, &["commit", "--quiet", "-m", file]);
+        git(
+            &seed,
+            &["push", "--quiet", "--force", "origin", &format!("HEAD:{r}")],
+        );
+        git(&seed, &["rev-parse", "HEAD"])
+    }
     pub fn requests(&self, needle: &str) -> usize {
         let seen = self.seen.lock().unwrap();
         seen.iter().filter(|l| l.contains(needle)).count()

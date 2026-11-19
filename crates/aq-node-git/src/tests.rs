@@ -246,3 +246,96 @@ fn a_node_reads_its_grant_then_finishes_and_ends_from_the_worktree_record() {
     let refused = runtime.block_on(node.start(Uuid::from_u128(41), at(state.path(), 41)));
     assert!(refused.unwrap_err().to_string().contains("404"));
 }
+
+/// A returned task: its branch has `b.txt` (and, when `clash`, its own `a.txt`);
+/// main has moved on with a new `a.txt` since. The grant's base is that main.
+fn returned_task(central: &Central, task: &str, clash: bool, update: bool) -> Grant {
+    let base = central.head("refs/heads/main").unwrap();
+    let task_ref = format!("refs/heads/aq/{task}");
+    let mut head = central.commit(&task_ref, &base, "b.txt", "branch\n");
+    if clash {
+        head = central.commit(&task_ref, &head, "a.txt", "branch\n");
+    }
+    central.commit("refs/heads/main", &base, "a.txt", "main\n");
+    let mut grant = central.grant(task, Some(head));
+    grant.update_from_main = update;
+    grant
+}
+
+#[test]
+fn a_returned_task_starts_from_its_branch_head_without_main() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let (node, remote) = (node(state.path()), remote(&central));
+    let grant = returned_task(&central, "w1", false, false);
+    let path = at(state.path(), 30);
+    let wt = node
+        .start(&remote, &grant, Uuid::from_u128(30), &path)
+        .unwrap();
+    assert_eq!(
+        git(&path, &["rev-parse", "HEAD"]),
+        grant.lease.clone().unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(path.join("a.txt")).unwrap(),
+        "one\n"
+    );
+    assert!(wt.conflicts.is_empty() && conflict_note(&path).is_none());
+    node.end(&wt).unwrap();
+}
+
+#[test]
+fn update_from_main_commits_a_clean_merge_of_the_main_head() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let (node, remote) = (node(state.path()), remote(&central));
+    let grant = returned_task(&central, "w2", false, true);
+    let path = at(state.path(), 31);
+    let wt = node
+        .start(&remote, &grant, Uuid::from_u128(31), &path)
+        .unwrap();
+    let parents = git(&path, &["rev-list", "--parents", "-n1", "HEAD"]);
+    let lease = grant.lease.clone().unwrap();
+    assert_eq!(
+        parents.split(' ').skip(1).collect::<Vec<_>>(),
+        [lease.as_str(), &grant.base]
+    );
+    assert!(wt.conflicts.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(path.join("a.txt")).unwrap(),
+        "main\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(path.join("b.txt")).unwrap(),
+        "branch\n"
+    );
+    assert_eq!(git(&path, &["status", "--porcelain"]), "");
+    let Pushed::Pushed { commit, .. } = node.finish(&remote, &wt, "repair").unwrap() else {
+        panic!("conflict")
+    };
+    assert_eq!(central.head("refs/heads/aq/w2"), Some(commit));
+    node.end(&wt).unwrap();
+}
+
+#[test]
+fn update_from_main_leaves_conflict_markers_committed_and_lists_the_paths() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let (node, remote) = (node(state.path()), remote(&central));
+    let grant = returned_task(&central, "w3", true, true);
+    let path = at(state.path(), 32);
+    let wt = node
+        .start(&remote, &grant, Uuid::from_u128(32), &path)
+        .unwrap();
+    assert_eq!(wt.conflicts, ["a.txt"]);
+    let text = std::fs::read_to_string(path.join("a.txt")).unwrap();
+    assert!(
+        text.contains("<<<<<<<") && text.contains(">>>>>>>"),
+        "{text}"
+    );
+    let parents = git(&path, &["rev-list", "--parents", "-n1", "HEAD"]);
+    assert_eq!(parents.split(' ').count(), 3, "the merge is committed");
+    assert_eq!(git(&path, &["status", "--porcelain"]), "");
+    assert!(conflict_note(&path).unwrap().contains("a.txt"));
+    node.end(&wt).unwrap();
+}

@@ -2728,6 +2728,54 @@ mod sandbox_driver_units {
         config.environment = [("ANTHROPIC_API_KEY".into(), "x".into())].into();
         assert!(input_entries(&config, b"p").is_err(), "API key env refused");
     }
+
+    /// Spec 0016 §3 (W3): conflicts that merging main left go into the agent's task context.
+    #[cfg(feature = "delivery_playbook")]
+    #[test]
+    fn a_returned_tasks_merge_conflicts_are_named_in_the_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("worktree");
+        let repository = uuid::Uuid::from_u128(7);
+        let worktree = aq_node_git::Worktree {
+            attempt: uuid::Uuid::from_u128(3),
+            repository: dir.path().join("repo.git"),
+            path: path.clone(),
+            grant: aq_node_git::Grant {
+                endpoint: format!("/v1/git/{repository}"),
+                repository_id: repository,
+                base: "a".repeat(40),
+                task_ref: "refs/heads/aq/t".into(),
+                lease: Some("b".repeat(40)),
+                update_from_main: true,
+            },
+            start: "b".repeat(40),
+            synced: aq_node_git::Synced::Fetched,
+            conflicts: vec!["src/a.rs".into()],
+        };
+        let record = path.with_extension("grant.json");
+        std::fs::write(record, serde_json::to_vec(&worktree).unwrap()).unwrap();
+        let mut config: DriverConfig = serde_json::from_value(serde_json::json!({
+            "docker_local": DockerLocalConfig::new("/run/x.sock".into()),
+            "template": format!("sha256:{}", "a".repeat(64)),
+            "owner": {"node_id": uuid::Uuid::from_u128(1), "boot_id": uuid::Uuid::from_u128(2),
+                "attempt_id": uuid::Uuid::from_u128(3)},
+            "hard_deadline_ms": 1, "resources": {"cpu_millis": 1000, "memory_bytes": 1u64 << 30, "pids": 64},
+            "workspace": "/w", "token_file": "/t", "executable": "/e", "arguments": [], "environment": {},
+            "settings_json": "{}", "result_dir": null, "max_workspace_bytes": 1,
+        }))
+        .unwrap();
+        let prompt = |config: &DriverConfig| match input_entries(config, b"p")
+            .unwrap()
+            .into_iter()
+            .find(|e| e.path() == "prompt")
+        {
+            Some(TreeEntry::File { data, .. }) => String::from_utf8(data).unwrap(),
+            _ => panic!("prompt"),
+        };
+        assert!(!prompt(&config).contains("conflict markers"));
+        config.workspace = path;
+        assert!(prompt(&config).contains("conflict markers in: src/a.rs"));
+    }
 }
 
 /// C5b for the docker-local sandbox: a Codex login that the stopped sandbox holds
