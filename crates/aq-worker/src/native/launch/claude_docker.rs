@@ -99,6 +99,8 @@ pub struct ClaudeDockerHostProfile {
     conversation_outbox: Option<PathBuf>,
     /// Codex beside Claude; None runs Claude only.
     codex: Option<CodexDockerHost>,
+    /// The node's observation store; None leaves attempts unobserved.
+    pub(crate) observations: Option<aq_observation_redb_prototype::node::Observations>,
 }
 use aq_sandbox_archive::hash_file;
 /// The driver is this worker's own executable, so the two are always one build.
@@ -153,6 +155,7 @@ impl ClaudeDockerHostProfile {
             issuance: None,
             conversation_outbox: None,
             codex: None,
+            observations: None,
         };
         profile.verify_installation()?;
         // Channels die with their node process; drop what a dead one left.
@@ -469,6 +472,39 @@ fn codex_launch(
         login_lease,
     })
 }
+/// Registers the launched attempt's transcript with the node's observation store.
+/// Nothing here can fail the launch: an attempt without a source runs unobserved.
+fn observe(
+    profile: &ClaudeDockerHostProfile,
+    scope: &LaunchExecutionScope,
+    offer: &aq_session_protocol::ProfiledOffer,
+    transcript: PathBuf,
+) -> Option<aq_observation_redb_prototype::node::SourceHandle> {
+    use aq_observation_redb_prototype::node::SourceSpec;
+    let (observations, m) = (profile.observations.as_ref()?, &offer.manifest);
+    let attempt_id = offer.binding.attempt_id;
+    let harness = m.harness.harness.as_str();
+    let provider = if harness == "codex" {
+        "openai"
+    } else {
+        "anthropic"
+    };
+    let registered = (|| {
+        let logins = provider_material(scope, m, provider);
+        let lease = &logins.first().context("lease")?.metadata().delivery.lease;
+        let binding = aq_admission::transport::lifecycle_binding(offer)?;
+        let account = lease.account_reference.as_str();
+        SourceSpec::of_launch(binding, &m.modules, harness, transcript, provider, account)?
+            .map(|spec| observations.register(spec))
+            .transpose()
+    })();
+    match &registered {
+        Ok(None) => tracing::info!(%attempt_id, "no observation catalog entry: not observed"),
+        Err(error) => tracing::warn!(%attempt_id, "transcript not observed: {error:#}"),
+        Ok(Some(_)) => {}
+    }
+    registered.ok().flatten()
+}
 pub(super) fn bootstrap(
     owner: &Arc<Mutex<Owned>>,
     entry: &Arc<Entry>,
@@ -532,6 +568,11 @@ pub(super) fn bootstrap(
     }
     let private = profile.config.root.join(format!("driver-{}", i.launch_id));
     std::fs::DirBuilder::new().mode(0o700).create(&private)?;
+    // Of the harness's private home, the node sees its transcript directory only.
+    let transcript = private.join("transcript");
+    std::fs::DirBuilder::new().mode(0o700).create(&transcript)?;
+    let target = launch.harness.transcript_dir().to_owned();
+    docker_local.transcript = Some((transcript.clone(), target));
     let token_file = private.join("token");
     let mut guard = TokenGuard(Some(token_file.clone()));
     private_write(&token_file, &launch.token)?;
@@ -672,6 +713,7 @@ pub(super) fn bootstrap(
             state.observer = Some(observer);
             state.pending_output = bootstrap_output;
             state.outcome = Outcome::Running;
+            state.observation = observe(profile, scope, &offer.offered.offer, transcript);
             guard.disarm();
             return Ok(());
         }

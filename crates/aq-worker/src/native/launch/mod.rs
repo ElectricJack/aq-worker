@@ -125,6 +125,9 @@ struct Physical {
     transport: Option<crate::native::adapter::responses_transport::ScopedResponsesTransport>,
     /// Spec 0006 agent channel; closed with the host, removed after Stopped.
     channel: Option<aq_agent_channel::AgentChannel>,
+    /// The attempt's transcript source in the node's observation store; dropping it
+    /// drains and releases the source.
+    observation: Option<aq_observation_redb_prototype::node::SourceHandle>,
     outcome: Outcome,
 }
 impl Physical {
@@ -196,6 +199,7 @@ impl Registry {
                             stopped: None,
                             transport: None,
                             channel: None,
+                            observation: None,
                             outcome: Outcome::Unknown,
                         }),
                     }),
@@ -348,6 +352,7 @@ impl Registry {
                 stopped: None,
                 transport: None,
                 channel: None,
+                observation: None,
                 outcome: Outcome::Pending,
             }),
         });
@@ -567,6 +572,7 @@ impl Entry {
                 return Ok(());
             }
             drop(physical.channel.take()); // removes the socket directory
+            drop(physical.observation.take());
             physical.transport.take()
         };
         if let Some(transport) = transport {

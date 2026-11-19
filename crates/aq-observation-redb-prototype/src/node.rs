@@ -94,7 +94,9 @@ pub struct SourceSpec {
     pub transcript: PathBuf,
     /// Directory the transcript must stay inside (the attempt's transcript mount).
     pub authorized_root: PathBuf,
-    /// The harness's own session ID (Claude `sessionId`, Codex rollout ID).
+    /// The harness's own session ID (Claude `sessionId`, Codex rollout ID). Empty
+    /// for Codex, which chooses its rollout ID itself: `transcript` is then its
+    /// `sessions` directory and the ID is read from the first rollout's file name.
     pub native_session_key: String,
     /// Provider and account reference of the launch's credential lease.
     pub provider: String,
@@ -103,6 +105,41 @@ pub struct SourceSpec {
     pub owner_uid: Option<u32>,
 }
 impl SourceSpec {
+    /// The source of a docker-local launch whose transcript directory is mounted at
+    /// `transcript` on the node. `None` when the launch delivers no catalog entry:
+    /// the owner's catalog has no source for this provider and harness.
+    pub fn of_launch(
+        binding: Binding,
+        modules: &[ArtifactRef],
+        harness: &str,
+        transcript: PathBuf,
+        provider: &str,
+        account_reference: &str,
+    ) -> Result<Option<Self>> {
+        let Some(catalog_entry) = observation_source::entry(modules)? else {
+            return Ok(None);
+        };
+        let (format, native_session_key) = match harness {
+            // The node driver starts `claude --session-id <attempt>`.
+            "claude" => (
+                engine::Format::ClaudeV1Jsonl9a9b8e8,
+                binding.attempt_id.to_string(),
+            ),
+            "codex" => (engine::Format::CodexRollout67f0994, String::new()),
+            other => anyhow::bail!("no transcript format for harness {other:?}"),
+        };
+        Ok(Some(Self {
+            binding,
+            catalog_entry,
+            format,
+            authorized_root: transcript.clone(),
+            transcript,
+            native_session_key,
+            provider: provider.into(),
+            account_reference: account_reference.into(),
+            owner_uid: None,
+        }))
+    }
     /// The source the server enrolls for this attempt: both sides derive its ID
     /// and session key from the delivered catalog entry.
     pub fn source(&self) -> Result<engine::Source> {
@@ -129,15 +166,21 @@ impl SourceSpec {
             "transcript must be an absolute path inside its authorized root"
         );
         let attempt = self.binding.attempt_id;
+        let registered = observation_source::session_key(attempt, GENERATION)?;
+        // Until the rollout is found (`codex_rollout`) the registered key stands in.
+        let native_session_key = match self.native_session_key.as_str() {
+            "" if self.format == engine::Format::CodexRollout67f0994 => registered.clone(),
+            key => Text::new(key)?,
+        };
         let source = engine::Source {
             binding: self.binding.clone(),
             source_id: observation_source::source_id(attempt, GENERATION, &self.catalog_entry)?,
             generation: GENERATION,
-            native_session_key: Text::new(self.native_session_key.as_str())?,
+            native_session_key,
             format: self.format.clone(),
             provider: Text::new(self.provider.as_str())?,
             account_reference: Text::new(self.account_reference.as_str())?,
-            registered_session_key: Some(observation_source::session_key(attempt, GENERATION)?),
+            registered_session_key: Some(registered),
         };
         source.validate()?;
         Ok(source)
@@ -604,6 +647,14 @@ impl<P: NodePeer> Service<P> {
             return Ok(false);
         }
         if tracked.file.is_none() {
+            if tracked.spec.native_session_key.is_empty() {
+                let Some((day, key)) = codex_rollout(&tracked.spec.transcript, entries)? else {
+                    return Ok(false);
+                };
+                tracked.source.native_session_key = Text::new(key.as_str())?;
+                tracked.spec.native_session_key = key;
+                tracked.spec.transcript = day;
+            }
             match admit(store, tracked, entries, tracked_identities, boot)? {
                 Admission::Ready(file) => tracked.file = Some(file),
                 Admission::Wait => return Ok(false),
@@ -672,6 +723,47 @@ impl<P: NodePeer> Service<P> {
         self.orphans = kept;
         Ok(())
     }
+}
+
+/// The first rollout a Codex CLI wrote under its `sessions` directory
+/// (`YYYY/MM/DD/rollout-<time>-<id>.jsonl`): its day directory and rollout ID.
+/// The sandbox wrote this tree, so only real directories are entered and at
+/// most `entries` directory entries are examined.
+fn codex_rollout(sessions: &Path, entries: usize) -> Result<Option<(PathBuf, String)>> {
+    fn rollout_id(path: &Path) -> Option<String> {
+        let name = path.file_name()?.to_str()?;
+        let stem = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
+        let id = stem.get(stem.len().checked_sub(36)?..)?;
+        Uuid::parse_str(id).ok().map(|_| id.to_owned())
+    }
+    let (mut level, mut seen, mut first) = (vec![sessions.to_path_buf()], 0, None::<PathBuf>);
+    for depth in 0..4 {
+        let mut next = vec![];
+        for directory in level {
+            for entry in std::fs::read_dir(&directory)? {
+                let entry = entry?;
+                let path = entry.path();
+                seen += 1;
+                ensure!(
+                    seen <= entries,
+                    "Codex sessions directory exceeds the discovery bound"
+                );
+                // `file_type` does not follow a link.
+                let kind = entry.file_type()?;
+                if depth < 3 && kind.is_dir() {
+                    next.push(path);
+                } else if depth == 3
+                    && kind.is_file()
+                    && rollout_id(&path).is_some()
+                    && first.as_ref().is_none_or(|earliest| path < *earliest)
+                {
+                    first = Some(path);
+                }
+            }
+        }
+        level = next;
+    }
+    Ok(first.and_then(|path| Some((path.parent()?.to_path_buf(), rollout_id(&path)?))))
 }
 
 enum Admission {
