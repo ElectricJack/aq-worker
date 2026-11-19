@@ -2452,7 +2452,7 @@ mod tests {
         let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, stop));
         // The 500 and the edge 403 are behind it: the third heartbeat was accepted, node still up.
         while beats.load(SeqCst) < 3 {
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         assert!(
             !*stopped.borrow(),
