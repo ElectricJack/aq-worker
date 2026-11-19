@@ -56,7 +56,6 @@ impl InputPipeline {
     }
 }
 /// After the stopped-writer proof: commit and push under the grant's lease.
-/// A moved task ref is `push_conflict`, held for reconciliation; never forced.
 #[cfg(feature = "delivery_playbook")]
 pub(super) async fn push<O: StoppedOwner>(o: &O) -> Result<bool> {
     o.verify()?;
@@ -73,15 +72,13 @@ pub(super) async fn push<O: StoppedOwner>(o: &O) -> Result<bool> {
     }
     let node = o.git().node.clone().context("node git is not configured")?;
     o.roots().verify()?;
+    // A moved task ref is recorded as push_conflict and reported; never forced.
     let (_, pushed) = node.finish(path, format!("AQ attempt {id}")).await?;
-    let aq_node_git::Pushed::Pushed { task_ref, commit } = pushed else {
-        anyhow::bail!("push_conflict: the task ref moved since the offer; nothing was forced")
-    };
     o.verify()?;
     o.journal(move |journal| {
         let digest = expected.digest()?;
         journal.update_result(id, &digest, |h, _| {
-            h.source.pushed = Some((task_ref, commit));
+            h.source.pushed = Some(pushed);
             Ok(())
         })?;
         Ok(true)

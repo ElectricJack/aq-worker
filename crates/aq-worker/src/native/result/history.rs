@@ -140,11 +140,11 @@ pub struct SourceHistory {
     pub transfer: Option<TransferManifest>,
     pub upload: Option<UploadState>,
     pub receipt: Option<CentralRetentionReceipt>,
-    /// The task ref and commit pushed to central aq-git (`delivery_playbook`):
-    /// the branch ref is the record of the result, no retention receipt.
+    /// What the push to central aq-git did (`delivery_playbook`): the branch
+    /// ref is the record of the result, no retention receipt.
     #[cfg(feature = "delivery_playbook")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pushed: Option<(String, String)>,
+    pub pushed: Option<aq_node_git::Pushed>,
 }
 impl SourceHistory {
     /// What the report names as the result's source.
@@ -160,15 +160,11 @@ impl SourceHistory {
                 .receipt_id,
         ])
     }
-    /// The result request's headers naming the pushed ref and head (S6).
+    /// The result request's headers for the push (S6); none when nothing was pushed.
     pub fn pushed_headers(&self) -> Vec<(&'static str, String)> {
         #[cfg(feature = "delivery_playbook")]
-        if let Some((task_ref, commit)) = &self.pushed {
-            use aq_node_git::transport::{PUSHED_HEAD_HEADER, PUSHED_REF_HEADER};
-            return vec![
-                (PUSHED_REF_HEADER, task_ref.clone()),
-                (PUSHED_HEAD_HEADER, commit.clone()),
-            ];
+        if let Some(pushed) = &self.pushed {
+            return aq_node_git::transport::result_headers(pushed);
         }
         vec![]
     }

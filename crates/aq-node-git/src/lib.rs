@@ -132,7 +132,8 @@ pub struct Worktree {
     pub synced: Synced,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Pushed {
     /// The task ref is at `commit` in central aq-git.
     Pushed { task_ref: String, commit: String },

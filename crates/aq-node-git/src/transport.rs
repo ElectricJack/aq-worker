@@ -9,9 +9,23 @@ use uuid::Uuid;
 
 /// The attempt a git request is for; the server derives its grant from it.
 pub const ATTEMPT_HEADER: &str = "AQ-Attempt";
-/// On the result report (S6): the pushed task ref and the commit it is at.
+/// On the result report (S6): the pushed task ref and the commit it is at,
+/// or, instead of both, that the push met a moved task ref.
 pub const PUSHED_REF_HEADER: &str = "AQ-Pushed-Ref";
 pub const PUSHED_HEAD_HEADER: &str = "AQ-Pushed-Head";
+pub const PUSH_CONFLICT_HEADER: &str = "AQ-Push-Conflict";
+
+/// The result request's headers for what the push did (S6). The server
+/// refuses one of the pushed pair alone or mixed with the conflict.
+pub fn result_headers(pushed: &crate::Pushed) -> Vec<(&'static str, String)> {
+    match pushed {
+        crate::Pushed::Pushed { task_ref, commit } => vec![
+            (PUSHED_REF_HEADER, task_ref.clone()),
+            (PUSHED_HEAD_HEADER, commit.clone()),
+        ],
+        crate::Pushed::Conflict => vec![(PUSH_CONFLICT_HEADER, "true".into())],
+    }
+}
 
 /// The node's view of central aq-git. Holds secrets: no `Debug`, and they
 /// reach git only through its environment, never its argv.

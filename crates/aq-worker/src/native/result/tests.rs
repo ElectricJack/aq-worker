@@ -354,17 +354,25 @@ fn result_namespace_is_owned_and_allocates_disjoint_attempt_children() {
         .unwrap();
     assert!(ns.attempt(&path, Uuid::from_u128(3)).is_err());
 }
-/// Spec 0016 §5.3 / S6: a pushed result names its task ref and head, not a retention receipt.
+/// Spec 0016 §5.2 (S6): a pushed result names its task ref and head, or the conflict; no receipt.
 #[cfg(feature = "delivery_playbook")]
 #[test]
 fn a_pushed_result_names_its_ref_and_head_instead_of_a_retention_receipt() {
     let mut h = history();
     assert!(h.source.receipt_ids().is_err() && h.source.pushed_headers().is_empty());
-    h.source.pushed = Some(("refs/heads/aq/t".into(), "b".repeat(40)));
+    let (task_ref, commit) = ("refs/heads/aq/t".to_owned(), "b".repeat(40));
+    h.source.pushed = Some(aq_node_git::Pushed::Pushed { task_ref, commit });
     assert!(h.source.receipt_ids().unwrap().is_empty());
     let named = [
         ("AQ-Pushed-Ref", "refs/heads/aq/t".into()),
         ("AQ-Pushed-Head", "b".repeat(40)),
     ];
     assert_eq!(h.source.pushed_headers(), named);
+    // A moved task ref is reported as the conflict alone, never as a pushed head.
+    h.source.pushed = Some(aq_node_git::Pushed::Conflict);
+    assert!(h.source.receipt_ids().unwrap().is_empty());
+    assert_eq!(
+        h.source.pushed_headers(),
+        [("AQ-Push-Conflict", "true".into())]
+    );
 }
