@@ -265,9 +265,15 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                             && !dir.join("stop.request").exists(),
                         "authority expired/cancelled immediately before pane creation"
                     );
-                    if config.observed.is_some() {
-                        tmux(&config, dir, &["set-option", "-g", "status", "off"])?;
-                    }
+                    tmux(&config, dir, &["set-option", "-g", "status", "off"])?;
+                    // Input on an attached viewer is for the pane. Disabling
+                    // the prefix keeps the tmux command prompt out of that path.
+                    tmux(&config, dir, &["set-option", "-g", "prefix", "None"])?;
+                    tmux(
+                        &config,
+                        dir,
+                        &["set-window-option", "-g", "window-size", "manual"],
+                    )?;
                     let columns = config
                         .observed
                         .as_ref()
@@ -275,9 +281,7 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                         .to_string();
                     let rows = config.observed.as_ref().map_or(24, |s| s.rows).to_string();
                     let mut arguments = vec!["new-session", "-d", "-s", "aq", "-c", workspace];
-                    if config.observed.is_some() {
-                        arguments.extend(["-x", &columns, "-y", &rows]);
-                    }
+                    arguments.extend(["-x", &columns, "-y", &rows]);
                     arguments.extend(["--", helper, "pane", launch_dir]);
                     tmux(&config, dir, &arguments)?;
                     fault_point(dir, "pane-created")?;

@@ -286,6 +286,7 @@ fn io_input(
         issued_at_ms: now,
         deadline_ms: now + 1500,
         bytes: bytes.to_vec(),
+        escape_key: false,
     }
 }
 fn io_lines(host: &SessionHandle) -> Vec<String> {
@@ -297,11 +298,17 @@ fn io_lines(host: &SessionHandle) -> Vec<String> {
 }
 #[test]
 #[ignore = "requires explicit local tmux 3.4 qualification"]
-fn guarded_literal_unicode_resize_and_durable_duplicate_receipts() {
+fn guarded_literal_unicode_refuses_resize_and_deduplicates_input() {
     use aq_session_protocol::*;
     use aq_terminal_relay_protocol::Effect;
     let (_case, mut host, io, lease) = io_setup();
     let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
+    for bytes in [b"\x1b".as_slice(), b"\x1b[<43;37"] {
+        assert!(
+            io.submit(&Effect::Input(io_input(&lease, bytes)), clock)
+                .is_err()
+        );
+    }
     let input = io_input(&lease, "literal; $(no-shell) 雪🙂\n".as_bytes());
     assert!(
         io.submit(&Effect::Input(input.clone()), clock)
@@ -335,7 +342,7 @@ fn guarded_literal_unicode_resize_and_durable_duplicate_receipts() {
     io.submit(&Effect::Resize(resize.clone()), clock).unwrap();
     assert!(
         matches!(wait(|| io.receipt(resize.operation_id).ok().flatten()),
-        terminal_io::Receipt::Resize(v) if v.applied)
+        terminal_io::Receipt::Resize(v) if !v.applied)
     );
     let size = tmux(
         &host,
@@ -347,7 +354,7 @@ fn guarded_literal_unicode_resize_and_durable_duplicate_receipts() {
             "#{window_width}x#{window_height}",
         ],
     );
-    assert_eq!(String::from_utf8(size.stdout).unwrap().trim(), "100x35");
+    assert_eq!(String::from_utf8(size.stdout).unwrap().trim(), "80x24");
     assert_eq!(io_lines(&host).len(), 1);
     host.stop().unwrap();
     host.wait_stopped(Duration::from_secs(5)).unwrap();
@@ -815,11 +822,11 @@ fn read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_res
 
 /// The live terminal relay's viewer for a queued attempt: an ordinary tmux client
 /// on the attempt's session, on its own PTY, not spawned by the guardian. Attaching
-/// paints the screen as it is, its keys reach the pane program, its size becomes
-/// the pane's, and the guardian keeps the host Running after it attaches and leaves.
+/// paints the screen as it is and its keys reach the pane program. Its size
+/// cannot change the pane, and detaching keeps the host running.
 #[test]
 #[ignore = "explicit local tmux 3.4 bounded output qualification"]
-fn an_ordinary_viewer_client_paints_the_screen_types_and_resizes_and_the_host_keeps_running() {
+fn an_ordinary_viewer_paints_and_types_without_resizing_the_host() {
     use aq_terminal_relay_protocol::Effect;
     use std::io::{Read, Write};
     use std::os::unix::process::CommandExt;
@@ -846,7 +853,6 @@ fn an_ordinary_viewer_client_paints_the_screen_types_and_resizes_and_the_host_ke
         observer.poll().unwrap();
         observer.is_attached().then_some(())
     });
-    // The height also depends on the status line, which this fixture keeps.
     let width = |host: &SessionHandle| {
         tmux(
             host,
@@ -854,6 +860,10 @@ fn an_ordinary_viewer_client_paints_the_screen_types_and_resizes_and_the_host_ke
         )
         .stdout
     };
+    assert_eq!(
+        tmux(&host, &["show-options", "-v", "-t", "aq", "prefix"]).stdout,
+        b"None\n"
+    );
     assert_eq!(width(&host), b"80\n");
     let (mut master, mut slave) = (-1, -1);
     let (name, termios, winsize) = (std::ptr::null_mut(), std::ptr::null(), std::ptr::null());
@@ -910,7 +920,7 @@ fn an_ordinary_viewer_client_paints_the_screen_types_and_resizes_and_the_host_ke
             .contains(&"typed-by-viewer".to_string())
             .then_some(())
     });
-    wait_named("viewer size", || (width(&host) == b"100\n").then_some(()));
+    assert_eq!(width(&host), b"80\n");
     std::thread::sleep(Duration::from_millis(1500));
     assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
     viewer.kill().unwrap();
