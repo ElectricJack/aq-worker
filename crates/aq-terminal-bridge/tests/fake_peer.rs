@@ -97,6 +97,7 @@ impl FakeHost {
             issued_at_ms: 2000,
             deadline_ms: 3000,
             bytes: b"private-input\n".to_vec(),
+            escape_key: false,
         }
     }
 }

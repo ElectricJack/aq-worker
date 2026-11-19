@@ -1061,43 +1061,16 @@ fn apply(
                     && wall_ms()? < resize.deadline_ms,
                 "terminal resize stale or expired"
             );
-            live(dir, host, wall_deadline, request.deadline_boot_ms)?;
-            // Resize also has an at-most-once intent; an uncertain result is not
-            // replayed as another command under the same operation ID.
+            // A controller owns input only. Acknowledge the refusal so the
+            // relay can retire a queued request without mutating the pane.
             state.resize_sequence = resize.sequence;
-            let receipt = ResizeReceipt {
+            Receipt::Resize(ResizeReceipt {
                 terminal: resize.lease.terminal.clone(),
                 operation_id: id,
                 command_digest: digest.clone(),
                 sequence: resize.sequence,
                 applied: false,
-            };
-            state.control.insert(
-                id,
-                Record {
-                    digest: digest.clone(),
-                    receipt: Receipt::Resize(receipt.clone()),
-                },
-            );
-            state.save(dir)?;
-            let applied = guarded_tmux(
-                dir,
-                config,
-                host,
-                wall_deadline,
-                request.deadline_boot_ms,
-                &[
-                    "resize-window",
-                    "-t",
-                    &state.binding.pane.pane_id,
-                    "-x",
-                    &resize.columns.to_string(),
-                    "-y",
-                    &resize.rows.to_string(),
-                ],
-            )
-            .is_ok();
-            Receipt::Resize(ResizeReceipt { applied, ..receipt })
+            })
         }
         _ => bail!("terminal operation unsupported"),
     };
