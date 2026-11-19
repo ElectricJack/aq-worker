@@ -384,12 +384,13 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     save(dir, &state)?;
                 }
                 Ok(false) => {}
-                Err(_) => {
+                Err(error) => {
+                    // Production guardian stderr is /dev/null; test builds keep guardian-test-stderr.log.
+                    eprintln!("observed gate failed closed: {error:#}");
                     state.phase = HostPhase::Stopping;
-                    state.stop_reason = Some(
-                        "observed gate failed closed; post-grant exec evidence may be unknown"
-                            .into(),
-                    );
+                    state.stop_reason = Some(format!(
+                        "observed gate failed closed; post-grant exec evidence may be unknown: {error:#}"
+                    ));
                     save(dir, &state)?;
                 }
             }

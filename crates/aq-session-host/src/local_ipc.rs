@@ -152,6 +152,17 @@ impl Socket {
         Ok(poll.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0)
     }
     pub(crate) fn receive(&self) -> Result<Option<Packet>> {
+        let packet = self.receive_or_eof()?;
+        ensure!(
+            packet
+                .as_ref()
+                .is_none_or(|packet| !packet.bytes.is_empty()),
+            "reader closed or malformed packet"
+        );
+        Ok(packet)
+    }
+    /// Like `receive`, but a zero-byte read (peer closed) is an empty packet.
+    pub(crate) fn receive_or_eof(&self) -> Result<Option<Packet>> {
         let mut bytes = vec![0u8; MAX_PACKET];
         let mut iov = libc::iovec {
             iov_base: bytes.as_mut_ptr().cast(),
@@ -198,9 +209,7 @@ impl Socket {
             }
         }
         ensure!(
-            count > 0
-                && msg.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) == 0
-                && fds.len() <= 1,
+            msg.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) == 0 && fds.len() <= 1,
             "reader closed or malformed packet"
         );
         bytes.truncate(count as usize);
