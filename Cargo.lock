@@ -499,6 +499,7 @@ dependencies = [
  "aq-machine-load",
  "aq-node-service",
  "aq-observation",
+ "aq-observation-admission",
  "aq-observation-engine",
  "aq-observation-redb-prototype",
  "aq-phase-terminal-protocol",

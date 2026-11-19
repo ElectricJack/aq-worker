@@ -29,6 +29,6 @@ Claude's session ID is the attempt ID (`--session-id`, added by the driver whene
 
 ## Watch out
 
-- The mount is outside the sandbox's disk limit: the harness can fill the node's runtime directory (often tmpfs) through it.
+- The mount is outside the sandbox's disk limit. The node driver checks it every 2 s against `[observations] transcript_max_bytes` and `transcript_max_files` (`aq_handoff_note::TranscriptBound`) and stops the attempt with a `transcript_limit_exceeded` claim; this detects, it does not prevent a fast fill.
 - The container runs as its uid 0 (the template sets no USER), which rootless Podman maps to the worker's uid in both mapping modes, so the 0700 directory is writable inside and the files are the worker's outside (`owner_uid: None`). A template with a USER line breaks this.
 - The end-of-attempt conversation capture still reads `<attempt>.jsonl` by copy-out, now through the bind mount.

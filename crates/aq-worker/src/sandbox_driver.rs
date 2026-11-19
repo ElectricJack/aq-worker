@@ -88,6 +88,9 @@ pub struct DriverConfig {
     /// Worker-private outbox. The sandbox can write only its own provider file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_outbox: Option<PathBuf>,
+    /// The node's limits on the transcript mount; past them the attempt is stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_bound: Option<aq_handoff_note::TranscriptBound>,
     /// The harness in the sandbox; absent (Claude) in a Claude configuration.
     #[serde(default, skip_serializing_if = "DriverHarness::is_claude")]
     pub harness: DriverHarness,
@@ -432,7 +435,7 @@ struct Drove {
     /// The final `result` event, from the harness's stop hook.
     stream: Vec<u8>,
     leak: Option<&'static str>,
-    handoff: Option<aq_protocol::HandoffReason>,
+    handoff: Option<aq_handoff_note::Stop>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -496,7 +499,9 @@ where
             _ = term.recv() => bail!("stop requested"),
             _ = hup.recv() => bail!("pane closed"),
         }
-        if let Some(reason) = read_handoff_marker(handoff) {
+        let mount = (config.docker_local.transcript.as_ref()).zip(config.transcript_bound);
+        let over = || mount.and_then(|((directory, _), bound)| bound.exceeded(directory));
+        if let Some(reason) = read_handoff_marker(handoff).map(Into::into).or_else(over) {
             handoff_reason = Some(reason);
             // A stopped container still serves get_archive for the copy-back.
             let _ = backend.stop(sandbox).await;
