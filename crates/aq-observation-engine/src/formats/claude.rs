@@ -26,17 +26,14 @@ pub(crate) fn normalize(state: &mut Normalizer, value: &Value) -> Result<Vec<Dra
         identity(session == state.source.native_session_key.as_str())?;
         state.observed_native_identity = true;
     }
-    identity(state.observed_native_identity)?;
     let kind = text(&value["type"])?;
-    if matches!(kind, "summary" | "queue-operation" | "attachment") {
+    // Only user and assistant records carry facts. Claude Code adds metadata record types
+    // (api-request, mode, system, ai-title, ...) release by release; none is progress, and a
+    // gap for one made a live attempt look unobservable to the stall ladder.
+    if !matches!(kind, "user" | "assistant") {
         return Ok(vec![]);
     }
-    if !matches!(kind, "user" | "assistant") {
-        return Ok(vec![gap(
-            GapReason::UnsupportedFormat,
-            format!("unsupported-claude:{}", value_digest(value)?.as_str()),
-        )]);
-    }
+    identity(state.observed_native_identity)?;
     let row_id = text(&value["uuid"])?;
     let message = &value["message"];
     ensure!(message.is_object(), "native message absent");
