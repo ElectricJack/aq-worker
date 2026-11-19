@@ -74,13 +74,20 @@ impl ResultAdapterDefinition {
         matches!(
             self.profile,
             ResultAdapterKind::Codex0166ChatgptInteractiveLocalV1
+                | ResultAdapterKind::Claude2318DockerLocalInteractiveV1
         )
     }
     pub fn is_claude_docker(&self) -> bool {
-        matches!(self.profile, ResultAdapterKind::Claude2318DockerLocalV1)
+        matches!(
+            self.profile,
+            ResultAdapterKind::Claude2318DockerLocalV1
+                | ResultAdapterKind::Claude2318DockerLocalInteractiveV1
+        )
     }
     pub fn recipe_artifact(&self) -> ArtifactRef {
-        if self.is_claude_docker() {
+        if self.is_claude_docker() && self.interactive() {
+            super::claude::docker_local_interactive_recipe_artifact()
+        } else if self.is_claude_docker() {
             super::claude::docker_local_recipe_artifact()
         } else if self.interactive() {
             aq_codex_mapper::interactive_result_local_recipe_artifact()
@@ -157,7 +164,7 @@ impl ResultAdapterDefinition {
         );
         // The permission plan is server-authored and server-enforced (spec 0014): any is accepted.
         if self.is_claude_docker() {
-            return super::claude::validate_docker_local_manifest(manifest);
+            return super::claude::validate_docker_local_manifest(manifest, self.interactive());
         }
         let settings = aq_codex_mapper::Settings {
             harness: &manifest.harness,

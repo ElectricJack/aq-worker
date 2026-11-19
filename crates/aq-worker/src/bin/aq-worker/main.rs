@@ -526,6 +526,12 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                         "digest": recipe.digest.as_str(),
                         "body": aq_worker::native::adapter::claude::docker_local_recipe_body(),
                     },
+                    "interactive_recipe": {
+                        "id": aq_worker::native::adapter::claude::docker_local_interactive_recipe_artifact().id,
+                        "version": "1",
+                        "digest": aq_worker::native::adapter::claude::docker_local_interactive_recipe_artifact().digest,
+                        "body": aq_worker::native::adapter::claude::docker_local_interactive_recipe_body(),
+                    },
                     "contract": aq_agent_result_local::artifact(),
                     "startup": aq_agent_result_local::startup_artifact(),
                 })

@@ -4,23 +4,9 @@
 //! result channel, source capture and the report. Its session host starts this
 //! driver as the pane program. The driver owns exactly one sandbox:
 //!
-//! 1. create it through the C2 fixed launch policy (`DockerLocalBackend`);
-//! 2. upload the hydrated aq-git worktree (without `.git`) to `/aq/work` and the
-//!    non-secret launch inputs (prompt, C6a settings and argv) to `/aq/in`;
-//! 3. deliver the leased Claude token as private material; the fixed runner
-//!    reads it into `CLAUDE_CODE_OAUTH_TOKEN` for the `claude` process only and
-//!    deletes the file before Claude starts;
-//! 4. stream the runner log to the pane and wait for the runner;
-//! 5. copy `/aq/work` back into the worktree, then stop the sandbox;
-//! 6. submit the AQ result claim through the attempt's local result channel; the node then
-//!    destroys the stopped sandbox. A copy-back that fails part way claims nothing.
-//!
-//! The token never appears in argv, the container create body, labels, logs
-//! or the pane. The driver itself never talks to aq-server: with
-//! `agent_channel` the node's per-attempt channel (spec 0006 §5, crate
-//! `aq-agent-channel`) holds the AQ credential, and the driver only mounts its
-//! socket directory at `/aq/channel` and sets `AQ_CHANNEL`. No channel socket,
-//! no launch (`agent_channel_unavailable`).
+//! The driver creates the sandbox, stages the worktree and private material,
+//! streams output, copies work back, and claims the final result. Credentials
+//! stay in the node-side channel; no socket means no launch.
 use crate::backend::docker_local::tar::{TreeEntry, read_tree, tree_archive};
 use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig};
 use crate::backend::{
@@ -44,37 +30,8 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-/// Fixed in-sandbox runner (I4a pattern). Public configuration, no secret.
-pub const RUNNER: &str = r#"set -uo pipefail
-umask 077
-in=/aq/in; out=/aq/out; m=/aq/private/material
-mkdir -p "$out"
-[ -s "$m" ] || { echo "aq-runner: material missing"; exit 90; }
-token="$(cat "$m")"; rm -f "$m"
-[ -e "$m" ] && { echo "aq-runner: material not wiped"; exit 91; }
-while IFS= read -r kv; do [ -n "$kv" ] && export "$kv"; done < "$in/env"
-mkdir -p "$HOME" && cp "$in/settings.json" "$HOME/settings.json" || exit 92
-set --; while IFS= read -r a; do set -- "$@" "$a"; done < "$in/args"
-exe="$(cat "$in/executable")"
-cd /aq/work || exit 93
-echo "aq-runner: claude $("$exe" --version 2>/dev/null) uid=$(id -u) capeff=$(awk '/^CapEff:/ {print $2}' /proc/self/status) nnp=$(awk '/^NoNewPrivs:/ {print $2}' /proc/self/status)"
-CLAUDE_CODE_OAUTH_TOKEN="$token" IS_SANDBOX=1 "$exe" "$@" < "$in/prompt" 2> "$out/claude.err" | tee "$out/claude.jsonl"
-rc=${PIPESTATUS[0]}
-unset token
-echo "$rc" > "$out/rc"
-login_file=false; [ -e "$HOME/.credentials.json" ] && login_file=true
-echo "aq-runner: claude exit $rc login_file=$login_file"
-exit "$rc"
-"#;
-
-/// Appended to the startup context inside the sandbox.
-pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the \
-result client. The node runner submits your final message as the AQ result claim, so end with exactly one line: Changes: ...; Checks: exact commands \
-and outcomes; Limits: ... (write Changes: none when you changed no file), and above it one line Outcome: done, or Outcome: blocked when you could not \
-do the task. Your worktree is retained as is: keep build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
-/// Appended when the attempt has an agent channel.
-pub const CHANNEL_NOTE: &str = "The aq CLI (/opt/aq/bin/aq, where installed) reaches AQ from this \
-sandbox through AQ_CHANNEL; no credential is needed or accepted. `aq commands` lists what you may run.\n";
+use aq_handoff_note::input::{CLOSE_FILE, Feed, INTERACTIVE_RUNNER, InputPolicy, message_files};
+pub use aq_handoff_note::runner::{CHANNEL_NOTE, RUNNER, RUNNER_NOTE};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -100,6 +57,8 @@ pub struct DriverConfig {
     /// Mount the node's channel for this attempt; launch fails without it.
     #[serde(default)]
     pub agent_channel: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputPolicy>,
 }
 
 fn relative(path: &Path, root: &Path) -> Result<String> {
@@ -286,60 +245,41 @@ fn apply_tree(
 
 /// The non-secret runner inputs under `/aq/in`.
 pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEntry>> {
-    for a in &config.arguments {
-        ensure!(!a.contains('\n') && !a.contains('\0'), "argument shape");
+    ensure!(
+        config
+            .environment
+            .keys()
+            .all(|k| !crate::native::adapter::claude::FORBIDDEN_ENVIRONMENT.contains(&k.as_str())),
+        "Claude environment refused"
+    );
+    let files = aq_handoff_note::runner::input_files(
+        &config.arguments,
+        &config.environment,
+        &config.settings_json,
+        &config.executable,
+        prompt,
+        config.agent_channel,
+        config.input.is_some(),
+    )?;
+    let mut entries = Vec::new();
+    if config.input.is_some() {
+        entries.push(TreeEntry::Dir {
+            path: "messages".into(),
+            mode: 0o700,
+        });
     }
-    let mut env = String::new();
-    for (k, v) in &config.environment {
-        ensure!(
-            !crate::native::adapter::claude::FORBIDDEN_ENVIRONMENT.contains(&k.as_str())
-                && !k.contains('=')
-                && !k.is_empty()
-                && !v.contains('\n'),
-            "Claude environment refused"
-        );
-        let v = match (config.agent_channel, k.as_str()) {
-            (true, "PATH") => aq_agent_channel::with_aq_bin(v),
-            _ => v.clone(),
-        };
-        env.push_str(&format!("{k}={v}\n"));
-    }
-    if config.agent_channel {
-        env.push_str(&format!("AQ_CHANNEL={}\n", aq_agent_channel::AQ_CHANNEL));
-    }
-    let file = |path: &str, data: Vec<u8>| TreeEntry::File {
-        path: path.into(),
+    entries.extend(files.into_iter().map(|(path, data)| TreeEntry::File {
+        path,
         mode: 0o600,
         data,
-    };
-    // The startup context tells the agent to run the AQ result client; inside
-    // the sandbox the node driver submits the claim from the final message.
-    let mut prompt = prompt.to_vec();
-    prompt.extend_from_slice(RUNNER_NOTE.as_bytes());
-    if config.agent_channel {
-        prompt.extend_from_slice(CHANNEL_NOTE.as_bytes());
-    }
-    Ok(vec![
-        file("prompt", prompt),
-        file("args", (config.arguments.join("\n") + "\n").into_bytes()),
-        file("env", env.into_bytes()),
-        file("settings.json", config.settings_json.clone().into_bytes()),
-        file("executable", config.executable.clone().into_bytes()),
-    ])
-}
-
-pub struct DriverOutcome {
-    pub sandbox: SandboxIdentity,
-    pub runner_exit: Option<RunnerExit>,
-    pub changed: Vec<String>,
-    pub destroyed: bool,
+    }));
+    Ok(entries)
 }
 
 /// Entrypoint for `aq-worker sandbox-harness`. Exit code 0 only when Claude
 /// exited 0, the workspace was copied back and the claim was submitted.
 pub async fn run(config_path: &Path) -> Result<i32> {
-    // MS1 review S3a: the leased token leaves the disk before anything else
-    // can fail: read and unlink it first, then parse the rest.
+    // Read and unlink the leased token before any later operation can fail.
     let parsed = read_private(config_path, 1024 * 1024)
         .and_then(|bytes| Ok(serde_json::from_slice::<DriverConfig>(&bytes)?));
     let token_file = match &parsed {
@@ -360,7 +300,16 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let mut docker = config.docker_local.clone();
-    docker.runner_command = Some(vec!["/bin/bash".into(), "-c".into(), RUNNER.into()]);
+    docker.runner_command = Some(vec![
+        "/bin/bash".into(),
+        "-c".into(),
+        if config.input.is_some() {
+            INTERACTIVE_RUNNER
+        } else {
+            RUNNER
+        }
+        .into(),
+    ]);
     let mut request = CreateRequest::new(
         config.owner.clone(),
         config.template.clone(),
@@ -401,7 +350,6 @@ pub async fn run(config_path: &Path) -> Result<i32> {
     } = match outcome {
         Ok(v) => v,
         Err(error) => {
-            // Keep the disk: stop and preserve, never destroy unretained work.
             let stopped = backend.stop(&sandbox).await;
             println!(
                 "aq-sandbox-harness: preserved sandbox {} after error: {error:#} (stop confirmed: {})",
@@ -409,7 +357,6 @@ pub async fn run(config_path: &Path) -> Result<i32> {
                 stopped.is_confirmed()
             );
             write_exit(config_path, false);
-            // The marker precedes the claim: the node never destroys a preserved sandbox.
             let Some(claim) = preserved_claim(&error, &sandbox.backend_id, config_path) else {
                 println!(
                     "aq-sandbox-harness: no claim (incomplete copy-back or no preserved marker); salvage copies the preserved sandbox again"
@@ -425,8 +372,7 @@ pub async fn run(config_path: &Path) -> Result<i32> {
         _ => None,
     };
     drop(token);
-    // Non-secret transcript beside the driver config (evidence),
-    // in the private driver directory, and never when it held the token.
+    // Retain the transcript only when it held no secret.
     if let Some(dir) = config_path.parent()
         && leak.is_none()
     {
@@ -530,8 +476,7 @@ fn submit_claim(config: &DriverConfig, text: String) {
     }
 }
 
-/// Return code, copied-back changes, transcript, where the token leaked, and
-/// the reason when the service asked for a handoff.
+/// Outcome and retained copy-back evidence.
 struct Drove {
     rc: Option<i32>,
     changed: Vec<String>,
@@ -540,7 +485,6 @@ struct Drove {
     handoff: Option<aq_protocol::HandoffReason>,
 }
 
-/// An entry's path and its content or link target.
 fn tree_bytes(e: &TreeEntry) -> [&[u8]; 2] {
     let held: &[u8] = match e {
         TreeEntry::File { data, .. } => data,
@@ -550,8 +494,7 @@ fn tree_bytes(e: &TreeEntry) -> [&[u8]; 2] {
     [e.path().as_bytes(), held]
 }
 
-/// MS1 review S3b: the agent's tools can read the token from the claude environment. Refuse the
-/// copy-back when a copied-back entry or the transcript holds a secret the base tree did not.
+/// Refuse newly introduced secrets in copy-back or transcript.
 pub fn token_leak(entries: &[TreeEntry], stream: &[u8], by: &Secrets) -> Option<&'static str> {
     if entries.iter().flat_map(tree_bytes).any(|b| by.holds(b)) {
         Some("a secret (login token or AQ credential) appeared in the workspace")
@@ -589,6 +532,12 @@ async fn drive(
         .await?;
     backend.start_runner(sandbox).await?;
     println!("aq-sandbox-harness: runner started");
+    let input = config.input.as_ref().map(|p| p.reader(std::io::stdin()));
+    let mut feed = config
+        .input
+        .as_ref()
+        .map(|p| Feed::new(p.max_input_bytes, p.max_pending_bytes));
+    let mut observed = 0;
     let mut since = now_ms() / 1000;
     let mut partial = Vec::new();
     let mut pane_leak = false;
@@ -603,6 +552,60 @@ async fn drive(
         if let Ok(bytes) = backend.logs_since(sandbox, since, 4 * 1024 * 1024).await {
             pane_leak |= print_logs(&bytes, &mut partial, secrets);
             since = poll;
+        }
+        if let (Some(feed), Some(input)) = (&mut feed, &input) {
+            // Read the retained stream, not timestamp-inclusive Docker logs:
+            // repeated log lines must never count a result twice.
+            if let Some(stream) = backend
+                .get_archive(sandbox, "/aq/out/claude.jsonl", 16 * 1024 * 1024)
+                .await
+                .ok()
+                .and_then(|a| read_tree_file(&a))
+            {
+                ensure!(stream.len() >= observed, "interactive transcript truncated");
+                feed.observe(&stream[observed..]);
+                observed = stream.len();
+            }
+            for line in input.try_iter() {
+                if let Err(reason) = feed.typed(&line) {
+                    println!("aq-input: refused: {}", reason.reason());
+                }
+            }
+            if let Some((number, text, line)) = feed.next_message() {
+                // Separate uploads: readiness can only follow the complete body.
+                for (path, data) in message_files(number, &line) {
+                    backend
+                        .put_archive(
+                            sandbox,
+                            tree_archive(
+                                "aq/in",
+                                &[TreeEntry::File {
+                                    path,
+                                    mode: 0o600,
+                                    data,
+                                }],
+                            )?,
+                        )
+                        .await?;
+                }
+                println!("owner: {text}");
+            }
+            if feed.finish() {
+                backend
+                    .put_archive(
+                        sandbox,
+                        tree_archive(
+                            "aq/in",
+                            &[TreeEntry::File {
+                                path: CLOSE_FILE.into(),
+                                mode: 0o600,
+                                data: vec![],
+                            }],
+                        )?,
+                    )
+                    .await?;
+                println!("aq-input: agent finished; input closed");
+            }
         }
         if let Some(reason) = read_handoff_marker(handoff) {
             handoff_reason = Some(reason);
@@ -875,6 +878,7 @@ mod tests {
             result_dir: None,
             max_workspace_bytes: 1,
             agent_channel: false,
+            input: None,
         };
         assert!(input_entries(&config, b"p").is_err(), "API key env refused");
     }

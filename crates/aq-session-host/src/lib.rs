@@ -1607,7 +1607,7 @@ mod io_tests {
 #[cfg(test)]
 mod rendered_tests {
     use super::*;
-    fn fixture(bytes: &[u8]) -> (LaunchManifest, ArtifactRef, ArtifactRef) {
+    pub(crate) fn fixture(bytes: &[u8]) -> (LaunchManifest, ArtifactRef, ArtifactRef) {
         let mut manifest: LaunchManifest =
             serde_json::from_str(include_str!("../tests/fixtures/manifest.json")).unwrap();
         let digest =
@@ -1657,9 +1657,7 @@ mod rendered_tests {
         let (m, d, p) = fixture(&[]);
         assert!(RenderedStartup::new(m, d, p, vec![]).is_err());
     }
-    #[test]
-    fn legacy_sealed_configuration_omits_new_optional_field() {
-        let (manifest, _, _) = fixture(b"payload");
+    pub(crate) fn sealed_fixture(manifest: LaunchManifest) -> SealedLaunch {
         let permit = ExecutionPermit {
             session: manifest.bindings.session.clone(),
             manifest_digest: canonical_digest(&manifest).unwrap(),
@@ -1667,7 +1665,7 @@ mod rendered_tests {
             issued_boot_ms: 1,
             expires_boot_ms: 100,
         };
-        let sealed = SealedLaunch {
+        SealedLaunch {
             agent_identity: None,
             launch_id: Uuid::from_u128(1),
             manifest: manifest.into(),
@@ -1690,7 +1688,12 @@ mod rendered_tests {
             rendered_startup: None,
             observed: None,
             private_input: None,
-        };
+        }
+    }
+    #[test]
+    fn legacy_sealed_configuration_omits_new_optional_field() {
+        let (manifest, _, _) = fixture(b"payload");
+        let sealed = sealed_fixture(manifest);
         assert_eq!(
             serde_json::to_vec(&sealed.manifest).unwrap(),
             serde_json::to_vec(sealed.manifest.task().unwrap()).unwrap()

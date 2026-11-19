@@ -186,39 +186,15 @@ pub(crate) fn map(
     })
 }
 
-/// MS1 docker-local result recipe: the public, content-addressed description of
-/// how the node driver runs this recipe in a sandbox. Its bytes are a server
-/// Definition (`aq-worker ms1-definitions` prints them).
-pub fn docker_local_recipe_body() -> String {
-    use sha2::Digest as _;
-    let runner = format!(
-        "{:x}",
-        sha2::Sha256::digest(crate::sandbox_driver::RUNNER.as_bytes())
-    );
-    let mut value = serde_json::json!({
-        "schema_version": 1,
-        "profile": "claude-2.1.318-docker-local-result-local-v1",
-        "cli_version": CLAUDE_CLI_VERSION,
-        "confinement": "container",
-        "runner_sha256": runner,
-        "token_delivery": "private_material_env_only_v1",
-        "result_claim": "node_driver_final_message_v1",
-        "workspace": "copy_in_copy_out_v1",
-    });
-    value.sort_all_objects();
-    value.to_string()
-}
-pub fn docker_local_recipe_artifact() -> aq_session_protocol::ArtifactRef {
-    aq_session_protocol::ArtifactRef {
-        id: aq_session_protocol::Text::new("aq.claude-docker-local-result-local-recipe")
-            .expect("static id"),
-        version: aq_session_protocol::Text::new("1").expect("static version"),
-        digest: aq_session_protocol::Digest::of(docker_local_recipe_body().as_bytes()),
-    }
-}
-/// Manifest settings this recipe accepts: Claude 2.1.318 on an Anthropic
-/// subscription model, container confinement, no terminal input, known reasoning.
-pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -> Result<()> {
+pub use aq_handoff_note::runner::{
+    docker_local_interactive_recipe_artifact, docker_local_interactive_recipe_body,
+    docker_local_recipe_artifact, docker_local_recipe_body,
+};
+/// Validate the installed profile against the manifest and confinement.
+pub fn validate_docker_local_manifest(
+    m: &aq_session_protocol::LaunchManifest,
+    interactive: bool,
+) -> Result<()> {
     let declares = |id: &str| {
         m.harness
             .required_capabilities
@@ -230,7 +206,7 @@ pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -
             && m.harness.cli_version.as_str() == CLAUDE_CLI_VERSION
             && m.model.provider.as_str() == "anthropic"
             && m.model.spending_budget.is_none()
-            && !m.terminal.input_enabled
+            && (interactive || !m.terminal.input_enabled)
             && declares(CONTAINER_CONFINEMENT_CAPABILITY)
             && !declares(NATIVE_CONFINEMENT_CAPABILITY),
         "Claude docker-local result recipe unsupported manifest settings"

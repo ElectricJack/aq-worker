@@ -9,4 +9,6 @@ pub enum ResultAdapterKind {
     /// MS1: Claude Code in a docker-local sandbox driven from the node.
     #[serde(rename = "claude-2.1.318-docker-local-result-local-v1")]
     Claude2318DockerLocalV1,
+    #[serde(rename = "claude-2.1.318-docker-local-interactive-result-local-v1")]
+    Claude2318DockerLocalInteractiveV1,
 }

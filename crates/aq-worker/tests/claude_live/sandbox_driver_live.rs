@@ -5,7 +5,7 @@
 //! `AQ_MS1_TEMPLATE_IMAGE` (pullable `...@sha256:...`).
 use aq_worker::backend::docker_local::{AllowedTemplate, DockerLocalConfig};
 use aq_worker::backend::{Ownership, ResourceLimits, TemplateDigest};
-use aq_worker::sandbox_driver::{DriverConfig, run};
+use aq_worker::sandbox_driver::DriverConfig;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 fn env(name: &str) -> String {
@@ -15,6 +15,14 @@ fn env(name: &str) -> String {
 #[tokio::test]
 #[ignore = "live: real sandbox daemon and a real Claude session"]
 async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
+    driver_case(false).await;
+}
+#[tokio::test]
+#[ignore = "live: real sandbox daemon and a real Claude two-message session"]
+async fn driver_delivers_owner_input_and_finishes_with_the_last_result() {
+    driver_case(true).await;
+}
+async fn driver_case(interactive: bool) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     for d in ["work", "session", "private"] {
@@ -54,7 +62,7 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
     }];
     docker.shared_root_fs = true;
     let home = "/aq/home";
-    let config = DriverConfig {
+    let mut config = DriverConfig {
         docker_local: docker,
         template: TemplateDigest::parse(digest).unwrap(),
         owner: Ownership {
@@ -112,8 +120,17 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         settings_json: r#"{"permissions":{"defaultMode":"bypassPermissions"},"sandbox":{"enabled":false},"disableAllHooks":true,"enableAllProjectMcpServers":false,"cleanupPeriodDays":1,"forceLoginMethod":"claudeai"}"#.into(),
         result_dir: None,
         max_workspace_bytes: 64 * 1024 * 1024,
+        input: None,
         agent_channel: false,
     };
+    if interactive {
+        config.input = Some(aq_handoff_note::input::InputPolicy {
+            max_input_bytes: 4096,
+            max_pending_bytes: 32768,
+        });
+        config.arguments[5] = "stream-json".into();
+        config.arguments.push("--replay-user-messages".into());
+    }
     let config_file = root.join("private/driver.json");
     std::fs::OpenOptions::new()
         .write(true)
@@ -122,8 +139,41 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         .open(&config_file)
         .and_then(|mut f| std::io::Write::write_all(&mut f, &serde_json::to_vec(&config).unwrap()))
         .unwrap();
-    unsafe { std::env::set_var("AQ_SESSION_DIRECTORY", root.join("session")) };
-    let code = run(&config_file).await.unwrap();
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
+        .args(["sandbox-harness", "--driver-config"])
+        .arg(&config_file)
+        .env("AQ_SESSION_DIRECTORY", root.join("session"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take();
+    let mut output = tokio::io::BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut delivered = false;
+    tokio::time::timeout(std::time::Duration::from_secs(600), async {
+        while let Some(line) = output.next_line().await.unwrap() {
+            if interactive && line.contains("runner started") && !delivered {
+                input.as_mut().unwrap().write_all(b"Append the line `owner reached agent` to README.md as well. Change nothing else.\n").await.unwrap();
+                delivered = true;
+                drop(input.take());
+            }
+        }
+    }).await.unwrap();
+    let code = child.wait().await.unwrap().code().unwrap();
+    if interactive {
+        assert!(delivered);
+        let stream = std::fs::read(root.join("private/claude.jsonl")).unwrap();
+        let results = stream
+            .split(|b| *b == b'\n')
+            .filter_map(|l| serde_json::from_slice::<serde_json::Value>(l).ok())
+            .filter(|v| v["type"] == "result")
+            .count();
+        assert_eq!(results, 2);
+        assert!(
+            aq_handoff_note::proven_success(&stream, Some(code), &["README.md".into()]).is_ok()
+        );
+    }
     if let Ok(out) = std::env::var("AQ_MS1_STREAM_OUT") {
         std::fs::copy(root.join("private/claude.jsonl"), out).unwrap();
     }
@@ -137,6 +187,9 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         readme.contains("hello from the MS1 driver test"),
         "{readme}"
     );
+    if interactive {
+        assert!(readme.contains("owner reached agent"), "{readme}");
+    }
     assert_eq!(
         std::fs::read_to_string(work.join(".git/HEAD")).unwrap(),
         "ref: refs/heads/main\n"

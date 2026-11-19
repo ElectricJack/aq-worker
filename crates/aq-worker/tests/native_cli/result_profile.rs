@@ -350,3 +350,26 @@ fn a_definition_still_carrying_the_old_permission_keys_loads_and_is_selected() {
             .unwrap();
     }
 }
+
+#[test]
+fn claude_input_profile_is_explicit_and_preserves_off_setting_and_old_pins() {
+    let mut launch = manifest(true);
+    let mut adapter = definition();
+    adapter.profile = ResultAdapterKind::Claude2318DockerLocalInteractiveV1;
+    adapter.recipe = adapter.recipe_artifact();
+    adapter.environment = launch.harness.environment.clone();
+    launch.harness.adapter = adapter.artifact().unwrap();
+    assert!(adapter.interactive() && adapter.is_claude_docker());
+    for enabled in [false, true] {
+        launch.terminal.input_enabled = enabled;
+        adapter.validate_manifest(&launch).unwrap();
+    }
+    let fresh_recipe = adapter.recipe.clone();
+    adapter.profile = ResultAdapterKind::Claude2318DockerLocalV1;
+    adapter.recipe = adapter.recipe_artifact();
+    assert_ne!(adapter.recipe, fresh_recipe);
+    launch.harness.adapter = adapter.artifact().unwrap();
+    assert!(adapter.validate_manifest(&launch).is_err());
+    launch.terminal.input_enabled = false;
+    adapter.validate_manifest(&launch).unwrap();
+}

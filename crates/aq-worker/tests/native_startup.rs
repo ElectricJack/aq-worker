@@ -442,11 +442,11 @@ mod codex_settings {
         }];
         for known in ["default", "off", "low", "medium", "high", "xhigh", "max"] {
             m.model.reasoning = Text::new(known).unwrap();
-            validate_docker_local_manifest(&m).unwrap();
+            validate_docker_local_manifest(&m, false).unwrap();
         }
         for unknown in ["none", "High", "ultra", "--dangerously-skip-permissions"] {
             m.model.reasoning = Text::new(unknown).unwrap();
-            let error = validate_docker_local_manifest(&m).unwrap_err();
+            let error = validate_docker_local_manifest(&m, false).unwrap_err();
             assert!(
                 error.to_string().contains("unsupported reasoning"),
                 "{error}"

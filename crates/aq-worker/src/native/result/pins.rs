@@ -42,7 +42,9 @@ impl ResultInstallationPins {
         ensure!(
             self.recipe == aq_codex_mapper::result_local_recipe_artifact()
                 || self.recipe == aq_codex_mapper::interactive_result_local_recipe_artifact()
-                || self.recipe == crate::native::adapter::claude::docker_local_recipe_artifact(),
+                || self.recipe == crate::native::adapter::claude::docker_local_recipe_artifact()
+                || self.recipe
+                    == crate::native::adapter::claude::docker_local_interactive_recipe_artifact(),
             "result recipe identity"
         );
         Ok(())

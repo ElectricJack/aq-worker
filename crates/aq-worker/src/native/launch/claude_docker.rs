@@ -342,7 +342,7 @@ pub(super) fn bootstrap(
         "Claude docker-local runs in container confinement only (C2: no user-namespace mapping)"
     );
     let home = PathBuf::from("/aq/home");
-    let recipe = crate::native::adapter::claude::map(
+    let mut recipe = crate::native::adapter::claude::map(
         &m.harness,
         &m.model,
         crate::native::adapter::claude::ClaudePaths {
@@ -352,6 +352,10 @@ pub(super) fn bootstrap(
         },
         mode,
     )?;
+    if m.terminal.input_enabled {
+        recipe.arguments[5] = "stream-json".into();
+        recipe.arguments.push("--replay-user-messages".into());
+    }
     let (node_id, boot_id) = match &i.binding.session {
         aq_session_protocol::SessionIdentity::Remote {
             node_id, boot_id, ..
@@ -412,6 +416,13 @@ pub(super) fn bootstrap(
         result_dir,
         max_workspace_bytes: profile.config.max_workspace_bytes,
         agent_channel,
+        input: m
+            .terminal
+            .input_enabled
+            .then_some(aq_handoff_note::input::InputPolicy {
+                max_input_bytes: m.terminal.max_input_bytes as usize,
+                max_pending_bytes: m.terminal.max_pending_input_bytes as usize,
+            }),
     };
     let driver_file = private.join("driver.json");
     private_write(&driver_file, &serde_json::to_vec(&driver)?)?;

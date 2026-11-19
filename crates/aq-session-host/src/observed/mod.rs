@@ -25,6 +25,7 @@ pub const OBSERVATION_PROFILE: &str = "linux-tmux34-sealed-small-elf-v1";
 pub const NAMED_READONLY_EXEC_PROFILE: &str = "linux-tmux34-named-readonly-native-exec-stdin-v1";
 pub const NAMED_READONLY_INTERACTIVE_PROFILE: &str =
     "linux-tmux34-named-readonly-interactive-pty-v1";
+pub const NATIVE_INPUT_PROFILE: &str = "linux-tmux34-sealed-native-input-pty-v1";
 pub const NATIVE_EXEC_PROFILE: &str = "linux-tmux34-sealed-native-exec-stdin-v1";
 /// Same bounded literal observer geometry, with an explicitly different native
 /// executable/startup policy. This does not establish renderer or model evidence.
@@ -146,10 +147,7 @@ impl ObservedStartup {
         profile: NativeExecObservationProfile,
         hard_deadline_boot_ms: u64,
     ) -> Result<Self> {
-        ensure!(
-            !rendered.manifest.terminal.input_enabled,
-            "native stdin profile does not support terminal input"
-        );
+        let input = rendered.manifest.terminal.input_enabled;
         let mut value = Self::new(
             rendered,
             terminal,
@@ -157,7 +155,12 @@ impl ObservedStartup {
             profile.0,
             hard_deadline_boot_ms,
         )?;
-        value.spec.profile = NATIVE_EXEC_PROFILE.into();
+        value.spec.profile = if input {
+            NATIVE_INPUT_PROFILE
+        } else {
+            NATIVE_EXEC_PROFILE
+        }
+        .into();
         Ok(value)
     }
 }
@@ -246,11 +249,17 @@ impl Spec {
     pub(crate) fn native_exec(&self) -> bool {
         matches!(
             self.profile.as_str(),
-            NATIVE_EXEC_PROFILE | NAMED_READONLY_EXEC_PROFILE | NAMED_READONLY_INTERACTIVE_PROFILE
+            NATIVE_EXEC_PROFILE
+                | NATIVE_INPUT_PROFILE
+                | NAMED_READONLY_EXEC_PROFILE
+                | NAMED_READONLY_INTERACTIVE_PROFILE
         )
     }
     pub(crate) fn interactive(&self) -> bool {
-        self.profile == NAMED_READONLY_INTERACTIVE_PROFILE
+        matches!(
+            self.profile.as_str(),
+            NAMED_READONLY_INTERACTIVE_PROFILE | NATIVE_INPUT_PROFILE
+        )
     }
     pub(crate) fn validate(&self, config: &SealedLaunch) -> Result<()> {
         self.terminal.validate()?;
@@ -269,6 +278,10 @@ impl Spec {
                         self.program.profile == Some(executable::ImageProfile::NativeExecStdinV1)
                             && self.program.bytes <= MAX_NATIVE_EXEC_BYTES
                             && !config.manifest.terminal().input_enabled,
+                    NATIVE_INPUT_PROFILE =>
+                        self.program.profile == Some(executable::ImageProfile::NativeExecStdinV1)
+                            && self.program.bytes <= MAX_NATIVE_EXEC_BYTES
+                            && config.manifest.terminal().input_enabled,
                     NAMED_READONLY_EXEC_PROFILE =>
                         matches!(&self.program.profile,
                         Some(executable::ImageProfile::NamedReadonlyExecStdinV1(e)) if e.role==named_image::NamedImageRole::Program)
@@ -598,5 +611,78 @@ impl ReleasedObservedSession {
             "observed launch ended without Started; post-grant recovery required"
         );
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+    #[test]
+    fn native_input_uses_the_pty_without_a_codex_prompt_delimiter() {
+        let bytes = b"startup stays in context-0.bin\n";
+        let (mut manifest, descriptor, payload) = crate::rendered_tests::fixture(bytes);
+        manifest.terminal.input_enabled = true;
+        let rendered = RenderedStartup::new(manifest, descriptor, payload, bytes.to_vec()).unwrap();
+        let pool = NativeExecPool::new(8 * 1024 * 1024, 1).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("program");
+        // The existing executable tests' ELF fixture needs no local toolchain.
+        let mut image = vec![0u8; 256];
+        image[..4].copy_from_slice(b"\x7fELF");
+        image[4] = 2;
+        image[5] = 1;
+        image[6] = 1;
+        image[16..18].copy_from_slice(&2u16.to_le_bytes());
+        image[18..20].copy_from_slice(&62u16.to_le_bytes());
+        image[20..24].copy_from_slice(&1u32.to_le_bytes());
+        std::fs::write(&path, &image).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let program = pool
+            .load_verified(
+                &path,
+                &ArtifactRef {
+                    id: aq_session_protocol::Text::new("fixture.program").unwrap(),
+                    version: aq_session_protocol::Text::new("1").unwrap(),
+                    digest: Digest::of(&image),
+                },
+            )
+            .unwrap();
+        let terminal = TerminalIdentity {
+            session: rendered.manifest.bindings.session.clone(),
+            terminal_id: Uuid::new_v4(),
+            epoch: 1,
+        };
+        let profile = NativeExecObservationProfile::new(
+            rendered.manifest.harness.environment.clone(),
+            80,
+            24,
+        )
+        .unwrap();
+        let startup = ObservedStartup::native_exec(
+            rendered,
+            terminal,
+            program,
+            profile,
+            ownership::raw_boot_ms() + 5000,
+        )
+        .unwrap();
+        assert_eq!(startup.spec.profile, NATIVE_INPUT_PROFILE);
+        assert!(startup.spec.interactive() && startup.spec.native_exec());
+        let mut config = crate::rendered_tests::sealed_fixture(startup.rendered.manifest.clone());
+        config.rendered_startup = Some(startup.rendered.binding.clone());
+        config.observed = Some(startup.spec);
+        let context = temp.path().join("context-0.bin");
+        std::fs::write(&context, bytes).unwrap();
+        std::fs::set_permissions(&context, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            exec::startup_stdin(&config, temp.path()).unwrap().is_none(),
+            "FD0 remains the PTY"
+        );
+        std::fs::write(&context, b"tampered startup").unwrap();
+        assert!(
+            exec::startup_stdin(&config, temp.path()).is_err(),
+            "file startup is still checked at exec"
+        );
     }
 }

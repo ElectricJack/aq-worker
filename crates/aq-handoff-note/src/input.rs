@@ -11,7 +11,7 @@
 //! nobody types into therefore ends after its first result, as it does today.
 //!
 //! This module is the pure part: the message framing, the bounds and the
-//! rule for when input closes. Nothing here is wired into the driver yet.
+//! rule for when input closes. The node driver owns delivery into the current sandbox only.
 use std::collections::VecDeque;
 
 /// The in-sandbox runner for an attempt that takes owner messages. It is the
@@ -153,8 +153,8 @@ impl Feed {
     }
     /// The next message to deliver: its number, the owner's text (for the
     /// pane) and the stream-json line (for the agent).
-    pub fn next(&mut self) -> Option<(u32, String, String)> {
-        if self.closed {
+    pub fn next_message(&mut self) -> Option<(u32, String, String)> {
+        if self.closed || self.results < self.sent {
             return None;
         }
         let text = self.pending.pop_front()?;
@@ -174,6 +174,45 @@ impl Feed {
     }
     pub fn closed(&self) -> bool {
         self.closed
+    }
+}
+
+/// Bounds copied from the admitted attempt, never supplied by terminal input.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputPolicy {
+    pub max_input_bytes: usize,
+    pub max_pending_bytes: usize,
+}
+impl InputPolicy {
+    /// A bounded reader: an oversized line is discarded through its newline.
+    /// The bounded channel also prevents an idle driver accumulating stdin.
+    pub fn reader(
+        &self,
+        mut input: impl std::io::Read + Send + 'static,
+    ) -> std::sync::mpsc::Receiver<String> {
+        let (send, recv) = std::sync::mpsc::sync_channel(1);
+        let max = self.max_input_bytes;
+        std::thread::spawn(move || {
+            let mut line = Vec::new();
+            let mut byte = [0];
+            while input.read(&mut byte).is_ok_and(|n| n == 1) {
+                if byte[0] == b'\n' {
+                    let text = if line.len() > max {
+                        "x".repeat(max.saturating_add(1))
+                    } else {
+                        String::from_utf8_lossy(&line).into_owned()
+                    };
+                    if send.send(text).is_err() {
+                        break;
+                    }
+                    line.clear();
+                } else if line.len() <= max {
+                    line.push(byte[0]);
+                }
+            }
+        });
+        recv
     }
 }
 
@@ -204,7 +243,7 @@ mod tests {
         assert!(feed.finish());
         assert!(!feed.finish(), "closes once");
         assert_eq!(feed.typed("too late"), Err(Refused::Closed));
-        assert!(feed.next().is_none());
+        assert!(feed.next_message().is_none());
     }
 
     #[test]
@@ -212,12 +251,16 @@ mod tests {
         let mut feed = Feed::new(4096, 32768);
         feed.typed("  also update the README \u{1b}[A ").unwrap();
         assert!(!feed.finish(), "a line is waiting");
-        let (number, text, line) = feed.next().unwrap();
+        assert!(
+            feed.next_message().is_none(),
+            "one turn in flight at a time"
+        );
+        feed.observe(&result());
+        let (number, text, line) = feed.next_message().unwrap();
         assert_eq!((number, text.as_str()), (2, "also update the README [A"));
         let v: serde_json::Value = serde_json::from_str(&line).unwrap();
         let sent = v["message"]["content"][0]["text"].as_str().unwrap();
         assert!(sent.starts_with(OWNER_PREFIX) && sent.ends_with("also update the README [A"));
-        feed.observe(&result());
         assert!(!feed.finish(), "message 2 has no result yet");
         feed.observe(&result());
         assert!(feed.finish());
@@ -242,7 +285,8 @@ mod tests {
         feed.typed("12345678").unwrap();
         assert_eq!(feed.typed("12345"), Err(Refused::Backlog));
         feed.typed("1234").unwrap();
-        let _ = feed.next().unwrap();
+        feed.observe(&result());
+        let _ = feed.next_message().unwrap();
         feed.typed("12345").unwrap();
         for refused in [
             Refused::Closed,
@@ -282,3 +326,7 @@ mod tests {
         assert!(INTERACTIVE_RUNNER.contains("messages/close"));
     }
 }
+
+#[cfg(test)]
+#[path = "input_tests.rs"]
+mod delivery_tests;

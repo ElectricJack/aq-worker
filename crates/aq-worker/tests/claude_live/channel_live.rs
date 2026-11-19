@@ -166,6 +166,7 @@ async fn container_calls_whoami_through_the_agent_channel() {
         settings_json: "{}".into(),
         result_dir: None,
         max_workspace_bytes: 64 * 1024 * 1024,
+        input: None,
         agent_channel: true,
     };
     let config_file = root.join("private/driver.json");

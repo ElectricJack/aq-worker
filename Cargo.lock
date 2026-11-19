@@ -88,7 +88,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "aq-admission"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "aq-lifecycle-protocol",
  "aq-session-protocol",
@@ -198,9 +198,11 @@ dependencies = [
  "anyhow",
  "aq-agent-channel",
  "aq-protocol",
+ "aq-session-protocol",
  "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "uuid",
  "zeroize",
@@ -324,7 +326,7 @@ dependencies = [
 name = "aq-phase-terminal-protocol"
 version = "0.1.2"
 dependencies = [
- "aq-admission 0.1.12",
+ "aq-admission 0.1.13",
  "aq-session-protocol",
  "schemars",
  "serde",
@@ -466,7 +468,7 @@ name = "aq-worker"
 version = "0.5.1"
 dependencies = [
  "anyhow",
- "aq-admission 0.1.12",
+ "aq-admission 0.1.13",
  "aq-admission 0.3.2",
  "aq-agent-channel",
  "aq-agent-client",
@@ -2508,9 +2510,9 @@ checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
 
 [[package]]
 name = "uuid"
-version = "1.29.0"
+version = "1.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+checksum = "4a06f08a856b009bc7bbaf7d3e79808595d032dd19074c0c2ef26e49e03e6bdc"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",

@@ -53,7 +53,11 @@ pub(crate) fn enter(
     for arg in &command.arguments {
         args.push(CString::new(arg.as_bytes())?);
     }
-    if config.observed.as_ref().is_some_and(|s| s.interactive()) {
+    if config
+        .observed
+        .as_ref()
+        .is_some_and(|s| s.profile == NAMED_READONLY_INTERACTIVE_PROFILE)
+    {
         // Append from the existing verified context at the actual exec boundary;
         // ordinary command arguments keep their original 4096-byte bounds.
         ensure!(
@@ -155,11 +159,7 @@ pub(crate) fn validate_interactive_prompt(bytes: &[u8]) -> Result<()> {
 /// Prepare exact bytes from the host's retained descriptor and seal them before
 /// changing FD0. Old small-ELF sessions retain their original PTY stdin behavior.
 pub(crate) fn startup_stdin(config: &SealedLaunch, directory: &Path) -> Result<Option<File>> {
-    if !config
-        .observed
-        .as_ref()
-        .is_some_and(|s| s.native_exec() && !s.interactive())
-    {
+    if !config.observed.as_ref().is_some_and(|s| s.native_exec()) {
         return Ok(None);
     }
     let rendered = config
@@ -168,6 +168,9 @@ pub(crate) fn startup_stdin(config: &SealedLaunch, directory: &Path) -> Result<O
         .context("native startup descriptor missing")?;
     let bytes = read_bytes(&directory.join("context-0.bin"), 1_048_576)?;
     rendered.verify(config.manifest.task()?, &bytes)?;
+    if config.observed.as_ref().is_some_and(|s| s.interactive()) {
+        return Ok(None);
+    }
     use std::os::fd::FromRawFd;
     let fd = unsafe {
         libc::memfd_create(
