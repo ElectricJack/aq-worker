@@ -763,7 +763,11 @@ pub async fn run(
                 .agents
                 .values()
                 .any(|a| a.desired_running && a.sandbox.is_none() && a.status != "failed");
-            pause.send_replace(if session.aware() { waiting || pending } else { pending });
+            pause.send_replace(if session.aware() {
+                waiting || pending
+            } else {
+                pending
+            });
         }
         tokio::select! {_=tokio::time::sleep(std::time::Duration::from_millis(500))=>{},_=shutdown.changed()=>{}}
     }
