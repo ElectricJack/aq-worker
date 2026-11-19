@@ -1285,7 +1285,14 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
             continue;
         }
         let boot_id = session.boot_id;
-        if let Some(node) = start_observations(&config, &worker, boot_id) {
+        // Off the async runtime: a failed start drops a blocking HTTP client, which panics there.
+        let started = std::thread::scope(|s| {
+            s.spawn(|| start_observations(&config, &worker, boot_id))
+                .join()
+                .ok()
+                .flatten()
+        });
+        if let Some(node) = started {
             (native_backend.observations).insert(worker.node_id, node.observations());
             observation_nodes.push(node);
         }
