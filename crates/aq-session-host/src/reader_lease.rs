@@ -191,8 +191,14 @@ impl Owner {
             if let Some(viewer) = &mut reader.viewer {
                 viewer.tick(dir, config, host, wall_deadline, reader.process.pid)?;
             }
+            test_receive_delay(dir);
             if let Some(packet) = reader.socket.receive()? {
                 ensure!(packet.fd.is_none(), "unexpected reader descriptor");
+                // A receipt is stamped before it is received, so it is judged by a
+                // clock read after the receive. The sample above is older: a receipt
+                // stamped since then would look like it came from the future, and
+                // this one-shot reader would be closed for the rest of the attempt.
+                let now = ownership::raw_boot_ms();
                 match serde_json::from_slice::<Request>(&packet.bytes)? {
                     Request::Acknowledge { claim } => {
                         ensure!(
@@ -470,6 +476,14 @@ impl Client {
 }
 use std::os::unix::fs::FileTypeExt;
 
+/// Test support: holds the guardian between its clock sample and the receive,
+/// as a busy machine does, when the test has left this marker in the directory.
+fn test_receive_delay(_dir: &Path) {
+    #[cfg(feature = "test-support")]
+    if _dir.join("test-reader-receive-delay").exists() {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
 fn test_pause(_dir: &Path, _stage: &str) -> Result<()> {
     #[cfg(feature = "test-support")]
     if std::env::var("AQ_HOST_READER_PAUSE").ok().as_deref() == Some(_stage) {

@@ -106,13 +106,20 @@ pub fn map_interactive(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recip
 pub fn map_container(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
     map_mode(settings, paths, false, true)
 }
+/// `map_container` for the interactive TUI: the startup prompt is the one argv
+/// value after the closing `--`.
+pub fn map_container_interactive(settings: Settings<'_>, paths: Paths<'_>) -> Result<Recipe> {
+    map_mode(settings, paths, true, true)
+}
 fn map_mode(
     settings: Settings<'_>,
     paths: Paths<'_>,
     interactive: bool,
     container: bool,
 ) -> Result<Recipe> {
-    validate_settings_mode(settings, interactive)?;
+    // A container session is the TUI on the sandbox's own terminal; the manifest's
+    // terminal (the session host's finite input relay) stays without input.
+    validate_settings_mode(settings, interactive && !container)?;
     ensure!(
         declares(
             settings,

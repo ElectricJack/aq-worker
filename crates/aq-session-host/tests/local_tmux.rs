@@ -813,6 +813,124 @@ fn read_only_output_preserves_unicode_alternate_bytes_and_does_not_resize_or_res
     }
 }
 
+/// The live terminal relay's viewer for a queued attempt: an ordinary tmux client
+/// on the attempt's session, on its own PTY, not spawned by the guardian. Attaching
+/// paints the screen as it is, its keys reach the pane program, its size becomes
+/// the pane's, and the guardian keeps the host Running after it attaches and leaves.
+#[test]
+#[ignore = "explicit local tmux 3.4 bounded output qualification"]
+fn an_ordinary_viewer_client_paints_the_screen_types_and_resizes_and_the_host_keeps_running() {
+    use aq_terminal_relay_protocol::Effect;
+    use std::io::{Read, Write};
+    use std::os::unix::process::CommandExt;
+    use std::{
+        fs::File,
+        os::fd::{AsRawFd, FromRawFd},
+    };
+    let (_case, mut host, io, lease) = io_setup();
+    io.submit(
+        &Effect::Input(io_input(&lease, b"already-on-screen\n")),
+        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
+    )
+    .unwrap();
+    wait_named("first input", || {
+        io_lines(&host)
+            .contains(&"already-on-screen".to_string())
+            .then_some(())
+    });
+
+    // As in production, the output observer's control client is attached as well.
+    let open = || aq_session_host::terminal_output::OutputObserver::open(&io).ok();
+    let mut observer = wait_named("output observer admission", open);
+    wait_named("output observer attachment", || {
+        observer.poll().unwrap();
+        observer.is_attached().then_some(())
+    });
+    // The height also depends on the status line, which this fixture keeps.
+    let width = |host: &SessionHandle| {
+        tmux(
+            host,
+            &["display-message", "-p", "-t", "aq:0.0", "#{window_width}"],
+        )
+        .stdout
+    };
+    assert_eq!(width(&host), b"80\n");
+    let (mut master, mut slave) = (-1, -1);
+    let (name, termios, winsize) = (std::ptr::null_mut(), std::ptr::null(), std::ptr::null());
+    assert_eq!(
+        unsafe { libc::openpty(&mut master, &mut slave, name, termios, winsize) },
+        0
+    );
+    let (mut master, slave) = unsafe { (File::from_raw_fd(master), File::from_raw_fd(slave)) };
+    let size = libc::winsize {
+        ws_row: 30,
+        ws_col: 100,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    assert_eq!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), libc::TIOCSWINSZ, &size) },
+        0
+    );
+    let flags = unsafe { libc::fcntl(master.as_raw_fd(), libc::F_GETFL) };
+    unsafe { libc::fcntl(master.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    let mut viewer = Command::new("/usr/bin/tmux");
+    viewer
+        .args(["-N", "-u", "-S"])
+        .arg(host.directory().join("tmux.sock"))
+        .args(["attach-session", "-t", "aq"])
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("TERM", "xterm-256color")
+        .stdin(slave.try_clone().unwrap())
+        .stdout(slave.try_clone().unwrap())
+        .stderr(slave);
+    unsafe {
+        viewer.pre_exec(|| {
+            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut viewer = viewer.spawn().unwrap();
+    let mut painted = Vec::new();
+    wait_named("viewer paint", || {
+        let mut bytes = [0u8; 16384];
+        if let Ok(n) = master.read(&mut bytes) {
+            painted.extend_from_slice(&bytes[..n]);
+        }
+        String::from_utf8_lossy(&painted)
+            .contains("already-on-screen")
+            .then_some(())
+    });
+    master.write_all(b"typed-by-viewer\n").unwrap();
+    wait_named("viewer typing", || {
+        io_lines(&host)
+            .contains(&"typed-by-viewer".to_string())
+            .then_some(())
+    });
+    wait_named("viewer size", || (width(&host) == b"100\n").then_some(()));
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
+    viewer.kill().unwrap();
+    viewer.wait().unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
+    io.submit(
+        &Effect::Input(io_input(&lease, b"after-viewer\n")),
+        terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap(),
+    )
+    .unwrap();
+    wait_named("input after viewer", || {
+        io_lines(&host)
+            .contains(&"after-viewer".to_string())
+            .then_some(())
+    });
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(5)).unwrap();
+}
+
 #[test]
 #[ignore = "explicit local tmux 3.4 bounded output qualification"]
 fn sole_sigstopped_observer_does_not_block_pty_progress_or_guardian_control() {
@@ -1787,6 +1905,26 @@ fn quiet_drained_reader_renews_but_undrained_reader_expires_without_stopping_har
     ));
     assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
     assert!(observer.poll().is_err());
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(3)).unwrap();
+}
+/// On a busy machine the guardian can be held between reading its clock and
+/// receiving a drain receipt. A receipt stamped in that gap is fresh, not from
+/// the future: refusing it closed the one-shot reader, and the attempt's
+/// terminal output stopped for good while the agent kept working.
+#[test]
+#[ignore = "explicit local tmux guardian read-lease qualification"]
+fn drain_receipt_stamped_during_a_slow_guardian_tick_keeps_the_reader() {
+    let (_case, mut host, io, _lease) = io_setup_mode("output-flood");
+    std::fs::write(host.directory().join("test-reader-receive-delay"), b"").unwrap();
+    let mut observer = terminal_output::OutputObserver::open(&io).unwrap();
+    let client = ownership::verified_pidfd(observer.process()).unwrap();
+    let end = Instant::now() + Duration::from_millis(3000);
+    while Instant::now() < end {
+        observer.poll().unwrap();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(ownership::pidfd_is_live(&client).unwrap());
     host.stop().unwrap();
     host.wait_stopped(Duration::from_secs(3)).unwrap();
 }

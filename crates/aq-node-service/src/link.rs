@@ -67,6 +67,20 @@ impl ServerLink {
         self.terminal_stream_path(&format!("/v1/worker/manual-agents/{id}/terminal-stream"))
             .await
     }
+    /// The live terminal of a queued attempt this node runs.
+    pub async fn attempt_terminal_stream(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        self.terminal_stream_path(&format!(
+            "/v1/worker/attempt-terminals/{id}/terminal-stream"
+        ))
+        .await
+    }
     pub async fn host_terminal_stream(
         &self,
         id: uuid::Uuid,
@@ -208,6 +222,53 @@ impl ServerLink {
             .await
             .map(drop)
     }
+    /// Leases the newest stored login of hand-started session `id` (the server's login
+    /// store is the one source of truth): the bytes and their stored version. A refusal
+    /// carries the server's reason (`codex_login_stale: ...`), never login bytes.
+    pub async fn session_login(&self, id: uuid::Uuid) -> Result<(Zeroizing<Vec<u8>>, i64)> {
+        let path = format!("/v1/worker/manual-agents/{id}/login");
+        let response = self
+            .send(&path, "application/octet-stream", Vec::new())
+            .await?;
+        let status = response.status();
+        let version = response.headers().get("aq-material-version");
+        let version = version.and_then(|v| v.to_str().ok()?.parse().ok());
+        let bytes = Zeroizing::new(response.bytes().await?.to_vec());
+        if !status.is_success() {
+            let reason = serde_json::from_slice::<aq_protocol::ApiError>(&bytes);
+            let reason = reason.map_or_else(|_| status.to_string(), |e| e.message);
+            bail!("{}", reason.chars().take(256).collect::<String>());
+        }
+        ensure!(bytes.len() <= 65536, "session login size");
+        Ok((bytes, version.context("session login version")?))
+    }
+    /// Writes session `id`'s refreshed login back as version `base_version + 1`.
+    /// `Ok((true, v))`: stored as (or already) version `v`; `Ok((false, v))`: a newer
+    /// version `v` won and ours is discarded.
+    pub async fn session_login_refresh(
+        &self,
+        id: uuid::Uuid,
+        base_version: i64,
+        login: &[u8],
+    ) -> Result<(bool, i64)> {
+        let path =
+            format!("/v1/worker/manual-agents/{id}/login/refresh?base_version={base_version}");
+        let response = self
+            .send(&path, "application/octet-stream", login.to_vec())
+            .await?;
+        let status = response.status().as_u16();
+        let outcome: serde_json::Value =
+            serde_json::from_slice(&response.bytes().await?).unwrap_or_default();
+        match (
+            status,
+            outcome["accepted"].as_bool(),
+            outcome["version"].as_i64(),
+        ) {
+            (200, Some(true), Some(version)) => Ok((true, version)),
+            (409, Some(false), Some(version)) => Ok((false, version)),
+            _ => bail!("session login write-back refused (status {status})"),
+        }
+    }
     /// Every request: bearer, Access headers when set, JSON. A non-2xx answer becomes a
     /// `LinkError` carrying the status and the server's `error` code, never the request.
     async fn post<B: Serialize + Sync, T: DeserializeOwned>(
@@ -215,27 +276,9 @@ impl ServerLink {
         path: &str,
         body: &B,
     ) -> Result<T> {
-        let mut bearer = header::HeaderValue::from_str(&format!("Bearer {}", &*self.credential))
-            .map_err(|_| anyhow::anyhow!("invalid node credential"))?;
-        bearer.set_sensitive(true);
-        let mut request = self
-            .http
-            .post(self.origin.join(path)?)
-            .header(header::AUTHORIZATION, bearer)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(serde_json::to_vec(body)?);
-        if let Some((id, secret)) = &self.access {
-            let mut secret = header::HeaderValue::from_str(secret)
-                .map_err(|_| anyhow::anyhow!("invalid Access secret"))?;
-            secret.set_sensitive(true);
-            request = request
-                .header("cf-access-client-id", id)
-                .header("cf-access-client-secret", secret);
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("request to {path} failed: {}", e.without_url()))?;
+        let response = self
+            .send(path, "application/json", serde_json::to_vec(body)?)
+            .await?;
         let status = response.status();
         let bytes = response
             .bytes()
@@ -257,6 +300,38 @@ impl ServerLink {
             &bytes[..]
         };
         serde_json::from_slice(bytes).with_context(|| format!("decode {path} reply"))
+    }
+}
+impl ServerLink {
+    /// One POST under the node credential (and Access headers when set).
+    async fn send(
+        &self,
+        path: &str,
+        content_type: &'static str,
+        body: Vec<u8>,
+    ) -> Result<reqwest::Response> {
+        let mut bearer = header::HeaderValue::from_str(&format!("Bearer {}", &*self.credential))
+            .map_err(|_| anyhow::anyhow!("invalid node credential"))?;
+        bearer.set_sensitive(true);
+        let mut request = self
+            .http
+            .post(self.origin.join(path)?)
+            .header(header::AUTHORIZATION, bearer)
+            .header(header::CONTENT_TYPE, content_type)
+            .body(body);
+        if let Some((id, secret)) = &self.access {
+            let mut secret = header::HeaderValue::from_str(secret)
+                .map_err(|_| anyhow::anyhow!("invalid Access secret"))?;
+            secret.set_sensitive(true);
+            request = request
+                .header("cf-access-client-id", id)
+                .header("cf-access-client-secret", secret);
+        }
+        let path = path.split('?').next().unwrap_or(path);
+        request
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("request to {path} failed: {}", e.without_url()))
     }
 }
 pub fn validate_control(reply: &ControlResponse) -> Result<()> {

@@ -475,6 +475,65 @@ async fn agent_channel_mount_is_fixed_to_the_attempt_directory() {
     }
 }
 
+/// The transcript mount is a fixed mount kind: the node's own 0700 directory at the
+/// harness's transcript directory, read-write, and nothing else of the harness home.
+#[tokio::test]
+async fn transcript_mount_is_only_the_harness_transcript_directory() {
+    use aq_worker::sandbox_driver::DriverHarness;
+    use std::os::unix::fs::PermissionsExt;
+    let slot = tempfile::tempdir().unwrap();
+    let host = slot.path().join("transcript");
+    std::fs::create_dir(&host).unwrap();
+    let mode = |mode| std::fs::set_permissions(&host, std::fs::Permissions::from_mode(mode));
+    for (attempt, harness) in [(3, DriverHarness::Claude), (4, DriverHarness::Codex)] {
+        let target = harness.transcript_dir();
+        assert!(target.starts_with("/aq/home/") && !target.starts_with("/aq/work"));
+        let mount = Some((host.clone(), target.to_owned()));
+        let mut h = harness_with(ScriptedDocker::new(), |c| c.transcript = mount).await;
+        let request = request(1, 2, attempt);
+        mode(0o750).unwrap();
+        assert_eq!(
+            bounded(h.backend.create(&request)).await,
+            Err(BackendError::InvalidRequest(
+                "transcript directory must be the node's own 0700 directory"
+            ))
+        );
+        mode(0o700).unwrap();
+        bounded(h.backend.create(&request)).await.unwrap();
+        let body = h.docker.container(&request.name).unwrap().body;
+        let mounts = body["HostConfig"]["Mounts"].as_array().unwrap();
+        assert_eq!(
+            mounts[1..],
+            [
+                json!({"Type": "bind", "Source": host.to_str().unwrap(), "Target": target, "ReadOnly": false})
+            ]
+        );
+        assert_eq!(mounts[0]["Target"], "/aq/work");
+        // The request, and so the sandbox's name binding, does not carry the mount.
+        assert_eq!(body["Labels"], expected_labels(&request));
+    }
+    let socket = owned_socket();
+    let (cache, scratch) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let claude = DriverHarness::Claude.transcript_dir();
+    let refused: [&dyn Fn(&mut DockerLocalConfig); 7] = [
+        // The whole private harness home, a parent, a child, the workspace.
+        &|c| c.transcript.as_mut().unwrap().1 = "/aq/home".into(),
+        &|c| c.transcript.as_mut().unwrap().1 = "/aq/home/codex".into(),
+        &|c| c.transcript.as_mut().unwrap().1 = format!("{claude}/x"),
+        &|c| c.transcript.as_mut().unwrap().1 = "/aq/work/transcript".into(),
+        &|c| c.transcript.as_mut().unwrap().0 = "relative".into(),
+        &|c| c.mount_aliases.get_mut("scratch").unwrap().target = "/aq/home".into(),
+        &|c| c.mount_aliases.get_mut("scratch").unwrap().host_path = slot.path().into(),
+    ];
+    for edit in refused {
+        let mut config = base_config(&socket, &cache, &scratch);
+        config.transcript = Some((host.clone(), claude.into()));
+        config.validate().unwrap();
+        edit(&mut config);
+        assert!(config.validate().is_err());
+    }
+}
+
 /// Finding 8 (PR #43 review): a mount alias whose host path equals, contains
 /// or sits under the channel root would expose other attempts' sockets. It is
 /// refused at config load, through a symlink too and before the root exists.
@@ -1797,40 +1856,61 @@ fn codex_login() -> (Vec<u8>, String) {
 }
 
 struct CodexDriverRun {
+    /// What the pane showed, and what reached the sandbox terminal's input.
+    screen: Vec<u8>,
+    typed: Vec<u8>,
+    attach: String,
     code: i32,
     docker: ScriptedDocker,
     dir: tempfile::TempDir,
     auth: Vec<u8>,
 }
 /// Runs the node driver's Codex launch (harness `codex`, the docker-local Codex
-/// recipe) against the scripted double; `extra` are files the runner fixture writes.
+/// recipe) against the scripted double: the TUI stays running, its `notify`
+/// program has left `final_message` in the stop marker, the sandbox terminal
+/// prints `tui` and the owner types `keys`. `extra` are files the runner writes.
 async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> CodexDriverRun {
+    run_codex_driver_on(final_message, extra, b"codex tui\r\n", b"").await
+}
+async fn run_codex_driver_on(
+    final_message: &str,
+    extra: &[(&str, Vec<u8>)],
+    tui: &[u8],
+    keys: &[u8],
+) -> CodexDriverRun {
+    run_driver(final_message, extra, tui, keys, |_| {}).await
+}
+/// `prepare` edits the driver configuration (and the files it names) before the run.
+async fn run_driver(
+    final_message: &str,
+    extra: &[(&str, Vec<u8>)],
+    tui: &[u8],
+    keys: &[u8],
+    prepare: impl FnOnce(&mut aq_worker::sandbox_driver::DriverConfig),
+) -> CodexDriverRun {
     use aq_session_protocol::{Capability, HarnessSettings, ModelSettings, Text};
     use aq_worker::sandbox_driver::{DriverConfig, DriverHarness, run_with};
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let socket = owned_socket();
     let (cache, scratch) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let docker_local = base_config(&socket, &cache, &scratch);
-    let docker = ScriptedDocker::new();
-    let events = [
-        json!({"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000001"}),
-        json!({"type":"turn.started"}),
-        json!({"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":final_message}}),
-        json!({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}),
-    ];
-    let stream: String = events.iter().map(|e| e.to_string() + "\n").collect();
-    docker.on_start_write("/aq/out/codex.jsonl", stream.into_bytes());
+    let mut docker_local = base_config(&socket, &cache, &scratch);
+    let docker = ScriptedDocker::new().runner(Runner::StaysRunning);
+    let marker = json!({"type":"agent-turn-complete","last-assistant-message":final_message});
+    docker.on_start_write("/aq/out/stop.json", marker.to_string().into_bytes());
     for (path, data) in extra {
         docker.on_start_write(path, data.clone());
     }
 
     let dir = tempfile::tempdir().unwrap();
-    for d in ["work", "session", "private"] {
+    for d in ["work", "session", "private", "private/transcript"] {
         std::fs::create_dir(dir.path().join(d)).unwrap();
         std::fs::set_permissions(dir.path().join(d), std::fs::Permissions::from_mode(0o700))
             .unwrap();
     }
     let work = dir.path().join("work");
+    let sessions = DriverHarness::Codex.transcript_dir();
+    docker_local.transcript = Some((dir.path().join("private/transcript"), sessions.into()));
+    docker.on_start_write(&format!("{sessions}/2026/rollout.jsonl"), b"{}\n".to_vec());
     std::fs::write(work.join("README.md"), "# scratch\n").unwrap();
     std::fs::write(
         dir.path().join("session/context-0.bin"),
@@ -1886,7 +1966,7 @@ async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> Cod
         None,
     )
     .unwrap();
-    let config = DriverConfig {
+    let mut config = DriverConfig {
         docker_local,
         template: digest(),
         owner: owner(1, 2, 3),
@@ -1906,21 +1986,53 @@ async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> Cod
         max_workspace_bytes: 1 << 20,
         agent_channel: false,
         conversation_outbox: None,
+        transcript_bound: None,
         harness: DriverHarness::Codex,
+        codex_runtime_bundle: None,
+        build_cache: None,
     };
+    prepare(&mut config);
     let config_file = dir.path().join("private/driver.json");
     private(&config_file, &serde_json::to_vec(&config).unwrap());
     let session = dir.path().join("session");
     let connect = |c| DockerLocalBackend::connect(c, docker.clone());
+    // The sandbox terminal (a duplex stream) and the pane (two pipes).
+    use std::io::{Read, Write};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (ours, mut sandbox) = tokio::io::duplex(1 << 16);
+    let (input, mut keyboard) = std::io::pipe().unwrap();
+    let (mut shown, output) = std::io::pipe().unwrap();
+    keyboard.write_all(keys).unwrap();
+    drop(keyboard);
+    sandbox.write_all(tui).await.unwrap();
+    let attached = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let seen = attached.clone();
+    let terminal = |_socket: std::path::PathBuf, path: String| async move {
+        *seen.lock().unwrap() = path;
+        let pane = aq_worker::sandbox_driver::Pane {
+            input: Box::new(input),
+            output: Box::new(output),
+            tty: false,
+        };
+        Ok((ours, pane))
+    };
     let code = tokio::time::timeout(
         Duration::from_secs(60),
-        run_with(&config_file, Some(&session), connect),
+        run_with(&config_file, Some(&session), connect, terminal),
     )
     .await
     .expect("driver hung")
     .unwrap();
     assert!(!token_file.exists(), "the leased login never stays on disk");
+    let mut typed = vec![0u8; keys.len()];
+    sandbox.read_exact(&mut typed).await.unwrap();
+    let mut screen = Vec::new();
+    shown.read_to_end(&mut screen).unwrap();
+    let attach = attached.lock().unwrap().clone();
     CodexDriverRun {
+        screen,
+        typed,
+        attach,
         code,
         docker,
         dir,
@@ -1928,10 +2040,131 @@ async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> Cod
     }
 }
 
+/// Node settings with a build cache for `project`: the cargo target and, the
+/// same for Claude and Codex whatever their home, the cargo registry.
+fn build_cache(
+    root: &std::path::Path,
+    project: Uuid,
+    slot_max_bytes: u64,
+) -> aq_sandbox_archive::build_cache::BuildCacheConfig {
+    serde_json::from_value(json!({
+        "root": root,
+        "limits": {
+            "max_bytes": 1 << 30, "slot_max_bytes": slot_max_bytes, "slot_max_age_ms": 60_000,
+            "slot_watch_interval_ms": 0, "refresh_interval_ms": 60_000, "warm_timeout_ms": 60_000,
+            "warm_cpu_millis": 2000, "warm_memory_bytes": 1 << 30, "warm_pids": 64,
+        },
+        "projects": { project.to_string(): { "paths": [
+            { "target": "/tmp/aq-target", "env": "CARGO_TARGET_DIR" },
+            { "target": "/aq/cache/cargo", "env": "CARGO_HOME" },
+        ]}},
+    }))
+    .unwrap()
+}
+
+/// A project with a build cache: the sandbox gets its task's slot at each cache
+/// path and the variables naming them, the upload is recorded in the slot's
+/// ledger, and the cache is no part of what is copied back.
+#[tokio::test]
+async fn sandbox_driver_mounts_the_tasks_build_cache_outside_the_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    let (project, task) = (Uuid::from_u128(7), Uuid::from_u128(8));
+    let config = build_cache(root.path(), project, 1 << 30);
+    assert!(
+        config.slot(Uuid::from_u128(9), task, "aa").is_none(),
+        "another project has no cache"
+    );
+    let slot = config.slot(project, task, "aa");
+    let final_message = "Done.\nChanges: fixture-output; Checks: none; Limits: none";
+    let run = run_driver(final_message, &[], b"codex tui\r\n", b"", |c| {
+        c.build_cache = slot
+    })
+    .await;
+    assert_eq!(run.code, 0, "proven success");
+    let names = run.docker.container_names();
+    let container = run.docker.container(&names[0]).unwrap();
+    let binds = container.body["HostConfig"]["Binds"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(binds.len(), 2, "{binds:?}");
+    let (source, target) = binds[0].as_str().unwrap().split_once(':').unwrap();
+    assert_eq!(target, "/tmp/aq-target");
+    assert!(
+        binds[1]
+            .as_str()
+            .unwrap()
+            .ends_with("/p1/upper:/aq/cache/cargo")
+    );
+    let slot = std::path::Path::new(source).parent().unwrap();
+    let slot = slot.parent().unwrap();
+    assert!(
+        slot.starts_with(root.path().join(project.to_string())) && slot.ends_with(task.to_string()),
+        "{binds:?}"
+    );
+    let env = String::from_utf8(container.layer["/aq/in/env"].data.clone()).unwrap();
+    assert!(
+        env.ends_with("CARGO_TARGET_DIR=/tmp/aq-target\nCARGO_HOME=/aq/cache/cargo\n"),
+        "{env}"
+    );
+    let ledger = std::fs::read_to_string(slot.join("ledger.json")).unwrap();
+    assert!(ledger.contains("README.md"), "{ledger}");
+    let work = run.dir.path().join("work");
+    let mut copied: Vec<_> = std::fs::read_dir(&work)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    copied.sort();
+    assert_eq!(
+        copied,
+        ["README.md", "fixture-output"],
+        "only the workspace is copied back"
+    );
+}
+
+/// SBX20 for the slot, which the daemon's disk samples do not cover: an attempt
+/// whose slot is over `slot_max_bytes` is stopped like one over its transcript
+/// limit (4, work copied back) with the `sandbox_disk_limit_exceeded` claim, and
+/// the slot is deleted.
+#[tokio::test]
+async fn sandbox_driver_stops_an_attempt_whose_build_cache_slot_is_over_its_limit() {
+    use aq_handoff_note::{DISK_LIMIT, Stop, handoff_note};
+    let root = tempfile::tempdir().unwrap();
+    let (project, task) = (Uuid::from_u128(7), Uuid::from_u128(8));
+    // Even the slot's empty directories are over a one-byte limit.
+    let slot = build_cache(root.path(), project, 1).slot(project, task, "aa");
+    let run = run_driver(DONE, &[], b"", b"", |c| c.build_cache = slot).await;
+    assert_eq!(
+        run.code, 4,
+        "stopped with its work saved, not a finished turn"
+    );
+    let names = run.docker.container_names();
+    let container = run.docker.container(&names[0]).unwrap();
+    assert_eq!(container.status, "exited", "the sandbox is stopped");
+    assert!(run.dir.path().join("work/fixture-output").exists());
+    let slots: Vec<_> = (walk(root.path()).into_iter())
+        .filter(|p| p.ends_with(task.to_string()))
+        .collect();
+    assert!(slots.is_empty(), "the oversized slot is deleted: {slots:?}");
+    let note = handoff_note(Stop::BuildCacheBytes, &[], &[], &[]);
+    assert!(
+        note.starts_with(&format!("Stopped ({DISK_LIMIT}: build cache slot): ")),
+        "{note}"
+    );
+}
+fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
+    let children = std::fs::read_dir(dir).into_iter().flatten().flatten();
+    let children = children.map(|c| c.path()).filter(|p| p.is_dir());
+    children
+        .flat_map(|p| [walk(&p), vec![p]].concat())
+        .collect()
+}
+
 /// Epic 0 W1: the Codex launch path in the docker-local sandbox, against the Docker
 /// double: the same sandbox, copy-in/copy-out and stop as Claude; the Codex runner and
-/// `codex exec --sandbox danger-full-access` with the offered model and effort; the
-/// ChatGPT login only as private material; the claim from Codex's final message.
+/// the interactive `codex --sandbox danger-full-access` on the sandbox's terminal with
+/// the offered model and effort; the ChatGPT login only as private material; the
+/// attempt ends when the turn does, with the claim from Codex's final message.
 #[tokio::test]
 async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
     let run = run_codex_driver(
@@ -1950,17 +2183,57 @@ async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
     assert_eq!(names.len(), 1);
     let container = run.docker.container(&names[0]).unwrap();
     assert_eq!(container.status, "exited", "the sandbox is stopped");
+    // Of Codex's home only `sessions` is mounted; the transcript written there is not
+    // part of the workspace that is copied back.
+    let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
+    let targets: Vec<_> = mounts
+        .iter()
+        .map(|m| m["Target"].as_str().unwrap())
+        .collect();
+    assert_eq!(targets, ["/aq/work", "/aq/home/codex/sessions"]);
+    assert!(
+        container
+            .layer
+            .contains_key("/aq/home/codex/sessions/2026/rollout.jsonl")
+    );
+    let mut copied: Vec<_> = (std::fs::read_dir(&work).unwrap())
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    copied.sort();
+    assert_eq!(copied, ["README.md", "fixture-output"]);
     let body = container.body.to_string();
     assert!(body.contains("CODEX_HOME/auth.json") && !body.contains("CLAUDE_CODE_OAUTH_TOKEN"));
     let text = |path: &str| String::from_utf8(container.layer[path].data.clone()).unwrap();
     let args: Vec<String> = text("/aq/in/args").lines().map(Into::into).collect();
     let at = |flag: &str| args[args.iter().position(|a| a == flag).unwrap() + 1].clone();
-    assert_eq!(&args[..2], ["--no-daemon", "exec"]);
+    assert_eq!(args[0], "--no-daemon");
+    assert!(
+        !args.contains(&"exec".to_string()),
+        "the TUI, not `codex exec`"
+    );
+    assert_eq!(args.last().map(String::as_str), Some("--"));
     assert_eq!(at("--sandbox"), "danger-full-access");
-    assert_eq!(at("--model"), "gpt-5.5");
+    assert_eq!(at("-m"), "gpt-5.5");
+    // A terminal for the TUI, attached to the pane; the TUI never exits by itself.
+    let create: Value = container.body.clone();
+    for key in ["Tty", "OpenStdin", "AttachStdin"] {
+        assert_eq!(create[key], true, "{key}");
+    }
+    assert!(
+        run.attach.ends_with(&format!(
+            "/containers/{}/attach?stream=1&stdin=1&stdout=1&stderr=1",
+            names[0]
+        )),
+        "{}",
+        run.attach
+    );
+    assert_eq!(run.screen, b"codex tui\r\n");
     assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
     assert_eq!(text("/aq/in/executable"), "/opt/aq/bin/codex");
-    assert_eq!(text("/aq/in/env"), "CODEX_HOME=/aq/home/codex\n");
+    assert_eq!(
+        text("/aq/in/env"),
+        "CODEX_HOME=/aq/home/codex\nHOME=/aq/home/codex\n"
+    );
     // The login reaches the sandbox only as private material, never argv, env or a path.
     assert_eq!(container.layer["/aq/private/material"].data, run.auth);
     let (_, refresh) = codex_login();
@@ -2020,7 +2293,332 @@ fn claude_driver_config_has_no_harness_key_and_codex_round_trips() {
     assert_eq!(written["harness"], "codex");
     let back: DriverConfig = serde_json::from_value(written).unwrap();
     assert_eq!(back.harness, DriverHarness::Codex);
-    assert_eq!(back.harness.stream_path(), "/aq/out/codex.jsonl");
+}
+
+/// What the owner types on the pane reaches the sandbox terminal as typed. A login
+/// token the TUI prints is masked before it reaches the pane, and the attempt then
+/// fails with nothing copied back and no transcript.
+#[tokio::test]
+async fn sandbox_driver_relays_typing_and_masks_a_login_token_on_the_pane() {
+    let run = run_codex_driver_on(
+        "Done.\nChanges: none; Checks: none; Limits: none",
+        &[],
+        b"ready\r\n",
+        b"also update the README\r",
+    )
+    .await;
+    assert_eq!(run.code, 0);
+    assert_eq!(run.typed, b"also update the README\r");
+    assert_eq!(run.screen, b"ready\r\n");
+
+    let (_, refresh) = codex_login();
+    let tui = format!("token: {refresh}\r\n");
+    let run = run_codex_driver_on(
+        "Done.\nChanges: none; Checks: none; Limits: none",
+        &[],
+        tui.as_bytes(),
+        b"",
+    )
+    .await;
+    assert_ne!(
+        run.code, 0,
+        "a login secret on the terminal fails the attempt"
+    );
+    let screen = String::from_utf8(run.screen).unwrap();
+    assert_eq!(screen, format!("token: {}\r\n", "*".repeat(refresh.len())));
+    let work = run.dir.path().join("work");
+    assert!(!work.join("fixture-output").exists());
+    assert!(!run.dir.path().join("private/codex.jsonl").exists());
+}
+
+const DONE: &str = "Done.\nChanges: fixture-output; Checks: none; Limits: none";
+
+/// The transcript mount is outside the sandbox's disk limit, so the driver stops an
+/// attempt whose mount passes the node's byte or entry limit: the sandbox is stopped,
+/// the work is copied back and the driver exits as for a handoff (4), with the
+/// `transcript_limit_exceeded` claim. A link out of the mount is not followed.
+#[tokio::test]
+async fn sandbox_driver_stops_an_attempt_whose_transcript_passes_its_limits() {
+    use aq_handoff_note::{Stop, TRANSCRIPT_LIMIT, TranscriptBound, handoff_note};
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("big"), vec![1u8; 1 << 20]).unwrap();
+    let bound = TranscriptBound {
+        max_bytes: 64 * 1024,
+        max_files: 3,
+    };
+    type Fill = fn(&std::path::Path, &std::path::Path);
+    let cases: [(Fill, i32); 3] = [
+        (
+            |mount, _| std::fs::write(mount.join("s.jsonl"), vec![1u8; 1 << 18]).unwrap(),
+            4,
+        ),
+        (
+            |mount, _| {
+                (0..4).for_each(|n| std::fs::write(mount.join(n.to_string()), b"x").unwrap())
+            },
+            4,
+        ),
+        (
+            |mount, outside| std::os::unix::fs::symlink(outside, mount.join("out")).unwrap(),
+            0,
+        ),
+    ];
+    for (fill, code) in cases {
+        let run = run_driver(DONE, &[], b"", b"", |config| {
+            config.transcript_bound = Some(bound);
+            fill(
+                &config.docker_local.transcript.as_ref().unwrap().0,
+                outside.path(),
+            );
+        })
+        .await;
+        assert_eq!(run.code, code);
+        let names = run.docker.container_names();
+        assert_eq!(run.docker.container(&names[0]).unwrap().status, "exited");
+        // Stopped or finished, the work is saved the same way.
+        assert!(run.dir.path().join("work/fixture-output").exists());
+    }
+    for (stop, limit) in [
+        (Stop::TranscriptBytes, "bytes"),
+        (Stop::TranscriptFiles, "files"),
+    ] {
+        let note = handoff_note(stop, &[], &[], &[]);
+        assert!(
+            note.starts_with(&format!("Stopped ({TRANSCRIPT_LIMIT}: {limit}): ")),
+            "{note}"
+        );
+    }
+}
+
+/// A Claude launch names its session after the attempt (`--session-id`), with or
+/// without a conversation outbox, so the node knows the transcript's file name.
+#[tokio::test]
+async fn sandbox_driver_names_the_claude_session_after_the_attempt() {
+    use aq_worker::sandbox_driver::DriverHarness;
+    let run = run_driver(DONE, &[], b"", b"", |config| {
+        config.harness = DriverHarness::Claude;
+        config.arguments = vec!["--model".into(), "fixture".into()];
+        config.environment.clear();
+        config.settings_json = "{}".into();
+        config.docker_local.transcript.as_mut().unwrap().1 =
+            DriverHarness::Claude.transcript_dir().into();
+        std::fs::write(&config.token_file, "fixture-login-0123456789").unwrap();
+    })
+    .await;
+    let names = run.docker.container_names();
+    let container = run.docker.container(&names[0]).unwrap();
+    let args = String::from_utf8(container.layer["/aq/in/args"].data.clone()).unwrap();
+    let attempt = Uuid::from_u128(3);
+    assert_eq!(args, format!("--model\nfixture\n--session-id\n{attempt}\n"));
+    let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
+    assert_eq!(mounts[1]["Target"], "/aq/home/projects/-aq-work");
+    assert_eq!(mounts.len(), 2);
+}
+
+/// The server as a node's observation store sees it: the real transport contract,
+/// every batch acknowledged.
+#[derive(Clone)]
+struct ObservationServer {
+    boot: Uuid,
+    owner: std::sync::Arc<std::sync::Mutex<Option<aq_observation_admission::Owner>>>,
+    receipts: std::sync::Arc<
+        std::sync::Mutex<std::collections::BTreeMap<Uuid, aq_observation_admission::Receipt>>,
+    >,
+}
+impl aq_observation_store::AuthenticatedOwnerPeer for ObservationServer {
+    fn mutate(
+        &mut self,
+        request: &aq_observation_admission::Request,
+    ) -> anyhow::Result<aq_observation_admission::Reply> {
+        use aq_observation_admission as a;
+        let mut owner = self.owner.lock().unwrap();
+        let access = a::Access {
+            node_id: Uuid::from_u128(1),
+            boot_id: self.boot,
+            accepted_through: 0,
+            max_pending_distance: a::MAX_PENDING_DISTANCE,
+            new_boot_previously_owned: false,
+        };
+        let mut receipts = self.receipts.lock().unwrap();
+        let known = receipts.get(&request.operation_id);
+        let reply = a::apply(
+            owner.as_ref(),
+            known,
+            request,
+            &access,
+            Some(Uuid::from_u128(400)),
+        )?
+        .reply;
+        receipts.insert(request.operation_id, reply.receipt.clone());
+        *owner = Some(reply.current_owner.clone());
+        Ok(reply)
+    }
+    fn status(&mut self, node_id: Uuid) -> anyhow::Result<aq_observation_admission::Status> {
+        Ok(aq_observation_admission::Status {
+            version: 1,
+            node_id,
+            admitted_node_boot_id: self.boot,
+            owner: self.owner.lock().unwrap().clone(),
+            accepted_through: 0,
+        })
+    }
+}
+impl aq_observation_store::node::NodePeer for ObservationServer {
+    fn batch(
+        &mut self,
+        packet: &aq_lifecycle_protocol::Packet,
+    ) -> anyhow::Result<aq_observation_admission::BatchReply> {
+        use aq_lifecycle_protocol::*;
+        let Message::Batch(batch) = &packet.body.message else {
+            anyhow::bail!("packet class")
+        };
+        let receipt = Receipt {
+            schema_version: SCHEMA_VERSION,
+            message_id: packet.body.message_id,
+            body_digest: packet.body_digest.clone(),
+            disposition: ReceiptDisposition::ObservationRecorded,
+            through_sequence: Some(batch.last_sequence),
+        };
+        Ok(aq_observation_admission::BatchReply::new(receipt, vec![]))
+    }
+}
+
+/// The launch's registration (`launch::claude_docker::observe`) against a running node
+/// store: without a catalog entry or a store nothing is registered and nothing fails;
+/// with them the source carries the server-derived ID, Claude's transcript is the
+/// attempt's `<attempt>.jsonl`, and Codex's is the earliest rollout under `sessions/`.
+#[test]
+fn a_launch_registers_its_transcript_with_the_node_store() {
+    use aq_admission::observation_source;
+    use aq_observation_store::node::{Node, NodeLimits, SourceStatus};
+    use aq_session_protocol::{ProfiledOffer, SessionIdentity, canonical_digest};
+    use aq_worker::native::launch::claude_docker::observe;
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let entry = reference_entry();
+    let offer = |attempt: u128, harness: &str, observed: bool| {
+        let mut offer: ProfiledOffer = serde_json::from_str(include_str!(
+            "../../aq-agent-client/tests/fixtures/profiled-offer.json"
+        ))
+        .unwrap();
+        let attempt_id = Uuid::from_u128(attempt);
+        let SessionIdentity::Remote {
+            node_id,
+            boot_id,
+            session_id,
+            assignment_generation,
+            ..
+        } = offer.binding.session
+        else {
+            panic!("remote fixture")
+        };
+        let session = SessionIdentity::Remote {
+            node_id,
+            boot_id,
+            attempt_id,
+            assignment_generation,
+            session_id,
+        };
+        offer.binding.attempt_id = attempt_id;
+        offer.binding.session = session.clone();
+        let m = &mut offer.manifest;
+        m.bindings.attempt_id = attempt_id;
+        m.bindings.session = session;
+        m.harness.harness = harness.try_into().unwrap();
+        if observed {
+            m.modules
+                .push(observation_source::module(&entry).unwrap().0);
+        }
+        offer.binding.launch_manifest_digest = canonical_digest(m).unwrap();
+        offer
+    };
+    let mount = |name: &str| {
+        let directory = root.join(name);
+        std::fs::create_dir(&directory).unwrap();
+        directory
+    };
+    let boot = Uuid::from_u128(1);
+    let server = ObservationServer {
+        boot,
+        owner: Default::default(),
+        receipts: Default::default(),
+    };
+    let limits = NodeLimits {
+        poll: Duration::from_millis(5),
+        ..NodeLimits::default()
+    };
+    let node = Node::start(
+        &root.join("store"),
+        Uuid::from_u128(1),
+        boot,
+        limits,
+        server,
+        |_| {},
+    )
+    .unwrap();
+    let store = node.observations();
+    let account = |_: &str| Some("owner-account".to_owned());
+
+    let unobserved = offer(7, "claude", false);
+    assert!(observe(Some(&store), &unobserved, account, mount("none")).is_none());
+    assert!(observe(None, &offer(8, "claude", true), account, mount("no-store")).is_none());
+    assert!(
+        observe(
+            Some(&store),
+            &offer(9, "claude", true),
+            |_| None,
+            mount("no-lease")
+        )
+        .is_none()
+    );
+
+    let (claude, codex) = (mount("claude"), mount("codex"));
+    let session = Uuid::from_u128(4);
+    let line = json!({"type":"assistant","uuid":"u1","sessionId":session,
+        "message":{"id":"m1","model":"model-a","content":[{"type":"text","text":"step"}]}});
+    std::fs::write(claude.join(format!("{session}.jsonl")), format!("{line}\n")).unwrap();
+    // The later rollout is not this session's: choosing it would never collect.
+    let day = codex.join("2026/11/18");
+    std::fs::create_dir_all(&day).unwrap();
+    let rollout = "0199a213-81c0-7800-8aa1-bbab2a035a53";
+    for (time, name, id) in [
+        ("10-00-00", rollout, rollout),
+        ("11-00-00", "0199a213-81c0-7800-8aa1-bbab2a035a54", "other"),
+    ] {
+        let meta = json!({"type":"session_meta","payload":{"id":id}});
+        std::fs::write(
+            day.join(format!("rollout-2026-11-18T{time}-{name}.jsonl")),
+            format!("{meta}\n"),
+        )
+        .unwrap();
+    }
+    for (attempt, harness, directory) in [(4, "claude", claude), (5, "codex", codex)] {
+        let handle = observe(
+            Some(&store),
+            &offer(attempt, harness, true),
+            account,
+            directory,
+        )
+        .unwrap_or_else(|| panic!("{harness} launch not registered"));
+        let derived = observation_source::source_id(Uuid::from_u128(attempt), 1, &entry).unwrap();
+        assert_eq!(handle.source_id(), derived);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while handle.status() != Some(SourceStatus::Collecting) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{harness}: {:?}",
+                handle.status()
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    node.shutdown();
+}
+fn reference_entry() -> aq_session_protocol::ArtifactRef {
+    serde_json::from_value(
+        json!({"id":"aq.observation-catalog/fixture","version":"1","digest":"ab".repeat(32)}),
+    )
+    .unwrap()
 }
 
 /// The three tokens of a ChatGPT login are the secrets the driver refuses to let out.
@@ -2039,4 +2637,307 @@ fn codex_login_tokens_are_the_three_login_secrets() {
     let api = json!({"OPENAI_API_KEY": "fixture-key-0123456789"}).to_string();
     assert!(codex_login_tokens(api.as_bytes()).is_err());
     assert!(codex_login_tokens(b"not json").is_err());
+}
+
+/// Unit checks of the node driver's public pieces (moved here from the library to
+/// keep it within its line budget).
+mod sandbox_driver_units {
+    use aq_handoff_note::Secrets;
+    use aq_worker::backend::docker_local::{DockerLocalConfig, tar::TreeEntry};
+    use aq_worker::sandbox_driver::{
+        CHANNEL_NOTE, DriverConfig, channel_ready, input_entries, run, token_leak,
+    };
+    use std::io::Write;
+
+    /// MS1 review S3a: the token file is read and removed before anything that
+    /// can fail, even when the driver config itself is unreadable.
+    #[tokio::test]
+    async fn token_file_is_removed_even_when_the_driver_config_is_bad() {
+        use std::os::unix::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("driver.json");
+        let token = dir.path().join("token");
+        for (path, data) in [
+            (&config, &b"{not a config"[..]),
+            (&token, b"fixture-login-0123456789"),
+        ] {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+                .unwrap()
+                .write_all(data)
+                .unwrap();
+        }
+        assert!(run(&config).await.is_err());
+        assert!(!token.exists(), "the leased token must not stay on disk");
+    }
+
+    /// 0006 §5.4/§8: no channel socket, no launch; the env names the socket;
+    /// an `aqa_` credential anywhere that leaves the sandbox is a leak.
+    #[test]
+    fn channel_is_required_named_in_env_and_its_credential_guarded() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config: DriverConfig = serde_json::from_value(serde_json::json!({
+            "docker_local": DockerLocalConfig::new("/run/x.sock".into()),
+            "template": format!("sha256:{}", "a".repeat(64)),
+            "owner": {"node_id": uuid::Uuid::from_u128(1), "boot_id": uuid::Uuid::from_u128(2),
+                "attempt_id": uuid::Uuid::from_u128(3)},
+            "hard_deadline_ms": 1, "resources": {"cpu_millis": 1000, "memory_bytes": 1u64 << 30, "pids": 64},
+            "workspace": "/w", "token_file": "/t", "executable": "/e", "arguments": [], "environment": {},
+            "settings_json": "{}", "result_dir": null, "max_workspace_bytes": 1, "agent_channel": true,
+        }))
+        .unwrap();
+        let error = channel_ready(&config).unwrap_err().to_string();
+        assert!(error.starts_with("agent_channel_unavailable"), "{error}");
+        config.docker_local.channel_root = Some(root.path().into());
+        let dir = root.path().join(uuid::Uuid::from_u128(3).to_string());
+        std::fs::create_dir(&dir).unwrap();
+        assert!(
+            channel_ready(&config).is_err(),
+            "a directory without a socket"
+        );
+        let _socket = std::os::unix::net::UnixListener::bind(dir.join("aq.sock")).unwrap();
+        channel_ready(&config).unwrap();
+        config.environment = [("PATH".into(), "/usr/bin:/bin".into())].into();
+        let inputs = input_entries(&config, b"p").unwrap();
+        let text = |name: &str| match inputs.iter().find(|e| e.path() == name) {
+            Some(TreeEntry::File { data, .. }) => String::from_utf8(data.clone()).unwrap(),
+            _ => panic!("{name}"),
+        };
+        let env = "PATH=/opt/aq/bin:/usr/bin:/bin\nAQ_CHANNEL=unix:/aq/channel/aq.sock\n";
+        assert_eq!(text("env"), env);
+
+        assert!(text("prompt").ends_with(CHANNEL_NOTE));
+        let credential = format!("aqa_{}", "Q".repeat(43));
+        let file = |data: &str| TreeEntry::File {
+            path: "f".into(),
+            mode: 0o644,
+            data: data.into(),
+        };
+        let token = &Secrets::new(b"fixture-login-0123456789abcdef", None);
+        assert!(token_leak(&[file(&credential)], b"", token).is_some());
+        assert!(token_leak(&[], credential.as_bytes(), token).is_some());
+        assert!(token_leak(&[file("starts_with(\"aqa_\")")], b"", token).is_none());
+        // A shape the base tree already held (a fixture in the repository) is no leak.
+        let kept = &Secrets::new(b"fixture-login-0123456789abcdef", [credential.as_bytes()]);
+        assert!(token_leak(&[file(&credential)], credential.as_bytes(), kept).is_none());
+        assert!(token_leak(&[file(&format!("{credential}x"))], b"", kept).is_some());
+        // A variable that would replace the subscription login is refused.
+        config.environment = [("ANTHROPIC_API_KEY".into(), "x".into())].into();
+        assert!(input_entries(&config, b"p").is_err(), "API key env refused");
+    }
+}
+
+/// C5b for the docker-local sandbox: a Codex login that the stopped sandbox holds
+/// refreshed (same account, later `last_refresh`) is written back to the server as
+/// the next version of that attempt's lease; an unchanged or foreign login, another
+/// attempt's sandbox, and an attempt without a lease file write nothing.
+#[tokio::test]
+async fn refreshed_codex_login_is_written_back_from_the_stopped_sandbox() {
+    use aq_agent_channel::login::{LEASE_FILE, LoginLease, WriteBack};
+    use aq_worker::native::runner::write_back_login;
+    use axum::{Router, body::Bytes, routing::post};
+    use std::os::unix::fs::OpenOptionsExt;
+    let login = |account: &str, refreshed: &str| {
+        json!({"auth_mode": "chatgpt", "last_refresh": refreshed,
+            "tokens": {"id_token": "fixture-id", "access_token": "fixture-access",
+                "refresh_token": "fixture-refresh", "account_id": account}})
+        .to_string()
+        .into_bytes()
+    };
+    let leased = login("fixture-account", "2026-11-12T00:00:00Z");
+    let refreshed = login("fixture-account", "2026-11-18T00:00:00Z");
+
+    let uploads = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Vec<u8>>::new()));
+    let seen = uploads.clone();
+    let app = Router::new().route(
+        "/v1/worker/profiled/material/refresh",
+        post(move |body: Bytes| async move {
+            seen.lock().unwrap().push(body.to_vec());
+            r#"{"accepted":true,"version":4,"replayed":false}"#
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let link =
+        aq_agent_channel::NodeLink::new(&origin, "node-credential-0123456789", None, None).unwrap();
+
+    let driver = tempfile::tempdir().unwrap();
+    let lease = LoginLease::of(&leased, json!({}), json!({}), Uuid::from_u128(9), 3).unwrap();
+    let write_lease = || {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(driver.path().join(LEASE_FILE))
+            .and_then(|mut f| {
+                std::io::Write::write_all(&mut f, &serde_json::to_vec(&lease).unwrap())
+            })
+            .unwrap()
+    };
+    // One sandbox per case: what the stopped sandbox's auth.json holds.
+    let cases = [
+        (3, refreshed.clone(), Some(WriteBack::Accepted(4))),
+        (4, leased.clone(), None),
+        (5, login("another-account", "2026-11-18T00:00:00Z"), None),
+        (6, b"{not a login".to_vec(), None),
+    ];
+    for (attempt, held, expected) in cases {
+        let docker = ScriptedDocker::new().runner(Runner::StaysRunning);
+        docker.on_start_write("/aq/home/codex/auth.json", held);
+        let mut h = harness_with(docker, |_| {}).await;
+        let request = self::request(1, 2, attempt);
+        let sandbox = bounded(h.backend.create(&request)).await.unwrap();
+        let material = PrivateMaterial::new(b"fixture".to_vec());
+        bounded(h.backend.deliver_private_material(&sandbox, material))
+            .await
+            .unwrap();
+        bounded(h.backend.start_runner(&sandbox)).await.unwrap();
+        assert!(bounded(h.backend.stop(&sandbox)).await.is_confirmed());
+        let ids = (Uuid::from_u128(1), Uuid::from_u128(attempt));
+        // No lease file (a Claude attempt): nothing is read or sent.
+        let none = write_back_login(&mut h.backend, ids, driver.path(), &link).await;
+        assert_eq!(none.unwrap(), None);
+        write_lease();
+        let other = (ids.0, Uuid::from_u128(99));
+        let foreign = write_back_login(&mut h.backend, other, driver.path(), &link).await;
+        assert_eq!(
+            foreign.unwrap(),
+            None,
+            "another attempt's sandbox is not read"
+        );
+        let written = write_back_login(&mut h.backend, ids, driver.path(), &link).await;
+        assert_eq!(written.unwrap(), expected, "attempt {attempt}");
+        std::fs::remove_file(driver.path().join(LEASE_FILE)).unwrap();
+    }
+    assert_eq!(
+        *uploads.lock().unwrap(),
+        vec![refreshed],
+        "only the refreshed login left the node"
+    );
+}
+
+/// Unit tests of `backend::types`, kept here so they do not count as library lines.
+mod backend_types {
+    use aq_worker::backend::*;
+    use uuid::Uuid;
+
+    fn request() -> CreateRequest {
+        CreateRequest::new(
+            Ownership {
+                node_id: Uuid::from_u128(1),
+                boot_id: Uuid::from_u128(2),
+                attempt_id: Uuid::from_u128(3),
+            },
+            TemplateDigest::parse(format!("sha256:{}", "a".repeat(64))).unwrap(),
+            100,
+            vec![],
+        )
+    }
+
+    #[test]
+    fn create_request_without_resources_deserializes() {
+        let mut value = serde_json::to_value(request()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("resources");
+        object.remove("mount_aliases");
+        let parsed: CreateRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.resources, None);
+        assert!(parsed.mount_aliases.is_empty());
+        assert_eq!(parsed, request());
+    }
+
+    #[test]
+    fn absent_disk_limit_keeps_pre_sbx20_encoding() {
+        let limits = ResourceLimits {
+            cpu_millis: 500,
+            memory_bytes: 64 * 1024 * 1024,
+            pids: 32,
+            disk_bytes: None,
+        };
+        let value = serde_json::to_value(limits).unwrap();
+        assert!(value.get("disk_bytes").is_none());
+        let parsed: ResourceLimits = serde_json::from_value(
+            serde_json::json!({"cpu_millis":500,"memory_bytes":67108864,"pids":32}),
+        )
+        .unwrap();
+        assert_eq!(parsed, limits);
+    }
+
+    #[test]
+    fn resource_limits_reject_zero() {
+        let ok = ResourceLimits {
+            cpu_millis: 500,
+            memory_bytes: 64 * 1024 * 1024,
+            pids: 32,
+            disk_bytes: None,
+        };
+        assert!(request().with_resources(ok).validate().is_ok());
+        let with_disk = ResourceLimits {
+            disk_bytes: Some(1),
+            ..ok
+        };
+        assert!(request().with_resources(with_disk).validate().is_ok());
+        for bad in [
+            ResourceLimits {
+                cpu_millis: 0,
+                ..ok
+            },
+            ResourceLimits { pids: 0, ..ok },
+            ResourceLimits {
+                memory_bytes: 6 * 1024 * 1024 - 1,
+                ..ok
+            },
+            ResourceLimits {
+                disk_bytes: Some(0),
+                ..ok
+            },
+        ] {
+            assert!(matches!(
+                request().with_resources(bad).validate(),
+                Err(BackendError::InvalidRequest(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn mount_alias_names_are_validated() {
+        for bad in ["", "../x", "a/b", "-x", "Upper"] {
+            assert!(
+                matches!(
+                    request()
+                        .with_mount_aliases(vec![bad.to_owned()])
+                        .validate(),
+                    Err(BackendError::InvalidRequest(_))
+                ),
+                "{bad:?} must be refused"
+            );
+        }
+        assert!(
+            request()
+                .with_mount_aliases(vec!["repo-cache".to_owned()])
+                .validate()
+                .is_ok()
+        );
+    }
+}
+
+/// Moved from `native::launch`, to keep the library within its line budget.
+#[test]
+fn leftover_token_is_wiped_and_a_missing_one_is_fine() {
+    use aq_worker::native::launch::wipe_claude_driver_secrets;
+    let dir = tempfile::tempdir().unwrap();
+    let token = dir.path().join("token");
+    std::fs::write(&token, b"x").unwrap();
+    std::fs::write(dir.path().join("exit.json"), b"{}").unwrap();
+    wipe_claude_driver_secrets(dir.path());
+    assert!(!token.exists());
+    assert!(
+        dir.path().join("exit.json").exists(),
+        "non-secret records stay"
+    );
+    wipe_claude_driver_secrets(dir.path());
 }

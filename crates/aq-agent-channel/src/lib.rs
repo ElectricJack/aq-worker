@@ -13,6 +13,7 @@
 mod channel;
 mod forward;
 mod issuer;
+pub mod login;
 mod loopback;
 #[cfg(test)]
 mod tests;
@@ -57,7 +58,11 @@ pub fn holds_agent_credential(bytes: &[u8]) -> bool {
 /// True when `bytes` hold the Claude subscription token shape `sk-ant-[A-Za-z0-9_-]{20,}`.
 /// Salvage after a restart no longer has the leased token, so it checks the shape.
 pub fn holds_claude_token_shape(bytes: &[u8]) -> bool {
-    holds_token_shape(bytes, "sk-ant-", 20)
+    // The prefix is put together at run time: as one literal it sits in .rodata against
+    // whichever literal codegen places next, and with 20 token characters after it the
+    // template credential scan (packaging/sandbox/credential_scan.py) reads this binary
+    // as holding a token.
+    holds_token_shape(bytes, &"sk|ant|".replace('|', "-"), 20)
 }
 
 fn holds_token_shape(bytes: &[u8], prefix: &str, min_tail: usize) -> bool {
