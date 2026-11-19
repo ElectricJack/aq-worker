@@ -227,13 +227,26 @@ impl NativeClient {
         request: &impl Serialize,
         limit: usize,
     ) -> Result<Response> {
+        self.post_with(client, path, request, limit, vec![]).await
+    }
+    async fn post_with(
+        &self,
+        client: &reqwest::Client,
+        path: &str,
+        request: &impl Serialize,
+        limit: usize,
+        headers: Vec<(&'static str, String)>,
+    ) -> Result<Response> {
         let bytes = serde_json::to_vec(request)?;
         ensure!(bytes.len() <= limit, "native request size");
-        let request = client
+        let mut request = client
             .post(format!("{}/v1/worker/profiled/{path}", self.base))
             .header(header::AUTHORIZATION, self.credential.clone())
             .header(header::CONTENT_TYPE, "application/json")
             .body(bytes);
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
         let response =
             self.slot_headers(request, path).send().await.map_err(|_| {
                 TransportFailed("native request transport failed; disposition unknown")
@@ -290,12 +303,14 @@ impl NativeClient {
         request: &transport::ResultReport,
         expected_outcome: &ArtifactRef,
         stopped_receipt: &ArtifactRef,
+        headers: Vec<(&'static str, String)>,
     ) -> Result<result_record::Receipt> {
         result_record::validate_report(request)?;
         self.scope(&request.binding)?;
         let _slot = self.bulk_slots.try_acquire()?;
+        let (limit, client) = (result_record::MAX_BYTES, &self.bulk);
         let response = self
-            .post(&self.bulk, "results", request, result_record::MAX_BYTES)
+            .post_with(client, "results", request, limit, headers)
             .await?;
         let receipt = result_record::decode_receipt(
             &body(response, result_record::MAX_BYTES).await?,

@@ -222,6 +222,7 @@ async fn poll(
                 issued_at_ms: time,
                 deadline_ms: time + 1500,
                 bytes: "literal; $(no-shell) 雪🙂\n".as_bytes().to_vec(),
+                escape_key: false,
             };
             state.input = Some(input.clone());
             state.stage = 2;
@@ -591,6 +592,7 @@ async fn full_tail_queue_keeps_draining_without_a_network_consumer() {
             issued_at_ms: time,
             deadline_ms: time + 1500,
             bytes: b"flood\n".to_vec(),
+            escape_key: false,
         }),
         clock,
     )

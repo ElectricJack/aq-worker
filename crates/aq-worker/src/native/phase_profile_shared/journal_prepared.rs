@@ -55,9 +55,7 @@ macro_rules! journal_prepared {
             );
             let source = a.source.as_ref().context("phase Prepare source absent")?;
             ensure!(
-                source.verified.is_some()
-                    && source.complete()
-                    && p.prepared_at_ns < source.preparation.deadline_ns(),
+                source.ready() && p.prepared_at_ns < source.preparation.deadline_ns(),
                 "phase Prepare source incomplete"
             );
             for receipt in &p.request.original.materials {
