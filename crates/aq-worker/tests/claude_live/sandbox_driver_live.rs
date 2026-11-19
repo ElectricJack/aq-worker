@@ -122,6 +122,7 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         transcript_bound: None,
         harness: Default::default(),
         codex_runtime_bundle: None,
+        build_cache: None,
     };
     let config_file = root.join("private/driver.json");
     std::fs::OpenOptions::new()

@@ -1870,13 +1870,14 @@ struct CodexDriverRun {
 /// program has left `final_message` in the stop marker, the sandbox terminal
 /// prints `tui` and the owner types `keys`. `extra` are files the runner writes.
 async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> CodexDriverRun {
-    run_codex_driver_on(final_message, extra, b"codex tui\r\n", b"").await
+    run_codex_driver_on(final_message, extra, b"codex tui\r\n", b"", None).await
 }
 async fn run_codex_driver_on(
     final_message: &str,
     extra: &[(&str, Vec<u8>)],
     tui: &[u8],
     keys: &[u8],
+    build_cache: Option<aq_sandbox_archive::build_cache::SlotCache>,
 ) -> CodexDriverRun {
     run_driver(final_message, extra, tui, keys, |_| {}).await
 }
@@ -1989,6 +1990,7 @@ async fn run_driver(
         transcript_bound: None,
         harness: DriverHarness::Codex,
         codex_runtime_bundle: None,
+        build_cache,
     };
     prepare(&mut config);
     let config_file = dir.path().join("private/driver.json");
@@ -2037,6 +2039,70 @@ async fn run_driver(
         dir,
         auth,
     }
+}
+
+/// A project with a build cache: the sandbox gets its task's slot at the cache
+/// path and the variable naming it, the upload is recorded in the slot's ledger,
+/// and the cache is no part of what is copied back.
+#[tokio::test]
+async fn sandbox_driver_mounts_the_tasks_build_cache_outside_the_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    let (project, task) = (Uuid::from_u128(7), Uuid::from_u128(8));
+    let settings = json!({
+        "root": root.path(),
+        "limits": {
+            "max_bytes": 1 << 30, "slot_max_bytes": 1 << 30, "slot_max_age_ms": 60_000,
+            "refresh_interval_ms": 60_000, "warm_timeout_ms": 60_000, "warm_cpu_millis": 2000,
+            "warm_memory_bytes": 1 << 30, "warm_pids": 64,
+        },
+        "projects": { project.to_string(): {
+            "paths": [{ "target": "/tmp/aq-target", "env": "CARGO_TARGET_DIR" }],
+        }},
+    });
+    let config: aq_sandbox_archive::build_cache::BuildCacheConfig =
+        serde_json::from_value(settings).unwrap();
+    assert!(
+        config.slot(Uuid::from_u128(9), task, "aa").is_none(),
+        "another project has no cache"
+    );
+    let slot = config.slot(project, task, "aa");
+    let final_message = "Done.\nChanges: fixture-output; Checks: none; Limits: none";
+    let run = run_codex_driver_on(final_message, &[], b"codex tui\r\n", b"", slot).await;
+    assert_eq!(run.code, 0, "proven success");
+    let names = run.docker.container_names();
+    let container = run.docker.container(&names[0]).unwrap();
+    let binds = container.body["HostConfig"]["Binds"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(binds.len(), 1, "{binds:?}");
+    let bind = binds[0].as_str().unwrap();
+    let (source, target) = bind.split_once(':').unwrap();
+    assert_eq!(target, "/tmp/aq-target");
+    let slot = std::path::Path::new(source)
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    assert!(
+        slot.starts_with(root.path().join(project.to_string())) && slot.ends_with(task.to_string()),
+        "{bind}"
+    );
+    let env = String::from_utf8(container.layer["/aq/in/env"].data.clone()).unwrap();
+    assert!(env.ends_with("CARGO_TARGET_DIR=/tmp/aq-target\n"), "{env}");
+    let ledger = std::fs::read_to_string(slot.join("ledger.json")).unwrap();
+    assert!(ledger.contains("README.md"), "{ledger}");
+    let work = run.dir.path().join("work");
+    let mut copied: Vec<_> = std::fs::read_dir(&work)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    copied.sort();
+    assert_eq!(
+        copied,
+        ["README.md", "fixture-output"],
+        "only the workspace is copied back"
+    );
 }
 
 /// Epic 0 W1: the Codex launch path in the docker-local sandbox, against the Docker
@@ -2184,6 +2250,7 @@ async fn sandbox_driver_relays_typing_and_masks_a_login_token_on_the_pane() {
         &[],
         b"ready\r\n",
         b"also update the README\r",
+        None,
     )
     .await;
     assert_eq!(run.code, 0);
@@ -2197,6 +2264,7 @@ async fn sandbox_driver_relays_typing_and_masks_a_login_token_on_the_pane() {
         &[],
         tui.as_bytes(),
         b"",
+        None,
     )
     .await;
     assert_ne!(

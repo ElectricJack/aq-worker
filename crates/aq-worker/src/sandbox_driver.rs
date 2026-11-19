@@ -97,6 +97,9 @@ pub struct DriverConfig {
     /// The node's pinned Codex helper bundle, uploaded beside the launch inputs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_runtime_bundle: Option<PathBuf>,
+    /// This task's warm build cache, when the node keeps one for the project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache: Option<aq_sandbox_archive::build_cache::SlotCache>,
 }
 
 use aq_sandbox_archive::workspace::tree_bytes;
@@ -124,6 +127,9 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     }
     if config.agent_channel {
         env.push_str(&format!("AQ_CHANNEL={}\n", aq_agent_channel::AQ_CHANNEL));
+    }
+    for (name, target) in config.build_cache.iter().flat_map(|c| c.environment()) {
+        env.push_str(&format!("{name}={target}\n"));
     }
     let file = |path: &str, data: Vec<u8>| TreeEntry::File {
         path: path.into(),
@@ -254,6 +260,8 @@ where
         channel_ready(&config)?;
         request = request.with_agent_channel();
     }
+    let cache = (config.build_cache.as_ref()).and_then(|c| c.open(&config.workspace));
+    docker.cache_binds = cache.iter().flat_map(|c| c.binds()).collect();
     let mut backend = connect(docker).await?;
     let sandbox = match backend.create(&request).await {
         Ok(s) => s,
@@ -274,6 +282,7 @@ where
         &mut hup,
         &config_path.with_file_name(HANDOFF_MARKER),
         terminal,
+        cache.as_ref(),
     )
     .await;
     let Drove {
@@ -450,6 +459,7 @@ async fn drive<T, A, AF, S>(
     hup: &mut tokio::signal::unix::Signal,
     handoff: &Path,
     terminal: A,
+    cache: Option<&aq_sandbox_archive::build_cache::Opened>,
 ) -> Result<Drove>
 where
     T: DockerTransport,
@@ -466,9 +476,13 @@ where
             tree_archive("aq/in", &input_entries(config, prompt)?)?,
         )
         .await?;
-    backend
-        .put_archive(sandbox, tree_archive("aq/work", &workspace)?)
-        .await?;
+    let image = config.docker_local.template_image(&config.template);
+    let socket = &config.docker_local.socket;
+    let archive = match cache {
+        Some(cache) => cache.work_archive(&workspace, socket, image).await?,
+        None => tree_archive("aq/work", &workspace)?,
+    };
+    backend.put_archive(sandbox, archive).await?;
     backend
         .deliver_private_material(sandbox, PrivateMaterial::new(token.to_vec()))
         .await?;
