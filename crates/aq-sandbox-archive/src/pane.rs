@@ -121,8 +121,10 @@ impl Relay {
         // A plain thread: a blocked terminal read must never hold the process open.
         std::thread::spawn(move || {
             let mut buffer = [0u8; 4096];
+            let mut replies = crate::query_replies::ReplyFilter::default();
             while let Ok(n @ 1..) = input.read(&mut buffer) {
-                if keys.blocking_send(buffer[..n].to_vec()).is_err() {
+                let typed = replies.feed(&buffer[..n]);
+                if !typed.is_empty() && keys.blocking_send(typed).is_err() {
                     break;
                 }
             }

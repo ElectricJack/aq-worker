@@ -4,6 +4,7 @@ pub mod build_cache;
 pub mod codex_runtime;
 pub mod conversation;
 pub mod pane;
+pub mod query_replies;
 pub mod redact;
 pub mod tar;
 pub mod workspace;
