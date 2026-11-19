@@ -45,9 +45,6 @@ pub struct DockerLocalConfig {
     /// Fixed runner argv. `None` keeps the image's own command. Never secrets.
     #[serde(default)]
     pub runner_command: Option<Vec<String>>,
-    /// The runner gets a terminal (the node driver attaches its pane to it).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub runner_tty: bool,
     #[serde(default = "default_material_path")]
     pub material_path: String,
     #[serde(default)]
@@ -111,7 +108,6 @@ impl DockerLocalConfig {
             templates: Vec::new(),
             mount_aliases: BTreeMap::new(),
             runner_command: None,
-            runner_tty: false,
             material_path: default_material_path(),
             material_uid: 0,
             material_gid: 0,

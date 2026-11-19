@@ -44,10 +44,6 @@ pub struct CodexDockerSettings {
     pub composite_definition: PathBuf,
     /// Codex CLI inside the template image (`/opt/aq/bin/codex`).
     pub executable: PathBuf,
-    /// The pinned Codex helper bundle (`packaging/native-runtime`, the directory
-    /// `[manual.codex] runtime_bundle` names). Codex's shell tool needs it.
-    #[serde(default)]
-    pub runtime_bundle: Option<PathBuf>,
 }
 
 /// The result pins of one selected docker-local result adapter definition.
@@ -204,7 +200,6 @@ impl NativeExecutor for ClaudeDockerExecutor {
         if let Some(codex) = &settings.codex {
             profile = profile.with_codex(CodexDockerHost {
                 executable: codex.executable.clone(),
-                runtime_bundle: codex.runtime_bundle.clone(),
             })?;
         }
         self.profile = Some(Arc::new(profile));

@@ -13,7 +13,7 @@ pub mod final_message;
 pub mod harness;
 mod stream;
 pub use secret_file::{parse_token, read_private};
-pub use stream::{conclusion, conclusion_of, final_text, proven_success};
+pub use stream::{conclusion, conclusion_of, final_text, pane_line, print_logs, proven_success};
 
 /// Review R2-M3, R3-M2: a character the result text keeps. Dropped: control
 /// characters other than tab; every Unicode format (Cf) character (bidi embeddings,

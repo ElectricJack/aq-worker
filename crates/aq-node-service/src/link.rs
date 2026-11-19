@@ -67,20 +67,6 @@ impl ServerLink {
         self.terminal_stream_path(&format!("/v1/worker/manual-agents/{id}/terminal-stream"))
             .await
     }
-    /// The live terminal of a queued attempt this node runs.
-    pub async fn attempt_terminal_stream(
-        &self,
-        id: uuid::Uuid,
-    ) -> Result<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    > {
-        self.terminal_stream_path(&format!(
-            "/v1/worker/attempt-terminals/{id}/terminal-stream"
-        ))
-        .await
-    }
     pub async fn host_terminal_stream(
         &self,
         id: uuid::Uuid,

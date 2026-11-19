@@ -12,9 +12,7 @@
 //!   start, unsandboxed commands are refused and the permission mode is
 //!   `acceptEdits`, with bypass mode disabled;
 //! - `container`: Claude's sandbox is off and the permission mode is
-//!   `bypassPermissions`, because the backend sandbox is the boundary. The
-//!   docker-local launch turns this recipe into the interactive TUI
-//!   (`aq_handoff_note::harness::claude_interactive`).
+//!   `bypassPermissions`, because the backend sandbox is the boundary.
 use crate::native::runner::sandbox::confinement::ConfinementMode;
 use anyhow::{Context, Result, ensure};
 use aq_session_protocol::{
@@ -204,8 +202,7 @@ pub fn docker_local_recipe_body() -> String {
         "confinement": "container",
         "runner_sha256": runner,
         "token_delivery": "private_material_env_only_v1",
-        "result_claim": "node_driver_stop_hook_final_message_v1",
-        "terminal": "interactive_tty_v1",
+        "result_claim": "node_driver_final_message_v1",
         "workspace": "copy_in_copy_out_v1",
     });
     value.sort_all_objects();

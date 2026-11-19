@@ -141,9 +141,9 @@ pub fn create_body(
         "Env": [],
         "WorkingDir": WORK_TARGET,
         "ExposedPorts": {},
-        "AttachStdin": config.runner_tty,
-        "OpenStdin": config.runner_tty,
-        "Tty": config.runner_tty,
+        "AttachStdin": false,
+        "OpenStdin": false,
+        "Tty": false,
         "HostConfig": {
             "Privileged": false,
             "CapAdd": [],

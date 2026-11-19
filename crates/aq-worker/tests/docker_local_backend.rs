@@ -1797,37 +1797,29 @@ fn codex_login() -> (Vec<u8>, String) {
 }
 
 struct CodexDriverRun {
-    /// What the pane showed, and what reached the sandbox terminal's input.
-    screen: Vec<u8>,
-    typed: Vec<u8>,
-    attach: String,
     code: i32,
     docker: ScriptedDocker,
     dir: tempfile::TempDir,
     auth: Vec<u8>,
 }
 /// Runs the node driver's Codex launch (harness `codex`, the docker-local Codex
-/// recipe) against the scripted double: the TUI stays running, its `notify`
-/// program has left `final_message` in the stop marker, the sandbox terminal
-/// prints `tui` and the owner types `keys`. `extra` are files the runner writes.
+/// recipe) against the scripted double; `extra` are files the runner fixture writes.
 async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> CodexDriverRun {
-    run_codex_driver_on(final_message, extra, b"codex tui\r\n", b"").await
-}
-async fn run_codex_driver_on(
-    final_message: &str,
-    extra: &[(&str, Vec<u8>)],
-    tui: &[u8],
-    keys: &[u8],
-) -> CodexDriverRun {
     use aq_session_protocol::{Capability, HarnessSettings, ModelSettings, Text};
     use aq_worker::sandbox_driver::{DriverConfig, DriverHarness, run_with};
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let socket = owned_socket();
     let (cache, scratch) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let docker_local = base_config(&socket, &cache, &scratch);
-    let docker = ScriptedDocker::new().runner(Runner::StaysRunning);
-    let marker = json!({"type":"agent-turn-complete","last-assistant-message":final_message});
-    docker.on_start_write("/aq/out/stop.json", marker.to_string().into_bytes());
+    let docker = ScriptedDocker::new();
+    let events = [
+        json!({"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000001"}),
+        json!({"type":"turn.started"}),
+        json!({"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":final_message}}),
+        json!({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}),
+    ];
+    let stream: String = events.iter().map(|e| e.to_string() + "\n").collect();
+    docker.on_start_write("/aq/out/codex.jsonl", stream.into_bytes());
     for (path, data) in extra {
         docker.on_start_write(path, data.clone());
     }
@@ -1915,49 +1907,20 @@ async fn run_codex_driver_on(
         agent_channel: false,
         conversation_outbox: None,
         harness: DriverHarness::Codex,
-        codex_runtime_bundle: None,
     };
     let config_file = dir.path().join("private/driver.json");
     private(&config_file, &serde_json::to_vec(&config).unwrap());
     let session = dir.path().join("session");
     let connect = |c| DockerLocalBackend::connect(c, docker.clone());
-    // The sandbox terminal (a duplex stream) and the pane (two pipes).
-    use std::io::{Read, Write};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let (ours, mut sandbox) = tokio::io::duplex(1 << 16);
-    let (input, mut keyboard) = std::io::pipe().unwrap();
-    let (mut shown, output) = std::io::pipe().unwrap();
-    keyboard.write_all(keys).unwrap();
-    drop(keyboard);
-    sandbox.write_all(tui).await.unwrap();
-    let attached = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-    let seen = attached.clone();
-    let terminal = |_socket: std::path::PathBuf, path: String| async move {
-        *seen.lock().unwrap() = path;
-        let pane = aq_worker::sandbox_driver::Pane {
-            input: Box::new(input),
-            output: Box::new(output),
-            tty: false,
-        };
-        Ok((ours, pane))
-    };
     let code = tokio::time::timeout(
         Duration::from_secs(60),
-        run_with(&config_file, Some(&session), connect, terminal),
+        run_with(&config_file, Some(&session), connect),
     )
     .await
     .expect("driver hung")
     .unwrap();
     assert!(!token_file.exists(), "the leased login never stays on disk");
-    let mut typed = vec![0u8; keys.len()];
-    sandbox.read_exact(&mut typed).await.unwrap();
-    let mut screen = Vec::new();
-    shown.read_to_end(&mut screen).unwrap();
-    let attach = attached.lock().unwrap().clone();
     CodexDriverRun {
-        screen,
-        typed,
-        attach,
         code,
         docker,
         dir,
@@ -1967,9 +1930,8 @@ async fn run_codex_driver_on(
 
 /// Epic 0 W1: the Codex launch path in the docker-local sandbox, against the Docker
 /// double: the same sandbox, copy-in/copy-out and stop as Claude; the Codex runner and
-/// the interactive `codex --sandbox danger-full-access` on the sandbox's terminal with
-/// the offered model and effort; the ChatGPT login only as private material; the
-/// attempt ends when the turn does, with the claim from Codex's final message.
+/// `codex exec --sandbox danger-full-access` with the offered model and effort; the
+/// ChatGPT login only as private material; the claim from Codex's final message.
 #[tokio::test]
 async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
     let run = run_codex_driver(
@@ -1993,34 +1955,12 @@ async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
     let text = |path: &str| String::from_utf8(container.layer[path].data.clone()).unwrap();
     let args: Vec<String> = text("/aq/in/args").lines().map(Into::into).collect();
     let at = |flag: &str| args[args.iter().position(|a| a == flag).unwrap() + 1].clone();
-    assert_eq!(args[0], "--no-daemon");
-    assert!(
-        !args.contains(&"exec".to_string()),
-        "the TUI, not `codex exec`"
-    );
-    assert_eq!(args.last().map(String::as_str), Some("--"));
+    assert_eq!(&args[..2], ["--no-daemon", "exec"]);
     assert_eq!(at("--sandbox"), "danger-full-access");
-    assert_eq!(at("-m"), "gpt-5.5");
-    // A terminal for the TUI, attached to the pane; the TUI never exits by itself.
-    let create: Value = container.body.clone();
-    for key in ["Tty", "OpenStdin", "AttachStdin"] {
-        assert_eq!(create[key], true, "{key}");
-    }
-    assert!(
-        run.attach.ends_with(&format!(
-            "/containers/{}/attach?stream=1&stdin=1&stdout=1&stderr=1",
-            names[0]
-        )),
-        "{}",
-        run.attach
-    );
-    assert_eq!(run.screen, b"codex tui\r\n");
+    assert_eq!(at("--model"), "gpt-5.5");
     assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
     assert_eq!(text("/aq/in/executable"), "/opt/aq/bin/codex");
-    assert_eq!(
-        text("/aq/in/env"),
-        "CODEX_HOME=/aq/home/codex\nHOME=/aq/home/codex\n"
-    );
+    assert_eq!(text("/aq/in/env"), "CODEX_HOME=/aq/home/codex\n");
     // The login reaches the sandbox only as private material, never argv, env or a path.
     assert_eq!(container.layer["/aq/private/material"].data, run.auth);
     let (_, refresh) = codex_login();
@@ -2080,42 +2020,7 @@ fn claude_driver_config_has_no_harness_key_and_codex_round_trips() {
     assert_eq!(written["harness"], "codex");
     let back: DriverConfig = serde_json::from_value(written).unwrap();
     assert_eq!(back.harness, DriverHarness::Codex);
-}
-
-/// What the owner types on the pane reaches the sandbox terminal as typed. A login
-/// token the TUI prints is masked before it reaches the pane, and the attempt then
-/// fails with nothing copied back and no transcript.
-#[tokio::test]
-async fn sandbox_driver_relays_typing_and_masks_a_login_token_on_the_pane() {
-    let run = run_codex_driver_on(
-        "Done.\nChanges: none; Checks: none; Limits: none",
-        &[],
-        b"ready\r\n",
-        b"also update the README\r",
-    )
-    .await;
-    assert_eq!(run.code, 0);
-    assert_eq!(run.typed, b"also update the README\r");
-    assert_eq!(run.screen, b"ready\r\n");
-
-    let (_, refresh) = codex_login();
-    let tui = format!("token: {refresh}\r\n");
-    let run = run_codex_driver_on(
-        "Done.\nChanges: none; Checks: none; Limits: none",
-        &[],
-        tui.as_bytes(),
-        b"",
-    )
-    .await;
-    assert_ne!(
-        run.code, 0,
-        "a login secret on the terminal fails the attempt"
-    );
-    let screen = String::from_utf8(run.screen).unwrap();
-    assert_eq!(screen, format!("token: {}\r\n", "*".repeat(refresh.len())));
-    let work = run.dir.path().join("work");
-    assert!(!work.join("fixture-output").exists());
-    assert!(!run.dir.path().join("private/codex.jsonl").exists());
+    assert_eq!(back.harness.stream_path(), "/aq/out/codex.jsonl");
 }
 
 /// The three tokens of a ChatGPT login are the secrets the driver refuses to let out.
