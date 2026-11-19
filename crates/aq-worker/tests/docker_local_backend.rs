@@ -1989,6 +1989,7 @@ async fn run_driver(
         transcript_bound: None,
         harness: DriverHarness::Codex,
         codex_runtime_bundle: None,
+        build_cache: None,
     };
     prepare(&mut config);
     let config_file = dir.path().join("private/driver.json");
@@ -2037,6 +2038,126 @@ async fn run_driver(
         dir,
         auth,
     }
+}
+
+/// Node settings with a build cache for `project`: the cargo target and, the
+/// same for Claude and Codex whatever their home, the cargo registry.
+fn build_cache(
+    root: &std::path::Path,
+    project: Uuid,
+    slot_max_bytes: u64,
+) -> aq_sandbox_archive::build_cache::BuildCacheConfig {
+    serde_json::from_value(json!({
+        "root": root,
+        "limits": {
+            "max_bytes": 1 << 30, "slot_max_bytes": slot_max_bytes, "slot_max_age_ms": 60_000,
+            "slot_watch_interval_ms": 0, "refresh_interval_ms": 60_000, "warm_timeout_ms": 60_000,
+            "warm_cpu_millis": 2000, "warm_memory_bytes": 1 << 30, "warm_pids": 64,
+        },
+        "projects": { project.to_string(): { "paths": [
+            { "target": "/tmp/aq-target", "env": "CARGO_TARGET_DIR" },
+            { "target": "/aq/cache/cargo", "env": "CARGO_HOME" },
+        ]}},
+    }))
+    .unwrap()
+}
+
+/// A project with a build cache: the sandbox gets its task's slot at each cache
+/// path and the variables naming them, the upload is recorded in the slot's
+/// ledger, and the cache is no part of what is copied back.
+#[tokio::test]
+async fn sandbox_driver_mounts_the_tasks_build_cache_outside_the_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    let (project, task) = (Uuid::from_u128(7), Uuid::from_u128(8));
+    let config = build_cache(root.path(), project, 1 << 30);
+    assert!(
+        config.slot(Uuid::from_u128(9), task, "aa").is_none(),
+        "another project has no cache"
+    );
+    let slot = config.slot(project, task, "aa");
+    let final_message = "Done.\nChanges: fixture-output; Checks: none; Limits: none";
+    let run = run_driver(final_message, &[], b"codex tui\r\n", b"", |c| {
+        c.build_cache = slot
+    })
+    .await;
+    assert_eq!(run.code, 0, "proven success");
+    let names = run.docker.container_names();
+    let container = run.docker.container(&names[0]).unwrap();
+    let binds = container.body["HostConfig"]["Binds"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(binds.len(), 2, "{binds:?}");
+    let (source, target) = binds[0].as_str().unwrap().split_once(':').unwrap();
+    assert_eq!(target, "/tmp/aq-target");
+    assert!(
+        binds[1]
+            .as_str()
+            .unwrap()
+            .ends_with("/p1/upper:/aq/cache/cargo")
+    );
+    let slot = std::path::Path::new(source).parent().unwrap();
+    let slot = slot.parent().unwrap();
+    assert!(
+        slot.starts_with(root.path().join(project.to_string())) && slot.ends_with(task.to_string()),
+        "{binds:?}"
+    );
+    let env = String::from_utf8(container.layer["/aq/in/env"].data.clone()).unwrap();
+    assert!(
+        env.ends_with("CARGO_TARGET_DIR=/tmp/aq-target\nCARGO_HOME=/aq/cache/cargo\n"),
+        "{env}"
+    );
+    let ledger = std::fs::read_to_string(slot.join("ledger.json")).unwrap();
+    assert!(ledger.contains("README.md"), "{ledger}");
+    let work = run.dir.path().join("work");
+    let mut copied: Vec<_> = std::fs::read_dir(&work)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    copied.sort();
+    assert_eq!(
+        copied,
+        ["README.md", "fixture-output"],
+        "only the workspace is copied back"
+    );
+}
+
+/// SBX20 for the slot, which the daemon's disk samples do not cover: an attempt
+/// whose slot is over `slot_max_bytes` is stopped like one over its transcript
+/// limit (4, work copied back) with the `sandbox_disk_limit_exceeded` claim, and
+/// the slot is deleted.
+#[tokio::test]
+async fn sandbox_driver_stops_an_attempt_whose_build_cache_slot_is_over_its_limit() {
+    use aq_handoff_note::{DISK_LIMIT, Stop, handoff_note};
+    let root = tempfile::tempdir().unwrap();
+    let (project, task) = (Uuid::from_u128(7), Uuid::from_u128(8));
+    // Even the slot's empty directories are over a one-byte limit.
+    let slot = build_cache(root.path(), project, 1).slot(project, task, "aa");
+    let run = run_driver(DONE, &[], b"", b"", |c| c.build_cache = slot).await;
+    assert_eq!(
+        run.code, 4,
+        "stopped with its work saved, not a finished turn"
+    );
+    let names = run.docker.container_names();
+    let container = run.docker.container(&names[0]).unwrap();
+    assert_eq!(container.status, "exited", "the sandbox is stopped");
+    assert!(run.dir.path().join("work/fixture-output").exists());
+    let slots: Vec<_> = (walk(root.path()).into_iter())
+        .filter(|p| p.ends_with(task.to_string()))
+        .collect();
+    assert!(slots.is_empty(), "the oversized slot is deleted: {slots:?}");
+    let note = handoff_note(Stop::BuildCacheBytes, &[], &[], &[]);
+    assert!(
+        note.starts_with(&format!("Stopped ({DISK_LIMIT}: build cache slot): ")),
+        "{note}"
+    );
+}
+fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
+    let children = std::fs::read_dir(dir).into_iter().flatten().flatten();
+    let children = children.map(|c| c.path()).filter(|p| p.is_dir());
+    children
+        .flat_map(|p| [walk(&p), vec![p]].concat())
+        .collect()
 }
 
 /// Epic 0 W1: the Codex launch path in the docker-local sandbox, against the Docker

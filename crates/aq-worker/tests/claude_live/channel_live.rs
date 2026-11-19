@@ -171,6 +171,7 @@ async fn container_calls_whoami_through_the_agent_channel() {
         transcript_bound: None,
         harness: Default::default(),
         codex_runtime_bundle: None,
+        build_cache: None,
     };
     let config_file = root.join("private/driver.json");
     std::fs::OpenOptions::new()

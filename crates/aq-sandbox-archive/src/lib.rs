@@ -1,5 +1,6 @@
 //! Bounded decoding and sanitization for files retrieved from an agent sandbox.
 
+pub mod build_cache;
 pub mod codex_runtime;
 pub mod conversation;
 pub mod pane;
@@ -9,7 +10,11 @@ pub mod workspace;
 
 use anyhow::{Result, ensure};
 use sha2::Digest as _;
-use std::{io::Read, os::unix::fs::OpenOptionsExt, path::Path};
+use std::{
+    io::{Read, Write},
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
+};
 
 /// Hex SHA-256 and size of a regular file of 1..=`max` bytes (a pinned program);
 /// symbolic links are not followed.
@@ -36,4 +41,32 @@ pub fn hash_file(path: &Path, max: u64) -> Result<(String, u64)> {
         hash.update(&scratch[..n]);
     }
     Ok((format!("{:x}", hash.finalize()), total))
+}
+
+/// A new 0600 file, synced; never through an existing path or link.
+pub fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    Ok(())
+}
+/// Deletes the private token file unless the driver was started (it then owns
+/// the file and deletes it after reading).
+pub struct TokenGuard(pub Option<PathBuf>);
+impl TokenGuard {
+    pub fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+impl Drop for TokenGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }

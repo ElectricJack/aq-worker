@@ -83,6 +83,9 @@ pub struct DockerLocalConfig {
     /// else) it is mounted at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript: Option<(PathBuf, String)>,
+    /// The attempt's build-cache binds; set by the driver, never read from a file.
+    #[serde(skip)]
+    pub cache_binds: Vec<String>,
 }
 
 fn default_material_path() -> String {
@@ -129,6 +132,7 @@ impl DockerLocalConfig {
             hard_disk_limit: false,
             channel_root: None,
             transcript: None,
+            cache_binds: Vec::new(),
         }
     }
 

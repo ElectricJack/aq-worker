@@ -161,7 +161,7 @@ pub fn create_body(
             "NetworkMode": "bridge",
             "PortBindings": {},
             "PublishAllPorts": false,
-            "Binds": [],
+            "Binds": config.cache_binds,
             "Mounts": mounts,
             "IpcMode": "private",
             "RestartPolicy": { "Name": "no" },

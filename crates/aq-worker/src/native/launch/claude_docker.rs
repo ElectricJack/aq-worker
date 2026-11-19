@@ -15,8 +15,7 @@ use aq_session_host::{
 use aq_session_protocol::{ArtifactRef, Validate};
 use serde::{Deserialize, Serialize};
 use std::{
-    io::Write,
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+    os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
 };
 
@@ -44,6 +43,9 @@ pub struct ClaudeDockerHostConfig {
     /// launch. Only an explicit `"disabled"` runs agents with no path back.
     #[serde(default, skip_serializing_if = "ChannelMode::is_required")]
     pub agent_channel: ChannelMode,
+    /// Per-project warm build caches (`aq_sandbox_archive::build_cache`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache: Option<aq_sandbox_archive::build_cache::BuildCacheConfig>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -284,38 +286,7 @@ impl ObservedHarnessAdapter for Adapter {
         })
     }
 }
-fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)?;
-    f.write_all(bytes)?;
-    f.sync_all()?;
-    Ok(())
-}
-/// Deletes the private token file unless the driver was started (it then owns
-/// the file and deletes it after reading).
-struct TokenGuard(Option<PathBuf>);
-impl TokenGuard {
-    fn disarm(&mut self) {
-        self.0 = None;
-    }
-}
-impl Drop for TokenGuard {
-    fn drop(&mut self) {
-        if let Some(path) = self.0.take() {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-}
-fn wall_ms() -> Result<u64> {
-    Ok(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_millis()
-        .try_into()?)
-}
+use aq_sandbox_archive::{TokenGuard, private_write};
 /// What one harness puts into the driver: its private login material and the
 /// in-sandbox command.
 struct HarnessLaunch {
@@ -549,7 +520,7 @@ pub(super) fn bootstrap(
     };
     let now = boot_ns()?;
     let hard = scope.deadline.min(scope.hard);
-    let deadline_ms = wall_ms()?
+    let deadline_ms = aq_handoff_note::now_ms()
         .checked_add(hard.saturating_sub(now) / 1_000_000)
         .context("sandbox deadline overflow")?;
     let mut docker_local = profile.config.docker_local.clone();
@@ -610,6 +581,13 @@ pub(super) fn bootstrap(
         transcript_bound: profile.transcript_bound,
         harness: launch.harness,
         codex_runtime_bundle: launch.codex_runtime_bundle,
+        build_cache: (profile.config.build_cache.as_ref()).and_then(|c| {
+            c.slot(
+                m.bindings.project_id,
+                m.bindings.task_id,
+                profile.config.template.as_str(),
+            )
+        }),
     };
     let driver_file = private.join("driver.json");
     private_write(&driver_file, &serde_json::to_vec(&driver)?)?;
