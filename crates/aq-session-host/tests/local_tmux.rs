@@ -861,7 +861,7 @@ fn an_ordinary_viewer_paints_and_types_without_resizing_the_host() {
         .stdout
     };
     assert_eq!(
-        tmux(&host, &["show-options", "-v", "-t", "aq", "prefix"]).stdout,
+        tmux(&host, &["show-options", "-gv", "prefix"]).stdout,
         b"None\n"
     );
     assert_eq!(width(&host), b"80\n");

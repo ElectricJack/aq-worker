@@ -269,11 +269,6 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     // Input on an attached viewer is for the pane. Disabling
                     // the prefix keeps the tmux command prompt out of that path.
                     tmux(&config, dir, &["set-option", "-g", "prefix", "None"])?;
-                    tmux(
-                        &config,
-                        dir,
-                        &["set-window-option", "-g", "window-size", "manual"],
-                    )?;
                     let columns = config
                         .observed
                         .as_ref()
@@ -284,6 +279,13 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     arguments.extend(["-x", &columns, "-y", &rows]);
                     arguments.extend(["--", helper, "pane", launch_dir]);
                     tmux(&config, dir, &arguments)?;
+                    // After the session exists: tmux 3.4's server exits on `new-session` when
+                    // `window-size manual` is set globally before the first session.
+                    tmux(
+                        &config,
+                        dir,
+                        &["set-window-option", "-t", "aq", "window-size", "manual"],
+                    )?;
                     fault_point(dir, "pane-created")?;
                     let (server_pid, pane_pid, dead, pane_id) = pane_status(&config, dir)?;
                     ensure!(
