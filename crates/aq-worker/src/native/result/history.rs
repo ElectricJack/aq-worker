@@ -140,6 +140,34 @@ pub struct SourceHistory {
     pub transfer: Option<TransferManifest>,
     pub upload: Option<UploadState>,
     pub receipt: Option<CentralRetentionReceipt>,
+    /// What the push to central aq-git did (`delivery_playbook`): the branch
+    /// ref is the record of the result, no retention receipt.
+    #[cfg(feature = "delivery_playbook")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pushed: Option<aq_node_git::Pushed>,
+}
+impl SourceHistory {
+    /// What the report names as the result's source.
+    pub fn receipt_ids(&self) -> Result<Vec<Uuid>> {
+        #[cfg(feature = "delivery_playbook")]
+        if self.pushed.is_some() {
+            return Ok(vec![]);
+        }
+        let retained = self.receipt.as_ref();
+        Ok(vec![
+            retained
+                .context("central source retention required")?
+                .receipt_id,
+        ])
+    }
+    /// The result request's headers for the push (S6); none when nothing was pushed.
+    pub fn pushed_headers(&self) -> Vec<(&'static str, String)> {
+        #[cfg(feature = "delivery_playbook")]
+        if let Some(pushed) = &self.pushed {
+            return aq_node_git::transport::result_headers(pushed);
+        }
+        vec![]
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -267,11 +295,7 @@ impl ResultHistory {
                 .stop
                 .as_ref()
                 .context("result report without actual stop")?;
-            let source = self
-                .source
-                .receipt
-                .as_ref()
-                .context("result report without source retention")?;
+            let receipts = self.source.receipt_ids()?;
             result_record::validate_report(&report.request)?;
             ensure!(
                 report.bytes == serde_json::to_vec(&report.request)?
@@ -282,7 +306,7 @@ impl ResultHistory {
                     && report.request.binding == s.binding.launch
                     && report.request.supersedes.is_none()
                     && report.request.conclusion.as_str() == claim.conclusion.as_str()
-                    && report.request.source_receipt_ids == vec![source.receipt_id]
+                    && report.request.source_receipt_ids == receipts
                     && serde_json::to_value(report.request.outcome)?
                         == serde_json::to_value(stop.outcome)?
                     && report.recorded_revision > stop.recorded_revision,

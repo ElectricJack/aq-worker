@@ -139,6 +139,12 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
     // The startup context tells the agent to run the AQ result client; inside
     // the sandbox the node driver submits the claim from the final message.
     let mut prompt = prompt.to_vec();
+    #[cfg(feature = "delivery_playbook")]
+    prompt.extend(
+        aq_node_git::conflict_note(&config.workspace)
+            .unwrap_or_default()
+            .bytes(),
+    );
     prompt.extend_from_slice(RUNNER_NOTE.as_bytes());
     if config.agent_channel {
         prompt.extend_from_slice(CHANNEL_NOTE.as_bytes());

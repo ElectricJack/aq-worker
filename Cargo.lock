@@ -234,6 +234,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "aq-node-git"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "fs2",
+ "futures-util",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "aq-node-service"
 version = "0.1.0"
 dependencies = [
@@ -497,6 +514,7 @@ dependencies = [
  "aq-handoff-note",
  "aq-lifecycle-protocol",
  "aq-machine-load",
+ "aq-node-git",
  "aq-node-service",
  "aq-observation",
  "aq-observation-admission",

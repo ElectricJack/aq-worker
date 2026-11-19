@@ -69,6 +69,10 @@ def prepare(package, work, origin, socket, config, digest):
     # each slot's own: the state directory must exist, be private to this user (0700) and
     # contain the git root. `configure` creates it.
     template.update(state_dir=str(config / "state"), git_root=str(config / "state/git"), git_socket=str(config / "git.sock"))
+    # Only a delivery_playbook build's template has node_git (its worker refuses the key
+    # otherwise). One repository per project for the whole profile, shared by every slot.
+    if "node_git" in template:
+        template["node_git"]["repositories"] = str(config / "state/node-git")
     for name in ("adapter.json", "composite.json", "inventory.json"):
         (package / name).chmod(0o600)  # the worker reads its definitions only as private files
     native = json.dumps(template, indent=2) + "\n"

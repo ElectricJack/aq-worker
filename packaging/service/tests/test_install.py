@@ -1021,3 +1021,31 @@ def test_hosted_install_node_count_preserves_each_enrollment(tmp_path, key):
     assert tomllib.loads((tmp_path / "service.toml").read_text()) == {key: 2}
     for node in (1, 2):
         assert (tmp_path / f"slots/{node}/worker.toml").read_text() == f"credential = 'node-{node}'\n"
+
+
+def test_a_node_git_section_gets_one_repository_directory_per_profile(tmp_path, monkeypatch):
+    """Spec 0016 §5.3: a delivery_playbook template keeps node_git and gets the profile's
+    node-wide repository directory; a template without it gets none."""
+    spec = importlib.util.spec_from_file_location("worker_install_config", SCRIPT.with_name("worker-install-config.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    for node_git in (None, {"repositories": "/bundle/node_git", "git": "/usr/bin/git"}):
+        root = tmp_path / ("with" if node_git else "without")
+        package, work, config = (root / name for name in ("package", "work", "config"))
+        for directory in (package, work, config):
+            directory.mkdir(parents=True)
+        for name in ("adapter.json", "composite.json", "inventory.json"):
+            (package / name).write_text("{}")
+        native = {"executor": {"settings": {"host": {
+            "docker_local": {"templates": [{"image": "registry.example/aq/sandbox"}]}, "helper": {}, "tmux": {},
+        }}}}
+        if node_git:
+            native["node_git"] = dict(node_git)
+        (package / "native.json").write_text(json.dumps(native))
+        module.prepare(package, work, "https://worker.example", tmp_path / "podman.sock", config, "a" * 64)
+        written = json.loads((work / "native.json").read_text())
+        if node_git:
+            assert written["node_git"] == {"repositories": str(config / "state/node-git"), "git": "/usr/bin/git"}
+        else:
+            assert "node_git" not in written
