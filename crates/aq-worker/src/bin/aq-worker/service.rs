@@ -216,7 +216,14 @@ fn start_node_observations(
             }
             continue;
         }
-        if let Some(service) = start_observations(config, &worker, session.boot_id) {
+        // Off the async runtime: a failed start drops a blocking HTTP client, which panics there.
+        let service = std::thread::scope(|s| {
+            s.spawn(|| start_observations(config, &worker, session.boot_id))
+                .join()
+                .ok()
+                .flatten()
+        });
+        if let Some(service) = service {
             registrars.insert(node, service.observations());
             started.push(service);
         }

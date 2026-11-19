@@ -129,25 +129,9 @@ impl Owner {
             "observed gate authority expired"
         );
         if self.released {
+            let pane = &self.ready.as_ref().context("released pane missing")?.pane;
             let helper = self.helper.as_ref().context("released helper missing")?;
-            if helper.hung_up()? {
-                exec::live_pane(&self.ready.as_ref().context("released pane missing")?.pane)?;
-                exec::observed_image(
-                    &self
-                        .ready
-                        .as_ref()
-                        .context("released identity missing")?
-                        .pane
-                        .pane,
-                    &spec.program,
-                )?;
-                return Ok(true);
-            }
-            ensure!(
-                helper.receive()?.is_none(),
-                "unexpected released helper packet"
-            );
-            return Ok(false);
+            return released(helper, pane, &spec.program);
         }
         if self.pending.is_none() {
             self.pending = self.listener.accept()?;
@@ -311,6 +295,27 @@ impl Owner {
             );
         }
         Ok(false)
+    }
+}
+/// `Ok(true)` only on helper hang-up plus exec evidence for the sealed image.
+fn released(helper: &Socket, pane: &PaneIdentity, program: &ElfIdentity) -> Result<bool> {
+    if helper.hung_up()? {
+        exec::live_pane(pane)?;
+        exec::observed_image(&pane.pane, program)?;
+        return Ok(true);
+    }
+    released_read(helper)?;
+    Ok(false)
+}
+/// Exec can close the helper's CLOEXEC socket after the hang-up poll; that EOF
+/// defers to the next tick's exec evidence. Any packet still fails closed.
+fn released_read(helper: &Socket) -> Result<()> {
+    match helper.receive_or_eof()? {
+        None => Ok(()),
+        Some(packet) if packet.bytes.is_empty() && packet.fd.is_none() && helper.hung_up()? => {
+            Ok(())
+        }
+        Some(_) => bail!("unexpected released helper packet"),
     }
 }
 fn verify_closed(
@@ -542,5 +547,66 @@ pub(crate) fn wait_closed(
             );
         }
         std::thread::sleep(Duration::from_millis(5));
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::fd::{FromRawFd, OwnedFd};
+    fn pair() -> (Socket, Socket) {
+        let mut fds = [0; 2];
+        let flags = libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK;
+        assert_eq!(
+            unsafe { libc::socketpair(libc::AF_UNIX, flags, 0, fds.as_mut_ptr()) },
+            0
+        );
+        unsafe {
+            (
+                Socket(OwnedFd::from_raw_fd(fds[0])),
+                Socket(OwnedFd::from_raw_fd(fds[1])),
+            )
+        }
+    }
+    #[test]
+    fn released_helper_closing_after_the_hang_up_poll_defers_to_exec_evidence() {
+        let process = ownership::process_evidence(std::process::id()).unwrap();
+        let pane = PaneIdentity {
+            server: process.clone(),
+            pane: process,
+            pane_id: "%0".into(),
+            session_name: "aq".into(),
+        };
+        let exe = std::fs::metadata("/proc/self/exe").unwrap();
+        let mut image = ElfIdentity {
+            artifact: ArtifactRef {
+                id: aq_session_protocol::Text::new("synthetic").unwrap(),
+                version: aq_session_protocol::Text::new("1").unwrap(),
+                digest: Digest::of(b"synthetic"),
+            },
+            bytes: 128,
+            device: exe.dev(),
+            inode: exe.ino() + 1,
+            profile: None,
+        };
+        // The helper's exec closes its end between the guardian's poll and its read.
+        let (guardian, helper) = pair();
+        assert!(!guardian.hung_up().unwrap());
+        drop(helper);
+        assert!(guardian.receive().is_err(), "the strict read refuses EOF");
+        released_read(&guardian).unwrap();
+        // The next tick still fails closed without exec evidence for the sealed image.
+        assert!(released(&guardian, &pane, &image).is_err());
+        image.inode = exe.ino();
+        assert!(released(&guardian, &pane, &image).unwrap());
+        // A live helper sending anything after release fails closed, even an empty packet.
+        let (guardian, helper) = pair();
+        assert!(!released(&guardian, &pane, &image).unwrap());
+        assert_eq!(
+            unsafe { libc::send(helper.raw(), std::ptr::null(), 0, 0) },
+            0
+        );
+        assert!(released_read(&guardian).is_err());
+        helper.send(&Response::Released, None).unwrap();
+        assert!(released_read(&guardian).is_err());
     }
 }
