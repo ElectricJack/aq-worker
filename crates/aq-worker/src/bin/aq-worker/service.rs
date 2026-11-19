@@ -191,6 +191,38 @@ fn start_observations(
         .inspect_err(|e| tracing::error!(%node, "node observations not started: {e:#}"))
         .ok()
 }
+/// Starts the observation service of every enrolled node this service runs. A retired node
+/// (an enrolled node above `nodes`) never registers this boot, so the server refuses its
+/// Prepare forever: its retained observation data is left untouched, nothing is sent for it,
+/// and one line per boot says so.
+fn start_node_observations(
+    config: &ServiceConfig,
+    nodes: Vec<(WorkerConfig, Arc<NodeSession>)>,
+) -> (
+    Vec<ObservationNode>,
+    std::collections::BTreeMap<Uuid, Observations>,
+) {
+    let (mut started, mut registrars) = (Vec::new(), std::collections::BTreeMap::new());
+    for (worker, session) in nodes {
+        let node = worker.node_id;
+        if session.retired() {
+            let retained = config
+                .state_root
+                .join("observations")
+                .join(node.to_string());
+            if retained.exists() {
+                tracing::info!(%node, nodes = config.nodes, retained = %retained.display(),
+                    "node observations not run: node is not run by this service; its retained observation data is left in place and not retried");
+            }
+            continue;
+        }
+        if let Some(service) = start_observations(config, &worker, session.boot_id) {
+            registrars.insert(node, service.observations());
+            started.push(service);
+        }
+    }
+    (started, registrars)
+}
 impl NativeSlotBackend {
     pub fn new(template: PathBuf) -> Self {
         Self {
@@ -1276,20 +1308,14 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
         max_files: config.observations.transcript_max_files,
     });
     // One observation service per node, for the life of this process (its boot).
-    let mut observation_nodes = Vec::new();
+    let mut enrolled = Vec::new();
     for (_, view, _) in &node_views {
         let worker = WorkerConfig::load(&view.slot_enrollment(1))?;
-        let session = &sessions[&worker.node_id];
-        // A retired node never registers this boot, so the server refuses its Prepare forever.
-        if session.retired() {
-            continue;
-        }
-        let boot_id = session.boot_id;
-        if let Some(node) = start_observations(&config, &worker, boot_id) {
-            (native_backend.observations).insert(worker.node_id, node.observations());
-            observation_nodes.push(node);
-        }
+        let session = sessions[&worker.node_id].clone();
+        enrolled.push((worker, session));
     }
+    let (observation_nodes, observations) = start_node_observations(&config, enrolled);
+    native_backend.observations = observations;
     native_backend.sessions = sessions;
     let backend = Arc::new(native_backend);
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
@@ -1662,6 +1688,87 @@ mod tests {
         assert!(!staged(&p.layout.slot_enrollment(2)).exists());
         assert!(!pending_enrollment(&p.layout).exists() && p.layout.service_toml().exists());
         assert_eq!(count(&server.enrolls), 0, "no code was redeemed");
+    }
+
+    /// A node this service does not run (an enrolled node above `nodes`) has its retained
+    /// observation intent left in place and gets no request; a node it runs is observed.
+    #[test]
+    fn retained_intents_of_nodes_not_run_send_no_requests() {
+        use axum::{http::HeaderMap, http::StatusCode, routing::any};
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let log = seen.clone();
+        let app = axum::Router::new().fallback(any(move |h: HeaderMap| {
+            let log = log.clone();
+            async move {
+                let bearer = h.get("authorization").and_then(|v| v.to_str().ok());
+                log.lock()
+                    .unwrap()
+                    .push(bearer.unwrap_or_default().to_owned());
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+        }));
+        // The observation peer is blocking, so it is built outside any async context.
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let listener = runtime
+            .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+            .unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        runtime.spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let dir = tempfile::tempdir().unwrap();
+        let config = ServiceConfig::parse(&format!(
+            "schema_version = 1\nprofile = \"local\"\nmachine_key = \"desk\"\nnodes = 1\n\
+             native_template = \"/n.json\"\nstate_root = \"{}\"\n\
+             [aq_git]\nbinary = \"/g\"\ngit_executable = \"/usr/bin/git\"\n",
+            dir.path().display()
+        ))
+        .unwrap();
+        let worker = |n: u128, credential: &str| WorkerConfig {
+            server_url: origin.clone(),
+            node_id: Uuid::from_u128(n),
+            credential: credential.into(),
+            cf_client_id: None,
+            cf_client_secret: None,
+        };
+        let (live, retired) = (worker(1, "aqn_live"), worker(2, "aqn_retired"));
+        let intent = (dir.path().join("observations")).join(retired.node_id.to_string());
+        std::fs::create_dir_all(&intent).unwrap();
+        std::fs::write(intent.join("intent.json"), b"{}").unwrap();
+        let retired_session = Arc::new(NodeSession::pending());
+        retired_session.retire();
+        let (started, registrars) = start_node_observations(
+            &config,
+            vec![
+                (live.clone(), Arc::new(NodeSession::pending())),
+                (retired.clone(), retired_session),
+            ],
+        );
+        assert_eq!(started.len(), 1);
+        assert_eq!(
+            registrars.keys().copied().collect::<Vec<_>>(),
+            [live.node_id]
+        );
+        // The live node's own requests reach the server, so silence for the retired one means
+        // nothing was sent for it.
+        let sent = |bearer: &str| {
+            let wanted = format!("Bearer {bearer}");
+            seen.lock()
+                .unwrap()
+                .iter()
+                .filter(|b| **b == wanted)
+                .count()
+        };
+        for _ in 0..250 {
+            if sent("aqn_live") > 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(sent("aqn_live") > 0, "the live node is observed");
+        for node in started {
+            node.shutdown();
+        }
+        assert_eq!(sent("aqn_retired"), 0);
+        assert_eq!(std::fs::read(intent.join("intent.json")).unwrap(), b"{}");
     }
 
     /// Round 2, E: an Access refusal at a resumed claim says so, and --reconfigure on the
@@ -2338,7 +2445,7 @@ mod tests {
         let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, stop));
         // The 500 and the edge 403 are behind it: the third heartbeat was accepted, node still up.
         while beats.load(SeqCst) < 3 {
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            std::thread::sleep(std::time::Duration::from_millis(20));
         }
         assert!(
             !*stopped.borrow(),
