@@ -138,3 +138,32 @@ fn native_commands_report_worker_config_context_without_private_toml() {
         "invalid TOML configuration (input redacted)",
     );
 }
+
+#[test]
+fn native_commands_name_file_and_property_when_private_file_check_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = dir.path().join("worker.toml");
+    WorkerConfig {
+        server_url: "https://example.invalid".into(),
+        node_id: Uuid::from_u128(1),
+        credential: "private-node-token".into(),
+        cf_client_id: None,
+        cf_client_secret: None,
+    }
+    .save(&worker)
+    .unwrap();
+    let native = dir.path().join("native.json");
+    // File contents must never reach the diagnostics.
+    let body = br#"{"private-cf-secret": "private-cf-id"}"#;
+    write_private(&native, body);
+    std::fs::set_permissions(&native, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let wrong_mode = format!(
+        "native config {}: mode 0644, 0600 is required",
+        native.display()
+    );
+    assert_refusal(&worker, &native, &wrong_mode);
+
+    write_private(&native, &vec![b' '; 65537]);
+    let oversize = format!("native config {}: size 65537, max 65536", native.display());
+    assert_refusal(&worker, &native, &oversize);
+}

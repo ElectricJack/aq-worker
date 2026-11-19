@@ -141,14 +141,14 @@ pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
         .open(path)?;
     let before = file.metadata()?;
-    ensure!(
-        before.is_file()
-            && before.uid() == unsafe { libc::geteuid() }
-            && before.mode() & 0o7777 == 0o600
-            && before.len() > 0
-            && before.len() <= maximum as u64,
-        "native configuration owner/mode/size"
-    );
+    let why = match (before.mode() & 0o7777, before.len()) {
+        _ if !before.is_file() => "not a regular file".into(),
+        _ if before.uid() != unsafe { libc::geteuid() } => "not owned by you".into(),
+        (mode, _) if mode != 0o600 => format!("mode {mode:04o}, 0600 is required"),
+        (_, len) if !(1..=maximum as u64).contains(&len) => format!("size {len}, max {maximum}"),
+        _ => String::new(),
+    };
+    ensure!(why.is_empty(), "native config {}: {why}", path.display());
     let mut bytes = Vec::new();
     (&file).take(maximum as u64 + 1).read_to_end(&mut bytes)?;
     let after = file.metadata()?;
