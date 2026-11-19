@@ -191,6 +191,18 @@ fn start_observations(
         .inspect_err(|e| tracing::error!(%node, "node observations not started: {e:#}"))
         .ok()
 }
+/// Runs `f` on a scoped std thread, which is outside the async runtime: a blocking HTTP client
+/// panics when built or dropped on a runtime thread. `None` when `f` panicked.
+fn off_runtime<T: Send>(f: impl FnOnce() -> T + Send) -> Option<T> {
+    std::thread::scope(|s| s.spawn(f).join().ok())
+}
+/// Stops each node's observation service and drops it (and its blocking HTTP client) off the
+/// async runtime. Each `shutdown` waits for its thread, at most one server call.
+fn stop_observations(nodes: Vec<ObservationNode>) {
+    if off_runtime(move || nodes.into_iter().for_each(ObservationNode::shutdown)).is_none() {
+        tracing::error!("node observations shutdown panicked");
+    }
+}
 /// Starts the observation service of every enrolled node this service runs. A retired node
 /// (an enrolled node above `nodes`) never registers this boot, so the server refuses its
 /// Prepare forever: its retained observation data is left untouched, nothing is sent for it,
@@ -1377,7 +1389,7 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
             ),
         }
     }
-    drop(observation_nodes);
+    stop_observations(observation_nodes);
     watcher.abort();
     if let Some(machine) = machine {
         machine.abort();
@@ -1389,6 +1401,38 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Starts, then stops, an observation node from inside a runtime worker thread, the way the
+    /// service does: its blocking HTTP client is never built or dropped on the runtime.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn observation_nodes_stop_inside_a_runtime_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let ms = std::time::Duration::from_millis;
+        let id = Uuid::from_u128(7);
+        let start = |directory: PathBuf| {
+            let peer = HttpOwnerPeer::for_node("http://127.0.0.1:9", id, "aqn_test", &[], ms(100))?;
+            let limits = NodeLimits {
+                store_file_bytes: 1 << 20,
+                store_data_bytes: 1 << 20,
+                store_cache_bytes: 1 << 16,
+                tracked_identities: 16,
+                max_sources: 1,
+                resume_grace: ms(10),
+                discovery_entries: 16,
+                poll: ms(10),
+                retry_start: ms(10),
+                retry_max: ms(20),
+                finish_drain: ms(10),
+            };
+            ObservationNode::start(&directory, id, Uuid::from_u128(8), limits, peer, |_| {})
+        };
+        let node = off_runtime(|| start(dir.path().join("obs")).unwrap()).unwrap();
+        stop_observations(vec![node]);
+        // A node that is only dropped is stopped too.
+        assert_eq!(
+            off_runtime(|| start(dir.path().join("obs")).is_ok()),
+            Some(true)
+        );
+    }
     fn slot_ctx(dir: &Path) -> SlotContext {
         SlotContext {
             slot: 1,
