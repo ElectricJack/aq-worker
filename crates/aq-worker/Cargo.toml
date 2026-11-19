@@ -57,6 +57,8 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 async-trait = "0.1"
 
+aq-node-git = { path = "../aq-node-git", optional = true }
+
 [dev-dependencies]
 # Lets plain `cargo test` integration tests reach backend::conformance.
 aq-worker = { path = ".", features = ["backend-conformance", "synthetic-runtime"] }
@@ -68,6 +70,8 @@ aq-observation-admission = { path = "../../vendor/aq-observation-admission-0.1.0
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
+# Epic 0 (aq-server spec 0016): results by git push to central aq-git. Unfinished; off by default.
+delivery_playbook = ["dep:aq-node-git"]
 # Historical M2/M3 synthetic execution harness; never enabled by production builds.
 synthetic-runtime = []
 backend-conformance = ["aq-responses-transport/test-support"]

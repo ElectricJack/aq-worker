@@ -1,0 +1,18 @@
+[package]
+name = "aq-node-git"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "A node's per-project git repository and per-attempt worktrees, fetched from and pushed to central aq-git (spec 0016 §5.3)"
+
+[dependencies]
+anyhow.workspace = true
+fs2.workspace = true
+libc.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+futures-util = "0.3"
+tempfile.workspace = true
+tokio.workspace = true
