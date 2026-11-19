@@ -217,14 +217,14 @@ mod tests {
         std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert_eq!(available(&config), ["anthropic"]);
         // Codex is offered once it is installed: no login file is configured on the
-        // node, and one written by an older installer is accepted and never read.
-        let codex = format!(
-            "{manual}[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\nauth_file = \"/nonexistent/auth.json\"\n"
-        );
+        // node, and the removed `auth_file` key is refused like any unknown key.
+        let codex = format!("{manual}[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\n");
         let config = ServiceConfig::parse(&codex).unwrap();
         config.validate().unwrap();
         assert_eq!(available(&config), ["anthropic", "openai"]);
-        assert!(!toml::to_string(&config).unwrap().contains("auth_file"));
+        let old = format!("{codex}auth_file = \"/home/owner/.codex/auth.json\"\n");
+        let refused = ServiceConfig::parse(&old).unwrap_err().to_string();
+        assert!(refused.contains("unknown field `auth_file`"), "{refused}");
         let without_manual = ServiceConfig::parse(base).unwrap();
         assert!(available(&without_manual).is_empty());
     }

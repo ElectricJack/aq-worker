@@ -95,8 +95,11 @@ impl std::fmt::Display for LoginRefused {
 }
 impl std::error::Error for LoginRefused {}
 const CODEX_AUTH: &str = "/aq/home/.codex/auth.json";
-// Replaced by rename: Codex reads the file by path and never sees a part of it.
-const INSTALL_AUTH: &str = "umask 077; cat > /aq/home/.codex/auth.json.aq && mv -f /aq/home/.codex/auth.json.aq /aq/home/.codex/auth.json";
+// Under Codex's own write lock (an exclusive flock on `auth.lock`, which Codex holds across
+// its read, refresh and write: codex-rs `login/src/auth/storage.rs` `lock_for_write`), so a
+// refresh in flight cannot write over the installed login. Replaced by rename: Codex reads
+// the file by path and never sees a part of it.
+const INSTALL_AUTH: &str = "umask 077; d=/aq/home/.codex; exec 9>>\"$d/auth.lock\" && flock 9 && cat > \"$d/auth.json.aq\" && mv -f \"$d/auth.json.aq\" \"$d/auth.json\"";
 /// Keeps a Codex session's login and the server's login store (the one source of truth)
 /// in step. A login Codex refreshed in the sandbox (the same account, refreshed later) is
 /// written back as the next stored version. A newer stored version (ours was superseded,
@@ -868,6 +871,13 @@ mod tests {
             source(&json!({"source":{"kind":"named_ref","reference":"refs/heads/main:evil"}}))
                 .is_err()
         );
+        // The install script is valid shell and takes Codex's lock before it writes.
+        let checked = std::process::Command::new("sh")
+            .args(["-n", "-c", INSTALL_AUTH])
+            .status();
+        assert!(checked.unwrap().success());
+        let (lock, write) = (INSTALL_AUTH.find("flock 9"), INSTALL_AUTH.find("cat >"));
+        assert!(lock.is_some() && lock < write);
         assert!(valid_slug("ElectricJack/aq-server"));
         assert!(!valid_slug("../aq-server"));
         assert!(!valid_slug("https://evil/repo"));

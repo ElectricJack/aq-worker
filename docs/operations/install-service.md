@@ -327,9 +327,9 @@ once more when it stops; a newer stored version is installed into the running
 sandbox, where Codex picks it up. The owner puts their current login into the
 store with `aq-server import-login` on the server host. How old a stored login
 may be when it is leased is the owner's Setting (Settings → Providers); the
-server refuses an older one and the agent shows the reason. A `service.toml`
-that still names `[manual.codex] auth_file` loads; the key is ignored and no
-login file is read.
+server refuses an older one and the agent shows the reason. `[manual.codex]
+auth_file` no longer exists: remove the key from an older `service.toml`, or the
+worker refuses the file (`unknown field `auth_file``).
 
 Before reporting success, the hosted installer checks the daemon's rootless
 cgroup-v2 setup and runs a disposable container with the agent's bridge network,
