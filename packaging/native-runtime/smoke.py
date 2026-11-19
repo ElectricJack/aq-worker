@@ -12,7 +12,7 @@ import tempfile
 
 IMAGE = Path('/opt/aq-runtime')
 METADATA = Path('/usr/share/agent-q')
-PROGRAMS = ('aq-worker', 'aq-session-host', 'aq-agent', 'aq-git', 'codex', 'tmux')
+PROGRAMS = ('aq-worker', 'aq-agent', 'aq-git', 'codex', 'tmux')
 CODEX_COMPANIONS = ('codex-code-mode-host', 'codex-path/rg', 'codex-resources/bwrap')
 
 
@@ -117,9 +117,9 @@ def smoke():
             command([str(IMAGE / 'aq-worker'), subcommand, '--help'], env, '--native-config')
         for subcommand in ('submit', 'status'):
             command([str(IMAGE / 'aq-agent'), 'result', subcommand, '--help'], env, subcommand)
-        # Host deliberately has no public version CLI. Check loader/entrypoint and
-        # retain its exact source/package version and ELF hash in the manifests.
-        command([str(IMAGE / 'aq-session-host')], env, 'helper needs mode and launch directory', code=1)
+        # The session host is the worker executable itself and has no public version CLI.
+        # Check that its entrypoint is reachable.
+        command([str(IMAGE / 'aq-worker'), 'session-host'], env, 'helper needs mode and launch directory', code=1)
         command([str(IMAGE / 'codex'), '--help'], env, 'Codex CLI')
         command([str(IMAGE / 'codex-code-mode-host'), '--help'], env, '--listen')
         command([str(IMAGE / 'codex-path/rg'), '--version'], env, 'ripgrep')

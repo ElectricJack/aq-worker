@@ -44,7 +44,6 @@ def bundle():
     return {'schema_version': 1, 'platform': 'linux/amd64',
             'source': {'revision': 'a' * 40, 'archive_sha256': 'b' * 64},
             'runner': artifact('aq-worker', '0.5.1', 'bin/aq-worker'),
-            'session_host': artifact('aq-session-host', '0.1.5', 'bin/aq-session-host'),
             'aq_git': artifact('aq-git', '0.2.0', 'bin/aq-git'),
             'node': artifact('node', '22.16.0', 'node/bin/node'),
             'harnesses': [artifact('codex', '0.166.0', 'harnesses/codex/codex')],

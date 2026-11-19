@@ -24,7 +24,7 @@ const AGENT: AgentIdentity = AgentIdentity {
 };
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    if matches!(args.get(1).map(String::as_str), Some("guardian" | "pane")) {
+    if args.get(1).map(String::as_str) == Some(aq_session_host::HELPER_SUBCOMMAND) {
         return helper_main();
     }
     if args.get(1).is_some_and(|s| s == "agent-probe") {

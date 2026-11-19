@@ -11,8 +11,8 @@ ENV CARGO_BUILD_JOBS=2
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/worker/target,sharing=locked \
     find crates vendor protocol packaging -type f -exec touch {} + \
-    && cargo build --locked --release -p aq-worker --bin aq-worker -p aq-session-host --bin aq-session-host \
-    && mkdir /out && cp target/release/aq-worker target/release/aq-session-host /out/
+    && cargo build --locked --release -p aq-worker --bin aq-worker \
+    && mkdir /out && cp target/release/aq-worker /out/
 
 FROM @@BUILDER@@ AS bundle
 COPY snapshot.sources /etc/apt/sources.list.d/debian.sources

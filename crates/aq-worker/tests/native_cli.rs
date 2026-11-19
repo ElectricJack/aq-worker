@@ -138,3 +138,37 @@ fn native_commands_report_worker_config_context_without_private_toml() {
         "invalid TOML configuration (input redacted)",
     );
 }
+
+/// The session host runs from the worker's own executable: `aq-worker session-host <mode>
+/// <launch directory>` is dispatched before the worker's own command line is parsed.
+#[test]
+fn the_worker_executable_is_the_session_host() {
+    let run = |args: &[&Path]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_aq-worker"))
+            .arg("session-host")
+            .args(args)
+            .env_clear()
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        String::from_utf8(output.stderr).unwrap()
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let missing = run(&[]);
+    assert!(
+        missing.contains("helper needs mode and launch directory"),
+        "{missing}"
+    );
+    let unknown = run(&[Path::new("unknown"), directory.path()]);
+    assert!(unknown.contains("unknown helper mode"), "{unknown}");
+    // A known mode reaches the guardian, which finds no sealed launch in an empty directory.
+    for mode in ["guardian", "pane"] {
+        let refused = run(&[Path::new(mode), directory.path()]);
+        assert!(
+            refused.starts_with("aq-worker session-host: ")
+                && !refused.contains("unknown helper mode")
+                && !refused.contains("unrecognized"),
+            "{mode}: {refused}"
+        );
+    }
+}

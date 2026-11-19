@@ -7,8 +7,8 @@ signature-verified Debian snapshot fixes the OS dependency inputs. Scheduled
 security updates advance the snapshot/base pins and rebuild the OS explicitly.
 
 `aq-sandbox-runtime` is a scratch transport image containing only `/opt/aq`.
-It has no entrypoint and cannot execute by itself. It carries `aq-worker`, its
-`aq-session-host` dependency, published aq-git 0.2.0, the qualified Codex 0.166.0
+It has no entrypoint and cannot execute by itself. It carries `aq-worker` (which is also the session host:
+`aq-worker session-host`), published aq-git 0.2.0, the qualified Codex 0.166.0
 native executable, the Claude Code 2.1.318 native executable, the OpenCode 1.18.35 native
 executable, a private
 Node 22.16.0 distribution and `/opt/aq/bin/aq`, the v2 CLI the sandboxed agent
@@ -93,7 +93,7 @@ revision. Output directories must be fresh; corrupt inputs leave no context.
 
 ## Installed interface
 
-- `/opt/aq/bin/{aq,aq-worker,aq-session-host,aq-git,codex,claude,opencode,gemini}`
+- `/opt/aq/bin/{aq,aq-worker,aq-git,codex,claude,opencode,gemini}`
 - `/opt/aq/bin/aq-agent` (a deprecated wrapper: `exec /opt/aq/bin/aq "$@"`)
 - `/opt/aq/harnesses/codex/codex` (the native executable; `bin/codex` selects it)
 - `/opt/aq/harnesses/claude/claude` (the native executable; `bin/claude` selects it)
@@ -105,7 +105,7 @@ revision. Output directories must be fresh; corrupt inputs leave no context.
 - `/opt/aq/{manifest.json,pins.json,source.json}`
 
 `manifest.json` schema version 1 contains `platform`, `source`, `runner`,
-`session_host`, `agent_client` (`aq`, `/opt/aq/bin/aq`, the `aqv2` pin's
+`agent_client` (`aq`, `/opt/aq/bin/aq`, the `aqv2` pin's
 version), `agent_client_wrapper` (`aq-agent`), `aq_git`, `node`, `harnesses`
 and `proxies`. Each executable
 entry has `name`, `version`, absolute `path`, lowercase hex `sha256` of the

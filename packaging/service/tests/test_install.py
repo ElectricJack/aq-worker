@@ -17,7 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "packaging/service/aq-install.sh"
 CODE = "single-use-enrollment-code"
-BINARIES = ("aq-worker", "aq-session-host", "aq-agent", "aq-git")
+BINARIES = ("aq-worker", "aq-agent", "aq-git")
 
 STUB = """#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -306,7 +306,7 @@ def test_downloadable_bundle_installs_windows_startup_without_a_checkout(host, m
     bundle = host["bundle"]
     shutil.copyfile(bundle / "aq-worker", bundle / "tmux")
     refs = {}
-    for name, binary in [("helper", "aq-session-host"), ("tmux", "tmux")]:
+    for name, binary in [("tmux", "tmux")]:
         path = bundle / binary
         refs[name] = {"path": str(path), "artifact": {"digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}}
     manifest = bundle / "manifest.json"
@@ -881,7 +881,7 @@ def hosted_profile(tmp_path, digest):
         "adapter_manifest": "/adapter.json", "inventory_definition": "/inventory.json",
         "executor": {"composite_definition": "/composite.json", "settings": {"host": {
             "root": "/bundle/host",
-            "helper": {"path": "/bundle/aq-session-host"}, "tmux": {"path": "/bundle/tmux"},
+            "tmux": {"path": "/bundle/tmux"},
             "docker_local": {"socket": "/bundle/podman.sock", "templates": [{"image": "registry.invalid/owner/image", "digest": "sha256:" + "0" * 64}]},
         }}},
     }
@@ -889,7 +889,7 @@ def hosted_profile(tmp_path, digest):
     for name in ("adapter.json", "composite.json", "inventory.json"):
         (package / name).write_text("{}")
         (package / name).chmod(0o644)
-    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git"):
+    for name in ("aq-worker", "aq-agent", "aq-git"):
         (package / name).write_text(name + digest)
     return package, config, runtime
 
@@ -913,7 +913,7 @@ def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_pat
     (config / "service.toml").write_text("slots = 1\n")
     (config / "slots/1/worker.toml").write_text(f'server_url = "{origin}"\n')
     (config / "hosted-install.json").write_text(json.dumps({"origin": origin, "bundle_sha256": old}))
-    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git"):
+    for name in ("aq-worker", "aq-agent", "aq-git"):
         (runtime / name).write_text((package / name).read_text())
     # A newer bundle from another server is refused.
     newer, _, _ = hosted_profile(tmp_path, new)
@@ -927,7 +927,7 @@ def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_pat
     done = run_config(tmp_path, "configure", newer, config, origin, "/usr/bin/podman", "1", new)
     assert done.returncode == 0, done.stderr
     assert "updated" in done.stdout
-    assert str(newer / "aq-session-host") in (config / "native.json").read_text()
+    assert str(newer / "tmux") in (config / "native.json").read_text()
     assert not (config / "native.json.update").exists()
     # What the worker checks when it loads the template: a private state directory that holds the git root.
     template = json.loads((config / "native.json").read_text())
@@ -954,7 +954,7 @@ def test_an_update_stops_the_running_workers_before_replacing_their_files(host):
     (profile / "service.toml").write_text("")
     runtime = host["home"] / ".local/share/agent-q/runtime"
     runtime.mkdir(parents=True)
-    for name in ("aq-worker", "aq-session-host", "aq-agent", "aq-git"):
+    for name in ("aq-worker", "aq-agent", "aq-git"):
         (runtime / name).write_text("an older build of " + name)
     active = "aq-node@local.service aq-node@other.service"
     with with_socket(host):
@@ -986,7 +986,7 @@ def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(t
               "inventory_definition": str(tmp_path / "absent.json"),
               "executor": {"composite_definition": str(present), "settings": {"host": {
                   "docker_local": {"socket": str(present)},
-                  "helper": {"path": str(present)}, "tmux": {"path": str(present)}}}}}
+                  "tmux": {"path": str(present)}}}}}
     (config / "native.json").write_text(json.dumps(native))
     (config / "service.toml").write_text(f'slots = 1\nnative_template = "{config / "native.json"}"\n')
     log = "attempt failed: No such file or directory\ntoken sk-ant-oat01-abcDEF_123 seen\n" + "x" * 500 + "\n"

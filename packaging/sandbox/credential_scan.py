@@ -365,7 +365,7 @@ def validate_bundle(value):
     if not isinstance(harnesses, list) or not 1 <= len(harnesses) <= 32:
         raise ValueError('invalid bundle harnesses')
     names = set()
-    for item in [value.get(k) for k in ['runner', 'session_host', 'aq_git', 'node']] + harnesses:
+    for item in [value.get(k) for k in ['runner', 'aq_git', 'node']] + harnesses:
         if not isinstance(item, dict):
             raise ValueError('invalid bundle artifact')
         for key in ['name', 'version']:

@@ -178,6 +178,8 @@ mod tests {
         )
         .unwrap();
         let host = FilePin {
+            // The aq-worker executable (the session host), bound here by
+            // scripts/qualify-native-loopback.sh.
             path: "/opt/aq-qualification/aq-session-host".into(),
             artifact: ArtifactRef {
                 digest: serde_json::from_value(serde_json::json!(

@@ -30,3 +30,18 @@ test-support = []
 name = "aq-session-capsule-candidate"
 path = "src/bin/aq-session-capsule-candidate.rs"
 required-features = ["test-support"]
+
+# Test-only stand-in for the worker executable, which is the helper in production
+# (`aq-worker session-host ...`); never packaged or installed.
+[[bin]]
+name = "aq-session-host-test-host"
+path = "src/bin/test-host.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "local_tmux"
+required-features = ["test-support"]
+
+[[test]]
+name = "supervisor_session"
+required-features = ["test-support"]

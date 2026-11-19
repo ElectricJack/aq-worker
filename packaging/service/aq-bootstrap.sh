@@ -115,7 +115,7 @@ if grep -Eq '^[[:space:]]*libutempter\.so\.0[[:space:]]+=>[[:space:]]+not found'
     echo 'Install libutempter0, then rerun the command.' >&2; exit 3
   fi
 fi
-for tool in aq-worker aq-session-host aq-agent aq-git tmux; do
+for tool in aq-worker aq-agent aq-git tmux; do
   libraries="$(ldd "$package/$tool" 2>&1 || true)"
   if [[ "$libraries" == *'not found'* ]]; then
     echo "A system library required by $tool is missing." >&2

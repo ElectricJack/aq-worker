@@ -53,7 +53,7 @@ def run():
     require(all(int(next(line.split(':', 1)[1].strip() for line in status.splitlines()
                         if line.startswith(name+':')), 16) == 0
                 for name in ['CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb']))
-    programs = ['aq-worker', 'aq-session-host', 'aq-agent', 'aq-git', 'codex', 'tmux']
+    programs = ['aq-worker', 'aq-agent', 'aq-git', 'codex', 'tmux']
     require(os.statvfs(IMAGE).f_flag & os.ST_RDONLY)
     require(os.stat(IMAGE).st_dev != os.stat(STATE).st_dev)
     require(all((IMAGE/name).is_file() and os.stat(IMAGE/name).st_nlink == 1 for name in programs))

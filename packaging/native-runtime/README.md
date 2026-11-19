@@ -66,12 +66,13 @@ ID/digest alongside any installation qualification.
 
 ## Installed contract and smoke
 
-All six program files are separate, executable, single-link files under
-`/opt/aq-runtime`: `aq-worker`, `aq-session-host`, `aq-agent`, `aq-git`, `codex`,
-`tmux`. Convenience symlinks are in `/usr/local/bin`; the full Git installation
+All five program files are separate, executable, single-link files under
+`/opt/aq-runtime`: `aq-worker`, `aq-agent`, `aq-git`, `codex`, `tmux`. The session
+host is the `aq-worker` executable itself (`aq-worker session-host`).
+Convenience symlinks are in `/usr/local/bin`; the full Git installation
 is under `/opt/aq-git-runtime` and `/usr/bin/git` selects its pinned Git.
 The three Codex companions retain the paths above under `/opt/aq-runtime`.
-They are checked against `pins.json` separately, preserving the six-program
+They are checked against `pins.json` separately, preserving the five-program
 `images.json` contract used by the interactive launcher.
 
 `/usr/share/agent-q/images.json` uses the existing interactive launcher's
@@ -81,11 +82,11 @@ They are checked against `pins.json` separately, preserving the six-program
 not admission manifests. Native configuration still needs qualified definitions,
 artifact references, model/provider context and trusted runtime evidence.
 
-The final image build runs the offline smoke as UID/GID 10001. It checks all six
+The final image build runs the offline smoke as UID/GID 10001. It checks all five
 ELF architectures, file integrity and permissions, dynamic dependencies (including
 Git helpers), exact versions, native worker CLI subcommands and result submit/status
-surfaces. The session host has no version CLI: its version comes from its committed
-Cargo manifest, while the smoke checks its actual loader/entrypoint refusal. A
+surfaces. The session host has no version CLI: it is the worker executable, and the smoke
+checks that its `session-host` entrypoint refuses a missing mode. A
 fresh credential-free Codex home is used. The smoke also starts and stops a private
 tmux server, catching the missing `libevent_core-2.1.so.7` regression.
 Before recording or accepting an installation, it refuses any missing, modified,

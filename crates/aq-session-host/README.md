@@ -1,7 +1,7 @@
 # AQ session host 0.1.7
 
-This independent Linux library and helper executable host one immutable agent
-session in a private tmux server. They depend on `aq-session-protocol =0.1.0`,
+This independent Linux library hosts one immutable agent
+session in a private tmux server. It depends on `aq-session-protocol =0.1.0`,
 not the worker scheduler, journal, node protocol, daemon, database or provider.
 Central sessions use their own `SessionIdentity::Central`; no worker identity is
 fabricated. The worker shares only process-ownership primitives with this crate.
@@ -10,7 +10,12 @@ The qualified mode is tmux **3.4**, `-D -u -S <private socket> -f /dev/null`.
 The [upstream manual](https://man.openbsd.org/tmux.1) documents `-D` as foreground
 server mode and `-N` as refusing server startup. Tests establish the actual server
 PID and ancestry on the tested installation. Every client uses `-N`, and pane
-creation executes the helper with multiple explicit arguments. The helper then
+creation executes the helper with multiple explicit arguments
+(`<helper> session-host pane <launch directory>`; the guardian is started the same way
+with `guardian`). The library ships no helper binary: the embedding program runs
+`aq_session_host::helper_main()` when its first argument is `session-host` (the worker
+does, so the worker's own executable is the helper). `aq-session-host-test-host`
+(feature `test-support`) is the test stand-in. The helper then
 executes the adapter's native argv directly; no task text is shell-interpolated.
 No shared server, arbitrary network tmux command, implicit shell, live process
 reattachment, transport relay or real-provider adapter is implemented.
@@ -266,5 +271,5 @@ are never replaced. An unavailable no-replace rename fails closed. A guardian
 still stops on genuinely malformed published JSON; it does not retry parsing or
 ignore invalid input. There is no wire or admission-policy change.
 
-Use the matching 0.1.7 library and helper from the reproducible source release.
+Use the matching 0.1.7 library from the reproducible source release.
 See [F1a consumer pin and admission guidance](../../docs/implementation/F1a-host.md).
