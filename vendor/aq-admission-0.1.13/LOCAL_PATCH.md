@@ -21,6 +21,15 @@ mirror. The contract is aq-server `docs/specs/0015-multi-agent-nodes.md`;
 `docs/operations/multi-agent-nodes.md` here lists the worker-facing fields.
 
 
+## 0.1.13 observation source (aq-server PR #180)
+
+Adds `src/observation_source.rs`, byte-identical to aq-server
+`crates/aq-admission/src/observation_source.rs` at c157c835, and its
+`pub mod observation_source;` line in `src/lib.rs`: the observation catalog
+entry a launch delivers in `manifest.modules`, and the source ID and session key
+both sides derive from it. No wire document, schema or fixture changed.
+
+
 ## 0.1.13, no execution-lease ceiling in the contract
 
 Mirror of aq-server `crates/aq-admission` (branch

@@ -11,7 +11,9 @@ pub mod link;
 pub mod os_service;
 pub mod supervisor;
 
-pub use config::{AqGitConfig, ManualConfig, RepositoryBinding, RetryConfig, ServiceConfig};
+pub use config::{
+    AqGitConfig, ManualConfig, ObservationConfig, RepositoryBinding, RetryConfig, ServiceConfig,
+};
 pub use enrollment_file::{EnrollmentFile, write_private};
 pub use git::AqGit;
 pub use layout::{Layout, write_machine_json};

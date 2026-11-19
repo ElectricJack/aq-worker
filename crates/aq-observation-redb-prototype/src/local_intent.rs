@@ -253,6 +253,69 @@ impl LocalIntent {
     pub fn stage(&self) -> LocalStage {
         self.state.stage
     }
+    /// The boot the store was prepared on; a later host boot cannot finish a
+    /// handshake that never reached `Active`.
+    pub fn initial_boot(&self) -> Uuid {
+        self.state.limits.boot_id
+    }
+    /// The boot the owner currently holds, once prepared.
+    pub fn owner_boot(&self) -> Option<Uuid> {
+        self.state.owner.as_ref().map(|o| o.current_boot_id)
+    }
+    /// The durable activation request's operation, to resend it unchanged.
+    pub fn pending_activation(&self) -> Option<Uuid> {
+        self.state.activation.as_ref().map(|r| r.operation_id)
+    }
+    /// The boot a durable, unanswered boot request asks for.
+    pub fn pending_boot(&self) -> Option<Uuid> {
+        match self.state.boot.as_ref()?.operation {
+            Operation::AdvanceBoot { new_boot_id, .. } => Some(new_boot_id),
+            _ => None,
+        }
+    }
+    /// A pending boot request names a host boot that ended before the server
+    /// applied it, so the server can never accept it. A fresh status must show
+    /// the owner unchanged and this host admitted; the request is then replaced
+    /// by one for this boot. The store stays blocked throughout.
+    pub fn retarget_boot(
+        &mut self,
+        peer: &mut impl AuthenticatedOwnerPeer,
+        operation_id: Uuid,
+    ) -> Result<()> {
+        self.files.check()?;
+        let old = self.state.boot.clone().context("no boot intent")?;
+        let LiveStatus(s) = self
+            .files
+            .step(|| status(peer, self.state.limits.node_id))?;
+        ensure!(
+            s.owner == self.state.owner && s.admitted_node_boot_id == self.host_boot,
+            "pending boot request may have been applied, or this host is not admitted"
+        );
+        let Operation::AdvanceBoot {
+            marker,
+            expected_boot_id,
+            expected_revision,
+            new_boot_id,
+            next_sequence,
+        } = old.operation
+        else {
+            anyhow::bail!("boot operation")
+        };
+        ensure!(new_boot_id != self.host_boot, "boot request is current");
+        let request = Request {
+            version: admission::VERSION,
+            operation_id,
+            node_id: old.node_id,
+            operation: Operation::AdvanceBoot {
+                marker,
+                expected_boot_id,
+                expected_revision,
+                new_boot_id: self.host_boot,
+                next_sequence,
+            },
+        };
+        self.save(|s| s.boot = Some(request))
+    }
     pub fn intent_monitor(&self) -> Monitor {
         self.files.monitor.clone()
     }
@@ -498,9 +561,11 @@ impl LocalIntent {
         );
         let request = self.state.boot.as_ref().context("boot request")?;
         let LiveReply(r) = self.files.step(|| reply(peer, request))?;
+        // A request applied for a host boot that has since ended is still adopted
+        // (its receipt is the owner's state); `with_active` stays closed until a
+        // further advance reaches this host's boot.
         ensure!(
             r.current_owner == r.receipt.resulting_owner
-                && r.current_owner.current_boot_id == self.host_boot
                 && r.admitted_node_boot_id == self.host_boot,
             "boot owner advanced; recovery required"
         );

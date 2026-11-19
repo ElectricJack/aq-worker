@@ -111,6 +111,10 @@ impl Peer {
                                 .parse()
                                 .unwrap(),
                         );
+                        // C5b: the stored version of a subscription login.
+                        response
+                            .headers_mut()
+                            .insert("aq-material-version", "7".parse().unwrap());
                         response
                     }
                 }),
@@ -181,6 +185,20 @@ async fn installation_is_exact_durable_private_replay_without_secret_in_receipt(
         !serde_json::to_string(&receipt)
             .unwrap()
             .contains("synthetic provider material")
+    );
+    // The login's stored version is kept with the leased material (the base of a
+    // write-back), in the private record only.
+    let record = root
+        .path()
+        .join(peer.lease.lease_id.to_string())
+        .join("record.json");
+    let record: Value = serde_json::from_slice(&std::fs::read(record).unwrap()).unwrap();
+    assert_eq!(record["login_version"], 7);
+    assert!(
+        serde_json::to_value(&receipt)
+            .unwrap()
+            .get("login_version")
+            .is_none()
     );
     let replay = store.install(peer.material().await, &plan).unwrap();
     assert_eq!(

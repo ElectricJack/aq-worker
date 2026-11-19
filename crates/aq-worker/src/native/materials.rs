@@ -46,6 +46,9 @@ pub(crate) struct Record {
     pub(crate) received_ns: u64,
     pub(crate) material_synced_ns: u64,
     pub(crate) retrieval_deadline_ns: u64,
+    /// C5b: the stored version of a leased subscription login, for its write-back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) login_version: Option<i64>,
 }
 impl Record {
     pub(crate) fn receipt(&self) -> Result<MaterialReceipt> {
@@ -445,6 +448,7 @@ impl MaterialStore {
             received_ns: material.received_ns,
             material_synced_ns: boot_ns()?,
             retrieval_deadline_ns: computed,
+            login_version: material.login_version,
         };
         record.validate()?;
         let raw = canonical_bytes(&record)?;

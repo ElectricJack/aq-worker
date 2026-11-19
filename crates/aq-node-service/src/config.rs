@@ -34,6 +34,64 @@ pub struct ServiceConfig {
     /// `[retry]`: how long a slot pauses after a failed attempt. Optional, as is each key.
     #[serde(default, skip_serializing_if = "RetryConfig::is_default")]
     pub retry: RetryConfig,
+    /// `[observations]`: every limit of the node's observation store. Optional, as is each key.
+    #[serde(default, skip_serializing_if = "ObservationConfig::is_default")]
+    pub observations: ObservationConfig,
+}
+/// Limits of the node observation service: one store per node under
+/// `<state_root>/observations/<node id>`, which collects the transcripts of the node's
+/// running attempts and delivers them to the server.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct ObservationConfig {
+    /// Hard size of the store file. Fixed when the node's store is first created, as are the
+    /// next two.
+    pub store_file_bytes: u64,
+    /// Retained rows: events not yet acknowledged and the parser state of each source.
+    pub store_data_bytes: u64,
+    /// The store's page cache, the service's main memory use.
+    pub store_cache_bytes: u64,
+    /// Distinct transcript items remembered per source for deduplication.
+    pub tracked_identities: u32,
+    /// Directory entries examined when a transcript is found by its session key.
+    pub discovery_entries: u32,
+    /// Pause between collection rounds when no transcript grew.
+    pub poll_ms: u64,
+    /// First pause after a failed server call; it doubles up to `retry_max_ms`.
+    pub retry_start_ms: u64,
+    pub retry_max_ms: u64,
+    /// Timeout of one server call.
+    pub request_timeout_ms: u64,
+    /// How long a finished attempt's transcript may still be drained.
+    pub finish_drain_ms: u64,
+    /// Disk space one attempt's transcript mount may take, and the directory entries it
+    /// may hold, before the node stops the attempt (the mount is outside the sandbox's
+    /// disk limit). They apply whether or not the attempt is observed.
+    pub transcript_max_bytes: u64,
+    pub transcript_max_files: u64,
+}
+impl Default for ObservationConfig {
+    fn default() -> Self {
+        Self {
+            store_file_bytes: 64 * 1024 * 1024,
+            store_data_bytes: 16 * 1024 * 1024,
+            store_cache_bytes: 4 * 1024 * 1024,
+            tracked_identities: 4096,
+            discovery_entries: 256,
+            poll_ms: 250,
+            retry_start_ms: 1_000,
+            retry_max_ms: 30_000,
+            request_timeout_ms: 10_000,
+            finish_drain_ms: 5_000,
+            transcript_max_bytes: 1024 * 1024 * 1024,
+            transcript_max_files: 10_000,
+        }
+    }
+}
+impl ObservationConfig {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 /// The pause of a slot after a failed attempt (`supervisor::FailureKind`). While it pauses the
 /// slot still reports to the server; it only asks for no offer.
@@ -201,6 +259,24 @@ impl ServiceConfig {
                 && (1_000..=3_600_000).contains(&r.fault_backoff_start_ms)
                 && (r.fault_backoff_start_ms..=86_400_000).contains(&r.fault_backoff_max_ms),
             "invalid [retry]: offer_pause_ms 100..=60000 <= offer_pause_max_ms <= 600000, fault_backoff_start_ms 1000..=3600000 <= fault_backoff_max_ms <= 86400000"
+        );
+        let o = &self.observations;
+        const MIB: u64 = 1024 * 1024;
+        ensure!(
+            (MIB..=128 * MIB).contains(&o.store_file_bytes)
+                && (2 * MIB..=16 * MIB).contains(&o.store_data_bytes)
+                && o.store_data_bytes < o.store_file_bytes
+                && (65_536..=8 * MIB).contains(&o.store_cache_bytes)
+                && (16..=4096).contains(&o.tracked_identities)
+                && (1..=4096).contains(&o.discovery_entries)
+                && (10..=60_000).contains(&o.poll_ms)
+                && (100..=600_000).contains(&o.retry_start_ms)
+                && (o.retry_start_ms..=3_600_000).contains(&o.retry_max_ms)
+                && (1_000..=60_000).contains(&o.request_timeout_ms)
+                && o.finish_drain_ms <= 600_000
+                && o.transcript_max_bytes >= MIB
+                && (16..=1_000_000).contains(&o.transcript_max_files),
+            "invalid [observations]: transcript_max_bytes >= 1 MiB, transcript_max_files 16..=1000000, store_file_bytes 1 MiB..=128 MiB > store_data_bytes 2 MiB..=16 MiB, store_cache_bytes 64 KiB..=8 MiB, tracked_identities 16..=4096, discovery_entries 1..=4096, poll_ms 10..=60000, retry_start_ms 100..=600000 <= retry_max_ms <= 3600000, request_timeout_ms 1000..=60000, finish_drain_ms <= 600000"
         );
         if let Some(m) = &self.manual {
             ensure!(
@@ -375,6 +451,7 @@ mod tests {
             manual: None,
             shutdown_grace_ms: 120_000,
             retry: Default::default(),
+            observations: Default::default(),
         }
     }
     fn manual(token: &str) -> ManualConfig {
@@ -723,6 +800,17 @@ git_executable = "/usr/bin/git"
             (30_000, 300_000)
         );
         assert!(!toml::to_string(&c).unwrap().contains("retry"));
+        // No [observations]: the defaults, and one key overrides only itself.
+        assert_eq!(c.observations, ObservationConfig::default());
+        assert!(!toml::to_string(&c).unwrap().contains("observations"));
+        let tuned = format!("{text}[observations]\npoll_ms = 1000\n");
+        let tuned: ServiceConfig = toml::from_str(&tuned).unwrap();
+        tuned.validate().unwrap();
+        assert_eq!(tuned.observations.poll_ms, 1_000);
+        assert_eq!(tuned.observations.store_file_bytes, 64 * 1024 * 1024);
+        let mut small = tuned.clone();
+        small.observations.store_data_bytes = small.observations.store_file_bytes;
+        assert!(small.validate().is_err());
         let set = format!("{text}[retry]\noffer_pause_max_ms = 10000\n");
         let set = ServiceConfig::parse(&set).unwrap();
         set.validate().unwrap();

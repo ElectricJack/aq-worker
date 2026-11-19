@@ -1,8 +1,6 @@
-//! Reading Claude's stream-json transcript: the proven-success rule, the
-//! bounded conclusion line and the pane rendering of one event.
-use crate::Secrets;
+//! Reading the final `result` event of a harness turn: the proven-success rule
+//! and the bounded conclusion line.
 use crate::claim::{blocked, claimed_changes, field, names_paths};
-use std::io::Write;
 
 /// The last stream-json `result` event Claude printed, if any.
 fn last_result(stream: &[u8]) -> Option<serde_json::Value> {
@@ -134,79 +132,6 @@ pub fn conclusion_of(
     line
 }
 
-/// Human-readable pane line for one stream-json event (never tool inputs).
-pub fn pane_line(line: &[u8]) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_slice(line).ok()?;
-    match v["type"].as_str()? {
-        "assistant" => {
-            let parts: Vec<String> = v["message"]["content"]
-                .as_array()?
-                .iter()
-                .filter_map(|c| match c["type"].as_str()? {
-                    "text" => Some(format!("claude: {}", c["text"].as_str()?)),
-                    "tool_use" => Some(format!("claude tool: {}", c["name"].as_str()?)),
-                    _ => None,
-                })
-                .collect();
-            (!parts.is_empty()).then(|| parts.join("\n"))
-        }
-        "result" => Some(format!(
-            "claude result: {} turns={} cost_usd={}",
-            v["subtype"].as_str().unwrap_or("?"),
-            v["num_turns"],
-            v["total_cost_usd"]
-        )),
-        "system" => Some(format!(
-            "claude session {} model {}",
-            v["session_id"].as_str().unwrap_or("?"),
-            v["model"].as_str().unwrap_or("?")
-        )),
-        // Codex `exec --json` events (Claude never prints these types).
-        "item.completed" => {
-            let item = &v["item"];
-            match item["type"].as_str()? {
-                "agent_message" => Some(format!("codex: {}", item["text"].as_str()?)),
-                "command_execution" => {
-                    Some(format!("codex tool: command (exit {})", item["exit_code"]))
-                }
-                kind => Some(format!("codex tool: {kind}")),
-            }
-        }
-        "thread.started" => Some(format!(
-            "codex thread {}",
-            v["thread_id"].as_str().unwrap_or("?")
-        )),
-        "turn.completed" => Some("codex result: turn completed".into()),
-        "turn.failed" | "error" => Some("codex result: turn failed".into()),
-        _ => None,
-    }
-}
-
-/// Prints complete runner lines to the pane. A line holding a secret is
-/// never printed (a note is); returns whether that happened.
-pub fn print_logs(bytes: &[u8], partial: &mut Vec<u8>, secrets: &Secrets) -> bool {
-    let mut leaked = false;
-    partial.extend_from_slice(bytes);
-    while let Some(pos) = partial.iter().position(|b| *b == b'\n') {
-        let line: Vec<u8> = partial.drain(..=pos).collect();
-        let line = &line[..line.len() - 1];
-        if secrets.holds(line) {
-            leaked = true;
-            println!("aq-sandbox-harness: [a runner output line was withheld: it held a secret]");
-            continue;
-        }
-        if line.starts_with(b"{") {
-            if let Some(text) = pane_line(line) {
-                println!("{text}");
-            }
-        } else {
-            println!("{}", String::from_utf8_lossy(line));
-        }
-    }
-    let _ = std::io::stdout().flush();
-    leaked
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,29 +223,6 @@ mod tests {
         assert!(claude.contains("; Claude exit 0; "), "{claude}");
         let codex = conclusion_of("Codex", &stream, Some(0), &changed, false);
         assert_eq!(codex, claude.replace("Claude exit", "Codex exit"));
-    }
-
-    #[test]
-    fn codex_events_render_as_pane_lines() {
-        let line = |v: serde_json::Value| pane_line(v.to_string().as_bytes());
-        assert_eq!(
-            line(
-                serde_json::json!({"type":"item.completed","item":{"type":"agent_message","text":"hi"}})
-            ),
-            Some("codex: hi".into())
-        );
-        assert_eq!(
-            line(
-                serde_json::json!({"type":"item.completed","item":{"type":"command_execution","command":"cat secret","exit_code":0}})
-            ),
-            Some("codex tool: command (exit 0)".into()),
-            "never the command itself"
-        );
-        assert_eq!(
-            line(serde_json::json!({"type":"turn.completed"})),
-            Some("codex result: turn completed".into())
-        );
-        assert_eq!(line(serde_json::json!({"type":"turn.started"})), None);
     }
 
     /// Review I-2: a claim of changes that did not arrive is refused; this is a

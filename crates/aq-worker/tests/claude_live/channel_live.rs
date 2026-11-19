@@ -168,7 +168,9 @@ async fn container_calls_whoami_through_the_agent_channel() {
         max_workspace_bytes: 64 * 1024 * 1024,
         agent_channel: true,
         conversation_outbox: None,
+        transcript_bound: None,
         harness: Default::default(),
+        codex_runtime_bundle: None,
     };
     let config_file = root.join("private/driver.json");
     std::fs::OpenOptions::new()

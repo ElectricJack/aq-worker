@@ -1,3 +1,5 @@
+#[path = "local_intent/node.rs"]
+mod node;
 #[allow(dead_code)]
 mod support;
 use anyhow::{Result, ensure};
