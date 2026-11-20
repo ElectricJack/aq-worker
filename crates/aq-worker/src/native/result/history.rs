@@ -81,6 +81,8 @@ pub struct ScopeRecord {
     pub created_ns: u64,
     pub recorded_revision: u64,
     pub source: SourceBinding,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_author: Option<aq_worker_protocol::git_author::GitAuthor>,
     pub workspace: Workspace,
     pub managed_root: PathBuf,
     pub reserved_disk_bytes: u64,
@@ -376,7 +378,7 @@ impl ResultHistory {
                 }
                 _ => anyhow::bail!("unknown result source operation"),
             };
-            let request = action.request(&s.source, id);
+            let request = action.request_as(&s.source, id, s.git_author.as_ref());
             // An export intent journaled before exports named their base as a
             // prerequisite stays valid, so a result already finishing when the
             // worker is replaced keeps its original operation.

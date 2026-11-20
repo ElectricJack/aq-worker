@@ -2165,11 +2165,32 @@ fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
 /// the interactive `codex --sandbox danger-full-access` on the sandbox's terminal with
 /// the offered model and effort; the ChatGPT login only as private material; the
 /// attempt ends when the turn does, with the claim from Codex's final message.
+fn task_author() -> aq_worker_protocol::git_author::GitAuthor {
+    aq_worker_protocol::git_author::GitAuthor {
+        name: "Zoë \"Task Author\" Example".into(),
+        email: "Task+AQ@example.invalid".into(),
+    }
+}
+
+fn assert_task_git_environment(environment: &str) {
+    for (key, value) in task_author().tool_environment() {
+        assert!(
+            environment
+                .lines()
+                .any(|line| line == format!("{key}={value}")),
+            "{key}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
-    let run = run_codex_driver(
+    let run = run_driver(
         "Done.\nChanges: fixture-output; Checks: none; Limits: none",
         &[],
+        b"codex tui\r\n",
+        b"",
+        |config| config.apply_git_author(&task_author()).unwrap(),
     )
     .await;
     assert_eq!(run.code, 0, "proven success");
@@ -2230,10 +2251,18 @@ async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
     assert_eq!(run.screen, b"codex tui\r\n");
     assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
     assert_eq!(text("/aq/in/executable"), "/opt/aq/bin/codex");
-    assert_eq!(
-        text("/aq/in/env"),
-        "CODEX_HOME=/aq/home/codex\nHOME=/aq/home/codex\n"
-    );
+    let env = text("/aq/in/env");
+    assert!(env.starts_with("CODEX_HOME=/aq/home/codex\n"));
+    assert_task_git_environment(&env);
+    for (key, value) in task_author().tool_environment() {
+        let prefix = format!("shell_environment_policy.set.{key}=");
+        let encoded = args
+            .iter()
+            .find_map(|arg| arg.strip_prefix(&prefix))
+            .unwrap();
+        let parsed: toml::Value = toml::from_str(&format!("value={encoded}")).unwrap();
+        assert_eq!(parsed["value"].as_str(), Some(value));
+    }
     // The login reaches the sandbox only as private material, never argv, env or a path.
     assert_eq!(container.layer["/aq/private/material"].data, run.auth);
     let (_, refresh) = codex_login();
@@ -2400,6 +2429,7 @@ async fn sandbox_driver_names_the_claude_session_after_the_attempt() {
         config.arguments = vec!["--model".into(), "fixture".into()];
         config.environment.clear();
         config.settings_json = "{}".into();
+        config.apply_git_author(&task_author()).unwrap();
         config.docker_local.transcript.as_mut().unwrap().1 =
             DriverHarness::Claude.transcript_dir().into();
         std::fs::write(&config.token_file, "fixture-login-0123456789").unwrap();
@@ -2410,6 +2440,7 @@ async fn sandbox_driver_names_the_claude_session_after_the_attempt() {
     let args = String::from_utf8(container.layer["/aq/in/args"].data.clone()).unwrap();
     let attempt = Uuid::from_u128(3);
     assert_eq!(args, format!("--model\nfixture\n--session-id\n{attempt}\n"));
+    assert_task_git_environment(std::str::from_utf8(&container.layer["/aq/in/env"].data).unwrap());
     let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
     assert_eq!(mounts[1]["Target"], "/aq/home/projects/-aq-work");
     assert_eq!(mounts.len(), 2);

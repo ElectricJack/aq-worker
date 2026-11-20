@@ -312,6 +312,32 @@ pub fn responses_overrides(endpoint: LoopbackResponsesEndpoint) -> Vec<String> {
     ]
 }
 
+/// Supply trusted per-task values to both the CLI and its isolated tool shell.
+pub fn apply_tool_environment<'a>(
+    args: &mut Vec<String>,
+    env: &mut BTreeMap<String, String>,
+    values: impl ExactSizeIterator<Item = (&'static str, &'a str)>,
+) -> Result<()> {
+    ensure!(
+        matches!(args.last().map(String::as_str), Some("--" | "-"))
+            && args.len() + values.len() * 2 <= 128,
+        "Codex prompt marker or argument bound"
+    );
+    let end = args.len() - 1;
+    let settings = values.flat_map(|(key, value)| {
+        env.insert(key.into(), value.into());
+        [
+            "--config".into(),
+            format!(
+                "shell_environment_policy.set.{key}={}",
+                toml::Value::String(value.into())
+            ),
+        ]
+    });
+    args.splice(end..end, settings);
+    Ok(())
+}
+
 pub mod docker_local;
 mod result_local;
 pub use result_local::{

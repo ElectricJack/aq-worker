@@ -238,6 +238,7 @@ name = "aq-node-git"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aq-worker-protocol",
  "axum",
  "fs2",
  "futures-util",
@@ -564,6 +565,8 @@ dependencies = [
 name = "aq-worker-protocol"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
+ "aq-admission 0.1.13",
  "schemars",
  "serde",
  "serde_json",

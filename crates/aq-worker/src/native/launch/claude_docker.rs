@@ -473,12 +473,15 @@ pub(super) fn bootstrap(
     profile: &Arc<ClaudeDockerHostProfile>,
 ) -> Result<()> {
     let scope = entry.scope.as_ref().context("native launch scope absent")?;
-    let (offer, runtime) = {
+    let (offer, git_author, runtime) = {
         let mut owner = lock(owner)?;
         entry.current(&owner)?;
         let state = owner.journal.state();
         let a = &state.attempts[&entry.id];
-        let offer = a.reservation.offer.clone();
+        let (offer, git_author) = (
+            a.reservation.offer.clone(),
+            a.reservation.git_author.clone(),
+        );
         let c = &profile.config;
         let [executable, helper, tmux] =
             [&profile.driver, &c.helper, &c.tmux].map(|p| p.artifact.clone());
@@ -493,7 +496,7 @@ pub(super) fn bootstrap(
         owner.journal.begin_native_launch(entry.id, intent)?;
         entry.snapshot(&owner.journal)?;
         entry.current(&owner)?;
-        (offer, runtime)
+        (offer, git_author, runtime)
     };
     drop(runtime);
     profile.verify_installation()?;
@@ -547,7 +550,7 @@ pub(super) fn bootstrap(
         .result_channel
         .as_ref()
         .map(|channel| channel.root().to_owned());
-    let driver = crate::sandbox_driver::DriverConfig {
+    let mut driver = crate::sandbox_driver::DriverConfig {
         docker_local,
         template: profile.config.template.clone(),
         owner: Ownership {
@@ -583,6 +586,9 @@ pub(super) fn bootstrap(
             )
         }),
     };
+    if let Some(author) = git_author {
+        driver.apply_git_author(&author)?;
+    }
     let driver_file = private.join("driver.json");
     private_write(&driver_file, &serde_json::to_vec(&driver)?)?;
     let image = profile

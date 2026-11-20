@@ -48,6 +48,7 @@ fn boot_ns() -> u64 {
 }
 struct Peer {
     fixture: Value,
+    checkpoint_author: bool,
     mode: AtomicUsize,
     nonces: Mutex<BTreeSet<Uuid>>,
     stall: AtomicBool,
@@ -61,6 +62,10 @@ async fn handler(
     Json(body): Json<Value>,
 ) -> Json<Value> {
     assert_eq!(headers["authorization"], "Bearer synthetic-machine");
+    assert_eq!(
+        headers.get("aq-git-author").map(|v| v.to_str().unwrap()),
+        (path == "poll" && peer.checkpoint_author).then_some("1")
+    );
     if path == "artifact" {
         peer.entered.add_permits(1);
         peer.release.acquire().await.unwrap().forget();
@@ -134,8 +139,12 @@ impl Server {
         Self::with_fixture(fixture()).await
     }
     async fn with_fixture(fixture: Value) -> Self {
+        Self::with_git_author_support(fixture, true).await
+    }
+    async fn with_git_author_support(fixture: Value, checkpoint_author: bool) -> Self {
         let peer = Arc::new(Peer {
             fixture,
+            checkpoint_author,
             mode: AtomicUsize::new(0),
             nonces: Mutex::new(BTreeSet::new()),
             stall: AtomicBool::new(false),
@@ -156,7 +165,9 @@ impl Server {
         let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         Self {
             peer,
-            client: NativeClient::from_config(&config).unwrap(),
+            client: NativeClient::from_config(&config)
+                .unwrap()
+                .with_git_author_support(checkpoint_author),
             task,
         }
     }
@@ -239,6 +250,37 @@ impl Drop for Server {
     fn drop(&mut self) {
         self.task.abort();
     }
+}
+
+#[tokio::test]
+async fn poll_negotiates_git_author_without_changing_the_original_offer() {
+    let original = fixture();
+    let mut extended = original.clone();
+    let raw_author = json!({"name":"Zoë \"Creator\" Example", "email":"Owner+AQ@example.invalid"});
+    extended["replies"][0]["body"]["offers"][0]["git_author"] = raw_author.clone();
+    let server = Server::with_fixture(extended.clone()).await;
+    let observed = server.client.poll(&request("poll")).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(&observed.page.offers[0]).unwrap(),
+        original["replies"][0]["body"]["offers"][0]
+    );
+    assert_eq!(
+        serde_json::to_value(&observed.git_authors[0]).unwrap(),
+        raw_author
+    );
+    extended["replies"][0]["body"]["offers"][0]["git_author"]["email"] =
+        json!("invalid@example.invalid@other");
+    let invalid = Server::with_fixture(extended).await;
+    assert!(invalid.client.poll(&request("poll")).await.is_err());
+    let mut unexpected = original.clone();
+    unexpected["replies"][0]["body"]["offers"][0]["git_author"] = raw_author;
+    let unqualified = Server::with_git_author_support(unexpected, false).await;
+    assert!(unqualified.client.poll(&request("poll")).await.is_err());
+    let old = Server::with_git_author_support(original, false).await;
+    assert_eq!(
+        old.client.poll(&request("poll")).await.unwrap().git_authors,
+        [None]
+    );
 }
 
 #[tokio::test]

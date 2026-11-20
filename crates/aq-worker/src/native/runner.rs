@@ -147,7 +147,8 @@ async fn run_admitted<E: NativeExecutor>(
         disk <= config.capacity.disk_bytes,
         "native Git reservation exceeds configured capacity"
     );
-    let mut client = NativeClient::from_config(worker)?;
+    let mut client = NativeClient::from_config(worker)?
+        .with_git_author_support(git.supports_checkpoint_author());
     if let Some((node, slot)) = &node {
         client = client.for_node_slot(*slot, node.registered_slots());
     }
@@ -241,7 +242,14 @@ async fn run_admitted<E: NativeExecutor>(
         );
         let found = page.page.offers.pop().zip(page.offer_deadlines_ns.pop());
         // From here a renewal of the node's report waits for this slot (see `poll_need`).
-        Ok(found.map(|(offer, deadline)| (offer, deadline, pipeline.inventory.flight())))
+        Ok(found.map(|(offer, deadline)| {
+            let git_author = page.git_authors.pop().flatten();
+            (
+                aq_worker_protocol::git_author::AttemptOffer { offer, git_author },
+                deadline,
+                pipeline.inventory.flight(),
+            )
+        }))
     };
     let (first, interval) = aq_node_service::polling::staggered(IDLE_POLL_INTERVAL);
     let (offer, offer_deadline, in_flight) = match pause {
@@ -270,6 +278,7 @@ async fn run_admitted<E: NativeExecutor>(
     let maximum = super::http::boot_ns()?
         .checked_add(
             offer
+                .offer
                 .offered
                 .reservation_ttl_ms
                 .checked_mul(1_000_000)
@@ -277,10 +286,12 @@ async fn run_admitted<E: NativeExecutor>(
         )
         .context("native reservation overflow")?;
     let deadline = maximum.min(offer_deadline);
+    let original = offer.offer.clone();
     let id = pipeline
-        .reserve(offer.clone(), config.runtime.clone(), deadline, disk)
+        .reserve(offer, config.runtime.clone(), deadline, disk)
         .await?;
-    let grant = prepare::collect(&pipeline, &producer, &config, id, &offer, deadline, git).await?;
+    let grant =
+        prepare::collect(&pipeline, &producer, &config, id, &original, deadline, git).await?;
     drop(in_flight);
     check_root(&config, &held)?;
     if let Some(h) = &heartbeat {

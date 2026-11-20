@@ -42,12 +42,12 @@ impl RetainedOwners {
     pub(super) fn reserve(
         &mut self,
         journal: &mut Journal,
-        offer: aq_admission::startup::NativeOffer,
+        offer: aq_worker_protocol::git_author::AttemptOffer,
         runtime: super::super::journal::RuntimeIdentity,
         deadline_ns: u64,
         disk_bytes: u64,
     ) -> Result<Uuid> {
-        let id = offer.offered.offer.binding.attempt_id;
+        let id = offer.offer.offered.offer.binding.attempt_id;
         ensure!(
             self.admitted.len() < 64 && !self.admitted.contains(&id),
             "retained attempt already admitted or capacity exhausted"
