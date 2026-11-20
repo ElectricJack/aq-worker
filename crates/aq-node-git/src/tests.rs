@@ -27,11 +27,8 @@ fn first_attempt_clones_later_attempts_fetch_and_push_under_the_lease() {
     };
     assert_eq!(task_ref, "refs/heads/aq/t1");
     assert_eq!(central.head("refs/heads/aq/t1").as_ref(), Some(&commit));
-    node.end(&NodeGit::open(&path).unwrap()).unwrap();
-    assert!(!path.exists() && !record(&path).exists());
-
-    // The repository is kept: a marker in it survives the next attempt, which
-    // has a lease and so starts from the task branch head.
+    // A handoff successor can start before the predecessor's local cleanup.
+    // It reuses the repository and starts at the task branch's leased head.
     let repo = node.repository(Uuid::from_u128(7));
     std::fs::write(repo.join("kept"), "").unwrap();
     let returned = central.grant("t1", Some(commit.clone()));
@@ -39,6 +36,9 @@ fn first_attempt_clones_later_attempts_fetch_and_push_under_the_lease() {
     let second = node
         .start(&remote, &returned, Uuid::from_u128(2), &path)
         .unwrap();
+    node.end(&NodeGit::open(&first.path).unwrap()).unwrap();
+    assert!(!first.path.exists() && !record(&first.path).exists());
+    assert_eq!(git(&path, &["rev-parse", "HEAD"]), commit);
     assert_eq!(second.synced, Synced::Fetched);
     assert!(repo.join("kept").exists());
     assert_eq!(second.start, commit);

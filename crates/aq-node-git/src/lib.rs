@@ -1,7 +1,7 @@
 //! One local repository per project per node, a git worktree per attempt (spec
 //! 0016 §5.3, Epic 0 W2). The first attempt that needs a project clones it from
 //! central aq-git; later attempts only fetch. Each attempt works in its own
-//! worktree on its task branch; when it ends the node commits the tree, pushes
+//! worktree; when it ends the node commits the tree, pushes
 //! the task ref under the offer's lease, and removes the worktree.
 //!
 //! The sandbox never sees any of this: it gets the worktree's tree without
@@ -290,7 +290,7 @@ impl NodeGit {
     }
 
     /// Syncs the project's repository and adds the attempt's worktree at
-    /// `path` on the task branch: from the task branch head when the grant has
+    /// `path`: from the task branch head when the grant has
     /// a lease (a returned task), else from the base.
     pub fn start(
         &self,
@@ -309,16 +309,9 @@ impl NodeGit {
         self.remove_worktree(&repo, path)?;
         std::fs::create_dir_all(path.parent().context("worktree parent")?)?;
         let target = path.to_str().context("worktree path UTF-8")?;
-        let add = [
-            "worktree",
-            "add",
-            "--quiet",
-            "--force",
-            "-B",
-            grant.branch(),
-            target,
-            &from,
-        ];
+        // The predecessor can still have a worktree when the next attempt
+        // starts after a handoff. Each worktree owns its HEAD independently.
+        let add = ["worktree", "add", "--quiet", "--detach", target, &from];
         self.ok(&repo, &add, None)?;
         let conflicts = match (&grant.lease, grant.update_from_main) {
             (Some(_), true) => self.merge_main(path, grant)?,
@@ -446,13 +439,12 @@ impl NodeGit {
         )
     }
 
-    /// Removes the attempt's worktree, its record and its local branch, then
-    /// lets git pack and prune the shared repository.
+    /// Removes the attempt's worktree and its record, then lets git pack and
+    /// prune the shared repository.
     pub fn end(&self, worktree: &Worktree) -> Result<()> {
         let _lock = self.lock(worktree.grant.repository_id)?;
         let repo = &worktree.repository;
         self.remove_worktree(repo, &worktree.path)?;
-        self.ok(repo, &["update-ref", "-d", &worktree.grant.task_ref], None)?;
         self.ok(repo, &["gc", "--auto", "--quiet"], None)?;
         std::fs::remove_file(record(&worktree.path))?;
         Ok(())
