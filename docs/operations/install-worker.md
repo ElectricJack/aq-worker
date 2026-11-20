@@ -1,5 +1,7 @@
 # Install a local desktop worker (WSL2)
 
+> **This page describes the older container worker** (`aq-worker@PROFILE`, Docker Desktop). It is kept for its WSL2 notes (systemd, host load, autostart), which [install-service.md](install-service.md) links to. To run a worker today use the service worker: [install-service.md](install-service.md), or for a development machine aq-server's `docs/getting-started.md`.
+
 This guide runs the AQ node worker (B5b controller with the C2 `docker-local`
 backend) as a container on a Windows desktop's WSL2 distro. It autostarts after
 Windows logon and after a WSL restart, and it reconciles its sandboxes whenever

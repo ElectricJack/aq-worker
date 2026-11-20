@@ -1,5 +1,7 @@
 # aq-worker
 
+> **Running AQ locally?** Start with aq-server's [getting started guide](https://github.com/ElectricJack/aq-server/blob/main/docs/getting-started.md): one sequence builds and runs the whole stack from sibling checkouts, this repository included.
+
 A standalone Rust worker-node framework for Agent Q. A node provides a bounded amount of agent execution capacity, prepares workspaces on demand, and maintains a bounded set of project caches. Nodes connect outward to the central daemon to enroll, heartbeat, receive assignments and messages, and hand off results.
 
 Supervisor agents live centrally. The node runtime manages processes and local resources; it does not plan tasks, run supervisor agents, or decide integration policy. Repository operations go through the separately versioned aq-git interface.
