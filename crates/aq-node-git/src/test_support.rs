@@ -67,9 +67,10 @@ impl Central {
             let bearer = h
                 .get("authorization")
                 .is_some_and(|v| v == "Bearer node-secret");
-            match served.lock().unwrap().get(&attempt) {
-                Some(grant) if bearer => axum::Json(grant.clone()).into_response(),
-                _ => axum::http::StatusCode::NOT_FOUND.into_response(),
+            match (bearer, served.lock().unwrap().get(&attempt)) {
+                (false, _) => axum::http::StatusCode::FORBIDDEN.into_response(),
+                (true, Some(grant)) => axum::Json(grant.clone()).into_response(),
+                (true, None) => axum::http::StatusCode::NOT_FOUND.into_response(),
             }
         };
         let router = smart_http(

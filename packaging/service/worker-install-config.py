@@ -73,7 +73,13 @@ def prepare(package, work, origin, socket, config, digest):
     # otherwise). One repository per project for the whole profile, shared by every slot.
     if "node_git" in template:
         template["node_git"]["repositories"] = str(config / "state/node-git")
-    for name in ("adapter.json", "composite.json", "inventory.json"):
+    definitions = ["adapter.json", "composite.json", "inventory.json"]
+    if codex := template["executor"]["settings"].get("codex"):
+        codex["composite_definition"] = str(package / "codex-composite.json")
+        definitions.append("codex-composite.json")
+        if codex.get("runtime_bundle") is not None:
+            codex["runtime_bundle"] = str(package / "codex-bundle")
+    for name in definitions:
         (package / name).chmod(0o600)  # the worker reads its definitions only as private files
     native = json.dumps(template, indent=2) + "\n"
     enrolled = config / "service.toml"

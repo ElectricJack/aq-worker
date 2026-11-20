@@ -64,13 +64,16 @@ impl SourceDownload {
             .context("source manifest absent")?
             .source)
     }
-    /// The source is on disk: downloaded and verified, or a node worktree.
-    pub fn ready(&self) -> bool {
+    pub(crate) fn worktree_path(&self) -> Option<&PathBuf> {
         #[cfg(feature = "delivery_playbook")]
-        if self.worktree.is_some() {
-            return true;
+        {
+            self.worktree.as_ref()
         }
-        self.verified.is_some() && self.complete()
+        #[cfg(not(feature = "delivery_playbook"))]
+        None
+    }
+    pub fn ready(&self) -> bool {
+        self.worktree_path().is_some() || (self.verified.is_some() && self.complete())
     }
     pub fn complete(&self) -> bool {
         self.manifest.as_ref().is_some_and(|m| {
@@ -156,6 +159,23 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
     ensure!(
         input.receipt.is_some() && input.created_revision <= revision,
         "source spec not verified"
+    );
+    ensure!(
+        s.worktree_path().is_none_or(|path| {
+            s.manifest.is_some()
+                && s.ranges == 0
+                && *path
+                    == s.root.join("worktrees").join(
+                        a.reservation
+                            .offer
+                            .offered
+                            .offer
+                            .binding
+                            .attempt_id
+                            .to_string(),
+                    )
+        }),
+        "invalid source worktree plan"
     );
     if let Some(m) = &s.manifest {
         transfer(s, m, a)?;
@@ -333,8 +353,10 @@ impl Journal {
     pub(crate) fn source_worktree(&mut self, id: Uuid, path: PathBuf) -> Result<()> {
         self.source_update(id, |s| {
             ensure!(
-                s.ranges == 0 && s.operations.is_empty(),
-                "source already downloading"
+                s.manifest.is_some()
+                    && s.ranges == 0
+                    && s.worktree.as_ref().is_none_or(|old| *old == path),
+                "source worktree differs from its recorded plan"
             );
             s.worktree = Some(path);
             Ok(())

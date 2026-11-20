@@ -5,9 +5,7 @@ use aq_worker_protocol::TransferManifest;
 use serde_json::{Value, json};
 #[path = "hydration/files.rs"]
 pub(crate) mod files;
-/// Fresh local owner result, intentionally neither serializable nor constructible
-/// outside this owner. It is not launch authority and cannot be reopened from a
-/// journal receipt. Later Prepare must join it with all original inputs.
+/// Fresh local source proof. Prepare must join it with the original inputs.
 pub struct HydratedWorkspace {
     workspace: Workspace,
     manifest: TransferManifest,
@@ -23,9 +21,7 @@ impl HydratedWorkspace {
     pub(super) fn revalidate(&self, journal: &Journal) -> Result<()> {
         self.revalidate_until(journal, self.deadline_ns)
     }
-    // Only the durable execution owner supplies this independent authority cap.
-    // The original preparation proof deadline remains unchanged. Current local
-    // Git retention/workspace inspection is required again; no export is renewed.
+    // The durable execution owner supplies its own deadline and rechecks local Git.
     pub(super) fn revalidate_execution(&self, journal: &Journal, deadline: u64) -> Result<()> {
         self.revalidate_until(journal, deadline)
     }
@@ -44,7 +40,7 @@ impl HydratedWorkspace {
         );
         let Some(stage) = &self._stage_owner else {
             ensure!(
-                s.ready() && self.workspace.path.is_dir(),
+                s.worktree_path() == Some(&self.workspace.path) && self.workspace.path.is_dir(),
                 "source worktree absent"
             );
             return Ok(());
@@ -134,6 +130,16 @@ impl InputPipeline {
             .preparation
             .deadline_ns()
             .min(preparation.deadline_ns());
+        #[cfg(feature = "delivery_playbook")]
+        let grant = if let Some(node) = &git.node {
+            let remaining = deadline
+                .checked_sub(boot_ns()?)
+                .context("source preparation expired")?;
+            node.grant(id, std::time::Duration::from_nanos(remaining))
+                .await?
+        } else {
+            None
+        };
         let client = self.client.fetch_until(deadline);
         let (manifest, maximum_range) =
             (client.source_status_with_range(&binding, plan.admission(), plan.manifest.as_ref()))
@@ -146,11 +152,16 @@ impl InputPipeline {
         })
         .await?;
         #[cfg(feature = "delivery_playbook")]
-        if let Some(node) = git.node.clone() {
-            // Spec 0016 §5.3: a worktree of the node's repository, under the slot's
-            // aq-git root where result custody pins it. No bundle, no artifact.import.
+        if let (Some(node), Some(grant)) = (&git.node, grant) {
+            ensure!(
+                plan.ranges == 0
+                    && grant.repository_id == manifest.source.repository_id
+                    && grant.base == manifest.source.base.hex
+                    && grant.task_ref == format!("refs/heads/aq/{}", plan.spec.task.task_id),
+                "git grant differs from source plan"
+            );
             let path = git.root().join("worktrees").join(id.to_string());
-            node.start(id, path.clone()).await?;
+            node.start(id, path.clone(), grant).await?;
             let (observed, worktree) = (preparation.clone(), path.clone());
             self.storage(move |owner| {
                 observed.check(&owner.journal, id)?;
@@ -174,6 +185,10 @@ impl InputPipeline {
                 git,
             });
         }
+        ensure!(
+            plan.worktree_path().is_none(),
+            "recorded node worktree requires a git grant"
+        );
         let root = git.root().to_owned();
         let marker = serde_json::to_vec(
             &json!({"schema_version":1,"attempt":id,"spec":plan.spec_artifact,"manifest":manifest}),
@@ -232,8 +247,6 @@ impl InputPipeline {
             disk.publish(&m)
         })
         .await?;
-        // Every exchange runs behind the bounded storage lane, after the exact
-        // request is durable. Cancellation retains that lane and its real owner.
         for key in ["repository", "import", "create"] {
             self.native_git(id, preparation.clone(), git.clone(), key)
                 .await?;

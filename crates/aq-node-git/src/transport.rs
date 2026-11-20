@@ -61,9 +61,8 @@ impl Remote {
         format!("{}{}", self.origin, grant.endpoint)
     }
 
-    /// `GET /v1/git/grants/<attempt>`: the attempt's grant, or an error when
-    /// the server has none for this node (404) or is unavailable.
-    pub async fn grant(&self, attempt: Uuid, timeout: Duration) -> Result<Grant> {
+    /// `GET /v1/git/grants/<attempt>`: only a 404 means no grant.
+    pub async fn grant(&self, attempt: Uuid, timeout: Duration) -> Result<Option<Grant>> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(timeout)
@@ -77,10 +76,16 @@ impl Remote {
             .await
             .map_err(|_| anyhow::anyhow!("git grant request failed"))?;
         let status = response.status();
-        ensure!(status.is_success(), "git grant refused ({status})");
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        ensure!(
+            status == reqwest::StatusCode::OK,
+            "git grant refused ({status})"
+        );
         let grant: Grant = response.json().await.context("git grant shape")?;
         grant.validate()?;
-        Ok(grant)
+        Ok(Some(grant))
     }
 
     /// Adds the authentication and attempt headers to a git command's environment.

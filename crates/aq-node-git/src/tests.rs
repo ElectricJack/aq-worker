@@ -27,11 +27,8 @@ fn first_attempt_clones_later_attempts_fetch_and_push_under_the_lease() {
     };
     assert_eq!(task_ref, "refs/heads/aq/t1");
     assert_eq!(central.head("refs/heads/aq/t1").as_ref(), Some(&commit));
-    node.end(&NodeGit::open(&path).unwrap()).unwrap();
-    assert!(!path.exists() && !record(&path).exists());
-
-    // The repository is kept: a marker in it survives the next attempt, which
-    // has a lease and so starts from the task branch head.
+    // A handoff successor can start before the predecessor's local cleanup.
+    // It reuses the repository and starts at the task branch's leased head.
     let repo = node.repository(Uuid::from_u128(7));
     std::fs::write(repo.join("kept"), "").unwrap();
     let returned = central.grant("t1", Some(commit.clone()));
@@ -39,6 +36,9 @@ fn first_attempt_clones_later_attempts_fetch_and_push_under_the_lease() {
     let second = node
         .start(&remote, &returned, Uuid::from_u128(2), &path)
         .unwrap();
+    node.end(&NodeGit::open(&first.path).unwrap()).unwrap();
+    assert!(!first.path.exists() && !record(&first.path).exists());
+    assert_eq!(git(&path, &["rev-parse", "HEAD"]), commit);
     assert_eq!(second.synced, Synced::Fetched);
     assert!(repo.join("kept").exists());
     assert_eq!(second.start, commit);
@@ -228,7 +228,13 @@ fn a_node_reads_its_grant_then_finishes_and_ends_from_the_worktree_record() {
     let node = config(state.path()).node(remote(&central));
     let path = at(state.path(), 40);
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let wt = runtime.block_on(node.start(attempt, path.clone())).unwrap();
+    let grant = runtime
+        .block_on(node.grant(attempt, Duration::from_secs(5)))
+        .unwrap()
+        .unwrap();
+    let wt = runtime
+        .block_on(node.start(attempt, path.clone(), grant))
+        .unwrap();
     assert_eq!(wt.grant.task_ref, "refs/heads/aq/n1");
     std::fs::write(path.join("e.txt"), "five\n").unwrap();
     let again = config(state.path()).node(remote(&central));
@@ -242,9 +248,53 @@ fn a_node_reads_its_grant_then_finishes_and_ends_from_the_worktree_record() {
     runtime.block_on(again.end(path.clone())).unwrap();
     assert!(!path.exists() && !record(&path).exists());
     runtime.block_on(again.end(path.clone())).unwrap();
-    // No grant for another node's (or an unknown) attempt.
-    let refused = runtime.block_on(node.start(Uuid::from_u128(41), at(state.path(), 41)));
-    assert!(refused.unwrap_err().to_string().contains("404"));
+    let absent = runtime.block_on(node.grant(Uuid::from_u128(41), Duration::from_secs(5)));
+    assert_eq!(absent.unwrap(), None);
+}
+
+#[tokio::test]
+async fn only_not_found_means_the_attempt_has_no_grant() {
+    use axum::{Router, http::StatusCode, routing::get};
+
+    let app = Router::new().route(
+        "/v1/git/grants/{status}",
+        get(
+            async |axum::extract::Path(status): axum::extract::Path<Uuid>| {
+                (StatusCode::from_u16(status.as_u128() as u16).unwrap(), "{}")
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async { axum::serve(listener, app).await.unwrap() });
+    let remote = Remote::new(&origin, "node-secret", None);
+    let lookup = |code| remote.grant(Uuid::from_u128(code), Duration::from_secs(2));
+    assert_eq!(lookup(404).await.unwrap(), None);
+    for status in [302, 401, 403, 429, 500, 503] {
+        assert!(
+            lookup(status)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains(&status.to_string())
+        );
+    }
+    assert!(
+        lookup(200)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("git grant shape")
+    );
+    server.abort();
+    assert!(server.await.unwrap_err().is_cancelled());
+    assert!(
+        lookup(404)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("git grant request failed")
+    );
 }
 
 /// A returned task: its branch has `b.txt` (and, when `clash`, its own `a.txt`);

@@ -162,7 +162,8 @@ def build(args):
     service = tomllib.loads(args.service.read_text())
     native = json.loads(Path(service["native_template"]).read_text())
     executor = native["executor"]
-    host = executor["settings"]["host"]
+    settings = executor["settings"]
+    host = settings["host"]
     entry, = host["docker_local"]["templates"]
     registry, routes = registry_paths(entry["image"], entry["digest"])
     repos = [{key: row[key] for key in ("repository_id", "identity", "binding_generation", "object_format")} for row in service.get("repositories", [])]
@@ -189,14 +190,23 @@ def build(args):
                 shutil.copyfile(src, stage / name)
             (stage / name).chmod(0o755)
         package_tmux(host["tmux"], stage)
-        for source, name in [(native["adapter_manifest"], "adapter.json"), (executor["composite_definition"], "composite.json"), (native["inventory_definition"], "inventory.json")]:
+        definitions = [
+            (native, "adapter_manifest", "adapter.json"),
+            (executor, "composite_definition", "composite.json"),
+            (native, "inventory_definition", "inventory.json"),
+        ]
+        if codex := settings.get("codex"):
+            definitions.append((codex, "composite_definition", "codex-composite.json"))
+            if codex.get("runtime_bundle") is not None:
+                if not args.codex_helpers:
+                    raise ValueError("Include --codex-helpers for the configured Codex runtime bundle.")
+                codex["runtime_bundle"] = "/bundle/codex-bundle"
+        for section, key, name in definitions:
             # Preserve the exact pinned bytes, including the original formatting.
-            raw = Path(source).read_bytes()
+            raw = Path(section[key]).read_bytes()
             safe_json(json.loads(raw))
             (stage / name).write_bytes(raw)
-        native["adapter_manifest"] = "/adapter.json"
-        executor["composite_definition"] = "/composite.json"
-        native["inventory_definition"] = "/inventory.json"
+            section[key] = "/" + name
         for key in ("helper", "tmux"):
             host[key]["path"] = "/bundle/" + Path(host[key]["path"]).name
         for key in ("git_root", "git_socket", "state_dir"):
@@ -219,6 +229,7 @@ def build(args):
                 target = stage / "codex-bundle" / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(args.codex_helpers / name, target)
+                target.chmod(0o755)
         output = Path(temp) / "worker.tar.gz"
         with tarfile.open(output, "w:gz", compresslevel=3) as archive:
             for item in sorted(stage.iterdir()):
