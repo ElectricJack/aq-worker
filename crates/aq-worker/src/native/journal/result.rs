@@ -32,6 +32,7 @@ pub(super) fn validate(a: &Attempt, state: &State, ids: &mut BTreeSet<Uuid>) -> 
             && s.recorded_revision >= execution.record_revision
             && s.recorded_revision < state.revision
             && s.source == *source.binding()?
+            && s.git_author == a.reservation.git_author
             && s.managed_root == source.root
             && s.reserved_disk_bytes == a.reservation.disk_bytes,
         "result original execution/source association"

@@ -288,6 +288,7 @@ impl InputPipeline {
                         created_ns: boot_ns()?,
                         recorded_revision: 1,
                         source: source.binding()?.clone(),
+                        git_author: a.reservation.git_author.clone(),
                         workspace: workspace.clone(),
                         managed_root: git.root().into(),
                         reserved_disk_bytes: a.reservation.disk_bytes,

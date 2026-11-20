@@ -22,7 +22,7 @@ fn fixture() -> (NativeOffer, Vec<u8>) {
         value["payload_utf8"].as_str().unwrap().as_bytes().to_vec(),
     )
 }
-const PEER: &[u8] = b"#!/usr/bin/python3\nimport sys,json,hashlib,os\np=sys.stdin.buffer.read(1048577)\nprint(json.dumps({'bytes':len(p),'digest':hashlib.sha256(p).hexdigest(),'args':sys.argv[1:],'ambient_secret':os.environ.get('AQ_TEST_AMBIENT_SECRET')}))\n";
+const PEER: &[u8] = b"#!/usr/bin/python3\nimport sys,json,hashlib,os\np=sys.stdin.buffer.read(1048577)\nprint(json.dumps({'bytes':len(p),'digest':hashlib.sha256(p).hexdigest(),'args':sys.argv[1:],'ambient_secret':os.environ.get('AQ_TEST_AMBIENT_SECRET'),'git':{k:v for k,v in os.environ.items() if k.startswith('GIT_')}}))\n";
 fn normalized_recipe_golden(scoped: bool) -> Vec<u8> {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("home");
@@ -304,8 +304,14 @@ fn actual_offline_process_receives_only_exact_stdin_and_explicit_environment() {
     let (offer, payload) = fixture();
     let digest = crate::native::journal::canonical_digest(&offer.offered.offer.manifest).unwrap();
     let mut adapter = installed(root.path(), &offer);
+    let author = aq_worker_protocol::git_author::GitAuthor {
+        name: "Test Creator".into(),
+        email: "creator@example.invalid".into(),
+    };
     let prepared = profile(&offer)
         .prepare(&mut adapter, &offer, &digest, payload.clone(), &work, &home)
+        .unwrap()
+        .with_git_author(Some(&author))
         .unwrap();
     let c = prepared.command();
     let mut child = std::process::Command::new(&c.executable)
@@ -326,6 +332,9 @@ fn actual_offline_process_receives_only_exact_stdin_and_explicit_environment() {
     assert_eq!(actual["bytes"], payload.len());
     assert_eq!(actual["digest"], Digest::of(&payload).as_str());
     assert!(actual["ambient_secret"].is_null());
+    for (key, value) in author.tool_environment() {
+        assert_eq!(actual["git"][key], value);
+    }
     assert_eq!(actual["args"].as_array().unwrap().last().unwrap(), "-");
 }
 #[test]

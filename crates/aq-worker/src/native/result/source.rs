@@ -73,7 +73,13 @@ pub(super) async fn push<O: StoppedOwner>(o: &O) -> Result<bool> {
     let node = o.git().node.clone().context("node git is not configured")?;
     o.roots().verify()?;
     // A moved task ref is recorded as push_conflict and reported; never forced.
-    let (_, pushed) = node.finish(path, format!("AQ attempt {id}")).await?;
+    let (_, pushed) = node
+        .finish_as(
+            path,
+            format!("AQ attempt {id}"),
+            expected.scope.git_author.clone(),
+        )
+        .await?;
     o.verify()?;
     o.journal(move |journal| {
         let digest = expected.digest()?;
@@ -170,6 +176,12 @@ async fn git_effect<O: StoppedOwner>(o: &O, key: &'static str) -> Result<()> {
             (None, None)
         };
         o.verify()?;
+        ensure!(
+            key != "checkpoint"
+                || expected.scope.git_author.is_none()
+                || git.supports_checkpoint_author(),
+            "local aq-git no longer supports the reserved checkpoint author"
+        );
         o.journal(move |journal| {
             let digest = observed.digest()?;
             journal.update_result(id, &digest, |h, _| {
@@ -210,7 +222,11 @@ async fn git_effect<O: StoppedOwner>(o: &O, key: &'static str) -> Result<()> {
                     key.into(),
                     PendingGitOperation {
                         operation_id: operation,
-                        request: action.request(&h.scope.source, operation),
+                        request: action.request_as(
+                            &h.scope.source,
+                            operation,
+                            h.scope.git_author.as_ref(),
+                        ),
                         result: None,
                     },
                 );

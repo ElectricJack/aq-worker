@@ -8,10 +8,13 @@ use aq_admission::{
     transport::{Accept, DeliveryClock, Poll, PreparationPlan, Prepare, Reconcile, Renew},
 };
 
+use aq_worker_protocol::git_author::{GitAuthor, POLL_HEADER, decode_poll};
+
 pub struct PollObservation {
     pub page: wire::NativePollPage,
     /// Corresponds by index to page.offers; never an execution permit.
     pub offer_deadlines_ns: Vec<u64>,
+    pub git_authors: Vec<Option<GitAuthor>>,
 }
 /// Opaque construction: a parsed plan cannot manufacture a delivery observation.
 pub struct Preparation {
@@ -87,6 +90,7 @@ impl std::fmt::Display for ControlFailure {
 impl std::error::Error for ControlFailure {}
 struct Received {
     reply: wire::ControlReply,
+    git_authors: Vec<Option<GitAuthor>>,
     nonce: Uuid,
     sent_ns: u64,
     received_ns: u64,
@@ -141,6 +145,11 @@ impl NativeClient {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("aq-delivery-nonce", nonce.to_string())
                 .body(bytes.clone());
+            let request = if path == "poll" && self.checkpoint_author {
+                request.header(POLL_HEADER, "1")
+            } else {
+                request
+            };
             let sent = self.slot_headers(request, path).send().await;
             let response = sent.map_err(|_| {
                 anyhow::anyhow!("native control transport failed; disposition unknown")
@@ -155,12 +164,17 @@ impl NativeClient {
         }
         let bytes = body(response, wire::MAX_REPLY_BYTES).await?;
         let received_ns = boot_ns()?;
-        let reply = wire::decode_reply(&bytes)?;
+        let (reply, git_authors) = if path == "poll" {
+            decode_poll(&bytes)?
+        } else {
+            (wire::decode_reply(&bytes)?, vec![])
+        };
         if let wire::ControlReply::Failure(ref failure) = reply {
             return Err(ControlFailure(failure.code).into());
         }
         Ok(Received {
             reply,
+            git_authors,
             nonce,
             sent_ns,
             received_ns,
@@ -175,6 +189,11 @@ impl NativeClient {
             anyhow::bail!("unexpected native poll reply");
         };
         page.validate_for(request)?;
+        ensure!(
+            page.offers.len() == got.git_authors.len()
+                && (self.checkpoint_author || got.git_authors.iter().all(Option::is_none)),
+            "native offer author alignment or support"
+        );
         let offer_deadlines_ns = page
             .offers
             .iter()
@@ -187,6 +206,7 @@ impl NativeClient {
         Ok(PollObservation {
             page,
             offer_deadlines_ns,
+            git_authors: got.git_authors,
         })
     }
     pub async fn accept(

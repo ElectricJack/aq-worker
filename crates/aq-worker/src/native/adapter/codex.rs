@@ -315,6 +315,19 @@ impl PreparedCodexExec {
         self.command.arguments.splice(position..position, overrides);
         Ok(self)
     }
+    pub(crate) fn with_git_author(
+        mut self,
+        author: Option<&aq_worker_protocol::git_author::GitAuthor>,
+    ) -> Result<Self> {
+        if let Some(author) = author {
+            aq_codex_mapper::apply_tool_environment(
+                &mut self.command.arguments,
+                &mut self.command.environment,
+                author.tool_environment(),
+            )?;
+        }
+        Ok(self)
+    }
     pub fn command(&self) -> &LocalCommand {
         &self.command
     }

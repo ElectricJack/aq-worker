@@ -161,7 +161,15 @@ impl InputPipeline {
                 "git grant differs from source plan"
             );
             let path = git.root().join("worktrees").join(id.to_string());
-            node.start(id, path.clone(), grant).await?;
+            let author = self
+                .storage(move |owner| {
+                    Ok(owner.journal.state().attempts[&id]
+                        .reservation
+                        .git_author
+                        .clone())
+                })
+                .await?;
+            node.start_as(id, path.clone(), grant, author).await?;
             let (observed, worktree) = (preparation.clone(), path.clone());
             self.storage(move |owner| {
                 observed.check(&owner.journal, id)?;

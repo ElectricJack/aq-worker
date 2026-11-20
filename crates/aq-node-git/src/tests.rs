@@ -213,6 +213,20 @@ fn a_grant_that_is_not_a_task_branch_is_refused_before_git_runs() {
     assert!(grant.validate().is_err());
 }
 
+fn creator() -> GitAuthor {
+    GitAuthor {
+        name: "Zoë Creator".into(),
+        email: "Zoë+AQ@example.invalid".into(),
+    }
+}
+
+fn identities(dir: &Path, commit: &str) -> String {
+    git(
+        dir,
+        &["show", "--no-patch", "--format=%an <%ae>|%cn <%ce>", commit],
+    )
+}
+
 /// The async face: the grant comes from the server, and a later call (a later
 /// boot) finishes and ends the worktree from its record alone.
 #[test]
@@ -236,15 +250,32 @@ fn a_node_reads_its_grant_then_finishes_and_ends_from_the_worktree_record() {
         .block_on(node.start(attempt, path.clone(), grant))
         .unwrap();
     assert_eq!(wt.grant.task_ref, "refs/heads/aq/n1");
+    git(&path, &["commit", "--allow-empty", "-m", "pre-authored"]);
+    let preauthored = git(&path, &["rev-parse", "HEAD"]);
+    let preauthored_identity = identities(&path, &preauthored);
     std::fs::write(path.join("e.txt"), "five\n").unwrap();
     let again = config(state.path()).node(remote(&central));
     let (_, pushed) = runtime
-        .block_on(again.finish(path.clone(), "done".into()))
+        .block_on(again.finish_as(path.clone(), "done".into(), Some(creator())))
         .unwrap();
     let Pushed::Pushed { commit, .. } = pushed else {
         panic!("conflict")
     };
-    assert_eq!(central.head("refs/heads/aq/n1"), Some(commit));
+    assert_eq!(central.head("refs/heads/aq/n1"), Some(commit.clone()));
+    let expected = format!(
+        "{} <{}>|{} <{}>",
+        creator().name,
+        creator().email,
+        config(state.path()).author_name,
+        config(state.path()).author_email
+    );
+    assert_eq!(identities(&path, &commit), expected);
+    assert_eq!(git(&path, &["rev-parse", "HEAD^"]), preauthored);
+    assert_eq!(identities(&path, &preauthored), preauthored_identity);
+    let (_, retry) = runtime
+        .block_on(again.finish_as(path.clone(), "done".into(), Some(creator())))
+        .unwrap();
+    assert!(matches!(retry, Pushed::Pushed { commit: oid, .. } if oid == commit));
     runtime.block_on(again.end(path.clone())).unwrap();
     assert!(!path.exists() && !record(&path).exists());
     runtime.block_on(again.end(path.clone())).unwrap();
@@ -342,9 +373,24 @@ fn update_from_main_commits_a_clean_merge_of_the_main_head() {
     let (node, remote) = (node(state.path()), remote(&central));
     let grant = returned_task(&central, "w2", false, true);
     let path = at(state.path(), 31);
+    let author = creator();
     let wt = node
-        .start(&remote, &grant, Uuid::from_u128(31), &path)
+        .start_as(
+            &remote,
+            &grant,
+            Uuid::from_u128(31),
+            &path,
+            Some(author.identity()),
+        )
         .unwrap();
+    let worker = config(state.path());
+    assert_eq!(
+        identities(&path, "HEAD"),
+        format!(
+            "{} <{}>|{} <{}>",
+            author.name, author.email, worker.author_name, worker.author_email
+        )
+    );
     let parents = git(&path, &["rev-list", "--parents", "-n1", "HEAD"]);
     let (lease, main) = (
         grant.lease.clone().unwrap(),

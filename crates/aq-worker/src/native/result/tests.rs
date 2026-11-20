@@ -159,6 +159,7 @@ pub(crate) fn history() -> ResultHistory {
     ResultHistory {
         schema_version: 1,
         scope: ScopeRecord {
+            git_author: None,
             binding: b,
             contract: wire::artifact(),
             installation: ResultInstallationPins {

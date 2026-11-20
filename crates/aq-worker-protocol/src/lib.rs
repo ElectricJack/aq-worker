@@ -19,7 +19,11 @@ macro_rules! wire {
         pub struct $name { $(pub $field: $ty),* }
     )*};
 }
+#[cfg(feature = "native-git-author")]
+pub mod git_author;
 pub mod m4;
+#[cfg(feature = "native-git-author")]
+pub mod retained_git;
 pub use m4::*;
 
 wire! {

@@ -307,9 +307,10 @@ async fn run(stage: &mut &'static str) -> Result<()> {
     let mut input = BufReader::new(stdin.lock());
     let config: Config = frame(&mut input, CONFIG_BYTES)?;
     validate_config(&config)?;
-    let client = NativeClient::from_config(&config.worker)?;
     let held = root(&config.root)?;
     let git = GitClient::new(&config.git_socket, &config.git_root)?;
+    let client = NativeClient::from_config(&config.worker)?
+        .with_git_author_support(git.supports_checkpoint_author());
     ensure!(
         git.root().starts_with(&config.root) && git.root() != config.root,
         "Git scope must be a private child"
@@ -395,7 +396,10 @@ async fn run(stage: &mut &'static str) -> Result<()> {
         .min(page.offer_deadlines_ns[0]);
     *stage = "reserve";
     let id = journal.reserve(
-        offer.clone(),
+        aq_worker_protocol::git_author::AttemptOffer {
+            offer: offer.clone(),
+            git_author: page.git_authors.remove(0),
+        },
         RuntimeIdentity {
             runtime: config.runtime,
             qualification: config.qualification,

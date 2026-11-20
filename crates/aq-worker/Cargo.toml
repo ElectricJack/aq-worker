@@ -35,7 +35,7 @@ aq-admission = { path = "../../vendor/aq-admission-0.1.13", version = "=0.1.13" 
 aq-session-protocol.workspace = true
 aq-session-host.workspace = true
 aq-protocol.workspace = true
-aq-worker-protocol.workspace = true
+aq-worker-protocol = { workspace = true, features = ["native-git-author"] }
 anyhow.workspace = true
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }

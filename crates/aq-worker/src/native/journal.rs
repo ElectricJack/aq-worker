@@ -3,6 +3,7 @@
 mod granted;
 #[cfg(any(test, feature = "test-support"))]
 mod pause;
+use aq_worker_protocol::git_author::{AttemptOffer, GitAuthor};
 #[cfg(test)]
 pub(crate) use pause::Gate as NativePauseGate;
 #[cfg(any(test, feature = "test-support"))]
@@ -89,6 +90,8 @@ pub struct RuntimeIdentity {
 #[serde(deny_unknown_fields)]
 pub struct Reservation {
     pub offer: NativeOffer,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_author: Option<GitAuthor>,
     pub runtime: RuntimeIdentity,
     pub reserved_at_ns: u64,
     pub deadline_ns: u64,
@@ -229,6 +232,7 @@ impl State {
         for (id, attempt) in &self.attempts {
             let r = &attempt.reservation;
             r.offer.validate()?;
+            r.git_author.as_ref().map(GitAuthor::validate).transpose()?;
             ensure!(
                 r.offer.offered.artifacts.len() <= 126
                     && r.offer
@@ -603,12 +607,13 @@ impl Journal {
     }
     pub fn reserve(
         &mut self,
-        offer: NativeOffer,
+        offer: impl Into<AttemptOffer>,
         runtime: RuntimeIdentity,
         deadline_ns: u64,
         disk_bytes: u64,
     ) -> Result<Uuid> {
         let now = self.live()?;
+        let AttemptOffer { offer, git_author } = offer.into();
         offer.validate()?;
         ensure!(
             offer.offered.artifacts.len() <= 126
@@ -642,6 +647,7 @@ impl Journal {
         );
         let reservation = Reservation {
             offer,
+            git_author,
             runtime,
             reserved_at_ns: now,
             deadline_ns,

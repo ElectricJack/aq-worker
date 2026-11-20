@@ -77,7 +77,22 @@ fn reservation_acceptance_survive_restart_without_restoring_live_authority() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("native");
     let mut journal = create(&root);
-    let id = reserve(&mut journal);
+    let author = GitAuthor {
+        name: "Task Creator".into(),
+        email: "owner@example.invalid".into(),
+    };
+    let offered = AttemptOffer {
+        offer: offer(),
+        git_author: Some(author.clone()),
+    };
+    let id = journal
+        .reserve(
+            offered,
+            qualification(),
+            boot_ns().unwrap() + 300_000_000,
+            1024,
+        )
+        .unwrap();
     assert_eq!(journal.available().unwrap().slots, 1);
     assert_eq!(journal.available().unwrap().disk_bytes, 3072);
     let first = journal.begin_accept(id, capabilities()).unwrap();
@@ -93,6 +108,10 @@ fn reservation_acceptance_survive_restart_without_restoring_live_authority() {
     assert!(recovered.available().is_err());
     assert_eq!(recovered.state().identity, identity());
     assert_eq!(recovered.state().revision, revision);
+    assert_eq!(
+        recovered.state().attempts[&id].reservation.git_author,
+        Some(author)
+    );
     assert_eq!(
         recovered.state().attempts[&id].reservation.runtime.runtime,
         qualification().runtime

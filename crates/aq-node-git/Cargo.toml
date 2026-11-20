@@ -6,6 +6,7 @@ publish.workspace = true
 description = "A node's per-project git repository and per-attempt worktrees, fetched from and pushed to central aq-git (spec 0016 §5.3)"
 
 [dependencies]
+aq-worker-protocol = { workspace = true, features = ["native-git-author"] }
 anyhow.workspace = true
 fs2.workspace = true
 libc.workspace = true

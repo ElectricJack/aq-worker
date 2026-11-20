@@ -14,6 +14,8 @@
 //! [`NodeGit`] blocks (it runs git); [`Node`] is its async face.
 pub mod transport;
 
+use aq_worker_protocol::git_author::GitAuthor;
+
 use anyhow::{Context as _, Result, bail, ensure};
 use fs2::FileExt as _;
 use serde::{Deserialize, Serialize};
@@ -84,7 +86,7 @@ pub struct Config {
     /// Node-wide, shared by every slot: `<root>/<repository-id>.git`.
     pub repositories: PathBuf,
     pub git: PathBuf,
-    /// Author and committer of the node's commits.
+    /// Committer for node-created commits, and the author for old offers.
     pub author_name: String,
     pub author_email: String,
     /// Each git command and the grant request are stopped after this.
@@ -214,15 +216,46 @@ impl Node {
     }
     /// Adds the attempt's worktree from the grant already checked by the caller.
     pub async fn start(&self, attempt: Uuid, path: PathBuf, grant: Grant) -> Result<Worktree> {
+        self.start_as(attempt, path, grant, None).await
+    }
+    pub async fn start_as(
+        &self,
+        attempt: Uuid,
+        path: PathBuf,
+        grant: Grant,
+        author: Option<GitAuthor>,
+    ) -> Result<Worktree> {
         let (git, remote) = (self.git.clone(), self.remote.clone());
-        blocking(move || git.start(&remote, &grant, attempt, &path)).await
+        blocking(move || {
+            git.start_as(
+                &remote,
+                &grant,
+                attempt,
+                &path,
+                author.as_ref().map(GitAuthor::identity),
+            )
+        })
+        .await
     }
     /// Commits and pushes the attempt's worktree at `path` ([`NodeGit::finish`]).
     pub async fn finish(&self, path: PathBuf, message: String) -> Result<(Worktree, Pushed)> {
+        self.finish_as(path, message, None).await
+    }
+    pub async fn finish_as(
+        &self,
+        path: PathBuf,
+        message: String,
+        author: Option<GitAuthor>,
+    ) -> Result<(Worktree, Pushed)> {
         let (git, remote) = (self.git.clone(), self.remote.clone());
         blocking(move || {
             let worktree = NodeGit::open(&path)?;
-            let pushed = git.finish(&remote, &worktree, &message)?;
+            let pushed = git.finish_as(
+                &remote,
+                &worktree,
+                &message,
+                author.as_ref().map(GitAuthor::identity),
+            )?;
             Ok((worktree, pushed))
         })
         .await
@@ -299,6 +332,17 @@ impl NodeGit {
         attempt: Uuid,
         path: &Path,
     ) -> Result<Worktree> {
+        self.start_as(remote, grant, attempt, path, None)
+    }
+
+    pub fn start_as(
+        &self,
+        remote: &Remote,
+        grant: &Grant,
+        attempt: Uuid,
+        path: &Path,
+        author: Option<(&str, &str)>,
+    ) -> Result<Worktree> {
         grant.validate()?;
         ensure!(path.is_absolute(), "worktree path must be absolute");
         let repo = self.repository(grant.repository_id);
@@ -314,7 +358,7 @@ impl NodeGit {
         let add = ["worktree", "add", "--quiet", "--detach", target, &from];
         self.ok(&repo, &add, None)?;
         let conflicts = match (&grant.lease, grant.update_from_main) {
-            (Some(_), true) => self.merge_main(path, grant)?,
+            (Some(_), true) => self.merge_main(path, grant, author)?,
             _ => vec![],
         };
         let worktree = Worktree {
@@ -335,7 +379,12 @@ impl NodeGit {
     /// head; the grant's base is the replaced attempt's, not current main) and
     /// commits the merge. Conflicted files are committed with their markers;
     /// their paths are returned.
-    fn merge_main(&self, dir: &Path, grant: &Grant) -> Result<Vec<String>> {
+    fn merge_main(
+        &self,
+        dir: &Path,
+        grant: &Grant,
+        author: Option<(&str, &str)>,
+    ) -> Result<Vec<String>> {
         let main = format!("{TRACKING}main");
         self.ok(dir, &["rev-parse", "--verify", "--quiet", &main], None)
             .context("central aq-git has no refs/heads/main")?;
@@ -349,7 +398,7 @@ impl NodeGit {
             &message,
             &main,
         ];
-        let merged = self.run(dir, &merge, None)?;
+        let merged = self.run_as(dir, &merge, None, author)?;
         if merged.ok {
             return Ok(vec![]);
         }
@@ -364,10 +413,11 @@ impl NodeGit {
             merged.stderr.trim()
         );
         self.ok(dir, &["add", "--all"], None)?;
-        self.ok(
+        self.ok_as(
             dir,
             &["commit", "--quiet", "--no-verify", "--no-edit"],
             None,
+            author,
         )?;
         Ok(conflicts)
     }
@@ -386,13 +436,24 @@ impl NodeGit {
     /// refused push is retried with the same lease; a lease mismatch is
     /// [`Pushed::Conflict`]. Never forces.
     pub fn finish(&self, remote: &Remote, worktree: &Worktree, message: &str) -> Result<Pushed> {
+        self.finish_as(remote, worktree, message, None)
+    }
+
+    pub fn finish_as(
+        &self,
+        remote: &Remote,
+        worktree: &Worktree,
+        message: &str,
+        author: Option<(&str, &str)>,
+    ) -> Result<Pushed> {
         let dir = &worktree.path;
         self.ok(dir, &["add", "--all"], None)?;
         if !self.run(dir, &["diff", "--cached", "--quiet"], None)?.ok {
-            self.ok(
+            self.ok_as(
                 dir,
                 &["commit", "--quiet", "--no-verify", "-m", message],
                 None,
+                author,
             )?;
         }
         let commit = self.ok(dir, &["rev-parse", "HEAD"], None)?;
@@ -470,7 +531,17 @@ impl NodeGit {
     }
 
     fn ok(&self, dir: &Path, args: &[&str], remote: Option<(&Remote, Uuid)>) -> Result<String> {
-        let out = self.run(dir, args, remote)?;
+        self.ok_as(dir, args, remote, None)
+    }
+
+    fn ok_as(
+        &self,
+        dir: &Path,
+        args: &[&str],
+        remote: Option<(&Remote, Uuid)>,
+        author: Option<(&str, &str)>,
+    ) -> Result<String> {
+        let out = self.run_as(dir, args, remote, author)?;
         if !out.ok {
             let said = format!("{}{}", out.stdout, out.stderr);
             let said = remote.map_or(said.clone(), |(r, _)| r.redact(&said));
@@ -482,6 +553,16 @@ impl NodeGit {
     /// Runs the node's git with no inherited configuration, prompts or hooks,
     /// killed with its process group after the command timeout.
     fn run(&self, dir: &Path, args: &[&str], remote: Option<(&Remote, Uuid)>) -> Result<Output> {
+        self.run_as(dir, args, remote, None)
+    }
+
+    fn run_as(
+        &self,
+        dir: &Path,
+        args: &[&str],
+        remote: Option<(&Remote, Uuid)>,
+        author: Option<(&str, &str)>,
+    ) -> Result<Output> {
         let mut command = Command::new(&self.git);
         command.arg("-C").arg(dir);
         for setting in [
@@ -497,6 +578,7 @@ impl NodeGit {
             command.args(["-c", setting]);
         }
         let (name, email) = &self.identity;
+        let (author_name, author_email) = author.unwrap_or((name, email));
         command
             .args(args)
             .env_clear()
@@ -505,8 +587,8 @@ impl NodeGit {
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_AUTHOR_NAME", name)
-            .env("GIT_AUTHOR_EMAIL", email)
+            .env("GIT_AUTHOR_NAME", author_name)
+            .env("GIT_AUTHOR_EMAIL", author_email)
             .env("GIT_COMMITTER_NAME", name)
             .env("GIT_COMMITTER_EMAIL", email)
             .stdin(Stdio::null())

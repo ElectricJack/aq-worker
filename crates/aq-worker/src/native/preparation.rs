@@ -72,11 +72,12 @@ impl InputPipeline {
     /// cancel an in-flight fsync or publish only half of this handoff.
     pub async fn reserve(
         &self,
-        offer: aq_admission::startup::NativeOffer,
+        offer: impl Into<aq_worker_protocol::git_author::AttemptOffer>,
         runtime: super::journal::RuntimeIdentity,
         deadline_ns: u64,
         disk_bytes: u64,
     ) -> Result<Uuid> {
+        let offer = offer.into();
         let retained = self.retained.clone();
         let launch = self.launch.clone();
         self.storage(move |owner| {

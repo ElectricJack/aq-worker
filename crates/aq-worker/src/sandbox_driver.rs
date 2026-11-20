@@ -102,6 +102,26 @@ pub struct DriverConfig {
     pub build_cache: Option<aq_sandbox_archive::build_cache::SlotCache>,
 }
 
+impl DriverConfig {
+    pub fn apply_git_author(
+        &mut self,
+        author: &aq_worker_protocol::git_author::GitAuthor,
+    ) -> Result<()> {
+        author.validate()?;
+        if matches!(self.harness, DriverHarness::Codex) {
+            aq_codex_mapper::apply_tool_environment(
+                &mut self.arguments,
+                &mut self.environment,
+                author.tool_environment(),
+            )?;
+        } else {
+            self.environment
+                .extend(author.tool_environment().map(|(k, v)| (k.into(), v.into())));
+        }
+        Ok(())
+    }
+}
+
 use aq_sandbox_archive::workspace::tree_bytes;
 pub use aq_sandbox_archive::workspace::{collect_tree, sync_tree, token_leak};
 

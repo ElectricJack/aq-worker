@@ -371,12 +371,15 @@ pub(super) fn bootstrap(
     profile: &Arc<NativeCodexHostProfile>,
 ) -> Result<()> {
     let scope = entry.scope.as_ref().context("native launch scope absent")?;
-    let offer = {
+    let (offer, git_author) = {
         let mut owner = lock(owner)?;
         entry.current(&owner)?;
         let state = owner.journal.state();
         let a = &state.attempts[&entry.id];
-        let offer = a.reservation.offer.clone();
+        let (offer, git_author) = (
+            a.reservation.offer.clone(),
+            a.reservation.git_author.clone(),
+        );
         a.phase_scope()?; // Its refusal precedes the installation check, as it always did.
         let m = lock(&profile.installation)?.installation().clone();
         ensure!(
@@ -401,7 +404,7 @@ pub(super) fn bootstrap(
         owner.journal.begin_native_launch(entry.id, intent)?;
         entry.snapshot(&owner.journal)?;
         entry.current(&owner)?;
-        offer
+        (offer, git_author)
     };
     let h = lock(&entry.history)?
         .clone()
@@ -581,7 +584,7 @@ pub(super) fn bootstrap(
         context_material: vec![],
     };
     let adapter = Adapter {
-        recipe,
+        recipe: recipe.with_git_author(git_author.as_ref())?,
         executable: i.executable.clone(),
         renderer: i.renderer.clone(),
         private: Mutex::new(Some(private)),

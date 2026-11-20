@@ -46,6 +46,7 @@ pub struct NativeClient {
     /// Boot-clock deadline before which fetch retries must end (`fetch_until`).
     fetch_deadline_ns: u64,
     node_slot: Option<(u32, u32)>,
+    checkpoint_author: bool,
 }
 pub use aq_node_service::native_transport::{
     FETCH_BACKOFF, FETCH_SPAN, FETCH_TRIES, HttpStatus, TransportFailed, fetch_retry_wait,
@@ -185,12 +186,17 @@ impl NativeClient {
             phase_terminal_safety_slots: Arc::new(Semaphore::new(1)),
             fetch_deadline_ns: u64::MAX,
             node_slot: None,
+            checkpoint_author: false,
         })
     }
     /// This client, on the same lanes, with fetch retries that end before `deadline_ns`: the
     /// boot-clock preparation or retrieval deadline of the inputs it reads.
     pub fn for_node_slot(mut self, slot: u32, registered_slots: u32) -> Self {
         self.node_slot = Some((slot, registered_slots));
+        self
+    }
+    pub fn with_git_author_support(mut self, supported: bool) -> Self {
+        self.checkpoint_author = supported;
         self
     }
     fn slot_headers(
