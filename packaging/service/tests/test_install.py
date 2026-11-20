@@ -311,11 +311,21 @@ def test_downloadable_bundle_installs_windows_startup_without_a_checkout(host, m
         refs[name] = {"path": str(path), "artifact": {"digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}}
     manifest = bundle / "manifest.json"
     manifest.write_text("{}")
+    codex_composite = bundle / "codex-definition.json"
+    codex_composite.write_text('{"adapter": "codex"}\n')
+    codex_helpers = bundle / "helpers"
+    for name in ("codex-code-mode-host", "codex-path/rg", "codex-resources/bwrap"):
+        tool = codex_helpers / name
+        tool.parent.mkdir(parents=True, exist_ok=True)
+        tool.write_text(name)
     native = {
         "adapter_manifest": str(manifest), "inventory_definition": str(manifest),
-        "executor": {"composite_definition": str(manifest), "settings": {"host": {
-            **refs, "docker_local": {"templates": [{"image": "test", "digest": "sha256:" + "a" * 64}]},
-        }}},
+        "executor": {"composite_definition": str(manifest), "settings": {
+            "host": {**refs, "docker_local": {"templates": [{
+                "image": "127.0.0.1:5000/aq/sandbox", "digest": "sha256:" + "a" * 64,
+            }]}},
+            "codex": {"composite_definition": str(codex_composite), "runtime_bundle": str(codex_helpers)},
+        }},
     }
     (bundle / "native.json").write_text(json.dumps(native))
     service = host["tmp"] / "service.toml"
@@ -325,7 +335,7 @@ def test_downloadable_bundle_installs_windows_startup_without_a_checkout(host, m
     output = host["tmp"] / "download"
     prepare.build(argparse.Namespace(
         runtime=bundle, worker=bundle / "aq-worker", service=service,
-        podman=podman, output=output, codex_helpers=None,
+        podman=podman, output=output, codex_helpers=codex_helpers,
         listen="127.0.0.1:28443", worker_port=28081, tls_cert=None, tls_key=None,
     ))
     archive, = (output / "install").glob("*.tar.gz")
@@ -333,6 +343,25 @@ def test_downloadable_bundle_installs_windows_startup_without_a_checkout(host, m
     with tarfile.open(archive) as tar:
         tar.extractall(extracted, filter="data")
     assert (extracted / "aq-wsl-autostart.ps1").read_bytes() == (ROOT / "packaging/windows/aq-wsl-autostart.ps1").read_bytes()
+    work = host["tmp"] / "prepared"
+    work.mkdir()
+    monkeypatch.setenv("HOME", str(host["home"]))
+    config = host["home"] / ".config/agent-q/service/local"
+    subprocess.run(
+        [sys.executable, extracted / "worker-install-config.py", "prepare",
+         extracted, work, "https://worker.example", host["tmp"] / "podman.sock",
+         config, archive.name.removesuffix(".tar.gz")],
+        check=True,
+    )
+    prepared = json.loads((work / "native.json").read_text())
+    codex = prepared["executor"]["settings"]["codex"]
+    assert codex == {
+        "composite_definition": str(extracted / "codex-composite.json"),
+        "runtime_bundle": str(extracted / "codex-bundle"),
+    }
+    assert Path(codex["composite_definition"]).read_bytes() == codex_composite.read_bytes()
+    assert Path(codex["composite_definition"]).stat().st_mode & 0o777 == 0o600
+    assert (Path(codex["runtime_bundle"]) / "codex-path/rg").stat().st_mode & 0o111
     host["bundle"] = extracted
     host["osrelease"].write_text("5.15.0-microsoft-standard-WSL2\n")
     with with_socket(host):

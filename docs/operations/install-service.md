@@ -364,8 +364,9 @@ file is named anywhere, the service then stops with `missing field
 
 Run `packaging/service/prepare-worker-install.py --help`. Give it the active
 service TOML, the matching worker binary and runtime directory, and the
-installed Podman distribution directory. Optionally supply the pinned Codex
-helper directory with `--codex-helpers`. On an Ubuntu build host with a
+installed Podman distribution directory. Supply the pinned Codex helper
+directory with `--codex-helpers` when the native template names a Codex
+runtime bundle. On an Ubuntu build host with a
 dynamically linked tmux, install `patchelf` so the builder can package tmux
 with its matching terminfo library. The builder verifies the pinned host
 tools and image manifest before packaging. It does not distribute enrollment

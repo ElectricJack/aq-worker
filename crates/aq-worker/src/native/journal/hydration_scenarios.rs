@@ -70,57 +70,9 @@ async fn actual_native_pipeline_journals_every_external_intent_and_keeps_lost_im
         1
     );
 }
-/// Spec 0016 §5.3: with the node's git, the source is a worktree of the node's
-/// repository; no bundle range, `artifact.import` or `workspace.create`.
 #[cfg(feature = "delivery_playbook")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_node_worktree_replaces_bundle_and_import_and_prepare_accepts_it() {
-    use aq_node_git::test_support as central;
-    let export = synthetic();
-    let manifest = export.manifest.clone();
-    let h = Inputs::new(export).await;
-    let git = GitPeer::new(h.root.clone(), manifest);
-    let remote = tokio::task::spawn_blocking(central::Central::start)
-        .await
-        .unwrap();
-    remote
-        .grants
-        .lock()
-        .unwrap()
-        .insert(h.id, remote.grant("p1", None));
-    let node = tempfile::tempdir().unwrap();
-    let mut client = git.client.clone();
-    client.node = Some(
-        central::config(node.path())
-            .node(central::remote(&remote))
-            .into(),
-    );
-    let all = h.all_inputs().await;
-    let spec = h.spec().await;
-    let pipeline = h.pipeline();
-    let source = pipeline.hydrate_source(h.id, h.preparation().clone(), spec, client);
-    let source = source.await.unwrap();
-    let path = source.workspace().path.clone();
-    assert!(path.starts_with(git.client.root()) && path.join("a.txt").is_file());
-    let calls = git.calls.lock().unwrap().clone();
-    let ops = ["artifact.import", "workspace.create"];
-    assert!(
-        calls
-            .iter()
-            .all(|r| !ops.contains(&r["operation"].as_str().unwrap_or_default()))
-    );
-    let saved = pipeline.snapshot().await.unwrap();
-    let recorded = saved.attempts[&h.id].source.as_ref().unwrap();
-    assert_eq!(
-        (recorded.ranges, recorded.worktree.as_ref()),
-        (0, Some(&path))
-    );
-    let prepared = pipeline.prepare_inputs(h.id, h.preparation().clone(), all, source);
-    prepared.await.unwrap();
-    tokio::task::spawn_blocking(move || drop(remote))
-        .await
-        .unwrap();
-}
+#[path = "../../../tests/support/delivery_playbook.rs"]
+mod delivery_playbook;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn historical_receipts_cannot_bypass_fresh_retention_or_head_checks() {
     let export = synthetic();

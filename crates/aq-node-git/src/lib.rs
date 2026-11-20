@@ -207,12 +207,13 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'sta
 }
 
 impl Node {
-    /// Reads the attempt's grant and adds its worktree at `path`.
-    pub async fn start(&self, attempt: Uuid, path: PathBuf) -> Result<Worktree> {
-        let grant = self
-            .remote
-            .grant(attempt, self.git.limits.command_timeout)
-            .await?;
+    pub async fn grant(&self, attempt: Uuid, remaining: Duration) -> Result<Option<Grant>> {
+        self.remote
+            .grant(attempt, remaining.min(self.git.limits.command_timeout))
+            .await
+    }
+    /// Adds the attempt's worktree from the grant already checked by the caller.
+    pub async fn start(&self, attempt: Uuid, path: PathBuf, grant: Grant) -> Result<Worktree> {
         let (git, remote) = (self.git.clone(), self.remote.clone());
         blocking(move || git.start(&remote, &grant, attempt, &path)).await
     }
