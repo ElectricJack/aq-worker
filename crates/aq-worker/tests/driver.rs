@@ -155,6 +155,7 @@ async fn binary_executes_real_child_against_fake_http_peer_with_lost_responses()
     let path = temp.path().join("worker.toml");
     cfg.save(&path).unwrap();
     let result = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
+        .env("TOKIO_WORKER_THREADS", "2")
         .arg("--config")
         .arg(&path)
         .arg("run-execution")
@@ -275,6 +276,7 @@ async fn blocked_fixture(cancellation: bool) {
         shared.lock().unwrap().expiry_offset = Some(offset.clone());
     }
     let command = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
+        .env("TOKIO_WORKER_THREADS", "2")
         .arg("--config")
         .arg(&path)
         .arg("run-execution")
@@ -417,6 +419,7 @@ async fn stopped_report_recovers_before_new_boot_registration_without_relaunch()
     .save(&path)
     .unwrap();
     let result = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
+        .env("TOKIO_WORKER_THREADS", "2")
         .arg("--config")
         .arg(&path)
         .arg("run-execution")
@@ -478,6 +481,7 @@ async fn post_stop_observation_outage_preserves_and_replays_before_report() {
     .unwrap();
     let state = temp.path().join("state");
     let result = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
+        .env("TOKIO_WORKER_THREADS", "2")
         .arg("--config")
         .arg(&path)
         .arg("run-execution")
