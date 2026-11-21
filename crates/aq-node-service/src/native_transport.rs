@@ -22,6 +22,11 @@ impl std::fmt::Display for TransportFailed {
 impl std::error::Error for TransportFailed {}
 /// Logs a refused response (its body cut to 400 characters) and returns its `HttpStatus`.
 pub async fn refused(response: Response) -> anyhow::Error {
+    refusal(response).await.0
+}
+
+// A start may be replayed only when the server explicitly declined the row lock.
+async fn refusal(response: Response) -> (anyhow::Error, bool) {
     let status = response.status();
     let path = response.url().path().to_owned();
     let retry_after = (response.headers().get(header::RETRY_AFTER))
@@ -36,8 +41,14 @@ pub async fn refused(response: Response) -> anyhow::Error {
         retry_after,
     ));
     // The owner's login age limit is a refusal the node shows, not only logs.
-    match serde_json::from_str::<serde_json::Value>(&body) {
-        Ok(v)
+    let payload = serde_json::from_str::<serde_json::Value>(&body).ok();
+    let contention = status == StatusCode::SERVICE_UNAVAILABLE
+        && payload.as_ref().is_some_and(|v| {
+            v["error"] == "overloaded"
+                && v["message"] == "row lock contended; retry the same operation"
+        });
+    let error = match payload {
+        Some(v)
             if v["message"]
                 .as_str()
                 .is_some_and(|m| m.starts_with("codex_login_stale")) =>
@@ -45,7 +56,8 @@ pub async fn refused(response: Response) -> anyhow::Error {
             error.context(v["message"].as_str().unwrap_or_default().to_owned())
         }
         _ => error,
-    }
+    };
+    (error, contention)
 }
 /// How often one request is resent after a `503`, and the first and longest wait between sends.
 pub const SAME_TRIES: u32 = 8;
@@ -56,7 +68,11 @@ pub const SAME_BACKOFF: (Duration, Duration) =
 /// caller should resend the identical request; false when the response is final, `tries` are
 /// used up, or the wait would pass `deadline_ns`. A transport failure is never resent here.
 pub async fn retry_same(response: &Response, tries: &mut u32, deadline_ns: u64, now: u64) -> bool {
-    if response.status() != StatusCode::SERVICE_UNAVAILABLE || *tries + 1 >= SAME_TRIES {
+    response.status() == StatusCode::SERVICE_UNAVAILABLE
+        && wait_for_replay(response.url().path(), tries, deadline_ns, now).await
+}
+async fn wait_for_replay(path: &str, tries: &mut u32, deadline_ns: u64, now: u64) -> bool {
+    if *tries + 1 >= SAME_TRIES {
         return false;
     }
     let (base, cap) = SAME_BACKOFF;
@@ -65,7 +81,6 @@ pub async fn retry_same(response: &Response, tries: &mut u32, deadline_ns: u64, 
         return false;
     }
     *tries += 1;
-    let path = response.url().path();
     tracing::warn!(%path, attempt = *tries, "native endpoint answered 503; same operation resent in {wait:?}");
     tokio::time::sleep(wait).await;
     true
@@ -76,7 +91,6 @@ pub async fn phase_terminal_response(
     request: reqwest::RequestBuilder,
     endpoint: &str,
 ) -> Result<Response> {
-    let replayable = matches!(endpoint, "started" | "stopped");
     let mut tries = 0;
     let response = loop {
         let next = request
@@ -86,9 +100,17 @@ pub async fn phase_terminal_response(
             .send()
             .await
             .map_err(|_| anyhow::anyhow!("phase terminal transport failed; disposition unknown"))?;
-        if !replayable || !retry_same(&response, &mut tries, u64::MAX, boot_ns()?).await {
-            break response;
+        if endpoint == "started" && response.status() == StatusCode::SERVICE_UNAVAILABLE {
+            let (error, contention) = refusal(response).await;
+            if contention && wait_for_replay(endpoint, &mut tries, u64::MAX, boot_ns()?).await {
+                continue;
+            }
+            return Err(error);
         }
+        if endpoint == "stopped" && retry_same(&response, &mut tries, u64::MAX, boot_ns()?).await {
+            continue;
+        }
+        break response;
     };
     if !response.status().is_success() {
         return Err(refused(response).await);
@@ -281,7 +303,14 @@ mod tests {
                     r#"{"operation_id":"synthetic-terminal","outcome":"success"}"#
                 );
                 if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                    return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(serde_json::json!({
+                            "error": "overloaded",
+                            "message": "row lock contended; retry the same operation"
+                        })),
+                    )
+                        .into_response();
                 }
                 ([("aq-phase-terminal-api-version", "1")], Json("receipt")).into_response()
             };
