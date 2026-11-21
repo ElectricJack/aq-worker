@@ -263,6 +263,10 @@ impl Layout {
     pub fn slot_held(&self, slot: u32) -> PathBuf {
         self.slot_state(slot).join("held")
     }
+    /// An owner recovery recorded a result in this particular current journal.
+    pub fn recovery_recorded(&self, slot: u32) -> PathBuf {
+        self.current(slot).join("owner-recovery-recorded")
+    }
     /// Why the slot is held, if it is.
     pub fn held_reason(&self, slot: u32) -> Option<String> {
         std::fs::read_to_string(self.slot_held(slot)).ok()

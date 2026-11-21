@@ -624,9 +624,20 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
             match self.settle(slot, node_id).await {
                 Ok(true) => {}
                 Ok(false) => {
-                    // Held: nothing more runs here, but the service stays up.
-                    let _ = stopping.wait_for(|v| *v).await;
-                    return false;
+                    // Recheck the journal once after an operator records a handoff. Recover
+                    // still decides whether this slot can be archived and take new work.
+                    let recorded = self.sup.layout.recovery_recorded(slot);
+                    loop {
+                        tokio::select! {
+                            _ = stopping.wait_for(|v| *v) => return false,
+                            _ = tokio::time::sleep(CONTROL_INTERVAL) => {
+                                if std::fs::remove_file(&recorded).is_ok() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    continue;
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -1564,6 +1575,34 @@ mod tests {
         // R1: the holding reason is recorded for `service status`, only for the held slot.
         assert_eq!(rig.layout.held_reason(1).as_deref(), Some("sandbox_absent"));
         assert_eq!(rig.layout.held_reason(2), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn owner_handoff_wakes_held_slot_and_rechecks_journal() {
+        let rig = rig(1);
+        journal(&rig, 1);
+        let backend = Arc::new(FakeBackend::default());
+        backend.recovery.lock().unwrap().insert(
+            1,
+            [
+                Ok(RecoverOutcome::Held("sandbox_absent".into())),
+                Ok(RecoverOutcome::Salvaged),
+            ]
+            .into(),
+        );
+        script(&backend, 1, vec![Step::Hang]);
+        let (handle, tx) = start(&rig, &backend, &control(vec![reply(vec![], None)]));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(rig.layout.held_reason(1).as_deref(), Some("sandbox_absent"));
+        write_private(&rig.layout.recovery_recorded(1), b"reported").unwrap();
+        sleep(CONTROL_INTERVAL + Duration::from_secs(1)).await;
+        assert_eq!(
+            *backend.calls.lock().unwrap(),
+            ["recover:1", "recover:1", "run:1"]
+        );
+        assert_eq!(rig.layout.held_reason(1), None);
+        assert!(!rig.layout.recovery_recorded(1).exists());
+        stop(handle, tx).await;
     }
 
     /// R1: an attempt that failed in preparation stays for recovery; recovery settles it at once

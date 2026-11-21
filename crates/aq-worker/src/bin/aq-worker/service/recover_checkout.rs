@@ -74,6 +74,7 @@ pub(super) async fn run(
             "attempt already has a different result"
         );
         if let Some(receipt) = &history.receipt {
+            aq_node_service::write_private(&layout.recovery_recorded(slot), attempt.as_bytes())?;
             println!(
                 "Failed handoff already recorded for attempt {attempt}, report {}",
                 receipt.report_id
@@ -147,6 +148,7 @@ pub(super) async fn run(
     let stopped = helper.stop().await;
     let receipt = outcome?;
     stopped?;
+    aq_node_service::write_private(&layout.recovery_recorded(slot), attempt.as_bytes())?;
     println!(
         "Recorded failed handoff from retained commit {head} for attempt {attempt}, report {}",
         receipt.report_id
