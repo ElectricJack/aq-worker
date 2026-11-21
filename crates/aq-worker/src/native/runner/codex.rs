@@ -840,7 +840,6 @@ pub(super) async fn drive_running_owned(
             .await?
             .context("explicit local result claim absent; stopped attempt retained")?;
         let source = async {
-            #[cfg(feature = "delivery_playbook")]
             if pipeline.push_result_source(&result).await? {
                 return Ok(());
             }
@@ -881,7 +880,6 @@ pub(super) async fn drive_running_owned(
                 .await;
         }
         report?;
-        #[cfg(feature = "delivery_playbook")]
         pipeline.end_result_source(&result).await;
     } else {
         intake_closed?;

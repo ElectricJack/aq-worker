@@ -2761,7 +2761,6 @@ mod sandbox_driver_units {
     }
 
     /// Spec 0016 §3 (W3): conflicts that merging main left go into the agent's task context.
-    #[cfg(feature = "delivery_playbook")]
     #[test]
     fn a_returned_tasks_merge_conflicts_are_named_in_the_prompt() {
         let dir = tempfile::tempdir().unwrap();

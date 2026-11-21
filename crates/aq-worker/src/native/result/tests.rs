@@ -356,7 +356,6 @@ fn result_namespace_is_owned_and_allocates_disjoint_attempt_children() {
     assert!(ns.attempt(&path, Uuid::from_u128(3)).is_err());
 }
 /// Spec 0016 §5.2 (S6): a pushed result names its task ref and head, or the conflict; no receipt.
-#[cfg(feature = "delivery_playbook")]
 #[test]
 fn a_pushed_result_names_its_ref_and_head_instead_of_a_retention_receipt() {
     let mut h = history();
