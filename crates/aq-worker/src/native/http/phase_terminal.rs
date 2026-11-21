@@ -23,7 +23,7 @@ impl NativeClient {
             .header(header::CONTENT_TYPE, "application/json")
             .header("aq-phase-terminal-api-version", "1")
             .body(bytes);
-        aq_node_service::native_transport::phase_terminal_response(request, path == "stopped").await
+        aq_node_service::native_transport::phase_terminal_response(request, path).await
     }
 }
 impl NativeClient {
