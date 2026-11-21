@@ -61,7 +61,7 @@ pub fn codex_login_tokens(auth: &[u8]) -> Result<Vec<Zeroizing<Vec<u8>>>> {
 /// Where the harness's stop hook leaves the hook JSON of a finished turn.
 pub const STOP_MARKER: &str = "/aq/out/stop.json";
 /// The stop hook command: the hook JSON (stdin) atomically replaces the marker.
-pub const STOP_HOOK: &str = "cat > /aq/out/stop.tmp && mv /aq/out/stop.tmp /aq/out/stop.json";
+pub const STOP_HOOK: &str = include_str!("claude-stop.sh");
 
 /// Fixed in-sandbox runner of interactive Claude Code (I4a pattern). Public
 /// configuration, no secret. Claude runs on the container's terminal, which the
@@ -170,6 +170,61 @@ pub fn stop_stream(marker: &[u8]) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use crate::{final_text, proven_success};
+    #[test]
+    fn claude_stop_keeps_pending_checks_in_the_same_session() {
+        use std::{
+            io::Write,
+            process::{Command, Stdio},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("stop.json");
+        let script = STOP_HOOK.replace("/aq/out", dir.path().to_str().unwrap());
+        let run = |event: &str, text: &str, continued: bool, pending: bool| {
+            let tasks = if pending {
+                vec![serde_json::json!({"type":"shell","status":"running"})]
+            } else {
+                vec![]
+            };
+            let input = serde_json::json!({"hook_event_name":event,"last_assistant_message":text,
+                "stop_hook_active":continued,"background_tasks":tasks});
+            let mut child = Command::new("sh")
+                .args(["-c", &script])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(input.to_string().as_bytes())
+                .unwrap();
+            let out = child.wait_with_output().unwrap();
+            assert!(out.status.success());
+            if marker.exists() {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&std::fs::read(&marker).unwrap())
+                        .unwrap(),
+                    input
+                );
+                std::fs::remove_file(&marker).unwrap();
+                return "recorded";
+            }
+            if out.stdout.is_empty() {
+                return "waiting";
+            }
+            let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+            assert_eq!(reply["decision"], "block");
+            "continue"
+        };
+        assert_eq!(run("Stop", "Waiting for clippy", false, true), "continue");
+        assert_eq!(run("Stop", "Waiting for clippy", true, true), "waiting");
+        assert_eq!(run("Stop", "Still incomplete", true, false), "recorded");
+        assert_eq!(run("Stop", "Changes: none", false, false), "recorded");
+        assert_eq!(run("Stop", "Outcome: blocked", false, true), "recorded");
+        assert_eq!(run("StopFailure", "Runner failed", false, true), "recorded");
+    }
+
     #[test]
     fn a_finished_turn_is_the_result_and_a_failed_turn_is_not_a_success() {
         let done = "Done.\nOutcome: done\nChanges: none; Checks: none; Limits: none";
