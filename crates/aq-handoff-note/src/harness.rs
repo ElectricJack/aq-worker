@@ -184,6 +184,26 @@ mod tests {
                 r#"until ! pgrep -f "cargo test -p aq-server --test it_server" >/dev/null; do sleep 5; done; cat result"#,
                 2,
             ),
+            (
+                r#"sed -i 's/before;after/edited/' guide; until ! pgrep -f "cargo clippy" >/dev/null; do sleep 5; done; cat log"#,
+                2,
+            ),
+            (
+                "echo edit\nuntil ! pgrep -f 'cargo test'; do sleep 5; done",
+                2,
+            ),
+            (
+                r#"echo "document; while pgrep -f 'cargo test'; do sleep 1; done""#,
+                0,
+            ),
+            (
+                "cat <<EOF\nwhile pgrep -f 'cargo test'; do sleep 1; done\nEOF",
+                0,
+            ),
+            (
+                "echo ok # ; while pgrep -f 'cargo test'; do sleep 1; done",
+                0,
+            ),
             ("while pgrep -f 'cargo test'; do sleep 1; done", 2),
             ("while pgrep -A -f 'cargo test'; do sleep 1; done", 0),
             ("while pgrep -f '[c]argo test'; do sleep 1; done", 0),
