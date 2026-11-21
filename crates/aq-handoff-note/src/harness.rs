@@ -94,7 +94,7 @@ exit "$rc"
 
 /// Appended to the startup context inside the sandbox.
 pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the \
-result client. The node runner submits your final message as the AQ result claim and ends this session when your turn ends, so end with exactly one line: Changes: ...; Checks: exact commands \
+result client. The node runner submits your final message as the AQ result claim and ends this session when your turn ends. A background build or test does not resume a finished session. Wait for it, inspect its exit status, and continue the task before giving a final answer. End with exactly one line: Changes: ...; Checks: exact commands \
 and outcomes; Limits: ... (write Changes: none when you changed no file), and above it one line Outcome: done, or Outcome: blocked when you could not \
 do the task. Your worktree is retained as is: keep build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
 /// Appended when the attempt has an agent channel.
