@@ -1,6 +1,5 @@
 //! `aq-worker run --service-config` and `aq-worker service ...` (spec 0007 phase 1):
 //! the glue between `aq-node-service` and the native pipeline.
-#[cfg(feature = "delivery_playbook")]
 mod recover_checkout;
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::session::NodeSession;
@@ -59,7 +58,6 @@ pub enum ServiceCmd {
         profile: String,
     },
     /// Record a failed handoff from a specific retained Git commit when the sandbox is absent.
-    #[cfg(feature = "delivery_playbook")]
     RecoverCheckout {
         #[arg(long)]
         profile: String,
@@ -129,7 +127,6 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Install { profile } => install(&profile),
         ServiceCmd::Uninstall { profile, purge } => uninstall(&profile, purge),
         ServiceCmd::Status { profile } => status(&profile),
-        #[cfg(feature = "delivery_playbook")]
         ServiceCmd::RecoverCheckout {
             profile,
             node,
