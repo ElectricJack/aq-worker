@@ -211,7 +211,7 @@ def build(args):
             host[key]["path"] = "/bundle/" + Path(host[key]["path"]).name
         for key in ("git_root", "git_socket", "state_dir"):
             native[key] = "/bundle/" + key
-        if "node_git" in native:  # a delivery_playbook build; the installer sets the path
+        if "node_git" in native:  # a node-git enrolled template; the installer sets the path
             native["node_git"]["repositories"] = "/bundle/node_git"
         host["root"] = "/bundle/host"
         host["docker_local"]["socket"] = "/bundle/podman.sock"

@@ -43,7 +43,6 @@ pub struct SourceDownload {
     pub verified: Option<GitManifest>,
     pub operations: BTreeMap<String, PendingGitOperation>,
     /// The attempt's worktree of the node's repository; no bundle (spec 0016 §5.3).
-    #[cfg(feature = "delivery_playbook")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<PathBuf>,
 }
@@ -65,12 +64,7 @@ impl SourceDownload {
             .source)
     }
     pub(crate) fn worktree_path(&self) -> Option<&PathBuf> {
-        #[cfg(feature = "delivery_playbook")]
-        {
-            self.worktree.as_ref()
-        }
-        #[cfg(not(feature = "delivery_playbook"))]
-        None
+        self.worktree.as_ref()
     }
     pub fn ready(&self) -> bool {
         self.worktree_path().is_some() || (self.verified.is_some() && self.complete())
@@ -321,7 +315,6 @@ impl Journal {
             range_bytes: default_range_bytes(),
             verified: None,
             operations: BTreeMap::new(),
-            #[cfg(feature = "delivery_playbook")]
             worktree: None,
         };
         let mut next = self.next()?;
@@ -349,7 +342,6 @@ impl Journal {
             Ok(())
         })
     }
-    #[cfg(feature = "delivery_playbook")]
     pub(crate) fn source_worktree(&mut self, id: Uuid, path: PathBuf) -> Result<()> {
         self.source_update(id, |s| {
             ensure!(

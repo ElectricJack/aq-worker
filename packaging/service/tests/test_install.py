@@ -1053,7 +1053,7 @@ def test_hosted_install_node_count_preserves_each_enrollment(tmp_path, key):
 
 
 def test_a_node_git_section_gets_one_repository_directory_per_profile(tmp_path, monkeypatch):
-    """Spec 0016 §5.3: a delivery_playbook template keeps node_git and gets the profile's
+    """Spec 0016 §5.3: a node_git template keeps node_git and gets the profile's
     node-wide repository directory; a template without it gets none."""
     spec = importlib.util.spec_from_file_location("worker_install_config", SCRIPT.with_name("worker-install-config.py"))
     module = importlib.util.module_from_spec(spec)

@@ -132,7 +132,8 @@ impl Attempt {
         ]);
         command
     }
-    async fn attach(&self, tmux: &Path, read_only: bool) -> Result<(pty::Pty, (u16, u16))> {
+    /// The real pane's current dimensions, as tmux reports them.
+    async fn pane_size(&self, tmux: &Path) -> Result<(u16, u16)> {
         let output = tokio::time::timeout(
             Duration::from_secs(2),
             self.tmux(tmux)
@@ -154,11 +155,35 @@ impl Attempt {
             .trim()
             .split_once(' ')
             .context("attempt pane dimensions missing")?;
-        let (columns, rows) = (columns.parse()?, rows.parse()?);
+        Ok((columns.parse()?, rows.parse()?))
+    }
+    async fn attach(&self, tmux: &Path, read_only: bool) -> Result<(pty::Pty, (u16, u16))> {
+        let (columns, rows) = self.pane_size(tmux).await?;
         Ok((
             pty::Pty::command(self.viewer(tmux, read_only), columns, rows)?,
             (columns, rows),
         ))
+    }
+    /// Resize the shared pane itself (viewers attach with `ignore-size`, so only this
+    /// call changes it), then confirm what tmux reports.
+    async fn resize_pane(&self, tmux: &Path, columns: u16, rows: u16) -> Result<(u16, u16)> {
+        let output = tokio::time::timeout(
+            Duration::from_secs(2),
+            self.tmux(tmux)
+                .args(["resize-window", "-t", "aq", "-x"])
+                .arg(columns.to_string())
+                .arg("-y")
+                .arg(rows.to_string())
+                .output(),
+        )
+        .await??;
+        ensure!(output.status.success(), "attempt pane resize failed");
+        let confirmed = self.pane_size(tmux).await?;
+        ensure!(
+            confirmed == (columns, rows),
+            "attempt pane dimensions not applied"
+        );
+        Ok(confirmed)
     }
 }
 /// Every live attempt under the service's runtime root (`<slot>/host/driver-<launch>`).
@@ -272,6 +297,13 @@ async fn relay(
                     }
                     "escape" if fixed && !read_only => p.write(b"\x1b").await?,
                     "resize" if !fixed => { let (c,r) = size(&v)?; p.resize(c,r)?; }
+                    // Only the current writable controller may change the shared pane.
+                    "resize" if !read_only => {
+                        let (c, r) = size(&v)?;
+                        let Attachment::Attempt { attempt, tmux } = &target else { continue };
+                        let (c, r) = attempt.resize_pane(tmux, c, r).await?;
+                        p.resize(c, r)?;
+                    }
                     "detach" => attach = None,
                     _ => {}
                 }
@@ -336,5 +368,171 @@ mod tests {
             attempts(root.path()).is_empty(),
             "a finished driver is not served"
         );
+    }
+
+    fn frame(kind: &str, connection: Uuid, generation: u64, extra: Value) -> Message {
+        let mut v = json!({"kind": kind, "connection_id": connection, "generation": generation});
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        Message::Text(v.to_string().into())
+    }
+    async fn pane(attempt: &Attempt) -> (u16, u16) {
+        attempt.pane_size(Path::new("/usr/bin/tmux")).await.unwrap()
+    }
+    /// A real tmux pane: only the current writable controller changes its dimensions;
+    /// stale connections or generations and watchers (attach, repaint, reconnect) never do.
+    #[tokio::test]
+    async fn managed_pane_resizes_only_for_its_current_writable_controller() {
+        let tmux = Path::new("/usr/bin/tmux");
+        let root = tempfile::tempdir().unwrap();
+        let attempt = Attempt {
+            id: Uuid::from_u128(3),
+            node: Uuid::from_u128(1),
+            host: root.path().to_path_buf(),
+            driver: root.path().join("driver"),
+        };
+        // `Attempt::tmux` passes -N (never start a server), so start it directly.
+        let started = tokio::process::Command::new(tmux)
+            .arg("-S")
+            .arg(root.path().join("tmux.sock"))
+            .args([
+                "new-session",
+                "-d",
+                "-s",
+                "aq",
+                "-x",
+                "80",
+                "-y",
+                "24",
+                "cat",
+            ])
+            .output()
+            .await
+            .unwrap();
+        assert!(started.status.success());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let client = tokio::spawn(async move {
+            let (socket, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+            socket
+        });
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut server = tokio_tungstenite::accept_async(stream).await.unwrap();
+        let socket = client.await.unwrap();
+        let relay_task = {
+            let (host, driver) = (attempt.host.clone(), attempt.driver.clone());
+            tokio::spawn(async move {
+                let attempt = Attempt {
+                    id: Uuid::from_u128(3),
+                    node: Uuid::from_u128(1),
+                    host,
+                    driver,
+                };
+                relay(
+                    socket,
+                    attempt.id,
+                    Attachment::Attempt {
+                        attempt: &attempt,
+                        tmux: Path::new("/usr/bin/tmux"),
+                    },
+                )
+                .await
+            })
+        };
+        async fn ready(
+            server: &mut tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+        ) -> Value {
+            loop {
+                let next = tokio::time::timeout(Duration::from_secs(5), server.next())
+                    .await
+                    .unwrap();
+                if let Some(Ok(Message::Text(text))) = next {
+                    return serde_json::from_str(&text).unwrap();
+                }
+            }
+        }
+        let (controller, watcher) = (Uuid::from_u128(10), Uuid::from_u128(11));
+        let resize = |c, g, columns: u64, rows: u64| {
+            frame("resize", c, g, json!({"columns": columns, "rows": rows}))
+        };
+        server
+            .send(frame("attach", controller, 1, json!({"read_only": false})))
+            .await
+            .unwrap();
+        let r = ready(&mut server).await;
+        assert_eq!(
+            (r["columns"].as_u64(), r["rows"].as_u64()),
+            (Some(80), Some(24))
+        );
+        // Controller resize reaches the real pane.
+        server.send(resize(controller, 1, 100, 30)).await.unwrap();
+        // Stale generation and an unattached connection change nothing.
+        server.send(resize(controller, 0, 120, 40)).await.unwrap();
+        server.send(resize(watcher, 1, 130, 50)).await.unwrap();
+        // A repaint is a no-op for the size; the ready frame follows the earlier resize.
+        server
+            .send(frame("repaint", controller, 1, json!({})))
+            .await
+            .unwrap();
+        let r = ready(&mut server).await;
+        assert_eq!(
+            (r["columns"].as_u64(), r["rows"].as_u64()),
+            (Some(100), Some(30))
+        );
+        assert_eq!(pane(&attempt).await, (100, 30));
+        // A view-only watcher observes the pane unchanged and cannot resize it.
+        server
+            .send(frame("attach", watcher, 2, json!({"read_only": true})))
+            .await
+            .unwrap();
+        let r = ready(&mut server).await;
+        assert_eq!(
+            (r["columns"].as_u64(), r["rows"].as_u64()),
+            (Some(100), Some(30))
+        );
+        server.send(resize(watcher, 2, 60, 20)).await.unwrap();
+        server
+            .send(frame("repaint", watcher, 2, json!({})))
+            .await
+            .unwrap();
+        let r = ready(&mut server).await;
+        assert_eq!(
+            (r["columns"].as_u64(), r["rows"].as_u64()),
+            (Some(100), Some(30))
+        );
+        assert_eq!(pane(&attempt).await, (100, 30));
+        // The old controller connection was replaced by the watcher: no resize either.
+        server.send(resize(controller, 1, 70, 25)).await.unwrap();
+        // Reconnect as controller: dimensions are confirmed from the real pane.
+        server
+            .send(frame("attach", controller, 3, json!({"read_only": false})))
+            .await
+            .unwrap();
+        let r = ready(&mut server).await;
+        assert_eq!(
+            (r["columns"].as_u64(), r["rows"].as_u64()),
+            (Some(100), Some(30))
+        );
+        server.send(resize(controller, 3, 90, 33)).await.unwrap();
+        server
+            .send(frame("repaint", controller, 3, json!({})))
+            .await
+            .unwrap();
+        let r = ready(&mut server).await;
+        assert_eq!(
+            (r["columns"].as_u64(), r["rows"].as_u64()),
+            (Some(90), Some(33))
+        );
+        assert_eq!(pane(&attempt).await, (90, 33));
+        drop(server);
+        let _ = relay_task.await;
+        let _ = attempt.tmux(tmux).arg("kill-server").output().await;
+    }
+    #[test]
+    fn terminal_dimension_bounds_are_two_to_five_hundred_by_one_to_three_hundred() {
+        let ok = |c: u64, r: u64| size(&json!({"columns": c, "rows": r})).is_ok();
+        assert!(ok(2, 1) && ok(500, 300));
+        assert!(!ok(1, 1) && !ok(501, 300) && !ok(2, 0) && !ok(80, 301));
     }
 }
