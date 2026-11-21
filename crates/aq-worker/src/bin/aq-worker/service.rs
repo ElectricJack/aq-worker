@@ -1,5 +1,7 @@
 //! `aq-worker run --service-config` and `aq-worker service ...` (spec 0007 phase 1):
 //! the glue between `aq-node-service` and the native pipeline.
+#[cfg(feature = "delivery_playbook")]
+mod recover_checkout;
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::session::NodeSession;
 use aq_node_service::{
@@ -55,6 +57,20 @@ pub enum ServiceCmd {
     Status {
         #[arg(long)]
         profile: String,
+    },
+    /// Record a failed handoff from a specific retained Git commit when the sandbox is absent.
+    #[cfg(feature = "delivery_playbook")]
+    RecoverCheckout {
+        #[arg(long)]
+        profile: String,
+        #[arg(long)]
+        node: u32,
+        #[arg(long)]
+        slot: u32,
+        #[arg(long)]
+        attempt_id: Uuid,
+        #[arg(long)]
+        expected_head: String,
     },
     /// Destroy the stopped sandbox an attempt of this slot preserved (its work was never
     /// copied back, so the service never destroys it). The reason is recorded as the destroy
@@ -113,6 +129,14 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Install { profile } => install(&profile),
         ServiceCmd::Uninstall { profile, purge } => uninstall(&profile, purge),
         ServiceCmd::Status { profile } => status(&profile),
+        #[cfg(feature = "delivery_playbook")]
+        ServiceCmd::RecoverCheckout {
+            profile,
+            node,
+            slot,
+            attempt_id,
+            expected_head,
+        } => recover_checkout::run(&profile, node, slot, attempt_id, &expected_head).await,
         ServiceCmd::ReleaseSandbox {
             profile,
             node,

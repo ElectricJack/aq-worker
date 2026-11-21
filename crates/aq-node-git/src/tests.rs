@@ -252,8 +252,14 @@ fn a_node_reads_its_grant_then_finishes_and_ends_from_the_worktree_record() {
     assert_eq!(wt.grant.task_ref, "refs/heads/aq/n1");
     git(&path, &["commit", "--allow-empty", "-m", "pre-authored"]);
     let preauthored = git(&path, &["rev-parse", "HEAD"]);
+    let verify =
+        |id, head: &str| runtime.block_on(node.verify_checkout(id, path.clone(), head.to_owned()));
+    verify(attempt, &preauthored).unwrap();
+    assert!(verify(Uuid::new_v4(), &preauthored).is_err());
+    assert!(verify(attempt, &wt.start).is_err());
     let preauthored_identity = identities(&path, &preauthored);
     std::fs::write(path.join("e.txt"), "five\n").unwrap();
+    assert!(verify(attempt, &preauthored).is_err(), "untracked file");
     let again = config(state.path()).node(remote(&central));
     let (_, pushed) = runtime
         .block_on(again.finish_as(path.clone(), "done".into(), Some(creator())))

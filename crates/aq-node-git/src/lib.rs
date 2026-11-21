@@ -245,6 +245,43 @@ impl Node {
         })
         .await
     }
+    /// Verify the owner-selected commit and clean files before recovering a missing sandbox.
+    pub async fn verify_checkout(
+        &self,
+        attempt: Uuid,
+        path: PathBuf,
+        expected: String,
+    ) -> Result<()> {
+        let git = self.git.clone();
+        blocking(move || {
+            let worktree = NodeGit::open(&path)?;
+            ensure!(
+                worktree.attempt == attempt
+                    && worktree.repository == git.repository(worktree.grant.repository_id),
+                "checkout does not belong to this attempt and repository"
+            );
+            ensure!(
+                git.ok(&path, &["rev-parse", "HEAD"], None)?.trim() == expected,
+                "retained checkout revision differs"
+            );
+            ensure!(
+                git.ok(
+                    &path,
+                    &[
+                        "status",
+                        "--porcelain=v1",
+                        "--untracked-files=all",
+                        "--ignore-submodules=none"
+                    ],
+                    None
+                )?
+                .is_empty(),
+                "retained checkout has uncommitted changes"
+            );
+            Ok(())
+        })
+        .await
+    }
     /// Commits and pushes the attempt's worktree at `path` ([`NodeGit::finish`]).
     pub async fn finish(&self, path: PathBuf, message: String) -> Result<(Worktree, Pushed)> {
         self.finish_as(path, message, None).await
