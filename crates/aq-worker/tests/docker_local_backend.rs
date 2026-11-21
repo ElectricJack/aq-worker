@@ -2767,7 +2767,7 @@ mod sandbox_driver_units {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("worktree");
         let repository = uuid::Uuid::from_u128(7);
-        let worktree = aq_node_git::Worktree {
+        let mut worktree = aq_node_git::Worktree {
             attempt: uuid::Uuid::from_u128(3),
             repository: dir.path().join("repo.git"),
             path: path.clone(),
@@ -2784,7 +2784,7 @@ mod sandbox_driver_units {
             conflicts: vec!["src/a.rs".into()],
         };
         let record = path.with_extension("grant.json");
-        std::fs::write(record, serde_json::to_vec(&worktree).unwrap()).unwrap();
+        std::fs::write(&record, serde_json::to_vec(&worktree).unwrap()).unwrap();
         let mut config: DriverConfig = serde_json::from_value(serde_json::json!({
             "docker_local": DockerLocalConfig::new("/run/x.sock".into()),
             "template": format!("sha256:{}", "a".repeat(64)),
@@ -2806,6 +2806,9 @@ mod sandbox_driver_units {
         assert!(!prompt(&config).contains("conflict markers"));
         config.workspace = path;
         assert!(prompt(&config).contains("conflict markers in: src/a.rs"));
+        worktree.conflicts.clear();
+        std::fs::write(record, serde_json::to_vec(&worktree).unwrap()).unwrap();
+        assert!(prompt(&config).contains("The merge was clean"));
     }
 }
 
