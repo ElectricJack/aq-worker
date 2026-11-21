@@ -61,7 +61,8 @@ pub fn codex_login_tokens(auth: &[u8]) -> Result<Vec<Zeroizing<Vec<u8>>>> {
 /// Where the harness's stop hook leaves the hook JSON of a finished turn.
 pub const STOP_MARKER: &str = "/aq/out/stop.json";
 /// The stop hook command: the hook JSON (stdin) atomically replaces the marker.
-pub const STOP_HOOK: &str = include_str!("claude-stop.sh");
+pub const PROCESS_WAIT_HOOK: &str = include_str!("claude-process-wait.sh");
+const STOP_HOOK: &str = include_str!("claude-stop.sh");
 
 /// Fixed in-sandbox runner of interactive Claude Code (I4a pattern). Public
 /// configuration, no secret. Claude runs on the container's terminal, which the
@@ -113,9 +114,8 @@ const CLAUDE_PRINT: [&str; 6] = [
 /// Turns the unattended container recipe (print mode, `settings.json` with all
 /// hooks disabled) into the interactive TUI for the docker-local sandbox: the
 /// print-mode arguments go (the runner gives the prompt as the last argument),
-/// the bypass-mode confirmation dialog is answered, and the only hooks (this file
-/// is the only settings source) report the end of the turn, finished or failed,
-/// to the node driver. Returns the new `settings.json`.
+/// the bypass-mode confirmation dialog is answered, and the hooks report the end
+/// of the turn and catch Bash monitors that would wait for themselves.
 pub fn claude_interactive(arguments: &mut Vec<String>, settings: &[u8]) -> Result<String> {
     anyhow::ensure!(
         arguments.len() > 6 && arguments[..6] == CLAUDE_PRINT,
@@ -133,7 +133,10 @@ pub fn claude_interactive(arguments: &mut Vec<String>, settings: &[u8]) -> Resul
     object.insert("skipDangerousModePermissionPrompt".into(), true.into());
     object.insert(
         "hooks".into(),
-        serde_json::json!({ "Stop": hook, "StopFailure": hook }),
+        serde_json::json!({
+            "Stop": hook, "StopFailure": hook,
+            "PreToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":PROCESS_WAIT_HOOK}]}]
+        }),
     );
     Ok(serde_json::to_string_pretty(&value)?)
 }
@@ -170,6 +173,48 @@ pub fn stop_stream(marker: &[u8]) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use crate::{final_text, proven_success};
+    #[test]
+    fn rejects_a_self_matching_background_monitor_without_interfering_with_other_waits() {
+        use std::{
+            io::Write,
+            process::{Command, Stdio},
+        };
+        for (command, expected) in [
+            (
+                r#"until ! pgrep -f "cargo test -p aq-server --test it_server" >/dev/null; do sleep 5; done; cat result"#,
+                2,
+            ),
+            ("while pgrep -f 'cargo test'; do sleep 1; done", 2),
+            ("while pgrep -A -f 'cargo test'; do sleep 1; done", 0),
+            ("while pgrep -f '[c]argo test'; do sleep 1; done", 0),
+            ("while pgrep -f 'cargo test'; do sleep 1; break; done", 0),
+            ("pgrep -f 'cargo test'", 0),
+            ("wait $build_pid", 0),
+        ] {
+            let mut hook = Command::new("sh")
+                .args(["-c", PROCESS_WAIT_HOOK])
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let input = serde_json::json!({"tool_input":{"command":command}}).to_string();
+            hook.stdin
+                .take()
+                .unwrap()
+                .write_all(input.as_bytes())
+                .unwrap();
+            let result = hook.wait_with_output().unwrap();
+            assert_eq!(result.status.code(), Some(expected), "{command}");
+            if expected == 2 {
+                assert!(
+                    String::from_utf8(result.stderr)
+                        .unwrap()
+                        .contains("original background task")
+                );
+            }
+        }
+    }
+
     #[test]
     fn claude_stop_keeps_pending_checks_in_the_same_session() {
         use std::{
@@ -301,7 +346,12 @@ mod tests {
         assert_eq!(s["permissions"]["defaultMode"], "bypassPermissions");
         assert_eq!(s["skipDangerousModePermissionPrompt"], true);
         assert!(s.get("disableAllHooks").is_none());
-        assert_eq!(s["hooks"].as_object().unwrap().len(), 2);
+        assert_eq!(s["hooks"].as_object().unwrap().len(), 3);
+        assert_eq!(s["hooks"]["PreToolUse"][0]["matcher"], "Bash");
+        assert_eq!(
+            s["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            PROCESS_WAIT_HOOK
+        );
         for event in ["Stop", "StopFailure"] {
             assert_eq!(s["hooks"][event][0]["hooks"][0]["command"], STOP_HOOK);
         }
