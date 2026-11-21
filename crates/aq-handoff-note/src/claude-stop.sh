@@ -17,7 +17,7 @@ handoff = re.search(r"(?im)^\s*[- >*_\x60]*changes[*_\x60]*:", text)
 blocked = re.search(r"(?im)^\s*[- >*_\x60]*outcome[*_\x60]*:\s*[*_\x60]*blocked\b", text)
 if hook.get("hook_event_name") == "Stop" and not (handoff or blocked):
     if not hook.get("stop_hook_active"):
-        print(json.dumps({"decision": "block", "reason": "AQ uses your final handoff to stop this session. Finish pending builds and checks and inspect their outcomes before reporting Changes. If you cannot proceed, report Outcome: blocked and the blocker."}))
+        print(json.dumps({"decision": "block", "reason": "AQ uses your final handoff to stop this session. Wait for the original build or test task by its task ID and inspect its exit status and log before reporting Changes. A process-name monitor may match its own shell. If you cannot proceed, report Outcome: blocked and the blocker."}))
         sys.exit(10)
     if hook.get("background_tasks"):
         # Let the harness receive the pending task's completion notification.
