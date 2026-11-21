@@ -17,32 +17,13 @@ impl NativeClient {
         } else {
             &self.control
         };
-        let response = client
+        let request = client
             .post(format!("{}/v1/worker/profiled-v2/{path}", self.base))
             .header(header::AUTHORIZATION, self.credential.clone())
             .header(header::CONTENT_TYPE, "application/json")
             .header("aq-phase-terminal-api-version", "1")
-            .body(bytes)
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("phase terminal transport failed; disposition unknown"))?;
-        if !response.status().is_success() {
-            return Err(refused(response).await);
-        }
-        let mut versions = response
-            .headers()
-            .get_all("aq-phase-terminal-api-version")
-            .iter();
-        ensure!(
-            versions.next().is_some_and(|v| v == "1")
-                && versions.next().is_none()
-                && response
-                    .headers()
-                    .get(header::CONTENT_TYPE)
-                    .is_some_and(|v| v == "application/json"),
-            "phase terminal response version/type"
-        );
-        Ok(response)
+            .body(bytes);
+        aq_node_service::native_transport::phase_terminal_response(request, path == "stopped").await
     }
 }
 impl NativeClient {

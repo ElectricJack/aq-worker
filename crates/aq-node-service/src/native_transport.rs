@@ -70,6 +70,44 @@ pub async fn retry_same(response: &Response, tries: &mut u32, deadline_ns: u64, 
     tokio::time::sleep(wait).await;
     true
 }
+/// The terminal stop has a durable operation ID. A server refusal for row-lock
+/// contention requests that exact operation again while the completed harness
+/// is still in custody. A lost transport response keeps its unknown disposition.
+pub async fn phase_terminal_response(
+    request: reqwest::RequestBuilder,
+    stopped: bool,
+) -> Result<Response> {
+    let mut tries = 0;
+    let response = loop {
+        let next = request
+            .try_clone()
+            .ok_or_else(|| anyhow::anyhow!("terminal request body is not replayable"))?;
+        let response = next
+            .send()
+            .await
+            .map_err(|_| anyhow::anyhow!("phase terminal transport failed; disposition unknown"))?;
+        if !stopped || !retry_same(&response, &mut tries, u64::MAX, boot_ns()?).await {
+            break response;
+        }
+    };
+    if !response.status().is_success() {
+        return Err(refused(response).await);
+    }
+    let mut versions = response
+        .headers()
+        .get_all("aq-phase-terminal-api-version")
+        .iter();
+    ensure!(
+        versions.next().is_some_and(|v| v == "1")
+            && versions.next().is_none()
+            && response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .is_some_and(|v| v == "application/json"),
+        "phase terminal response version/type"
+    );
+    Ok(response)
+}
 /// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
 /// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.
 pub const FETCH_TRIES: u32 = 5;
@@ -228,6 +266,38 @@ mod tests {
             .await
             .unwrap();
         assert!(!retry_same(&response, &mut 0, 1_000, 999).await);
+    }
+    #[tokio::test]
+    async fn contended_stop_resends_identical_bytes_and_preserves_the_receipt() {
+        use axum::{Json, Router, extract::State, response::IntoResponse, routing::post};
+        let calls = Arc::new(AtomicU32::new(0));
+        let stop = |State(calls): State<Arc<AtomicU32>>,
+                    headers: header::HeaderMap,
+                    body: String| async move {
+            assert_eq!(headers["aq-phase-terminal-api-version"], "1");
+            assert_eq!(
+                body,
+                r#"{"operation_id":"synthetic-stop","outcome":"success"}"#
+            );
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+            ([("aq-phase-terminal-api-version", "1")], Json("receipt")).into_response()
+        };
+        let app = Router::new()
+            .route("/stopped", post(stop))
+            .with_state(calls.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/stopped", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let request = reqwest::Client::new()
+            .post(url)
+            .header("aq-phase-terminal-api-version", "1")
+            .body(r#"{"operation_id":"synthetic-stop","outcome":"success"}"#);
+        let receipt = phase_terminal_response(request, true).await.unwrap();
+        assert_eq!(receipt.text().await.unwrap(), r#""receipt""#);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        server.abort();
     }
     /// The owner's login age limit is refused by the server with a reason the node shows,
     /// on the attempt's material fetch (`refused`) and on the session lease alike.
