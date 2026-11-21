@@ -61,8 +61,8 @@ pub fn codex_login_tokens(auth: &[u8]) -> Result<Vec<Zeroizing<Vec<u8>>>> {
 /// Where the harness's stop hook leaves the hook JSON of a finished turn.
 pub const STOP_MARKER: &str = "/aq/out/stop.json";
 /// The stop hook command: the hook JSON (stdin) atomically replaces the marker.
-pub const PROCESS_WAIT_HOOK: &str = include_str!("claude-process-wait.sh");
-const STOP_HOOK: &str = include_str!("claude-stop.sh");
+pub const STOP_HOOK: &str = include_str!("claude-stop.sh");
+const PROCESS_WAIT_HOOK: &str = include_str!("claude-process-wait.sh");
 
 /// Fixed in-sandbox runner of interactive Claude Code (I4a pattern). Public
 /// configuration, no secret. Claude runs on the container's terminal, which the
