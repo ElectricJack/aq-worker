@@ -401,6 +401,8 @@ fn update_from_main_commits_a_clean_merge_of_the_main_head() {
         [lease.as_str(), &main]
     );
     assert!(wt.conflicts.is_empty());
+    let note = conflict_note(&path).unwrap();
+    assert!(note.contains("The merge was clean") && note.contains("AQ handles Git publication"));
     assert_eq!(
         std::fs::read_to_string(path.join("a.txt")).unwrap(),
         "main\n"

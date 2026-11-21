@@ -87,7 +87,13 @@ pub fn conclusion_of(
         .chars()
         .filter(|c| crate::visible(*c) || *c == '\n')
         .collect();
-    let outcome = if blocked(&text) { "blocked" } else { "done" };
+    let outcome = if blocked(&text) {
+        "blocked"
+    } else if proven_success(stream, rc, changed).is_ok() {
+        "done"
+    } else {
+        "incomplete"
+    };
     let claim = claimed_changes(&text)
         .filter(|c| !c.is_empty())
         .unwrap_or("unknown");
@@ -210,6 +216,14 @@ mod tests {
         .into_bytes()
     }
 
+    #[test]
+    fn ending_on_a_pending_build_records_an_incomplete_result() {
+        let pending = result_of("Waiting for the build to finish.");
+        let changed = ["src/lib.rs".into()];
+        assert!(proven_success(&pending, Some(0), &changed).is_err());
+        assert!(conclusion(&pending, Some(0), &changed, false).starts_with("Outcome: incomplete;"));
+    }
+
     /// The Claude line is unchanged; another harness names itself in the exit field.
     #[test]
     fn conclusion_names_the_harness_that_ran() {
@@ -326,7 +340,7 @@ mod tests {
             " [clipped; the full message is sent to the task comments when the channel accepts it]"
         ));
         assert!(conclusion(b"", None, &[], false).starts_with(
-            "Outcome: done; Changes: unknown; Copied: none; Claude exit unknown; Result: no final message"
+            "Outcome: incomplete; Changes: unknown; Copied: none; Claude exit unknown; Result: no final message"
         ));
     }
 }
