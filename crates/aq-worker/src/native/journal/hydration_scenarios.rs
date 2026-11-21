@@ -70,9 +70,8 @@ async fn actual_native_pipeline_journals_every_external_intent_and_keeps_lost_im
         1
     );
 }
-#[cfg(feature = "delivery_playbook")]
-#[path = "../../../tests/support/delivery_playbook.rs"]
-mod delivery_playbook;
+#[path = "../../../tests/support/node_git_playbook.rs"]
+mod node_git_playbook;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn historical_receipts_cannot_bypass_fresh_retention_or_head_checks() {
     let export = synthetic();

@@ -26,8 +26,7 @@ pub struct GitClient {
     maximum_pool_bytes: u64,
     native_inspection: bool,
     checkpoint_author: bool,
-    /// Central aq-git through the node's own repository (`delivery_playbook`).
-    #[cfg(feature = "delivery_playbook")]
+    /// Central aq-git through the node's own repository.
     pub node: Option<std::sync::Arc<aq_node_git::Node>>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,7 +115,6 @@ impl GitClient {
             maximum_pool_bytes: 0,
             native_inspection: false,
             checkpoint_author: false,
-            #[cfg(feature = "delivery_playbook")]
             node: None,
         };
         let capabilities=client.exchange(&json!({"protocol_version":1,"request_id":Uuid::new_v4().to_string(),"operation":"capabilities","params":{}}))?;

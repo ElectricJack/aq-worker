@@ -126,8 +126,7 @@ pub struct NativeConfig {
     pub inventory_ttl_ms: u64,
     #[serde(default)]
     pub executor: Option<super::codex::ExecutorConfig>,
-    /// Spec 0016 §5.3: the node's per-project repositories and its git (`delivery_playbook`).
-    #[cfg(feature = "delivery_playbook")]
+    /// Spec 0016 §5.3: the node's per-project repositories and its git.
     #[serde(default)]
     pub node_git: Option<aq_node_git::Config>,
 }
@@ -169,11 +168,9 @@ pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 impl NativeConfig {
-    /// The slot's aq-git and, with `delivery_playbook`, the node's git with its remote.
+    /// The slot's aq-git and, when `node_git` is configured, the node's git with its remote.
     pub fn git_client(&self, worker: &crate::config::WorkerConfig) -> Result<GitClient> {
-        #[allow(unused_mut)]
         let mut git = GitClient::new(&self.git_socket, &self.git_root)?;
-        #[cfg(feature = "delivery_playbook")]
         if let Some(node) = &self.node_git {
             let cf = worker
                 .cf_client_id
@@ -182,7 +179,6 @@ impl NativeConfig {
             let remote = aq_node_git::Remote::new(&worker.server_url, &worker.credential, cf);
             git.node = Some(node.node(remote).into());
         }
-        let _ = worker;
         Ok(git)
     }
     pub fn load(path: &Path) -> Result<Self> {

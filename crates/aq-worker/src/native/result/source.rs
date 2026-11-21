@@ -37,7 +37,6 @@ impl InputPipeline {
         transfer_step(&Live(self, stopped), client).await
     }
 }
-#[cfg(feature = "delivery_playbook")]
 impl InputPipeline {
     /// Spec 0016 §5.3: a worktree attempt commits and pushes its task ref
     /// instead of checkpoint, export and upload. False: not a worktree attempt.
@@ -56,7 +55,6 @@ impl InputPipeline {
     }
 }
 /// After the stopped-writer proof: commit and push under the grant's lease.
-#[cfg(feature = "delivery_playbook")]
 pub(super) async fn push<O: StoppedOwner>(o: &O) -> Result<bool> {
     o.verify()?;
     let id = o.attempt_id();
