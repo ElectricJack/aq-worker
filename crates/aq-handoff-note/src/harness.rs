@@ -61,7 +61,8 @@ pub fn codex_login_tokens(auth: &[u8]) -> Result<Vec<Zeroizing<Vec<u8>>>> {
 /// Where the harness's stop hook leaves the hook JSON of a finished turn.
 pub const STOP_MARKER: &str = "/aq/out/stop.json";
 /// The stop hook command: the hook JSON (stdin) atomically replaces the marker.
-pub const STOP_HOOK: &str = "cat > /aq/out/stop.tmp && mv /aq/out/stop.tmp /aq/out/stop.json";
+pub const STOP_HOOK: &str = include_str!("claude-stop.sh");
+const PROCESS_WAIT_HOOK: &str = include_str!("claude-process-wait.sh");
 
 /// Fixed in-sandbox runner of interactive Claude Code (I4a pattern). Public
 /// configuration, no secret. Claude runs on the container's terminal, which the
@@ -94,7 +95,7 @@ exit "$rc"
 
 /// Appended to the startup context inside the sandbox.
 pub const RUNNER_NOTE: &str = "\n\nRunner note (docker-local sandbox): AQ_AGENT_RESULT_DIR and AQ_AGENT_RESULT_COMMAND are not available here. Do not write request.json or run the \
-result client. The node runner submits your final message as the AQ result claim and ends this session when your turn ends, so end with exactly one line: Changes: ...; Checks: exact commands \
+result client. The node runner submits your final message as the AQ result claim and ends this session when your turn ends. A background build or test does not resume a finished session. Run checks in the foreground or wait on the original background task ID and read its exit status. Polling process names can match the monitor itself. Continue the task after reading the result. End with exactly one line: Changes: ...; Checks: exact commands \
 and outcomes; Limits: ... (write Changes: none when you changed no file), and above it one line Outcome: done, or Outcome: blocked when you could not \
 do the task. Your worktree is retained as is: keep build outputs out of it (for a Rust crate add a .gitignore with /target, or run cargo clean).\n";
 /// Appended when the attempt has an agent channel.
@@ -113,9 +114,8 @@ const CLAUDE_PRINT: [&str; 6] = [
 /// Turns the unattended container recipe (print mode, `settings.json` with all
 /// hooks disabled) into the interactive TUI for the docker-local sandbox: the
 /// print-mode arguments go (the runner gives the prompt as the last argument),
-/// the bypass-mode confirmation dialog is answered, and the only hooks (this file
-/// is the only settings source) report the end of the turn, finished or failed,
-/// to the node driver. Returns the new `settings.json`.
+/// the bypass-mode confirmation dialog is answered, and the hooks report the end
+/// of the turn and catch Bash monitors that would wait for themselves.
 pub fn claude_interactive(arguments: &mut Vec<String>, settings: &[u8]) -> Result<String> {
     anyhow::ensure!(
         arguments.len() > 6 && arguments[..6] == CLAUDE_PRINT,
@@ -133,7 +133,10 @@ pub fn claude_interactive(arguments: &mut Vec<String>, settings: &[u8]) -> Resul
     object.insert("skipDangerousModePermissionPrompt".into(), true.into());
     object.insert(
         "hooks".into(),
-        serde_json::json!({ "Stop": hook, "StopFailure": hook }),
+        serde_json::json!({
+            "Stop": hook, "StopFailure": hook,
+            "PreToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":PROCESS_WAIT_HOOK}]}]
+        }),
     );
     Ok(serde_json::to_string_pretty(&value)?)
 }
@@ -170,6 +173,123 @@ pub fn stop_stream(marker: &[u8]) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use crate::{final_text, proven_success};
+    #[test]
+    fn rejects_a_self_matching_background_monitor_without_interfering_with_other_waits() {
+        use std::{
+            io::Write,
+            process::{Command, Stdio},
+        };
+        for (command, expected) in [
+            (
+                r#"until ! pgrep -f "cargo test -p aq-server --test it_server" >/dev/null; do sleep 5; done; cat result"#,
+                2,
+            ),
+            (
+                r#"sed -i 's/before;after/edited/' guide; until ! pgrep -f "cargo clippy" >/dev/null; do sleep 5; done; cat log"#,
+                2,
+            ),
+            (
+                "echo edit\nuntil ! pgrep -f 'cargo test'; do sleep 5; done",
+                2,
+            ),
+            (
+                r#"echo "document; while pgrep -f 'cargo test'; do sleep 1; done""#,
+                0,
+            ),
+            (
+                "cat <<EOF\nwhile pgrep -f 'cargo test'; do sleep 1; done\nEOF",
+                0,
+            ),
+            (
+                "echo ok # ; while pgrep -f 'cargo test'; do sleep 1; done",
+                0,
+            ),
+            ("while pgrep -f 'cargo test'; do sleep 1; done", 2),
+            ("while pgrep -A -f 'cargo test'; do sleep 1; done", 0),
+            ("while pgrep -f '[c]argo test'; do sleep 1; done", 0),
+            ("while pgrep -f 'cargo test'; do sleep 1; break; done", 0),
+            ("pgrep -f 'cargo test'", 0),
+            ("wait $build_pid", 0),
+        ] {
+            let mut hook = Command::new("sh")
+                .args(["-c", PROCESS_WAIT_HOOK])
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let input = serde_json::json!({"tool_input":{"command":command}}).to_string();
+            hook.stdin
+                .take()
+                .unwrap()
+                .write_all(input.as_bytes())
+                .unwrap();
+            let result = hook.wait_with_output().unwrap();
+            assert_eq!(result.status.code(), Some(expected), "{command}");
+            if expected == 2 {
+                assert!(
+                    String::from_utf8(result.stderr)
+                        .unwrap()
+                        .contains("original background task")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn claude_stop_keeps_pending_checks_in_the_same_session() {
+        use std::{
+            io::Write,
+            process::{Command, Stdio},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("stop.json");
+        let script = STOP_HOOK.replace("/aq/out", dir.path().to_str().unwrap());
+        let run = |event: &str, text: &str, continued: bool, pending: bool| {
+            let tasks = if pending {
+                vec![serde_json::json!({"type":"shell","status":"running"})]
+            } else {
+                vec![]
+            };
+            let input = serde_json::json!({"hook_event_name":event,"last_assistant_message":text,
+                "stop_hook_active":continued,"background_tasks":tasks});
+            let mut child = Command::new("sh")
+                .args(["-c", &script])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(input.to_string().as_bytes())
+                .unwrap();
+            let out = child.wait_with_output().unwrap();
+            assert!(out.status.success());
+            if marker.exists() {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&std::fs::read(&marker).unwrap())
+                        .unwrap(),
+                    input
+                );
+                std::fs::remove_file(&marker).unwrap();
+                return "recorded";
+            }
+            if out.stdout.is_empty() {
+                return "waiting";
+            }
+            let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+            assert_eq!(reply["decision"], "block");
+            "continue"
+        };
+        assert_eq!(run("Stop", "Waiting for clippy", false, true), "continue");
+        assert_eq!(run("Stop", "Waiting for clippy", true, true), "waiting");
+        assert_eq!(run("Stop", "Still incomplete", true, false), "recorded");
+        assert_eq!(run("Stop", "Changes: none", false, false), "recorded");
+        assert_eq!(run("Stop", "Outcome: blocked", false, true), "recorded");
+        assert_eq!(run("StopFailure", "Runner failed", false, true), "recorded");
+    }
+
     #[test]
     fn a_finished_turn_is_the_result_and_a_failed_turn_is_not_a_success() {
         let done = "Done.\nOutcome: done\nChanges: none; Checks: none; Limits: none";
@@ -246,7 +366,12 @@ mod tests {
         assert_eq!(s["permissions"]["defaultMode"], "bypassPermissions");
         assert_eq!(s["skipDangerousModePermissionPrompt"], true);
         assert!(s.get("disableAllHooks").is_none());
-        assert_eq!(s["hooks"].as_object().unwrap().len(), 2);
+        assert_eq!(s["hooks"].as_object().unwrap().len(), 3);
+        assert_eq!(s["hooks"]["PreToolUse"][0]["matcher"], "Bash");
+        assert_eq!(
+            s["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            PROCESS_WAIT_HOOK
+        );
         for event in ["Stop", "StopFailure"] {
             assert_eq!(s["hooks"][event][0]["hooks"][0]["command"], STOP_HOOK);
         }

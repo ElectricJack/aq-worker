@@ -157,16 +157,24 @@ fn record(path: &Path) -> PathBuf {
     path.with_extension("grant.json")
 }
 
-/// For the agent's task context: the paths that merging main into the task
-/// branch left with conflict markers, from the worktree's record at `path`.
+/// Tell the agent what happened when the node prepared a returned task's tree.
 pub fn conflict_note(path: &Path) -> Option<String> {
-    let conflicts = NodeGit::open(path).ok()?.conflicts;
-    (!conflicts.is_empty()).then(|| {
-        format!(
-            "\n\nThis task was returned with `update_from_main`. Merging the current main into its branch left conflict markers in: {}. Resolve them as part of this task.\n",
-            conflicts.join(", ")
-        )
-    })
+    let tree = NodeGit::open(path).ok()?;
+    if !tree.grant.update_from_main || tree.grant.lease.is_none() {
+        return None;
+    }
+    let mut note = String::from(
+        "\n\nAQ integrated the main revision fetched at startup into the retained task branch before preparing this source-only workspace. Verify the supplied tree and report the checks you ran. AQ handles Git publication after handoff.",
+    );
+    if tree.conflicts.is_empty() {
+        note.push_str(" The merge was clean. Report any further edits truthfully, including when none were needed.\n");
+    } else {
+        note.push_str(&format!(
+            " Resolve the conflict markers in: {}.\n",
+            tree.conflicts.join(", ")
+        ));
+    }
+    Some(note)
 }
 
 /// [`NodeGit`] with the node's [`Remote`], for async callers.
@@ -234,6 +242,43 @@ impl Node {
                 &path,
                 author.as_ref().map(GitAuthor::identity),
             )
+        })
+        .await
+    }
+    /// Verify the owner-selected commit and clean files before recovering a missing sandbox.
+    pub async fn verify_checkout(
+        &self,
+        attempt: Uuid,
+        path: PathBuf,
+        expected: String,
+    ) -> Result<()> {
+        let git = self.git.clone();
+        blocking(move || {
+            let worktree = NodeGit::open(&path)?;
+            ensure!(
+                worktree.attempt == attempt
+                    && worktree.repository == git.repository(worktree.grant.repository_id),
+                "checkout does not belong to this attempt and repository"
+            );
+            ensure!(
+                git.ok(&path, &["rev-parse", "HEAD"], None)?.trim() == expected,
+                "retained checkout revision differs"
+            );
+            ensure!(
+                git.ok(
+                    &path,
+                    &[
+                        "status",
+                        "--porcelain=v1",
+                        "--untracked-files=all",
+                        "--ignore-submodules=none"
+                    ],
+                    None
+                )?
+                .is_empty(),
+                "retained checkout has uncommitted changes"
+            );
+            Ok(())
         })
         .await
     }

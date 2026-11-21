@@ -22,6 +22,11 @@ impl std::fmt::Display for TransportFailed {
 impl std::error::Error for TransportFailed {}
 /// Logs a refused response (its body cut to 400 characters) and returns its `HttpStatus`.
 pub async fn refused(response: Response) -> anyhow::Error {
+    refusal(response).await.0
+}
+
+// A start may be replayed only when the server explicitly declined the row lock.
+async fn refusal(response: Response) -> (anyhow::Error, bool) {
     let status = response.status();
     let path = response.url().path().to_owned();
     let retry_after = (response.headers().get(header::RETRY_AFTER))
@@ -36,8 +41,14 @@ pub async fn refused(response: Response) -> anyhow::Error {
         retry_after,
     ));
     // The owner's login age limit is a refusal the node shows, not only logs.
-    match serde_json::from_str::<serde_json::Value>(&body) {
-        Ok(v)
+    let payload = serde_json::from_str::<serde_json::Value>(&body).ok();
+    let contention = status == StatusCode::SERVICE_UNAVAILABLE
+        && payload.as_ref().is_some_and(|v| {
+            v["error"] == "overloaded"
+                && v["message"] == "row lock contended; retry the same operation"
+        });
+    let error = match payload {
+        Some(v)
             if v["message"]
                 .as_str()
                 .is_some_and(|m| m.starts_with("codex_login_stale")) =>
@@ -45,7 +56,8 @@ pub async fn refused(response: Response) -> anyhow::Error {
             error.context(v["message"].as_str().unwrap_or_default().to_owned())
         }
         _ => error,
-    }
+    };
+    (error, contention)
 }
 /// How often one request is resent after a `503`, and the first and longest wait between sends.
 pub const SAME_TRIES: u32 = 8;
@@ -56,7 +68,11 @@ pub const SAME_BACKOFF: (Duration, Duration) =
 /// caller should resend the identical request; false when the response is final, `tries` are
 /// used up, or the wait would pass `deadline_ns`. A transport failure is never resent here.
 pub async fn retry_same(response: &Response, tries: &mut u32, deadline_ns: u64, now: u64) -> bool {
-    if response.status() != StatusCode::SERVICE_UNAVAILABLE || *tries + 1 >= SAME_TRIES {
+    response.status() == StatusCode::SERVICE_UNAVAILABLE
+        && wait_for_replay(response.url().path(), tries, deadline_ns, now).await
+}
+async fn wait_for_replay(path: &str, tries: &mut u32, deadline_ns: u64, now: u64) -> bool {
+    if *tries + 1 >= SAME_TRIES {
         return false;
     }
     let (base, cap) = SAME_BACKOFF;
@@ -65,10 +81,54 @@ pub async fn retry_same(response: &Response, tries: &mut u32, deadline_ns: u64, 
         return false;
     }
     *tries += 1;
-    let path = response.url().path();
     tracing::warn!(%path, attempt = *tries, "native endpoint answered 503; same operation resent in {wait:?}");
     tokio::time::sleep(wait).await;
     true
+}
+/// Start and stop reports carry durable operation IDs. Resend their exact request on
+/// explicit contention while the caller still owns its deadline and shutdown handling.
+pub async fn phase_terminal_response(
+    request: reqwest::RequestBuilder,
+    endpoint: &str,
+) -> Result<Response> {
+    let mut tries = 0;
+    let response = loop {
+        let next = request
+            .try_clone()
+            .ok_or_else(|| anyhow::anyhow!("terminal request body is not replayable"))?;
+        let response = next
+            .send()
+            .await
+            .map_err(|_| anyhow::anyhow!("phase terminal transport failed; disposition unknown"))?;
+        if endpoint == "started" && response.status() == StatusCode::SERVICE_UNAVAILABLE {
+            let (error, contention) = refusal(response).await;
+            if contention && wait_for_replay(endpoint, &mut tries, u64::MAX, boot_ns()?).await {
+                continue;
+            }
+            return Err(error);
+        }
+        if endpoint == "stopped" && retry_same(&response, &mut tries, u64::MAX, boot_ns()?).await {
+            continue;
+        }
+        break response;
+    };
+    if !response.status().is_success() {
+        return Err(refused(response).await);
+    }
+    let mut versions = response
+        .headers()
+        .get_all("aq-phase-terminal-api-version")
+        .iter();
+    ensure!(
+        versions.next().is_some_and(|v| v == "1")
+            && versions.next().is_none()
+            && response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .is_some_and(|v| v == "application/json"),
+        "phase terminal response version/type"
+    );
+    Ok(response)
 }
 /// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
 /// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.
@@ -228,6 +288,47 @@ mod tests {
             .await
             .unwrap();
         assert!(!retry_same(&response, &mut 0, 1_000, 999).await);
+    }
+    #[tokio::test]
+    async fn contended_start_and_stop_resend_identical_bytes_and_preserve_the_receipt() {
+        for endpoint in ["started", "stopped"] {
+            use axum::{Json, Router, extract::State, response::IntoResponse, routing::post};
+            let calls = Arc::new(AtomicU32::new(0));
+            let stop = |State(calls): State<Arc<AtomicU32>>,
+                        headers: header::HeaderMap,
+                        body: String| async move {
+                assert_eq!(headers["aq-phase-terminal-api-version"], "1");
+                assert_eq!(
+                    body,
+                    r#"{"operation_id":"synthetic-terminal","outcome":"success"}"#
+                );
+                if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(serde_json::json!({
+                            "error": "overloaded",
+                            "message": "row lock contended; retry the same operation"
+                        })),
+                    )
+                        .into_response();
+                }
+                ([("aq-phase-terminal-api-version", "1")], Json("receipt")).into_response()
+            };
+            let app = Router::new()
+                .route(&format!("/{endpoint}"), post(stop))
+                .with_state(calls.clone());
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/{endpoint}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let request = reqwest::Client::new()
+                .post(url)
+                .header("aq-phase-terminal-api-version", "1")
+                .body(r#"{"operation_id":"synthetic-terminal","outcome":"success"}"#);
+            let receipt = phase_terminal_response(request, endpoint).await.unwrap();
+            assert_eq!(receipt.text().await.unwrap(), r#""receipt""#);
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+            server.abort();
+        }
     }
     /// The owner's login age limit is refused by the server with a reason the node shows,
     /// on the attempt's material fetch (`refused`) and on the session lease alike.

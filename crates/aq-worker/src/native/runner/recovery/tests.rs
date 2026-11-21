@@ -13,7 +13,7 @@ use axum::{
 use serde_json::Value;
 use std::sync::{
     Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicU32, Ordering},
 };
 
 fn fixture(refresh: bool) -> Value {
@@ -67,7 +67,7 @@ fn worker(url: &str, node_id: Uuid) -> WorkerConfig {
 struct Peer {
     fixture: Value,
     calls: Mutex<Vec<(String, Value)>>,
-    lose_stop: AtomicBool,
+    stop_calls: AtomicU32,
 }
 async fn report(
     State(p): State<Arc<Peer>>,
@@ -79,8 +79,12 @@ async fn report(
         .unwrap()
         .push((path.clone(), request.clone()));
     assert_eq!(request, p.fixture[format!("{path}_request")]);
-    if path == "stopped" && p.lose_stop.swap(false, Ordering::SeqCst) {
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    if path == "stopped" {
+        match p.stop_calls.fetch_add(1, Ordering::SeqCst) {
+            0 => return StatusCode::BAD_GATEWAY.into_response(), // recovery must replay the journal
+            1 => return StatusCode::SERVICE_UNAVAILABLE.into_response(), // retry in custody
+            _ => {}
+        }
     }
     (
         [("aq-phase-terminal-api-version", "1")],
@@ -132,7 +136,7 @@ async fn preserved_stopped_attempt_reconciles_without_a_new_seeded_task() {
         let peer = Arc::new(Peer {
             fixture: fixture(refresh),
             calls: Mutex::new(vec![]),
-            lose_stop: AtomicBool::new(true),
+            stop_calls: AtomicU32::new(0),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let aq_session_protocol::SessionIdentity::Remote { node_id, .. } = original_binding.session
@@ -179,9 +183,9 @@ async fn preserved_stopped_attempt_reconciles_without_a_new_seeded_task() {
         let calls = peer.calls.lock().unwrap();
         assert_eq!(
             calls.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
-            ["started", "stopped", "stopped"]
+            ["started", "stopped", "stopped", "stopped"]
         );
-        assert_eq!(calls[1], calls[2]);
+        assert!(calls[1..].iter().all(|stop| stop == &calls[1]));
         server.abort();
     }
 }

@@ -20,8 +20,8 @@ pub(crate) use prepare::collect as test_collect;
 mod profile;
 mod recovery;
 pub use recovery::{
-    ReconcileDisposition, SalvageDisposition, claimed_attempts, reconcile_native,
-    retained_attempts, salvage_interrupted,
+    ReconcileDisposition, SalvageDisposition, claimed_attempts, lock_recovery_scope,
+    reconcile_native, retained_attempts, salvage_interrupted,
 };
 pub(super) mod publish_output;
 use super::{

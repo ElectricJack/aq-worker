@@ -49,7 +49,7 @@ impl Receipt {
 }
 
 /// The state-dir lock, so a running node never shares the scope with recovery.
-fn lock_scope(config: &NativeConfig) -> Result<std::fs::File> {
+pub fn lock_recovery_scope(config: &NativeConfig) -> Result<std::fs::File> {
     let held = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -79,7 +79,7 @@ fn attempts_where(
     if std::fs::symlink_metadata(&root).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
         return Ok(vec![]);
     }
-    let _held = lock_scope(config)?;
+    let _held = lock_recovery_scope(config)?;
     let journal = Journal::open(&root, node, config.capacity.clone())?;
     let attempts = &journal.state().attempts;
     Ok(attempts
@@ -98,7 +98,7 @@ pub async fn reconcile_native(
     attempt_id: Uuid,
 ) -> Result<ReconcileDisposition> {
     config.validate()?;
-    let held = lock_scope(config)?;
+    let held = lock_recovery_scope(config)?;
     // Unlike run_once, never create a journal or a new boot/attempt identity.
     let mut journal = Journal::open(
         &config.state_dir.join("journal"),
@@ -179,7 +179,7 @@ pub async fn salvage_interrupted(
     else {
         return Ok(SalvageDisposition::Unsalvageable("no_sandbox_executor"));
     };
-    let held = lock_scope(config)?;
+    let held = lock_recovery_scope(config)?;
     let root = config.state_dir.join("journal");
     let journal = Journal::open(&root, worker.node_id, config.capacity.clone())?;
     let a = journal
