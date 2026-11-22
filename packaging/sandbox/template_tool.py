@@ -80,7 +80,7 @@ def validate_recipe(recipe, config, entries=()):
 
 
 def dockerfile(recipe, base, config):
-    lines = ['FROM ' + base, 'USER root']
+    lines = ['FROM ' + base, 'ENV NODE_DISABLE_COMPILE_CACHE=1', 'USER root']
     if base == config.get('universal_image'):
         lines += ['RUN apt-get update && apt-get install -y --no-install-recommends '
                   'ca-certificates tmux bubblewrap bash perl libcurl4 libexpat1 libssl3 zlib1g '
