@@ -21,7 +21,7 @@ TOKEN_PATTERN = re.compile(
     # without consuming bytes: every adjacent byte, later tokens and the
     # independent URL/assignment checks still run. The docker-local label key
     # aq.disk-limit-bytes (SBX20) is excluded the same way, for the same reason.
-    rb'(?:sk-(?!(?<=persistent-disk-)during-attempt)(?!(?<=aq\.disk-)limit-bytes)'
+    rb'(?:(?<![A-Za-z0-9])sk-(?!(?<=persistent-disk-)during-attempt)(?!(?<=aq\.disk-)limit-bytes)'
     rb'(?:proj-|ant-)?[A-Za-z0-9_-]{20,}'
     rb'|gh[pousr]_[A-Za-z0-9]{20,}'
     rb'|github_pat_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{30,}|AKIA[A-Z0-9]{16}'
