@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Non-secret template recipe validation and fixed build assembly."""
+import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 from urllib.parse import urlsplit
 
 _spec = importlib.util.spec_from_file_location('credential_scan', Path(__file__).with_name('credential_scan.py'))
@@ -84,8 +89,8 @@ def validate_recipe(recipe, config, entries=()):
     return recipe
 
 
-def dockerfile(recipe, base, config):
-    lines = ['FROM ' + base, 'ENV NODE_DISABLE_COMPILE_CACHE=1', 'USER root']
+def dockerfile(recipe, base, config, stage=None):
+    lines = ['FROM ' + base + (' AS ' + stage if stage else ''), 'ENV NODE_DISABLE_COMPILE_CACHE=1', 'USER root']
     if base == config.get('universal_image'):
         lines += ['RUN apt-get update && apt-get install -y --no-install-recommends '
                   'ca-certificates tmux bubblewrap bash perl libcurl4 libexpat1 libssl3 zlib1g '
@@ -112,7 +117,7 @@ def dockerfile(recipe, base, config):
 def validate_config(config):
     required = {'schema_version', 'role', 'docker_context', 'buildkit_builder', 'builder_identity',
                 'os_image', 'runtime_image', 'target_repository', 'registry_visibility', 'allowlist'}
-    if not isinstance(config, dict) or not required <= set(config) or set(config) - required - {'universal_image', 'docker_binary', 'base_template'}:
+    if not isinstance(config, dict) or not required <= set(config) or set(config) - required - {'universal_image', 'docker_binary', 'base_template', 'limits'}:
         raise ValueError('invalid build configuration fields')
     if config['schema_version'] != 1 or config['role'] != 'template-build':
         raise ValueError('an explicit template-build node is required')
@@ -133,6 +138,13 @@ def validate_config(config):
     path = text(config['allowlist'], 512)
     if Path(path).is_absolute() or scan.safe_path(path) != path:
         raise ValueError('allowlist must be a relative vault path')
+    if 'limits' in config:
+        limits = config['limits']
+        if not isinstance(limits, dict):
+            raise ValueError('limits must be an object')
+        for key in ['log_bytes', 'build_wall_ms']:
+            if not isinstance(limits.get(key), int) or isinstance(limits[key], bool) or limits[key] < 1:
+                raise ValueError('invalid limit: ' + key)
     if 'docker_binary' in config:
         if not Path(text(config['docker_binary'], 512)).is_absolute():
             raise ValueError('docker_binary must be absolute')
@@ -220,6 +232,152 @@ def write_json(path, value):
         output.write(canonical(value) + b'\n')
 
 
+def build_env():
+    # Provider keys, SSH agent, attempt variables, build args/secrets and arbitrary
+    # host files are never forwarded. Docker's own context/registry auth stays local.
+    return {key: os.environ[key] for key in ['PATH', 'HOME', 'XDG_CONFIG_HOME', 'DOCKER_CONFIG'] if key in os.environ}
+
+
+class BuildFailed(Exception):
+    """An environment build stopped at `step` (install, check or scan); `log` is bounded and redacted."""
+
+    def __init__(self, step, log):
+        super().__init__('environment build failed at ' + step)
+        self.step = step
+        self.log = log
+
+
+REDACTED = b'[redacted]'
+
+
+def redact(data):
+    """Replace token-shaped strings and credential assignment values using the scanner's patterns."""
+    def value_only(match):
+        if scan.CREDENTIAL_LABEL.search(match[1].decode('ascii').upper()):
+            return match[0][:match.start(2) - match.start(0)] + REDACTED
+        return match[0]
+    data = scan.TOKEN_PATTERN.sub(REDACTED, data)
+    return scan.JSON_ASSIGNMENT.sub(value_only, scan.ASSIGNMENT.sub(value_only, data))
+
+
+def bounded_log(data, limit):
+    """Redact bytes `data`, then keep the last `limit` bytes of the text."""
+    if len(data) > 2 * limit:
+        # Redact a window, not a whole huge log; drop the partial first line so a cut token never survives.
+        data = data[-2 * limit:]
+        data = data[data.find(b'\n') + 1:]
+    redacted = redact(data).decode('utf-8', 'replace')
+    encoded = redacted.encode()
+    if len(encoded) <= limit:
+        return redacted
+    return encoded[-limit:].decode('utf-8', 'ignore')
+
+
+def tail(path, limit):
+    with Path(path).open('rb') as stream:
+        size = stream.seek(0, os.SEEK_END)
+        stream.seek(max(0, size - 2 * limit - 1))
+        return stream.read()
+
+
+def environment_dockerfile(env, base, config):
+    """The template stage, then a checks stage whose results a scratch stage exposes for export."""
+    lines = [dockerfile(env, base, config, stage='template').rstrip('\n'),
+             'FROM template AS checks', 'RUN mkdir /aq-checks']
+    for number, command in enumerate(env['checks']):
+        script = f'({command}\n) > /aq-checks/{number}.out 2>&1; echo $? > /aq-checks/{number}.exit'
+        lines.append('RUN ' + json.dumps(['sh', '-c', script]))
+    lines += ['FROM scratch AS check-output', 'COPY --from=checks /aq-checks /']
+    return '\n'.join(lines) + '\n'
+
+
+def run_buildx(docker, cfg, context, target, output, log_path, timeout):
+    command = [docker, '--context', cfg['docker_context'], 'buildx', 'build',
+               '--builder', cfg['buildkit_builder'], '--platform', 'linux/amd64',
+               '--provenance=false', '--sbom=false', '--progress=plain', '--target', target,
+               '--output', output, str(context)]
+    with Path(log_path).open('wb') as log:
+        try:
+            subprocess.run(command, env=build_env(), check=True, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=log, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            log.write(b'\nbuild timed out\n')
+            raise
+        except OSError:
+            log.write(b'could not run docker buildx\n')
+            raise
+
+
+def build_environment(env, config, output):
+    """Build a parsed project recipe on the configured builder and return a Build.
+
+    Raises BuildFailed(step, log): `install` when BuildKit fails to build the image, `check` when a
+    Check command fails, `scan` when the credential scan refuses the image. `output` must not exist;
+    the scanned archive is left at `output/image.oci.tar`. `config['limits']` supplies `log_bytes`
+    and `build_wall_ms`.
+    """
+    cfg = validate_config(config)
+    if 'limits' not in cfg:
+        raise ValueError('environment builds need limits in the build configuration')
+    limit = cfg['limits']['log_bytes']
+    timeout = cfg['limits']['build_wall_ms'] / 1000
+    base = parent_image(env, cfg)
+    output = Path(output).absolute()
+    if ',' in str(output) or '\n' in str(output):
+        raise ValueError('unsupported output path')
+    docker = cfg.get('docker_binary') or shutil.which('docker')
+    if not docker:
+        raise ValueError('Docker BuildKit is required on the configured build node')
+    output.mkdir(mode=0o700, parents=False, exist_ok=False)
+    archive = output / 'image.oci.tar'
+    with tempfile.TemporaryDirectory(prefix='aq-environment-context-') as directory:
+        work = Path(directory)
+        context = work / 'context'
+        context.mkdir()
+        (context / 'Dockerfile').write_text(environment_dockerfile(env, base, cfg))
+        log_path = work / 'build.log'
+        checked = work / 'checks'
+
+        def buildx(step, target, spec):
+            try:
+                run_buildx(docker, cfg, context, target, spec, log_path, timeout)
+            except (OSError, subprocess.SubprocessError):
+                raise BuildFailed(step, bounded_log(tail(log_path, limit), limit)) from None
+
+        buildx('install', 'template', f'type=oci,dest={archive},compression=gzip,force-compression=true')
+        results = []
+        if env['checks']:
+            buildx('check', 'check-output', f'type=local,dest={checked}')
+            for number, command in enumerate(env['checks']):
+                results.append((command, read_check(checked, number, limit)))
+        failed = [(command, code, out) for command, (code, out) in results if code != 0]
+        if failed:
+            report = ''.join(f'$ {command}\n(exit {code})\n{out}\n' for command, code, out in failed)
+            raise BuildFailed('check', bounded_log(report.encode(), limit))
+    try:
+        scanned = scan.scan_oci(archive)
+    except ValueError:
+        raise BuildFailed('scan', 'the credential scan refused the image') from None
+    digest = scanned['image_digest']
+    return {'name': env['name'], 'digest': digest, 'image': cfg['target_repository'] + '@' + digest,
+            'recipe_sha256': env['sha256'], 'provides': env['provides'],
+            'toolchain': [{'command': command, 'output': out} for command, (code, out) in results],
+            'warm': env['warm'],
+            'harnesses': [{'harness': item['name'], 'version': item['version']}
+                          for item in scanned['bundle_manifest']['harnesses']]}
+
+
+def read_check(directory, number, limit):
+    """Exit status and redacted, bounded output of check `number`; a missing result is a failure."""
+    try:
+        code = int((Path(directory) / f'{number}.exit').read_text().strip())
+        with (Path(directory) / f'{number}.out').open('rb') as stream:
+            data = stream.read(limit + 1)
+    except (OSError, ValueError):
+        return 1, 'check produced no result'
+    return code, bounded_log(data, limit)
+
+
 def build(recipe_path, config_path, output_path):
     import datetime
     import fcntl
@@ -250,7 +408,7 @@ def build(recipe_path, config_path, output_path):
         (context / 'Dockerfile').write_text(dockerfile(recipe, base, cfg))
         # Provider keys, SSH agent, attempt variables, build args/secrets and arbitrary
         # host files are never forwarded. Docker's own context/registry auth stays local.
-        env = {key: os.environ[key] for key in ['PATH', 'HOME', 'XDG_CONFIG_HOME', 'DOCKER_CONFIG'] if key in os.environ}
+        env = build_env()
         command = [docker, '--context', cfg['docker_context'], 'buildx', 'build',
                    '--builder', cfg['buildkit_builder'], '--platform', 'linux/amd64',
                    '--provenance=false', '--sbom=false', '--output',
