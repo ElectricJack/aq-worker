@@ -316,6 +316,7 @@ impl Node {
         .await
     }
     /// [`NodeGit::checkout`] for an environment job.
+    #[cfg(feature = "environment-job")]
     pub async fn checkout(
         &self,
         job: Uuid,
@@ -325,6 +326,12 @@ impl Node {
     ) -> Result<Synced> {
         let (git, remote) = (self.git.clone(), self.remote.clone());
         blocking(move || git.checkout(&remote, job, repository, &commit, &path)).await
+    }
+    /// [`NodeGit::prune`].
+    #[cfg(feature = "environment-job")]
+    pub async fn prune(&self) -> Result<()> {
+        let git = self.git.clone();
+        blocking(move || git.prune()).await
     }
     /// [`NodeGit::discard`].
     pub async fn discard(&self, repository: Uuid, path: PathBuf) -> Result<()> {
@@ -595,6 +602,7 @@ impl NodeGit {
     /// project's repository as [`NodeGit::start`] does, with the job named in
     /// [`transport::ENVIRONMENT_JOB_HEADER`] instead of an attempt, then adds
     /// a detached worktree at `path`. [`NodeGit::discard`] removes it.
+    #[cfg(feature = "environment-job")]
     pub fn checkout(
         &self,
         remote: &Remote,
@@ -615,6 +623,25 @@ impl NodeGit {
         let add = ["worktree", "add", "--quiet", "--detach", target, commit];
         self.ok(&repo, &add, None)?;
         Ok(synced)
+    }
+
+    /// Drops the worktree records whose directories are gone, in every
+    /// repository (after a crash left them).
+    #[cfg(feature = "environment-job")]
+    pub fn prune(&self) -> Result<()> {
+        let Ok(entries) = std::fs::read_dir(&self.repositories) else {
+            return Ok(());
+        };
+        for entry in entries {
+            let name = entry?.file_name();
+            let id = name.to_str().and_then(|n| n.strip_suffix(".git"));
+            let Some(id) = id.and_then(|n| Uuid::try_parse(n).ok()) else {
+                continue;
+            };
+            let _lock = self.lock(id)?;
+            self.ok(&self.repository(id), &["worktree", "prune"], None)?;
+        }
+        Ok(())
     }
 
     /// Removes the worktree at `path`, then lets git pack and prune the

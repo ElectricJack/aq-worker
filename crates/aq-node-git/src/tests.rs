@@ -448,6 +448,7 @@ fn update_from_main_leaves_conflict_markers_committed_and_lists_the_paths() {
     node.end(&wt).unwrap();
 }
 
+#[cfg(feature = "environment-job")]
 #[test]
 fn an_environment_job_fetches_its_commit_into_the_existing_repository_with_the_job_header() {
     let central = Central::start();
@@ -506,4 +507,12 @@ fn an_environment_job_fetches_its_commit_into_the_existing_repository_with_the_j
     central.refuse.store(true, Ordering::SeqCst);
     assert!(node.checkout(&remote, job, id, &commit, &path).is_err());
     assert!(!path.exists());
+
+    // A worktree whose directory a crash removed is pruned from every repository.
+    central.refuse.store(false, Ordering::SeqCst);
+    node.checkout(&remote, job, id, &commit, &path).unwrap();
+    std::fs::remove_dir_all(&path).unwrap();
+    assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 2);
+    node.prune().unwrap();
+    assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
 }

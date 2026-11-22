@@ -28,3 +28,5 @@ tempfile.workspace = true
 [features]
 # The git HTTP double, for callers' tests.
 test-support = ["dep:axum", "dep:futures-util", "dep:tempfile"]
+# Fetches for aq-server spec 0017 environment jobs (aq-worker `project_environments`).
+environment-job = []

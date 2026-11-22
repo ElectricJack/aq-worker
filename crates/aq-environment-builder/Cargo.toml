@@ -20,3 +20,7 @@ uuid.workspace = true
 [dev-dependencies]
 aq-node-git = { path = "../aq-node-git", features = ["test-support"] }
 axum.workspace = true
+
+[features]
+# spec 0017 (sandbox environments), off by default; aq-worker's feature turns it on.
+project_environments = ["aq-node-git/environment-job"]

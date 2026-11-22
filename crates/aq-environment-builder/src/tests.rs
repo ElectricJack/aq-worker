@@ -17,6 +17,9 @@ struct Double {
     jobs: VecDeque<Value>,
     forbidden: bool,
     claims: usize,
+    /// When each claim was answered and each result arrived.
+    claimed_at: Vec<std::time::Instant>,
+    completed_at: Vec<std::time::Instant>,
     completed: Vec<Value>,
 }
 
@@ -26,6 +29,7 @@ fn server(double: Arc<Mutex<Double>>) -> Router {
         assert_eq!(h["authorization"], "Bearer node-secret");
         let mut d = claimed.lock().unwrap();
         d.claims += 1;
+        d.claimed_at.push(std::time::Instant::now());
         if d.forbidden {
             return StatusCode::FORBIDDEN.into_response();
         }
@@ -37,7 +41,9 @@ fn server(double: Arc<Mutex<Double>>) -> Router {
     let complete = move |h: axum::http::HeaderMap, Json(result): Json<Value>| async move {
         assert_eq!(h["authorization"], "Bearer node-secret");
         let job_id = result["job_id"].clone();
-        double.lock().unwrap().completed.push(result);
+        let mut d = double.lock().unwrap();
+        d.completed.push(result);
+        d.completed_at.push(std::time::Instant::now());
         Json(json!({"job_id": job_id, "recorded": true}))
     };
     Router::new()
@@ -284,13 +290,16 @@ fn a_tool_crash_completes_the_job_as_failed_with_a_redacted_log() {
 }
 
 #[test]
-fn a_tool_past_build_wall_ms_is_killed_and_the_job_completed_as_failed() {
+fn a_tool_that_never_exits_is_stopped_and_completed_before_the_lease_ends() {
     let h = Harness::new();
-    h.queue(h.job(3, "build", 4096, 1500));
-    let started = std::time::Instant::now();
+    let wall = Duration::from_millis(5000);
+    h.queue(h.job(3, "build", 4096, wall.as_millis() as u64));
     h.run("hang", |h| !h.completed().is_empty());
-    assert!(started.elapsed() < Duration::from_secs(30));
-    let result = &h.completed()[0];
+    let d = h.double.lock().unwrap();
+    // The server's lease ends build_wall_ms after it answered the claim.
+    let posted = d.completed_at[0].duration_since(d.claimed_at[0]);
+    assert!(posted < wall, "posted {posted:?} after the claim");
+    let result = &d.completed[0];
     assert_eq!(result["outcome"], "failed");
     assert_eq!(result["failure"]["step"], "install");
     let log = result["failure"]["log"].as_str().unwrap();
@@ -298,6 +307,7 @@ fn a_tool_past_build_wall_ms_is_killed_and_the_job_completed_as_failed() {
         log.contains("building") && log.contains("build_wall_ms"),
         "{log}"
     );
+    drop(d);
     no_job_dirs_left(h.state.path());
 }
 
@@ -319,29 +329,40 @@ fn shutdown_stops_claiming_and_finishes_the_running_job() {
 }
 
 #[test]
-fn a_refused_fetch_completes_nothing_and_runs_no_tool() {
+fn a_refused_fetch_completes_nothing_runs_no_tool_and_backs_off() {
     let h = Harness::new();
     h.central.refuse.store(true, Ordering::SeqCst);
-    h.queue(h.job(6, "build", 65536, 600_000));
-    h.run("ok", |h| h.double.lock().unwrap().claims >= 2);
+    for n in 0..5 {
+        h.queue(h.job(10 + n, "build", 65536, 600_000));
+    }
+    let started = std::time::Instant::now();
+    h.run("ok", |_| started.elapsed() > Duration::from_millis(1500));
+    // Not every queued job claimed back to back and held for a lease.
+    let claims = h.double.lock().unwrap().claims;
+    assert!((1..=2).contains(&claims), "{claims} claims in 1.5 s");
     assert!(h.completed().is_empty());
     assert!(!h.captured("args.json").exists());
-    assert!(
-        std::fs::read_dir(h.state.path().join("jobs"))
-            .unwrap()
-            .next()
-            .is_none()
-    );
+    let left = std::fs::read_dir(h.state.path().join("jobs")).unwrap();
+    assert_eq!(left.count(), 0);
 }
 
 #[test]
-fn a_node_outside_the_builder_group_backs_off() {
+fn a_node_outside_the_builder_group_backs_off_and_startup_sweeps_old_jobs() {
     let h = Harness::new();
     h.double.lock().unwrap().forbidden = true;
+    // A job directory a killed runner left behind.
+    let stale = h
+        .state
+        .path()
+        .join("jobs")
+        .join(Uuid::from_u128(99).to_string());
+    std::fs::create_dir_all(stale.join("output/web")).unwrap();
+    std::fs::write(stale.join("output/web/image.oci.tar"), "old").unwrap();
     let started = std::time::Instant::now();
     h.run("ok", |_| started.elapsed() > Duration::from_millis(1500));
     let claims = h.double.lock().unwrap().claims;
     assert!((1..=2).contains(&claims), "{claims} claims in 1.5 s");
+    assert!(!stale.exists());
 }
 
 #[test]

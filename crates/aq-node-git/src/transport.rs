@@ -12,12 +12,14 @@ pub const ATTEMPT_HEADER: &str = "AQ-Attempt";
 /// Instead of [`ATTEMPT_HEADER`]: the environment job (aq-server spec 0017) a
 /// fetch is for. The server serves it to the node holding the job's claim,
 /// for fetches of the job's repository only.
+#[cfg(feature = "environment-job")]
 pub const ENVIRONMENT_JOB_HEADER: &str = "AQ-Environment-Job";
 
 /// Whom a git request is for; the server derives its authority from it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Scope {
     Attempt(Uuid),
+    #[cfg(feature = "environment-job")]
     EnvironmentJob(Uuid),
 }
 /// On the result report (S6): the pushed task ref and the commit it is at,
@@ -103,6 +105,7 @@ impl Remote {
     pub(crate) fn apply(&self, command: &mut Command, scope: Scope) {
         let scope = match scope {
             Scope::Attempt(id) => (ATTEMPT_HEADER.to_owned(), id.to_string()),
+            #[cfg(feature = "environment-job")]
             Scope::EnvironmentJob(id) => (ENVIRONMENT_JOB_HEADER.to_owned(), id.to_string()),
         };
         let headers: Vec<_> = self.headers.iter().chain([&scope]).collect();

@@ -177,7 +177,8 @@ fn smart_http(
             let value = h.get(name).and_then(|v| v.to_str().ok());
             value.unwrap_or_default().to_string()
         };
-        let job = text(transport::ENVIRONMENT_JOB_HEADER);
+        // The header aq-server spec 0017 names; a literal so the double needs no feature.
+        let job = text("aq-environment-job");
         seen.lock().unwrap().push(format!(
             "{method} {rest}{} {} {}{}",
             uri.query().map(|q| format!("?{q}")).unwrap_or_default(),

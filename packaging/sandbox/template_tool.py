@@ -683,7 +683,10 @@ def build(recipe_path, config_path, output_path):
 
 def main():
     import argparse
+    import signal
     import sys
+    # A stopped job (SIGTERM) unwinds, so subprocess children are killed and temporary directories removed.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(128 + signal.SIGTERM))
     parser = argparse.ArgumentParser(description='Build and scan pinned sandbox templates')
     sub = parser.add_subparsers(dest='command', required=True)
     builder = sub.add_parser('build')

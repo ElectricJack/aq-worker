@@ -8,20 +8,24 @@
 //!
 //! When the job's commit cannot be fetched (the claim is gone), the runner
 //! completes nothing; the server hands the job out again after its lease.
-//! When the tool crashes or runs past `build_wall_ms`, the runner completes
-//! the job as `failed` with the redacted tail of the tool's stderr.
+//! When the tool crashes, or is stopped because the claim lease
+//! (`build_wall_ms`) is running out, the runner completes the job as `failed`
+//! with the redacted tail of the tool's stderr. A job that completed nothing
+//! makes the runner back off before it claims again.
+#![cfg(feature = "project_environments")]
 pub mod client;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::ffi::OsString;
-use std::io::{Read as _, Seek as _};
+use std::io::{Read as _, Write as _};
 use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::watch;
+use tokio::time::Instant;
 use uuid::Uuid;
 
 pub use client::Server;
@@ -93,7 +97,6 @@ pub async fn run(
     let target = (builder.get("target_repository").and_then(Value::as_str))
         .context("the builder config has no target_repository")?
         .to_owned();
-    std::fs::create_dir_all(&config.work_dir)?;
     let runner = Runner {
         client: Client::new(server)?,
         node: config.node_git.node(server.remote()),
@@ -102,14 +105,30 @@ pub async fn run(
         tool: &tool,
         shutdown: shutdown.clone(),
     };
+    // Whatever a killed runner left: job directories (with their archives) and
+    // the worktree records of the ones that were checked out.
+    std::fs::create_dir_all(&config.work_dir)?;
+    for entry in std::fs::read_dir(&config.work_dir)? {
+        let path = entry?.path();
+        let name = path.file_name().and_then(|n| n.to_str());
+        if name.is_some_and(|n| Uuid::try_parse(n).is_ok()) {
+            std::fs::remove_dir_all(&path)?;
+        }
+    }
+    runner.node.prune().await?;
     let interval = Duration::from_millis(config.claim_interval_ms);
-    let mut forbidden = 0;
+    let (mut forbidden, mut unfinished) = (0, 0);
     while !*shutdown.borrow() {
         let wait = match runner.client.claim().await {
             Ok(Some(job)) => {
                 forbidden = 0;
-                runner.job(job).await;
-                continue;
+                if runner.job(job, Instant::now()).await {
+                    unfinished = 0;
+                    continue;
+                }
+                // A node that cannot finish jobs must not claim the queue empty.
+                unfinished += 1;
+                backoff(unfinished)
             }
             Ok(None) => interval,
             Err(Refused::Forbidden) => {
@@ -140,6 +159,35 @@ fn backoff(n: u32) -> Duration {
     Duration::from_secs(1 << n.clamp(1, 6))
 }
 
+/// The claim lease ends `build_wall_ms` after the server answered the claim.
+/// The node stops its work a tenth of that before the lease ends, so that
+/// stopping, redaction and the post all finish inside the lease.
+struct Lease {
+    end: Instant,
+    margin: Duration,
+}
+
+impl Lease {
+    fn new(claimed: Instant, wall: Duration) -> Self {
+        Self {
+            end: claimed + wall,
+            margin: wall / 10,
+        }
+    }
+    /// Between SIGTERM and SIGKILL.
+    fn grace(&self) -> Duration {
+        self.margin / 10
+    }
+    /// When the tool is stopped.
+    fn tool_stop(&self) -> Instant {
+        self.end - self.margin
+    }
+    /// When redaction is stopped, which leaves two graces for the post.
+    fn redact_stop(&self) -> Instant {
+        self.end - 2 * self.grace()
+    }
+}
+
 struct Runner<'a, F> {
     client: Client,
     node: aq_node_git::Node,
@@ -150,50 +198,53 @@ struct Runner<'a, F> {
 }
 
 impl<F: Fn(&[OsString]) -> Result<Tool> + Sync> Runner<'_, F> {
-    async fn job(&self, raw: Value) {
+    /// Runs one claimed job; true when the server recorded its result.
+    async fn job(&self, raw: Value, claimed: Instant) -> bool {
         let job: Job = match serde_json::from_value(raw.clone()) {
             Ok(job) => job,
-            Err(e) => return tracing::error!("unreadable environment job, left to its lease: {e}"),
+            Err(e) => {
+                tracing::error!("unreadable environment job, left to its lease: {e}");
+                return false;
+            }
         };
-        let started = Instant::now();
+        let lease = Lease::new(claimed, Duration::from_millis(job.limits.build_wall_ms));
         let (id, repository) = (job.job_id, job.repository_id);
         let dir = self.config.work_dir.join(id.to_string());
         let tree = dir.join("repo");
-        let _ = std::fs::remove_dir_all(&dir);
         let checkout = (self.node).checkout(id, repository, job.commit.clone(), tree.clone());
         let result = match checkout.await {
             Err(e) => {
                 tracing::warn!(job_id = %id, "environment job checkout refused or failed; completing nothing: {e:#}");
-                None
+                let _ = std::fs::remove_dir_all(&dir);
+                return false;
             }
-            Ok(_) => match self.execute(&job, raw, &dir, &tree, started).await {
-                Ok(result) => Some(result),
-                Err(e) => {
-                    tracing::error!(job_id = %id, "environment job could not run here; completing nothing: {e:#}");
-                    None
-                }
-            },
+            Ok(_) => self.execute(&job, raw, &dir, &tree, &lease).await,
         };
         if let Err(e) = self.node.discard(repository, tree).await {
             tracing::warn!(job_id = %id, "environment job worktree cleanup failed: {e:#}");
         }
         let _ = std::fs::remove_dir_all(&dir);
-        if let Some(mut result) = result {
-            fit(&mut result, job.limits.log_bytes);
-            self.complete(id, &result).await;
+        match result {
+            Ok(mut result) => {
+                fit(&mut result, job.limits.log_bytes);
+                self.complete(id, &result, &lease).await
+            }
+            Err(e) => {
+                tracing::error!(job_id = %id, "environment job could not run here; completing nothing: {e:#}");
+                false
+            }
         }
     }
 
     /// The tool's Job result. When the tool crashed, printed no result or was
-    /// stopped at `build_wall_ms` (measured from the claim, like the lease),
-    /// a `failed` result is built here instead.
+    /// stopped for the lease, a `failed` result is built here instead.
     async fn execute(
         &self,
         job: &Job,
         mut raw: Value,
         dir: &Path,
         tree: &Path,
-        started: Instant,
+        lease: &Lease,
     ) -> Result<Value> {
         let fields = raw.as_object_mut().context("the job is not an object")?;
         // The tool takes exactly the Job fields; the target is this builder's.
@@ -213,20 +264,19 @@ impl<F: Fn(&[OsString]) -> Result<Tool> + Sync> Runner<'_, F> {
             args.extend(["--output".into(), dir.join("output").into()]);
         }
         let (stdout, stderr) = (dir.join("stdout"), dir.join("stderr"));
-        let wall = Duration::from_millis(job.limits.build_wall_ms);
-        let budget = wall.saturating_sub(started.elapsed());
-        let exited = run_tool((self.tool)(&args)?, &stdout, &stderr, budget).await?;
+        let tool = (self.tool)(&args)?;
+        let exited = run_tool(tool, &stdout, &stderr, lease.tool_stop(), lease.grace()).await?;
         if exited.is_some_and(|s| s.success())
             && let Ok(result) = serde_json::from_slice::<Value>(&std::fs::read(&stdout)?)
             && result["job_id"] == json!(job.job_id)
         {
             return Ok(result);
         }
-        let mut log = tail(&stderr, 2 * job.limits.log_bytes as u64)?;
         if exited.is_none() {
-            log.extend_from_slice(b"\nthe template tool was stopped at build_wall_ms\n");
+            let mut log = std::fs::OpenOptions::new().append(true).open(&stderr)?;
+            log.write_all(b"\nthe template tool was stopped before build_wall_ms ran out\n")?;
         }
-        let log = self.redact(&log, job.limits.log_bytes, dir, wall).await;
+        let log = self.redact(&stderr, job.limits.log_bytes, dir, lease).await;
         let recipe = job.recipes.first().cloned().unwrap_or_default();
         Ok(json!({
             "job_id": job.job_id, "outcome": "failed", "builds": [], "run": null,
@@ -234,22 +284,26 @@ impl<F: Fn(&[OsString]) -> Result<Tool> + Sync> Runner<'_, F> {
         }))
     }
 
-    /// The template tool's own redaction (`redact-log`, the scanner's patterns).
-    async fn redact(&self, log: &[u8], limit: usize, dir: &Path, wall: Duration) -> String {
+    /// The tail of `log`, redacted by the template tool itself (`redact-log`,
+    /// the credential scanner's patterns).
+    async fn redact(&self, log: &Path, limit: usize, dir: &Path, lease: &Lease) -> String {
         let redacted = async {
-            let (input, output) = (dir.join("log"), dir.join("redacted"));
-            std::fs::write(&input, log)?;
+            let output = dir.join("redacted");
             let args = [
                 "redact-log".into(),
                 "--input".into(),
-                input.into(),
+                log.into(),
                 "--limit".into(),
             ];
             let mut args: Vec<OsString> = args.into();
             args.push(limit.to_string().into());
-            let status =
-                run_tool((self.tool)(&args)?, &output, &dir.join("redact.err"), wall).await?;
-            ensure!(status.is_some_and(|s| s.success()), "redact-log failed");
+            let tool = (self.tool)(&args)?;
+            let errors = dir.join("redact.err");
+            let status = run_tool(tool, &output, &errors, lease.redact_stop(), lease.grace());
+            ensure!(
+                status.await?.is_some_and(|s| s.success()),
+                "redact-log failed"
+            );
             Ok(std::fs::read_to_string(output)?)
         };
         redacted.await.unwrap_or_else(|e: anyhow::Error| {
@@ -258,22 +312,35 @@ impl<F: Fn(&[OsString]) -> Result<Tool> + Sync> Runner<'_, F> {
         })
     }
 
-    async fn complete(&self, id: Uuid, result: &Value) {
+    /// Posts the result until it is recorded, refused, shut down or the lease
+    /// ends (after which another node may hold the job). True when recorded.
+    async fn complete(&self, id: Uuid, result: &Value, lease: &Lease) -> bool {
         let body = serde_json::to_vec(result).expect("a JSON value serializes");
         let mut tries = 0;
         loop {
-            match self.client.complete(&body).await {
-                Ok(()) => return tracing::info!(job_id = %id, "environment job completed"),
-                Err(Refused::Conflict) => {
-                    return tracing::warn!(job_id = %id, "another node holds this job's claim now; its result is dropped");
+            let sent = tokio::time::timeout_at(lease.end, self.client.complete(&body)).await;
+            match sent {
+                Ok(Ok(())) => {
+                    tracing::info!(job_id = %id, "environment job completed");
+                    return true;
                 }
-                Err(Refused::Transient(m)) if !*self.shutdown.borrow() => {
+                Ok(Err(Refused::Conflict)) => {
+                    tracing::warn!(job_id = %id, "another node holds this job's claim now; its result is dropped");
+                    return false;
+                }
+                Ok(Err(Refused::Transient(m))) if !*self.shutdown.borrow() => {
                     tries += 1;
                     tracing::warn!(job_id = %id, "environment job result not sent: {m}; retrying");
-                    tokio::time::sleep(backoff(tries)).await;
+                    let next = (Instant::now() + backoff(tries)).min(lease.end);
+                    tokio::time::sleep_until(next).await;
                 }
-                Err(e) => {
-                    return tracing::error!(job_id = %id, "environment job result dropped: {e}");
+                Ok(Err(e)) => {
+                    tracing::error!(job_id = %id, "environment job result dropped: {e}");
+                    return false;
+                }
+                Err(_) => {
+                    tracing::warn!(job_id = %id, "the claim lease ended before the result was recorded; dropped");
+                    return false;
                 }
             }
         }
@@ -281,12 +348,14 @@ impl<F: Fn(&[OsString]) -> Result<Tool> + Sync> Runner<'_, F> {
 }
 
 /// Runs a tool in its own process group, with its output in files. At
-/// `budget`, the whole group is killed and the result is `None`.
+/// `stop`, the group gets SIGTERM, then SIGKILL after `grace`, and the result
+/// is `None`.
 async fn run_tool(
     (_dir, mut command): Tool,
     stdout: &Path,
     stderr: &Path,
-    budget: Duration,
+    stop: Instant,
+    grace: Duration,
 ) -> Result<Option<ExitStatus>> {
     command.stdin(Stdio::null()).process_group(0);
     command
@@ -295,26 +364,19 @@ async fn run_tool(
     let mut child = tokio::process::Command::from(command)
         .kill_on_drop(true)
         .spawn()?;
-    match tokio::time::timeout(budget, child.wait()).await {
-        Ok(status) => Ok(Some(status?)),
-        Err(_) => {
-            if let Some(pid) = child.id() {
-                // SAFETY: the unreaped child still owns its process group.
-                unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
-            }
-            child.wait().await?;
-            Ok(None)
-        }
+    if let Ok(status) = tokio::time::timeout_at(stop, child.wait()).await {
+        return Ok(Some(status?));
     }
-}
-
-fn tail(path: &Path, max: u64) -> Result<Vec<u8>> {
-    let mut file = std::fs::File::open(path)?;
-    let len = file.metadata()?.len();
-    file.seek(std::io::SeekFrom::Start(len.saturating_sub(max)))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
+    if let Some(pid) = child.id() {
+        let group = -(pid as libc::pid_t);
+        // SAFETY: the child is not reaped until after the SIGKILL, so it still
+        // owns its process group (a zombie at worst) and the id is not reused.
+        unsafe { libc::kill(group, libc::SIGTERM) };
+        tokio::time::sleep(grace).await;
+        unsafe { libc::kill(group, libc::SIGKILL) };
+    }
+    child.wait().await?;
+    Ok(None)
 }
 
 /// Trims the free text of a result (`failure.log`, `run.output` and every
