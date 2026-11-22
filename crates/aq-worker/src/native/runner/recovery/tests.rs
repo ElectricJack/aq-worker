@@ -1,5 +1,6 @@
 //! Public synthetic history/loopback peer only; never creates a live host permit.
 use super::*;
+use crate::backend::docker_local::tar::TreeEntry;
 use crate::native::{
     journal::launch::NativeStopped, test_support::profile_history::terminal_attempt,
 };

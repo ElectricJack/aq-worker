@@ -11,6 +11,8 @@
 //!   injected, agent `Authorization` passed through), on the same core.
 //! - [`holds_agent_credential`]: the leak guard's `aqa_` credential scan.
 mod channel;
+#[cfg(feature = "environment-try")]
+mod checkpoint;
 mod forward;
 mod issuer;
 pub mod login;
@@ -19,6 +21,8 @@ mod loopback;
 mod tests;
 
 pub use channel::{AgentChannel, ChannelConfig, NodeLink, sweep};
+#[cfg(feature = "environment-try")]
+pub use checkpoint::{Checkpoint, CheckpointError, CheckpointFuture, TRY_PATH};
 pub use forward::{AGENT_PREFIXES, NODE_PREFIXES, agent_path, node_origin};
 pub use issuer::{AttemptIdentity, CredentialIssuer, IssueError, IssueFuture, Issued, NodeIssuer};
 pub use loopback::LoopbackProxy;

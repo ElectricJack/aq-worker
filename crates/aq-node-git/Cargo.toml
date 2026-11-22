@@ -30,3 +30,5 @@ tempfile.workspace = true
 test-support = ["dep:axum", "dep:futures-util", "dep:tempfile"]
 # Fetches for aq-server spec 0017 environment jobs (aq-worker `project_environments`).
 environment-job = []
+# The `aq environment try` checkpoint (aq-server spec 0017 §6.2; aq-worker `project_environments`).
+environment-try = []

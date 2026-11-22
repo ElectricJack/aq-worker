@@ -516,3 +516,85 @@ fn an_environment_job_fetches_its_commit_into_the_existing_repository_with_the_j
     node.prune().unwrap();
     assert_eq!(git(&repo, &["worktree", "list"]).lines().count(), 1);
 }
+
+/// Spec 0017 §6.2: a checkpoint commits the agent's live tree the way the
+/// result is committed and force-pushes it to the attempt's try ref. It never
+/// moves the task ref or touches the worktree, so the final push still holds
+/// its lease.
+#[cfg(feature = "environment-try")]
+#[test]
+fn the_final_result_push_still_succeeds_after_a_checkpoint() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let node = node(&state.path().join("repositories"));
+    let remote = remote(&central);
+    let (attempt, path) = (Uuid::from_u128(50), at(state.path(), 50));
+    let wt = node
+        .start(&remote, &central.grant("c1", None), attempt, &path)
+        .unwrap();
+    let head = git(&path, &["rev-parse", "HEAD"]);
+    let author = creator();
+    let who = Some((author.name.as_str(), author.email.as_str()));
+    // The agent's live tree, as the copy-back would write it.
+    let live = |text: &'static str| {
+        move |tree: &Path| -> Result<()> {
+            std::fs::write(tree.join("a.txt"), text)?;
+            std::fs::write(tree.join("b.txt"), "two\n")?;
+            std::fs::write(tree.join(".gitignore"), "*.log\n")?;
+            std::fs::write(tree.join("x.log"), "noise\n")?;
+            Ok(())
+        }
+    };
+    let try_ref = format!("refs/heads/aq-try/{attempt}");
+    assert_eq!(crate::try_ref(attempt), try_ref);
+
+    let first = node
+        .checkpoint(&remote, &wt, "AQ attempt", who, live("first\n"))
+        .unwrap();
+    assert_eq!(central.head(&try_ref), Some(first.clone()));
+    let at_remote = |args: &[&str]| git(&central.remote(), args);
+    assert_eq!(at_remote(&["rev-parse", &format!("{first}^")]), head);
+    assert_eq!(at_remote(&["show", &format!("{first}:a.txt")]), "first");
+    assert!(!at_remote(&["ls-tree", "--name-only", &first]).contains("x.log"));
+    let expected = format!(
+        "{} <{}>|AQ node <node@aq.invalid>",
+        author.name, author.email
+    );
+    assert_eq!(identities(&central.remote(), &first), expected);
+    // The task ref, the worktree, its index and HEAD are untouched.
+    assert_eq!(central.head("refs/heads/aq/c1"), None);
+    assert_eq!(git(&path, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&path, &["status", "--porcelain"]), "");
+    assert_eq!(
+        std::fs::read_to_string(path.join("a.txt")).unwrap(),
+        "one\n"
+    );
+    let worktrees = || git(&wt.repository, &["worktree", "list"]).lines().count();
+    assert_eq!(worktrees(), 2, "the checkpoint's own worktree is removed");
+
+    // The next try force-updates the try ref; a failed fill pushes nothing.
+    let second = node
+        .checkpoint(&remote, &wt, "AQ attempt", who, live("second\n"))
+        .unwrap();
+    assert_ne!(second, first);
+    assert_eq!(central.head(&try_ref), Some(second.clone()));
+    let failed = |_: &Path| -> Result<()> { anyhow::bail!("copy refused") };
+    assert!(node.checkpoint(&remote, &wt, "x", who, failed).is_err());
+    assert_eq!(central.head(&try_ref), Some(second.clone()));
+    assert_eq!(worktrees(), 2);
+
+    // The copy-back writes the same tree: the result is the same commit
+    // content on the attempt's HEAD, pushed under the original lease.
+    live("second\n")(&path).unwrap();
+    let Pushed::Pushed { task_ref, commit } =
+        node.finish_as(&remote, &wt, "AQ attempt", who).unwrap()
+    else {
+        panic!("the checkpoint moved the task ref")
+    };
+    assert_eq!(task_ref, "refs/heads/aq/c1");
+    assert_eq!(central.head(&task_ref), Some(commit.clone()));
+    assert_eq!(at_remote(&["rev-parse", &format!("{commit}^")]), head);
+    let tree = |c: &str| at_remote(&["rev-parse", &format!("{c}^{{tree}}")]);
+    assert_eq!(tree(&commit), tree(&second));
+    node.end(&wt).unwrap();
+}

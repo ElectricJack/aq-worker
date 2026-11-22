@@ -108,6 +108,8 @@ struct Shared {
     /// still the held version (bounded).
     stale: StaleSignal,
     not_after_ms: u64,
+    #[cfg(feature = "environment-try")]
+    checkpoint: RwLock<Option<crate::Checkpoint>>,
 }
 impl Credentials for Shared {
     fn take(&self) -> Option<Taken> {
@@ -129,6 +131,18 @@ impl Credentials for Shared {
     }
     fn version(&self) -> Option<u64> {
         self.credential.read().ok().map(|c| c.version)
+    }
+    /// Bounded by the request timeout, so it fails as `checkpoint_push_failed`
+    /// before the exchange itself times out.
+    #[cfg(feature = "environment-try")]
+    fn checkpoint(&self) -> Option<crate::CheckpointFuture> {
+        let push = self.checkpoint.read().ok()?.clone()?;
+        Some(Box::pin(async move {
+            let late = Err(crate::CheckpointError::PushFailed);
+            tokio::time::timeout(REQUEST_TIMEOUT, push())
+                .await
+                .unwrap_or(late)
+        }))
     }
 }
 impl Shared {
@@ -339,6 +353,8 @@ impl AgentChannel {
             closed: watch::channel(false).0,
             stale: StaleSignal::default(),
             not_after_ms: config.not_after_ms,
+            #[cfg(feature = "environment-try")]
+            checkpoint: RwLock::new(None),
         });
         let serving = shared.clone();
         let directory = config.directory.clone();
@@ -378,6 +394,14 @@ impl AgentChannel {
         let mut closed = self.shared.closed.subscribe();
         async move {
             let _ = closed.wait_for(|c| *c).await;
+        }
+    }
+    /// Sets the attempt's `aq environment try` checkpoint (aq-server spec 0017
+    /// §6.2). Without one, a try's `commit` is dropped before forwarding.
+    #[cfg(feature = "environment-try")]
+    pub fn set_checkpoint(&self, checkpoint: crate::Checkpoint) {
+        if let Ok(mut held) = self.shared.checkpoint.write() {
+            *held = Some(checkpoint);
         }
     }
     /// Stop accepting (cancel, closure, revocation). Never blocks.
@@ -445,6 +469,20 @@ async fn handle(shared: Arc<Shared>, mut stream: UnixStream) {
                     400,
                     "channel_refused",
                     "the request framing was refused",
+                    "not_applied",
+                ),
+                #[cfg(feature = "environment-try")]
+                Failure::Checkpoint(crate::CheckpointError::Refused) => (
+                    422,
+                    "checkpoint_refused",
+                    "the workspace holds a credential-shaped value; nothing was pushed or sent to aq-server",
+                    "not_applied",
+                ),
+                #[cfg(feature = "environment-try")]
+                Failure::Checkpoint(crate::CheckpointError::PushFailed) => (
+                    502,
+                    "checkpoint_push_failed",
+                    "the node could not push the workspace for this try; nothing was sent to aq-server",
                     "not_applied",
                 ),
                 Failure::Upstream => (

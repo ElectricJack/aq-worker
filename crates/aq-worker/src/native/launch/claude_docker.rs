@@ -246,6 +246,57 @@ impl ClaudeDockerHostProfile {
         ))
     }
 }
+/// `aq environment try` (aq-server spec 0017 §6.2): the running sandbox's
+/// `/aq/work`, read as the copy-back reads it, refused on a credential shape,
+/// then committed and pushed to the attempt's try ref (aq-node-git).
+#[cfg(feature = "project_environments")]
+fn try_checkpoint(
+    profile: &ClaudeDockerHostProfile,
+    node: Arc<aq_node_git::Node>,
+    (node_id, attempt): (uuid::Uuid, uuid::Uuid),
+    workspace: PathBuf,
+    author: Option<aq_worker_protocol::git_author::GitAuthor>,
+) -> aq_agent_channel::Checkpoint {
+    use crate::backend::{PlacementBackend as _, SandboxState, docker_local as dl};
+    use aq_agent_channel::CheckpointError::{PushFailed, Refused};
+    let (docker, max) = (
+        profile.config.docker_local.clone(),
+        profile.config.max_workspace_bytes,
+    );
+    Arc::new(move || {
+        let (docker, node, workspace) = (docker.clone(), node.clone(), workspace.clone());
+        let author = author.clone();
+        Box::pin(async move {
+            let read = async {
+                let mut backend = dl::DockerLocalBackend::connect_unix(docker).await?;
+                let owned = backend.list_owned(node_id).await?.into_iter();
+                let mut running = owned.filter(|e| {
+                    e.sandbox.owner.attempt_id == attempt && e.state == SandboxState::Running
+                });
+                let (Some(sandbox), None) = (running.next(), running.next()) else {
+                    anyhow::bail!("no single running sandbox for the attempt");
+                };
+                let bound = usize::try_from(max)?.saturating_mul(2);
+                let archive = backend.get_archive(&sandbox.sandbox, dl::WORK_TARGET, bound);
+                anyhow::Ok(dl::tar::read_tree(&archive.await?, max)?)
+            };
+            let failed = |error: anyhow::Error| {
+                tracing::warn!(attempt_id = %attempt, error = %format!("{error:#}"), "try checkpoint failed");
+                PushFailed
+            };
+            let entries = read.await.map_err(failed)?;
+            if aq_sandbox_archive::workspace::credential_shaped(&entries) {
+                return Err(Refused);
+            }
+            let fill =
+                move |tree: &Path| crate::sandbox_driver::sync_tree(tree, &entries).map(drop);
+            let message = format!("AQ attempt {attempt}");
+            node.checkpoint(workspace, message, author, fill)
+                .await
+                .map_err(failed)
+        })
+    })
+}
 pub(super) struct Adapter {
     command: LocalCommand,
     executable: ArtifactRef,
@@ -527,6 +578,13 @@ pub(super) fn bootstrap(
     let agent_channel = profile.config.agent_channel.is_required();
     if agent_channel {
         let channel = profile.open_channel(&i.binding.session, deadline_ms)?;
+        #[cfg(feature = "project_environments")]
+        if let Some(node) = scope.inputs.workspace().git().node.clone() {
+            let owner = (node_id, i.binding.attempt_id);
+            let workspace = scope.inputs.workspace().workspace().path.clone();
+            let author = git_author.clone();
+            channel.set_checkpoint(try_checkpoint(profile, node, owner, workspace, author));
+        }
         let mut physical = lock(&entry.physical)?;
         if entry.stop.load(Ordering::SeqCst) {
             channel.close();

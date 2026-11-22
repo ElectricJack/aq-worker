@@ -5,7 +5,7 @@
 //! keeps the B6b behaviour exactly.
 use crate::{
     Accept, AccessHeaders,
-    forward::{Failure, Fixed, Origins, Rules, Seen, Upstream, forward},
+    forward::{Fixed, Origins, Rules, Seen, Upstream, forward},
 };
 use anyhow::Result;
 use std::{sync::Arc, time::Duration};
@@ -84,8 +84,7 @@ impl LoopbackProxy {
                             )
                             .await;
                         }
-                        Ok(Err(Failure::Refused(_) | Failure::Framing | Failure::Upstream))
-                        | Err(_) => {
+                        Ok(Err(_)) | Err(_) => {
                             let _ = tokio::time::timeout(Duration::from_secs(1), stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")).await;
                         }
                     }

@@ -167,6 +167,19 @@ fn record(path: &Path) -> PathBuf {
     path.with_extension("grant.json")
 }
 
+/// `refs/heads/aq-try/<attempt>`: where an attempt's `aq environment try`
+/// checkpoints go (aq-server spec 0017 §6.2). Never the task ref.
+#[cfg(feature = "environment-try")]
+pub fn try_ref(attempt: Uuid) -> String {
+    format!("refs/heads/aq-try/{attempt}")
+}
+
+/// The checkpoint's own worktree, beside the attempt's (outside its tree).
+#[cfg(feature = "environment-try")]
+fn checkpoint_tree(path: &Path) -> PathBuf {
+    path.with_extension("try")
+}
+
 /// Tell the agent what happened when the node prepared a returned task's tree.
 pub fn conflict_note(path: &Path) -> Option<String> {
     let tree = NodeGit::open(path).ok()?;
@@ -312,6 +325,23 @@ impl Node {
                 author.as_ref().map(GitAuthor::identity),
             )?;
             Ok((worktree, pushed))
+        })
+        .await
+    }
+    /// [`NodeGit::checkpoint`] of the attempt's worktree at `path`.
+    #[cfg(feature = "environment-try")]
+    pub async fn checkpoint(
+        &self,
+        path: PathBuf,
+        message: String,
+        author: Option<GitAuthor>,
+        fill: impl FnOnce(&Path) -> Result<()> + Send + 'static,
+    ) -> Result<String> {
+        let (git, remote) = (self.git.clone(), self.remote.clone());
+        blocking(move || {
+            let worktree = NodeGit::open(&path)?;
+            let author = author.as_ref().map(GitAuthor::identity);
+            git.checkpoint(&remote, &worktree, &message, author, fill)
         })
         .await
     }
@@ -535,7 +565,19 @@ impl NodeGit {
         message: &str,
         author: Option<(&str, &str)>,
     ) -> Result<Pushed> {
-        let dir = &worktree.path;
+        let commit = self.commit(&worktree.path, message, author)?;
+        let grant = &worktree.grant;
+        let lease = format!(
+            "--force-with-lease={}:{}",
+            grant.task_ref,
+            grant.lease.as_deref().unwrap_or_default()
+        );
+        self.push(remote, worktree, &lease, &grant.task_ref, commit)
+    }
+
+    /// Commits the whole tree at `dir` on its HEAD, as `workspace.checkpoint
+    /// mode:all` did; an unchanged tree is its HEAD.
+    fn commit(&self, dir: &Path, message: &str, author: Option<(&str, &str)>) -> Result<String> {
         self.ok(dir, &["add", "--all"], None)?;
         if !self.run(dir, &["diff", "--cached", "--quiet"], None)?.ok {
             self.ok_as(
@@ -545,34 +587,36 @@ impl NodeGit {
                 author,
             )?;
         }
-        let commit = self.ok(dir, &["rev-parse", "HEAD"], None)?;
-        let grant = &worktree.grant;
-        let lease = format!(
-            "--force-with-lease={}:{}",
-            grant.task_ref,
-            grant.lease.as_deref().unwrap_or_default()
-        );
-        let url = remote.url(grant.repository_id);
-        let refspec = format!("{commit}:{}", grant.task_ref);
-        let args = ["push", "--porcelain", "--no-verify", &lease, &url, &refspec];
+        self.ok(dir, &["rev-parse", "HEAD"], None)
+    }
+
+    /// Pushes `commit` to `target` with `force` (a lease or `--force`),
+    /// retrying a lost or refused push the same way.
+    fn push(
+        &self,
+        remote: &Remote,
+        worktree: &Worktree,
+        force: &str,
+        target: &str,
+        commit: String,
+    ) -> Result<Pushed> {
+        let url = remote.url(worktree.grant.repository_id);
+        let refspec = format!("{commit}:{target}");
+        let args = ["push", "--porcelain", "--no-verify", force, &url, &refspec];
         let mut last = String::new();
         for n in 0..self.limits.push_attempts {
             if n > 0 {
                 std::thread::sleep(self.limits.retry_delay);
             }
             let scope = Scope::Attempt(worktree.attempt);
-            let out = self.run(dir, &args, Some((remote, scope)))?;
+            let out = self.run(&worktree.path, &args, Some((remote, scope)))?;
             // Porcelain: `<flag>\t<from>:<to>\t<summary>`; `=` is "up to date",
             // which is what a retry sees after a push whose reply was lost.
-            let ours = |l: &&str| {
-                l.split('\t')
-                    .nth(1)
-                    .is_some_and(|r| r.ends_with(&grant.task_ref))
-            };
+            let ours = |l: &&str| l.split('\t').nth(1).is_some_and(|r| r.ends_with(target));
             match out.stdout.lines().find(ours) {
                 Some(l) if out.ok && !l.starts_with('!') => {
                     return Ok(Pushed::Pushed {
-                        task_ref: grant.task_ref.clone(),
+                        task_ref: target.to_owned(),
                         commit,
                     });
                 }
@@ -583,16 +627,60 @@ impl NodeGit {
             }
         }
         bail!(
-            "push to {} failed {} times: {}",
-            grant.task_ref,
+            "push to {target} failed {} times: {}",
             self.limits.push_attempts,
             remote.redact(last.trim())
         )
     }
 
+    /// `aq environment try` (aq-server spec 0017 §6.2): the agent's live tree
+    /// as a commit on the attempt's HEAD, force-pushed to [`try_ref`]. It is
+    /// made as [`NodeGit::finish_as`] makes the result: a second worktree at
+    /// HEAD (`<path>.try`), which `fill` makes hold the tree the way the
+    /// copy-back does, then the same commit. The attempt's worktree, its index
+    /// and HEAD, and the task ref are never touched.
+    #[cfg(feature = "environment-try")]
+    pub fn checkpoint(
+        &self,
+        remote: &Remote,
+        worktree: &Worktree,
+        message: &str,
+        author: Option<(&str, &str)>,
+        fill: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<String> {
+        let (repo, tree) = (&worktree.repository, checkpoint_tree(&worktree.path));
+        // One checkpoint per attempt at a time, even one its caller gave up on.
+        let one = std::fs::File::open(record(&worktree.path))?;
+        one.lock_exclusive()?;
+        let head = self.ok(&worktree.path, &["rev-parse", "HEAD"], None)?;
+        {
+            let _lock = self.lock(worktree.grant.repository_id)?;
+            self.remove_worktree(repo, &tree)?;
+            let target = tree.to_str().context("worktree path UTF-8")?;
+            let add = ["worktree", "add", "--quiet", "--detach", target, &head];
+            self.ok(repo, &add, None)?;
+        }
+        let pushed = fill(&tree).and_then(|()| {
+            let commit = self.commit(&tree, message, author)?;
+            let target = try_ref(worktree.attempt);
+            self.push(remote, worktree, "--force", &target, commit)
+        });
+        let _lock = self.lock(worktree.grant.repository_id)?;
+        self.remove_worktree(repo, &tree)?;
+        match pushed? {
+            Pushed::Pushed { commit, .. } => Ok(commit),
+            Pushed::Conflict => bail!("a forced push met a lease"),
+        }
+    }
+
     /// Removes the attempt's worktree and its record, then lets git pack and
     /// prune the shared repository.
     pub fn end(&self, worktree: &Worktree) -> Result<()> {
+        #[cfg(feature = "environment-try")]
+        self.discard(
+            worktree.grant.repository_id,
+            &checkpoint_tree(&worktree.path),
+        )?;
         self.discard(worktree.grant.repository_id, &worktree.path)?;
         std::fs::remove_file(record(&worktree.path))?;
         Ok(())
