@@ -33,6 +33,11 @@ def pinned(value):
 
 
 def parent_image(recipe, config, entries=()):
+    if 'parent' not in recipe:
+        # A parsed project recipe has no parent: AQ supplies the base template.
+        if 'base_template' not in config:
+            raise ValueError('a project recipe needs a configured base_template')
+        return config['base_template']
     parent = recipe['parent']
     if parent == config['os_image']:
         return parent
@@ -107,13 +112,13 @@ def dockerfile(recipe, base, config):
 def validate_config(config):
     required = {'schema_version', 'role', 'docker_context', 'buildkit_builder', 'builder_identity',
                 'os_image', 'runtime_image', 'target_repository', 'registry_visibility', 'allowlist'}
-    if not isinstance(config, dict) or not required <= set(config) or set(config) - required - {'universal_image', 'docker_binary'}:
+    if not isinstance(config, dict) or not required <= set(config) or set(config) - required - {'universal_image', 'docker_binary', 'base_template'}:
         raise ValueError('invalid build configuration fields')
     if config['schema_version'] != 1 or config['role'] != 'template-build':
         raise ValueError('an explicit template-build node is required')
     for key in ['docker_context', 'buildkit_builder', 'builder_identity']:
         text(config[key], 128, r'[A-Za-z0-9][A-Za-z0-9_.-]*')
-    for key in ['os_image', 'runtime_image', 'universal_image']:
+    for key in ['os_image', 'runtime_image', 'universal_image', 'base_template']:
         if key in config:
             pinned(config[key])
     if config['os_image'].split('@')[0].rsplit('/', 1)[-1] != 'aq-sandbox-os':

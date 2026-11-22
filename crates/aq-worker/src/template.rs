@@ -13,6 +13,10 @@ pub fn run(args: &[OsString]) -> anyhow::Result<()> {
         include_bytes!("../../../packaging/sandbox/credential_scan.py"),
     )?;
     fs::write(
+        directory.path().join("environment_recipe.py"),
+        include_bytes!("../../../packaging/sandbox/environment_recipe.py"),
+    )?;
+    fs::write(
         directory.path().join("boat_materialize.py"),
         include_bytes!("../../../packaging/sandbox/boat_materialize.py"),
     )?;
