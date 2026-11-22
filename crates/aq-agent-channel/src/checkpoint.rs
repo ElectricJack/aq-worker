@@ -14,11 +14,19 @@ pub enum CheckpointError {
     Refused,
     /// The snapshot, commit or push failed, or outran the request timeout.
     PushFailed,
+    /// Another try of this attempt still holds its [`CheckpointGuard`].
+    Busy,
 }
 
 pub type CheckpointFuture = Pin<Box<dyn Future<Output = Result<String, CheckpointError>> + Send>>;
-/// Pushes the attempt's live workspace and answers the pushed commit.
-pub type Checkpoint = Arc<dyn Fn() -> CheckpointFuture + Send + Sync>;
+/// Pushes the attempt's live workspace and answers the pushed commit. It
+/// keeps the guard until all of its work has ended, a blocking part that
+/// outlives a timed-out request included.
+pub type Checkpoint = Arc<dyn Fn(CheckpointGuard) -> CheckpointFuture + Send + Sync>;
+
+/// One checkpoint per attempt at a time: a try while another holds this is
+/// refused before any work, so an attempt holds at most one snapshot.
+pub struct CheckpointGuard(#[allow(dead_code)] pub(crate) tokio::sync::OwnedMutexGuard<()>);
 
 /// The body to forward: the agent's JSON object, re-serialized, with `commit`
 /// set to the node's checkpoint (or dropped when the attempt has none, which

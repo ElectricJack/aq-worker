@@ -53,7 +53,7 @@ const PUSHED: &str = "0123456789abcdef0123456789abcdef01234567";
 fn fake(outcome: Result<&'static str, CheckpointError>) -> (crate::Checkpoint, Arc<AtomicU64>) {
     let calls = Arc::new(AtomicU64::new(0));
     let counted = calls.clone();
-    let checkpoint: crate::Checkpoint = Arc::new(move || {
+    let checkpoint: crate::Checkpoint = Arc::new(move |_guard| {
         counted.fetch_add(1, Ordering::SeqCst);
         let outcome = outcome.map(str::to_owned);
         Box::pin(async move { outcome })
@@ -79,12 +79,12 @@ fn try_pushes_the_workspace_and_forwards_the_pushed_commit() {
         let (origin, seen) = recorder().await;
         let root = tempfile::tempdir().unwrap();
         let channel = open(&origin, root.path()).await;
-        let checkpoint: crate::Checkpoint = Arc::new(move || {
+        let checkpoint: crate::Checkpoint = Arc::new(move |guard| {
             let (node, path) = (node.clone(), path.clone());
             Box::pin(async move {
                 let live =
                     |tree: &std::path::Path| Ok(std::fs::write(tree.join("b.txt"), "live\n")?);
-                let pushed = node.checkpoint(path, "AQ attempt".into(), None, live);
+                let pushed = node.checkpoint(path, "AQ attempt".into(), None, live, guard);
                 pushed.await.map_err(|_| CheckpointError::PushFailed)
             })
         });
@@ -217,5 +217,94 @@ async fn other_agent_routes_are_forwarded_unchanged() {
             ("POST", "/v1/agent/context", &br#"{"commit":"agent"}"#[..]),
         ]
     );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+/// One snapshot per attempt: a try while another still holds the guard is
+/// refused before its checkpoint runs (no Docker read), and the first one
+/// completes. The guard ends with the work, not with the waiting request.
+#[tokio::test]
+async fn a_second_concurrent_try_is_refused_and_the_first_completes() {
+    let (origin, seen) = recorder().await;
+    let root = tempfile::tempdir().unwrap();
+    let channel = open(&origin, root.path()).await;
+    let socket = channel.socket_path();
+    let (calls, release) = (
+        Arc::new(AtomicU64::new(0)),
+        Arc::new(tokio::sync::Notify::new()),
+    );
+    let (counted, waited) = (calls.clone(), release.clone());
+    channel.set_checkpoint(Arc::new(move |guard| {
+        counted.fetch_add(1, Ordering::SeqCst);
+        let waited = waited.clone();
+        Box::pin(async move {
+            waited.notified().await;
+            drop(guard);
+            Ok(PUSHED.to_owned())
+        })
+    }));
+    let body = r#"{"api_version":1,"name":"rust"}"#;
+    let first = tokio::spawn({
+        let socket = socket.clone();
+        async move { send(&socket, "POST", TRY_PATH, body).await }
+    });
+    while calls.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let (status, answer) = send(&socket, "POST", TRY_PATH, body).await;
+    assert_eq!(status, 502, "{answer}");
+    let refusal = json(answer.as_bytes());
+    assert_eq!(refusal["code"], "checkpoint_push_failed");
+    assert!(
+        refusal["message"]
+            .as_str()
+            .unwrap()
+            .contains("already in progress")
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the second try did no work"
+    );
+    release.notify_one();
+    assert_eq!(first.await.unwrap().0, 200);
+    let bodies: Vec<_> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, _, b)| json(b))
+        .collect();
+    assert_eq!(
+        bodies,
+        [serde_json::json!({"api_version":1,"name":"rust","commit":PUSHED})]
+    );
+    // The guard is free again once the first try's work ended.
+    let next = tokio::spawn(async move { send(&socket, "POST", TRY_PATH, body).await });
+    while calls.load(Ordering::SeqCst) < 2 {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    release.notify_one();
+    assert_eq!(next.await.unwrap().0, 200);
+}
+
+#[tokio::test]
+async fn an_encoded_environments_path_is_refused() {
+    let (origin, seen) = recorder().await;
+    let root = tempfile::tempdir().unwrap();
+    let channel = open(&origin, root.path()).await;
+    let socket = channel.socket_path();
+    let (checkpoint, calls) = fake(Ok(PUSHED));
+    channel.set_checkpoint(checkpoint);
+    let agent = r#"{"api_version":1,"name":"rust","commit":"agent"}"#;
+    for (method, path) in [
+        ("POST", "/v1/agent/environments/tr%79"),
+        ("POST", "/v1/agent/environments/%74ry"),
+        ("GET", "/v1/agent/environments/try/%31"),
+    ] {
+        let (status, answer) = send(&socket, method, path, agent).await;
+        assert_eq!(status, 403, "{path}: {answer}");
+        assert_eq!(json(answer.as_bytes())["code"], "channel_refused");
+    }
+    assert!(seen.lock().unwrap().is_empty());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }

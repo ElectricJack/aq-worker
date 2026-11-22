@@ -263,7 +263,7 @@ fn try_checkpoint(
         profile.config.docker_local.clone(),
         profile.config.max_workspace_bytes,
     );
-    Arc::new(move || {
+    Arc::new(move |guard| {
         let (docker, node, workspace) = (docker.clone(), node.clone(), workspace.clone());
         let author = author.clone();
         Box::pin(async move {
@@ -291,7 +291,7 @@ fn try_checkpoint(
             let fill =
                 move |tree: &Path| crate::sandbox_driver::sync_tree(tree, &entries).map(drop);
             let message = format!("AQ attempt {attempt}");
-            node.checkpoint(workspace, message, author, fill)
+            node.checkpoint(workspace, message, author, fill, guard)
                 .await
                 .map_err(failed)
         })

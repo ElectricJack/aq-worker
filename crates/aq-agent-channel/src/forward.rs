@@ -295,6 +295,12 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
     if rules.agent_paths {
         agent_path(path).map_err(Failure::Refused)?;
     }
+    // The try route is matched as a plain string: no encoding may disguise it.
+    #[cfg(feature = "environment-try")]
+    check(
+        !(rules.agent_paths && path.starts_with("/v1/agent/environments/") && path.contains('%')),
+        Failure::Refused("the path is not in normal form"),
+    )?;
     let mut headers = HeaderMap::new();
     let mut names = std::collections::BTreeSet::new();
     let mut length = 0usize;

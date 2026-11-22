@@ -22,7 +22,7 @@ mod tests;
 
 pub use channel::{AgentChannel, ChannelConfig, NodeLink, sweep};
 #[cfg(feature = "environment-try")]
-pub use checkpoint::{Checkpoint, CheckpointError, CheckpointFuture, TRY_PATH};
+pub use checkpoint::{Checkpoint, CheckpointError, CheckpointFuture, CheckpointGuard, TRY_PATH};
 pub use forward::{AGENT_PREFIXES, NODE_PREFIXES, agent_path, node_origin};
 pub use issuer::{AttemptIdentity, CredentialIssuer, IssueError, IssueFuture, Issued, NodeIssuer};
 pub use loopback::LoopbackProxy;

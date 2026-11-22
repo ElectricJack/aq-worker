@@ -110,6 +110,8 @@ struct Shared {
     not_after_ms: u64,
     #[cfg(feature = "environment-try")]
     checkpoint: RwLock<Option<crate::Checkpoint>>,
+    #[cfg(feature = "environment-try")]
+    checkpointing: Arc<tokio::sync::Mutex<()>>,
 }
 impl Credentials for Shared {
     fn take(&self) -> Option<Taken> {
@@ -137,9 +139,12 @@ impl Credentials for Shared {
     #[cfg(feature = "environment-try")]
     fn checkpoint(&self) -> Option<crate::CheckpointFuture> {
         let push = self.checkpoint.read().ok()?.clone()?;
+        let Ok(guard) = self.checkpointing.clone().try_lock_owned() else {
+            return Some(Box::pin(async { Err(crate::CheckpointError::Busy) }));
+        };
         Some(Box::pin(async move {
             let late = Err(crate::CheckpointError::PushFailed);
-            tokio::time::timeout(REQUEST_TIMEOUT, push())
+            tokio::time::timeout(REQUEST_TIMEOUT, push(crate::CheckpointGuard(guard)))
                 .await
                 .unwrap_or(late)
         }))
@@ -355,6 +360,8 @@ impl AgentChannel {
             not_after_ms: config.not_after_ms,
             #[cfg(feature = "environment-try")]
             checkpoint: RwLock::new(None),
+            #[cfg(feature = "environment-try")]
+            checkpointing: Arc::default(),
         });
         let serving = shared.clone();
         let directory = config.directory.clone();
@@ -483,6 +490,13 @@ async fn handle(shared: Arc<Shared>, mut stream: UnixStream) {
                     502,
                     "checkpoint_push_failed",
                     "the node could not push the workspace for this try; nothing was sent to aq-server",
+                    "not_applied",
+                ),
+                #[cfg(feature = "environment-try")]
+                Failure::Checkpoint(crate::CheckpointError::Busy) => (
+                    502,
+                    "checkpoint_push_failed",
+                    "a try is already in progress for this attempt; nothing was sent to aq-server",
                     "not_applied",
                 ),
                 Failure::Upstream => (

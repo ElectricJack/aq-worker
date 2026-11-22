@@ -328,7 +328,9 @@ impl Node {
         })
         .await
     }
-    /// [`NodeGit::checkpoint`] of the attempt's worktree at `path`.
+    /// [`NodeGit::checkpoint`] of the attempt's worktree at `path`. `held`
+    /// (the caller's guard) is dropped only when the git work has ended, even
+    /// when the caller stopped waiting.
     #[cfg(feature = "environment-try")]
     pub async fn checkpoint(
         &self,
@@ -336,9 +338,11 @@ impl Node {
         message: String,
         author: Option<GitAuthor>,
         fill: impl FnOnce(&Path) -> Result<()> + Send + 'static,
+        held: impl Send + 'static,
     ) -> Result<String> {
         let (git, remote) = (self.git.clone(), self.remote.clone());
         blocking(move || {
+            let _held = held;
             let worktree = NodeGit::open(&path)?;
             let author = author.as_ref().map(GitAuthor::identity);
             git.checkpoint(&remote, &worktree, &message, author, fill)
