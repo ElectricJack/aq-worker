@@ -714,7 +714,7 @@ def main():
     redaction.add_argument('--limit', type=int, required=True)
     args = parser.parse_args()
     if args.command == 'redact-log':
-        sys.stdout.write(bounded_log(args.input.read_bytes(), max(args.limit, 0)))
+        sys.stdout.write(bounded_log(tail(args.input, max(args.limit, 0)), max(args.limit, 0)))
         return 0
     try:
         if args.command == 'boat-materialize':

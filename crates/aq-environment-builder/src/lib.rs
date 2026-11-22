@@ -108,14 +108,18 @@ pub async fn run(
     // Whatever a killed runner left: job directories (with their archives) and
     // the worktree records of the ones that were checked out.
     std::fs::create_dir_all(&config.work_dir)?;
-    for entry in std::fs::read_dir(&config.work_dir)? {
-        let path = entry?.path();
+    for entry in std::fs::read_dir(&config.work_dir)?.flatten() {
+        let path = entry.path();
         let name = path.file_name().and_then(|n| n.to_str());
-        if name.is_some_and(|n| Uuid::try_parse(n).is_ok()) {
-            std::fs::remove_dir_all(&path)?;
+        if name.is_some_and(|n| Uuid::try_parse(n).is_ok())
+            && let Err(e) = std::fs::remove_dir_all(&path)
+        {
+            tracing::warn!(path = %path.display(), "leftover environment job not removed: {e}");
         }
     }
-    runner.node.prune().await?;
+    if let Err(e) = runner.node.prune().await {
+        tracing::warn!("worktree records of leftover environment jobs not pruned: {e:#}");
+    }
     let interval = Duration::from_millis(config.claim_interval_ms);
     let (mut forbidden, mut unfinished) = (0, 0);
     while !*shutdown.borrow() {
