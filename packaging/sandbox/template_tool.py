@@ -372,7 +372,7 @@ def build_environment(env, config, output):
     except ValueError:
         raise BuildFailed('scan', 'the credential scan refused the image') from None
     digest = scanned['image_digest']
-    return {'name': env['name'], 'digest': digest, 'image': cfg['target_repository'] + '@' + digest,
+    return {'name': env['name'], 'default': env['default'], 'digest': digest, 'image': cfg['target_repository'] + '@' + digest,
             'recipe_sha256': env['sha256'], 'provides': env['provides'],
             'toolchain': [{'command': command, 'output': out} for command, (code, out) in results],
             'warm': env['warm'],
