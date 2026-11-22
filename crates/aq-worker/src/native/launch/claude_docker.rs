@@ -584,6 +584,13 @@ pub(super) fn bootstrap(
         build_cache: (profile.config.build_cache.as_ref())
             .and_then(|c| c.slot(m.bindings.project_id, m.bindings.task_id, template.as_str())),
     };
+    #[cfg(feature = "project_environments")]
+    if let (Some(cache), Some(held)) = (
+        &mut driver.build_cache,
+        driver.docker_local.environments.get(&m.harness.environment),
+    ) {
+        cache.warm_from_environment(held.warm);
+    }
     if let Some(author) = git_author {
         driver.apply_git_author(&author)?;
     }
