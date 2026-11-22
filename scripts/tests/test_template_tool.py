@@ -388,6 +388,16 @@ class TemplateTests(unittest.TestCase):
         universal = {**cfg, 'universal_image': 'codex-universal@sha256:' + 'c' * 64}
         self.assertEqual(tool.dockerfile(recipe(), universal['universal_image'], universal).count(env), 1)
 
+    def test_dockerfile_disables_node_compile_cache_before_install_steps(self):
+        tool = load('template_tool')
+        cfg = config()
+        text = tool.dockerfile(recipe(), cfg['os_image'], cfg)
+        self.assertEqual(text.count('ENV NODE_DISABLE_COMPILE_CACHE=1\n'), 1)
+        self.assertLess(text.index('ENV NODE_DISABLE_COMPILE_CACHE=1'), text.index('RUN ["sh"'))
+        universal = {**cfg, 'universal_image': 'codex-universal@sha256:' + 'c' * 64}
+        text = tool.dockerfile(recipe(), universal['universal_image'], universal)
+        self.assertLess(text.index('ENV NODE_DISABLE_COMPILE_CACHE=1'), text.index('RUN apt-get'))
+
 class BuildTests(unittest.TestCase):
     def setup_build(self, root, credential=False):
         archive = root / 'fixture.tar'
