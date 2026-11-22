@@ -563,6 +563,22 @@ async fn source_file_sync_and_cursor_commit_faults_reopen_old_or_matching_new_hi
         }
     }
 }
+/// Snapshot the pipeline, retrying while the storage lane reports overload.
+async fn snapshot_retrying_overload(pipeline: &InputPipeline) -> State {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match pipeline.snapshot().await {
+                Ok(state) => break state,
+                Err(error) if error.to_string().contains("storage lane overloaded") => {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await
+                }
+                Err(error) => panic!("unexpected retained owner error: {error}"),
+            }
+        }
+    })
+    .await
+    .unwrap()
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range() {
     let export = synthetic();
@@ -579,12 +595,14 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
         tokio::spawn(async move { pipeline.hydrate_source(id, preparation, spec, local).await });
     let before = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let s: State =
-                serde_json::from_slice::<Snapshot>(&fs::read(h.root.join("journal.json")).unwrap())
-                    .unwrap()
-                    .state;
+            // Check the flag first: a snapshot read before the range was entered
+            // cannot contain the pending range.
             if h.range_entered.load(Ordering::SeqCst) {
-                break s;
+                break serde_json::from_slice::<Snapshot>(
+                    &fs::read(h.root.join("journal.json")).unwrap(),
+                )
+                .unwrap()
+                .state;
             }
             tokio::time::sleep(std::time::Duration::from_millis(5)).await
         }
@@ -614,19 +632,7 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
     drop(control);
     task.abort();
     assert!(matches!(task.await, Err(e) if e.is_cancelled()));
-    let after = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            match h.pipeline().snapshot().await {
-                Ok(state) => break state,
-                Err(error) if error.to_string().contains("storage lane overloaded") => {
-                    tokio::time::sleep(std::time::Duration::from_millis(5)).await
-                }
-                Err(error) => panic!("unexpected retained owner error: {error}"),
-            }
-        }
-    })
-    .await
-    .unwrap();
+    let after = snapshot_retrying_overload(h.pipeline()).await;
     assert_eq!(after.attempts.len(), 1);
     let s = after.attempts[&h.id].source.as_ref().unwrap();
     assert_eq!(s.pending.as_ref().unwrap().operation_id, pending);
@@ -1439,7 +1445,7 @@ async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch
     let manifest = export.manifest.clone();
     let h = Inputs::new_collect(export).await;
     let git = GitPeer::new(h.root.clone(), manifest);
-    let state = h.pipeline().snapshot().await.unwrap();
+    let state = snapshot_retrying_overload(h.pipeline()).await;
     let a = &state.attempts[&h.id];
     assert!(a.phase_acceptance.is_none() && a.refresh_acceptance.is_none());
     let (_config_root, mut config) = crate::native::runner::tests::config();
@@ -1463,7 +1469,7 @@ async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch
     .await
     .unwrap();
     h.pipeline().check_phase_execution(&grant).await.unwrap();
-    let state = h.pipeline().snapshot().await.unwrap();
+    let state = snapshot_retrying_overload(h.pipeline()).await;
     assert!(state.attempts[&h.id].phase_execution.is_some());
     assert!(state.attempts[&h.id].native_host.is_none());
     assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
