@@ -3,22 +3,21 @@ use std::{ffi::OsString, fs, process::Command};
 
 pub fn run(args: &[OsString]) -> anyhow::Result<()> {
     let directory = tempfile::Builder::new().prefix("aq-template-").tempdir()?;
-    let tool = directory.path().join("template_tool.py");
-    fs::write(
-        &tool,
-        include_bytes!("../../../packaging/sandbox/template_tool.py"),
-    )?;
-    fs::write(
-        directory.path().join("credential_scan.py"),
-        include_bytes!("../../../packaging/sandbox/credential_scan.py"),
-    )?;
-    fs::write(
-        directory.path().join("boat_materialize.py"),
-        include_bytes!("../../../packaging/sandbox/boat_materialize.py"),
-    )?;
+    macro_rules! tool {
+        ($name:literal) => {
+            fs::write(
+                directory.path().join($name),
+                include_bytes!(concat!("../../../packaging/sandbox/", $name)),
+            )?
+        };
+    }
+    tool!("template_tool.py");
+    tool!("credential_scan.py");
+    tool!("environment_recipe.py");
+    tool!("boat_materialize.py");
     let status = Command::new("python3")
         .arg("-I")
-        .arg(tool)
+        .arg(directory.path().join("template_tool.py"))
         .args(args)
         .status()?;
     anyhow::ensure!(status.success(), "template operation refused");

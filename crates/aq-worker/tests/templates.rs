@@ -33,3 +33,14 @@ fn template_cli_build_and_scan_use_embedded_tools() {
         .unwrap();
     assert!(status.success());
 }
+
+#[test]
+fn environment_recipe_parser_cases_pass() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let status = Command::new("python3")
+        .arg(root.join("scripts/tests/test_environment_recipe.py"))
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .status()
+        .expect("Python 3 required for environment recipe tests");
+    assert!(status.success(), "environment recipe cases");
+}

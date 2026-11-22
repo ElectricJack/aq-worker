@@ -398,6 +398,19 @@ class TemplateTests(unittest.TestCase):
         text = tool.dockerfile(recipe(), universal['universal_image'], universal)
         self.assertLess(text.index('ENV NODE_DISABLE_COMPILE_CACHE=1'), text.index('RUN apt-get'))
 
+    def test_parsed_recipe_parent_is_the_configured_base_template(self):
+        tool = load('template_tool')
+        base = 'registry.example/aq/base@sha256:' + 'd' * 64
+        cfg = tool.validate_config({**config(), 'base_template': base})
+        parsed = {'name': 'web', 'default': True, 'provides': [], 'install_steps': [['true']],
+                  'checks': [], 'warm': [], 'sha256': 'e' * 64}
+        self.assertEqual(tool.parent_image(parsed, cfg), base)
+        with self.assertRaises(ValueError):
+            tool.parent_image(parsed, config())
+        with self.assertRaises(ValueError):
+            tool.validate_config({**config(), 'base_template': 'aq-base:latest'})
+
+
 class BuildTests(unittest.TestCase):
     def setup_build(self, root, credential=False):
         archive = root / 'fixture.tar'
