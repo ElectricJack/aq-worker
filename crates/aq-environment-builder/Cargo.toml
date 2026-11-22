@@ -19,6 +19,7 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+futures-util = "0.3"
 aq-node-git = { path = "../aq-node-git", features = ["test-support"] }
 axum.workspace = true
 

@@ -280,13 +280,51 @@ impl DockerLocalConfig {
     }
 }
 
+/// An OCI reference `[host[:port]/]path[:tag]@<digest>` and nothing else, so it
+/// is safe in a daemon API path: no `?`, `&`, `#`, space or control character.
+pub fn pinned_reference(image: &str, digest: &TemplateDigest) -> bool {
+    let alnum = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit();
+    let bounded = |s: &str, ok: &dyn Fn(u8) -> bool| {
+        let b = s.as_bytes();
+        !b.is_empty() && b.iter().all(|c| ok(*c)) && alnum(b[0]) && alnum(b[b.len() - 1])
+    };
+    let component = |s: &str| bounded(s, &|c| alnum(c) || b"._-".contains(&c));
+    let host = |s: &str| {
+        let (host, port) = s.split_once(':').unwrap_or((s, "0"));
+        let label = |l: &str| bounded(&l.to_ascii_lowercase(), &|c| alnum(c) || c == b'-');
+        host.split('.').all(label) && !port.is_empty() && port.bytes().all(|c| c.is_ascii_digit())
+    };
+    let Some(name) = (image.strip_suffix(digest.as_str())).and_then(|n| n.strip_suffix('@')) else {
+        return false;
+    };
+    let name = match name.rsplit_once(':') {
+        Some((name, tag)) if !tag.contains('/') => {
+            let tag_ok = |c: u8| c.is_ascii_alphanumeric() || b"._-".contains(&c);
+            let ok = tag.len() <= 128 && tag.bytes().all(tag_ok) && !tag.starts_with(['.', '-']);
+            if !ok || tag.is_empty() {
+                return false;
+            }
+            name
+        }
+        _ => name,
+    };
+    let mut parts: Vec<&str> = name.split('/').collect();
+    let first = parts[0];
+    if parts.len() > 1 && (first.contains(['.', ':']) || first == "localhost") {
+        if !host(first) {
+            return false;
+        }
+        parts.remove(0);
+    }
+    name.len() <= 255 && parts.into_iter().all(component)
+}
+
 fn check_templates(templates: &[AllowedTemplate]) -> Result<(), BackendError> {
     let mut digests = BTreeSet::new();
     for template in templates {
-        let suffix = format!("@{}", template.digest.as_str());
-        if template.image.len() <= suffix.len() || !template.image.ends_with(&suffix) {
+        if !pinned_reference(&template.image, &template.digest) {
             return Err(BackendError::InvalidRequest(
-                "template image must be pinned to its digest",
+                "template image must be a reference pinned to its digest",
             ));
         }
         if !digests.insert(template.digest.as_str()) {

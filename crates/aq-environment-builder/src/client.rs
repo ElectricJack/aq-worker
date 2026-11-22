@@ -5,15 +5,14 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, Header
 use serde_json::Value;
 use std::time::Duration;
 
-/// Claim and complete replies: a Job or an acknowledgement, bounded by the server's limits.
-const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
-
 /// The worker API origin and the node's credentials (from its worker config).
 pub struct Server {
     pub url: String,
     pub credential: String,
     /// The optional Cloudflare Access client id and secret.
     pub cf_access: Option<(String, String)>,
+    /// The largest claim, complete or ready reply read (operator config `max_reply_bytes`).
+    pub max_reply_bytes: u64,
 }
 
 impl Server {
@@ -33,9 +32,11 @@ pub enum Refused {
     Conflict,
     /// 413 on complete: the result exceeds the server's bound from `environment_limits`.
     TooLarge,
-    /// A reply over `cap` bytes (`bytes` when the server sent its length).
+    /// A reply over `cap` bytes: its Content-Length, or without one the bytes
+    /// read when the cap was passed.
     Oversized {
-        bytes: Option<u64>,
+        bytes: u64,
+        announced: bool,
         cap: u64,
     },
     Other(String),
@@ -49,14 +50,14 @@ impl std::fmt::Display for Refused {
             Self::Conflict => f.write_str("another node holds the claim"),
             Self::TooLarge => f.write_str("the result exceeds the server's bound"),
             Self::Oversized {
-                bytes: Some(n),
+                bytes,
+                announced: true,
                 cap,
-            } => {
-                write!(f, "the reply is {n} bytes, over the cap of {cap} bytes")
-            }
-            Self::Oversized { bytes: None, cap } => {
-                write!(f, "the reply is over the cap of {cap} bytes")
-            }
+            } => write!(f, "the reply is {bytes} bytes, over the cap of {cap} bytes"),
+            Self::Oversized { bytes, cap, .. } => write!(
+                f,
+                "the reply (no Content-Length) reached {bytes} bytes, over the cap of {cap} bytes"
+            ),
             Self::Other(m) => f.write_str(m),
         }
     }
@@ -65,6 +66,7 @@ impl std::fmt::Display for Refused {
 pub(crate) struct Client {
     http: reqwest::Client,
     base: String,
+    reply_cap: u64,
 }
 
 fn secret(value: &str) -> anyhow::Result<HeaderValue> {
@@ -101,12 +103,17 @@ impl Client {
             .default_headers(headers)
             .build()?;
         let base = server.url.trim_end_matches('/').to_owned();
-        Ok(Self { http, base })
+        let reply_cap = server.max_reply_bytes;
+        Ok(Self {
+            http,
+            base,
+            reply_cap,
+        })
     }
 
     async fn post(&self, path: &str, body: Vec<u8>) -> Result<(StatusCode, Value), Refused> {
         let request = self.http.post(format!("{}{path}", self.base)).body(body);
-        self.send(request, MAX_RESPONSE_BYTES).await
+        self.send(request, self.reply_cap).await
     }
 
     async fn send(
@@ -128,17 +135,24 @@ impl Client {
         if status != StatusCode::OK {
             return Ok((status, Value::Null));
         }
-        let length = response.content_length();
-        if let Some(bytes) = length.filter(|n| *n > cap) {
+        if let Some(bytes) = response.content_length().filter(|n| *n > cap) {
+            let announced = true;
             return Err(Refused::Oversized {
-                bytes: Some(bytes),
+                bytes,
+                announced,
                 cap,
             });
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(transient)? {
-            if (bytes.len() + chunk.len()) as u64 > cap {
-                return Err(Refused::Oversized { bytes: length, cap });
+            let read = (bytes.len() + chunk.len()) as u64;
+            if read > cap {
+                let announced = false;
+                return Err(Refused::Oversized {
+                    bytes: read,
+                    announced,
+                    cap,
+                });
             }
             bytes.extend_from_slice(&chunk);
         }

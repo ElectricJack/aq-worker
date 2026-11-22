@@ -177,7 +177,8 @@ pub async fn hold(
     while !*shutdown.borrow() {
         match refresh(&client, &held, poll, &mut templates, &mut retired).await {
             Err(error @ Refused::Oversized { .. }) => tracing::error!(
-                "admitted environments not refreshed: {error}; raise [environments] max_list_bytes"
+                "admitted environments not refreshed: {error}; raise [environments] \
+                 max_list_bytes (the list) or max_reply_bytes (the ready reply)"
             ),
             Err(error) => tracing::warn!("admitted environments not refreshed: {error}"),
             Ok(()) => {}

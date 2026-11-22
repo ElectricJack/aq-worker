@@ -49,14 +49,28 @@ pub struct EnvironmentsConfig {
     pub node_git: aq_node_git::Config,
     #[serde(default = "default_claim_ms")]
     pub claim_interval_ms: u64,
+    /// The largest claim or complete reply read; a larger one is refused.
+    #[serde(default = "default_reply_bytes")]
+    pub max_reply_bytes: u64,
 }
 fn default_claim_ms() -> u64 {
     5_000
 }
+/// The default of every reply cap but the admitted list's.
+pub fn default_reply_bytes() -> u64 {
+    1024 * 1024
+}
+/// The bounds a reply cap setting is validated against.
+pub const REPLY_BYTES: std::ops::RangeInclusive<u64> = 64 * 1024..=256 * 1024 * 1024;
 
 impl EnvironmentsConfig {
     pub fn load(path: &Path) -> Result<Self> {
-        Ok(serde_json::from_slice(&read_bounded(path)?)?)
+        let config: Self = serde_json::from_slice(&read_bounded(path)?)?;
+        ensure!(
+            REPLY_BYTES.contains(&config.max_reply_bytes),
+            "max_reply_bytes must be 64 KiB..=256 MiB"
+        );
+        Ok(config)
     }
 }
 

@@ -8,13 +8,22 @@ use std::sync::Mutex as StdMutex;
 struct Double {
     admitted: Value,
     reports: Vec<Value>,
+    /// Send the list as a stream, without Content-Length.
+    chunked: bool,
 }
 
 async fn serve(double: Arc<StdMutex<Double>>) -> Server {
     let listed = Arc::clone(&double);
     let list = move |h: axum::http::HeaderMap| async move {
+        use axum::response::IntoResponse as _;
         assert_eq!(h["authorization"], "Bearer node-secret");
-        Json(json!({"environments": listed.lock().unwrap().admitted.clone()}))
+        let d = listed.lock().unwrap();
+        let body = json!({"environments": d.admitted.clone()});
+        if !d.chunked {
+            return Json(body).into_response();
+        }
+        let chunk = Ok::<_, std::io::Error>(axum::body::Bytes::from(body.to_string()));
+        axum::body::Body::from_stream(futures_util::stream::iter([chunk])).into_response()
     };
     let ready = move |Json(body): Json<Value>| async move {
         double.lock().unwrap().reports.push(body.clone());
@@ -30,6 +39,7 @@ async fn serve(double: Arc<StdMutex<Double>>) -> Server {
         url,
         credential: "node-secret".into(),
         cf_access: None,
+        max_reply_bytes: crate::default_reply_bytes(),
     }
 }
 
@@ -257,4 +267,64 @@ fn an_offer_selects_the_boot_template_or_a_held_environment_and_nothing_else() {
     let unknown = definition(&admitted("other", 'f'));
     let refused = held.select(&boot(), &unknown).unwrap_err();
     assert!(refused.to_string().contains("does not hold"), "{refused:#}");
+}
+
+#[tokio::test]
+async fn replies_over_the_configured_caps_are_refused_with_the_bytes_seen() {
+    let double = Arc::new(StdMutex::new(Double::default()));
+    double.lock().unwrap().admitted = json!([admitted("web", 'a')]);
+    let tight = Server {
+        max_reply_bytes: 8,
+        ..serve(Arc::clone(&double)).await
+    };
+    let client = Client::new(&tight).unwrap();
+    // The claim, complete and ready replies are read up to `max_reply_bytes`.
+    let reply = json!({"ready": [digest('a')]}).to_string().len();
+    let refused = client.ready(&[digest('a')]).await.unwrap_err().to_string();
+    assert!(
+        refused.contains(&format!("is {reply} bytes, over the cap of 8 bytes")),
+        "{refused}"
+    );
+    // Without a Content-Length, the error carries the bytes read when the cap was passed.
+    double.lock().unwrap().chunked = true;
+    let size = json!({"environments": [admitted("web", 'a')]})
+        .to_string()
+        .len() as u64;
+    let refused = client.admitted(size - 1).await.unwrap_err().to_string();
+    let expected = format!(
+        "(no Content-Length) reached {size} bytes, over the cap of {} bytes",
+        size - 1
+    );
+    assert!(refused.contains(&expected), "{refused}");
+    assert_eq!(client.admitted(size).await.unwrap().len(), 1);
+}
+
+#[test]
+fn the_builder_reply_cap_is_a_bounded_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("environments.json");
+    let config = |extra: &str| {
+        let git = serde_json::to_string(&aq_node_git::test_support::config(dir.path())).unwrap();
+        let text =
+            format!(r#"{{"build_config": "/b.json", "work_dir": "/w", "node_git": {git}{extra}}}"#);
+        std::fs::write(&path, text).unwrap();
+        crate::EnvironmentsConfig::load(&path)
+    };
+    match config("") {
+        Ok(c) => assert_eq!(c.max_reply_bytes, 1024 * 1024),
+        Err(e) => panic!("{e:#}"),
+    }
+    assert_eq!(
+        config(r#", "max_reply_bytes": 2097152"#)
+            .unwrap()
+            .max_reply_bytes,
+        2 << 20
+    );
+    for bad in ["0", "1024", "1073741824"] {
+        let refused = config(&format!(r#", "max_reply_bytes": {bad}"#)).unwrap_err();
+        assert!(
+            refused.to_string().contains("max_reply_bytes"),
+            "{refused:#}"
+        );
+    }
 }

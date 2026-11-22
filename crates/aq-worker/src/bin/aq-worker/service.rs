@@ -830,6 +830,7 @@ async fn hold_environments(
         url: worker.server_url,
         credential: worker.credential,
         cf_access: worker.cf_client_id.zip(worker.cf_client_secret),
+        max_reply_bytes: config.environments.max_reply_bytes,
     };
     let poll = aq_environment_builder::node::Poll {
         // As often as an idle node renews its presence (`NodeInventory::poll_need`).

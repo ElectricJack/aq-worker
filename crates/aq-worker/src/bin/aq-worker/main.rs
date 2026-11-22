@@ -919,6 +919,7 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                         .cf_client_id
                         .clone()
                         .zip(worker.cf_client_secret.clone()),
+                    max_reply_bytes: config.max_reply_bytes,
                 };
                 let (tx, rx) = tokio::sync::watch::channel(false);
                 let watcher = tokio::spawn(async move {

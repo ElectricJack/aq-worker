@@ -50,12 +50,15 @@ pub struct EnvironmentConfig {
     /// The largest admitted list (`GET /v1/worker/environments`) the node reads. It grows
     /// with projects times kept versions; a larger one is refused and logged as an error.
     pub max_list_bytes: u64,
+    /// The largest reply to the node's ready report.
+    pub max_reply_bytes: u64,
 }
 #[cfg(feature = "project_environments")]
 impl Default for EnvironmentConfig {
     fn default() -> Self {
         Self {
             max_list_bytes: 4 * 1024 * 1024,
+            max_reply_bytes: 1024 * 1024,
         }
     }
 }
@@ -322,8 +325,13 @@ impl ServiceConfig {
         );
         #[cfg(feature = "project_environments")]
         ensure!(
-            (64 * 1024..=256 * MIB).contains(&self.environments.max_list_bytes),
-            "invalid [environments]: max_list_bytes 64 KiB..=256 MiB"
+            [
+                self.environments.max_list_bytes,
+                self.environments.max_reply_bytes
+            ]
+            .iter()
+            .all(|n| (64 * 1024..=256 * MIB).contains(n)),
+            "invalid [environments]: max_list_bytes and max_reply_bytes 64 KiB..=256 MiB"
         );
         if let Some(m) = &self.manual {
             ensure!(
@@ -827,7 +835,7 @@ git_executable = "/usr/bin/git"
     #[cfg(feature = "project_environments")]
     #[test]
     fn the_admitted_list_cap_is_a_bounded_setting() {
-        let mut c = valid();
+        let c = valid();
         assert_eq!(c.environments.max_list_bytes, 4 * 1024 * 1024);
         assert!(!toml::to_string(&c).unwrap().contains("environments"));
         let text = format!(
@@ -837,10 +845,16 @@ git_executable = "/usr/bin/git"
         let tuned = ServiceConfig::parse(&text).unwrap();
         tuned.validate().unwrap();
         assert_eq!(tuned.environments.max_list_bytes, 16 * 1024 * 1024);
+        assert_eq!(tuned.environments.max_reply_bytes, 1024 * 1024);
         for bad in [0, 1024, 512 * 1024 * 1024] {
-            c.environments.max_list_bytes = bad;
-            let refused = c.validate().unwrap_err().to_string();
-            assert!(refused.contains("max_list_bytes"), "{refused}");
+            let mut list = c.clone();
+            list.environments.max_list_bytes = bad;
+            let mut reply = c.clone();
+            reply.environments.max_reply_bytes = bad;
+            for refused in [list.validate(), reply.validate()] {
+                let refused = refused.unwrap_err().to_string();
+                assert!(refused.contains("max_reply_bytes"), "{refused}");
+            }
         }
     }
     #[test]

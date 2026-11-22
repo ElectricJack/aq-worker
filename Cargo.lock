@@ -193,6 +193,7 @@ dependencies = [
  "aq-node-git",
  "aq-session-protocol",
  "axum",
+ "futures-util",
  "libc",
  "reqwest",
  "serde",

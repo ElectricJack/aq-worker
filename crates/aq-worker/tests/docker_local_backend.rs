@@ -3201,3 +3201,65 @@ async fn a_dropped_template_is_removed_unless_a_container_still_uses_it() {
     assert!(docker.requests().is_empty());
     assert!(docker.has_image(&self::image()));
 }
+
+/// A template image reaches daemon API paths, and an admitted one comes from the
+/// server: only an OCI reference pinned to its digest is accepted.
+#[test]
+fn a_template_image_is_a_plain_reference_pinned_to_its_digest() {
+    let pinned = |name: &str| format!("{name}@sha256:{HEX}");
+    for good in [
+        "docker.io/library/busybox",
+        "127.0.0.1:5138/electricjack/aq-template",
+        "localhost/aq-template",
+        "registry.example/aq-template:v1.2",
+        "busybox",
+        "ghcr.io/a__b/c-d.e",
+    ] {
+        assert!(pinned_reference(&pinned(good), &digest()), "{good}");
+    }
+    for bad in [
+        "registry.example/aq-template?force=1",
+        "registry.example/aq-template&force=1",
+        "registry.example/aq#x",
+        "registry.example/a b",
+        "registry.example/a\nb",
+        "registry.example/Upper",
+        "registry.example/x/",
+        "registry.example:/x",
+        "",
+        "x:",
+        "x@sha256:abc",
+    ] {
+        assert!(!pinned_reference(&pinned(bad), &digest()), "{bad:?}");
+    }
+    let other = TemplateDigest::parse(format!("sha256:{}", "c".repeat(64))).unwrap();
+    assert!(!pinned_reference(&image(), &other), "another digest");
+    assert!(
+        !pinned_reference(&format!("busybox@{}", HEX), &digest()),
+        "no algorithm"
+    );
+}
+
+#[cfg(feature = "project_environments")]
+#[tokio::test]
+async fn an_image_name_carrying_query_parameters_is_refused_without_a_daemon_call() {
+    let environment = environments::admitted('e');
+    let digest = TemplateDigest::parse(environment.digest.clone()).unwrap();
+    let mut h = harness().await;
+    let forced = format!(
+        "registry.example/aq-template?force=1@{}",
+        environment.digest
+    );
+    let refused = bounded(h.backend.remove_template(&digest, &forced)).await;
+    assert!(
+        matches!(refused, Err(BackendError::InvalidRequest(_))),
+        "{refused:?}"
+    );
+    assert!(h.docker.requests().is_empty());
+    let mut config = h.backend.config().clone();
+    let unsafe_entry = aq_environment_builder::node::AdmittedEnvironment {
+        image: forced,
+        ..environment
+    };
+    assert!(config.admit(&[unsafe_entry]).is_err());
+}

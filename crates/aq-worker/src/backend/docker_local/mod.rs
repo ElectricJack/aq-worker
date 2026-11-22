@@ -254,6 +254,17 @@ struct Observed {
     exit: Option<RunnerExit>,
 }
 
+/// `/images/<reference>`: a reference's `/`, `:` and `@` stay as the daemon's
+/// route expects; anything else outside the unreserved set is percent-encoded.
+fn image_path(image: &str) -> String {
+    let keep = |c: u8| c.is_ascii_alphanumeric() || b"-._~/:@".contains(&c);
+    let encoded = image.bytes().map(|c| match keep(c) {
+        true => (c as char).to_string(),
+        false => format!("%{c:02X}"),
+    });
+    format!("/images/{}", encoded.collect::<String>())
+}
+
 impl<T: DockerTransport> DockerLocalBackend<T> {
     /// Sends a JSON (or empty) request under the API timeout.
     async fn send(
@@ -402,7 +413,10 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         let path = format!("/images/create?fromImage={}", encode(&image));
         self.send_with(DockerMethod::Post, &path, None, PULL_TIMEOUT)
             .await?;
-        match self.get_optional(&format!("/images/{image}/json")).await? {
+        match self
+            .get_optional(&format!("{}/json", image_path(&image)))
+            .await?
+        {
             Some(_) => Ok(()),
             None => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }
@@ -420,12 +434,14 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         if self.config.template_image(digest).is_some() {
             return Ok(Removal::Kept);
         }
-        if !image.ends_with(&format!("@{}", digest.as_str())) {
+        // The image comes from the server: checked before any daemon call.
+        if !config::pinned_reference(image, digest) {
             return Err(BackendError::InvalidRequest(
-                "template image must be pinned to its digest",
+                "template image must be a reference pinned to its digest",
             ));
         }
-        let Some(found) = self.get_optional(&format!("/images/{image}/json")).await? else {
+        let path = image_path(image);
+        let Some(found) = self.get_optional(&format!("{path}/json")).await? else {
             return Ok(Removal::Removed);
         };
         let containers = self.get_json("/containers/json?all=true").await?;
@@ -438,7 +454,6 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         if containers.as_array().ok_or(unknown)?.iter().any(uses) {
             return Ok(Removal::InUse);
         }
-        let path = format!("/images/{image}");
         match self.send(DockerMethod::Delete, &path, None).await?.status {
             200 | 404 => Ok(Removal::Removed),
             409 => Ok(Removal::InUse),

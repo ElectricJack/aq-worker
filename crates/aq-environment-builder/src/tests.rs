@@ -130,6 +130,7 @@ impl Harness {
             work_dir: self.state.path().join("jobs"),
             node_git: git_config(self.state.path()),
             claim_interval_ms: 0,
+            max_reply_bytes: crate::default_reply_bytes(),
         }
     }
     fn server(&self) -> Server {
@@ -137,6 +138,7 @@ impl Harness {
             url: self.central.url.clone(),
             credential: "node-secret".into(),
             cf_access: None,
+            max_reply_bytes: crate::default_reply_bytes(),
         }
     }
     /// The fake tool for jobs; the real one redacts logs.
