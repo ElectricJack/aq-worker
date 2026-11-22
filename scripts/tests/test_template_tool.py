@@ -130,6 +130,16 @@ class TemplateTests(unittest.TestCase):
             manifest.unlink()
             self.assertNotEqual(check(), 0)
 
+    def test_task_identifier_is_not_a_provider_key(self):
+        scanner = load('credential_scan')
+        self.assertFalse(scanner.secret_shaped(b'task-0123456789abcdefghijklmnop'))
+
+    def test_provider_key_after_a_separator_still_refuses(self):
+        scanner = load('credential_scan')
+        for prefix in (b'', b' ', b'=', b'"', b':', b'\n'):
+            with self.subTest(prefix=prefix):
+                self.assertTrue(scanner.secret_shaped(prefix + b'sk-0123456789abcdefghijklmnop'))
+
     def test_credential_scan_fails_build_with_auth_json(self):
         scanner = load('credential_scan')
         with tempfile.TemporaryDirectory() as directory:
@@ -270,16 +280,16 @@ class TemplateTests(unittest.TestCase):
                 self.assertFalse(scanner.secret_shaped('nested-docker' + label + neighbor))
         metadata = label + 'struct SandboxIdentity'
         for value in [metadata + ' sk-proj-' + 'x' * 40,
-                      label + 'sk-proj-' + 'x' * 40,
+                      label + ' sk-proj-' + 'x' * 40,
                       label + 'ghp_' + 'x' * 36,
                       label + 'AKIA' + 'X' * 16,
-                      label + 'sk-' + label + 'sk-ant-' + 'x' * 40,
+                      label + ' sk-' + label + ' sk-ant-' + 'x' * 40,
                       'TOKEN=' + metadata,
                       'https://' + metadata.replace(' ', '-') + ':password@example.com',
                       'sk-during-attemptbackend_idstruct' + 'x' * 40,
-                      'persistent-xsk-during-attempt' + 'x' * 40,
-                      'persistent-disk-during_attempt' + 'x' * 40,
-                      'persistent-disk-during-attemp' + 'x' * 40]:
+                      'persistent-x sk-during-attempt' + 'x' * 40,
+                      'persistent-di sk-during_attempt' + 'x' * 40,
+                      'persistent-di sk-during-attemp' + 'x' * 40]:
             with self.subTest(value=value[:48]):
                 self.assertTrue(scanner.secret_shaped(value))
 
@@ -292,11 +302,11 @@ class TemplateTests(unittest.TestCase):
                          'aq.template-digest', 'x' * 40, '']:
             with self.subTest(neighbor=neighbor[:24]):
                 self.assertFalse(scanner.secret_shaped('aq.hard-deadline-ms' + label + neighbor))
-        for value in [label + 'sk-proj-' + 'x' * 40,
+        for value in [label + ' sk-proj-' + 'x' * 40,
                       label + 'ghp_' + 'x' * 36,
-                      label + 'sk-' + label + 'sk-ant-' + 'x' * 40,
-                      'xx.disk-limit-bytes' + 'x' * 40,
-                      'aq.disk-limit_bytes' + 'x' * 40,
+                      label + ' sk-' + label + ' sk-ant-' + 'x' * 40,
+                      'xx.di sk-limit-bytes' + 'x' * 40,
+                      'aq.di sk-limit_bytes' + 'x' * 40,
                       'sk-limit-bytes' + 'x' * 40]:
             with self.subTest(value=value[:48]):
                 self.assertTrue(scanner.secret_shaped(value))
