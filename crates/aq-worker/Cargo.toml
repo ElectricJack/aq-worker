@@ -73,6 +73,8 @@ tokio = { workspace = true, features = ["test-util"] }
 [features]
 # Historical M2/M3 synthetic execution harness; never enabled by production builds.
 synthetic-runtime = []
+# spec 0017 (sandbox environments), off by default
+project_environments = []
 backend-conformance = ["aq-responses-transport/test-support"]
 test-support = ["synthetic-runtime","backend-conformance", "aq-responses-transport/test-support","aq-terminal-bridge/test-support","aq-worker-protocol/test-support", "aq-session-host/test-support"]
 

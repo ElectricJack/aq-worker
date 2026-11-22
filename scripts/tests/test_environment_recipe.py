@@ -1,7 +1,9 @@
 """Behavior tests for project environment recipe parsing."""
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -140,19 +142,29 @@ provides: [node]
 - pnpm install --frozen-lockfile
 """
 
-# A fake docker that answers each buildx target from behavior.json.
+# A fake docker that answers each buildx target from behavior.json and records every call.
 FAKE_DOCKER = """#!/usr/bin/python3
 import json, pathlib, shutil, sys
 args = sys.argv[1:]
 root = pathlib.Path(__file__).parent
 behavior = json.loads((root / 'behavior.json').read_text())
-assert args[:6] == ['--context', 'build-desktop', 'buildx', 'build', '--builder', 'aq-templates']
+(root / 'calls').open('a').write(json.dumps(args) + '\\n')
 assert 'OPENAI_API_KEY' not in __import__('os').environ
+if args[:3] == ['--context', 'build-desktop', 'run']:
+    sys.stderr.write(behavior.get('publish_error', ''))
+    sys.exit(1 if behavior.get('publish_error') else 0)
+assert args[:6] == ['--context', 'build-desktop', 'buildx', 'build', '--builder', 'aq-templates']
 target = args[args.index('--target') + 1]
 output = args[args.index('--output') + 1]
 context = pathlib.Path(args[-1])
-assert sorted(p.name for p in context.iterdir()) == ['Dockerfile']
-(root / ('rendered-' + target)).write_text((context / 'Dockerfile').read_text())
+if '--file' in args:
+    definition = pathlib.Path(args[args.index('--file') + 1])
+    (root / 'ignored').write_text(definition.with_name('Dockerfile.dockerignore').read_text())
+    (root / 'context').write_text(str(context))
+else:
+    definition = context / 'Dockerfile'
+    assert sorted(p.name for p in context.iterdir()) == ['Dockerfile']
+(root / ('rendered-' + target)).write_text(definition.read_text())
 (root / 'targets').open('a').write(target + '\\n')
 sys.stderr.write(behavior.get('noise', ''))
 if behavior.get('fail') == target:
@@ -163,13 +175,19 @@ if target == 'template':
     shutil.copyfile(root / 'fixture.tar', dest)
 else:
     pathlib.Path(dest).mkdir()
+    checks = pathlib.Path(dest) / 'checks' if target == 'try-output' else pathlib.Path(dest)
+    checks.mkdir(exist_ok=True)
     for number, (out, code) in enumerate(behavior['checks']):
-        (pathlib.Path(dest) / f'{number}.out').write_text(out)
-        (pathlib.Path(dest) / f'{number}.exit').write_text(f'{code}\\n')
+        (checks / f'{number}.out').write_text(out)
+        (checks / f'{number}.exit').write_text(f'{code}\\n')
+    if target == 'try-output' and 'run' in behavior:
+        (pathlib.Path(dest) / 'run').mkdir()
+        (pathlib.Path(dest) / 'run/0.out').write_text(behavior['run'][0])
+        (pathlib.Path(dest) / 'run/0.exit').write_text(f"{behavior['run'][1]}\\n")
 """
 
 
-class BuildEnvironmentTests(unittest.TestCase):
+class Fixture:
     def setUp(self):
         self._directory = tempfile.TemporaryDirectory()
         self.addCleanup(self._directory.cleanup)
@@ -190,6 +208,8 @@ class BuildEnvironmentTests(unittest.TestCase):
                 'base_template': 'registry.example/aq/base@sha256:' + 'd' * 64,
                 'limits': {**LIMITS, **limits}}
 
+
+class BuildEnvironmentTests(Fixture, unittest.TestCase):
     def build(self, name='out', **limits):
         return self.tool.build_environment(self.env, self.config(**limits), self.root / name)
 
@@ -304,6 +324,204 @@ class BuildEnvironmentTests(unittest.TestCase):
         log = self.fails('install', build_wall_ms=200)
         self.assertIn('started', log)
         self.assertIn('timed out', log)
+
+
+SKOPEO = 'registry.example/skopeo@sha256:' + 'f' * 64
+TARGET = 'registry.example/aq/projects/demo'
+
+
+class JobTests(Fixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.repo = self.root / 'repo'
+        (self.repo / '.aq/environments').mkdir(parents=True)
+        (self.repo / '.aq/environments/web.md').write_text(RECIPE)
+        (self.repo / '.git').mkdir()
+        (self.repo / 'package.json').write_text('{}')
+        (self.root / 'builder.json').write_text(json.dumps({**fixtures.config(), 'docker_binary': str(self.root / 'docker'),
+                                                            'skopeo_image': SKOPEO}))
+
+    def job(self, kind='build', recipes=('web',), run=None, **limits):
+        job = {'job_id': '0b6f2c1e-8f0a-4c4e-9a52-6a3c1b7d9e01', 'kind': kind,
+               'project_id': '5d2f7e4a-1b3c-4d5e-8f60-718293a4b5c6', 'project': 'demo', 'commit': 'c' * 40,
+               'recipes': list(recipes), 'run': run, 'base_template': 'registry.example/aq/base@sha256:' + 'd' * 64,
+               'target_repository': TARGET, 'limits': {**LIMITS, **limits}}
+        path = self.root / f'job-{kind}.json'
+        path.write_text(json.dumps(job))
+        return path
+
+    def calls(self):
+        path = self.root / 'calls'
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def runs(self):
+        return [call for call in self.calls() if call[2] == 'run']
+
+    def run_build(self, **job):
+        return self.tool.environment_build(self.job(**job), self.repo, self.root / 'builder.json', self.root / 'out')
+
+    def run_try(self, run='pnpm test', **job):
+        return self.tool.environment_try(self.job('try', run=run, **job), self.repo, self.root / 'builder.json')
+
+    def test_build_publishes_only_after_the_scan(self):
+        fixtures.oci(self.root / 'fixture.tar', [{'home/a/.codex/auth.json': b'{}'},
+                                                 {'opt/aq/manifest.json': json.dumps(fixtures.bundle()).encode()}])
+        result = self.run_build()
+        self.assertEqual(result['outcome'], 'failed')
+        self.assertEqual((result['failure']['recipe'], result['failure']['step']), ('web', 'scan'))
+        self.assertEqual((result['builds'], result['run']), ([], None))
+        self.assertEqual(self.runs(), [])
+        self.assertFalse((self.root / 'templates').exists())
+
+    def test_build_publishes_with_preserve_digests_and_reports_the_scanned_digest(self):
+        result = self.run_build()
+        self.assertEqual(list(result), ['job_id', 'outcome', 'builds', 'failure', 'run'])
+        self.assertEqual((result['outcome'], result['failure'], result['run']), ('built', None, None))
+        build = result['builds'][0]
+        self.assertEqual(build['digest'], self.digest)
+        self.assertEqual(build['image'], f"{TARGET}@{build['digest']}")
+        self.assertEqual(build['toolchain'][0], {'command': 'node --version', 'output': 'v24.22.3\n'})
+        calls = self.calls()
+        self.assertEqual([call[2] for call in calls], ['buildx', 'buildx', 'run'])
+        publish = calls[-1]
+        skopeo_argv = publish[publish.index(SKOPEO) + 1:]
+        archive = '/aq-publish/image.oci.tar'
+        self.assertEqual(skopeo_argv[:3], ['copy', '--preserve-digests', f'oci-archive:{archive}'])
+        self.assertEqual(skopeo_argv[3:], [f'docker://{TARGET}@{self.digest}'])
+        self.assertIn(f"type=bind,src={self.root / 'out/web'},dst=/aq-publish,readonly", publish)
+        self.assertTrue((self.root / 'out/web/image.oci.tar').is_file())
+        self.assertFalse((self.root / 'templates').exists())
+
+    def test_nothing_is_published_until_every_recipe_passes(self):
+        (self.repo / '.aq/environments/api.md').write_text(RECIPE.replace('name: web', 'name: api'))
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]], fail='check-output', error='boom\n')
+        result = self.run_build(recipes=('api', 'web'))
+        self.assertEqual((result['failure']['recipe'], result['failure']['step']), ('api', 'check'))
+        self.assertEqual(self.runs(), [])
+
+    def test_a_failed_publish_is_reported_redacted(self):
+        key = 'sk-' + '0123456789abcdefghijklmnop'
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]], publish_error=f'denied for {key}\n')
+        result = self.run_build()
+        self.assertEqual((result['outcome'], result['failure']['step']), ('failed', 'publish'))
+        self.assertNotIn('sk-0123', result['failure']['log'])
+        self.assertIn('denied for [redacted]', result['failure']['log'])
+
+    def test_a_recipe_that_does_not_parse_fails_at_parse(self):
+        result = self.run_build(recipes=('missing',))
+        self.assertEqual(result['failure'], {'recipe': 'missing', 'step': 'parse',
+                                             'log': 'the recipe file is missing or unreadable'})
+        (self.repo / '.aq/environments/other.md').write_text(RECIPE)
+        result = self.tool.environment_build(self.job(recipes=('other',)), self.repo, self.root / 'builder.json',
+                                             self.root / 'out2')
+        self.assertEqual(result['failure']['step'], 'parse')
+        self.assertIn('name does not match', result['failure']['log'])
+        (self.repo / '.aq/environments/bad.md').write_text('---\nname: bad\nparent: x\n---\n## Install\n- true\n')
+        result = self.tool.environment_build(self.job(recipes=('bad',)), self.repo, self.root / 'builder.json',
+                                             self.root / 'out3')
+        self.assertEqual(result['failure']['step'], 'parse')
+        self.assertEqual(self.calls(), [])
+
+    def test_the_job_limits_apply_to_the_build(self):
+        self.behave(fail='template', noise='line of build output\n' * 2000, error='\nthe final error\n')
+        result = self.run_build(log_bytes=200)
+        self.assertEqual(result['failure']['step'], 'install')
+        self.assertLessEqual(len(result['failure']['log'].encode()), 200)
+        self.assertIn('the final error', result['failure']['log'])
+
+    def test_try_runs_the_command_in_the_built_image_and_exports_nothing(self):
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]], run=['ok\n', 0])
+        result = self.run_try('pnpm install --frozen-lockfile && pnpm test:e2e')
+        self.assertEqual(result['run'], {'exit': 0, 'output': 'ok\n'})
+        self.assertEqual(result['builds'], [])
+        self.assertEqual((result['outcome'], result['failure']), ('built', None))
+        docker_argv = [arg for call in self.calls() for arg in call]
+        self.assertFalse(any(a.startswith('type=oci') for a in docker_argv))
+        self.assertEqual(self.runs(), [])
+        self.assertEqual((self.root / 'targets').read_text().split(), ['try-output'])
+        self.assertEqual((self.root / 'context').read_text(), str(self.repo.resolve()))
+        self.assertIn('.git', (self.root / 'ignored').read_text().split())
+        text = (self.root / 'rendered-try-output').read_text()
+        self.assertIn('FROM template AS run\nCOPY . /workspace\n', text)
+        self.assertIn('(pnpm install --frozen-lockfile && pnpm test:e2e\\n) > /aq-run/0.out 2>&1', text)
+        self.assertTrue(text.endswith('FROM scratch AS try-output\nCOPY --from=checks /aq-checks /checks\n'
+                                      'COPY --from=run /aq-run /run\n'))
+        self.assertEqual(sorted(p.name for p in self.repo.iterdir()), ['.aq', '.git', 'package.json'])
+
+    def test_try_reports_a_failing_command_without_failing_the_job(self):
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]], run=['1 test failed\n', 1])
+        result = self.run_try()
+        self.assertEqual(result['outcome'], 'built')
+        self.assertEqual(result['run'], {'exit': 1, 'output': '1 test failed\n'})
+
+    def test_try_output_is_redacted_and_bounded(self):
+        key = 'sk-' + '0123456789abcdefghijklmnop'
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]], run=[('x' * 500) + f'\n{key}\n', 0])
+        output = self.run_try(log_bytes=100)['run']['output']
+        self.assertLessEqual(len(output.encode()), 100)
+        self.assertNotIn('sk-0123', output)
+
+    def test_try_fails_at_check_install_or_run(self):
+        self.behave(checks=[['v24.22.3\n', 0], ['pnpm: not found\n', 127]], run=['ok\n', 0])
+        result = self.run_try()
+        self.assertEqual((result['outcome'], result['failure']['step'], result['run']), ('failed', 'check', None))
+        self.behave(checks=[], fail='try-output', error='E: Unable to locate package nope\n')
+        self.assertEqual(self.run_try()['failure']['step'], 'install')
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]])
+        self.assertEqual(self.run_try()['failure'], {'recipe': 'web', 'step': 'run',
+                                                     'log': 'the command produced no result'})
+
+    def test_try_without_a_command_runs_only_the_checks(self):
+        result = self.run_try(run=None)
+        self.assertEqual((result['outcome'], result['run'], result['builds']), ('built', None, []))
+        self.assertEqual((self.root / 'targets').read_text().split(), ['check-output'])
+
+    def test_jobs_are_validated(self):
+        base = json.loads(self.job().read_text())
+        config = json.loads((self.root / 'builder.json').read_text())
+        for kind, change in [('build', {'kind': 'try'}), ('build', {'run': 'true'}), ('build', {'extra': 1}),
+                             ('build', {'recipes': []}), ('build', {'recipes': ['web', 'web']}),
+                             ('build', {'recipes': ['../web']}), ('build', {'commit': 'c' * 39}),
+                             ('build', {'base_template': 'registry.example/aq/base:latest'}),
+                             ('build', {'target_repository': 'Bad Repo'}),
+                             ('build', {'limits': {k: v for k, v in LIMITS.items() if k != 'log_bytes'}}),
+                             ('build', {'limits': {**LIMITS, 'build_wall_ms': 0}}),
+                             ('try', {'kind': 'try', 'recipes': ['web', 'api']}),
+                             ('try', {'kind': 'try', 'run': 'echo TOKEN=private-value'}),
+                             ('try', {'kind': 'try', 'run': 'a\nb'})]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.tool.job_config(config, self.tool.validate_job({**base, **change}, kind))
+        del config['skopeo_image']
+        (self.root / 'builder.json').write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, 'skopeo'):
+            self.run_build()
+
+    def cli(self, command):
+        binary = os.environ.get('AQ_TEMPLATE_BINARY')
+        prefix = [binary, 'template'] if binary else [sys.executable, '-I', str(TOOLS / 'template_tool.py')]
+        return subprocess.run(prefix + command, cwd=self.root, capture_output=True)
+
+    def check_cli(self):
+        result = self.cli(['environment-build', '--job', str(self.job()), '--repo', str(self.repo),
+                           '--build-config', str(self.root / 'builder.json'), '--output', str(self.root / 'out')])
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(json.loads(result.stdout)['builds'][0]['digest'], self.digest)
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]], run=['ok\n', 0])
+        result = self.cli(['environment-try', '--job', str(self.job('try', run='pnpm test')), '--repo',
+                           str(self.repo), '--build-config', str(self.root / 'builder.json')])
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(json.loads(result.stdout)['run'], {'exit': 0, 'output': 'ok\n'})
+        result = self.cli(['environment-try', '--job', str(self.job()), '--repo', str(self.repo),
+                           '--build-config', str(self.root / 'builder.json')])
+        self.assertEqual((result.returncode, result.stdout), (2, b''))
+        self.assertFalse((self.root / 'templates').exists())
+
+    def test_cli_prints_one_job_result(self):
+        self.check_cli()
+
+    @unittest.skipUnless(os.environ.get('AQ_TEMPLATE_BINARY'), 'needs the aq-worker binary')
+    def test_cli_runs_jobs_through_the_worker_binary(self):
+        self.check_cli()
 
 
 if __name__ == '__main__':

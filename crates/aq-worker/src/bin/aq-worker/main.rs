@@ -231,6 +231,31 @@ enum TemplateCmd {
     },
     /// Scan every layer of a single-platform OCI image archive without admission.
     Scan { archive: PathBuf },
+    /// Build, check, scan and publish a Job's project environment recipes; prints one Job result.
+    #[cfg(feature = "project_environments")]
+    EnvironmentBuild {
+        #[arg(long)]
+        job: PathBuf,
+        /// The project repository, checked out at the Job's commit.
+        #[arg(long)]
+        repo: PathBuf,
+        #[arg(long)]
+        build_config: PathBuf,
+        /// New output directory for the scanned OCI archives.
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build a Job's recipe and run its command in the result; publishes nothing, prints one Job result.
+    #[cfg(feature = "project_environments")]
+    EnvironmentTry {
+        #[arg(long)]
+        job: PathBuf,
+        /// The task's repository, used as the build context (without `.git`).
+        #[arg(long)]
+        repo: PathBuf,
+        #[arg(long)]
+        build_config: PathBuf,
+    },
 }
 
 fn usage_err(msg: impl std::fmt::Display) -> ExitCode {
@@ -429,6 +454,37 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     output.into_os_string(),
                 ],
                 TemplateCmd::Scan { archive } => vec!["scan".into(), archive.into_os_string()],
+                #[cfg(feature = "project_environments")]
+                TemplateCmd::EnvironmentBuild {
+                    job,
+                    repo,
+                    build_config,
+                    output,
+                } => vec![
+                    "environment-build".into(),
+                    "--job".into(),
+                    job.into_os_string(),
+                    "--repo".into(),
+                    repo.into_os_string(),
+                    "--build-config".into(),
+                    build_config.into_os_string(),
+                    "--output".into(),
+                    output.into_os_string(),
+                ],
+                #[cfg(feature = "project_environments")]
+                TemplateCmd::EnvironmentTry {
+                    job,
+                    repo,
+                    build_config,
+                } => vec![
+                    "environment-try".into(),
+                    "--job".into(),
+                    job.into_os_string(),
+                    "--repo".into(),
+                    repo.into_os_string(),
+                    "--build-config".into(),
+                    build_config.into_os_string(),
+                ],
             };
             match aq_worker::template::run(&args) {
                 Ok(()) => ExitCode::SUCCESS,
