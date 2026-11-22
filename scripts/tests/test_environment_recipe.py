@@ -1,8 +1,13 @@
 """Behavior tests for project environment recipe parsing."""
 import importlib.util
+import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import test_template_tool as fixtures  # noqa: E402  (archive and config builders)
 
 TOOLS = Path(__file__).resolve().parents[2] / 'packaging/sandbox'
 _spec = importlib.util.spec_from_file_location('environment_recipe', TOOLS / 'environment_recipe.py')
@@ -120,6 +125,185 @@ class RecipeTests(unittest.TestCase):
         self.refuses(head + '- sh -c "export API_KEY=private-value"\n', 'secret')
         self.refuses(head + '- true\n## Warm\n- echo password=private-value\n', 'secret')
         self.refuses(b'---\nname: web\n---\n## Install\n- true \xff\n', 'UTF-8')
+
+
+RECIPE = """---
+name: web
+provides: [node]
+---
+## Install
+- sh -c "mkdir -p /tools"
+## Check
+- node --version
+- pnpm --version
+## Warm
+- pnpm install --frozen-lockfile
+"""
+
+# A fake docker that answers each buildx target from behavior.json.
+FAKE_DOCKER = """#!/usr/bin/python3
+import json, pathlib, shutil, sys
+args = sys.argv[1:]
+root = pathlib.Path(__file__).parent
+behavior = json.loads((root / 'behavior.json').read_text())
+assert args[:6] == ['--context', 'build-desktop', 'buildx', 'build', '--builder', 'aq-templates']
+assert 'OPENAI_API_KEY' not in __import__('os').environ
+target = args[args.index('--target') + 1]
+output = args[args.index('--output') + 1]
+context = pathlib.Path(args[-1])
+assert sorted(p.name for p in context.iterdir()) == ['Dockerfile']
+(root / ('rendered-' + target)).write_text((context / 'Dockerfile').read_text())
+(root / 'targets').open('a').write(target + '\\n')
+sys.stderr.write(behavior.get('noise', ''))
+if behavior.get('fail') == target:
+    sys.stderr.write(behavior.get('error', ''))
+    sys.exit(1)
+dest = output.split('dest=', 1)[1].split(',', 1)[0]
+if target == 'template':
+    shutil.copyfile(root / 'fixture.tar', dest)
+else:
+    pathlib.Path(dest).mkdir()
+    for number, (out, code) in enumerate(behavior['checks']):
+        (pathlib.Path(dest) / f'{number}.out').write_text(out)
+        (pathlib.Path(dest) / f'{number}.exit').write_text(f'{code}\\n')
+"""
+
+
+class BuildEnvironmentTests(unittest.TestCase):
+    def setUp(self):
+        self._directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self._directory.cleanup)
+        self.root = Path(self._directory.name)
+        self.tool = fixtures.load('template_tool')
+        self.digest = fixtures.oci(self.root / 'fixture.tar')
+        (self.root / 'docker').write_text(FAKE_DOCKER)
+        (self.root / 'docker').chmod(0o755)
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]])
+        (self.root / 'recipe.md').write_text(RECIPE)
+        self.env = parse_environment(self.root / 'recipe.md', LIMITS)
+
+    def behave(self, **behavior):
+        (self.root / 'behavior.json').write_text(json.dumps(behavior))
+
+    def config(self, **limits):
+        return {**fixtures.config(), 'docker_binary': str(self.root / 'docker'),
+                'base_template': 'registry.example/aq/base@sha256:' + 'd' * 64,
+                'limits': {**LIMITS, **limits}}
+
+    def build(self, name='out', **limits):
+        return self.tool.build_environment(self.env, self.config(**limits), self.root / name)
+
+    def fails(self, step, name='out', **limits):
+        with self.assertRaises(self.tool.BuildFailed) as caught:
+            self.build(name, **limits)
+        self.assertEqual(caught.exception.step, step)
+        return caught.exception.log
+
+    def test_check_output_is_recorded_as_toolchain(self):
+        build = self.build()
+        self.assertEqual(build['toolchain'], [{'command': 'node --version', 'output': 'v24.22.3\n'},
+                                              {'command': 'pnpm --version', 'output': '10.34.5\n'}])
+        self.assertEqual(build['digest'], self.digest)
+        self.assertEqual(build['image'], 'registry.example/aq/template@' + self.digest)
+        self.assertEqual(build['recipe_sha256'], self.env['sha256'])
+        self.assertEqual((build['name'], build['provides'], build['warm']),
+                         ('web', ['node'], ['pnpm install --frozen-lockfile']))
+        self.assertEqual(build['harnesses'], [{'harness': 'codex', 'version': '0.166.0'}])
+        self.assertEqual(list(build), ['name', 'digest', 'image', 'recipe_sha256', 'provides',
+                                       'toolchain', 'warm', 'harnesses'])
+        self.assertTrue((self.root / 'out/image.oci.tar').is_file())
+
+    def test_builds_the_template_then_the_check_output_with_a_checks_stage(self):
+        self.build()
+        self.assertEqual((self.root / 'targets').read_text().split(), ['template', 'check-output'])
+        text = (self.root / 'rendered-template').read_text()
+        self.assertTrue(text.startswith('FROM registry.example/aq/base@sha256:' + 'd' * 64 + ' AS template\n'))
+        self.assertIn('RUN ["sh", "-c", "mkdir -p /tools"]', text)
+        self.assertIn('FROM template AS checks\n', text)
+        self.assertLess(text.index('COPY --from=aq-sandbox-runtime'), text.index('FROM template AS checks'))
+        self.assertIn('(node --version\\n) > /aq-checks/0.out 2>&1; echo $? > /aq-checks/0.exit', text)
+        self.assertTrue(text.endswith('FROM scratch AS check-output\nCOPY --from=checks /aq-checks /\n'))
+
+    def test_a_recipe_without_checks_builds_once(self):
+        self.env = {**self.env, 'checks': []}
+        self.assertEqual(self.build()['toolchain'], [])
+        self.assertEqual((self.root / 'targets').read_text().split(), ['template'])
+
+    def test_a_failing_check_fails_the_build_at_check(self):
+        self.behave(checks=[['v24.22.3\n', 0], ['pnpm: not found\n', 127]])
+        log = self.fails('check')
+        self.assertIn('pnpm --version', log)
+        self.assertIn('pnpm: not found', log)
+        self.assertIn('127', log)
+        self.assertNotIn('node --version', log)
+
+    def test_a_missing_check_result_fails_at_check(self):
+        self.behave(checks=[['v24.22.3\n', 0]])
+        self.fails('check')
+
+    def test_a_buildx_failure_is_install_and_a_scan_refusal_is_scan(self):
+        self.behave(fail='template', error='E: Unable to locate package nope\n')
+        self.assertIn('Unable to locate package nope', self.fails('install'))
+        self.assertEqual((self.root / 'targets').read_text().split(), ['template'])
+        self.behave(fail='check-output', error='no space left\n')
+        self.assertIn('no space left', self.fails('check', 'second'))
+        self.behave(checks=[['v24.22.3\n', 0], ['10.34.5\n', 0]])
+        fixtures.oci(self.root / 'fixture.tar', [{'home/a/.codex/auth.json': b'{}'},
+                                                 {'opt/aq/manifest.json': json.dumps(fixtures.bundle()).encode()}])
+        self.assertNotIn('auth.json', self.fails('scan', 'third'))
+
+    def test_build_log_redacts_provider_keys(self):
+        key = 'sk-' + '0123456789abcdefghijklmnop'
+        self.behave(fail='template', error=f'step 3: curl -H "Bearer {key}"\nexport OPENAI_API_KEY=hunter2hunter2\n'
+                                           'visible line\n')
+        log = self.fails('install')
+        self.assertNotIn('sk-0123', log)
+        self.assertNotIn('hunter2', log)
+        self.assertIn('[redacted]', log)
+        self.assertIn('OPENAI_API_KEY=[redacted]', log)
+        self.assertIn('visible line', log)
+
+    def test_check_output_is_redacted(self):
+        key = 'sk-' + '0123456789abcdefghijklmnop'
+        self.behave(checks=[[f'token {key}\n', 0], ['ok\n', 0]])
+        output = self.build()['toolchain'][0]['output']
+        self.assertNotIn('sk-0123', output)
+        self.assertIn('[redacted]', output)
+
+    def test_build_log_is_bounded_by_limits(self):
+        for limit, noise in [(1000, 'line of build output\n' * 20000), (64, 'x' * 5000 + '\n'),
+                             (100, '\u00e9' * 400)]:
+            with self.subTest(limit=limit):
+                self.behave(fail='template', noise=noise, error='\nthe final error\n')
+                log = self.fails('install', f'out{limit}', log_bytes=limit)
+                self.assertLessEqual(len(log.encode()), limit)
+                self.assertIn('the final error', log)
+
+    def test_check_output_is_bounded_by_limits(self):
+        self.behave(checks=[['v' * 500, 0], ['10.34.5\n', 0]])
+        build = self.build(log_bytes=100)
+        self.assertLessEqual(len(build['toolchain'][0]['output'].encode()), 100)
+
+    def test_a_secret_cut_by_the_bound_does_not_leak(self):
+        key = 'sk-' + 'A1b2C3d4' * 8
+        self.behave(fail='template', noise='filler\n' * 5000 + key + '\n')
+        self.assertNotIn('A1b2C3d4', self.fails('install', log_bytes=40))
+
+    def test_limits_are_required_and_validated(self):
+        config = self.config()
+        del config['limits']
+        with self.assertRaises(ValueError):
+            self.tool.build_environment(self.env, config, self.root / 'x')
+        with self.assertRaises(ValueError):
+            self.tool.validate_config({**self.config(), 'limits': {**LIMITS, 'log_bytes': 0}})
+        with self.assertRaises(ValueError):
+            self.tool.validate_config({**self.config(), 'limits': {**LIMITS, 'build_wall_ms': True}})
+
+    def test_the_build_timeout_comes_from_limits(self):
+        (self.root / 'docker').write_text('#!/bin/sh\necho started >&2\nsleep 5\n')
+        log = self.fails('install', build_wall_ms=200)
+        self.assertIn('started', log)
+        self.assertIn('timed out', log)
 
 
 if __name__ == '__main__':
