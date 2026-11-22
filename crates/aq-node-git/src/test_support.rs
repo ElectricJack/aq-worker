@@ -36,11 +36,17 @@ pub struct Central {
     pub grants: Arc<Mutex<std::collections::HashMap<Uuid, Grant>>>,
     /// The next receive-pack is applied, then its reply is cut off.
     pub drop_push: Arc<AtomicBool>,
+    /// Every smart-HTTP request is refused with 403 (a lost grant or claim).
+    pub refuse: Arc<AtomicBool>,
     _runtime: tokio::runtime::Runtime,
 }
 
 impl Central {
     pub fn start() -> Self {
+        Self::start_with(Router::new())
+    }
+    /// Also serves `extra` (a caller's double of other server routes) on the same origin.
+    pub fn start_with(extra: Router) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let remote = dir.path().join("remote.git");
         git(
@@ -61,6 +67,7 @@ impl Central {
             &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
         );
         let (seen, drop_push) = (Arc::default(), Arc::new(AtomicBool::new(false)));
+        let refuse = Arc::new(AtomicBool::new(false));
         let grants: Arc<Mutex<std::collections::HashMap<Uuid, Grant>>> = Arc::default();
         let served = Arc::clone(&grants);
         let grant = move |UrlPath(attempt): UrlPath<Uuid>, h: HeaderMap| async move {
@@ -77,8 +84,10 @@ impl Central {
             dir.path().to_owned(),
             Arc::clone(&seen),
             Arc::clone(&drop_push),
+            Arc::clone(&refuse),
         )
-        .route("/v1/git/grants/{attempt}", axum::routing::get(grant));
+        .route("/v1/git/grants/{attempt}", axum::routing::get(grant))
+        .merge(extra);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
             .enable_all()
@@ -97,6 +106,7 @@ impl Central {
             seen,
             grants,
             drop_push,
+            refuse,
             _runtime: runtime,
         }
     }
@@ -152,7 +162,12 @@ impl Central {
     }
 }
 
-fn smart_http(root: PathBuf, seen: Arc<Mutex<Vec<String>>>, drop_push: Arc<AtomicBool>) -> Router {
+fn smart_http(
+    root: PathBuf,
+    seen: Arc<Mutex<Vec<String>>>,
+    drop_push: Arc<AtomicBool>,
+    refuse: Arc<AtomicBool>,
+) -> Router {
     let handler = move |method: axum::http::Method,
                         UrlPath((_repository, rest)): UrlPath<(Uuid, String)>,
                         uri: axum::http::Uri,
@@ -162,12 +177,21 @@ fn smart_http(root: PathBuf, seen: Arc<Mutex<Vec<String>>>, drop_push: Arc<Atomi
             let value = h.get(name).and_then(|v| v.to_str().ok());
             value.unwrap_or_default().to_string()
         };
+        let job = text(transport::ENVIRONMENT_JOB_HEADER);
         seen.lock().unwrap().push(format!(
-            "{method} {rest}{} {} {}",
+            "{method} {rest}{} {} {}{}",
             uri.query().map(|q| format!("?{q}")).unwrap_or_default(),
             text("authorization"),
-            text(transport::ATTEMPT_HEADER)
+            text(transport::ATTEMPT_HEADER),
+            if job.is_empty() {
+                job
+            } else {
+                format!(" job={job}")
+            }
         ));
+        if refuse.load(Ordering::SeqCst) {
+            return axum::http::StatusCode::FORBIDDEN.into_response();
+        }
         let mut child = Command::new(GIT)
             .arg("http-backend")
             .env("GIT_PROJECT_ROOT", &root)

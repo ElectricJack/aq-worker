@@ -447,3 +447,63 @@ fn update_from_main_leaves_conflict_markers_committed_and_lists_the_paths() {
     assert!(conflict_note(&path).unwrap().contains("a.txt"));
     node.end(&wt).unwrap();
 }
+
+#[test]
+fn an_environment_job_fetches_its_commit_into_the_existing_repository_with_the_job_header() {
+    let central = Central::start();
+    let state = tempfile::tempdir().unwrap();
+    let node = node(&state.path().join("repositories"));
+    let remote = remote(&central);
+    let id = Uuid::from_u128(7);
+    let attempt = at(state.path(), 1);
+    let first = node
+        .start(
+            &remote,
+            &central.grant("t1", None),
+            Uuid::from_u128(1),
+            &attempt,
+        )
+        .unwrap();
+    node.end(&first).unwrap();
+    let repo = node.repository(id);
+    std::fs::write(repo.join("kept"), "").unwrap();
+    // Pushed after the node's last fetch.
+    let main = central.head("refs/heads/main").unwrap();
+    let commit = central.commit("refs/heads/aq/t2", &main, "b.txt", "two\n");
+    let job = Uuid::from_u128(9);
+    let path = state.path().join("jobs").join(job.to_string());
+
+    let synced = node.checkout(&remote, job, id, &commit, &path).unwrap();
+    assert_eq!(synced, Synced::Fetched);
+    assert!(repo.join("kept").exists(), "never re-cloned");
+    assert_eq!(git(&path, &["rev-parse", "HEAD"]), commit);
+    assert_eq!(
+        std::fs::read_to_string(path.join("b.txt")).unwrap(),
+        "two\n"
+    );
+    let seen = central.seen.lock().unwrap().clone();
+    let tagged: Vec<_> = seen
+        .iter()
+        .filter(|l| l.contains(&format!("job={job}")))
+        .collect();
+    assert!(!tagged.is_empty(), "{seen:?}");
+    // The job header alone, no attempt, and only fetches.
+    assert!(
+        tagged
+            .iter()
+            .all(|l| l.contains("Bearer node-secret  job=") && !l.contains("receive-pack")),
+        "{seen:?}"
+    );
+    node.discard(id, &path).unwrap();
+    assert!(!path.exists());
+    assert!(git(&repo, &["worktree", "list"]).lines().count() == 1);
+
+    // Anything but a full object id never reaches git.
+    let before = central.seen.lock().unwrap().len();
+    assert!(node.checkout(&remote, job, id, "HEAD", &path).is_err());
+    assert_eq!(central.seen.lock().unwrap().len(), before);
+    // A refused fetch (claim lost) adds no worktree.
+    central.refuse.store(true, Ordering::SeqCst);
+    assert!(node.checkout(&remote, job, id, &commit, &path).is_err());
+    assert!(!path.exists());
+}
