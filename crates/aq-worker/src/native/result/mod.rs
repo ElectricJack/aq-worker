@@ -224,16 +224,9 @@ impl InputPipeline {
                     retained,
                 )?;
                 definition.validate_manifest(m)?;
-                let expected = ResultInstallationPins {
-                    adapter: m.harness.adapter.clone(),
-                    contract: definition.contract.clone(),
-                    client_manifest: definition.client_manifest.clone(),
-                    client_executable: definition.client_executable.clone(),
-                    environment: definition.environment.clone(),
-                    recipe: definition.recipe.clone(),
-                    permission_digest: super::super::journal::canonical_digest(&m.permissions)?,
-                    reserved_client_bytes: definition.reserved_client_bytes,
-                };
+                let permissions = super::super::journal::canonical_digest(&m.permissions)?;
+                let expected =
+                    ResultInstallationPins::of(&m.harness.adapter, &definition, permissions);
                 ensure!(
                     expected == pins_for_journal
                         && definition.runtime == a.reservation.runtime.runtime,

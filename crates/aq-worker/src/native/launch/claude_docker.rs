@@ -521,6 +521,9 @@ pub(super) fn bootstrap(
         .checked_add(hard.saturating_sub(now) / 1_000_000)
         .context("sandbox deadline overflow")?;
     let mut docker_local = profile.config.docker_local.clone();
+    let template = profile.config.template.clone();
+    #[cfg(feature = "project_environments")]
+    let template = docker_local.offered_template(&m.harness.environment, &template)?;
     let agent_channel = profile.config.agent_channel.is_required();
     if agent_channel {
         let channel = profile.open_channel(&i.binding.session, deadline_ms)?;
@@ -552,7 +555,7 @@ pub(super) fn bootstrap(
         .map(|channel| channel.root().to_owned());
     let mut driver = crate::sandbox_driver::DriverConfig {
         docker_local,
-        template: profile.config.template.clone(),
+        template: template.clone(),
         owner: Ownership {
             node_id,
             boot_id,
@@ -578,13 +581,8 @@ pub(super) fn bootstrap(
         transcript_bound: profile.transcript_bound,
         harness: launch.harness,
         codex_runtime_bundle: launch.codex_runtime_bundle,
-        build_cache: (profile.config.build_cache.as_ref()).and_then(|c| {
-            c.slot(
-                m.bindings.project_id,
-                m.bindings.task_id,
-                profile.config.template.as_str(),
-            )
-        }),
+        build_cache: (profile.config.build_cache.as_ref())
+            .and_then(|c| c.slot(m.bindings.project_id, m.bindings.task_id, template.as_str())),
     };
     if let Some(author) = git_author {
         driver.apply_git_author(&author)?;

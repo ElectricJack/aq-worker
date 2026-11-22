@@ -1,4 +1,5 @@
-//! Node-credential HTTP client for `/v1/worker/environments/{claim,complete}`.
+//! Node-credential HTTP client for `/v1/worker/environments` and its
+//! `claim`, `complete` and `ready` routes.
 use reqwest::StatusCode;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
@@ -89,15 +90,13 @@ impl Client {
     }
 
     async fn post(&self, path: &str, body: Vec<u8>) -> Result<(StatusCode, Value), Refused> {
-        let transient = |e: reqwest::Error| Refused::Transient(e.without_url().to_string());
-        let url = format!("{}{path}", self.base);
-        let mut response = self
-            .http
-            .post(url)
-            .body(body)
-            .send()
+        self.send(self.http.post(format!("{}{path}", self.base)).body(body))
             .await
-            .map_err(transient)?;
+    }
+
+    async fn send(&self, request: reqwest::RequestBuilder) -> Result<(StatusCode, Value), Refused> {
+        let transient = |e: reqwest::Error| Refused::Transient(e.without_url().to_string());
+        let mut response = request.send().await.map_err(transient)?;
         let status = response.status();
         if status.is_server_error()
             || matches!(
@@ -149,6 +148,28 @@ impl Client {
             (status, _) => Err(Refused::Other(format!(
                 "complete: server returned {status}"
             ))),
+        }
+    }
+
+    /// `GET /v1/worker/environments`: what the server has admitted.
+    pub(crate) async fn admitted(&self) -> Result<Vec<crate::node::AdmittedEnvironment>, Refused> {
+        let url = format!("{}/v1/worker/environments", self.base);
+        match self.send(self.http.get(url)).await? {
+            (StatusCode::OK, mut reply) => serde_json::from_value(reply["environments"].take())
+                .map_err(|_| Refused::Other("unreadable admitted environments".into())),
+            (status, _) => Err(Refused::Other(format!(
+                "environments: server returned {status}"
+            ))),
+        }
+    }
+
+    /// `POST /v1/worker/environments/ready`: replaces the node's ready set.
+    pub(crate) async fn ready(&self, digests: &[String]) -> Result<(), Refused> {
+        let body = serde_json::to_vec(&serde_json::json!({ "ready": digests }))
+            .map_err(|e| Refused::Other(e.to_string()))?;
+        match self.post("/v1/worker/environments/ready", body).await? {
+            (StatusCode::OK, _) => Ok(()),
+            (status, _) => Err(Refused::Other(format!("ready: server returned {status}"))),
         }
     }
 }

@@ -3,6 +3,8 @@ mod claude_docker;
 mod codex;
 mod config;
 pub mod sandbox;
+#[cfg(feature = "project_environments")]
+pub use claude_docker::offered_pins;
 pub use claude_docker::{
     ClaudeDockerExecutor, ClaudeDockerSettings, CodexDockerSettings, InstalledExecutor,
     destroy_claimed_sandboxes, launch_pins, release_claimed_sandboxes, release_preserved_sandbox,

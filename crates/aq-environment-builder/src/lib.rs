@@ -14,6 +14,7 @@
 //! makes the runner back off before it claims again.
 #![cfg(feature = "project_environments")]
 pub mod client;
+pub mod node;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use serde::Deserialize;

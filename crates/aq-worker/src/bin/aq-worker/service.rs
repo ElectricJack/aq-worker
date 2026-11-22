@@ -160,6 +160,9 @@ pub struct NativeSlotBackend {
     observations: std::collections::BTreeMap<Uuid, Observations>,
     /// `[observations] transcript_max_bytes` and `transcript_max_files`.
     transcript_bound: Option<aq_handoff_note::TranscriptBound>,
+    /// Spec 0017: each node's pulled admitted environments, shared by its slots.
+    #[cfg(feature = "project_environments")]
+    environments: std::collections::BTreeMap<Uuid, aq_environment_builder::node::Held>,
 }
 /// Starts a node's observation service: its store under `<state_root>/observations/<node id>`,
 /// the transport owner handshake and delivery. A failure leaves the node running unobserved.
@@ -274,10 +277,20 @@ impl NativeSlotBackend {
             sessions: Default::default(),
             observations: Default::default(),
             transcript_bound: None,
+            #[cfg(feature = "project_environments")]
+            environments: Default::default(),
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
-        slot_native_config(&self.template, ctx)
+        #[cfg_attr(not(feature = "project_environments"), allow(unused_mut))]
+        let mut cfg = slot_native_config(&self.template, ctx)?;
+        #[cfg(feature = "project_environments")]
+        if let (Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }), Some(held)) =
+            (&mut cfg.executor, self.environments.get(&ctx.node_id))
+        {
+            settings.host.docker_local.environments = held.clone();
+        }
+        Ok(cfg)
     }
     async fn recover_attempts(&self, ctx: SlotContext) -> Result<RecoverOutcome> {
         let worker = WorkerConfig::load(&ctx.enrollment)?;
@@ -769,6 +782,47 @@ async fn upload_attempt_conversations(
 /// The node's one heartbeat. Only AQ's own refusal of the credential (revoked or invalid) stops
 /// the node; any other error (an edge 401/403, a 5xx AQ did not mark transient, a protocol
 /// refusal) is logged and the loop is started again after a jittered back-off.
+/// Spec 0017: pulls the server's admitted environments by digest and reports
+/// those this node holds ready, on the node's idle presence interval.
+#[cfg(feature = "project_environments")]
+async fn hold_environments(
+    worker: WorkerConfig,
+    template: PathBuf,
+    held: aq_environment_builder::node::Held,
+    stop: watch::Receiver<bool>,
+) {
+    use aq_environment_builder::node::{AdmittedEnvironment, hold};
+    use aq_worker::backend::{TemplateDigest, docker_local::DockerLocalBackend};
+    let node = worker.node_id;
+    let native = match NativeConfig::load(&template) {
+        Ok(native) => native,
+        Err(e) => return tracing::error!(%node, "admitted environments not held: {e:#}"),
+    };
+    let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = native.executor
+    else {
+        return;
+    };
+    let docker = settings.host.docker_local;
+    let server = aq_environment_builder::Server {
+        url: worker.server_url,
+        credential: worker.credential,
+        cf_access: worker.cf_client_id.zip(worker.cf_client_secret),
+    };
+    // As often as an idle node renews its presence (`NodeInventory::poll_need`).
+    let interval = std::time::Duration::from_millis(native.inventory_ttl_ms / 2);
+    let pull = |environment: AdmittedEnvironment| {
+        let mut docker = docker.clone();
+        async move {
+            docker.admit(std::slice::from_ref(&environment))?;
+            let digest = TemplateDigest::parse(environment.digest)?;
+            let mut backend = DockerLocalBackend::connect_unix(docker).await?;
+            Ok(backend.pull_template(&digest).await?)
+        }
+    };
+    if let Err(e) = hold(&server, held, interval, stop, pull).await {
+        tracing::error!(%node, "admitted environments not held: {e:#}");
+    }
+}
 async fn node_heartbeat(
     worker: WorkerConfig,
     node_stop: watch::Sender<bool>,
@@ -1356,6 +1410,11 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
     }
     let (observation_nodes, observations) = start_node_observations(&config, enrolled);
     native_backend.observations = observations;
+    #[cfg(feature = "project_environments")]
+    {
+        let held = sessions.keys().map(|node| (*node, Default::default()));
+        native_backend.environments = held.collect();
+    }
     native_backend.sessions = sessions;
     let backend = Arc::new(native_backend);
     let git = Arc::new(AqGitFactory(config.aq_git.clone()));
@@ -1376,6 +1435,13 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
             node_link,
             node_rx.clone(),
         ));
+        #[cfg(feature = "project_environments")]
+        let environments = tokio::spawn(hold_environments(
+            worker.clone(),
+            config.native_template.clone(),
+            backend.environments[&worker.node_id].clone(),
+            node_rx.clone(),
+        ));
         let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, node_rx));
         let sup = Supervisor::new(config.clone(), view, backend.clone(), control, git.clone())
             .retiring(node > config.nodes);
@@ -1386,6 +1452,8 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
             forwarding.abort();
             heartbeat.abort();
             conversations.abort();
+            #[cfg(feature = "project_environments")]
+            environments.abort();
             result
         });
     }

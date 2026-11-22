@@ -8,6 +8,7 @@ description = "A builder node's runner for project environment build and try job
 [dependencies]
 aq-node-git = { path = "../aq-node-git" }
 anyhow.workspace = true
+aq-session-protocol.workspace = true
 libc.workspace = true
 reqwest.workspace = true
 serde.workspace = true

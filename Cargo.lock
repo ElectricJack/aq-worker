@@ -191,6 +191,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aq-node-git",
+ "aq-session-protocol",
  "axum",
  "libc",
  "reqwest",
