@@ -258,7 +258,10 @@ impl NativeExecutor for ClaudeDockerExecutor {
             let _lease = {
                 let held = &profile.config().docker_local.environments;
                 let lease = held.select(&pins.environment, &harness.environment)?;
-                pins = offered_pins(&pins, &harness);
+                // Boot offers keep the installed pins, so their adapter is compared exactly.
+                if lease.is_some() {
+                    pins = offered_pins(&pins, &harness);
+                }
                 lease
             };
             let root = self.result_root.clone().context("result root absent")?;

@@ -90,8 +90,8 @@ impl Held {
         }))
     }
     /// The pulled admitted set replaces the last one. An environment that left
-    /// it stays held while an attempt still runs in it.
-    pub fn replace(&self, pulled: Vec<AdmittedEnvironment>) {
+    /// it stays held while an attempt still runs in it; the others are returned.
+    pub fn replace(&self, pulled: Vec<AdmittedEnvironment>) -> Vec<AdmittedEnvironment> {
         let mut entries = self.entries();
         let mut old = std::mem::take(&mut *entries);
         for environment in pulled {
@@ -103,12 +103,16 @@ impl Held {
                 uses,
             });
         }
+        let mut dropped = Vec::new();
         for mut entry in old {
             if Arc::strong_count(&entry.uses) > 1 {
                 entry.admitted = false;
                 entries.push(entry);
+            } else {
+                dropped.push(entry.environment);
             }
         }
+        dropped
     }
     fn holds(&self, digest: &str) -> bool {
         self.entries()
@@ -125,41 +129,80 @@ impl Held {
     }
 }
 
-/// Polls the admitted list every `interval` until shutdown: pulls each new
-/// digest once with `pull`, then reports what the node holds ready.
-pub async fn hold<F, R>(
+/// What [`Templates::remove`] did with a template image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Removal {
+    /// Deleted from the daemon, or already absent.
+    Removed,
+    /// A container (running, stopped or preserved) still uses it: tried again next poll.
+    InUse,
+    /// One of the node's own templates: never removed.
+    Kept,
+}
+
+/// The node's sandbox daemon, as the poll uses it.
+pub trait Templates {
+    /// Pulls an admitted template by digest and proves it is present.
+    fn pull(
+        &mut self,
+        environment: &AdmittedEnvironment,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    /// Removes a template no attempt holds, unless a container still uses it.
+    fn remove(
+        &mut self,
+        environment: &AdmittedEnvironment,
+    ) -> impl Future<Output = anyhow::Result<Removal>> + Send;
+}
+
+/// The poll's operator settings (`service.toml` `[environments]`).
+#[derive(Clone, Copy, Debug)]
+pub struct Poll {
+    pub interval: Duration,
+    /// The largest admitted list the node reads.
+    pub max_list_bytes: u64,
+}
+
+/// Polls the admitted list every `poll.interval` until shutdown: pulls each
+/// new digest once, reports what the node holds ready, and removes the images
+/// of environments that left the list once nothing uses them.
+pub async fn hold(
     server: &Server,
     held: Held,
-    interval: Duration,
+    poll: Poll,
     mut shutdown: watch::Receiver<bool>,
-    mut pull: F,
-) -> anyhow::Result<()>
-where
-    F: FnMut(AdmittedEnvironment) -> R,
-    R: Future<Output = anyhow::Result<()>>,
-{
+    mut templates: impl Templates,
+) -> anyhow::Result<()> {
     let client = Client::new(server)?;
+    let mut retired = Vec::new();
     while !*shutdown.borrow() {
-        if let Err(error) = refresh(&client, &held, &mut pull).await {
-            tracing::warn!("admitted environments not refreshed: {error}");
+        match refresh(&client, &held, poll, &mut templates, &mut retired).await {
+            Err(error @ Refused::Oversized { .. }) => tracing::error!(
+                "admitted environments not refreshed: {error}; raise [environments] max_list_bytes"
+            ),
+            Err(error) => tracing::warn!("admitted environments not refreshed: {error}"),
+            Ok(()) => {}
         }
         tokio::select! {
             _ = shutdown.wait_for(|stop| *stop) => break,
-            () = tokio::time::sleep(interval) => {}
+            () = tokio::time::sleep(poll.interval) => {}
         }
     }
     Ok(())
 }
 
-pub(crate) async fn refresh<F, R>(client: &Client, held: &Held, pull: &mut F) -> Result<(), Refused>
-where
-    F: FnMut(AdmittedEnvironment) -> R,
-    R: Future<Output = anyhow::Result<()>>,
-{
+/// One poll. `retired` carries images that left the list but were still in
+/// use, so their removal is tried again.
+pub(crate) async fn refresh(
+    client: &Client,
+    held: &Held,
+    poll: Poll,
+    templates: &mut impl Templates,
+    retired: &mut Vec<AdmittedEnvironment>,
+) -> Result<(), Refused> {
     let mut pulled = Vec::new();
-    for environment in client.admitted().await? {
+    for environment in client.admitted(poll.max_list_bytes).await? {
         if !held.holds(&environment.digest)
-            && let Err(error) = pull(environment.clone()).await
+            && let Err(error) = templates.pull(&environment).await
         {
             let digest = &environment.digest;
             tracing::warn!(%digest, "admitted template not pulled: {error:#}");
@@ -167,8 +210,31 @@ where
         }
         pulled.push(environment);
     }
-    held.replace(pulled);
-    client.ready(&held.ready()).await
+    retired.extend(held.replace(pulled));
+    let ready = client.ready(&held.ready()).await;
+    let mut kept = Vec::new();
+    for environment in std::mem::take(retired) {
+        let (digest, image) = (&environment.digest, &environment.image);
+        // Another held entry, or an earlier retired one, may share the image.
+        if held.holds(digest)
+            || kept
+                .iter()
+                .any(|e: &AdmittedEnvironment| e.digest == *digest)
+        {
+            continue;
+        }
+        match templates.remove(&environment).await {
+            Ok(Removal::Removed) => tracing::info!(%digest, %image, "removed template image"),
+            Ok(Removal::Kept) => {}
+            Ok(Removal::InUse) => kept.push(environment),
+            Err(error) => {
+                tracing::warn!(%digest, "template image not removed: {error:#}");
+                kept.push(environment);
+            }
+        }
+    }
+    *retired = kept;
+    ready
 }
 
 #[cfg(test)]

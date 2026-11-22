@@ -54,27 +54,45 @@ fn boot() -> ArtifactRef {
         .unwrap()
 }
 
-/// Pulls once per digest, recording each; `refuse` digests fail to pull.
+/// A daemon double: records pulls and removals; `refuse` digests fail to pull,
+/// and `in_use` digests are still used by a container.
 #[derive(Clone, Default)]
-struct Puller {
+struct Daemon {
     pulled: Arc<StdMutex<Vec<String>>>,
+    removed: Arc<StdMutex<Vec<String>>>,
     refuse: Vec<String>,
+    in_use: Arc<StdMutex<Vec<String>>>,
 }
-impl Puller {
+impl Templates for Daemon {
     fn pull(
-        &self,
-    ) -> impl FnMut(AdmittedEnvironment) -> std::future::Ready<anyhow::Result<()>> + use<> {
-        let me = self.clone();
-        move |environment: AdmittedEnvironment| {
-            me.pulled.lock().unwrap().push(environment.digest.clone());
-            let refused = me.refuse.contains(&environment.digest);
-            std::future::ready(match refused {
-                true => Err(anyhow::anyhow!("pull refused")),
-                false => Ok(()),
-            })
-        }
+        &mut self,
+        environment: &AdmittedEnvironment,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send {
+        self.pulled.lock().unwrap().push(environment.digest.clone());
+        let refused = self.refuse.contains(&environment.digest);
+        std::future::ready(match refused {
+            true => Err(anyhow::anyhow!("pull refused")),
+            false => Ok(()),
+        })
+    }
+    fn remove(
+        &mut self,
+        environment: &AdmittedEnvironment,
+    ) -> impl Future<Output = anyhow::Result<Removal>> + Send {
+        let digest = environment.digest.clone();
+        std::future::ready(Ok(match self.in_use.lock().unwrap().contains(&digest) {
+            true => Removal::InUse,
+            false => {
+                self.removed.lock().unwrap().push(digest);
+                Removal::Removed
+            }
+        }))
     }
 }
+const POLL: Poll = Poll {
+    interval: Duration::ZERO,
+    max_list_bytes: 1 << 20,
+};
 
 #[tokio::test]
 async fn admitted_environments_are_pulled_and_reported_ready() {
@@ -82,15 +100,15 @@ async fn admitted_environments_are_pulled_and_reported_ready() {
     let (web, api) = (admitted("web", 'a'), admitted("api", 'e'));
     double.lock().unwrap().admitted = json!([web, api]);
     let server = serve(Arc::clone(&double)).await;
-    let puller = Puller {
+    let puller = Daemon {
         refuse: vec![digest('e')],
-        ..Puller::default()
+        ..Daemon::default()
     };
     let held = Held::default();
     let (stop, shutdown) = tokio::sync::watch::channel(false);
     let polling = tokio::spawn({
-        let (held, pull) = (held.clone(), puller.pull());
-        async move { hold(&server, held, Duration::ZERO, shutdown, pull).await }
+        let (held, daemon) = (held.clone(), puller.clone());
+        async move { hold(&server, held, POLL, shutdown, daemon).await }
     });
     tokio::time::timeout(Duration::from_secs(10), async {
         while double.lock().unwrap().reports.len() < 2 {
@@ -126,31 +144,107 @@ async fn a_template_an_attempt_still_uses_is_not_dropped_when_it_leaves_the_list
     let (web, api) = (admitted("web", 'a'), admitted("api", 'e'));
     double.lock().unwrap().admitted = json!([web, api]);
     let client = Client::new(&serve(Arc::clone(&double)).await).unwrap();
-    let (held, puller) = (Held::default(), Puller::default());
-    let mut pull = puller.pull();
-    refresh(&client, &held, &mut pull).await.unwrap();
+    let (held, mut daemon, mut retired) = (Held::default(), Daemon::default(), vec![]);
+    refresh(&client, &held, POLL, &mut daemon, &mut retired)
+        .await
+        .unwrap();
     // An attempt runs in web; then both leave the admitted list.
     let lease = held.select(&boot(), &definition(&web)).unwrap();
     assert!(lease.is_some());
     double.lock().unwrap().admitted = json!([]);
-    refresh(&client, &held, &mut pull).await.unwrap();
+    refresh(&client, &held, POLL, &mut daemon, &mut retired)
+        .await
+        .unwrap();
     assert_eq!(double.lock().unwrap().reports[1], json!({"ready": []}));
     assert!(held.get(&definition(&web)).is_some(), "still in use");
     assert!(held.get(&definition(&api)).is_none(), "unused, so dropped");
-    // Once the attempt ends, the next poll drops it too.
+    // The unused image is removed; the leased one is kept.
+    assert_eq!(*daemon.removed.lock().unwrap(), [digest('e')]);
+    // Once the attempt ends, the next poll drops it and removes its image.
     drop(lease);
-    refresh(&client, &held, &mut pull).await.unwrap();
+    refresh(&client, &held, POLL, &mut daemon, &mut retired)
+        .await
+        .unwrap();
     assert!(held.get(&definition(&web)).is_none());
     assert!(held.select(&boot(), &definition(&web)).is_err());
+    assert_eq!(*daemon.removed.lock().unwrap(), [digest('e'), digest('a')]);
     // Re-admitted: it is pulled again.
     double.lock().unwrap().admitted = json!([web]);
-    refresh(&client, &held, &mut pull).await.unwrap();
+    refresh(&client, &held, POLL, &mut daemon, &mut retired)
+        .await
+        .unwrap();
     assert_eq!(
         double.lock().unwrap().reports[3],
         json!({"ready": [digest('a')]})
     );
-    let pulled = puller.pulled.lock().unwrap().clone();
+    let pulled = daemon.pulled.lock().unwrap().clone();
     assert_eq!(pulled, [digest('a'), digest('e'), digest('a')]);
+}
+
+#[tokio::test]
+async fn an_image_a_container_still_uses_is_kept_and_removed_once_it_is_not() {
+    let double = Arc::new(StdMutex::new(Double::default()));
+    let (web, api) = (admitted("web", 'a'), admitted("api", 'e'));
+    double.lock().unwrap().admitted = json!([web, api]);
+    let client = Client::new(&serve(Arc::clone(&double)).await).unwrap();
+    let (held, mut daemon, mut retired) = (Held::default(), Daemon::default(), vec![]);
+    refresh(&client, &held, POLL, &mut daemon, &mut retired)
+        .await
+        .unwrap();
+    // A preserved sandbox (no lease, e.g. across a restart) still uses web's image.
+    daemon.in_use.lock().unwrap().push(digest('a'));
+    double.lock().unwrap().admitted = json!([]);
+    refresh(&client, &held, POLL, &mut daemon, &mut retired)
+        .await
+        .unwrap();
+    assert_eq!(*daemon.removed.lock().unwrap(), [digest('e')]);
+    assert!(held.get(&definition(&web)).is_none(), "no longer offered");
+    // It is tried again every poll, and removed once the container is gone.
+    refresh(&client, &held, POLL, &mut daemon, &mut retired)
+        .await
+        .unwrap();
+    assert_eq!(*daemon.removed.lock().unwrap(), [digest('e')]);
+    daemon.in_use.lock().unwrap().clear();
+    refresh(&client, &held, POLL, &mut daemon, &mut retired)
+        .await
+        .unwrap();
+    assert_eq!(*daemon.removed.lock().unwrap(), [digest('e'), digest('a')]);
+    assert!(retired.is_empty());
+}
+
+#[tokio::test]
+async fn an_admitted_list_over_the_configured_cap_is_refused_naming_both_sizes() {
+    let double = Arc::new(StdMutex::new(Double::default()));
+    double.lock().unwrap().admitted = json!([admitted("web", 'a')]);
+    let client = Client::new(&serve(Arc::clone(&double)).await).unwrap();
+    let (held, mut daemon, mut retired) = (Held::default(), Daemon::default(), vec![]);
+    let size = json!({"environments": [admitted("web", 'a')]})
+        .to_string()
+        .len() as u64;
+    let tight = Poll {
+        max_list_bytes: size - 1,
+        ..POLL
+    };
+    let refused = refresh(&client, &held, tight, &mut daemon, &mut retired).await;
+    let message = refused.unwrap_err().to_string();
+    assert!(message.contains(&format!("{size} bytes")), "{message}");
+    assert!(
+        message.contains(&format!("cap of {} bytes", size - 1)),
+        "{message}"
+    );
+    assert!(daemon.pulled.lock().unwrap().is_empty());
+    assert!(
+        double.lock().unwrap().reports.is_empty(),
+        "nothing reported"
+    );
+    let fits = Poll {
+        max_list_bytes: size,
+        ..POLL
+    };
+    refresh(&client, &held, fits, &mut daemon, &mut retired)
+        .await
+        .unwrap();
+    assert_eq!(*daemon.pulled.lock().unwrap(), [digest('a')]);
 }
 
 #[test]

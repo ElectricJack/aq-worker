@@ -326,8 +326,8 @@ impl DockerLocalConfig {
     }
 
     /// The template an offer in `environment` runs in: a held environment's,
-    /// admitted into this copy, else `boot`. The executor has already refused an
-    /// environment that is neither (`Held::select`).
+    /// admitted into this copy, else `boot`. Only the boot environment reaches the
+    /// fallback: the executor's `Held::select` refuses an unheld one before launch.
     pub fn offered_template(
         &mut self,
         environment: &aq_session_protocol::ArtifactRef,

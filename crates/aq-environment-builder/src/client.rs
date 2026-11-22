@@ -5,7 +5,8 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, Header
 use serde_json::Value;
 use std::time::Duration;
 
-const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+/// Claim and complete replies: a Job or an acknowledgement, bounded by the server's limits.
+const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 
 /// The worker API origin and the node's credentials (from its worker config).
 pub struct Server {
@@ -32,6 +33,11 @@ pub enum Refused {
     Conflict,
     /// 413 on complete: the result exceeds the server's bound from `environment_limits`.
     TooLarge,
+    /// A reply over `cap` bytes (`bytes` when the server sent its length).
+    Oversized {
+        bytes: Option<u64>,
+        cap: u64,
+    },
     Other(String),
 }
 
@@ -42,6 +48,15 @@ impl std::fmt::Display for Refused {
             Self::Forbidden => f.write_str("this node is not a template-build node"),
             Self::Conflict => f.write_str("another node holds the claim"),
             Self::TooLarge => f.write_str("the result exceeds the server's bound"),
+            Self::Oversized {
+                bytes: Some(n),
+                cap,
+            } => {
+                write!(f, "the reply is {n} bytes, over the cap of {cap} bytes")
+            }
+            Self::Oversized { bytes: None, cap } => {
+                write!(f, "the reply is over the cap of {cap} bytes")
+            }
             Self::Other(m) => f.write_str(m),
         }
     }
@@ -90,11 +105,15 @@ impl Client {
     }
 
     async fn post(&self, path: &str, body: Vec<u8>) -> Result<(StatusCode, Value), Refused> {
-        self.send(self.http.post(format!("{}{path}", self.base)).body(body))
-            .await
+        let request = self.http.post(format!("{}{path}", self.base)).body(body);
+        self.send(request, MAX_RESPONSE_BYTES).await
     }
 
-    async fn send(&self, request: reqwest::RequestBuilder) -> Result<(StatusCode, Value), Refused> {
+    async fn send(
+        &self,
+        request: reqwest::RequestBuilder,
+        cap: u64,
+    ) -> Result<(StatusCode, Value), Refused> {
         let transient = |e: reqwest::Error| Refused::Transient(e.without_url().to_string());
         let mut response = request.send().await.map_err(transient)?;
         let status = response.status();
@@ -109,10 +128,17 @@ impl Client {
         if status != StatusCode::OK {
             return Ok((status, Value::Null));
         }
+        let length = response.content_length();
+        if let Some(bytes) = length.filter(|n| *n > cap) {
+            return Err(Refused::Oversized {
+                bytes: Some(bytes),
+                cap,
+            });
+        }
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(transient)? {
-            if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
-                return Err(Refused::Other("response too large".into()));
+            if (bytes.len() + chunk.len()) as u64 > cap {
+                return Err(Refused::Oversized { bytes: length, cap });
             }
             bytes.extend_from_slice(&chunk);
         }
@@ -151,10 +177,13 @@ impl Client {
         }
     }
 
-    /// `GET /v1/worker/environments`: what the server has admitted.
-    pub(crate) async fn admitted(&self) -> Result<Vec<crate::node::AdmittedEnvironment>, Refused> {
+    /// `GET /v1/worker/environments`: what the server has admitted, at most `cap` bytes.
+    pub(crate) async fn admitted(
+        &self,
+        cap: u64,
+    ) -> Result<Vec<crate::node::AdmittedEnvironment>, Refused> {
         let url = format!("{}/v1/worker/environments", self.base);
-        match self.send(self.http.get(url)).await? {
+        match self.send(self.http.get(url), cap).await? {
             (StatusCode::OK, mut reply) => serde_json::from_value(reply["environments"].take())
                 .map_err(|_| Refused::Other("unreadable admitted environments".into())),
             (status, _) => Err(Refused::Other(format!(

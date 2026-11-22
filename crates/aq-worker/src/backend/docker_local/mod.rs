@@ -408,6 +408,44 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         }
     }
 
+    /// Spec 0017 §6.7: removes a template image no container (running, stopped
+    /// or preserved) uses. A template this configuration allowlists is never removed.
+    #[cfg(feature = "project_environments")]
+    pub async fn remove_template(
+        &mut self,
+        digest: &TemplateDigest,
+        image: &str,
+    ) -> Result<aq_environment_builder::node::Removal, BackendError> {
+        use aq_environment_builder::node::Removal;
+        if self.config.template_image(digest).is_some() {
+            return Ok(Removal::Kept);
+        }
+        if !image.ends_with(&format!("@{}", digest.as_str())) {
+            return Err(BackendError::InvalidRequest(
+                "template image must be pinned to its digest",
+            ));
+        }
+        let Some(found) = self.get_optional(&format!("/images/{image}/json")).await? else {
+            return Ok(Removal::Removed);
+        };
+        let containers = self.get_json("/containers/json?all=true").await?;
+        let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
+        let uses = |c: &Value| {
+            [&c["Image"], &c["ImageID"]]
+                .iter()
+                .any(|v| **v == image || **v == found["Id"])
+        };
+        if containers.as_array().ok_or(unknown)?.iter().any(uses) {
+            return Ok(Removal::InUse);
+        }
+        let path = format!("/images/{image}");
+        match self.send(DockerMethod::Delete, &path, None).await?.status {
+            200 | 404 => Ok(Removal::Removed),
+            409 => Ok(Removal::InUse),
+            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
+        }
+    }
+
     /// Reads one regular file from a sandbox container, bounded by
     /// `max_read_bytes`. A volume-only sandbox has no container to read from.
     pub async fn read_file(

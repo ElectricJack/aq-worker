@@ -3030,7 +3030,7 @@ mod environments {
     use aq_environment_builder::node::{AdmittedEnvironment, Held};
     use aq_session_protocol::ArtifactRef;
 
-    fn admitted(c: char) -> AdmittedEnvironment {
+    pub(super) fn admitted(c: char) -> AdmittedEnvironment {
         let digest = format!("sha256:{}", c.to_string().repeat(64));
         serde_json::from_value(json!({
             "id": "proj.web", "version": c.to_string(), "digest": digest,
@@ -3112,4 +3112,92 @@ mod environments {
                 .all(|t| t.image.ends_with(t.digest.as_str()))
         );
     }
+}
+
+/// Spec 0017 §6.7: a template that left the admitted list is removed from the
+/// daemon once no container (running, stopped or preserved) uses it. The node's
+/// own templates are never removed.
+#[cfg(feature = "project_environments")]
+#[tokio::test]
+async fn a_dropped_template_is_removed_unless_a_container_still_uses_it() {
+    use aq_environment_builder::node::Removal;
+    let (used, unused) = (environments::admitted('e'), environments::admitted('f'));
+    let h = harness().await;
+    let mut config = h.backend.config().clone();
+    config.admit(&[used.clone(), unused.clone()]).unwrap();
+    let docker = ScriptedDocker::new();
+    let mut node = bounded(DockerLocalBackend::connect(config, docker.clone()))
+        .await
+        .unwrap();
+    let digest_of = |e: &aq_environment_builder::node::AdmittedEnvironment| {
+        TemplateDigest::parse(e.digest.clone()).unwrap()
+    };
+    for environment in [&used, &unused] {
+        bounded(node.pull_template(&digest_of(environment)))
+            .await
+            .unwrap();
+    }
+    let mut request = request(1, 2, 3);
+    request.template_digest = digest_of(&used);
+    bounded(node.create(&request)).await.unwrap();
+    docker.set_status(&request.name, "exited");
+    // The poll removes with the node's own configuration: the static templates only.
+    let static_only = h.backend.config().clone();
+    let mut backend = bounded(DockerLocalBackend::connect(static_only, docker.clone()))
+        .await
+        .unwrap();
+    let remove =
+        |e: &aq_environment_builder::node::AdmittedEnvironment| (digest_of(e), e.image.clone());
+    let (digest, image) = remove(&used);
+    let outcome = bounded(backend.remove_template(&digest, &image))
+        .await
+        .unwrap();
+    assert_eq!(outcome, Removal::InUse, "a stopped container still uses it");
+    assert!(docker.has_image(&used.image));
+    let delete = (
+        DockerMethod::Delete,
+        format!("/v1.44/images/{}", used.image),
+    );
+    assert!(
+        !docker.requests().contains(&delete),
+        "the daemon is asked first"
+    );
+    let (digest, image) = remove(&unused);
+    let outcome = bounded(backend.remove_template(&digest, &image))
+        .await
+        .unwrap();
+    assert_eq!(outcome, Removal::Removed);
+    assert!(!docker.has_image(&unused.image));
+    assert!(
+        docker
+            .requests()
+            .contains(&(DockerMethod::Delete, format!("/v1.44/images/{image}")))
+    );
+    // Once the sandbox is released, its image goes too.
+    docker.remove_container(&request.name);
+    let (digest, image) = remove(&used);
+    assert_eq!(
+        bounded(backend.remove_template(&digest, &image))
+            .await
+            .unwrap(),
+        Removal::Removed
+    );
+    // Absent already: nothing left to do.
+    assert_eq!(
+        bounded(backend.remove_template(&digest, &image))
+            .await
+            .unwrap(),
+        Removal::Removed
+    );
+    // A static template is never removed, and the daemon is not asked.
+    bounded(backend.pull_template(&self::digest()))
+        .await
+        .unwrap();
+    docker.clear_requests();
+    let outcome = bounded(backend.remove_template(&self::digest(), &self::image()))
+        .await
+        .unwrap();
+    assert_eq!(outcome, Removal::Kept);
+    assert!(docker.requests().is_empty());
+    assert!(docker.has_image(&self::image()));
 }

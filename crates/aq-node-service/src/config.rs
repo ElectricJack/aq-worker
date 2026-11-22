@@ -37,6 +37,33 @@ pub struct ServiceConfig {
     /// `[observations]`: every limit of the node's observation store. Optional, as is each key.
     #[serde(default, skip_serializing_if = "ObservationConfig::is_default")]
     pub observations: ObservationConfig,
+    /// `[environments]` (spec 0017): the node's poll of the admitted environments.
+    #[cfg(feature = "project_environments")]
+    #[serde(default, skip_serializing_if = "EnvironmentConfig::is_default")]
+    pub environments: EnvironmentConfig,
+}
+/// Spec 0017: how the node reads the server's admitted environments.
+#[cfg(feature = "project_environments")]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct EnvironmentConfig {
+    /// The largest admitted list (`GET /v1/worker/environments`) the node reads. It grows
+    /// with projects times kept versions; a larger one is refused and logged as an error.
+    pub max_list_bytes: u64,
+}
+#[cfg(feature = "project_environments")]
+impl Default for EnvironmentConfig {
+    fn default() -> Self {
+        Self {
+            max_list_bytes: 4 * 1024 * 1024,
+        }
+    }
+}
+#[cfg(feature = "project_environments")]
+impl EnvironmentConfig {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 /// Limits of the node observation service: one store per node under
 /// `<state_root>/observations/<node id>`, which collects the transcripts of the node's
@@ -293,6 +320,11 @@ impl ServiceConfig {
                 && (16..=1_000_000).contains(&o.transcript_max_files),
             "invalid [observations]: transcript_max_bytes >= 1 MiB, transcript_max_files 16..=1000000, store_file_bytes 1 MiB..=128 MiB > store_data_bytes 2 MiB..=16 MiB, store_cache_bytes 64 KiB..=8 MiB, tracked_identities >= 16, max_sources >= 1, resume_grace_ms <= 3600000, discovery_entries 1..=4096, poll_ms 10..=60000, retry_start_ms 100..=600000 <= retry_max_ms <= 3600000, request_timeout_ms 1000..=60000, finish_drain_ms <= 600000"
         );
+        #[cfg(feature = "project_environments")]
+        ensure!(
+            (64 * 1024..=256 * MIB).contains(&self.environments.max_list_bytes),
+            "invalid [environments]: max_list_bytes 64 KiB..=256 MiB"
+        );
         if let Some(m) = &self.manual {
             ensure!(
                 m.podman_executable.is_absolute() && (1..=8).contains(&m.max_slots),
@@ -470,6 +502,8 @@ mod tests {
             shutdown_grace_ms: 120_000,
             retry: Default::default(),
             observations: Default::default(),
+            #[cfg(feature = "project_environments")]
+            environments: Default::default(),
         }
     }
     fn manual(token: &str) -> ManualConfig {
@@ -787,6 +821,26 @@ git_executable = "/usr/bin/git"
             let mut c = valid();
             edit(&mut c);
             assert!(c.validate().is_err());
+        }
+    }
+    /// Spec 0017: the admitted-list cap is an operator setting with a default and bounds.
+    #[cfg(feature = "project_environments")]
+    #[test]
+    fn the_admitted_list_cap_is_a_bounded_setting() {
+        let mut c = valid();
+        assert_eq!(c.environments.max_list_bytes, 4 * 1024 * 1024);
+        assert!(!toml::to_string(&c).unwrap().contains("environments"));
+        let text = format!(
+            "{}[environments]\nmax_list_bytes = 16777216\n",
+            toml::to_string(&c).unwrap()
+        );
+        let tuned = ServiceConfig::parse(&text).unwrap();
+        tuned.validate().unwrap();
+        assert_eq!(tuned.environments.max_list_bytes, 16 * 1024 * 1024);
+        for bad in [0, 1024, 512 * 1024 * 1024] {
+            c.environments.max_list_bytes = bad;
+            let refused = c.validate().unwrap_err().to_string();
+            assert!(refused.contains("max_list_bytes"), "{refused}");
         }
     }
     #[test]

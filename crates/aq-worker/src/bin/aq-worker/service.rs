@@ -779,22 +779,46 @@ async fn upload_attempt_conversations(
     }
 }
 
-/// The node's one heartbeat. Only AQ's own refusal of the credential (revoked or invalid) stops
-/// the node; any other error (an edge 401/403, a 5xx AQ did not mark transient, a protocol
-/// refusal) is logged and the loop is started again after a jittered back-off.
-/// Spec 0017: pulls the server's admitted environments by digest and reports
-/// those this node holds ready, on the node's idle presence interval.
+/// Spec 0017: the node's sandbox daemon as the admitted-environments poll uses it,
+/// through the template's docker-local configuration (its static templates only).
+#[cfg(feature = "project_environments")]
+struct NodeTemplates(aq_worker::backend::docker_local::DockerLocalConfig);
+#[cfg(feature = "project_environments")]
+impl aq_environment_builder::node::Templates for NodeTemplates {
+    async fn pull(
+        &mut self,
+        environment: &aq_environment_builder::node::AdmittedEnvironment,
+    ) -> Result<()> {
+        let mut docker = self.0.clone();
+        docker.admit(std::slice::from_ref(environment))?;
+        let digest = aq_worker::backend::TemplateDigest::parse(environment.digest.clone())?;
+        let mut backend =
+            aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(docker).await?;
+        Ok(backend.pull_template(&digest).await?)
+    }
+    async fn remove(
+        &mut self,
+        environment: &aq_environment_builder::node::AdmittedEnvironment,
+    ) -> Result<aq_environment_builder::node::Removal> {
+        let digest = aq_worker::backend::TemplateDigest::parse(environment.digest.clone())?;
+        let mut backend =
+            aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(self.0.clone())
+                .await?;
+        Ok(backend.remove_template(&digest, &environment.image).await?)
+    }
+}
+/// Spec 0017: pulls the server's admitted environments by digest, reports those
+/// this node holds ready, and removes the images of those that left the list once
+/// nothing uses them, on the node's idle presence interval.
 #[cfg(feature = "project_environments")]
 async fn hold_environments(
     worker: WorkerConfig,
-    template: PathBuf,
+    config: ServiceConfig,
     held: aq_environment_builder::node::Held,
     stop: watch::Receiver<bool>,
 ) {
-    use aq_environment_builder::node::{AdmittedEnvironment, hold};
-    use aq_worker::backend::{TemplateDigest, docker_local::DockerLocalBackend};
     let node = worker.node_id;
-    let native = match NativeConfig::load(&template) {
+    let native = match NativeConfig::load(&config.native_template) {
         Ok(native) => native,
         Err(e) => return tracing::error!(%node, "admitted environments not held: {e:#}"),
     };
@@ -802,27 +826,24 @@ async fn hold_environments(
     else {
         return;
     };
-    let docker = settings.host.docker_local;
     let server = aq_environment_builder::Server {
         url: worker.server_url,
         credential: worker.credential,
         cf_access: worker.cf_client_id.zip(worker.cf_client_secret),
     };
-    // As often as an idle node renews its presence (`NodeInventory::poll_need`).
-    let interval = std::time::Duration::from_millis(native.inventory_ttl_ms / 2);
-    let pull = |environment: AdmittedEnvironment| {
-        let mut docker = docker.clone();
-        async move {
-            docker.admit(std::slice::from_ref(&environment))?;
-            let digest = TemplateDigest::parse(environment.digest)?;
-            let mut backend = DockerLocalBackend::connect_unix(docker).await?;
-            Ok(backend.pull_template(&digest).await?)
-        }
+    let poll = aq_environment_builder::node::Poll {
+        // As often as an idle node renews its presence (`NodeInventory::poll_need`).
+        interval: std::time::Duration::from_millis(native.inventory_ttl_ms / 2),
+        max_list_bytes: config.environments.max_list_bytes,
     };
-    if let Err(e) = hold(&server, held, interval, stop, pull).await {
+    let templates = NodeTemplates(settings.host.docker_local);
+    if let Err(e) = aq_environment_builder::node::hold(&server, held, poll, stop, templates).await {
         tracing::error!(%node, "admitted environments not held: {e:#}");
     }
 }
+/// The node's one heartbeat. Only AQ's own refusal of the credential (revoked or invalid) stops
+/// the node; any other error (an edge 401/403, a 5xx AQ did not mark transient, a protocol
+/// refusal) is logged and the loop is started again after a jittered back-off.
 async fn node_heartbeat(
     worker: WorkerConfig,
     node_stop: watch::Sender<bool>,
@@ -965,6 +986,8 @@ async fn enroll_in(
         shutdown_grace_ms: 120_000,
         retry: Default::default(),
         observations: Default::default(),
+        #[cfg(feature = "project_environments")]
+        environments: Default::default(),
     };
     // Repository count and format, absolute paths, bounds, and the
     // socket paths under the runtime root.
@@ -1438,7 +1461,7 @@ pub async fn run_service(service_config: &Path) -> Result<()> {
         #[cfg(feature = "project_environments")]
         let environments = tokio::spawn(hold_environments(
             worker.clone(),
-            config.native_template.clone(),
+            config.clone(),
             backend.environments[&worker.node_id].clone(),
             node_rx.clone(),
         ));
