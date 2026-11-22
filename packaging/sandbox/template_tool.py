@@ -706,7 +706,13 @@ def main():
     trial.add_argument('--job', type=Path, required=True)
     trial.add_argument('--repo', type=Path, required=True)
     trial.add_argument('--build-config', type=Path, required=True)
+    redaction = sub.add_parser('redact-log', help='print the tail of a log file, redacted like build logs')
+    redaction.add_argument('--input', type=Path, required=True)
+    redaction.add_argument('--limit', type=int, required=True)
     args = parser.parse_args()
+    if args.command == 'redact-log':
+        sys.stdout.write(bounded_log(args.input.read_bytes(), max(args.limit, 0)))
+        return 0
     try:
         if args.command == 'boat-materialize':
             spec = importlib.util.spec_from_file_location('boat_materialize', Path(__file__).with_name('boat_materialize.py'))
