@@ -23,7 +23,10 @@ fn run_reports_missing_worker_config_and_malformed_controller_config() {
     let stderr = String::from_utf8(missing.stderr).unwrap();
     assert!(stderr.contains(&worker.display().to_string()), "{stderr}");
     assert!(stderr.contains("No such file"), "{stderr}");
-    assert!(!stderr.contains("B2 registration/issuance provider"), "{stderr}");
+    assert!(
+        !stderr.contains("B2 registration/issuance provider"),
+        "{stderr}"
+    );
 
     WorkerConfig {
         server_url: "http://127.0.0.1:1".into(),
@@ -39,7 +42,10 @@ fn run_reports_missing_worker_config_and_malformed_controller_config() {
     assert_eq!(malformed.status.code(), Some(2));
     let stderr = String::from_utf8(malformed.stderr).unwrap();
     assert!(stderr.contains("key must be a string"), "{stderr}");
-    assert!(!stderr.contains("B2 registration/issuance provider"), "{stderr}");
+    assert!(
+        !stderr.contains("B2 registration/issuance provider"),
+        "{stderr}"
+    );
     assert!(!stderr.contains("test-credential"), "{stderr}");
 }
 

@@ -563,21 +563,19 @@ async fn source_file_sync_and_cursor_commit_faults_reopen_old_or_matching_new_hi
         }
     }
 }
-/// Snapshot the pipeline, retrying while the storage lane reports overload.
 async fn snapshot_retrying_overload(pipeline: &InputPipeline) -> State {
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let retry = async {
         loop {
             match pipeline.snapshot().await {
-                Ok(state) => break state,
-                Err(error) if error.to_string().contains("storage lane overloaded") => {
-                    tokio::time::sleep(std::time::Duration::from_millis(5)).await
-                }
-                Err(error) => panic!("unexpected retained owner error: {error}"),
+                Err(e) if e.to_string().contains("storage lane overloaded") => {}
+                result => break result.unwrap(),
             }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await
         }
-    })
-    .await
-    .unwrap()
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), retry)
+        .await
+        .unwrap()
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range() {
@@ -595,14 +593,9 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
         tokio::spawn(async move { pipeline.hydrate_source(id, preparation, spec, local).await });
     let before = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            // Check the flag first: a snapshot read before the range was entered
-            // cannot contain the pending range.
             if h.range_entered.load(Ordering::SeqCst) {
-                break serde_json::from_slice::<Snapshot>(
-                    &fs::read(h.root.join("journal.json")).unwrap(),
-                )
-                .unwrap()
-                .state;
+                let bytes = fs::read(h.root.join("journal.json")).unwrap();
+                break serde_json::from_slice::<Snapshot>(&bytes).unwrap().state;
             }
             tokio::time::sleep(std::time::Duration::from_millis(5)).await
         }
