@@ -40,18 +40,7 @@ impl Options {
             "fixture replay requires explicit preflight gate"
         );
         let provider = provider.context("local fixture requires explicit provider origin")?;
-        let url = reqwest::Url::parse(&provider)?;
-        ensure!(
-            url.scheme() == "http"
-                && url.host_str() == Some("127.0.0.1")
-                && url.port().is_some_and(|p| p != 0)
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.path() == "/"
-                && url.query().is_none()
-                && url.fragment().is_none(),
-            "fixture provider must be an explicit numeric loopback origin"
-        );
+        validate_provider(&provider)?;
         Ok(Some(Self {
             provider,
             gate,
@@ -62,6 +51,21 @@ impl Options {
         CodexExecutor::development_loopback(worker)?.with_development_provider(&self.provider)
     }
 }
+fn validate_provider(provider: &str) -> Result<()> {
+    let url = reqwest::Url::parse(provider)?;
+    ensure!(
+        (url.scheme(), url.host_str()) == ("http", Some("127.0.0.1"))
+            && url.port().is_some_and(|p| p != 0)
+            && url.username().is_empty()
+            && url.path() == "/"
+            && [url.password(), url.query(), url.fragment()]
+                .iter()
+                .all(Option::is_none),
+        "fixture provider must be an explicit numeric loopback origin"
+    );
+    Ok(())
+}
+
 pub(super) fn verify_environment() -> Result<()> {
     confinement::require_confined_binary(Path::new("/opt/aq-qualification/aq-worker"))
 }
