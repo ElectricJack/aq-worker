@@ -108,7 +108,8 @@ class SandboxPackaging(unittest.TestCase):
             names = archive.getnames()
         self.assertIn('Cargo.lock', names)
         embedded = {'packaging/sandbox/template_tool.py', 'packaging/sandbox/credential_scan.py',
-                    'packaging/sandbox/boat_materialize.py'}
+                    'packaging/sandbox/boat_materialize.py', 'packaging/sandbox/template_contract.py',
+                    'packaging/sandbox/environment_recipe.py'}
         self.assertTrue(embedded <= set(names), 'runtime source must include embedded template tools')
         self.assertIn('protocol/aq-admission/src/lib.rs', names)
         self.assertNotIn('protocol/unrelated-private.txt', names)

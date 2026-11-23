@@ -117,10 +117,14 @@ def package(revision, inputs, destination, *, pins=None):
         (runtime / 'pins.json').write_text(json.dumps(pins, sort_keys=True, indent=2) + '\n')
         (runtime / 'bundle_manifest.py').write_bytes(read(PACKAGE + 'bundle_manifest.py'))
         # Git archive exports committed paths only; no worktree traversal or homes.
+        # Older revisions retain their published archive layout.
+        helpers = []
+        if git('ls-tree', '--name-only', revision, '--', PACKAGE + 'template_contract.py'):
+            helpers = [PACKAGE + 'environment_recipe.py', PACKAGE + 'template_contract.py']
         with (runtime / 'worker-source.tar').open('xb') as output:
             subprocess.run(['git', 'archive', '--format=tar', revision, 'Cargo.toml', 'Cargo.lock', 'crates', 'vendor',
                             PACKAGE + 'template_tool.py', PACKAGE + 'credential_scan.py',
-                            PACKAGE + 'boat_materialize.py', 'protocol/aq-admission'],
+                            PACKAGE + 'boat_materialize.py', 'protocol/aq-admission', *helpers],
                            cwd=ROOT, stdout=output, check=True)
         archive_digest = digest(runtime / 'worker-source.tar')
         source = {

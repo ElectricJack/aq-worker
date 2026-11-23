@@ -48,10 +48,14 @@ def package(revision, inputs, destination):
     with tempfile.TemporaryDirectory(prefix='aq-runtime-') as temporary:
         context = Path(temporary)
         archive = context / 'worker-source.tar'
+        helpers = []
+        contract = 'packaging/sandbox/template_contract.py'
+        if subprocess.check_output(['git', 'ls-tree', '--name-only', revision, '--', contract], cwd=ROOT):
+            helpers = [contract, 'packaging/sandbox/boat_materialize.py', 'packaging/sandbox/environment_recipe.py']
         subprocess.run(['git', 'archive', '--format=tar', '--output', str(archive), revision,
                         'Cargo.toml', 'Cargo.lock', 'crates', 'vendor', 'protocol/aq-admission',
                         'packaging/sandbox/template_tool.py', 'packaging/sandbox/credential_scan.py',
-                        str(PACKAGE)],
+                        str(PACKAGE), *helpers],
                        cwd=ROOT, check=True)
         with tarfile.open(archive) as source:
             source.extractall(context / 'source', filter='data')

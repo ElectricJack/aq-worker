@@ -12,6 +12,7 @@ pub fn run(args: &[OsString]) -> anyhow::Result<()> {
         };
     }
     tool!("template_tool.py");
+    tool!("template_contract.py");
     tool!("credential_scan.py");
     tool!("environment_recipe.py");
     tool!("boat_materialize.py");
