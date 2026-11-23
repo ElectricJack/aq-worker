@@ -85,6 +85,14 @@ enum Cmd {
         #[arg(long)]
         checks_config: PathBuf,
     },
+    /// Claim and run environment build and try jobs on this template-build
+    /// node (spec 0017), outside attempt capacity.
+    #[cfg(feature = "project_environments")]
+    RunEnvironments {
+        /// Operator JSON: build_config (builder.json), work_dir, node_git.
+        #[arg(long)]
+        environments_config: PathBuf,
+    },
     /// Import evidence-backed historical Boat VM lifecycle facts, then replay.
     /// Stop the controller first: this uses its exclusive Boat journal lock.
     BoatVmTimeBackfill {
@@ -883,6 +891,43 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
                     let _ = tx.send(true);
                 });
                 let result = aq_worker::checks::run(&worker, config, rx).await;
+                watcher.abort();
+                result
+            }
+            .await;
+            match result {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    let (message, code) = run_error(&e);
+                    eprintln!("error: {message}");
+                    code
+                }
+            }
+        }
+        #[cfg(feature = "project_environments")]
+        Cmd::RunEnvironments {
+            environments_config,
+        } => {
+            let result: anyhow::Result<()> = async {
+                let worker = WorkerConfig::load(&path)?;
+                let config =
+                    aq_environment_builder::EnvironmentsConfig::load(&environments_config)?;
+                let server = aq_environment_builder::Server {
+                    url: worker.server_url.clone(),
+                    credential: worker.credential.clone(),
+                    cf_access: worker
+                        .cf_client_id
+                        .clone()
+                        .zip(worker.cf_client_secret.clone()),
+                    max_reply_bytes: config.max_reply_bytes,
+                };
+                let (tx, rx) = tokio::sync::watch::channel(false);
+                let watcher = tokio::spawn(async move {
+                    shutdown_signal().await;
+                    let _ = tx.send(true);
+                });
+                let tool = aq_worker::template::command;
+                let result = aq_environment_builder::run(&server, config, rx, tool).await;
                 watcher.abort();
                 result
             }

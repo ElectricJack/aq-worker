@@ -212,6 +212,12 @@ impl ScriptedDocker {
         let container = state.containers.get_mut(name).expect("container");
         edit(&mut container.body["Labels"]);
     }
+    pub fn has_image(&self, image: &str) -> bool {
+        self.state.lock().unwrap().images.contains(image)
+    }
+    pub fn remove_container(&self, name: &str) {
+        self.state.lock().unwrap().containers.remove(name);
+    }
     pub fn set_status(&self, name: &str, status: &'static str) {
         self.state
             .lock()
@@ -324,6 +330,19 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
     {
         return match state.images.contains(image) {
             true => ok_json(200, json!({ "Id": "sha256:image", "RepoDigests": [image] })),
+            false => error(404, "no such image"),
+        };
+    }
+    // An image a container uses is refused with 409, as the daemon does.
+    if let Some(image) = path
+        .strip_prefix("images/")
+        .filter(|_| request.method == Delete)
+    {
+        if state.containers.values().any(|c| c.body["Image"] == image) {
+            return error(409, "image is in use by a container");
+        }
+        return match state.images.remove(image) {
+            true => ok_json(200, json!([{ "Untagged": image }])),
             false => error(404, "no such image"),
         };
     }

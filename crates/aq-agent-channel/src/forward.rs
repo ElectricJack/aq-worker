@@ -115,6 +115,11 @@ pub(crate) trait Credentials: Send + Sync {
     fn version(&self) -> Option<u64> {
         None
     }
+    /// The attempt's `aq environment try` checkpoint, when it has one.
+    #[cfg(feature = "environment-try")]
+    fn checkpoint(&self) -> Option<crate::CheckpointFuture> {
+        None
+    }
 }
 
 /// Fixed headers (the B6b loopback's Access service token).
@@ -147,6 +152,9 @@ pub(crate) enum Failure {
     Framing,
     /// The upstream failed, redirected, encoded or echoed protected material.
     Upstream,
+    /// The `aq environment try` checkpoint failed; nothing was forwarded.
+    #[cfg(feature = "environment-try")]
+    Checkpoint(crate::CheckpointError),
 }
 
 pub(crate) struct Forwarded {
@@ -287,6 +295,12 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
     if rules.agent_paths {
         agent_path(path).map_err(Failure::Refused)?;
     }
+    // The try route is matched as a plain string: no encoding may disguise it.
+    #[cfg(feature = "environment-try")]
+    check(
+        !(rules.agent_paths && path.starts_with("/v1/agent/environments/") && path.contains('%')),
+        Failure::Refused("the path is not in normal form"),
+    )?;
     let mut headers = HeaderMap::new();
     let mut names = std::collections::BTreeSet::new();
     let mut length = 0usize;
@@ -359,6 +373,12 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
             Failure::Refused("the path is not in normal form"),
         )?;
     }
+    #[cfg(feature = "environment-try")]
+    let body = match rules.agent_paths && method == reqwest::Method::POST && path == crate::TRY_PATH
+    {
+        true => crate::checkpoint::attest(&body, credentials).await?,
+        false => body,
+    };
     // The credential is taken here, after the caller's request has been read,
     // not at accept. A 401 `unauthorized` (`not_applied`: authentication fails
     // before any handler runs) for a credential a rotation has since replaced

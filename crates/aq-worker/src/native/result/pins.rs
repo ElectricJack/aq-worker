@@ -18,6 +18,24 @@ pub struct ResultInstallationPins {
     pub reserved_client_bytes: u64,
 }
 impl ResultInstallationPins {
+    /// The pins a result adapter Definition selects for `adapter`, its digest.
+    pub fn of(
+        adapter: &ArtifactRef,
+        d: &crate::native::adapter::result_profile::ResultAdapterDefinition,
+        permission_digest: Digest,
+    ) -> Self {
+        let (contract, client_manifest) = (d.contract.clone(), d.client_manifest.clone());
+        Self {
+            adapter: adapter.clone(),
+            contract,
+            client_manifest,
+            client_executable: d.client_executable.clone(),
+            environment: d.environment.clone(),
+            recipe: d.recipe.clone(),
+            permission_digest,
+            reserved_client_bytes: d.reserved_client_bytes,
+        }
+    }
     pub fn validate(&self) -> Result<()> {
         for value in [
             &self.adapter,

@@ -124,9 +124,10 @@ fn reasoning_effort(model: &ModelSettings) -> Result<Option<&str>> {
     }
 }
 
-/// Crate-private: callers reach it only through `OpenCodeAgentHome::install`,
+/// Public only for tests/native_cli/opencode_adapter.rs. It maps metadata and
+/// launches nothing; launches reach it only through `OpenCodeAgentHome::install`,
 /// which requires an `AuthorizedConfinement`.
-pub(crate) fn map(
+pub fn map(
     harness: &HarnessSettings,
     model: &ModelSettings,
     paths: OpenCodePaths<'_>,
@@ -341,6 +342,3 @@ pub fn validate_chatgpt_auth_json(bytes: &[u8]) -> Result<i64> {
     );
     Ok(o.expires)
 }
-
-#[cfg(test)]
-mod tests;

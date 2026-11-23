@@ -272,19 +272,13 @@ async fn salvage_claim(
         }));
     };
     let entries = archive(sandbox).await?;
-    let secret = |b: &[u8]| {
-        aq_agent_channel::holds_agent_credential(b) || aq_agent_channel::holds_claude_token_shape(b)
-    };
-    if entries.iter().any(|e| {
-        secret(e.path().as_bytes())
-            || matches!(e, TreeEntry::File { data, .. } if secret(data))
-            || matches!(e, TreeEntry::Symlink { target, .. } if secret(target.as_bytes()))
-    }) {
+    if aq_sandbox_archive::workspace::credential_shaped(&entries) {
         return Ok(Err("credential_in_workspace"));
     }
     let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;
     if let Ok(Some(original)) = crate::native::result::retained_submission(&h.scope)
-        && !secret(original.conclusion.as_str().as_bytes())
+        && !aq_agent_channel::holds_agent_credential(original.conclusion.as_str().as_bytes())
+        && !aq_agent_channel::holds_claude_token_shape(original.conclusion.as_str().as_bytes())
     {
         return Ok(Ok(original));
     }

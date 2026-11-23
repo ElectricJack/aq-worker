@@ -9,6 +9,19 @@ use uuid::Uuid;
 
 /// The attempt a git request is for; the server derives its grant from it.
 pub const ATTEMPT_HEADER: &str = "AQ-Attempt";
+/// Instead of [`ATTEMPT_HEADER`]: the environment job (aq-server spec 0017) a
+/// fetch is for. The server serves it to the node holding the job's claim,
+/// for fetches of the job's repository only.
+#[cfg(feature = "environment-job")]
+pub const ENVIRONMENT_JOB_HEADER: &str = "AQ-Environment-Job";
+
+/// Whom a git request is for; the server derives its authority from it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Scope {
+    Attempt(Uuid),
+    #[cfg(feature = "environment-job")]
+    EnvironmentJob(Uuid),
+}
 /// On the result report (S6): the pushed task ref and the commit it is at,
 /// or, instead of both, that the push met a moved task ref.
 pub const PUSHED_REF_HEADER: &str = "AQ-Pushed-Ref";
@@ -56,9 +69,9 @@ impl Remote {
         }
     }
 
-    /// The git URL of the grant's repository.
-    pub(crate) fn url(&self, grant: &Grant) -> String {
-        format!("{}{}", self.origin, grant.endpoint)
+    /// The git URL of a repository (a valid grant's `endpoint`).
+    pub(crate) fn url(&self, repository: Uuid) -> String {
+        format!("{}{}", self.origin, crate::endpoint(repository))
     }
 
     /// `GET /v1/git/grants/<attempt>`: only a 404 means no grant.
@@ -88,10 +101,14 @@ impl Remote {
         Ok(Some(grant))
     }
 
-    /// Adds the authentication and attempt headers to a git command's environment.
-    pub(crate) fn apply(&self, command: &mut Command, attempt: Uuid) {
-        let attempt = (ATTEMPT_HEADER.to_owned(), attempt.to_string());
-        let headers: Vec<_> = self.headers.iter().chain([&attempt]).collect();
+    /// Adds the authentication and scope headers to a git command's environment.
+    pub(crate) fn apply(&self, command: &mut Command, scope: Scope) {
+        let scope = match scope {
+            Scope::Attempt(id) => (ATTEMPT_HEADER.to_owned(), id.to_string()),
+            #[cfg(feature = "environment-job")]
+            Scope::EnvironmentJob(id) => (ENVIRONMENT_JOB_HEADER.to_owned(), id.to_string()),
+        };
+        let headers: Vec<_> = self.headers.iter().chain([&scope]).collect();
         command.env("GIT_CONFIG_COUNT", headers.len().to_string());
         for (n, (name, value)) in headers.into_iter().enumerate() {
             command
