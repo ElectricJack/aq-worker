@@ -309,9 +309,11 @@ pub(super) fn run(control: wire::Socket) -> Result<()> {
         )?;
         let info = prepared::info(
             &plan,
-            ownership::process_evidence(std::process::id())?,
-            init.clone(),
-            harness.clone(),
+            prepared::PreparedProcesses {
+                guardian: ownership::process_evidence(std::process::id())?,
+                init: init.clone(),
+                stub: harness.clone(),
+            },
             origin.clone(),
         )?;
         control.send(
