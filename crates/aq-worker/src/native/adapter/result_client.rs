@@ -55,6 +55,26 @@ impl ResultClientManifest {
         );
         Ok(selected.clone())
     }
+    fn valid_executable_path(&self) -> bool {
+        self.executable.path.is_absolute()
+            && self.executable.path.as_os_str().len() <= 2048
+            && !self
+                .executable
+                .path
+                .as_os_str()
+                .as_encoded_bytes()
+                .contains(&0)
+    }
+    fn matches_contract(
+        &self,
+        expected: &ExpectedResultClient<'_>,
+        environment: &ArtifactRef,
+    ) -> bool {
+        self.contract == *expected.contract
+            && self.contract == aq_agent_result_local::artifact()
+            && self.environment == *expected.environment
+            && self.environment == *environment
+    }
     fn validate_selection(
         &self,
         expected: &ExpectedResultClient<'_>,
@@ -64,19 +84,9 @@ impl ResultClientManifest {
             self.schema_version == 1
                 && self.digest()? == *expected.manifest_digest
                 && (64..=MAX_RESULT_CLIENT_INSTALLATION_BYTES).contains(&self.executable_bytes)
-                && self.contract == *expected.contract
-                && self.contract == aq_agent_result_local::artifact()
-                && self.environment == *expected.environment
-                && self.environment == *environment
+                && self.matches_contract(expected, environment)
                 && self.executable.artifact == *expected.executable
-                && self.executable.path.is_absolute()
-                && self.executable.path.as_os_str().len() <= 2048
-                && !self
-                    .executable
-                    .path
-                    .as_os_str()
-                    .as_encoded_bytes()
-                    .contains(&0),
+                && self.valid_executable_path(),
             "result client independent contract/environment/image/byte pins"
         );
         for reference in [&self.contract, &self.environment, &self.executable.artifact] {

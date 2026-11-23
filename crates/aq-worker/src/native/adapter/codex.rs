@@ -77,6 +77,107 @@ pub struct CodexExecInput<'a> {
     pub workspace: &'a Path,
     pub private_home: &'a Path,
 }
+struct CodexInstallation<'a> {
+    executable: &'a Path,
+    adapter: &'a ArtifactRef,
+    renderer: &'a ArtifactRef,
+}
+impl<'a> From<&'a AdapterManifest> for CodexInstallation<'a> {
+    fn from(manifest: &'a AdapterManifest) -> Self {
+        Self {
+            executable: &manifest.executable.path,
+            adapter: &manifest.adapter,
+            renderer: &manifest.renderer,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Home {
+    Existing,
+    Planned,
+    InteractivePlanned,
+}
+
+fn canonical_directory(path: &Path) -> Result<bool> {
+    Ok(path.is_absolute() && path.is_dir() && std::fs::canonicalize(path)? == path)
+}
+fn validate_startup(offer: &NativeOffer, payload: &[u8]) -> Result<()> {
+    let descriptor = &offer.startup;
+    let manifest = &offer.offered.offer.manifest;
+    descriptor.validate()?;
+    descriptor.verify_payload(payload)?;
+    ensure!(
+        manifest.modules.contains(&descriptor.artifact()?)
+            && manifest
+                .modules
+                .iter()
+                .filter(|a| a.id.as_str().starts_with("aq.startup-delivery/"))
+                .count()
+                == 1
+            && payload.len() as u64 <= manifest.context.startup_byte_budget,
+        "Codex exact startup descriptor mismatch"
+    );
+    Ok(())
+}
+
+impl Home {
+    fn recipe(
+        self,
+        settings: aq_codex_mapper::Settings<'_>,
+        paths: aq_codex_mapper::Paths<'_>,
+        payload: &[u8],
+    ) -> Result<aq_codex_mapper::Recipe> {
+        if matches!(self, Self::InteractivePlanned) {
+            ensure!(
+                !payload.is_empty()
+                    && payload.len() <= 64 * 1024
+                    && !payload.contains(&0)
+                    && std::str::from_utf8(payload).is_ok(),
+                "interactive verified startup UTF8/64KiB bound"
+            );
+            aq_codex_mapper::map_interactive(settings, paths)
+        } else {
+            aq_codex_mapper::map(settings, paths)
+        }
+    }
+
+    fn validate(self, workspace: &Path, private_home: &Path) -> Result<()> {
+        let planned = !matches!(self, Self::Existing);
+        ensure!(
+            canonical_directory(workspace)?
+                && private_home.is_absolute()
+                && (planned || canonical_directory(private_home)?)
+                && !private_home.starts_with(workspace),
+            "Codex private configuration/workspace paths"
+        );
+        self.validate_contents(private_home)
+    }
+
+    fn validate_contents(self, private_home: &Path) -> Result<()> {
+        if !matches!(self, Self::Existing) {
+            ensure!(
+                matches!(std::fs::symlink_metadata(private_home),Err(ref e) if e.kind()==std::io::ErrorKind::NotFound),
+                "private planned home already exists"
+            );
+        } else {
+            use std::os::unix::fs::MetadataExt;
+            let meta = std::fs::symlink_metadata(private_home)?;
+            ensure!(
+                meta.is_dir()
+                    && meta.uid() == unsafe { libc::geteuid() }
+                    && meta.mode() & 0o777 == 0o700,
+                "Codex private home ownership/mode"
+            );
+            ensure!(
+                std::fs::read_dir(private_home)?.next().is_none(),
+                "Codex private home must be fresh and empty"
+            );
+        }
+        Ok(())
+    }
+}
+
 /// No Serialize or Debug: payload and derived authentication are sensitive.
 /// No spawn/exec method: this is input preparation, not launch authority.
 pub struct PreparedCodexExec {
@@ -102,11 +203,12 @@ impl CodexExecProfile {
                 workspace,
                 private_home,
             },
-            &installed.files[0].pin.path,
-            &installed.adapter,
-            &installed.renderer,
-            false,
-            false,
+            CodexInstallation {
+                executable: &installed.files[0].pin.path,
+                adapter: &installed.adapter,
+                renderer: &installed.renderer,
+            },
+            Home::Existing,
         )?;
         installed.revalidate()?;
         Ok(prepared)
@@ -118,32 +220,22 @@ impl CodexExecProfile {
         installation: &mut super::native_exec::NativeExecInstallation,
         input: CodexExecInput<'_>,
     ) -> Result<PreparedCodexExec> {
-        let m = installation.installation();
-        let prepared = self.prepare_inputs(
-            input,
-            &m.executable.path,
-            &m.adapter,
-            &m.renderer,
-            false,
-            false,
-        )?;
-        installation.revalidate()?;
-        Ok(prepared)
+        self.prepare_native_home(installation, input, Home::Existing)
     }
     pub(crate) fn prepare_native_planned(
         &self,
         installation: &mut super::native_exec::NativeExecInstallation,
         input: CodexExecInput<'_>,
     ) -> Result<PreparedCodexExec> {
-        let m = installation.installation();
-        let prepared = self.prepare_inputs(
-            input,
-            &m.executable.path,
-            &m.adapter,
-            &m.renderer,
-            true,
-            false,
-        )?;
+        self.prepare_native_home(installation, input, Home::Planned)
+    }
+    fn prepare_native_home(
+        &self,
+        installation: &mut super::native_exec::NativeExecInstallation,
+        input: CodexExecInput<'_>,
+        home: Home,
+    ) -> Result<PreparedCodexExec> {
+        let prepared = self.prepare_inputs(input, installation.installation().into(), home)?;
         installation.revalidate()?;
         Ok(prepared)
     }
@@ -152,27 +244,22 @@ impl CodexExecProfile {
         installation: &mut super::named_exec::NamedExecInstallation,
         input: CodexExecInput<'_>,
     ) -> Result<PreparedCodexExec> {
-        let m = installation.installation();
-        let prepared = self.prepare_inputs(
-            input,
-            &m.executable.path,
-            &m.adapter,
-            &m.renderer,
-            true,
-            installation.interactive(),
-        )?;
+        let home = if installation.interactive() {
+            Home::InteractivePlanned
+        } else {
+            Home::Planned
+        };
+        let prepared = self.prepare_inputs(input, installation.installation().into(), home)?;
         installation.revalidate()?;
         Ok(prepared)
     }
     fn prepare_inputs(
         &self,
         input: CodexExecInput<'_>,
-        executable: &Path,
-        adapter: &ArtifactRef,
-        renderer: &ArtifactRef,
-        planned: bool,
-        interactive: bool,
+        installation: CodexInstallation<'_>,
+        home: Home,
     ) -> Result<PreparedCodexExec> {
+        let interactive = matches!(home, Home::InteractivePlanned);
         let CodexExecInput {
             offer,
             expected_manifest,
@@ -182,12 +269,11 @@ impl CodexExecProfile {
         } = input;
         offer.validate()?;
         let manifest = &offer.offered.offer.manifest;
-        let descriptor = &offer.startup;
         ensure!(
             super::super::journal::canonical_digest(manifest)? == *expected_manifest
                 && manifest.harness == self.harness
-                && *adapter == self.harness.adapter
-                && *renderer == self.renderer,
+                && *installation.adapter == self.harness.adapter
+                && *installation.renderer == self.renderer,
             "Codex exact installed settings mismatch"
         );
         let settings = aq_codex_mapper::Settings {
@@ -200,74 +286,17 @@ impl CodexExecProfile {
         } else {
             aq_codex_mapper::validate_settings(settings)?;
         }
-        descriptor.validate()?;
-        descriptor.verify_payload(&payload)?;
-        ensure!(
-            manifest.modules.contains(&descriptor.artifact()?)
-                && manifest
-                    .modules
-                    .iter()
-                    .filter(|a| a.id.as_str().starts_with("aq.startup-delivery/"))
-                    .count()
-                    == 1
-                && payload.len() as u64 <= manifest.context.startup_byte_budget,
-            "Codex exact startup descriptor mismatch"
-        );
-        ensure!(
-            workspace.is_absolute()
-                && workspace.is_dir()
-                && std::fs::canonicalize(workspace)? == workspace
-                && private_home.is_absolute()
-                && (planned
-                    || (private_home.is_dir()
-                        && std::fs::canonicalize(private_home)? == private_home))
-                && private_home != workspace
-                && !private_home.starts_with(workspace),
-            "Codex private configuration/workspace paths"
-        );
-        if planned {
-            ensure!(
-                matches!(std::fs::symlink_metadata(private_home),Err(ref e) if e.kind()==std::io::ErrorKind::NotFound),
-                "private planned home already exists"
-            );
-        } else {
-            use std::os::unix::fs::MetadataExt;
-            let meta = std::fs::symlink_metadata(private_home)?;
-            ensure!(
-                meta.is_dir()
-                    && meta.uid() == unsafe { libc::geteuid() }
-                    && meta.mode() & 0o777 == 0o700,
-                "Codex private home ownership/mode"
-            );
-            ensure!(
-                std::fs::read_dir(private_home)?.next().is_none(),
-                "Codex private home must be fresh and empty"
-            );
-        }
-        let settings = aq_codex_mapper::Settings {
-            harness: &self.harness,
-            model: &manifest.model,
-            terminal_input_enabled: manifest.terminal.input_enabled,
-        };
+        validate_startup(offer, &payload)?;
+        home.validate(workspace, private_home)?;
         let paths = aq_codex_mapper::Paths {
-            executable,
+            executable: installation.executable,
             workspace,
             private_home,
         };
         let mode = selected_confinement(&self.harness, self.confinement.as_ref(), interactive)?;
-        let recipe = if mode == ConfinementMode::Container {
-            aq_codex_mapper::map_container(settings, paths)?
-        } else if interactive {
-            ensure!(
-                !payload.is_empty()
-                    && payload.len() <= 64 * 1024
-                    && !payload.contains(&0)
-                    && std::str::from_utf8(&payload).is_ok(),
-                "interactive verified startup UTF8/64KiB bound"
-            );
-            aq_codex_mapper::map_interactive(settings, paths)?
-        } else {
-            aq_codex_mapper::map(settings, paths)?
+        let recipe = match mode {
+            ConfinementMode::Container => aq_codex_mapper::map_container(settings, paths)?,
+            ConfinementMode::Native => home.recipe(settings, paths, &payload)?,
         };
         Ok(PreparedCodexExec {
             command: LocalCommand {

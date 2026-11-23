@@ -64,15 +64,7 @@ fn retained_boot_fences_live_sources_preserves_packet_and_drains_same_boot_prefi
     store.attach_engine(source(8, 6), 4096, false).unwrap();
     let raw = support::row(1);
     store
-        .collect_frame(
-            Uuid::from_u128(8),
-            &Frame {
-                start: 0,
-                bytes: raw.clone(),
-                oversized: false,
-            },
-            100,
-        )
+        .collect_frame(Uuid::from_u128(8), &frame(0, raw.clone()), 100)
         .unwrap();
     let frozen = store.begin_send(1000).unwrap().unwrap();
     let plan = transition(store.snapshot().unwrap().next);
@@ -90,49 +82,20 @@ fn retained_boot_fences_live_sources_preserves_packet_and_drains_same_boot_prefi
         store
             .collect_frame(
                 Uuid::from_u128(8),
-                &Frame {
-                    start: raw.len() as u64,
-                    bytes: raw.clone(),
-                    oversized: false
-                },
+                &frame(raw.len() as u64, raw.clone()),
                 1002
             )
             .is_err()
     );
     store.attach_engine(source(9, 66), 4096, false).unwrap();
     store
-        .collect_frame(
-            Uuid::from_u128(9),
-            &Frame {
-                start: 0,
-                bytes: raw,
-                oversized: false,
-            },
-            1003,
-        )
+        .collect_frame(Uuid::from_u128(9), &frame(0, raw), 1003)
         .unwrap();
     store.audit().unwrap();
     drop(store);
     let store = Store::open_admitted(&root, Limits::fixture(), Uuid::from_u128(400)).unwrap();
     assert_eq!(store.snapshot().unwrap().active_boot, Uuid::from_u128(66));
-    let mut boots = vec![];
-    let mut ends = vec![];
-    while let Some(packet) = store.prepare().unwrap() {
-        let Message::Batch(batch) = &packet.body.message else {
-            panic!()
-        };
-        boots.push(batch.boot_id);
-        ends.push(batch.last_sequence);
-        store.acknowledge(&support::receipt(&packet)).unwrap();
-    }
-    assert_eq!(
-        boots,
-        vec![Uuid::from_u128(6), Uuid::from_u128(6), Uuid::from_u128(66)]
-    );
-    assert_eq!(ends, vec![1, 2, 3]);
-    assert_eq!(store.snapshot().unwrap().next, 4);
-    assert_eq!(store.snapshot().unwrap().acked, 3);
-    store.audit().unwrap();
+    assert_boot_prefixes(&store);
     let mut changed = plan;
     changed.new_boot_id = Uuid::from_u128(67);
     let changed = VerifiedBootAdmission::verify(changed, &Owner).unwrap();
@@ -163,4 +126,33 @@ fn boot_transition_requires_retained_admitted_owner_and_current_sequence() {
     drop(store);
     let store = Store::open_admitted(&root, Limits::fixture(), Uuid::from_u128(400)).unwrap();
     assert_eq!(store.snapshot().unwrap().active_boot, Uuid::from_u128(6));
+}
+
+fn assert_boot_prefixes(store: &Store) {
+    let mut boots = vec![];
+    let mut ends = vec![];
+    while let Some(packet) = store.prepare().unwrap() {
+        let Message::Batch(batch) = &packet.body.message else {
+            panic!()
+        };
+        boots.push(batch.boot_id);
+        ends.push(batch.last_sequence);
+        store.acknowledge(&support::receipt(&packet)).unwrap();
+    }
+    assert_eq!(
+        boots,
+        vec![Uuid::from_u128(6), Uuid::from_u128(6), Uuid::from_u128(66)]
+    );
+    assert_eq!(ends, vec![1, 2, 3]);
+    assert_eq!(store.snapshot().unwrap().next, 4);
+    assert_eq!(store.snapshot().unwrap().acked, 3);
+    store.audit().unwrap();
+}
+
+fn frame(start: u64, bytes: Vec<u8>) -> Frame {
+    Frame {
+        start,
+        bytes,
+        oversized: false,
+    }
 }

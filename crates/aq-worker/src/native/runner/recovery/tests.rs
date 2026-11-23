@@ -415,7 +415,9 @@ async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission,
     let entries: Vec<_> = files.iter().map(file).map(entry).collect();
     let archive = tar::tree_archive("work", &entries).unwrap(); // members are work/...
     let restart = (aq_protocol::HandoffReason::Restart, None);
-    let claimed = salvage_claim(h, restart, &sandboxes, 1 << 20, async |_| Ok(archive));
+    let claimed = salvage_claim(h, restart, &sandboxes, async move |_| {
+        Ok(tar::read_tree(&archive, 1 << 20)?)
+    });
     claimed.await.unwrap()
 }
 
@@ -512,8 +514,9 @@ async fn salvage_keeps_a_claim_already_recorded() {
 async fn salvage_without_sandbox_is_unsalvageable() {
     let (dir, mut h, a) = salvage_fixture();
     let restart = (aq_protocol::HandoffReason::Restart, None);
-    let never = async |_: &SandboxIdentity| -> Result<Vec<u8>> { panic!("no sandbox to archive") };
-    let refused = salvage_claim(&h, restart, &[], 1 << 20, never).await;
+    let never =
+        async |_: &SandboxIdentity| -> Result<Vec<TreeEntry>> { panic!("no sandbox to archive") };
+    let refused = salvage_claim(&h, restart, &[], never).await;
     assert_eq!(refused.unwrap().err(), Some("sandbox_absent"));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     // Nor can the journal record a salvage without a claim or without a stop proof.

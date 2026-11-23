@@ -213,18 +213,10 @@ impl aq_observation_store::SourceAuthority for Owner {
         &self,
         plan: &aq_observation_store::FileGenerationPlan,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            plan.source_id == Uuid::from_u128(8) && plan.binding == support::binding(),
-            "fixture owner refused source"
-        );
-        Ok(())
+        admit_scope(plan.source_id, &plan.binding, "source")
     }
     fn admit_history(&self, plan: &aq_observation_store::HistoryBoundary) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            plan.source_id == Uuid::from_u128(8) && plan.binding == support::binding(),
-            "fixture owner refused history"
-        );
-        Ok(())
+        admit_scope(plan.source_id, &plan.binding, "history")
     }
 }
 fn checkpoint(name: &str) -> ArtifactRef {
@@ -281,17 +273,7 @@ fn explicit_generation_retains_native_identity_and_requires_owner_history_bounda
             .context
             .history_replay
     );
-    let boundary = aq_observation_store::HistoryBoundary {
-        operation_id: Uuid::from_u128(501),
-        source_id: Uuid::from_u128(8),
-        binding: support::binding(),
-        generation: 2,
-        cursor: raw.len() as u64,
-        checkpoint: checkpoint("synthetic-authenticated-native-history-end"),
-    };
-    let verified = aq_observation_store::VerifiedHistoryBoundary::verify(boundary, &Owner).unwrap();
-    store.finish_file_history(&verified).unwrap();
-    store.finish_file_history(&verified).unwrap();
+    finish_history(&store, raw.len() as u64);
     std::fs::OpenOptions::new()
         .append(true)
         .open(&path)
@@ -313,4 +295,26 @@ fn explicit_generation_retains_native_identity_and_requires_owner_history_bounda
         2
     );
     assert_eq!(store.snapshot().unwrap().queued, 3);
+}
+
+fn admit_scope(id: Uuid, binding: &Binding, kind: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        id == Uuid::from_u128(8) && binding == &support::binding(),
+        "fixture owner refused {kind}"
+    );
+    Ok(())
+}
+
+fn finish_history(store: &Store, cursor: u64) {
+    let boundary = aq_observation_store::HistoryBoundary {
+        operation_id: Uuid::from_u128(501),
+        source_id: Uuid::from_u128(8),
+        binding: support::binding(),
+        generation: 2,
+        cursor,
+        checkpoint: checkpoint("synthetic-authenticated-native-history-end"),
+    };
+    let verified = aq_observation_store::VerifiedHistoryBoundary::verify(boundary, &Owner).unwrap();
+    store.finish_file_history(&verified).unwrap();
+    store.finish_file_history(&verified).unwrap();
 }

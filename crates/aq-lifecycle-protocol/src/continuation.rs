@@ -231,6 +231,11 @@ impl Validate for ParkingReport {
         if let SuspensionDisposition::Held { reason } = &self.disposition {
             reason.validate()?;
         }
+        self.validate_release()
+    }
+}
+impl ParkingReport {
+    fn validate_release(&self) -> Result<(), ContractError> {
         let stopped = matches!(self.stop, StopObservation::ReportedStopped { .. });
         if self.compute_released
             || matches!(

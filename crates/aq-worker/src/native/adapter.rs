@@ -18,6 +18,7 @@ pub mod gemini;
 pub mod named_exec;
 pub mod native_exec;
 pub mod opencode;
+pub(crate) mod recipe;
 pub mod responses_transport;
 pub mod result_client;
 pub mod result_profile;
@@ -93,19 +94,45 @@ impl PinnedFile {
     }
     fn verify(&mut self) -> Result<()> {
         let before = self.file.metadata()?;
+        self.check_permissions(&before)?;
+        let digest = self.hash_bytes(before.len())?;
+        let after = self.file.metadata()?;
+        let named = std::fs::symlink_metadata(&self.pin.path)?;
+        let same_inode =
+            |meta: &std::fs::Metadata| meta.dev() == self.device && meta.ino() == self.inode;
         ensure!(
-            before.is_file()
-                && before.len() > 0
-                && before.len() <= self.max_bytes
-                && before.mode() & 0o111 != 0
-                && before.mode() & 0o6022 == 0
-                && (before.uid() == 0 || before.uid() == unsafe { libc::geteuid() }),
+            named.is_file()
+                && same_inode(&named)
+                && same_inode(&after)
+                && Self::same_revision(&before, &after)
+                && digest == self.pin.artifact.digest.as_str(),
+            "installed adapter file changed"
+        );
+        Ok(())
+    }
+    fn same_revision(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
+        before.len() == after.len()
+            && before.mtime() == after.mtime()
+            && before.mtime_nsec() == after.mtime_nsec()
+            && before.ctime() == after.ctime()
+            && before.ctime_nsec() == after.ctime_nsec()
+    }
+    fn check_permissions(&self, meta: &std::fs::Metadata) -> Result<()> {
+        ensure!(
+            meta.is_file()
+                && meta.len() > 0
+                && meta.len() <= self.max_bytes
+                && meta.mode() & 0o111 != 0
+                && meta.mode() & 0o6022 == 0
+                && (meta.uid() == 0 || meta.uid() == unsafe { libc::geteuid() }),
             "installed adapter file permissions/size"
         );
+        Ok(())
+    }
+    fn hash_bytes(&mut self, mut remaining: u64) -> Result<String> {
         self.file.rewind()?;
         use sha2::Digest as _;
         let mut hash = sha2::Sha256::new();
-        let mut remaining = before.len();
         let mut scratch = [0u8; 65536];
         while remaining > 0 {
             let limit = usize::try_from(remaining.min(scratch.len() as u64))?;
@@ -118,23 +145,7 @@ impl PinnedFile {
             self.file.read(&mut scratch[..1])? == 0,
             "installed adapter grew"
         );
-        let after = self.file.metadata()?;
-        let named = std::fs::symlink_metadata(&self.pin.path)?;
-        ensure!(
-            named.is_file()
-                && named.dev() == self.device
-                && named.ino() == self.inode
-                && after.dev() == self.device
-                && after.ino() == self.inode
-                && before.len() == after.len()
-                && before.mtime() == after.mtime()
-                && before.mtime_nsec() == after.mtime_nsec()
-                && before.ctime() == after.ctime()
-                && before.ctime_nsec() == after.ctime_nsec()
-                && format!("{:x}", hash.finalize()) == self.pin.artifact.digest.as_str(),
-            "installed adapter file changed"
-        );
-        Ok(())
+        Ok(format!("{:x}", hash.finalize()))
     }
 }
 /// No Serialize/Debug, launch method, command or credential-bearing environment.
@@ -145,6 +156,24 @@ pub struct InstalledAdapter {
     files: [PinnedFile; 3],
 }
 impl AdapterManifest {
+    fn matches_references(&self, expected: &ExpectedAdapter<'_>) -> bool {
+        self.adapter == *expected.adapter
+            && self.runtime == *expected.runtime
+            && self.qualification == *expected.qualification
+            && self.renderer == *expected.renderer
+    }
+    fn validate_references(&self) -> Result<()> {
+        for item in [
+            &self.adapter,
+            &self.runtime,
+            &self.qualification,
+            &self.renderer,
+        ] {
+            item.id.validate()?;
+            item.version.validate()?;
+        }
+        Ok(())
+    }
     /// Check byte bounds before deserializing untrusted configuration.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         ensure!(
@@ -163,20 +192,9 @@ impl InstalledAdapter {
             manifest.schema_version == 1 && serde_json::to_vec(&manifest)?.len() <= MAX_MANIFEST,
             "adapter manifest version/size"
         );
-        for item in [
-            &manifest.adapter,
-            &manifest.runtime,
-            &manifest.qualification,
-            &manifest.renderer,
-        ] {
-            item.id.validate()?;
-            item.version.validate()?;
-        }
+        manifest.validate_references()?;
         ensure!(
-            manifest.adapter == *expected.adapter
-                && manifest.runtime == *expected.runtime
-                && manifest.qualification == *expected.qualification
-                && manifest.renderer == *expected.renderer,
+            manifest.matches_references(&expected),
             "adapter independent pins differ"
         );
         let digest = manifest.digest()?;
@@ -251,5 +269,3 @@ impl MaterialHandoff<'_> {
         self.installed.read_private()
     }
 }
-#[cfg(test)]
-mod tests;

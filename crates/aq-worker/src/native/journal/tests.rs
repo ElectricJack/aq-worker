@@ -24,17 +24,14 @@ fn capabilities() -> Vec<Capability> {
     .unwrap()
 }
 fn qualification() -> RuntimeIdentity {
+    let reference = |id: &str, bytes: &[u8]| ArtifactRef {
+        id: Text::new(id).unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(bytes),
+    };
     RuntimeIdentity {
-        runtime: ArtifactRef {
-            id: Text::new("synthetic.runtime").unwrap(),
-            version: Text::new("1").unwrap(),
-            digest: Digest::of(b"synthetic runtime"),
-        },
-        qualification: ArtifactRef {
-            id: Text::new("synthetic.qualification").unwrap(),
-            version: Text::new("1").unwrap(),
-            digest: Digest::of(b"synthetic qualification"),
-        },
+        runtime: reference("synthetic.runtime", b"synthetic runtime"),
+        qualification: reference("synthetic.qualification", b"synthetic qualification"),
     }
 }
 fn limits() -> Limits {
@@ -47,6 +44,15 @@ fn limits() -> Limits {
 }
 fn create(root: &Path) -> Journal {
     Journal::create_identity(root, identity(), limits()).unwrap()
+}
+fn reopen(root: &Path) -> Result<Journal> {
+    Journal::open(root, identity().node_id, limits())
+}
+fn journal_fixture() -> (tempfile::TempDir, std::path::PathBuf, Journal) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("native");
+    let journal = create(&root);
+    (dir, root, journal)
 }
 fn reserve(journal: &mut Journal) -> Uuid {
     journal
@@ -74,9 +80,7 @@ fn a_panicking_journal_decode_is_an_error() {
 }
 #[test]
 fn reservation_acceptance_survive_restart_without_restoring_live_authority() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("native");
-    let mut journal = create(&root);
+    let (_dir, root, mut journal) = journal_fixture();
     let author = GitAuthor {
         name: "Task Creator".into(),
         email: "owner@example.invalid".into(),
@@ -103,7 +107,7 @@ fn reservation_acceptance_survive_restart_without_restoring_live_authority() {
     );
     let revision = journal.state().revision;
     drop(journal);
-    let mut recovered = Journal::open(&root, identity().node_id, limits()).unwrap();
+    let mut recovered = reopen(&root).unwrap();
     assert!(recovered.recovery_required());
     assert!(recovered.available().is_err());
     assert_eq!(recovered.state().identity, identity());
@@ -157,16 +161,14 @@ async fn interrupted_replacement_recovers_only_published_state_and_poisoned_writ
         (WriteFault::AfterRename, true),
         (WriteFault::AfterDirectorySync, true),
     ] {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("native");
-        let mut journal = create(&root);
+        let (_dir, root, mut journal) = journal_fixture();
         let id = reserve(&mut journal);
         journal.inject_fault(fault);
         assert!(journal.begin_accept(id, capabilities()).is_err());
         assert!(journal.recovery_required());
         assert!(journal.begin_accept(id, capabilities()).is_err());
         drop(journal);
-        let recovered = Journal::open(&root, identity().node_id, limits()).unwrap();
+        let recovered = reopen(&root).unwrap();
         assert_eq!(
             recovered.state().attempts[&id].acceptance.is_some(),
             published
@@ -177,8 +179,7 @@ async fn interrupted_replacement_recovers_only_published_state_and_poisoned_writ
 }
 #[test]
 fn unknown_attempts_and_changed_acceptance_retries_do_not_consume_revision() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut journal = create(&dir.path().join("native"));
+    let (_dir, _root, mut journal) = journal_fixture();
     let id = reserve(&mut journal);
     journal.begin_accept(id, capabilities()).unwrap();
     let revision = journal.state().revision;
@@ -197,9 +198,7 @@ fn unknown_attempts_and_changed_acceptance_retries_do_not_consume_revision() {
 }
 #[test]
 fn expired_reservation_is_still_held_and_cannot_reaccept() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("native");
-    let mut journal = create(&root);
+    let (_dir, _root, mut journal) = journal_fixture();
     let id = reserve(&mut journal);
     let now = boot_ns().unwrap();
     let mut state = journal.next().unwrap();
@@ -217,44 +216,33 @@ fn expired_reservation_is_still_held_and_cannot_reaccept() {
 }
 #[test]
 fn capacity_and_clock_limits_refuse_before_any_new_durable_record() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut journal = create(&dir.path().join("native"));
+    let (_dir, root, mut journal) = journal_fixture();
     let now = boot_ns().unwrap();
     let revision = journal.state().revision;
-    assert!(
-        journal
-            .reserve(offer(), qualification(), now - 1, 1)
-            .is_err()
-    );
-    assert!(
-        journal
-            .reserve(offer(), qualification(), u64::MAX, 1)
-            .is_err()
-    );
-    assert!(
-        journal
-            .reserve(offer(), qualification(), now + 300_000_000, 4097)
-            .is_err()
-    );
-    assert!(
-        journal
-            .reserve(offer(), qualification(), now + 300_000_000, 0)
-            .is_err()
-    );
+    for (deadline, disk) in [
+        (now - 1, 1),
+        (u64::MAX, 1),
+        (now + 300_000_000, 4097),
+        (now + 300_000_000, 0),
+    ] {
+        assert!(
+            journal
+                .reserve(offer(), qualification(), deadline, disk)
+                .is_err()
+        );
+    }
     assert_eq!(journal.state().revision, revision);
     assert!(journal.state().attempts.is_empty());
     reserve(&mut journal);
     drop(journal);
     let mut reduced = limits();
     reduced.disk_bytes = 1;
-    assert!(Journal::open(&dir.path().join("native"), identity().node_id, reduced).is_err());
+    assert!(Journal::open(&root, identity().node_id, reduced).is_err());
 }
 #[test]
 fn missing_corrupt_newer_and_wrong_node_journals_are_not_empty_nodes() {
     for mode in 0..4 {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("native");
-        let journal = create(&root);
+        let (_dir, root, journal) = journal_fixture();
         drop(journal);
         match mode {
             0 => fs::remove_file(root.join("journal.json")).unwrap(),
@@ -274,9 +262,7 @@ fn missing_corrupt_newer_and_wrong_node_journals_are_not_empty_nodes() {
 #[test]
 fn checksum_and_structural_association_are_both_checked_on_reopen() {
     for valid_checksum in [false, true] {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("native");
-        let mut journal = create(&root);
+        let (_dir, root, mut journal) = journal_fixture();
         let id = reserve(&mut journal);
         journal.begin_accept(id, capabilities()).unwrap();
         drop(journal);
@@ -295,42 +281,37 @@ fn checksum_and_structural_association_are_both_checked_on_reopen() {
             snapshot.digest = canonical_digest(&snapshot.state).unwrap();
         }
         fs::write(file, canonical_bytes(&snapshot).unwrap()).unwrap();
-        assert!(Journal::open(&root, identity().node_id, limits()).is_err());
+        assert!(reopen(&root).is_err());
     }
 }
 #[test]
 fn different_kernel_boot_is_historical_without_comparing_local_clocks() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("native");
-    let mut journal = create(&root);
+    let (_dir, root, mut journal) = journal_fixture();
     let id = reserve(&mut journal);
     drop(journal);
     let old_boot = Uuid::new_v4();
     rewrite(&root, |s| s.kernel_boot_id = old_boot);
-    let mut recovered = Journal::open(&root, identity().node_id, limits()).unwrap();
+    let mut recovered = reopen(&root).unwrap();
     assert!(recovered.recovery_required());
     assert_eq!(recovered.state().kernel_boot_id, old_boot);
     assert!(recovered.begin_accept(id, capabilities()).is_err());
 }
 #[test]
 fn exclusive_owner_and_unsafe_paths_refuse() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("native");
-    let journal = create(&root);
-    assert!(Journal::open(&root, identity().node_id, limits()).is_err());
+    let (dir, root, journal) = journal_fixture();
+    assert!(reopen(&root).is_err());
     drop(journal);
     let alias = dir.path().join("alias");
     symlink(&root, &alias).unwrap();
     assert!(Journal::open(&alias, identity().node_id, limits()).is_err());
     fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
-    assert!(Journal::open(&root, identity().node_id, limits()).is_err());
+    assert!(reopen(&root).is_err());
 }
 #[test]
 fn symlink_hardlink_and_nonprivate_members_refuse() {
     for mode in 0..3 {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("native");
-        drop(create(&root));
+        let (dir, root, journal) = journal_fixture();
+        drop(journal);
         let file = root.join("journal.json");
         let outside = dir.path().join("outside");
         match mode {
@@ -341,7 +322,7 @@ fn symlink_hardlink_and_nonprivate_members_refuse() {
             1 => fs::hard_link(&file, &outside).unwrap(),
             _ => fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap(),
         }
-        assert!(Journal::open(&root, identity().node_id, limits()).is_err());
+        assert!(reopen(&root).is_err());
     }
 }
 #[test]
@@ -361,9 +342,8 @@ fn root_replacement_cannot_redirect_an_open_writers_effects() {
 #[test]
 fn oversized_member_and_unknown_root_member_fail_closed() {
     for oversized in [false, true] {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("native");
-        drop(create(&root));
+        let (_dir, root, journal) = journal_fixture();
+        drop(journal);
         if oversized {
             fs::OpenOptions::new()
                 .write(true)
@@ -374,7 +354,7 @@ fn oversized_member_and_unknown_root_member_fail_closed() {
         } else {
             fs::write(root.join("unexpected"), b"x").unwrap();
         }
-        assert!(Journal::open(&root, identity().node_id, limits()).is_err());
+        assert!(reopen(&root).is_err());
     }
 }
 #[tokio::test]
@@ -412,33 +392,27 @@ async fn actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_or
         cf_client_secret: None,
     })
     .unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("native");
-    let mut journal = create(&root);
+    let (_dir, root, mut journal) = journal_fixture();
     let id = reserve(&mut journal);
     let request = journal.begin_accept(id, capabilities()).unwrap();
     let cap = journal.state().attempts[&id].reservation.deadline_ns;
     let observed = client.accept(&request, cap, None).await.unwrap();
     journal.record_preparation(id, &observed).unwrap();
-    let first = journal.state().attempts[&id]
-        .preparation
-        .as_ref()
-        .unwrap()
-        .deadline_ns;
-    let repeated = client.accept(&request, cap, Some(&observed)).await.unwrap();
-    journal.record_preparation(id, &repeated).unwrap();
-    assert!(
-        journal.state().attempts[&id]
+    let deadline = |j: &Journal| {
+        j.state().attempts[&id]
             .preparation
             .as_ref()
             .unwrap()
             .deadline_ns
-            <= first
-    );
+    };
+    let first = deadline(&journal);
+    let repeated = client.accept(&request, cap, Some(&observed)).await.unwrap();
+    journal.record_preparation(id, &repeated).unwrap();
+    assert!(deadline(&journal) <= first);
     crate::native::http::test_clock::expire(cap).await;
     assert!(client.accept(&request, cap, Some(&observed)).await.is_err());
     drop(journal);
-    let recovered = Journal::open(&root, identity().node_id, limits()).unwrap();
+    let recovered = reopen(&root).unwrap();
     assert!(recovered.recovery_required());
     assert!(recovered.state().attempts[&id].preparation.is_some());
     task.abort();
@@ -446,9 +420,7 @@ async fn actual_http_preparation_is_recorded_after_exact_acceptance_and_keeps_or
 
 #[test]
 fn changed_private_root_permissions_refuse_further_capacity_or_writes() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("native");
-    let mut journal = create(&root);
+    let (_dir, root, mut journal) = journal_fixture();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(journal.available().is_err());
     assert!(
@@ -485,14 +457,12 @@ mod refresh_physical_scenarios;
 /// update_result continues only a salvaged history.
 #[test]
 fn salvage_and_restarted_update_gates() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("native");
-    let mut live = create(&root);
+    let (_dir, root, mut live) = journal_fixture();
     let id = Uuid::new_v4();
     let e = live.salvage_result(id, None).err().unwrap();
     assert!(e.to_string().contains("restarted owner only"), "{e:#}");
     drop(live);
-    let mut restarted = Journal::open(&root, identity().node_id, limits()).unwrap();
+    let mut restarted = reopen(&root).unwrap();
     assert!(restarted.recovery_required());
     let e = restarted.salvage_result(id, None).err().unwrap();
     assert!(

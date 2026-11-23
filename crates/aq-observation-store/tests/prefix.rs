@@ -23,6 +23,44 @@ fn exact_escaped_envelope_sizes_choose_same_maximal_prefix_as_reference_algorith
     source.provider = long.clone();
     source.account_reference = long.clone();
     store.attach(source.clone()).unwrap();
+    let events = escaped_events(&long);
+    store.append(source.source_id, 0, 1, &events, &[]).unwrap();
+    let mut selected = vec![];
+    let mut expected = None;
+    for event in &events {
+        let mut candidate = selected.clone();
+        candidate.push(event.clone());
+        let batch = ObservationBatch {
+            node_id: Uuid::from_u128(5),
+            boot_id: Uuid::from_u128(6),
+            first_sequence: 1,
+            last_sequence: event.body.sequence,
+            events: candidate,
+        };
+        match Packet::seal(id(&batch), Message::Batch(batch)) {
+            Ok(packet) => {
+                let Message::Batch(batch) = &packet.body.message else {
+                    panic!()
+                };
+                selected = batch.events.clone();
+                expected = Some(packet)
+            }
+            Err(_) => break,
+        }
+    }
+    assert!(
+        selected.len() < 32 && selected.len() > 1,
+        "exercise actual packet byte boundary"
+    );
+    let packet = store.prepare().unwrap().unwrap();
+    assert_eq!(Some(packet.clone()), expected);
+    assert!(serde_json::to_vec(&packet).unwrap().len() <= MAX_BATCH_BYTES);
+    store.acknowledge(&support::receipt(&packet)).unwrap();
+    assert!(store.prepare().unwrap().is_some());
+    store.audit().unwrap();
+}
+
+fn escaped_events(long: &Text) -> Vec<ObservationRecord> {
     let artifact = ArtifactRef {
         id: long.clone(),
         version: long.clone(),
@@ -61,38 +99,5 @@ fn exact_escaped_envelope_sizes_choose_same_maximal_prefix_as_reference_algorith
         template.push(event.clone());
         events.push(event);
     }
-    store.append(source.source_id, 0, 1, &events, &[]).unwrap();
-    let mut selected = vec![];
-    let mut expected = None;
-    for event in &events {
-        let mut candidate = selected.clone();
-        candidate.push(event.clone());
-        let batch = ObservationBatch {
-            node_id: Uuid::from_u128(5),
-            boot_id: Uuid::from_u128(6),
-            first_sequence: 1,
-            last_sequence: event.body.sequence,
-            events: candidate,
-        };
-        match Packet::seal(id(&batch), Message::Batch(batch)) {
-            Ok(packet) => {
-                let Message::Batch(batch) = &packet.body.message else {
-                    panic!()
-                };
-                selected = batch.events.clone();
-                expected = Some(packet)
-            }
-            Err(_) => break,
-        }
-    }
-    assert!(
-        selected.len() < 32 && selected.len() > 1,
-        "exercise actual packet byte boundary"
-    );
-    let packet = store.prepare().unwrap().unwrap();
-    assert_eq!(Some(packet.clone()), expected);
-    assert!(serde_json::to_vec(&packet).unwrap().len() <= MAX_BATCH_BYTES);
-    store.acknowledge(&support::receipt(&packet)).unwrap();
-    assert!(store.prepare().unwrap().is_some());
-    store.audit().unwrap();
+    events
 }

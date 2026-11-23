@@ -63,13 +63,7 @@ impl Grant {
             self.endpoint == format!("/v1/git/{}", self.repository_id)
                 && oid(&self.base)
                 && self.lease.as_deref().is_none_or(oid)
-                && !task.is_empty()
-                && task
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-                && !task.starts_with('.')
-                && !task.contains("..")
-                && !task.ends_with(".lock"),
+                && valid_task_name(task),
             "git grant shape"
         );
         Ok(())
@@ -77,6 +71,16 @@ impl Grant {
     fn branch(&self) -> &str {
         self.task_ref.trim_start_matches("refs/heads/")
     }
+}
+
+fn valid_task_name(task: &str) -> bool {
+    !task.is_empty()
+        && task
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+        && !task.starts_with('.')
+        && !task.contains("..")
+        && !task.ends_with(".lock")
 }
 
 /// The node's git configuration (the worker service sets it per slot).
@@ -151,6 +155,39 @@ struct Output {
     code: Option<i32>,
     stdout: String,
     stderr: String,
+}
+
+enum PushStatus {
+    Applied,
+    Conflict,
+    Retry,
+}
+
+impl Output {
+    // Porcelain: <flag> TAB <from>:<to> TAB <summary>. Up-to-date counts as success
+    // when a prior push succeeded and only its reply was lost.
+    fn push_status(&self, task_ref: &str) -> PushStatus {
+        let line = self.stdout.lines().find(|line| {
+            line.split('\t')
+                .nth(1)
+                .is_some_and(|reference| reference.ends_with(task_ref))
+        });
+        let Some(line) = line else {
+            return PushStatus::Retry;
+        };
+        if !line.starts_with('!') {
+            return if self.ok {
+                PushStatus::Applied
+            } else {
+                PushStatus::Retry
+            };
+        }
+        if line.contains("(stale info)") {
+            PushStatus::Conflict
+        } else {
+            PushStatus::Retry
+        }
+    }
 }
 
 fn record(path: &Path) -> PathBuf {
@@ -338,7 +375,8 @@ impl NodeGit {
     /// The project's repository is current: cloned the first time, fetched
     /// (and pruned) after. Every branch of central aq-git is mirrored under
     /// `refs/remotes/central/`; the grant's commits must be among them.
-    fn sync(&self, remote: &Remote, grant: &Grant, attempt: Uuid, repo: &Path) -> Result<Synced> {
+    fn sync(&self, session: (&Remote, Uuid), grant: &Grant, repo: &Path) -> Result<Synced> {
+        let (remote, attempt) = session;
         let synced = if repo.join("HEAD").exists() {
             Synced::Fetched
         } else {
@@ -392,7 +430,7 @@ impl NodeGit {
         ensure!(path.is_absolute(), "worktree path must be absolute");
         let repo = self.repository(grant.repository_id);
         let _lock = self.lock(grant.repository_id)?;
-        let synced = self.sync(remote, grant, attempt, &repo)?;
+        let synced = self.sync((remote, attempt), grant, &repo)?;
         let from = grant.lease.clone().unwrap_or_else(|| grant.base.clone());
         // A worktree an earlier boot left behind for this attempt is replaced.
         self.remove_worktree(&repo, path)?;
@@ -443,7 +481,14 @@ impl NodeGit {
             &message,
             &main,
         ];
-        let merged = self.run_as(dir, &merge, None, author)?;
+        let merged = self.run_as(
+            dir,
+            &merge,
+            GitEnvironment {
+                remote: None,
+                author,
+            },
+        )?;
         if merged.ok {
             return Ok(vec![]);
         }
@@ -461,8 +506,10 @@ impl NodeGit {
         self.ok_as(
             dir,
             &["commit", "--quiet", "--no-verify", "--no-edit"],
-            None,
-            author,
+            GitEnvironment {
+                remote: None,
+                author,
+            },
         )?;
         Ok(conflicts)
     }
@@ -491,17 +538,32 @@ impl NodeGit {
         message: &str,
         author: Option<(&str, &str)>,
     ) -> Result<Pushed> {
-        let dir = &worktree.path;
+        let commit = self.commit_changes(&worktree.path, message, author)?;
+        self.push_commit(remote, worktree, commit)
+    }
+
+    fn commit_changes(
+        &self,
+        dir: &Path,
+        message: &str,
+        author: Option<(&str, &str)>,
+    ) -> Result<String> {
         self.ok(dir, &["add", "--all"], None)?;
         if !self.run(dir, &["diff", "--cached", "--quiet"], None)?.ok {
             self.ok_as(
                 dir,
                 &["commit", "--quiet", "--no-verify", "-m", message],
-                None,
-                author,
+                GitEnvironment {
+                    remote: None,
+                    author,
+                },
             )?;
         }
-        let commit = self.ok(dir, &["rev-parse", "HEAD"], None)?;
+        self.ok(dir, &["rev-parse", "HEAD"], None)
+    }
+
+    fn push_commit(&self, remote: &Remote, worktree: &Worktree, commit: String) -> Result<Pushed> {
+        let dir = &worktree.path;
         let grant = &worktree.grant;
         let lease = format!(
             "--force-with-lease={}:{}",
@@ -517,24 +579,15 @@ impl NodeGit {
                 std::thread::sleep(self.limits.retry_delay);
             }
             let out = self.run(dir, &args, Some((remote, worktree.attempt)))?;
-            // Porcelain: `<flag>\t<from>:<to>\t<summary>`; `=` is "up to date",
-            // which is what a retry sees after a push whose reply was lost.
-            let ours = |l: &&str| {
-                l.split('\t')
-                    .nth(1)
-                    .is_some_and(|r| r.ends_with(&grant.task_ref))
-            };
-            match out.stdout.lines().find(ours) {
-                Some(l) if out.ok && !l.starts_with('!') => {
+            match out.push_status(&grant.task_ref) {
+                PushStatus::Applied => {
                     return Ok(Pushed::Pushed {
                         task_ref: grant.task_ref.clone(),
                         commit,
                     });
                 }
-                Some(l) if l.starts_with('!') && l.contains("(stale info)") => {
-                    return Ok(Pushed::Conflict);
-                }
-                _ => last = format!("{}{}", out.stdout, out.stderr),
+                PushStatus::Conflict => return Ok(Pushed::Conflict),
+                PushStatus::Retry => last = format!("{}{}", out.stdout, out.stderr),
             }
         }
         bail!(
@@ -576,20 +629,21 @@ impl NodeGit {
     }
 
     fn ok(&self, dir: &Path, args: &[&str], remote: Option<(&Remote, Uuid)>) -> Result<String> {
-        self.ok_as(dir, args, remote, None)
+        self.ok_as(
+            dir,
+            args,
+            GitEnvironment {
+                remote,
+                author: None,
+            },
+        )
     }
 
-    fn ok_as(
-        &self,
-        dir: &Path,
-        args: &[&str],
-        remote: Option<(&Remote, Uuid)>,
-        author: Option<(&str, &str)>,
-    ) -> Result<String> {
-        let out = self.run_as(dir, args, remote, author)?;
+    fn ok_as(&self, dir: &Path, args: &[&str], env: GitEnvironment<'_>) -> Result<String> {
+        let out = self.run_as(dir, args, env)?;
         if !out.ok {
             let said = format!("{}{}", out.stdout, out.stderr);
-            let said = remote.map_or(said.clone(), |(r, _)| r.redact(&said));
+            let said = env.remote.map_or(said.clone(), |(r, _)| r.redact(&said));
             bail!("git {} failed ({:?}): {}", args[0], out.code, said.trim());
         }
         Ok(out.stdout.trim().to_owned())
@@ -598,16 +652,17 @@ impl NodeGit {
     /// Runs the node's git with no inherited configuration, prompts or hooks,
     /// killed with its process group after the command timeout.
     fn run(&self, dir: &Path, args: &[&str], remote: Option<(&Remote, Uuid)>) -> Result<Output> {
-        self.run_as(dir, args, remote, None)
+        self.run_as(
+            dir,
+            args,
+            GitEnvironment {
+                remote,
+                author: None,
+            },
+        )
     }
 
-    fn run_as(
-        &self,
-        dir: &Path,
-        args: &[&str],
-        remote: Option<(&Remote, Uuid)>,
-        author: Option<(&str, &str)>,
-    ) -> Result<Output> {
+    fn run_as(&self, dir: &Path, args: &[&str], env: GitEnvironment<'_>) -> Result<Output> {
         let mut command = Command::new(&self.git);
         command.arg("-C").arg(dir);
         for setting in [
@@ -623,7 +678,7 @@ impl NodeGit {
             command.args(["-c", setting]);
         }
         let (name, email) = &self.identity;
-        let (author_name, author_email) = author.unwrap_or((name, email));
+        let (author_name, author_email) = env.author.unwrap_or((name, email));
         command
             .args(args)
             .env_clear()
@@ -640,46 +695,56 @@ impl NodeGit {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0);
-        if let Some((remote, attempt)) = remote {
+        if let Some((remote, attempt)) = env.remote {
             remote.apply(&mut command, attempt);
         }
-        let mut child = command.spawn().context("git could not start")?;
-        let drain = |mut pipe: Box<dyn std::io::Read + Send>| {
-            std::thread::spawn(move || {
-                let mut kept = Vec::new();
-                let _ = pipe.read_to_end(&mut kept);
-                String::from_utf8_lossy(&kept).into_owned()
-            })
-        };
-        let stdout = drain(Box::new(child.stdout.take().context("git stdout")?));
-        let stderr = drain(Box::new(child.stderr.take().context("git stderr")?));
-        let deadline = Instant::now() + self.limits.command_timeout;
-        let status = loop {
-            if let Some(status) = child.try_wait()? {
-                break Some(status);
-            }
-            if Instant::now() >= deadline {
-                // SAFETY: the unreaped child still owns its process group.
-                unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
-                child.wait()?;
-                break None;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        };
-        let (stdout, mut stderr) = (
-            stdout.join().unwrap_or_default(),
-            stderr.join().unwrap_or_default(),
-        );
-        if status.is_none() {
-            stderr.push_str("\nkilled after the git command timeout");
-        }
-        Ok(Output {
-            ok: status.is_some_and(|s| s.success()),
-            code: status.and_then(|s| s.code()),
-            stdout,
-            stderr,
-        })
+        collect_output(command, self.limits.command_timeout)
     }
+}
+
+#[derive(Clone, Copy)]
+struct GitEnvironment<'a> {
+    remote: Option<(&'a Remote, Uuid)>,
+    author: Option<(&'a str, &'a str)>,
+}
+
+fn collect_output(mut command: Command, timeout: Duration) -> Result<Output> {
+    let mut child = command.spawn().context("git could not start")?;
+    let drain = |mut pipe: Box<dyn std::io::Read + Send>| {
+        std::thread::spawn(move || {
+            let mut kept = Vec::new();
+            let _ = pipe.read_to_end(&mut kept);
+            String::from_utf8_lossy(&kept).into_owned()
+        })
+    };
+    let stdout = drain(Box::new(child.stdout.take().context("git stdout")?));
+    let stderr = drain(Box::new(child.stderr.take().context("git stderr")?));
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            // SAFETY: the unreaped child still owns its process group.
+            unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
+            child.wait()?;
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let (stdout, mut stderr) = (
+        stdout.join().unwrap_or_default(),
+        stderr.join().unwrap_or_default(),
+    );
+    if status.is_none() {
+        stderr.push_str("\nkilled after the git command timeout");
+    }
+    Ok(Output {
+        ok: status.is_some_and(|s| s.success()),
+        code: status.and_then(|s| s.code()),
+        stdout,
+        stderr,
+    })
 }
 
 #[cfg(any(test, feature = "test-support"))]

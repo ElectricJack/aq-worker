@@ -1,3 +1,5 @@
+#[path = "backend_conformance/check_execution.rs"]
+mod check_execution;
 use aq_worker::backend::*;
 use uuid::Uuid;
 

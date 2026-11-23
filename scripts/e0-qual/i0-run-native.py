@@ -43,6 +43,22 @@ def stop(child):
             child.wait(timeout=5)
 
 
+def verify_worker_binding():
+    operation = str(uuid.uuid4())
+    registered = exchange({
+        'protocol_version': 1, 'request_id': operation, 'operation_id': operation,
+        'operation': 'repo.register', 'repository_id': REPOSITORY, 'expected_binding_generation': 0,
+        'params': {'binding': {'identity': IDENTITY, 'mode': 'worker',
+                               'binding_generation': GENERATION, 'object_format': 'sha1'}}})
+    current = exchange({'protocol_version': 1, 'request_id': str(uuid.uuid4()), 'operation': 'repo.show',
+                        'repository_id': REPOSITORY, 'expected_binding_generation': GENERATION,
+                        'params': {}})
+    if current != registered or current.get('mode') != 'worker':
+        raise RuntimeError('worker binding mismatch')
+    print(json.dumps({'event': 'worker_binding', 'repository_id': REPOSITORY,
+                      'binding_generation': GENERATION, 'mode': 'worker'}), flush=True)
+
+
 def main():
     if (STATE / 'journal').exists() or (STATE / 'materials').exists():
         raise RuntimeError('state root is not fresh')
@@ -56,19 +72,7 @@ def main():
             if git.poll() is not None or time.monotonic() > deadline:
                 raise RuntimeError('aq-git did not listen')
             time.sleep(0.05)
-        operation = str(uuid.uuid4())
-        registered = exchange({
-            'protocol_version': 1, 'request_id': operation, 'operation_id': operation,
-            'operation': 'repo.register', 'repository_id': REPOSITORY, 'expected_binding_generation': 0,
-            'params': {'binding': {'identity': IDENTITY, 'mode': 'worker',
-                                   'binding_generation': GENERATION, 'object_format': 'sha1'}}})
-        current = exchange({'protocol_version': 1, 'request_id': str(uuid.uuid4()), 'operation': 'repo.show',
-                            'repository_id': REPOSITORY, 'expected_binding_generation': GENERATION,
-                            'params': {}})
-        if current != registered or current.get('mode') != 'worker':
-            raise RuntimeError('worker binding mismatch')
-        print(json.dumps({'event': 'worker_binding', 'repository_id': REPOSITORY,
-                          'binding_generation': GENERATION, 'mode': 'worker'}), flush=True)
+        verify_worker_binding()
         started = time.time()
         worker_config = sys.argv[1] if len(sys.argv) > 1 else str(CONFIG / 'worker.toml')
         worker = subprocess.Popen([str(IMAGE / 'aq-worker'), '--config', worker_config,

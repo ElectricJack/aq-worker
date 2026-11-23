@@ -5,8 +5,7 @@ use crate::native::adapter::responses_transport::{
 };
 use aq_session_protocol::Text;
 use tokio::io::AsyncReadExt;
-#[tokio::test]
-async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll() {
+async fn transport() -> (Uuid, ScopedResponsesTransport) {
     let fixture: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../../../vendor/aq-admission-0.1.9/artifacts/startup.fixture.json"
     ))
@@ -34,8 +33,9 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
     )
     .await
     .unwrap();
-    let address = owner.origin().strip_prefix("http://").unwrap().to_owned();
-    let mut pending = tokio::net::TcpStream::connect(&address).await.unwrap();
+    (id, owner)
+}
+fn retained_registry(id: Uuid, owner: ScopedResponsesTransport) -> (Registry, Arc<Entry>) {
     let state = crate::native::journal::State {
         format: crate::native::journal::FORMAT,
         identity: aq_admission::transport::WorkerIdentity {
@@ -75,6 +75,14 @@ async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll
         .unwrap()
         .entries
         .insert(id, entry.clone());
+    (registry, entry)
+}
+#[tokio::test]
+async fn logical_stop_fence_closes_transport_before_any_async_physical_stop_poll() {
+    let (id, owner) = transport().await;
+    let address = owner.origin().strip_prefix("http://").unwrap().to_owned();
+    let mut pending = tokio::net::TcpStream::connect(&address).await.unwrap();
+    let (registry, entry) = retained_registry(id, owner);
     let dir = tempfile::tempdir().unwrap();
     let journal = Journal::create(
         &dir.path().join("journal"),

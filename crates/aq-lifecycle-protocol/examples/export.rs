@@ -163,7 +163,7 @@ fn stop_proof_receipt() -> RetentionReceipt {
         retained_until_ms: 1000000,
     }
 }
-pub fn fixtures() -> Value {
+fn usage_batch() -> (ObservationRecord, Packet) {
     let first = ObservationRecord::seal(
         id(101),
         observation(
@@ -204,6 +204,10 @@ pub fn fixtures() -> Value {
         }),
     )
     .unwrap();
+    (first, batch)
+}
+
+fn suspension_packets() -> [Packet; 3] {
     let summary = SummaryClaim {
         text: SummaryText::new(
             "Goal: preserve work.\nUncertainty: effects require reconciliation.",
@@ -259,6 +263,10 @@ pub fn fixtures() -> Value {
         }),
     )
     .unwrap();
+    [checkpoint, suspend, parking]
+}
+
+fn continuation_packets() -> [Packet; 2] {
     let attachment = ContinuationAttachment {
         admission_id: id(23),
         continuation: continuation(),
@@ -294,7 +302,10 @@ pub fn fixtures() -> Value {
     )
     .unwrap();
     let wake = Packet::seal(id(204), Message::Continuation(Box::new(attachment))).unwrap();
-    let mut packets = vec![batch, checkpoint, suspend, parking, wake, ack];
+    [wake, ack]
+}
+
+fn append_observations(packets: &mut Vec<Packet>) {
     for (i, kind) in [
         ObservationKind::TurnBoundary { in_turn: true },
         ObservationKind::TextReference {
@@ -337,6 +348,14 @@ pub fn fixtures() -> Value {
             .unwrap(),
         );
     }
+}
+
+pub fn fixtures() -> Value {
+    let (first, batch) = usage_batch();
+    let mut packets = vec![batch];
+    packets.extend(suspension_packets());
+    packets.extend(continuation_packets());
+    append_observations(&mut packets);
     let capabilities: Vec<Capability> = [
         OBSERVATION_CAPABILITY,
         USAGE_CAPABILITY,

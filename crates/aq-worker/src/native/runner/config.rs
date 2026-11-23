@@ -6,7 +6,7 @@ use aq_session_protocol::{ArtifactRef, Capability, Digest, Validate};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::{
-    fs::OpenOptions,
+    fs::{Metadata, OpenOptions},
     io::Read,
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
@@ -130,6 +130,26 @@ pub struct NativeConfig {
     #[serde(default)]
     pub node_git: Option<aq_node_git::Config>,
 }
+fn file_version(file: &Metadata) -> (u64, i64, i64, i64, i64) {
+    (
+        file.len(),
+        file.mtime(),
+        file.mtime_nsec(),
+        file.ctime(),
+        file.ctime_nsec(),
+    )
+}
+fn validate_private_metadata(path: &Path, before: &Metadata, maximum: usize) -> Result<()> {
+    let why = match (before.mode() & 0o7777, before.len()) {
+        _ if !before.is_file() => "not a regular file".into(),
+        _ if before.uid() != unsafe { libc::geteuid() } => "not owned by you".into(),
+        (mode, _) if mode != 0o600 => format!("mode {mode:04o}, 0600 is required"),
+        (_, len) if !(1..=maximum as u64).contains(&len) => format!("size {len}, max {maximum}"),
+        _ => String::new(),
+    };
+    ensure!(why.is_empty(), "native config {}: {why}", path.display());
+    Ok(())
+}
 pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     ensure!(
         path.is_absolute() && path.canonicalize()? == path,
@@ -140,14 +160,7 @@ pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
         .open(path)?;
     let before = file.metadata()?;
-    let why = match (before.mode() & 0o7777, before.len()) {
-        _ if !before.is_file() => "not a regular file".into(),
-        _ if before.uid() != unsafe { libc::geteuid() } => "not owned by you".into(),
-        (mode, _) if mode != 0o600 => format!("mode {mode:04o}, 0600 is required"),
-        (_, len) if !(1..=maximum as u64).contains(&len) => format!("size {len}, max {maximum}"),
-        _ => String::new(),
-    };
-    ensure!(why.is_empty(), "native config {}: {why}", path.display());
+    validate_private_metadata(path, &before, maximum)?;
     let mut bytes = Vec::new();
     (&file).take(maximum as u64 + 1).read_to_end(&mut bytes)?;
     let after = file.metadata()?;
@@ -155,14 +168,9 @@ pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     ensure!(
         bytes.len() <= maximum
             && before.len() == bytes.len() as u64
-            && after.len() == before.len()
-            && before.mtime() == after.mtime()
-            && before.mtime_nsec() == after.mtime_nsec()
-            && before.ctime() == after.ctime()
-            && before.ctime_nsec() == after.ctime_nsec()
+            && file_version(&before) == file_version(&after)
             && named.is_file()
-            && named.dev() == before.dev()
-            && named.ino() == before.ino(),
+            && (named.dev(), named.ino()) == (before.dev(), before.ino()),
         "native configuration changed"
     );
     Ok(bytes)
@@ -197,6 +205,11 @@ impl NativeConfig {
                 && self.capacity.disk_bytes > 0,
             "native capacity/version"
         );
+        self.validate_storage()?;
+        self.validate_preparation()?;
+        self.validate_references()
+    }
+    fn validate_storage(&self) -> Result<()> {
         ensure!(
             self.state_dir.is_absolute()
                 && self.state_dir.canonicalize()? == self.state_dir
@@ -210,6 +223,9 @@ impl NativeConfig {
             m.is_dir() && m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o7777 == 0o700,
             "native private state owner"
         );
+        Ok(())
+    }
+    fn validate_preparation(&self) -> Result<()> {
         self.negotiation.validate()?;
         ensure!(
             (1..=self.negotiation.maximum_preparation_ms()).contains(&self.maximum_preparation_ms),
@@ -235,6 +251,9 @@ impl NativeConfig {
                 == self.harness_qualifications.len(),
             "duplicate native harness qualifications"
         );
+        Ok(())
+    }
+    fn validate_references(&self) -> Result<()> {
         aq_session_protocol::require_capabilities(&[], &self.capabilities)?;
         for c in &self.capabilities {
             c.validate()?;

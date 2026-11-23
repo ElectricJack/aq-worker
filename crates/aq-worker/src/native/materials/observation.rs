@@ -32,30 +32,10 @@ fn io(error: std::io::Error) -> Failure {
     }
 }
 fn open(parent: &File, name: &CStr, dir: bool) -> std::result::Result<File, Failure> {
-    let fd = unsafe {
-        libc::openat(
-            parent.as_raw_fd(),
-            name.as_ptr(),
-            libc::O_RDONLY
-                | libc::O_NOFOLLOW
-                | libc::O_NONBLOCK
-                | libc::O_CLOEXEC
-                | if dir { libc::O_DIRECTORY } else { 0 },
-        )
-    };
-    if fd < 0 {
-        return Err(io(std::io::Error::last_os_error()));
-    }
-    let file = unsafe { File::from_raw_fd(fd) };
+    let flags = libc::O_RDONLY | libc::O_NONBLOCK | if dir { libc::O_DIRECTORY } else { 0 };
+    let file = open_relative(parent, name, flags).map_err(io)?;
     let meta = file.metadata().map_err(io)?;
-    if meta.uid() != unsafe { libc::geteuid() }
-        || meta.mode() & 0o7777 != if dir { 0o700 } else { 0o600 }
-        || if dir {
-            !meta.is_dir()
-        } else {
-            !meta.is_file() || meta.nlink() != 1
-        }
-    {
+    if !private_entry(&meta, dir) {
         return Err(Failure::Unreadable);
     }
     Ok(file)
@@ -93,16 +73,29 @@ fn read(file: &File, max: usize) -> std::result::Result<Zeroizing<Vec<u8>>, Fail
     if file.metadata().map_err(io)?.len() > max as u64 {
         return Err(Failure::Changed);
     }
-    let mut bytes = Zeroizing::new(Vec::new());
-    file.try_clone()
+    bounded_bytes(file.try_clone().map_err(io)?, max)
         .map_err(io)?
-        .take(max as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(io)?;
-    if bytes.len() > max {
-        return Err(Failure::Changed);
+        .ok_or(Failure::Changed)
+}
+struct ObservedFile {
+    file: File,
+    initial: Identity,
+}
+impl ObservedFile {
+    fn capture(dir: &File, name: &CStr) -> std::result::Result<Self, Failure> {
+        let file = open(dir, name, false)?;
+        let initial = signature(&file)?;
+        Ok(Self { file, initial })
     }
-    Ok(bytes)
+    fn check(&self, current: &File) -> std::result::Result<(), Failure> {
+        if signature(current)? != self.initial {
+            return Err(Failure::Changed);
+        }
+        Ok(())
+    }
+    fn check_name(&self, dir: &File, name: &CStr) -> std::result::Result<(), Failure> {
+        self.check(&open(dir, name, false)?)
+    }
 }
 impl MaterialStore {
     /// Scope/permit acquisition belongs to the opaque grant owner before this
@@ -121,9 +114,40 @@ impl MaterialStore {
         let name = CString::new(expected.lease_id.to_string()).map_err(|_| Failure::Unreadable)?;
         let dir = open(&self.root, &name, true)?;
         let directory = signature(&dir)?;
-        let record_file = open(&dir, c"record.json", false)?;
-        let record_signature = signature(&record_file)?;
-        let raw = read(&record_file, MAX_RECORD)?;
+        let record_file = ObservedFile::capture(&dir, c"record.json")?;
+        let record = self.read_record(&record_file.file, expected)?;
+        #[cfg(test)]
+        if let Some(hook) = self
+            .observation_hook
+            .lock()
+            .map_err(|_| Failure::Unreadable)?
+            .take()
+        {
+            hook();
+        }
+        let material = ObservedFile::capture(&dir, c"material.bin")?;
+        let (digest, size) = observed_material(&material.file, &record)?;
+        // Verify both held files, then the namespace entries, in the original order.
+        record_file.check(&record_file.file)?;
+        material.check(&material.file)?;
+        record_file.check_name(&dir, c"record.json")?;
+        material.check_name(&dir, c"material.bin")?;
+        if signature(&open(&self.root, &name, true)?)? != directory {
+            return Err(Failure::Changed);
+        }
+        private_dir(&self.root).map_err(|_| Failure::Unreadable)?;
+        Ok(Presence::Present {
+            installation: Box::new(record),
+            observed_material_digest: digest,
+            observed_material_bytes: size,
+        })
+    }
+    fn read_record(
+        &self,
+        file: &File,
+        expected: &MaterialReceipt,
+    ) -> std::result::Result<wire::PrivateInstallationRecord, Failure> {
+        let raw = read(file, MAX_RECORD)?;
         let record: wire::PrivateInstallationRecord =
             serde_json::from_slice(&raw).map_err(|_| Failure::Unreadable)?;
         record.validate().map_err(|_| Failure::Unreadable)?;
@@ -139,41 +163,21 @@ impl MaterialStore {
         {
             return Err(Failure::Changed);
         }
-        #[cfg(test)]
-        if let Some(hook) = self
-            .observation_hook
-            .lock()
-            .map_err(|_| Failure::Unreadable)?
-            .take()
-        {
-            hook();
-        }
-        let material = open(&dir, c"material.bin", false)?;
-        let material_signature = signature(&material)?;
-        let bytes = read(&material, MAX_MATERIAL)?;
-        let digest = Digest::of(&bytes);
-        let size = bytes.len() as u64;
-        drop(bytes);
-        if digest != record.delivery.lease.material_digest
-            || size != record.delivery.lease.material_bytes
-        {
-            return Err(Failure::Changed);
-        }
-        // Verify the held descriptors and their current namespace entries after
-        // I/O. No symlink/path fallback or stale detached inode becomes Present.
-        if signature(&record_file)? != record_signature
-            || signature(&material)? != material_signature
-            || signature(&open(&dir, c"record.json", false)?)? != record_signature
-            || signature(&open(&dir, c"material.bin", false)?)? != material_signature
-            || signature(&open(&self.root, &name, true)?)? != directory
-        {
-            return Err(Failure::Changed);
-        }
-        private_dir(&self.root).map_err(|_| Failure::Unreadable)?;
-        Ok(Presence::Present {
-            installation: Box::new(record),
-            observed_material_digest: digest,
-            observed_material_bytes: size,
-        })
+        Ok(record)
     }
+}
+fn observed_material(
+    file: &File,
+    record: &wire::PrivateInstallationRecord,
+) -> std::result::Result<(Digest, u64), Failure> {
+    let bytes = read(file, MAX_MATERIAL)?;
+    let digest = Digest::of(&bytes);
+    let size = bytes.len() as u64;
+    drop(bytes);
+    if digest != record.delivery.lease.material_digest
+        || size != record.delivery.lease.material_bytes
+    {
+        return Err(Failure::Changed);
+    }
+    Ok((digest, size))
 }

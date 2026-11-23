@@ -34,32 +34,7 @@ async fn output_peer(
             post(move |Json(q): Json<Register>| {
                 let policy = policy.clone();
                 let registered = registered.clone();
-                async move {
-                    q.validate().unwrap();
-                    let now = crate::native::http::boot_ns().unwrap();
-                    registered.lock().unwrap().push(now);
-                    eprintln!("fixture terminal registration boot_ns={now}");
-                    Json(MutationReply::Registered {
-                        operation_id: q.operation_id,
-                        info: TerminalInfo {
-                            terminal: q.terminal.clone(),
-                            session_revision: q.expected_authority_revision,
-                            input_mode: InputMode::FiniteV1,
-                            terminal_policy: policy,
-                            control: ControlStatus {
-                                terminal: q.terminal,
-                                session_revision: q.expected_authority_revision,
-                                generation: 0,
-                                lease: None,
-                                fence_acknowledged: false,
-                                input_paused: false,
-                            },
-                            last_peer_observed_at_ms: 1,
-                            last_output_observed_at_ms: 0,
-                            disconnected: false,
-                        },
-                    })
-                }
+                async move { register(q, policy, &registered) }
             }),
         )
         .route(
@@ -104,6 +79,36 @@ async fn output_peer(
         },
     )
 }
+fn register(
+    q: Register,
+    policy: aq_session_protocol::TerminalPolicy,
+    registered: &Mutex<Vec<u64>>,
+) -> Json<MutationReply> {
+    q.validate().unwrap();
+    let now = crate::native::http::boot_ns().unwrap();
+    registered.lock().unwrap().push(now);
+    eprintln!("fixture terminal registration boot_ns={now}");
+    Json(MutationReply::Registered {
+        operation_id: q.operation_id,
+        info: TerminalInfo {
+            terminal: q.terminal.clone(),
+            session_revision: q.expected_authority_revision,
+            input_mode: InputMode::FiniteV1,
+            terminal_policy: policy,
+            control: ControlStatus {
+                terminal: q.terminal,
+                session_revision: q.expected_authority_revision,
+                generation: 0,
+                lease: None,
+                fence_acknowledged: false,
+                input_paused: false,
+            },
+            last_peer_observed_at_ms: 1,
+            last_output_observed_at_ms: 0,
+            disconnected: false,
+        },
+    })
+}
 async fn launched() -> (
     Inputs,
     GitPeer,
@@ -120,7 +125,12 @@ async fn launched() -> (
         .await
         .unwrap()
     else {
-        panic!("actual Running required")
+        let history = current_host(&h);
+        panic!(
+            "actual Running required: uncertainty={}, stop={:?}",
+            serde_json::to_value(history.uncertain).unwrap(),
+            history.stopped.and_then(|s| s.observation.stop_reason)
+        );
     };
     let state = h.pipeline().snapshot().await.unwrap();
     let policy = state.attempts[&h.id]
@@ -158,9 +168,13 @@ async fn unwatched_output_409_keeps_actual_host_running_and_preserves_pending_by
     let (tx, rx) = watch::channel(false);
     let pipeline = h.pipeline().clone();
     let deadline = grant.deadline_ns();
-    let task = tokio::spawn(crate::native::runner::drive_running(
-        pipeline, host, deadline, http, rx,
-    ));
+    let task = tokio::spawn(
+        crate::native::runner::RunningHost::new(pipeline, host, deadline).drive(
+            http,
+            rx,
+            Default::default(),
+        ),
+    );
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         while peer.uploads.lock().unwrap().len() < 2 {
             peer.entered.notified().await;
@@ -204,9 +218,13 @@ async fn shutdown_during_slow_output_http_stops_and_acknowledges_without_waiting
     let (tx, rx) = watch::channel(false);
     let pipeline = h.pipeline().clone();
     let deadline = grant.deadline_ns();
-    let task = tokio::spawn(crate::native::runner::drive_running(
-        pipeline, host, deadline, http, rx,
-    ));
+    let task = tokio::spawn(
+        crate::native::runner::RunningHost::new(pipeline, host, deadline).drive(
+            http,
+            rx,
+            Default::default(),
+        ),
+    );
     tokio::time::timeout(std::time::Duration::from_secs(2), peer.entered.notified())
         .await
         .unwrap();
@@ -229,9 +247,13 @@ async fn shutdown_during_delayed_started_ack_stops_physically_and_preserves_unce
     let (tx, rx) = watch::channel(false);
     let pipeline = h.pipeline().clone();
     let deadline = grant.deadline_ns();
-    let task = tokio::spawn(crate::native::runner::drive_running(
-        pipeline, host, deadline, http, rx,
-    ));
+    let task = tokio::spawn(
+        crate::native::runner::RunningHost::new(pipeline, host, deadline).drive(
+            http,
+            rx,
+            Default::default(),
+        ),
+    );
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while h.phase_terminal_calls.lock().unwrap().is_empty() {
             tokio::task::yield_now().await;
@@ -259,9 +281,16 @@ async fn unconfirmed_sandbox_stop_withholds_the_stopped_report() {
     let deadline = grant.deadline_ns();
     let pre_stop: crate::native::runner::PreStop =
         Box::new(|| Box::pin(async { anyhow::bail!("sandbox stop unconfirmed (test)") }));
-    let task = tokio::spawn(crate::native::runner::drive_running_with_pre_stop(
-        pipeline, host, deadline, http, rx, pre_stop,
-    ));
+    let task = tokio::spawn(
+        crate::native::runner::RunningHost::new(pipeline, host, deadline).drive(
+            http,
+            rx,
+            crate::native::runner::DriveOptions {
+                pre_stop: Some(pre_stop),
+                ..Default::default()
+            },
+        ),
+    );
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while h.phase_terminal_calls.lock().unwrap().is_empty() {
             tokio::task::yield_now().await;
@@ -274,7 +303,11 @@ async fn unconfirmed_sandbox_stop_withholds_the_stopped_report() {
         .await
         .unwrap()
         .unwrap();
-    assert!(format!("{:#}", result.unwrap_err()).contains("sandbox stop uncertain"));
+    let error = result.unwrap_err();
+    assert!(
+        format!("{error:#}").contains("sandbox stop uncertain"),
+        "{error:#}"
+    );
     let state = h.pipeline().snapshot().await.unwrap();
     let native = state.attempts[&h.id].native_host.as_ref().unwrap();
     assert!(

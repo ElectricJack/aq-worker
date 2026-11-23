@@ -85,37 +85,52 @@ fn assert_headers(h: &HeaderMap) {
     assert_eq!(h["cf-access-client-secret"], "synthetic-access-token");
 }
 
-#[tokio::test]
-async fn finite_authenticated_routes_preserve_exact_ids_bytes_and_ranges() {
-    let app = Router::new()
-        .route(
-            "/v1/execution/sources/begin",
-            post(|h: HeaderMap, Json(v): Json<Value>| async move {
-                assert_headers(&h);
-                assert_eq!(v["identity"], json!(sample_offer().identity));
-                assert_eq!(v["operation_id"], Uuid::from_u128(106).to_string());
-                assert_eq!(v["manifest"], json!(manifest()));
-                Json(status(0))
-            }),
-        )
-        .route(
-            "/v1/execution/sources/{id}/{file}",
-            put(
-                |h: HeaderMap,
-                 Path((id, file)): Path<(Uuid, String)>,
-                 Query(q): Query<BTreeMap<String, String>>,
-                 bytes: Bytes| async move {
-                    assert_headers(&h);
-                    assert_eq!(id, manifest().transfer_id);
-                    assert_eq!(file, "manifest");
-                    assert_eq!(q["operation_id"], chunk().operation_id.to_string());
-                    assert_eq!(q["offset"], "0");
-                    assert_eq!(q["digest"], chunk().digest);
-                    assert_eq!(bytes.as_ref(), b"abc");
-                    Json(status(3))
-                },
-            ),
-        )
+async fn begin_transfer(h: HeaderMap, Json(v): Json<Value>) -> Json<TransferStatus> {
+    assert_headers(&h);
+    assert_eq!(v["identity"], json!(sample_offer().identity));
+    assert_eq!(v["operation_id"], Uuid::from_u128(106).to_string());
+    assert_eq!(v["manifest"], json!(manifest()));
+    Json(status(0))
+}
+
+async fn accept_chunk(
+    h: HeaderMap,
+    Path((id, file)): Path<(Uuid, String)>,
+    Query(q): Query<BTreeMap<String, String>>,
+    bytes: Bytes,
+) -> Json<TransferStatus> {
+    assert_headers(&h);
+    assert_eq!(id, manifest().transfer_id);
+    assert_eq!(file, "manifest");
+    assert_chunk_query(&q);
+    assert_eq!(bytes.as_ref(), b"abc");
+    Json(status(3))
+}
+
+fn assert_chunk_query(query: &BTreeMap<String, String>) {
+    let expected = chunk();
+    assert_eq!(query["operation_id"], expected.operation_id.to_string());
+    assert_eq!(query["offset"], "0");
+    assert_eq!(query["digest"], expected.digest);
+}
+
+async fn download_range(
+    h: HeaderMap,
+    Path((id, file)): Path<(Uuid, String)>,
+    Query(q): Query<BTreeMap<String, String>>,
+) -> Vec<u8> {
+    assert_headers(&h);
+    assert_eq!(id, manifest().attempt.attempt_id);
+    assert_eq!(file, "manifest");
+    assert_eq!(q["offset"], "1");
+    assert_eq!(q["limit"], "2");
+    b"bc".to_vec()
+}
+
+fn transfer_routes() -> Router {
+    Router::new()
+        .route("/v1/execution/sources/begin", post(begin_transfer))
+        .route("/v1/execution/sources/{id}/{file}", put(accept_chunk))
         .route(
             "/v1/execution/sources/base/{id}",
             get(|h: HeaderMap, Path(id): Path<Uuid>| async move {
@@ -126,20 +141,13 @@ async fn finite_authenticated_routes_preserve_exact_ids_bytes_and_ranges() {
         )
         .route(
             "/v1/execution/sources/base/{id}/{file}",
-            get(
-                |h: HeaderMap,
-                 Path((id, file)): Path<(Uuid, String)>,
-                 Query(q): Query<BTreeMap<String, String>>| async move {
-                    assert_headers(&h);
-                    assert_eq!(id, manifest().attempt.attempt_id);
-                    assert_eq!(file, "manifest");
-                    assert_eq!(q["offset"], "1");
-                    assert_eq!(q["limit"], "2");
-                    b"bc".to_vec()
-                },
-            ),
-        );
-    let (config, server) = serve(app).await;
+            get(download_range),
+        )
+}
+
+#[tokio::test]
+async fn finite_authenticated_routes_preserve_exact_ids_bytes_and_ranges() {
+    let (config, server) = serve(transfer_routes()).await;
     let client = TransferClient::from_config(&config, 1).unwrap();
     assert_eq!(
         client
@@ -164,6 +172,11 @@ async fn finite_authenticated_routes_preserve_exact_ids_bytes_and_ranges() {
         b"bc"
     );
     server.abort();
+}
+
+fn assert_refused<T: std::fmt::Debug>(result: anyhow::Result<T>, reason: &str) {
+    let error = result.unwrap_err().to_string();
+    assert!(error.contains(reason), "expected {reason:?} in {error:?}");
 }
 
 #[tokio::test]
@@ -247,37 +260,15 @@ async fn mismatched_peer_identity_offsets_or_unconfirmed_retention_refuse() {
         );
     let (config, server) = serve(app).await;
     let client = TransferClient::from_config(&config, 1).unwrap();
-    assert!(
-        client
-            .status(&status_request())
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("association")
+    assert_refused(client.status(&status_request()).await, "association");
+    assert_refused(
+        client.upload(&chunk(), b"abc".to_vec()).await,
+        "acknowledgement",
     );
-    assert!(
-        client
-            .upload(&chunk(), b"abc".to_vec())
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("acknowledgement")
-    );
-    assert!(
-        client
-            .finalize(&status_request())
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("unconfirmed")
-    );
-    assert!(
-        client
-            .base(manifest().attempt.attempt_id)
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("association")
+    assert_refused(client.finalize(&status_request()).await, "unconfirmed");
+    assert_refused(
+        client.base(manifest().attempt.attempt_id).await,
+        "association",
     );
     server.abort();
 }
@@ -326,18 +317,13 @@ async fn bounded_responses_and_ranges_reject_large_short_or_untrusted_bodies() {
     server.abort();
 }
 
-#[tokio::test]
-async fn blocked_bulk_does_not_queue_or_block_status_and_execution_control() {
-    let entered = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    let e = entered.clone();
-    let r = release.clone();
-    let app = Router::new()
+fn blocked_routes(entered: Arc<Notify>, release: Arc<Notify>) -> Router {
+    Router::new()
         .route(
             "/v1/execution/sources/base/{id}",
             get(move || {
-                let e = e.clone();
-                let r = r.clone();
+                let e = entered.clone();
+                let r = release.clone();
                 async move {
                     e.notify_one();
                     r.notified().await;
@@ -357,8 +343,14 @@ async fn blocked_bulk_does_not_queue_or_block_status_and_execution_control() {
                     next_cursor: None,
                 })
             }),
-        );
-    let (config, server) = serve(app).await;
+        )
+}
+
+#[tokio::test]
+async fn blocked_bulk_does_not_queue_or_block_status_and_execution_control() {
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let (config, server) = serve(blocked_routes(entered.clone(), release.clone())).await;
     let client = TransferClient::from_config(&config, 1).unwrap();
     let bulk = client.clone();
     let pending = tokio::spawn(async move { bulk.base(manifest().attempt.attempt_id).await });

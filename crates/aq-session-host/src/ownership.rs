@@ -1,6 +1,7 @@
 //! Linux ownership primitives shared with the existing worker guardian.
 //! Only a dedicated single-threaded subreaper may reap all children or claim
 //! ECHILD as stopped-writer proof. Procfs discovery alone is never such proof.
+pub mod guardian;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{

@@ -1,3 +1,10 @@
+#[path = "config/executor.rs"]
+mod executor;
+#[path = "config/native.rs"]
+mod native;
+#[path = "config/negotiation.rs"]
+mod negotiation;
+
 use std::os::unix::fs::PermissionsExt;
 
 use aq_worker::config::WorkerConfig;
@@ -81,3 +88,6 @@ fn node_service_enrollment_file_is_a_worker_config() {
     );
     assert_eq!(back.cf_client_id.as_deref(), Some("id"));
 }
+
+#[path = "config/access.rs"]
+mod access;

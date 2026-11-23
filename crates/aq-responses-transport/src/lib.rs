@@ -72,6 +72,13 @@ impl UpstreamEndpoint {
     }
 }
 
+struct TransportCredentials {
+    local_key: Zeroizing<Vec<u8>>,
+    upstream_key: Zeroizing<Vec<u8>>,
+    credential: CredentialReader,
+    denied: Arc<AtomicBool>,
+}
+
 struct State {
     policy: ResponsesPolicy,
     endpoint: UpstreamEndpoint,
@@ -105,8 +112,7 @@ impl ScopedResponsesTransport {
         credential: Arc<dyn RetainedUpstreamCredential>,
     ) -> Result<Self> {
         Self::start_with_reader(
-            listener,
-            expected_origin,
+            checked_listener(listener, expected_origin)?,
             policy,
             endpoint,
             CredentialReader {
@@ -117,13 +123,11 @@ impl ScopedResponsesTransport {
         .await
     }
     async fn start_with_reader(
-        listener: StdTcpListener,
-        expected_origin: &str,
+        listener: BoundListener,
         policy: ResponsesPolicy,
         endpoint: UpstreamEndpoint,
         credential: CredentialReader,
     ) -> Result<Self> {
-        let listener = checked_listener(listener, expected_origin)?;
         let denied = Arc::new(AtomicBool::new(false));
         let upstream_key = read_current(&policy, &credential, &denied).await?;
         let capability = Zeroizing::new(
@@ -136,13 +140,14 @@ impl ScopedResponsesTransport {
         );
         Self::start_inner(
             listener,
-            expected_origin,
             policy,
             endpoint,
-            capability,
-            upstream_key,
-            credential,
-            denied,
+            TransportCredentials {
+                local_key: capability,
+                upstream_key,
+                credential,
+                denied,
+            },
         )
     }
     #[cfg(any(test, feature = "test-support"))]
@@ -161,26 +166,29 @@ impl ScopedResponsesTransport {
         };
         Self::start_inner(
             listener,
-            expected_origin,
             policy,
             endpoint,
+            TransportCredentials {
+                local_key,
+                upstream_key,
+                credential,
+                denied: Arc::new(AtomicBool::new(false)),
+            },
+        )
+    }
+    fn start_inner(
+        listener: BoundListener,
+        policy: ResponsesPolicy,
+        endpoint: UpstreamEndpoint,
+        credentials: TransportCredentials,
+    ) -> Result<Self> {
+        let BoundListener { socket, origin } = listener;
+        let TransportCredentials {
             local_key,
             upstream_key,
             credential,
-            Arc::new(AtomicBool::new(false)),
-        )
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn start_inner(
-        listener: TcpListener,
-        origin: &str,
-        policy: ResponsesPolicy,
-        endpoint: UpstreamEndpoint,
-        local_key: Zeroizing<Vec<u8>>,
-        upstream_key: Zeroizing<Vec<u8>>,
-        credential: CredentialReader,
-        denied: Arc<AtomicBool>,
-    ) -> Result<Self> {
+            denied,
+        } = credentials;
         policy.remaining()?;
         for key in [&local_key, &upstream_key] {
             ensure!(
@@ -215,27 +223,10 @@ impl ScopedResponsesTransport {
                 .into(),
             denied: denied.clone(),
         };
-        let (stop, mut stopped) = watch::channel(false);
-        let task = tokio::spawn(async move {
-            let serving = async {
-                for _ in 0..MAX_REQUESTS {
-                    let remaining = check_live(&state.policy, &state.denied)?;
-                    let (mut stream, peer) =
-                        tokio::time::timeout(remaining, listener.accept()).await??;
-                    ensure!(peer.ip().is_loopback(), "nonlocal scoped peer");
-                    let work = serve(&state, &mut stream);
-                    let _result = tokio::time::timeout(
-                        check_live(&state.policy, &state.denied)?.min(Duration::from_secs(120)),
-                        work,
-                    )
-                    .await;
-                }
-                anyhow::bail!("scoped request count exhausted")
-            };
-            tokio::select! { biased; _=stopped.changed()=>Ok(()), result=serving=>result }
-        });
+        let (stop, stopped) = watch::channel(false);
+        let task = tokio::spawn(run(socket, state, stopped));
         Ok(Self {
-            origin: origin.into(),
+            origin,
             owner_scope,
             scope_digest,
             deadline_ns,
@@ -313,7 +304,12 @@ impl RetainedUpstreamCredential for FixedCredential {
         Ok(self.0.clone())
     }
 }
-fn checked_listener(listener: StdTcpListener, expected_origin: &str) -> Result<TcpListener> {
+struct BoundListener {
+    socket: TcpListener,
+    origin: String,
+}
+
+fn checked_listener(listener: StdTcpListener, expected_origin: &str) -> Result<BoundListener> {
     let address = listener.local_addr()?;
     ensure!(
         address.ip() == std::net::IpAddr::V4(Ipv4Addr::LOCALHOST)
@@ -331,7 +327,10 @@ fn checked_listener(listener: StdTcpListener, expected_origin: &str) -> Result<T
         "scoped descriptor is not a listening TCP socket"
     );
     listener.set_nonblocking(true)?;
-    Ok(TcpListener::from_std(listener)?)
+    Ok(BoundListener {
+        socket: TcpListener::from_std(listener)?,
+        origin: expected_origin.into(),
+    })
 }
 fn socket_option(listener: &StdTcpListener, option: libc::c_int) -> Result<libc::c_int> {
     let mut accepting: libc::c_int = 0;
@@ -421,7 +420,29 @@ fn key_matches(expected: &[u8], actual: &[u8]) -> bool {
         .fold(0u8, |different, (a, b)| different | (a ^ b))
         == 0
 }
-async fn serve(state: &State, stream: &mut TcpStream) -> Result<()> {
+async fn run(
+    listener: TcpListener,
+    state: State,
+    mut stopped: watch::Receiver<bool>,
+) -> Result<()> {
+    let serving = async {
+        for _ in 0..MAX_REQUESTS {
+            let remaining = check_live(&state.policy, &state.denied)?;
+            let (mut stream, peer) = tokio::time::timeout(remaining, listener.accept()).await??;
+            ensure!(peer.ip().is_loopback(), "nonlocal scoped peer");
+            let work = serve(&state, &mut stream);
+            let _result = tokio::time::timeout(
+                check_live(&state.policy, &state.denied)?.min(Duration::from_secs(120)),
+                work,
+            )
+            .await;
+        }
+        anyhow::bail!("scoped request count exhausted")
+    };
+    tokio::select! { biased; _=stopped.changed()=>Ok(()), result=serving=>result }
+}
+
+async fn read_header(stream: &mut TcpStream) -> Result<Zeroizing<Vec<u8>>> {
     let mut head = Zeroizing::new(Vec::new());
     loop {
         let byte = tokio::time::timeout(Duration::from_secs(5), stream.read_u8()).await??;
@@ -431,7 +452,28 @@ async fn serve(state: &State, stream: &mut TcpStream) -> Result<()> {
             break;
         }
     }
-    let text = std::str::from_utf8(&head)?;
+    Ok(head)
+}
+
+fn parse_header(line: &str) -> Result<(String, &str)> {
+    let (name, value) = line.split_once(':').context("invalid scoped HTTP header")?;
+    ensure!(
+        !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'),
+        "scoped header name"
+    );
+    ensure!(
+        value
+            .bytes()
+            .all(|b| b.is_ascii_graphic() || b == b' ' || b == b'\t'),
+        "scoped header value"
+    );
+    let name = name.to_ascii_lowercase();
+    let value = value.trim();
+    Ok((name, value))
+}
+
+fn request_length(state: &State, head: &[u8]) -> Result<usize> {
+    let text = std::str::from_utf8(head)?;
     let mut lines = text.split("\r\n");
     ensure!(
         lines.next() == Some("POST /v1/responses HTTP/1.1"),
@@ -443,19 +485,7 @@ async fn serve(state: &State, stream: &mut TcpStream) -> Result<()> {
     let mut content_type = false;
     let mut host = false;
     for line in lines.filter(|line| !line.is_empty()) {
-        let (name, value) = line.split_once(':').context("invalid scoped HTTP header")?;
-        ensure!(
-            !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'),
-            "scoped header name"
-        );
-        ensure!(
-            value
-                .bytes()
-                .all(|b| b.is_ascii_graphic() || b == b' ' || b == b'\t'),
-            "scoped header value"
-        );
-        let name = name.to_ascii_lowercase();
-        let value = value.trim();
+        let (name, value) = parse_header(line)?;
         ensure!(names.insert(name.clone()), "duplicate scoped HTTP header");
         ensure!(
             !matches!(
@@ -491,9 +521,10 @@ async fn serve(state: &State, stream: &mut TcpStream) -> Result<()> {
         length > 0 && length <= MAX_REQUEST_BYTES,
         "scoped HTTP body bound"
     );
-    let mut incoming = Zeroizing::new(vec![0; length]);
-    tokio::time::timeout(Duration::from_secs(10), stream.read_exact(&mut incoming)).await??;
-    let body = state.policy.prepare(&incoming)?;
+    Ok(length)
+}
+
+async fn forward(state: &State, body: &[u8]) -> Result<reqwest::Response> {
     {
         let current = read_current(&state.policy, &state.credential, &state.denied).await?;
         ensure!(
@@ -502,7 +533,7 @@ async fn serve(state: &State, stream: &mut TcpStream) -> Result<()> {
         );
     }
     check_live(&state.policy, &state.denied)?;
-    let mut upstream = state
+    let upstream = state
         .client
         .post(state.endpoint.0.clone())
         .bearer_auth(std::str::from_utf8(&state.upstream_key)?)
@@ -520,6 +551,24 @@ async fn serve(state: &State, stream: &mut TcpStream) -> Result<()> {
                 .is_some_and(|v| v.split(';').next() == Some("text/event-stream")),
         "unsupported upstream Responses status/type"
     );
+    Ok(upstream)
+}
+
+async fn serve(state: &State, stream: &mut TcpStream) -> Result<()> {
+    let head = read_header(stream).await?;
+    let length = request_length(state, &head)?;
+    let mut incoming = Zeroizing::new(vec![0; length]);
+    tokio::time::timeout(Duration::from_secs(10), stream.read_exact(&mut incoming)).await??;
+    let body = state.policy.prepare(&incoming)?;
+    let upstream = forward(state, &body).await?;
+    stream_response(state, stream, upstream).await
+}
+
+async fn stream_response(
+    state: &State,
+    stream: &mut TcpStream,
+    mut upstream: reqwest::Response,
+) -> Result<()> {
     stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n").await?;
     let mut bytes = 0usize;
     while let Some(chunk) = upstream.chunk().await? {

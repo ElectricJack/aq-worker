@@ -1,35 +1,12 @@
 use super::*;
-use aq_session_protocol::{ArtifactRef, Capability, Digest, Text};
+use aq_session_protocol::Text;
 
 const CAP: &str = "aq-gemini-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 fn settings(confinement: &str) -> (HarnessSettings, ModelSettings) {
-    let artifact = ArtifactRef {
-        id: Text::new("fixture").unwrap(),
-        version: Text::new("1").unwrap(),
-        digest: Digest::of(b"fixture"),
-    };
-    let caps = ["aq.harness.startup-context", confinement, "aq.harness.stop"]
-        .map(|id| Capability {
-            id: Text::new(id).unwrap(),
-            version: 1,
-        })
-        .to_vec();
     (
-        HarnessSettings {
-            harness: Text::new("gemini").unwrap(),
-            cli_version: Text::new(GEMINI_CLI_VERSION).unwrap(),
-            adapter: artifact.clone(),
-            environment: artifact,
-            required_capabilities: caps,
-        },
-        ModelSettings {
-            provider: Text::new("google").unwrap(),
-            model: Text::new("gemini-2.5-flash").unwrap(),
-            reasoning: Text::new("default").unwrap(),
-            max_output_tokens: 4096,
-            spending_budget: None,
-        },
+        recipe::fixture::harness("gemini", GEMINI_CLI_VERSION, confinement),
+        recipe::fixture::model("google", "gemini-2.5-flash", "default"),
     )
 }
 fn paths() -> GeminiPaths<'static> {
@@ -64,7 +41,13 @@ fn system(recipe: &GeminiRecipe) -> serde_json::Value {
 #[test]
 fn reasoning_default_is_the_only_accepted_value() {
     let (h, m) = container();
-    let default = map(&h, &m, paths(), ConfinementMode::Container, proxy()).unwrap();
+    let default = map(
+        RecipeSettings::new(&h, &m),
+        paths(),
+        ConfinementMode::Container,
+        proxy(),
+    )
+    .unwrap();
     let rendered = format!(
         "{:?} {:?} {}",
         default.arguments,
@@ -76,7 +59,12 @@ fn reasoning_default_is_the_only_accepted_value() {
         let mut changed = m.clone();
         changed.reasoning = Text::new(value).unwrap();
         for auth in [proxy(), GeminiAuth::Subscription] {
-            let Err(refused) = map(&h, &changed, paths(), ConfinementMode::Container, auth) else {
+            let Err(refused) = map(
+                RecipeSettings::new(&h, &changed),
+                paths(),
+                ConfinementMode::Container,
+                auth,
+            ) else {
                 panic!("{value} accepted")
             };
             let expected = format!("unsupported reasoning {value:?}: expected default");
@@ -88,7 +76,13 @@ fn reasoning_default_is_the_only_accepted_value() {
 #[test]
 fn proxy_recipe_runs_bundle_node_headless_with_loopback_key_route() {
     let (h, m) = container();
-    let r = map(&h, &m, paths(), ConfinementMode::Container, proxy()).unwrap();
+    let r = map(
+        RecipeSettings::new(&h, &m),
+        paths(),
+        ConfinementMode::Container,
+        proxy(),
+    )
+    .unwrap();
     assert_eq!(r.executable, Path::new("/opt/aq/node/bin/node"));
     assert_eq!(r.arguments[0], "/opt/aq/harnesses/gemini/bundle/gemini.js");
     assert_eq!(r.working_directory, Path::new("/work"));
@@ -129,8 +123,7 @@ fn proxy_recipe_runs_bundle_node_headless_with_loopback_key_route() {
 fn subscription_recipe_carries_no_key_variable() {
     let (h, m) = container();
     let r = map(
-        &h,
-        &m,
+        RecipeSettings::new(&h, &m),
         paths(),
         ConfinementMode::Container,
         GeminiAuth::Subscription,
@@ -149,9 +142,25 @@ fn subscription_recipe_carries_no_key_variable() {
 #[test]
 fn native_mode_is_refused_even_when_declared() {
     let (h, m) = settings(aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY);
-    assert!(map(&h, &m, paths(), ConfinementMode::Native, proxy()).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&h, &m),
+            paths(),
+            ConfinementMode::Native,
+            proxy()
+        )
+        .is_err()
+    );
     let (h, m) = container();
-    assert!(map(&h, &m, paths(), ConfinementMode::Native, proxy()).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&h, &m),
+            paths(),
+            ConfinementMode::Native,
+            proxy()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -159,32 +168,60 @@ fn refuses_wrong_settings_capability_origin_and_paths() {
     let (h, m) = container();
     let mut bad = h.clone();
     bad.cli_version = Text::new("0.66.0").unwrap();
-    assert!(map(&bad, &m, paths(), ConfinementMode::Container, proxy()).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&bad, &m),
+            paths(),
+            ConfinementMode::Container,
+            proxy()
+        )
+        .is_err()
+    );
     let mut bad = m.clone();
     bad.provider = Text::new("anthropic").unwrap();
-    assert!(map(&h, &bad, paths(), ConfinementMode::Container, proxy()).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&h, &bad),
+            paths(),
+            ConfinementMode::Container,
+            proxy()
+        )
+        .is_err()
+    );
     let mut bad = m.clone();
     bad.model = Text::new("gemini 2.5; rm").unwrap();
-    assert!(map(&h, &bad, paths(), ConfinementMode::Container, proxy()).is_err());
-    for (origin, capability) in [
-        ("http://127.0.0.1:4242", "AIzaSyRealLookingKey"),
-        ("https://generativelanguage.googleapis.com", CAP),
-        ("http://localhost:4242", CAP),
-        ("http://127.0.0.1:4242/v1beta", CAP),
-        ("http://127.0.0.1", CAP),
-    ] {
-        let auth = GeminiAuth::ApiKeyProxy { origin, capability };
-        assert!(
-            map(&h, &m, paths(), ConfinementMode::Container, auth).is_err(),
-            "{origin} {capability}"
-        );
-    }
+    assert!(
+        map(
+            RecipeSettings::new(&h, &bad),
+            paths(),
+            ConfinementMode::Container,
+            proxy()
+        )
+        .is_err()
+    );
+    assert_unapproved_proxy_routes(RecipeSettings::new(&h, &m));
     let mut p = paths();
     p.private_home = Path::new("/work/.gemini-home");
-    assert!(map(&h, &m, p, ConfinementMode::Container, proxy()).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&h, &m),
+            p,
+            ConfinementMode::Container,
+            proxy()
+        )
+        .is_err()
+    );
     let mut p = paths();
     p.script = Path::new("/opt/aq/../tmp/gemini.js");
-    assert!(map(&h, &m, p, ConfinementMode::Container, proxy()).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&h, &m),
+            p,
+            ConfinementMode::Container,
+            proxy()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -203,8 +240,30 @@ fn system_settings_dir_must_be_outside_home_and_workspace() {
             ..paths()
         };
         assert!(
-            map(&h, &m, p, ConfinementMode::Container, proxy()).is_err(),
+            map(
+                RecipeSettings::new(&h, &m),
+                p,
+                ConfinementMode::Container,
+                proxy()
+            )
+            .is_err(),
             "{dir} accepted"
+        );
+    }
+}
+
+fn assert_unapproved_proxy_routes(settings: RecipeSettings<'_>) {
+    for (origin, capability) in [
+        ("http://127.0.0.1:4242", "AIzaSyRealLookingKey"),
+        ("https://generativelanguage.googleapis.com", CAP),
+        ("http://localhost:4242", CAP),
+        ("http://127.0.0.1:4242/v1beta", CAP),
+        ("http://127.0.0.1", CAP),
+    ] {
+        let auth = GeminiAuth::ApiKeyProxy { origin, capability };
+        assert!(
+            map(settings, paths(), ConfinementMode::Container, auth).is_err(),
+            "{origin} {capability}"
         );
     }
 }

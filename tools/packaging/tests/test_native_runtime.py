@@ -38,7 +38,8 @@ def test_copied_input_requires_exact_pin_and_regular_file(tmp_path):
         packager.checked_copy(link, tmp_path / 'linked', pin)
 
 
-def test_context_uses_committed_allowlist_and_never_walks_input_or_worktree(tmp_path, monkeypatch):
+@pytest.fixture
+def package_repo(tmp_path, monkeypatch):
     repo = tmp_path / 'repo'
     repo.mkdir()
     subprocess.run(['git', 'init', '-q', str(repo)], check=True)
@@ -82,6 +83,13 @@ def test_context_uses_committed_allowlist_and_never_walks_input_or_worktree(tmp_
     (repo / 'crates/aq-worker/auth.json').write_text('UNTRACKED SECRET')
     (repo / 'Cargo.toml').write_text('DIRTY SECRET')
     monkeypatch.setattr(packager, 'ROOT', repo)
+    return repo, inputs, names
+
+
+def test_context_uses_committed_allowlist_and_never_walks_input_or_worktree(tmp_path, package_repo):
+    repo, inputs, names = package_repo
+    protocol = repo / 'protocol/aq-admission'
+    embedded = repo / 'packaging/sandbox'
     output = tmp_path / 'context'
     result = packager.package('HEAD', inputs, output)
     assert result['versions'] == {name: '1.2.3' for name in ('aq-worker', 'aq-agent', 'aq-session-host')}

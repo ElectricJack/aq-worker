@@ -97,6 +97,16 @@ pub fn conclusion_of(
     let claim = claimed_changes(&text)
         .filter(|c| !c.is_empty())
         .unwrap_or("unknown");
+    let copied = copied_files(changed);
+    let message = result_message(&text);
+    let rc = rc.map_or("unknown".to_string(), |c| c.to_string());
+    let line = format!(
+        "Outcome: {outcome}; Changes: {claim}; Copied: {copied}; {harness} exit {rc}; Result: {message}"
+    );
+    bounded_line(&line, in_comment)
+}
+
+fn result_message(text: &str) -> String {
     let keep = |l: &&str| field(l, "changes").is_none() && field(l, "outcome").is_none();
     let message: Vec<&str> = text.lines().filter(keep).collect();
     let rest = text
@@ -107,20 +117,22 @@ pub fn conclusion_of(
         .unwrap_or_default();
     let message = format!("{} {rest}", message.join(" "));
     let message = message.split_whitespace().collect::<Vec<_>>().join(" ");
-    let copied = match changed.join(",") {
-        files if files.is_empty() => "none".to_string(),
-        files if files.len() > 120 => format!("{} files", changed.len()),
-        files => files,
-    };
-    let rc = rc.map_or("unknown".to_string(), |c| c.to_string());
-    let message = if message.is_empty() {
+    if message.is_empty() {
         "none".to_string()
     } else {
         message
-    };
-    let line = format!(
-        "Outcome: {outcome}; Changes: {claim}; Copied: {copied}; {harness} exit {rc}; Result: {message}"
-    );
+    }
+}
+
+fn copied_files(changed: &[String]) -> String {
+    match changed.join(",") {
+        files if files.is_empty() => "none".to_string(),
+        files if files.len() > 120 => format!("{} files", changed.len()),
+        files => files,
+    }
+}
+
+fn bounded_line(line: &str, in_comment: bool) -> String {
     let mut line = line.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.len() > CONCLUSION_BYTES {
         let marker = if in_comment {
@@ -144,13 +156,6 @@ mod tests {
 
     #[test]
     fn success_requires_exit_zero_a_successful_result_and_a_changes_line() {
-        let result = |subtype: &str, is_error: bool, text: &str| {
-            format!(
-                "{{\"type\":\"system\"}}\n{}\n",
-                serde_json::json!({"type":"result","subtype":subtype,"is_error":is_error,"result":text})
-            )
-            .into_bytes()
-        };
         let done = result(
             "success",
             false,
@@ -159,18 +164,17 @@ mod tests {
         let files = vec!["src/lib.rs".to_string()];
         assert_eq!(proven_success(&done, Some(0), &files), Ok(()));
         // Each refusal case alone keeps the attempt failed.
-        assert_eq!(
-            proven_success(&done, Some(1), &files),
-            Err("runner exit not 0")
-        );
-        assert_eq!(
-            proven_success(&done, None, &files),
-            Err("runner exit not 0")
-        );
+        for rc in [Some(1), None] {
+            assert_eq!(proven_success(&done, rc, &files), Err("runner exit not 0"));
+        }
         assert_eq!(
             proven_success(b"{\"type\":\"assistant\"}\n", Some(0), &files),
             Err("no final result event")
         );
+    }
+    #[test]
+    fn unsuccessful_result_events_refuse_success() {
+        let files = ["src/lib.rs".to_string()];
         for (subtype, is_error) in [
             ("success", true),
             ("error_max_turns", true),
@@ -199,8 +203,13 @@ mod tests {
             "The build passes.\nChanges: none; Checks: cargo test passed; Limits: none",
         );
         assert_eq!(proven_success(&read_only, Some(0), &[]), Ok(()));
+    }
+    #[test]
+    fn only_the_last_result_event_counts() {
+        let files = ["src/lib.rs".to_string()];
+        let done = result_of("Did it.\nChanges: src/lib.rs");
         // Only the LAST result event counts.
-        let mut later = done.clone();
+        let mut later = done;
         later.extend(result("error_during_execution", true, "Changes: none"));
         assert_eq!(
             proven_success(&later, Some(0), &files),
@@ -208,12 +217,15 @@ mod tests {
         );
     }
 
-    fn result_of(text: &str) -> Vec<u8> {
+    fn result(subtype: &str, is_error: bool, text: &str) -> Vec<u8> {
         format!(
             "{{\"type\":\"system\"}}\n{}\n",
-            serde_json::json!({"type":"result","subtype":"success","is_error":false,"result":text})
+            serde_json::json!({"type":"result","subtype":subtype,"is_error":is_error,"result":text})
         )
         .into_bytes()
+    }
+    fn result_of(text: &str) -> Vec<u8> {
+        result("success", false, text)
     }
 
     #[test]
@@ -234,9 +246,9 @@ mod tests {
             claude,
             conclusion_of("Claude", &stream, Some(0), &changed, false)
         );
-        assert!(claude.contains("; Claude exit 0; "), "{claude}");
         let codex = conclusion_of("Codex", &stream, Some(0), &changed, false);
-        assert_eq!(codex, claude.replace("Claude exit", "Codex exit"));
+        let (prefix, suffix) = claude.split_once("; Claude exit 0; ").expect(&claude);
+        assert_eq!(codex, format!("{prefix}; Codex exit 0; {suffix}"));
     }
 
     /// Review I-2: a claim of changes that did not arrive is refused; this is a
@@ -301,46 +313,53 @@ mod tests {
     /// (bounded), led by its Outcome, its own Changes claim and the copied files.
     #[test]
     fn the_conclusion_keeps_the_final_message() {
-        let stream = result_of(
-            "CI fails because the lockfile is stale.\nRun cargo update.\nChanges: none; Checks: cargo test (passed); Limits: none",
-        );
-        assert_eq!(
-            conclusion(&stream, Some(0), &[], false),
-            "Outcome: done; Changes: none; Copied: none; Claude exit 0; Result: CI fails because the lockfile is stale. Run cargo update. Checks: cargo test (passed); Limits: none"
-        );
-        let line = conclusion(
-            &result_of("Added hello.\nOutcome: done\nChanges: src/lib.rs"),
-            Some(0),
-            &["src/lib.rs".into()],
-            false,
-        );
-        assert_eq!(
-            line,
-            "Outcome: done; Changes: src/lib.rs; Copied: src/lib.rs; Claude exit 0; Result: Added hello."
-        );
+        let cases = [
+            (
+                "CI fails because the lockfile is stale.\nRun cargo update.\nChanges: none; Checks: cargo test (passed); Limits: none",
+                vec![],
+                "Outcome: done; Changes: none; Copied: none; Claude exit 0; Result: CI fails because the lockfile is stale. Run cargo update. Checks: cargo test (passed); Limits: none",
+            ),
+            (
+                "Added hello.\nOutcome: done\nChanges: src/lib.rs",
+                vec!["src/lib.rs".into()],
+                "Outcome: done; Changes: src/lib.rs; Copied: src/lib.rs; Claude exit 0; Result: Added hello.",
+            ),
+        ];
+        for (message, changed, expected) in cases {
+            let line = conclusion(&result_of(message), Some(0), &changed, false);
+            assert_eq!(line, expected);
+        }
+    }
+    #[test]
+    fn long_unicode_messages_keep_the_outcome_and_clipping_marker() {
         let long = result_of(&format!(
             "{}\n**Outcome:** blocked\nChanges: none",
             "é".repeat(400)
         ));
-        let clipped = conclusion(&long, None, &[], false);
-        assert!(
-            clipped.len() <= 500 && clipped.ends_with(" [clipped]"),
-            "{clipped}"
-        );
-        assert!(
-            clipped.starts_with("Outcome: blocked; Changes: none;"),
-            "{clipped}"
-        );
+        for (in_comment, marker) in [
+            (false, " [clipped]"),
+            (
+                true,
+                " [clipped; the full message is sent to the task comments when the channel accepts it]",
+            ),
+        ] {
+            let clipped = conclusion(&long, None, &[], in_comment);
+            let body = clipped
+                .strip_prefix("Outcome: blocked; Changes: none;")
+                .expect("clipping preserves the blocked status");
+            assert!(body.ends_with(marker));
+            assert!(clipped.len() <= CONCLUSION_BYTES);
+        }
+    }
+    #[test]
+    fn invisible_characters_are_excluded_from_summaries() {
         // R2-M3: no bidi or invisible format characters in the summary.
         let bidi = result_of("ab\u{202E}cd\u{2067}e\u{E0041}\u{2029}f\nChanges: none");
         assert!(conclusion(&bidi, Some(0), &[], false).ends_with("Result: abcdef"));
-        let pointed = conclusion(&long, None, &[], true);
-        assert!(pointed.len() <= 500, "{pointed}");
-        assert!(pointed.ends_with(
-            " [clipped; the full message is sent to the task comments when the channel accepts it]"
-        ));
-        assert!(conclusion(b"", None, &[], false).starts_with(
-            "Outcome: incomplete; Changes: unknown; Copied: none; Claude exit unknown; Result: no final message"
-        ));
+    }
+    #[test]
+    fn missing_results_explicitly_remain_incomplete() {
+        let expected = "Outcome: incomplete; Changes: unknown; Copied: none; Claude exit unknown; Result: no final message";
+        assert!(conclusion(b"", None, &[], false).starts_with(expected));
     }
 }

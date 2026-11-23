@@ -190,6 +190,16 @@ impl MailLoop {
         input: AttemptInput,
         mut delivery: Delivery<'_>,
     ) -> Result<Vec<(Uuid, &'static str)>> {
+        let deliveries = self.poll().await?;
+        let mut acked = vec![];
+        for item in self.receive_batch(&deliveries)? {
+            if let Some(disposition) = self.handle(&item, input, &mut delivery).await? {
+                acked.push((item.id, disposition));
+            }
+        }
+        Ok(acked)
+    }
+    async fn poll(&self) -> Result<Vec<Value>> {
         let request = json!({"identity":self.identity,"attempt":self.attempt,"limit":POLL_LIMIT});
         ensure!(
             mail::valid("MessageNodePoll", &request),
@@ -213,10 +223,13 @@ impl MailLoop {
                 && deliveries.len() <= POLL_LIMIT,
             "mail poll batch refused"
         );
+        Ok(deliveries)
+    }
+    fn receive_batch<'a>(&self, deliveries: &'a [Value]) -> Result<Vec<Item<'a>>> {
         // Journal (or match) every receipt before any effect in this batch.
         let mut seen = BTreeSet::new();
         let mut items = vec![];
-        for d in &deliveries {
+        for d in deliveries {
             let id: Uuid = serde_json::from_value(d["delivery_id"].clone())?;
             let message_id: Uuid = serde_json::from_value(d["message_id"].clone())?;
             ensure!(seen.insert(id), "mail batch repeats delivery {id}");
@@ -225,56 +238,77 @@ impl MailLoop {
                 message_id,
                 d["payload_digest"].as_str().unwrap_or_default(),
             )?;
-            items.push((id, message_id, d));
+            items.push(Item {
+                id,
+                message_id,
+                delivery: d,
+            });
         }
-        let mut acked = vec![];
-        for (id, message_id, d) in items {
-            if self.has(id, "acked") {
-                continue;
-            }
-            if !self.has(id, "outcome") {
-                let decided = if self.has(id, "intent") {
-                    Some("delivery_unknown")
-                } else if input == AttemptInput::Rejecting {
-                    Some("stale")
-                } else {
-                    match &mut delivery {
-                        Delivery::Inbox => Some("received_by_node"),
-                        Delivery::Native(boundary) => {
-                            if boundary.ready() {
-                                let digest = d["payload_digest"].as_str().unwrap_or_default();
-                                self.record_intent(id, message_id, digest)?;
-                                Some(match boundary.inject(d) {
-                                    Injection::Handed => "handed_to_harness",
-                                    Injection::Unknown => "delivery_unknown",
-                                })
-                            } else {
-                                None
-                            }
-                        }
-                    }
-                };
-                let Some(disposition) = decided else {
-                    // Deferred: acknowledge receipt once; inject on a later replay.
-                    if !self.has(id, "receipt-acked") {
-                        let received: Received = self.read(id, "received")?;
-                        self.ack(id, received.receipt_op, "received_by_node")
-                            .await?;
-                        self.write(id, "receipt-acked", &json!({}))?;
-                        acked.push((id, "received_by_node"));
-                    }
-                    continue;
-                };
-                self.decide(id, disposition)?;
-            }
-            let outcome: Outcome = self.read(id, "outcome")?;
-            let disposition = disposition(&outcome.disposition)?;
-            self.ack(id, outcome.ack_op, disposition).await?;
-            self.write(id, "acked", &json!({"disposition":disposition}))?;
-            acked.push((id, disposition));
-        }
-        Ok(acked)
+        Ok(items)
     }
+    async fn handle(
+        &self,
+        item: &Item<'_>,
+        input: AttemptInput,
+        delivery: &mut Delivery<'_>,
+    ) -> Result<Option<&'static str>> {
+        let id = item.id;
+        if self.has(id, "acked") {
+            return Ok(None);
+        }
+        if !self.has(id, "outcome") {
+            let Some(disposition) = self.attempt_delivery(item, input, delivery)? else {
+                return self.ack_deferred(id).await;
+            };
+            self.decide(id, disposition)?;
+        }
+        let outcome: Outcome = self.read(id, "outcome")?;
+        let disposition = disposition(&outcome.disposition)?;
+        self.ack(id, outcome.ack_op, disposition).await?;
+        self.write(id, "acked", &json!({"disposition":disposition}))?;
+        Ok(Some(disposition))
+    }
+    fn attempt_delivery(
+        &self,
+        item: &Item<'_>,
+        input: AttemptInput,
+        delivery: &mut Delivery<'_>,
+    ) -> Result<Option<&'static str>> {
+        if self.has(item.id, "intent") {
+            return Ok(Some("delivery_unknown"));
+        }
+        if input == AttemptInput::Rejecting {
+            return Ok(Some("stale"));
+        }
+        let Delivery::Native(boundary) = delivery else {
+            return Ok(Some("received_by_node"));
+        };
+        if !boundary.ready() {
+            return Ok(None);
+        }
+        let digest = item.delivery["payload_digest"].as_str().unwrap_or_default();
+        self.record_intent(item.id, item.message_id, digest)?;
+        Ok(Some(match boundary.inject(item.delivery) {
+            Injection::Handed => "handed_to_harness",
+            Injection::Unknown => "delivery_unknown",
+        }))
+    }
+    async fn ack_deferred(&self, id: Uuid) -> Result<Option<&'static str>> {
+        // Acknowledge receipt once; injection may still happen on a later replay.
+        if self.has(id, "receipt-acked") {
+            return Ok(None);
+        }
+        let received: Received = self.read(id, "received")?;
+        self.ack(id, received.receipt_op, "received_by_node")
+            .await?;
+        self.write(id, "receipt-acked", &json!({}))?;
+        Ok(Some("received_by_node"))
+    }
+}
+struct Item<'a> {
+    id: Uuid,
+    message_id: Uuid,
+    delivery: &'a Value,
 }
 fn disposition(value: &str) -> Result<&'static str> {
     [

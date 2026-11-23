@@ -116,26 +116,47 @@ pub struct Relay {
     input: tokio::task::JoinHandle<()>,
     _raw: Option<Raw>,
 }
+fn pane_input(mut input: Box<dyn Read + Send>) -> tokio::sync::mpsc::Receiver<Vec<u8>> {
+    let (keys, typed) = tokio::sync::mpsc::channel::<Vec<u8>>(16);
+    // A plain thread: a blocked terminal read must never hold the process open.
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        let mut replies = crate::query_replies::ReplyFilter::default();
+        while let Ok(n @ 1..) = input.read(&mut buffer) {
+            let typed = replies.feed(&buffer[..n]);
+            if !typed.is_empty() && keys.blocking_send(typed).is_err() {
+                break;
+            }
+        }
+    });
+    typed
+}
+
+async fn pane_output<R: AsyncRead + Unpin>(
+    mut from: R,
+    mut out: Box<dyn Write + Send>,
+    secrets: Vec<Zeroizing<Vec<u8>>>,
+    leaked: Arc<AtomicBool>,
+) {
+    let (mut exact, mut shapes) = (ExactRedactor::new(secrets), Redactor::default());
+    let mut buffer = vec![0u8; 65536];
+    while let Ok(n @ 1..) = from.read(&mut buffer).await {
+        let frame = shapes.frame(&exact.frame(&buffer[..n]));
+        leaked.fetch_or(exact.leaked, Ordering::SeqCst);
+        if out.write_all(&frame).and_then(|()| out.flush()).is_err() {
+            break;
+        }
+    }
+}
+
 impl Relay {
     pub fn start<S>(stream: S, pane: Pane, secrets: Vec<Zeroizing<Vec<u8>>>) -> Self
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
         let raw = pane.tty.then(Raw::enter).flatten();
-        let (mut from, mut to) = tokio::io::split(stream);
-        let (keys, mut typed) = tokio::sync::mpsc::channel::<Vec<u8>>(16);
-        let mut input = pane.input;
-        // A plain thread: a blocked terminal read must never hold the process open.
-        std::thread::spawn(move || {
-            let mut buffer = [0u8; 4096];
-            let mut replies = crate::query_replies::ReplyFilter::default();
-            while let Ok(n @ 1..) = input.read(&mut buffer) {
-                let typed = replies.feed(&buffer[..n]);
-                if !typed.is_empty() && keys.blocking_send(typed).is_err() {
-                    break;
-                }
-            }
-        });
+        let (from, mut to) = tokio::io::split(stream);
+        let mut typed = pane_input(pane.input);
         let input = tokio::spawn(async move {
             while let Some(bytes) = typed.recv().await {
                 if to.write_all(&bytes).await.is_err() {
@@ -144,19 +165,7 @@ impl Relay {
             }
         });
         let leaked = Arc::new(AtomicBool::new(false));
-        let flag = leaked.clone();
-        let mut out = pane.output;
-        let output = tokio::spawn(async move {
-            let (mut exact, mut shapes) = (ExactRedactor::new(secrets), Redactor::default());
-            let mut buffer = vec![0u8; 65536];
-            while let Ok(n @ 1..) = from.read(&mut buffer).await {
-                let frame = shapes.frame(&exact.frame(&buffer[..n]));
-                flag.fetch_or(exact.leaked, Ordering::SeqCst);
-                if out.write_all(&frame).and_then(|()| out.flush()).is_err() {
-                    break;
-                }
-            }
-        });
+        let output = tokio::spawn(pane_output(from, pane.output, secrets, leaked.clone()));
         Self {
             leaked,
             output,

@@ -1,171 +1,7 @@
 use crate::*;
-use std::collections::VecDeque;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Color {
-    Default,
-    Indexed(u8),
-    Rgb(u8, u8, u8),
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Attributes {
-    pub foreground: Color,
-    pub background: Color,
-    pub flags: u16,
-}
-impl Default for Attributes {
-    fn default() -> Self {
-        Self {
-            foreground: Color::Default,
-            background: Color::Default,
-            flags: 0,
-        }
-    }
-}
-#[derive(Clone, PartialEq, Eq)]
-pub struct Cell {
-    pub(crate) glyph: String,
-    pub(crate) width: u8,
-    pub(crate) attributes: Attributes,
-}
-impl std::fmt::Debug for Cell {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Cell")
-            .field("glyph_bytes", &self.glyph.len())
-            .field("width", &self.width)
-            .field("attributes", &self.attributes)
-            .finish()
-    }
-}
-impl Cell {
-    pub fn glyph(&self) -> &str {
-        &self.glyph
-    }
-    pub fn width(&self) -> u8 {
-        self.width
-    }
-    pub fn attributes(&self) -> Attributes {
-        self.attributes
-    }
-    pub(crate) fn blank(attributes: Attributes) -> Self {
-        Self {
-            glyph: String::new(),
-            width: 1,
-            attributes,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub struct Cursor {
-    pub row: u16,
-    pub column: u16,
-    pub pending_wrap: bool,
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Modes {
-    pub auto_wrap: bool,
-    pub origin: bool,
-    pub insert: bool,
-    pub new_line: bool,
-    pub application_cursor: bool,
-    pub application_keypad: bool,
-    pub bracketed_paste: bool,
-    pub cursor_visible: bool,
-    pub cursor_style: u8,
-    pub mouse_modes: u8,
-    pub mouse_encodings: u8,
-}
-impl Default for Modes {
-    fn default() -> Self {
-        Self {
-            auto_wrap: true,
-            origin: false,
-            insert: false,
-            new_line: false,
-            application_cursor: false,
-            application_keypad: false,
-            bracketed_paste: false,
-            cursor_visible: true,
-            cursor_style: 0,
-            mouse_modes: 0,
-            mouse_encodings: 0,
-        }
-    }
-}
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct Row {
-    pub cells: Vec<Cell>,
-    pub wrapped: bool,
-}
-impl Row {
-    pub(crate) fn blank(columns: usize, attributes: Attributes) -> Self {
-        Self {
-            cells: vec![Cell::blank(attributes); columns],
-            wrapped: false,
-        }
-    }
-}
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct Saved {
-    pub cursor: Cursor,
-    pub attributes: Attributes,
-    pub origin: bool,
-    pub auto_wrap: bool,
-    pub charsets: [u8; 2],
-    pub charset: u8,
-}
-impl Default for Saved {
-    fn default() -> Self {
-        Self {
-            cursor: Cursor::default(),
-            attributes: Attributes::default(),
-            origin: false,
-            auto_wrap: true,
-            charsets: [0, 0],
-            charset: 0,
-        }
-    }
-}
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct Screen {
-    pub rows: Vec<Row>,
-    pub cursor: Cursor,
-    pub dec_saved: Saved,
-    pub ansi_saved: Cursor,
-    pub top: usize,
-    pub bottom: usize,
-    pub history: VecDeque<Row>,
-    pub history_cells: usize,
-}
-impl Screen {
-    pub(crate) fn new(columns: usize, rows: usize) -> Self {
-        Self {
-            rows: (0..rows)
-                .map(|_| Row::blank(columns, Attributes::default()))
-                .collect(),
-            cursor: Cursor::default(),
-            dec_saved: Saved::default(),
-            ansi_saved: Cursor::default(),
-            top: 0,
-            bottom: rows - 1,
-            history: VecDeque::new(),
-            history_cells: 0,
-        }
-    }
-    fn push_history(&mut self, mut row: Row) {
-        // Resize can leave large spare cell capacity behind a short row. Never
-        // let many such rows bypass the retained-history cell quota.
-        row.cells = row.cells.into_boxed_slice().into_vec();
-        while self.history_cells + row.cells.len() > MAX_HISTORY_CELLS {
-            let old = self
-                .history
-                .pop_front()
-                .expect("bounded history accounting");
-            self.history_cells -= old.cells.len();
-        }
-        self.history_cells += row.cells.len();
-        self.history.push_back(row);
-    }
-}
+mod screen;
+pub use screen::{Attributes, Cell, Color, Cursor, Modes, ScreenView};
+pub(crate) use screen::{Row, Saved, Screen};
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct State {
     pub columns: usize,
@@ -314,12 +150,12 @@ impl State {
         let (top, bottom) = (self.active().top, self.active().bottom);
         let count = count.min(bottom - top + 1);
         work.spend(count * (columns + bottom - top + 1))?;
-        let rows = self.rows;
+        let retain_history = main && (top, bottom) == (0, self.rows - 1);
         let screen = self.active_mut();
         for _ in 0..count {
             let removed = screen.rows.remove(top);
             screen.rows.insert(bottom, Row::blank(columns, attrs));
-            if main && top == 0 && bottom == rows - 1 {
+            if retain_history {
                 screen.push_history(removed);
             }
         }
@@ -348,52 +184,66 @@ impl State {
             return Err(Error::Unsupported("scalar width"));
         }
         if width == 0 {
-            let cursor = self.active().cursor;
-            let mut column = if cursor.pending_wrap {
-                cursor.column as usize
-            } else {
-                (cursor.column as usize)
-                    .checked_sub(1)
-                    .ok_or(Error::Unsupported("orphan combining mark"))?
-            };
-            let row = &mut self.active_mut().rows[cursor.row as usize];
-            if row.cells[column].width == 0 {
-                column = column.checked_sub(1).ok_or(Error::Framing)?;
-            }
-            let cell = &mut row.cells[column];
-            if cell.glyph.is_empty() {
-                return Err(Error::Unsupported("orphan combining mark"));
-            }
-            if cell.glyph.len() + scalar.len_utf8() > MAX_GLYPH_BYTES {
-                return Err(Error::Bound);
-            }
-            cell.glyph.push(scalar);
-            // tmux3.4 does not repeat the base after a combining scalar. Until
-            // all such REP semantics are qualified, refuse rather than invent
-            // repetitions from a stale last-print base.
-            self.last_print = None;
-            return Ok(());
+            return self.combine(scalar);
         }
-        if self.active().cursor.pending_wrap {
-            if self.modes.auto_wrap {
-                let row = self.active().cursor.row as usize;
-                self.active_mut().rows[row].wrapped = true;
-                self.linefeed(true, work)?;
-            } else {
-                self.clear_wrap();
-            }
-        }
-        if width == 2 && self.active().cursor.column as usize + 1 == self.columns {
-            if !self.modes.auto_wrap {
-                return Err(Error::Unsupported("wide scalar at nonwrapping edge"));
-            }
-            let row = self.active().cursor.row as usize;
-            self.active_mut().rows[row].wrapped = true;
-            self.linefeed(true, work)?;
-        }
+        self.wrap_before_print(width, work)?;
         if self.modes.insert {
             self.edit_cells(width, true, work)?;
         }
+        self.place_glyph(scalar, width);
+        Ok(())
+    }
+
+    fn combine(&mut self, scalar: char) -> Result<()> {
+        let cursor = self.active().cursor;
+        let mut column = if cursor.pending_wrap {
+            cursor.column as usize
+        } else {
+            (cursor.column as usize)
+                .checked_sub(1)
+                .ok_or(Error::Unsupported("orphan combining mark"))?
+        };
+        let row = &mut self.active_mut().rows[cursor.row as usize];
+        if row.cells[column].width == 0 {
+            column = column.checked_sub(1).ok_or(Error::Framing)?;
+        }
+        let cell = &mut row.cells[column];
+        if cell.glyph.is_empty() {
+            return Err(Error::Unsupported("orphan combining mark"));
+        }
+        if cell.glyph.len() + scalar.len_utf8() > MAX_GLYPH_BYTES {
+            return Err(Error::Bound);
+        }
+        cell.glyph.push(scalar);
+        // tmux3.4 does not repeat the base after a combining scalar. Until
+        // all such REP semantics are qualified, refuse rather than invent
+        // repetitions from a stale last-print base.
+        self.last_print = None;
+        Ok(())
+    }
+
+    fn wrap_before_print(&mut self, width: usize, work: &mut Work) -> Result<()> {
+        match (self.active().cursor.pending_wrap, self.modes.auto_wrap) {
+            (true, true) => self.wrap_to_next_line(work)?,
+            (true, false) => self.clear_wrap(),
+            _ => (),
+        }
+        if width != 2 || self.active().cursor.column as usize + 1 != self.columns {
+            return Ok(());
+        }
+        if !self.modes.auto_wrap {
+            return Err(Error::Unsupported("wide scalar at nonwrapping edge"));
+        }
+        self.wrap_to_next_line(work)
+    }
+
+    fn wrap_to_next_line(&mut self, work: &mut Work) -> Result<()> {
+        let row = self.active().cursor.row as usize;
+        self.active_mut().rows[row].wrapped = true;
+        self.linefeed(true, work)
+    }
+
+    fn place_glyph(&mut self, scalar: char, width: usize) {
         let attrs = self.attributes;
         let columns = self.columns;
         let cursor = self.active().cursor;
@@ -420,16 +270,15 @@ impl State {
         cursor.column = next.min(columns - 1) as u16;
         cursor.pending_wrap = next == columns;
         self.last_print = Some(scalar);
-        Ok(())
     }
     pub(crate) fn erase(
         &mut self,
         row: usize,
-        start: usize,
-        end: usize,
+        columns: std::ops::Range<usize>,
         work: &mut Work,
     ) -> Result<()> {
         let attrs = self.attributes;
+        let std::ops::Range { start, end } = columns;
         work.spend(end - start + self.columns)?;
         let row = &mut self.active_mut().rows[row];
         for column in start..end {
@@ -541,41 +390,18 @@ fn clear_pair(row: &mut Row, column: usize, attrs: Attributes) {
 }
 pub(crate) fn repair(row: &mut Row, attrs: Attributes) {
     for col in 0..row.cells.len() {
-        if (row.cells[col].width == 2
-            && (col + 1 == row.cells.len() || row.cells[col + 1].width != 0))
-            || (row.cells[col].width == 0 && (col == 0 || row.cells[col - 1].width != 2))
-        {
+        let missing_pair = match row.cells[col].width {
+            2 => row.cells.get(col + 1).is_none_or(|next| next.width != 0),
+            0 => col
+                .checked_sub(1)
+                .is_none_or(|previous| row.cells[previous].width != 2),
+            _ => false,
+        };
+        if missing_pair {
             row.cells[col] = Cell::blank(attrs);
         }
     }
 }
-pub struct ScreenView<'a> {
-    screen: &'a Screen,
-    pub columns: usize,
-    pub rows: usize,
-    pub alternate: bool,
-}
-impl<'a> ScreenView<'a> {
-    pub fn cursor(&self) -> Cursor {
-        self.screen.cursor
-    }
-    pub fn cell(&self, row: usize, column: usize) -> Option<&'a Cell> {
-        self.screen.rows.get(row).and_then(|r| r.cells.get(column))
-    }
-    pub fn line(&self, row: usize) -> Option<&'a [Cell]> {
-        self.screen.rows.get(row).map(|r| r.cells.as_slice())
-    }
-    pub fn line_wrapped(&self, row: usize) -> Option<bool> {
-        self.screen.rows.get(row).map(|r| r.wrapped)
-    }
-    pub fn history(&self) -> impl Iterator<Item = (&'a [Cell], bool)> {
-        self.screen
-            .history
-            .iter()
-            .map(|r| (r.cells.as_slice(), r.wrapped))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

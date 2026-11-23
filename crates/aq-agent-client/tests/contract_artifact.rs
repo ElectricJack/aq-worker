@@ -1,3 +1,4 @@
+use aq_agent_client::comments;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -35,8 +36,7 @@ fn published_archive_and_extracted_dependency_match_the_frozen_inventory() {
 /// aq-server protocol/agent-comments/v1 is pinned byte for byte, and the
 /// client's routes and comment shape follow the pinned files.
 #[test]
-fn agent_comments_pin_matches_vendored_files_and_client_routes() {
-    use aq_agent_client::comments;
+fn agent_comments_pin_matches_vendored_files() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor");
     let pin: Value =
         serde_json::from_slice(&std::fs::read(root.join("agent-comments-v1-source.json")).unwrap())
@@ -64,6 +64,10 @@ fn agent_comments_pin_matches_vendored_files_and_client_routes() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn client_routes_match_the_published_comment_contract() {
     let routes: Value = serde_json::from_str(comments::ROUTES).unwrap();
     assert_eq!(routes["version"], 1);
     let listed: Vec<_> = routes["routes"]
@@ -96,6 +100,11 @@ fn agent_comments_pin_matches_vendored_files_and_client_routes() {
     ] {
         assert!(routes["errors"].get(code).is_some(), "{code}");
     }
+}
+
+#[test]
+fn published_comments_match_the_pinned_schema() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/agent-comments-v1");
     // The published example thread (owner, tombstone and agent comments) fits
     // the pinned HumanComment shape; a changed shape does not.
     let example: Value = serde_json::from_slice(

@@ -19,6 +19,41 @@ def checked(*command):
     return subprocess.check_output(command, cwd=ROOT, text=True).strip()
 
 
+def verify_files(directory, files, message):
+    for path, expected in files.items():
+        data = (directory / path).read_bytes()
+        if sha(data) != expected["sha256"] or len(data) != expected["bytes"]:
+            raise ValueError(message)
+
+
+def build_agent(offline):
+    command = ["cargo", "build", "--locked", "--release", "-p", "aq-agent-client", "--bin", "aq-agent", "--message-format=json"]
+    if offline:
+        command.append("--offline")
+    result = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, check=True)
+    executable = None
+    for line in result.stdout.splitlines():
+        message = json.loads(line)
+        if message.get("reason") == "compiler-artifact" and message.get("target", {}).get("name") == "aq-agent":
+            executable = message.get("executable") or executable
+    if not executable:
+        raise ValueError("Cargo did not produce aq-agent")
+    return Path(executable)
+
+
+def write_archive(path, files):
+    # Exclusive creation prevents replacing an existing release. Deterministic
+    # archive metadata makes byte-level replay possible for identical inputs.
+    with path.open("xb") as output:
+        with gzip.GzipFile(fileobj=output, filename="", mode="wb", mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w") as archive:
+                for name, data in sorted(files.items()):
+                    entry = tarfile.TarInfo(name)
+                    entry.size = len(data)
+                    entry.mode = 0o755 if name.startswith("bin/") else 0o644
+                    archive.addfile(entry, io.BytesIO(data))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path, help="New .tar.gz path")
@@ -30,27 +65,11 @@ def main():
     package = ROOT / "vendor/aq-agent-api-0.1.0"
     if sha((ROOT / "vendor/aq-agent-api-0.1.0.crate").read_bytes()) != pin["archive_sha256"]:
         raise ValueError("public API archive digest changed")
-    for path, expected in pin["files"].items():
-        data = (package / path).read_bytes()
-        if sha(data) != expected["sha256"] or len(data) != expected["bytes"]:
-            raise ValueError("public API extracted package changed")
+    verify_files(package, pin["files"], "public API extracted package changed")
     comments = json.loads((ROOT / "vendor/agent-comments-v1-source.json").read_bytes())
-    for path, expected in comments["files"].items():
-        data = (ROOT / "vendor/agent-comments-v1" / path).read_bytes()
-        if sha(data) != expected["sha256"] or len(data) != expected["bytes"]:
-            raise ValueError("agent comments contract changed")
-    command = ["cargo", "build", "--locked", "--release", "-p", "aq-agent-client", "--bin", "aq-agent", "--message-format=json"]
-    if args.offline:
-        command.append("--offline")
-    result = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, check=True)
-    executable = None
-    for line in result.stdout.splitlines():
-        message = json.loads(line)
-        if message.get("reason") == "compiler-artifact" and message.get("target", {}).get("name") == "aq-agent":
-            executable = message.get("executable") or executable
-    if not executable:
-        raise ValueError("Cargo did not produce aq-agent")
-    files = {"bin/aq-agent": Path(executable).read_bytes(),
+    verify_files(ROOT / "vendor/agent-comments-v1", comments["files"], "agent comments contract changed")
+    executable = build_agent(args.offline)
+    files = {"bin/aq-agent": executable.read_bytes(),
              "README.md": (ROOT / "crates/aq-agent-client/README.md").read_bytes(),
              "agent-api-contract.json": (ROOT / "vendor/agent-api-contract.json").read_bytes()}
     for name in ["schema.json", "openapi.json", "cli-contract.json"]:
@@ -68,16 +87,7 @@ def main():
                 "capabilities": ["context.live", "context.cached", "graph.read", "graph.command", "operation.get", "comment.add", "comment.list", "result.submit.local", "result.status.local"],
                 "files": {name: {"sha256": sha(data), "bytes": len(data)} for name, data in sorted(files.items())}}
     files["manifest.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
-    # Exclusive creation prevents replacing an existing release. Deterministic
-    # archive metadata makes byte-level replay possible for identical inputs.
-    with args.output.open("xb") as output:
-        with gzip.GzipFile(fileobj=output, filename="", mode="wb", mtime=0) as compressed:
-            with tarfile.open(fileobj=compressed, mode="w") as archive:
-                for name, data in sorted(files.items()):
-                    entry = tarfile.TarInfo(name)
-                    entry.size = len(data)
-                    entry.mode = 0o755 if name.startswith("bin/") else 0o644
-                    archive.addfile(entry, io.BytesIO(data))
+    write_archive(args.output, files)
     print(json.dumps({"artifact": str(args.output), "sha256": sha(args.output.read_bytes()),
                       "source_revision": manifest["source_revision"],
                       "working_tree_dirty": manifest["working_tree_dirty"]}))

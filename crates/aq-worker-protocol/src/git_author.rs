@@ -16,24 +16,36 @@ pub struct GitAuthor {
     pub name: String,
     pub email: String,
 }
+fn allowed(c: char) -> bool {
+    !c.is_control() && !matches!(c, '<' | '>')
+}
+
+fn valid_edges(value: &str) -> bool {
+    let edge = |c: char| !c.is_ascii_whitespace() && !r#",:;<>"'\"#.contains(c);
+    value.chars().next().is_some_and(edge) && value.chars().next_back().is_some_and(edge)
+}
+
+fn valid_email(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    email.len() <= 254
+        && valid_edges(email)
+        && email.chars().all(|c| allowed(c) && !c.is_whitespace())
+        && !local.is_empty()
+        && !domain.is_empty()
+        && !domain.contains('@')
+}
+
 impl GitAuthor {
     pub fn validate(&self) -> Result<()> {
-        let allowed = |c: char| !c.is_control() && c != '<' && c != '>';
-        let edge = |c: char| !c.is_ascii_whitespace() && !r#",:;<>"'\"#.contains(c);
-        let exact =
-            |s: &str| s.chars().next().is_some_and(edge) && s.chars().next_back().is_some_and(edge);
-        let (local, domain) = self.email.split_once('@').unwrap_or_default();
+        let name = &self.name;
+        let valid_name = !name.trim().is_empty()
+            && valid_edges(name)
+            && name.chars().count() <= 120
+            && name.chars().all(allowed);
         ensure!(
-            !self.name.trim().is_empty()
-                && exact(&self.name)
-                && exact(&self.email)
-                && self.name.chars().count() <= 120
-                && self.name.chars().all(allowed)
-                && self.email.len() <= 254
-                && self.email.chars().all(|c| allowed(c) && !c.is_whitespace())
-                && !local.is_empty()
-                && !domain.is_empty()
-                && !domain.contains('@'),
+            valid_name && valid_email(&self.email),
             "invalid offered Git author"
         );
         Ok(())

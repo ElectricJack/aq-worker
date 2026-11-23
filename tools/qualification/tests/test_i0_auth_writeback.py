@@ -118,35 +118,28 @@ def test_duplicate_auth_fields_refuse_without_modifying_owner(tmp_path):
     assert owner.read_bytes() == before
 
 
-@pytest.mark.parametrize('invalid', [
-    'missing_account', 'blank_account', 'long_account', 'spaced_token',
-    'unicode_token', 'long_token', 'unknown_root', 'unknown_token',
-    'invalid_refresh', 'long_refresh',
-])
-def test_native_invalid_login_preserves_owner_and_candidate(tmp_path, invalid):
+@pytest.mark.parametrize(('group', 'key', 'replacement'), [
+    ('tokens', 'account_id', None),
+    ('tokens', 'account_id', ''),
+    ('tokens', 'account_id', 'x'*513),
+    ('tokens', 'access_token', 'synthetic private token'),
+    ('tokens', 'access_token', 'synthetic-\u00e9'),
+    ('tokens', 'access_token', 'x'*32769),
+    (None, 'unsupported', 'synthetic-private-value'),
+    ('tokens', 'unsupported', 'synthetic-private-value'),
+    (None, 'last_refresh', ['synthetic-private-value']),
+    (None, 'last_refresh', 'x'*129),
+], ids=['missing_account', 'blank_account', 'long_account', 'spaced_token', 'unicode_token',
+        'long_token', 'unknown_root', 'unknown_token', 'invalid_refresh', 'long_refresh'])
+def test_native_invalid_login_preserves_owner_and_candidate(tmp_path, group, key, replacement):
     module = helper()
     owner, baseline, refreshed = inputs(tmp_path)
     value = json.loads(refreshed.read_bytes())
-    if invalid == 'missing_account':
-        del value['tokens']['account_id']
-    elif invalid == 'blank_account':
-        value['tokens']['account_id'] = ''
-    elif invalid == 'long_account':
-        value['tokens']['account_id'] = 'x'*513
-    elif invalid == 'spaced_token':
-        value['tokens']['access_token'] = 'synthetic private token'
-    elif invalid == 'unicode_token':
-        value['tokens']['access_token'] = 'synthetic-\u00e9'
-    elif invalid == 'long_token':
-        value['tokens']['access_token'] = 'x'*32769
-    elif invalid == 'unknown_root':
-        value['unsupported'] = 'synthetic-private-value'
-    elif invalid == 'unknown_token':
-        value['tokens']['unsupported'] = 'synthetic-private-value'
-    elif invalid == 'invalid_refresh':
-        value['last_refresh'] = ['synthetic-private-value']
-    elif invalid == 'long_refresh':
-        value['last_refresh'] = 'x'*129
+    target = value[group] if group else value
+    if replacement is None:
+        del target[key]
+    else:
+        target[key] = replacement
     refreshed.write_text(json.dumps(value))
     before = owner.read_bytes(), refreshed.read_bytes()
     with pytest.raises(ValueError) as error:

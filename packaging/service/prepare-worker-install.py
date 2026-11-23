@@ -54,15 +54,24 @@ def package_tmux(pin, stage):
         break
 
 
-def registry_paths(image, pinned):
-    registry, repo = image.split("/", 1)
+def require_loopback_registry(registry):
     host, port = registry.split(":")
     if not ipaddress.ip_address(host).is_loopback or not 0 < int(port) < 65536:
         raise ValueError("Use a numeric loopback source registry.")
+
+
+def registry_reference(image, pinned):
+    registry, repo = image.split("/", 1)
+    require_loopback_registry(registry)
     repo, image_digest = repo.split("@")
-    if not SLUG.fullmatch(repo) or not DIGEST.fullmatch(pinned) or image_digest != pinned:
+    if not (SLUG.fullmatch(repo) and DIGEST.fullmatch(pinned)):
         raise ValueError("The active image must be pinned by digest.")
-    manifest_path = f"/v2/{repo}/manifests/{pinned}"
+    if image_digest != pinned:
+        raise ValueError("The active image must be pinned by digest.")
+    return registry, repo
+
+
+def manifest_blobs(registry, manifest_path, pinned):
     request = Request(f"http://{registry}{manifest_path}", headers={
         "Accept": "application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json",
     })
@@ -74,6 +83,13 @@ def registry_paths(image, pinned):
     blobs = [manifest["config"], *manifest["layers"]]
     if not 1 <= len(blobs) <= 128 or any(not DIGEST.fullmatch(blob["digest"]) for blob in blobs):
         raise ValueError("Unexpected image manifest.")
+    return blobs
+
+
+def registry_paths(image, pinned):
+    registry, repo = registry_reference(image, pinned)
+    manifest_path = f"/v2/{repo}/manifests/{pinned}"
+    blobs = manifest_blobs(registry, manifest_path, pinned)
     return registry, ["/v2/", manifest_path, *(f"/v2/{repo}/blobs/{blob['digest']}" for blob in blobs)]
 
 
@@ -90,20 +106,39 @@ def render_bootstrap(bundle_digest):
     return template.replace("@AQ_ARCHIVE_SHA256@", bundle_digest).replace("@AQ_INSTALL_CONFIG@", config)
 
 
-def nginx_config(args, registry, paths):
-    host, port = args.listen.split(":")
+def listener_address(listen):
+    host, port = listen.split(":")
     address = ipaddress.IPv4Address(host)
-    if not 0 < int(port) < 65536 or address.is_unspecified or address.is_multicast:
+    specific = not address.is_unspecified and not address.is_multicast
+    if not 0 < int(port) < 65536 or not specific:
         raise ValueError("Use a specific private IPv4 address and port.")
+    return address
+
+
+def listener_tls(args, address):
     tls = bool(args.tls_cert and args.tls_key)
-    if (args.tls_cert is None) != (args.tls_key is None) or (not address.is_loopback and (not address.is_private or not tls)):
+    paired = (args.tls_cert is None) == (args.tls_key is None)
+    private_listener = address.is_loopback or (address.is_private and tls)
+    if not paired or not private_listener:
         raise ValueError("A LAN listener requires a private address, certificate and key.")
+    return tls
+
+
+def listener_settings(args):
+    tls = listener_tls(args, listener_address(args.listen))
     if not 0 < args.worker_port < 65536:
         raise ValueError("Invalid upstream worker port.")
-    def quote(path):
-        return '"' + str(path.absolute()).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
     listen = args.listen + (" ssl" if tls else "")
-    certs = f"ssl_certificate {quote(args.tls_cert)}; ssl_certificate_key {quote(args.tls_key)};" if tls else ""
+    certs = f"ssl_certificate {quote_path(args.tls_cert)}; ssl_certificate_key {quote_path(args.tls_key)};" if tls else ""
+    return listen, certs
+
+
+def quote_path(path):
+    return '"' + str(path.absolute()).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
+
+
+def nginx_config(args, registry, paths):
+    listen, certs = listener_settings(args)
     image_routes = "\n".join(
         f"location = {path} {{ limit_except GET {{ deny all; }} proxy_pass http://{registry}; }}"
         for path in sorted(set(paths))
@@ -131,13 +166,13 @@ http {{
     proxy_read_timeout 300s;
     location ~ "^/install/[a-f0-9]{{64}}\\.sh$" {{
       limit_except GET {{ deny all; }}
-      root {quote(args.output)};
+      root {quote_path(args.output)};
       default_type text/plain;
       add_header Cache-Control no-store;
     }}
     location ~ "^/install/[a-f0-9]{{64}}\\.tar\\.gz$" {{
       limit_except GET {{ deny all; }}
-      root {quote(args.output)};
+      root {quote_path(args.output)};
       default_type application/gzip;
     }}
     location /install/ {{ return 404; }}
@@ -158,14 +193,7 @@ http {{
 """
 
 
-def build(args):
-    service = tomllib.loads(args.service.read_text())
-    native = json.loads(Path(service["native_template"]).read_text())
-    executor = native["executor"]
-    settings = executor["settings"]
-    host = settings["host"]
-    entry, = host["docker_local"]["templates"]
-    registry, routes = registry_paths(entry["image"], entry["digest"])
+def installation_metadata(service):
     repos = [{key: row[key] for key in ("repository_id", "identity", "binding_generation", "object_format")} for row in service.get("repositories", [])]
     manual = service.get("manual", {})
     slugs = manual.get("source_slugs", {})
@@ -175,6 +203,95 @@ def build(args):
         "manual_sessions": "manual" in service,
         "source_slugs": slugs,
     }
+    return repos, metadata
+
+
+def stage_tools(args, stage, host):
+    for name in TOOLS:
+        src = args.worker if name == "aq-worker" else args.runtime / name
+        if name == "aq-session-host":
+            copy_pin(src, stage / name, host["helper"]["artifact"]["digest"])
+        else:
+            shutil.copyfile(src, stage / name)
+        (stage / name).chmod(0o755)
+    package_tmux(host["tmux"], stage)
+
+
+def stage_definitions(args, stage, native):
+    executor = native["executor"]
+    settings = executor["settings"]
+    definitions = [
+        (native, "adapter_manifest", "adapter.json"),
+        (executor, "composite_definition", "composite.json"),
+        (native, "inventory_definition", "inventory.json"),
+    ]
+    if codex := settings.get("codex"):
+        definitions.append((codex, "composite_definition", "codex-composite.json"))
+        if codex.get("runtime_bundle") is not None:
+            if not args.codex_helpers:
+                raise ValueError("Include --codex-helpers for the configured Codex runtime bundle.")
+            codex["runtime_bundle"] = "/bundle/codex-bundle"
+    for section, key, name in definitions:
+        # Preserve the exact pinned bytes, including the original formatting.
+        raw = Path(section[key]).read_bytes()
+        safe_json(json.loads(raw))
+        (stage / name).write_bytes(raw)
+        section[key] = "/" + name
+
+
+def set_bundle_paths(native, host):
+    for key in ("helper", "tmux"):
+        host[key]["path"] = "/bundle/" + Path(host[key]["path"]).name
+    for key in ("git_root", "git_socket", "state_dir"):
+        native[key] = "/bundle/" + key
+    if "node_git" in native:  # a node-git enrolled template; the installer sets the path
+        native["node_git"]["repositories"] = "/bundle/node_git"
+    host["root"] = "/bundle/host"
+    host["docker_local"]["socket"] = "/bundle/podman.sock"
+
+
+def stage_runtime(args, stage):
+    for name in ("aq-install.sh", "worker-install-config.py"):
+        shutil.copyfile(HERE / name, stage / name)
+    shutil.copyfile(ROOT / "packaging/windows/aq-wsl-autostart.ps1", stage / "aq-wsl-autostart.ps1")
+    scripts = ROOT / "scripts/sandbox-daemon"
+    shutil.copytree(scripts, stage / "sandbox-daemon")
+    with tarfile.open(stage / "podman-linux-amd64.tar.gz", "w:gz", compresslevel=3) as archive:
+        archive.add(args.podman, arcname="podman-linux-amd64")
+    if args.codex_helpers:
+        for name in ("codex-code-mode-host", "codex-path/rg", "codex-resources/bwrap"):
+            target = stage / "codex-bundle" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(args.codex_helpers / name, target)
+            target.chmod(0o755)
+
+
+def archive_bundle(stage, download):
+    output = stage.parent / "worker.tar.gz"
+    with tarfile.open(output, "w:gz", compresslevel=3) as archive:
+        for item in sorted(stage.iterdir()):
+            archive.add(item, arcname=item.name)
+    digest = sha(output)
+    output.replace(download / (digest + ".tar.gz"))
+    return digest
+
+
+def publish_bundle(stage, download):
+    digest = archive_bundle(stage, download)
+    bootstrap = stage.parent / "aq-worker.sh"
+    bootstrap.write_text(render_bootstrap(digest))
+    installer_digest = sha(bootstrap)
+    bootstrap.replace(download / (installer_digest + ".sh"))
+    return digest, installer_digest
+
+
+def build(args):
+    service = tomllib.loads(args.service.read_text())
+    native = json.loads(Path(service["native_template"]).read_text())
+    host = native["executor"]["settings"]["host"]
+    entry, = host["docker_local"]["templates"]
+    registry, routes = registry_paths(entry["image"], entry["digest"])
+    repos, metadata = installation_metadata(service)
     args.output.mkdir(parents=True, exist_ok=True)
     download = args.output / "install"
     download.mkdir(exist_ok=True)
@@ -182,64 +299,13 @@ def build(args):
     with tempfile.TemporaryDirectory(dir=args.output) as temp:
         stage = Path(temp) / "bundle"
         stage.mkdir()
-        for name in TOOLS:
-            src = args.worker if name == "aq-worker" else args.runtime / name
-            if name == "aq-session-host":
-                copy_pin(src, stage / name, host["helper"]["artifact"]["digest"])
-            else:
-                shutil.copyfile(src, stage / name)
-            (stage / name).chmod(0o755)
-        package_tmux(host["tmux"], stage)
-        definitions = [
-            (native, "adapter_manifest", "adapter.json"),
-            (executor, "composite_definition", "composite.json"),
-            (native, "inventory_definition", "inventory.json"),
-        ]
-        if codex := settings.get("codex"):
-            definitions.append((codex, "composite_definition", "codex-composite.json"))
-            if codex.get("runtime_bundle") is not None:
-                if not args.codex_helpers:
-                    raise ValueError("Include --codex-helpers for the configured Codex runtime bundle.")
-                codex["runtime_bundle"] = "/bundle/codex-bundle"
-        for section, key, name in definitions:
-            # Preserve the exact pinned bytes, including the original formatting.
-            raw = Path(section[key]).read_bytes()
-            safe_json(json.loads(raw))
-            (stage / name).write_bytes(raw)
-            section[key] = "/" + name
-        for key in ("helper", "tmux"):
-            host[key]["path"] = "/bundle/" + Path(host[key]["path"]).name
-        for key in ("git_root", "git_socket", "state_dir"):
-            native[key] = "/bundle/" + key
-        if "node_git" in native:  # a node-git enrolled template; the installer sets the path
-            native["node_git"]["repositories"] = "/bundle/node_git"
-        host["root"] = "/bundle/host"
-        host["docker_local"]["socket"] = "/bundle/podman.sock"
+        stage_tools(args, stage, host)
+        stage_definitions(args, stage, native)
+        set_bundle_paths(native, host)
         for name, value in [("native", native), ("repositories", repos), ("bootstrap", metadata)]:
             (stage / (name + ".json")).write_text(safe_json(value))
-        for name in ("aq-install.sh", "worker-install-config.py"):
-            shutil.copyfile(HERE / name, stage / name)
-        shutil.copyfile(ROOT / "packaging/windows/aq-wsl-autostart.ps1", stage / "aq-wsl-autostart.ps1")
-        scripts = ROOT / "scripts/sandbox-daemon"
-        shutil.copytree(scripts, stage / "sandbox-daemon")
-        with tarfile.open(stage / "podman-linux-amd64.tar.gz", "w:gz", compresslevel=3) as archive:
-            archive.add(args.podman, arcname="podman-linux-amd64")
-        if args.codex_helpers:
-            for name in ("codex-code-mode-host", "codex-path/rg", "codex-resources/bwrap"):
-                target = stage / "codex-bundle" / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(args.codex_helpers / name, target)
-                target.chmod(0o755)
-        output = Path(temp) / "worker.tar.gz"
-        with tarfile.open(output, "w:gz", compresslevel=3) as archive:
-            for item in sorted(stage.iterdir()):
-                archive.add(item, arcname=item.name)
-        digest = sha(output)
-        output.replace(download / (digest + ".tar.gz"))
-        bootstrap = Path(temp) / "aq-worker.sh"
-        bootstrap.write_text(render_bootstrap(digest))
-        installer_digest = sha(bootstrap)
-        bootstrap.replace(download / (installer_digest + ".sh"))
+        stage_runtime(args, stage)
+        digest, installer_digest = publish_bundle(stage, download)
     (args.output / "nginx.conf").write_text(config)
     published = {"installer_sha256": installer_digest, "bundle_sha256": digest, "worker_revision": worker_revision(args.worker)}
     if getattr(args, "manifest", None):

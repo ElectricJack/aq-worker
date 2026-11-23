@@ -104,14 +104,7 @@ pub fn node_filter(node: Uuid) -> String {
     encode(&filter.to_string())
 }
 
-/// The complete create body. Callers have already validated `request` against
-/// the config: resources present, digest allowlisted, aliases declared.
-pub fn create_body(
-    config: &DockerLocalConfig,
-    request: &CreateRequest,
-    image: &str,
-    resources: ResourceLimits,
-) -> Value {
+fn mounts(config: &DockerLocalConfig, request: &CreateRequest) -> Vec<Value> {
     let mut mounts = vec![json!({
         "Type": "volume",
         "Source": volume_name(&request.name),
@@ -138,6 +131,17 @@ pub fn create_body(
     if let Some((host, target)) = &config.transcript {
         mounts.push(json!({ "Type": "bind", "Source": host, "Target": target, "ReadOnly": false }));
     }
+    mounts
+}
+
+/// The complete create body. Callers have already validated `request` against
+/// the config: resources present, digest allowlisted, aliases declared.
+pub fn create_body(
+    config: &DockerLocalConfig,
+    request: &CreateRequest,
+    image: &str,
+    resources: ResourceLimits,
+) -> Value {
     let mut body = json!({
         "Image": image,
         "Labels": labels(request),
@@ -162,7 +166,7 @@ pub fn create_body(
             "PortBindings": {},
             "PublishAllPorts": false,
             "Binds": config.cache_binds,
-            "Mounts": mounts,
+            "Mounts": mounts(config, request),
             "IpcMode": "private",
             "RestartPolicy": { "Name": "no" },
             "AutoRemove": false,
@@ -216,10 +220,8 @@ pub fn entry_from_labels(
         attempt_id: uuid(LABEL_ATTEMPT)?,
     };
     let hash = label(LABEL_REQUEST)?;
-    if name != owner.deterministic_name()
-        || hash.len() != 64
-        || !hash.bytes().all(|b| b.is_ascii_hexdigit())
-    {
+    let valid_hash = hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
+    if name != owner.deterministic_name() || !valid_hash {
         return Err(unknown);
     }
     let template_digest =

@@ -44,6 +44,109 @@ pub(super) struct Journal {
     disk: Disk,
     poisoned: bool,
 }
+impl Disk {
+    fn load(c: &BoatConfig) -> Result<Self, BackendError> {
+        let path = &c.journal_path;
+        match OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+        {
+            Ok(file) => {
+                let mut bytes = Vec::new();
+                file.take(16 * 1024 * 1024 + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|_| unknown())?;
+                if bytes.len() > 16 * 1024 * 1024 {
+                    return Err(unknown());
+                }
+                serde_json::from_slice(&bytes).map_err(|_| unknown())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Disk {
+                version: 1,
+                node: c.node_id,
+                org: c.attempt_org.clone(),
+                records: BTreeMap::new(),
+                orphans: BTreeMap::new(),
+                vm_time: BTreeMap::new(),
+            }),
+            Err(_) => Err(unknown()),
+        }
+    }
+
+    fn validate(&self, c: &BoatConfig) -> Result<(), BackendError> {
+        let same_owner = self.node == c.node_id && self.org == c.attempt_org;
+        if self.version != 1 || !same_owner {
+            return Err(BackendError::Conflict);
+        }
+        if self.records.len() + self.orphans.len() > 4096 || self.vm_time.len() > 4096 {
+            return Err(unknown());
+        }
+        self.validate_facts()?;
+        self.validate_records(c.node_id)
+    }
+
+    fn validate_facts(&self) -> Result<(), BackendError> {
+        let mut sandboxes = std::collections::BTreeSet::new();
+        for (id, report) in &self.vm_time {
+            report.fact.validate()?;
+            if *id != report.fact.attempt_id || !sandboxes.insert(&report.fact.sandbox_id) {
+                return Err(unknown());
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_records(&self, node: Uuid) -> Result<(), BackendError> {
+        let mut ids = std::collections::BTreeSet::new();
+        for (name, r) in &self.records {
+            if r.backend_id.as_ref().is_some_and(|id| !ids.insert(id)) {
+                return Err(unknown());
+            }
+            r.validate_owner(name, node)?;
+        }
+        self.validate_orphans(node, ids)
+    }
+    fn validate_orphans<'a>(
+        &'a self,
+        node: Uuid,
+        mut ids: std::collections::BTreeSet<&'a String>,
+    ) -> Result<(), BackendError> {
+        for (id, orphan) in &self.orphans {
+            if !orphan.matches_owner(id, node) || !ids.insert(id) {
+                return Err(unknown());
+            }
+        }
+        Ok(())
+    }
+}
+impl Record {
+    fn validate_owner(&self, name: &str, node: Uuid) -> Result<(), BackendError> {
+        self.request.validate()?;
+        let same_request = name == self.request.name && self.request.owner.node_id == node;
+        let valid_ids = [self.deletion.as_deref(), self.backend_id.as_deref()]
+            .into_iter()
+            .flatten()
+            .all(config::safe_id);
+        if same_request && valid_ids {
+            Ok(())
+        } else {
+            Err(unknown())
+        }
+    }
+}
+impl OrphanDeletion {
+    fn matches_owner(&self, id: &str, node: Uuid) -> bool {
+        let sandbox = &self.entry.sandbox;
+        let scoped = sandbox.kind == BackendKind::Boat
+            && sandbox.owner.node_id == node
+            && sandbox.owner.boot_id.is_nil();
+        let named = policy::attempt(&self.entry.name, node) == Some(sandbox.owner.attempt_id);
+        let valid_id = id == sandbox.backend_id && config::safe_id(id);
+        let valid_op = self.operation.as_deref().is_none_or(config::safe_id);
+        scoped && named && valid_id && valid_op
+    }
+}
 impl Journal {
     pub fn open(c: &BoatConfig) -> Result<Self, BackendError> {
         let path = &c.journal_path;
@@ -58,84 +161,8 @@ impl Journal {
             .map_err(|_| unknown())?;
         lock.try_lock_exclusive()
             .map_err(|_| BackendError::Conflict)?;
-        let disk = match OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
-        {
-            Ok(file) => {
-                let mut bytes = Vec::new();
-                file.take(16 * 1024 * 1024 + 1)
-                    .read_to_end(&mut bytes)
-                    .map_err(|_| unknown())?;
-                if bytes.len() > 16 * 1024 * 1024 {
-                    return Err(unknown());
-                }
-                serde_json::from_slice::<Disk>(&bytes).map_err(|_| unknown())?
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Disk {
-                version: 1,
-                node: c.node_id,
-                org: c.attempt_org.clone(),
-                records: BTreeMap::new(),
-                orphans: BTreeMap::new(),
-                vm_time: BTreeMap::new(),
-            },
-            Err(_) => return Err(unknown()),
-        };
-        if disk.version != 1 || disk.node != c.node_id || disk.org != c.attempt_org {
-            return Err(BackendError::Conflict);
-        }
-        if disk.records.len() + disk.orphans.len() > 4096 {
-            return Err(unknown());
-        }
-        if disk.vm_time.len() > 4096 {
-            return Err(unknown());
-        }
-        let mut sandboxes = std::collections::BTreeSet::new();
-        for (id, report) in &disk.vm_time {
-            report.fact.validate()?;
-            if *id != report.fact.attempt_id || !sandboxes.insert(&report.fact.sandbox_id) {
-                return Err(unknown());
-            }
-        }
-        let mut ids = std::collections::BTreeSet::new();
-        for (name, r) in &disk.records {
-            if r.backend_id.as_ref().is_some_and(|id| !ids.insert(id)) {
-                return Err(unknown());
-            }
-            r.request.validate()?;
-            if r.deletion
-                .as_ref()
-                .is_some_and(|id| !super::config::safe_id(id))
-            {
-                return Err(unknown());
-            }
-            if name != &r.request.name
-                || r.request.owner.node_id != c.node_id
-                || r.backend_id
-                    .as_ref()
-                    .is_some_and(|id| !super::config::safe_id(id))
-            {
-                return Err(unknown());
-            }
-        }
-        for (id, o) in &disk.orphans {
-            if id != &o.entry.sandbox.backend_id
-                || !super::config::safe_id(id)
-                || o.entry.sandbox.kind != BackendKind::Boat
-                || o.entry.sandbox.owner.node_id != c.node_id
-                || !o.entry.sandbox.owner.boot_id.is_nil()
-                || super::policy::attempt(&o.entry.name, c.node_id)
-                    != Some(o.entry.sandbox.owner.attempt_id)
-                || o.operation
-                    .as_ref()
-                    .is_some_and(|id| !super::config::safe_id(id))
-                || !ids.insert(id)
-            {
-                return Err(unknown());
-            }
-        }
+        let disk = Disk::load(c)?;
+        disk.validate(c)?;
         Ok(Self {
             path: path.clone(),
             _lock: lock,

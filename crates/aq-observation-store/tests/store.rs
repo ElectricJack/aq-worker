@@ -26,45 +26,7 @@ impl aq_observation::TransportAuthority for Owner {
 fn exact_delivery_send_unknown_restart_and_ack_match_reference_spool() {
     let t = tempfile::tempdir().unwrap();
     let source = support::source(8);
-    let mut bytes = support::row(1);
-    bytes.extend(support::row(2));
-    std::fs::write(t.path().join("native.jsonl"), &bytes).unwrap();
-    let permit = SourceFile::inspect(
-        source.source_id,
-        t.path(),
-        "native.jsonl",
-        source.native_session_key.clone(),
-    )
-    .unwrap();
-    let file = SourceFile::open(permit.clone()).unwrap();
-    let node = Node {
-        node_id: Uuid::from_u128(5),
-        boot_id: Uuid::from_u128(6),
-    };
-    let initial = aq_observation::InitialTransport {
-        operation_id: Uuid::from_u128(400),
-        node: node.clone(),
-        transport_owner_id: Uuid::from_u128(401),
-        initial_sequence: 1,
-        owner_receipt: ArtifactRef {
-            id: Text::new("synthetic-owner").unwrap(),
-            version: Text::new("1").unwrap(),
-            digest: Digest::of(b"owner"),
-        },
-    };
-    let verified = aq_observation::VerifiedInitial::verify(initial, &Owner).unwrap();
-    let mut reference = Spool::initialize(
-        &t.path().join("reference"),
-        ReferenceLimits::default(),
-        verified,
-    )
-    .unwrap();
-    reference
-        .attach_file(Normalizer::new(source.clone(), 4096).unwrap(), permit)
-        .unwrap();
-    reference
-        .collect(source.source_id, &file, 100, OverflowPolicy::Hold)
-        .unwrap();
+    let mut reference = reference_spool(t.path(), &source);
     let path = t.path().join("rows");
     let store = Store::create(&path, Limits::fixture()).unwrap();
     store.attach(source).unwrap();
@@ -318,4 +280,47 @@ fn private_root_rename_and_direct_backend_replacement_are_fenced() {
     assert!(backend.set_len(2048).is_err());
     assert!(backend.sync_data().is_err());
     assert_eq!(std::fs::read(direct.join("old")).unwrap(), vec![0; 4096]);
+}
+
+fn reference_spool(root: &std::path::Path, source: &aq_observation::Source) -> Spool {
+    let mut bytes = support::row(1);
+    bytes.extend(support::row(2));
+    std::fs::write(root.join("native.jsonl"), &bytes).unwrap();
+    let permit = SourceFile::inspect(
+        source.source_id,
+        root,
+        "native.jsonl",
+        source.native_session_key.clone(),
+    )
+    .unwrap();
+    let file = SourceFile::open(permit.clone()).unwrap();
+    let node = Node {
+        node_id: Uuid::from_u128(5),
+        boot_id: Uuid::from_u128(6),
+    };
+    let initial = aq_observation::InitialTransport {
+        operation_id: Uuid::from_u128(400),
+        node: node.clone(),
+        transport_owner_id: Uuid::from_u128(401),
+        initial_sequence: 1,
+        owner_receipt: ArtifactRef {
+            id: Text::new("synthetic-owner").unwrap(),
+            version: Text::new("1").unwrap(),
+            digest: Digest::of(b"owner"),
+        },
+    };
+    let verified = aq_observation::VerifiedInitial::verify(initial, &Owner).unwrap();
+    let mut reference = Spool::initialize(
+        &root.join("reference"),
+        ReferenceLimits::default(),
+        verified,
+    )
+    .unwrap();
+    reference
+        .attach_file(Normalizer::new(source.clone(), 4096).unwrap(), permit)
+        .unwrap();
+    reference
+        .collect(source.source_id, &file, 100, OverflowPolicy::Hold)
+        .unwrap();
+    reference
 }

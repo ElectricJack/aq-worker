@@ -13,6 +13,8 @@ use std::{
 };
 use uuid::Uuid;
 
+mod open;
+mod source;
 pub const STATE_FORMAT: u32 = 4;
 pub const MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 pub const MAX_DIRECTIVES_PER_ATTEMPT: usize = 64;
@@ -55,6 +57,38 @@ pub struct AttemptRecord {
     pub unstarted_decline: Option<DeclineRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<crate::source::SourceState>,
+}
+impl AttemptRecord {
+    fn has_protected_resources(&self) -> bool {
+        self.phase != Phase::Retired
+            || self
+                .source
+                .as_ref()
+                .is_some_and(|s| !s.cache_evicted || self.pending_bytes > 0)
+    }
+    fn needs_compute(&self) -> bool {
+        !matches!(
+            self.stop_certainty,
+            StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
+        ) || self
+            .source
+            .as_ref()
+            .is_some_and(|s| s.operations.values().any(|o| o.result.is_none()))
+            || matches!(
+                self.phase,
+                Phase::Reserved | Phase::Authorized | Phase::Preparing
+            )
+    }
+    fn protected_disk_bytes(&self) -> u64 {
+        if self.phase == Phase::Retired {
+            self.pending_bytes
+        } else {
+            self.offer.spec.resources.disk_bytes.max(
+                self.pending_bytes
+                    .saturating_add(self.source.as_ref().map_or(0, |s| s.workspace_bytes)),
+            )
+        }
+    }
 }
 pub use aq_session_host::ownership::ProcessEvidence;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,156 +157,8 @@ impl Journal {
                 && limits.max_preparing > 0,
             "invalid local limits"
         );
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(root)?;
-        ensure!(
-            !std::fs::symlink_metadata(root)?.file_type().is_symlink(),
-            "journal root cannot be a symlink"
-        );
-        std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))?;
-        let owner = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(root.join("owner.lock"))?;
-        let owner = OwnerLock::acquire(owner)?;
-        // Rust opens Files CLOEXEC; verify rather than relying on an implicit
-        // inheritance assumption for the guardian's exec boundary.
-        use std::os::fd::AsRawFd;
-        ensure!(
-            unsafe { libc::fcntl(owner.file.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC != 0,
-            "journal lock must not survive exec"
-        );
-        let parent = root
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        File::open(parent)?.sync_all()?;
-        let file = root.join("journal.json");
-        let state = if file.exists() {
-            ensure!(
-                std::fs::metadata(&file)?.len() <= MAX_JOURNAL_BYTES,
-                "journal exceeds bounded state size"
-            );
-            let mut s: State = serde_json::from_slice(&std::fs::read(&file)?)
-                .context("parse journal; refusing to advertise capacity")?;
-            ensure!(
-                matches!(s.format_version, 1 | 2 | 3 | STATE_FORMAT),
-                "unsupported state format {}",
-                s.format_version
-            );
-            // Version 1 has no guardian handshake. Missing new fields never
-            // establish that a legacy launch was unstarted or stopped.
-            s.format_version = STATE_FORMAT;
-            ensure!(
-                s.identity.node_id == identity.node_id,
-                "journal belongs to another node"
-            );
-            for (id, r) in &s.attempts {
-                ensure!(*id == r.offer.attempt.attempt_id, "corrupt attempt key");
-                r.offer.validate()?;
-                r.acceptance.validate()?;
-                if let Some(source) = &r.source {
-                    if source.report_sealed {
-                        let report = r.report.as_ref().context("sealed report missing")?;
-                        report.validate()?;
-                        let transfer = source
-                            .transfer
-                            .as_ref()
-                            .context("sealed transfer missing")?;
-                        let receipt = source.receipt.as_ref().context("sealed receipt missing")?;
-                        ensure!(
-                            source.upload.is_some()
-                                && report.identity == r.offer.identity
-                                && report.attempt == r.offer.attempt
-                                && report.resolved_spec_digest == r.offer.spec.resolved_spec_digest
-                                && report.supersedes_report_id.is_none()
-                                && report.artifacts.len() == 1
-                                && report.artifacts[0].artifact_id == transfer.artifact_id
-                                && report.artifacts[0].digest == transfer.manifest_digest
-                                && Some(report.artifacts[0].bytes)
-                                    == transfer.manifest_bytes.checked_add(transfer.bundle_bytes)
-                                && report.artifacts[0].central_receipt.as_deref()
-                                    == Some(receipt.receipt_id.to_string().as_str()),
-                            "corrupt sealed source report"
-                        );
-                    }
-                    if let Some(download) = &source.download {
-                        download.validate(&r.offer, &source.binding)?;
-                    }
-                    if let Some(upload) = &source.upload {
-                        upload.validate(
-                            source
-                                .transfer
-                                .as_ref()
-                                .context("upload manifest missing")?,
-                            s.identity.node_id,
-                        )?;
-                    }
-                    ensure!(
-                        r.offer
-                            .spec
-                            .bindings
-                            .as_ref()
-                            .and_then(|b| b.source.as_ref())
-                            == Some(&source.binding),
-                        "corrupt frozen source binding"
-                    );
-                    ensure!(
-                        source.operations.len() <= 64
-                            && source.managed_root.as_ref().is_none_or(|p| p.is_absolute()),
-                        "corrupt source runtime state"
-                    );
-                    for op in source.operations.values() {
-                        ensure!(
-                            !op.operation_id.is_nil()
-                                && op.request["operation_id"] == op.operation_id.to_string()
-                                && op.request["repository_id"]
-                                    == source.binding.repository_id.to_string(),
-                            "corrupt source operation binding"
-                        );
-                    }
-                    if let Some(receipt) = &source.receipt {
-                        receipt.validate()?;
-                        ensure!(
-                            source
-                                .transfer
-                                .as_ref()
-                                .is_some_and(|t| t.transfer_id == receipt.transfer_id)
-                                && source
-                                    .checkpoint
-                                    .as_ref()
-                                    .is_some_and(|c| c.source == receipt.source)
-                                && receipt.repository_id == source.binding.repository_id
-                                && receipt.binding_generation == source.binding.binding_generation,
-                            "corrupt source retention association"
-                        );
-                    }
-                }
-                ensure!(
-                    r.acceptance.attempt == r.offer.attempt
-                        && r.acceptance.offer_id == r.offer.offer_id
-                        && r.acceptance.resolved_spec_digest == r.offer.spec.resolved_spec_digest,
-                    "corrupt acceptance binding"
-                );
-            }
-            s
-        } else {
-            State {
-                format_version: STATE_FORMAT,
-                identity: identity.clone(),
-                inventory_sequence: 0,
-                attempts: BTreeMap::new(),
-                directive_receipts: BTreeMap::new(),
-                directive_contents: BTreeMap::new(),
-                reconciliation_required: false,
-                local_drain: false,
-            }
-        };
+        let owner = open::lock(root)?;
+        let state = open::load(&root.join("journal.json"), &identity)?;
         let mut journal = Self {
             root: root.into(),
             _owner: owner,
@@ -354,24 +240,13 @@ impl Journal {
             disk_bytes: 0,
         };
         let mut pools = BTreeMap::new();
-        for r in self.state.attempts.values().filter(|r| {
-            r.phase != Phase::Retired
-                || r.source
-                    .as_ref()
-                    .is_some_and(|s| !s.cache_evicted || r.pending_bytes > 0)
-        }) {
-            if !matches!(
-                r.stop_certainty,
-                StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
-            ) || r
-                .source
-                .as_ref()
-                .is_some_and(|s| s.operations.values().any(|o| o.result.is_none()))
-                || matches!(
-                    r.phase,
-                    Phase::Reserved | Phase::Authorized | Phase::Preparing
-                )
-            {
+        for r in self
+            .state
+            .attempts
+            .values()
+            .filter(|r| r.has_protected_resources())
+        {
+            if r.needs_compute() {
                 total.slots = total
                     .slots
                     .checked_add(r.offer.spec.resources.slots)
@@ -387,14 +262,7 @@ impl Journal {
             }
             total.disk_bytes = total
                 .disk_bytes
-                .checked_add(if r.phase == Phase::Retired {
-                    r.pending_bytes
-                } else {
-                    r.offer.spec.resources.disk_bytes.max(
-                        r.pending_bytes
-                            .saturating_add(r.source.as_ref().map_or(0, |s| s.workspace_bytes)),
-                    )
-                })
+                .checked_add(r.protected_disk_bytes())
                 .context("disk accounting overflow")?;
             if let Some(source) = &r.source
                 && !source.cache_evicted

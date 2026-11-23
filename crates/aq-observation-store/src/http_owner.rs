@@ -41,31 +41,39 @@ impl HttpOwnerConfig {
         );
         ensure!(self.origin.len() <= 2048, "owner endpoint bound");
         let u = Url::parse(&self.origin).map_err(|_| anyhow::anyhow!("invalid owner endpoint"))?;
-        ensure!(
-            u.username().is_empty()
-                && u.password().is_none()
-                && u.query().is_none()
-                && u.fragment().is_none()
-                && u.path() == "/"
-                && u.port() != Some(0),
-            "owner endpoint must be a bare origin"
-        );
+        validate_bare_origin(&u)?;
         let canonical = u.origin().ascii_serialization();
         ensure!(
             self.origin == canonical || self.origin == format!("{canonical}/"),
             "owner origin must be canonical"
         );
-        let loopback = u
-            .host_str()
-            .and_then(|h| h.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok())
-            .is_some_and(|ip| ip.is_loopback());
-        ensure!(
-            u.scheme() == "https" || (u.scheme() == "http" && self.allow_loopback_http && loopback),
-            "owner HTTPS required; explicit loopback HTTP is fixture-only"
-        );
+        validate_scheme(&u, self.allow_loopback_http)?;
         u.join("/v1/worker/observations/transport")
             .map_err(|_| anyhow::anyhow!("invalid owner endpoint"))
     }
+}
+fn validate_bare_origin(u: &Url) -> Result<()> {
+    ensure!(
+        u.username().is_empty()
+            && u.password().is_none()
+            && u.query().is_none()
+            && u.fragment().is_none()
+            && u.path() == "/"
+            && u.port() != Some(0),
+        "owner endpoint must be a bare origin"
+    );
+    Ok(())
+}
+fn validate_scheme(u: &Url, allow_loopback_http: bool) -> Result<()> {
+    let loopback = u
+        .host_str()
+        .and_then(|h| h.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok())
+        .is_some_and(|ip| ip.is_loopback());
+    ensure!(
+        u.scheme() == "https" || (u.scheme() == "http" && allow_loopback_http && loopback),
+        "owner HTTPS required; explicit loopback HTTP is fixture-only"
+    );
+    Ok(())
 }
 /// Node-owned peer only. Credential values have no Debug/Serialize surface and
 /// never enter LocalIntent, request bodies, error text or command arguments.
@@ -163,8 +171,7 @@ impl HttpOwnerPeer {
     pub fn batch(&self, packet: &Packet) -> Result<admission::BatchReply> {
         let url = self.url.join("/v1/worker/observations/batch")?;
         let bytes = self.send(
-            reqwest::Method::POST,
-            url,
+            self.client.post(url),
             Some(encode(packet)?),
             MAX_BATCH_BYTES,
         )?;
@@ -172,19 +179,13 @@ impl HttpOwnerPeer {
         reply.validate_against(packet)?;
         Ok(reply)
     }
-    fn request(&self, method: reqwest::Method, body: Option<Vec<u8>>) -> Result<Vec<u8>> {
-        self.send(method, self.url.clone(), body, admission::MAX_BYTES)
-    }
     fn send(
         &self,
-        method: reqwest::Method,
-        url: Url,
+        request: reqwest::blocking::RequestBuilder,
         body: Option<Vec<u8>>,
         bound: usize,
     ) -> Result<Vec<u8>> {
-        let mut request = self
-            .client
-            .request(method, url)
+        let mut request = request
             .header(header::AUTHORIZATION, self.authorization.clone())
             .header(header::ACCEPT, "application/json")
             .header(header::ACCEPT_ENCODING, "identity")
@@ -211,14 +212,22 @@ impl AuthenticatedOwnerPeer for HttpOwnerPeer {
             "owner request node mismatch"
         );
         request.validate()?;
-        let bytes = self.request(reqwest::Method::POST, Some(encode(request)?))?;
+        let bytes = self.send(
+            self.client.post(self.url.clone()),
+            Some(encode(request)?),
+            admission::MAX_BYTES,
+        )?;
         admission::decode_reply(&bytes, request).map_err(|_| {
             anyhow::anyhow!("invalid owner reply; retained intent requires explicit recovery")
         })
     }
     fn status(&mut self, node_id: Uuid) -> Result<Status> {
         ensure!(node_id == self.node_id, "owner status node mismatch");
-        let bytes = self.request(reqwest::Method::GET, None)?;
+        let bytes = self.send(
+            self.client.get(self.url.clone()),
+            None,
+            admission::MAX_BYTES,
+        )?;
         let status = admission::decode_status(&bytes)
             .map_err(|_| anyhow::anyhow!("invalid owner status"))?;
         ensure!(status.node_id == self.node_id, "owner status node mismatch");

@@ -96,17 +96,18 @@ impl Validate for Binding {
                 && matches!(self.launch.session, SessionIdentity::Remote { .. })
                 && self.expected_outcome.id.as_str() == "aq.expected-outcome"
                 && self.expected_outcome.version.as_str() == "1"
-                && !self.operation_id.is_nil()
-                && !self.report_id.is_nil()
-                && !self.nonce.is_nil()
-                && self.operation_id != self.report_id
-                && self.nonce != self.operation_id
-                && self.nonce != self.report_id,
+                && self.has_distinct_ids(),
             "local result binding",
         )
     }
 }
 impl Binding {
+    fn has_distinct_ids(&self) -> bool {
+        let ids = [self.operation_id, self.report_id, self.nonce];
+        ids.iter()
+            .enumerate()
+            .all(|(i, id)| !id.is_nil() && !ids[..i].contains(id))
+    }
     pub fn digest(&self) -> Result<Digest, ContractError> {
         canonical_digest(self)
     }
