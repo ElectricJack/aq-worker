@@ -38,14 +38,19 @@ impl Fixture {
             .create(&owner_path)
             .unwrap();
         let owner = open_directory(&owner_path).unwrap();
-        replace(&owner, c"auth.json", OWNER_NEXT, &original, true).unwrap();
+        replace(
+            &owner,
+            c"auth.json",
+            OWNER_NEXT,
+            Replacement::Credential(&original),
+        )
+        .unwrap();
         let home = private_home(&root, &pin).unwrap();
         replace(
             &home,
             c"auth.json",
             c"next",
-            &login("rotated-refresh"),
-            true,
+            Replacement::Credential(&login("rotated-refresh")),
         )
         .unwrap();
         Self {
@@ -57,7 +62,12 @@ impl Fixture {
         }
     }
     fn run(&self, writer: &mut impl LoginWriteBack) -> Result<LoginRefreshStatus> {
-        reconcile(&self.root, &self.pin, &self.owner, writer, |_| Ok(()))
+        CredentialHomes {
+            root: &self.root,
+            pin: &self.pin,
+            owner: &self.owner,
+        }
+        .reconcile(writer, |_| Ok(()))
     }
     fn state(&self) -> LoginRefreshStatus {
         load(&self.root, &self.pin).unwrap().unwrap().status
@@ -245,9 +255,14 @@ fn lost_ack_retains_rotated_copy_and_restarts_with_identical_operation() {
     let root = open_directory(&f.temp.path().join("launch")).unwrap();
     let owner = open_directory(&f.temp.path().join("owner")).unwrap();
     assert_eq!(
-        reconcile(&root, &f.pin, &owner, &mut server, |_| Ok(()))
-            .unwrap()
-            .phase,
+        CredentialHomes {
+            root: &root,
+            pin: &f.pin,
+            owner: &owner
+        }
+        .reconcile(&mut server, |_| Ok(()))
+        .unwrap()
+        .phase,
         LoginRefreshPhase::Complete
     );
     assert_eq!(server.operations.len(), 2);
@@ -259,7 +274,12 @@ fn owner_publication_crash_is_recovered_without_rollback_or_new_operation() {
     let f = Fixture::new();
     let mut server = Server::default();
     assert!(
-        reconcile(&f.root, &f.pin, &f.owner, &mut server, |point| {
+        CredentialHomes {
+            root: &f.root,
+            pin: &f.pin,
+            owner: &f.owner
+        }
+        .reconcile(&mut server, |point| {
             if point == Boundary::OwnerPublished {
                 bail!("simulated crash");
             }
@@ -285,7 +305,12 @@ fn durable_ack_and_unlink_failures_retry_cleanup_without_server_resubmission() {
         let f = Fixture::new();
         let mut server = Server::default();
         assert!(
-            reconcile(&f.root, &f.pin, &f.owner, &mut server, |point| {
+            CredentialHomes {
+                root: &f.root,
+                pin: &f.pin,
+                owner: &f.owner
+            }
+            .reconcile(&mut server, |point| {
                 if point == crash {
                     bail!("simulated cleanup failure");
                 }
@@ -398,7 +423,12 @@ fn changed_rotated_file_after_ack_is_preserved() {
     let f = Fixture::new();
     let mut server = Server::default();
     assert!(
-        reconcile(&f.root, &f.pin, &f.owner, &mut server, |point| {
+        CredentialHomes {
+            root: &f.root,
+            pin: &f.pin,
+            owner: &f.owner
+        }
+        .reconcile(&mut server, |point| {
             if point == Boundary::AckPersisted {
                 std::fs::write(f.auth(), login("unexpected-local-change"))?;
             }
@@ -462,11 +492,18 @@ fn replay_refuses_retargeted_owner_and_changed_journal_binding() {
         &other,
         c"auth.json",
         OWNER_NEXT,
-        &login("rotated-refresh"),
-        true,
+        Replacement::Credential(&login("rotated-refresh")),
     )
     .unwrap();
-    assert!(reconcile(&f.root, &f.pin, &other, &mut server, |_| Ok(())).is_err());
+    assert!(
+        CredentialHomes {
+            root: &f.root,
+            pin: &f.pin,
+            owner: &other
+        }
+        .reconcile(&mut server, |_| Ok(()))
+        .is_err()
+    );
     let mut record = load(&f.root, &f.pin).unwrap().unwrap();
     record.original_record_digest = Digest::of(b"foreign installation");
     save(&f.root, &record).unwrap();
@@ -558,7 +595,12 @@ fn actual_rotated_file_unlink_failure_keeps_ack_and_private_bytes_for_recovery()
     let f = Fixture::new();
     let held = f.auth().with_file_name("auth-held.json");
     let mut server = Server::default();
-    let error = reconcile(&f.root, &f.pin, &f.owner, &mut server, |point| {
+    let error = CredentialHomes {
+        root: &f.root,
+        pin: &f.pin,
+        owner: &f.owner,
+    }
+    .reconcile(&mut server, |point| {
         if point == Boundary::BeforeUnlink {
             // Force unlinkat(..., 0) to fail with EISDIR, independently of uid.
             // Keep the original inode and bytes to model corrective recovery.
@@ -583,7 +625,15 @@ fn disposable_private_home_cannot_be_selected_as_the_desktop_owner() {
     let home = private_home(&f.root, &f.pin).unwrap();
     let mut server = Server::default();
     for owner in [&home, &f.root] {
-        assert!(reconcile(&f.root, &f.pin, owner, &mut server, |_| Ok(())).is_err());
+        assert!(
+            CredentialHomes {
+                root: &f.root,
+                pin: &f.pin,
+                owner
+            }
+            .reconcile(&mut server, |_| Ok(()))
+            .is_err()
+        );
         f.assert_registration_refused(owner, &server);
         f.assert_retained();
     }
