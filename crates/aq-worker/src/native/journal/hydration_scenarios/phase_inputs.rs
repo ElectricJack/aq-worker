@@ -58,6 +58,7 @@ async fn phase_join(h: &Inputs, git: GitClient) -> crate::native::preparation::P
 }
 #[tokio::test]
 async fn phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new_phase(export).await;
@@ -71,7 +72,6 @@ async fn phase_inputs_collect_real_bytes_and_git_after_original_proposal_expiry(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicit pinned AQ_GIT_TEST_BINARY and AQ_GIT_TEST_SHA256; no sibling checkout"]
 async fn pinned_git_phase_inputs_and_prepare_after_original_proposal_expiry() {
-    let _clock = crate::native::http::test_clock::TestClock::new();
     actual_git_hydration(false, true).await;
 }
 
@@ -135,6 +135,7 @@ async fn phase_input_expiry_and_foreign_observation_refuse_without_intents() {
 }
 #[tokio::test]
 async fn phase_cancelled_artifact_batch_keeps_exact_ids_and_no_partial_completion() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let h = Inputs::new_phase(synthetic()).await;
     h.mode.store(4, Ordering::SeqCst);
     let pipeline = h.pipeline().clone();
@@ -198,6 +199,7 @@ async fn phase_input_write_cuts_hold_old_or_complete_plan_and_history_only_reope
 }
 #[tokio::test]
 async fn phase_origin_tampering_cannot_be_hidden_by_valid_journal_checksum() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let mut h = Inputs::new_phase(synthetic()).await;
     h.pipeline()
         .artifacts_phase(h.id, h.phase.as_ref().unwrap().clone())
@@ -225,6 +227,7 @@ async fn phase_origin_tampering_cannot_be_hidden_by_valid_journal_checksum() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn phase_prepare_cancelled_fsync_retains_exact_request_and_replay_does_not_retime() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new_phase(export).await;
@@ -272,6 +275,7 @@ async fn phase_prepare_cancelled_fsync_retains_exact_request_and_replay_does_not
 }
 #[tokio::test]
 async fn phase_shared_malformed_owner_is_rejected_even_when_every_input_copy_matches() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let mut h = Inputs::new_phase(synthetic()).await;
     h.pipeline()
         .artifacts_phase(h.id, h.phase.as_ref().unwrap().clone())
@@ -294,6 +298,7 @@ async fn phase_shared_malformed_owner_is_rejected_even_when_every_input_copy_mat
 
 #[tokio::test]
 async fn phase_and_legacy_input_provenance_cannot_cross_on_reopen() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let mut phase = Inputs::new_phase(synthetic()).await;
     phase
         .pipeline()
@@ -343,6 +348,7 @@ async fn phase_and_legacy_input_provenance_cannot_cross_on_reopen() {
 }
 #[tokio::test]
 async fn phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reopen() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let mut h = Inputs::new_phase(export).await;
@@ -375,6 +381,7 @@ async fn phase_prepare_rename_cut_retains_whole_intent_without_live_owner_on_reo
 
 #[tokio::test]
 async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new_collect(export).await;

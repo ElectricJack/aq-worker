@@ -9,6 +9,7 @@ async fn pinned_git_received_initial_grant_retains_actual_workspace_and_material
     actual_git_hydration(true, false).await;
 }
 async fn actual_git_hydration(retain_grant: bool, phase_mode: bool) {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (exe, pin) = pinned_hydration_git();
     let dir = tempfile::tempdir().unwrap();
     let repository = dir.path().join("repository");
