@@ -142,20 +142,24 @@ impl NodeIssuer {
                 .to_vec(),
         );
         let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        if status != 200 {
-            return Err(match status {
-                401 | 403 | 404 | 409 => IssueError::Refused(
-                    value["code"]
-                        .as_str()
-                        .filter(|c| c.len() <= 64 && c.bytes().all(|b| b.is_ascii_graphic()))
-                        .unwrap_or("refused")
-                        .to_owned(),
-                ),
-                _ => IssueError::Unavailable,
-            });
-        }
-        parse_issued(&value, expected).ok_or(IssueError::Refused("invalid_response".into()))
+        issuance_response(status, &value, expected)
     }
+}
+
+fn issuance_response(status: u16, value: &Value, expected: u64) -> Result<Issued, IssueError> {
+    if status != 200 {
+        return Err(match status {
+            401 | 403 | 404 | 409 => IssueError::Refused(
+                value["code"]
+                    .as_str()
+                    .filter(|c| c.len() <= 64 && c.bytes().all(|b| b.is_ascii_graphic()))
+                    .unwrap_or("refused")
+                    .to_owned(),
+            ),
+            _ => IssueError::Unavailable,
+        });
+    }
+    parse_issued(value, expected).ok_or(IssueError::Refused("invalid_response".into()))
 }
 impl CredentialIssuer for NodeIssuer {
     fn issue(&self, expected_version: u64) -> IssueFuture<'_> {

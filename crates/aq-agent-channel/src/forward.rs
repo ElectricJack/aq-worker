@@ -43,13 +43,8 @@ pub fn node_origin(origin: &str) -> anyhow::Result<()> {
     Upstream::check(origin, Origins::Node).map(|_| ())
 }
 
-pub(crate) struct Upstream {
-    pub origin: Url,
-    pub client: reqwest::Client,
-}
-impl Upstream {
-    fn check(origin: &str, allowed: Origins) -> anyhow::Result<Url> {
-        let url = Url::parse(origin)?;
+impl Origins {
+    fn admits(self, url: &Url) -> bool {
         let host = url.host_str().unwrap_or_default();
         let ip = host
             .trim_start_matches('[')
@@ -61,12 +56,23 @@ impl Upstream {
         let loopback =
             url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port().is_some();
         let node_loopback = url.scheme() == "http" && ip.is_some_and(|ip| ip.is_loopback());
+        match self {
+            Self::MachineHostname => hostname,
+            Self::NumericLoopback => loopback,
+            Self::Node => https || node_loopback,
+        }
+    }
+}
+
+pub(crate) struct Upstream {
+    pub origin: Url,
+    pub client: reqwest::Client,
+}
+impl Upstream {
+    fn check(origin: &str, allowed: Origins) -> anyhow::Result<Url> {
+        let url = Url::parse(origin)?;
         anyhow::ensure!(
-            match allowed {
-                Origins::MachineHostname => hostname,
-                Origins::NumericLoopback => loopback,
-                Origins::Node => https || node_loopback,
-            },
+            allowed.admits(&url),
             "AQ upstream must be HTTPS, or plain HTTP only to a numeric loopback address"
         );
         anyhow::ensure!(
@@ -225,12 +231,7 @@ fn holds(bytes: &[u8], protected: &[&[u8]]) -> bool {
 /// and encoded separators are refused, so URL normalization can never move a
 /// forwarded path into a refused namespace.
 pub fn agent_path(path: &str) -> Result<(), &'static str> {
-    let lower = path.to_ascii_lowercase();
-    if path.split('/').any(|s| s == "." || s == "..")
-        || ["%2e", "%2f", "%5c", "%00"]
-            .iter()
-            .any(|e| lower.contains(e))
-    {
+    if !normal_path(path) {
         return Err("the path is not in normal form");
     }
     if NODE_PREFIXES.iter().any(|p| path.starts_with(p)) {
@@ -240,6 +241,15 @@ pub fn agent_path(path: &str) -> Result<(), &'static str> {
         return Ok(());
     }
     Err("the path is outside the agent channel")
+}
+
+fn normal_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    let dot_segments = path.split('/').any(|s| matches!(s, "." | ".."));
+    let encoded = ["%2e", "%2f", "%5c", "%00"]
+        .iter()
+        .any(|e| lower.contains(e));
+    !dot_segments && !encoded
 }
 
 fn connection_tokens(headers: &HeaderMap) -> Vec<String> {
@@ -252,21 +262,72 @@ fn connection_tokens(headers: &HeaderMap) -> Vec<String> {
         .collect()
 }
 
-pub(crate) async fn forward<S: AsyncRead + Unpin>(
-    upstream: &Upstream,
-    rules: &Rules,
-    credentials: &dyn Credentials,
-    socket: &mut S,
-    seen: &mut Seen,
-) -> Result<Forwarded, Failure> {
-    let mut head = Vec::new();
-    while !head.ends_with(b"\r\n\r\n") {
-        head.push(socket.read_u8().await.map_err(|_| Failure::Framing)?);
-        check(head.len() <= MAX_HEAD, Failure::Framing)?;
+pub(crate) struct Forwarder<'a> {
+    pub upstream: &'a Upstream,
+    pub rules: &'a Rules,
+    pub credentials: &'a dyn Credentials,
+}
+
+struct Request {
+    method: reqwest::Method,
+    url: Url,
+    headers: HeaderMap,
+    body: Vec<u8>,
+}
+
+impl Forwarder<'_> {
+    pub async fn forward<S: AsyncRead + Unpin>(
+        &self,
+        socket: &mut S,
+        seen: &mut Seen,
+    ) -> Result<Forwarded, Failure> {
+        let request = self.read_request(socket, seen).await?;
+        // Take credentials after reading the caller's body. If rotation raced an
+        // unapplied request, retry once using the new credential.
+        let taken = self.credentials.take().ok_or(Failure::Upstream)?;
+        let done = request.send(self.upstream, &taken).await?;
+        if done.rotation_raced(self.credentials) {
+            let current = self.credentials.take().ok_or(Failure::Upstream)?;
+            return request.send(self.upstream, &current).await;
+        }
+        Ok(done)
     }
-    let text = std::str::from_utf8(&head).map_err(|_| Failure::Framing)?;
-    let mut lines = text.split("\r\n");
-    let mut first = lines.next().unwrap_or_default().split(' ');
+
+    async fn read_request<S: AsyncRead + Unpin>(
+        &self,
+        socket: &mut S,
+        seen: &mut Seen,
+    ) -> Result<Request, Failure> {
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            head.push(socket.read_u8().await.map_err(|_| Failure::Framing)?);
+            check(head.len() <= MAX_HEAD, Failure::Framing)?;
+        }
+        let text = std::str::from_utf8(&head).map_err(|_| Failure::Framing)?;
+        let mut lines = text.split("\r\n");
+        let (method, target) = request_line(lines.next().unwrap_or_default(), self.rules, seen)?;
+        let (headers, length) = request_headers(lines, self.rules)?;
+        let mut body = vec![0; length];
+        socket
+            .read_exact(&mut body)
+            .await
+            .map_err(|_| Failure::Framing)?;
+        let url = self.upstream.request_url(target, self.rules.agent_paths)?;
+        Ok(Request {
+            method,
+            url,
+            headers,
+            body,
+        })
+    }
+}
+
+fn request_line<'a>(
+    line: &'a str,
+    rules: &Rules,
+    seen: &mut Seen,
+) -> Result<(reqwest::Method, &'a str), Failure> {
+    let mut first = line.split(' ');
     let method = reqwest::Method::from_bytes(first.next().unwrap_or_default().as_bytes())
         .map_err(|_| Failure::Framing)?;
     let target = first.next().unwrap_or_default();
@@ -287,6 +348,13 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
     if rules.agent_paths {
         agent_path(path).map_err(Failure::Refused)?;
     }
+    Ok((method, target))
+}
+
+fn request_headers<'a>(
+    lines: impl Iterator<Item = &'a str>,
+    rules: &Rules,
+) -> Result<(HeaderMap, usize), Failure> {
     let mut headers = HeaderMap::new();
     let mut names = std::collections::BTreeSet::new();
     let mut length = 0usize;
@@ -316,7 +384,12 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
         headers.append(name, value);
     }
     check(host && length <= MAX_BODY, Failure::Framing)?;
-    let connection = connection_tokens(&headers);
+    filter_request_headers(&mut headers, rules)?;
+    Ok((headers, length))
+}
+
+fn filter_request_headers(headers: &mut HeaderMap, rules: &Rules) -> Result<(), Failure> {
+    let connection = connection_tokens(headers);
     // Connection-nominated Authorization cannot silently remove the credential.
     check(
         !connection.iter().any(|v| v == "authorization"),
@@ -339,63 +412,67 @@ pub(crate) async fn forward<S: AsyncRead + Unpin>(
         reqwest::header::ACCEPT_ENCODING,
         HeaderValue::from_static("identity"),
     );
-    let mut body = vec![0; length];
-    socket
-        .read_exact(&mut body)
-        .await
+    Ok(())
+}
+
+impl Upstream {
+    fn request_url(&self, target: &str, agent_paths: bool) -> Result<Url, Failure> {
+        let path = target.split('?').next().unwrap_or_default();
+        // Concatenation preserves the fixed authority even for unusual paths.
+        let url = Url::parse(&format!(
+            "{}{}",
+            self.origin.as_str().trim_end_matches('/'),
+            target
+        ))
         .map_err(|_| Failure::Framing)?;
-    // Concatenation preserves the fixed authority even for unusual paths.
-    let url = Url::parse(&format!(
-        "{}{}",
-        upstream.origin.as_str().trim_end_matches('/'),
-        target
-    ))
-    .map_err(|_| Failure::Framing)?;
-    check(url.origin() == upstream.origin.origin(), Failure::Framing)?;
-    if rules.agent_paths {
-        // Defence in depth: parsing must not have moved the path.
-        check(
-            url.path() == path,
-            Failure::Refused("the path is not in normal form"),
-        )?;
+        check(url.origin() == self.origin.origin(), Failure::Framing)?;
+        if agent_paths {
+            // Defence in depth: parsing must not have moved the path.
+            check(
+                url.path() == path,
+                Failure::Refused("the path is not in normal form"),
+            )?;
+        }
+        Ok(url)
     }
-    // The credential is taken here, after the caller's request has been read,
-    // not at accept. A 401 `unauthorized` (`not_applied`: authentication fails
-    // before any handler runs) for a credential a rotation has since replaced
-    // is sent once more with the new one.
-    let foreign_version = headers
-        .get("x-aq-agent-api-version")
-        .is_some_and(|v| v != "1");
-    let mut retried = false;
-    loop {
-        let taken = credentials.take().ok_or(Failure::Upstream)?;
-        let mut sent = headers.clone();
+}
+
+impl Request {
+    async fn send(&self, upstream: &Upstream, taken: &Taken) -> Result<Forwarded, Failure> {
+        let mut sent = self.headers.clone();
         for (name, value) in &taken.headers {
             sent.insert(name.clone(), value.clone());
         }
         let response = upstream
             .client
-            .request(method.clone(), url.clone())
+            .request(self.method.clone(), self.url.clone())
             .headers(sent)
-            .body(body.clone())
+            .body(self.body.clone())
             .send()
             .await
             .map_err(|_| Failure::Upstream)?;
         let protected: Vec<&[u8]> = taken.protected.iter().map(|v| v.as_slice()).collect();
         let mut done = respond(response, &protected).await?;
         done.version = taken.version;
-        done.foreign_version = foreign_version;
-        if !retried
-            && done.refused.as_deref() == Some("unauthorized")
-            && done.not_applied
-            && taken.version.is_some()
-            && credentials.version() != taken.version
-        {
-            retried = true;
-            continue;
-        }
-        return Ok(done);
+        done.foreign_version = self
+            .headers
+            .get("x-aq-agent-api-version")
+            .is_some_and(|value| value != "1");
+        Ok(done)
     }
+}
+
+impl Forwarded {
+    fn rotation_raced(&self, credentials: &dyn Credentials) -> bool {
+        let unapplied = self.not_applied && self.refused.as_deref() == Some("unauthorized");
+        unapplied && self.version.is_some() && credentials.version() != self.version
+    }
+}
+
+fn forward_response_header(name: &str, connection: &[String]) -> bool {
+    let cookie = matches!(name, "set-cookie" | "set-cookie2");
+    let connection_header = hop_header(name) || connection.iter().any(|v| v == name);
+    !(cookie || connection_header || access_header(name))
 }
 
 /// The caller-facing answer: no redirects, identity encoding, no hop-by-hop,
@@ -423,11 +500,7 @@ async fn respond(
     for (name, value) in response.headers() {
         check(!holds(value.as_bytes(), protected), Failure::Upstream)?;
         // `Set-Cookie` never reaches a sandbox (an Access edge sets `CF_Authorization`).
-        if !access_header(name.as_str())
-            && !hop_header(name.as_str())
-            && !matches!(name.as_str(), "set-cookie" | "set-cookie2")
-            && !response_connection.iter().any(|v| v == name.as_str())
-        {
+        if forward_response_header(name.as_str(), &response_connection) {
             result.extend_from_slice(name.as_str().as_bytes());
             result.extend_from_slice(b": ");
             result.extend_from_slice(value.as_bytes());
