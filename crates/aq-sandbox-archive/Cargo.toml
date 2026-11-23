@@ -8,6 +8,7 @@ publish.workspace = true
 anyhow.workspace = true
 libc.workspace = true
 aq-handoff-note = { path = "../aq-handoff-note" }
+aq-agent-channel = { path = "../aq-agent-channel" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

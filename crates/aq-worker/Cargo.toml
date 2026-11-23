@@ -58,6 +58,7 @@ uuid.workspace = true
 async-trait = "0.1"
 
 aq-node-git = { path = "../aq-node-git" }
+aq-environment-builder = { path = "../aq-environment-builder", optional = true }
 
 [dev-dependencies]
 aq-node-git = { path = "../aq-node-git", features = ["test-support"] }
@@ -74,7 +75,7 @@ tokio = { workspace = true, features = ["test-util"] }
 # Historical M2/M3 synthetic execution harness; never enabled by production builds.
 synthetic-runtime = []
 # spec 0017 (sandbox environments), off by default
-project_environments = []
+project_environments = ["dep:aq-environment-builder", "aq-environment-builder/project_environments", "aq-node-service/project_environments", "aq-agent-channel/environment-try", "aq-node-git/environment-try"]
 backend-conformance = ["aq-responses-transport/test-support"]
 test-support = ["synthetic-runtime","backend-conformance", "aq-responses-transport/test-support","aq-terminal-bridge/test-support","aq-worker-protocol/test-support", "aq-session-host/test-support"]
 

@@ -3,10 +3,7 @@ use super::codex::ExecutorConfig;
 use super::*;
 use crate::backend::{
     SandboxIdentity, SandboxState,
-    docker_local::{
-        DockerLocalBackend,
-        tar::{self, TreeEntry},
-    },
+    docker_local::{DockerLocalBackend, tar},
 };
 use crate::native::journal::{Attempt, RecoveryHold};
 use crate::sandbox_driver as driver;
@@ -262,14 +259,7 @@ async fn salvage_claim(
         }));
     };
     let entries = tar::read_tree(&archive(sandbox).await?, max_workspace_bytes)?;
-    let secret = |b: &[u8]| {
-        aq_agent_channel::holds_agent_credential(b) || aq_agent_channel::holds_claude_token_shape(b)
-    };
-    if entries.iter().any(|e| {
-        secret(e.path().as_bytes())
-            || matches!(e, TreeEntry::File { data, .. } if secret(data))
-            || matches!(e, TreeEntry::Symlink { target, .. } if secret(target.as_bytes()))
-    }) {
+    if aq_sandbox_archive::workspace::credential_shaped(&entries) {
         return Ok(Err("credential_in_workspace"));
     }
     let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;

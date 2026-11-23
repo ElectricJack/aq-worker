@@ -86,6 +86,10 @@ pub struct DockerLocalConfig {
     /// The attempt's build-cache binds; set by the driver, never read from a file.
     #[serde(skip)]
     pub cache_binds: Vec<String>,
+    /// Spec 0017: the admitted environments this node pulled; set by the service.
+    #[cfg(feature = "project_environments")]
+    #[serde(skip)]
+    pub environments: aq_environment_builder::node::Held,
 }
 
 fn default_material_path() -> String {
@@ -133,6 +137,8 @@ impl DockerLocalConfig {
             channel_root: None,
             transcript: None,
             cache_binds: Vec::new(),
+            #[cfg(feature = "project_environments")]
+            environments: Default::default(),
         }
     }
 
@@ -145,18 +151,7 @@ impl DockerLocalConfig {
 
     pub fn validate(&self) -> Result<(), BackendError> {
         self.validate_socket()?;
-        let mut digests = BTreeSet::new();
-        for template in &self.templates {
-            let suffix = format!("@{}", template.digest.as_str());
-            if template.image.len() <= suffix.len() || !template.image.ends_with(&suffix) {
-                return Err(BackendError::InvalidRequest(
-                    "template image must be pinned to its digest",
-                ));
-            }
-            if !digests.insert(template.digest.as_str()) {
-                return Err(BackendError::InvalidRequest("duplicate template digest"));
-            }
-        }
+        check_templates(&self.templates)?;
         if let Some(root) = &self.channel_root {
             self.check_channel_root(root)?;
         }
@@ -282,6 +277,108 @@ impl DockerLocalConfig {
             || socket.starts_with(&canonical)
             || std::fs::metadata(&canonical)
                 .is_ok_and(|m| m.file_type().is_socket() || same_file_as_main_daemon(&m))
+    }
+}
+
+/// An OCI reference `[host[:port]/]path[:tag]@<digest>` and nothing else, so it
+/// is safe in a daemon API path: no `?`, `&`, `#`, space or control character.
+pub fn pinned_reference(image: &str, digest: &TemplateDigest) -> bool {
+    let alnum = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit();
+    let bounded = |s: &str, ok: &dyn Fn(u8) -> bool| {
+        let b = s.as_bytes();
+        !b.is_empty() && b.iter().all(|c| ok(*c)) && alnum(b[0]) && alnum(b[b.len() - 1])
+    };
+    let component = |s: &str| bounded(s, &|c| alnum(c) || b"._-".contains(&c));
+    let host = |s: &str| {
+        let (host, port) = s.split_once(':').unwrap_or((s, "0"));
+        let label = |l: &str| bounded(&l.to_ascii_lowercase(), &|c| alnum(c) || c == b'-');
+        host.split('.').all(label) && !port.is_empty() && port.bytes().all(|c| c.is_ascii_digit())
+    };
+    let Some(name) = (image.strip_suffix(digest.as_str())).and_then(|n| n.strip_suffix('@')) else {
+        return false;
+    };
+    let name = match name.rsplit_once(':') {
+        Some((name, tag)) if !tag.contains('/') => {
+            let tag_ok = |c: u8| c.is_ascii_alphanumeric() || b"._-".contains(&c);
+            let ok = tag.len() <= 128 && tag.bytes().all(tag_ok) && !tag.starts_with(['.', '-']);
+            if !ok || tag.is_empty() {
+                return false;
+            }
+            name
+        }
+        _ => name,
+    };
+    let mut parts: Vec<&str> = name.split('/').collect();
+    let first = parts[0];
+    if parts.len() > 1 && (first.contains(['.', ':']) || first == "localhost") {
+        if !host(first) {
+            return false;
+        }
+        parts.remove(0);
+    }
+    name.len() <= 255 && parts.into_iter().all(component)
+}
+
+fn check_templates(templates: &[AllowedTemplate]) -> Result<(), BackendError> {
+    let mut digests = BTreeSet::new();
+    for template in templates {
+        if !pinned_reference(&template.image, &template.digest) {
+            return Err(BackendError::InvalidRequest(
+                "template image must be a reference pinned to its digest",
+            ));
+        }
+        if !digests.insert(template.digest.as_str()) {
+            return Err(BackendError::InvalidRequest("duplicate template digest"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "project_environments")]
+impl DockerLocalConfig {
+    /// Merges admitted templates into `templates`, checked like the static ones.
+    pub fn admit(
+        &mut self,
+        admitted: &[aq_environment_builder::node::AdmittedEnvironment],
+    ) -> Result<(), BackendError> {
+        let mut templates = self.templates.clone();
+        for environment in admitted {
+            let digest = TemplateDigest::parse(environment.digest.clone())?;
+            if self.template_image(&digest).is_none() {
+                let image = environment.image.clone();
+                templates.push(AllowedTemplate { image, digest });
+            }
+        }
+        check_templates(&templates)?;
+        self.templates = templates;
+        Ok(())
+    }
+
+    /// The admitted template of a held environment, once admitted here.
+    pub fn template_for(
+        &self,
+        environment: &aq_session_protocol::ArtifactRef,
+    ) -> Option<&AllowedTemplate> {
+        let held = self.environments.get(environment)?;
+        (self.templates.iter()).find(|t| t.digest.as_str() == held.digest)
+    }
+
+    /// The template an offer in `environment` runs in: a held environment's,
+    /// admitted into this copy, else `boot`. Only the boot environment reaches the
+    /// fallback: the executor's `Held::select` refuses an unheld one before launch.
+    pub fn offered_template(
+        &mut self,
+        environment: &aq_session_protocol::ArtifactRef,
+        boot: &TemplateDigest,
+    ) -> Result<TemplateDigest, BackendError> {
+        let Some(held) = self.environments.get(environment) else {
+            return Ok(boot.clone());
+        };
+        self.admit(&[held])?;
+        Ok(self
+            .template_for(environment)
+            .map_or(boot, |t| &t.digest)
+            .clone())
     }
 }
 

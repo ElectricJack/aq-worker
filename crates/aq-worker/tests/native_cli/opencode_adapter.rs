@@ -1,5 +1,11 @@
-use super::*;
+//! The OpenCode recipe mapping (moved from the lib's unit tests).
 use aq_session_protocol::{ArtifactRef, Capability, Digest, Text};
+use aq_session_protocol::{
+    CONTAINER_CONFINEMENT_CAPABILITY, HarnessSettings, ModelSettings, NATIVE_CONFINEMENT_CAPABILITY,
+};
+use aq_worker::native::adapter::opencode::*;
+use aq_worker::native::runner::sandbox::confinement::ConfinementMode;
+use std::path::Path;
 
 fn settings(confinement: &str) -> (HarnessSettings, ModelSettings) {
     let artifact = ArtifactRef {

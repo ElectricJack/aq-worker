@@ -683,7 +683,10 @@ def build(recipe_path, config_path, output_path):
 
 def main():
     import argparse
+    import signal
     import sys
+    # A stopped job (SIGTERM) unwinds, so subprocess children are killed and temporary directories removed.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(128 + signal.SIGTERM))
     parser = argparse.ArgumentParser(description='Build and scan pinned sandbox templates')
     sub = parser.add_subparsers(dest='command', required=True)
     builder = sub.add_parser('build')
@@ -706,7 +709,13 @@ def main():
     trial.add_argument('--job', type=Path, required=True)
     trial.add_argument('--repo', type=Path, required=True)
     trial.add_argument('--build-config', type=Path, required=True)
+    redaction = sub.add_parser('redact-log', help='print the tail of a log file, redacted like build logs')
+    redaction.add_argument('--input', type=Path, required=True)
+    redaction.add_argument('--limit', type=int, required=True)
     args = parser.parse_args()
+    if args.command == 'redact-log':
+        sys.stdout.write(bounded_log(tail(args.input, max(args.limit, 0)), max(args.limit, 0)))
+        return 0
     try:
         if args.command == 'boat-materialize':
             spec = importlib.util.spec_from_file_location('boat_materialize', Path(__file__).with_name('boat_materialize.py'))

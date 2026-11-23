@@ -55,16 +55,8 @@ fn result_pins(
     adapter: &ArtifactRef,
     definition: &ResultAdapterDefinition,
 ) -> Result<ResultInstallationPins> {
-    let pins = ResultInstallationPins {
-        adapter: adapter.clone(),
-        contract: definition.contract.clone(),
-        client_manifest: definition.client_manifest.clone(),
-        client_executable: definition.client_executable.clone(),
-        environment: definition.environment.clone(),
-        recipe: definition.recipe.clone(),
-        permission_digest: definition.permission_digest.clone(),
-        reserved_client_bytes: definition.reserved_client_bytes,
-    };
+    let pins =
+        ResultInstallationPins::of(adapter, definition, definition.permission_digest.clone());
     pins.validate()?;
     Ok(pins)
 }
@@ -92,6 +84,22 @@ fn codex_result_pins(
         environment: &codex.environment,
     })?;
     result_pins(&codex.adapter, &definition)
+}
+/// Spec 0017: an offer in an admitted environment names that environment's result
+/// adapter Definition (`harness.adapter`) and definition (`harness.environment`). The
+/// node's installed pins hold for them; the result channel then requires the offer's
+/// retained Definition to select exactly these pins, else it refuses before launch.
+#[cfg(feature = "project_environments")]
+pub fn offered_pins(
+    installed: &ResultInstallationPins,
+    offered: &aq_session_protocol::HarnessSettings,
+) -> ResultInstallationPins {
+    let (adapter, environment) = (offered.adapter.clone(), offered.environment.clone());
+    ResultInstallationPins {
+        adapter,
+        environment,
+        ..installed.clone()
+    }
 }
 /// The result pins for the harness an offer selects (`harness.harness`).
 pub fn launch_pins(
@@ -238,10 +246,24 @@ impl NativeExecutor for ClaudeDockerExecutor {
                 let state = pipeline.snapshot().await?;
                 let attempt = state.attempts.get(&id).context("native attempt absent")?;
                 let m = &attempt.reservation.offer.offered.offer.manifest;
-                m.harness.harness.as_str().to_owned()
+                m.harness.clone()
             };
-            let (_, mut pins) =
-                launch_pins(&harness, self.pins.as_ref(), self.codex_pins.as_ref())?;
+            let (_, mut pins) = launch_pins(
+                harness.harness.as_str(),
+                self.pins.as_ref(),
+                self.codex_pins.as_ref(),
+            )?;
+            // Spec 0017: held for the whole attempt; an unheld environment is refused here.
+            #[cfg(feature = "project_environments")]
+            let _lease = {
+                let held = &profile.config().docker_local.environments;
+                let lease = held.select(&pins.environment, &harness.environment)?;
+                // Boot offers keep the installed pins, so their adapter is compared exactly.
+                if lease.is_some() {
+                    pins = offered_pins(&pins, &harness);
+                }
+                lease
+            };
             let root = self.result_root.clone().context("result root absent")?;
             pins.permission_digest = pipeline.phase_permission_digest(&grant).await?;
             let channel = pipeline
