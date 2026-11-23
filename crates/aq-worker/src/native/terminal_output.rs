@@ -11,6 +11,7 @@ use aq_terminal_relay_protocol::{self as wire, Peer, PeerUpload};
 use aq_terminal_renderer::{AssumedBlank, OrderedResize, Renderer};
 use std::collections::BTreeMap;
 use uuid::Uuid;
+mod upload;
 
 pub const MAX_NODE_REPLAY: usize = 32 * 1024 * 1024;
 pub const MAX_NODE_SUBSCRIPTIONS: usize = 32;
@@ -108,13 +109,11 @@ impl TerminalOutput {
         baseline: &VerifiedBlankBaseline,
         policy: &TerminalPolicy,
     ) -> Result<Self> {
-        let (columns, rows) = baseline.dimensions();
         Self::from_blank(
             baseline.terminal().clone(),
             policy,
             baseline.renderer().clone(),
-            columns,
-            rows,
+            baseline.dimensions(),
         )
     }
     // The native runner's retained baseline is joined to its live host before
@@ -123,8 +122,7 @@ impl TerminalOutput {
         terminal: TerminalIdentity,
         policy: &TerminalPolicy,
         artifact: ArtifactRef,
-        columns: u16,
-        rows: u16,
+        (columns, rows): (u16, u16),
     ) -> Result<Self> {
         let mut output = Self::tail_only(terminal.clone(), policy)?;
         output.renderer = Some(Renderer::from_assumed_blank(AssumedBlank {
@@ -184,29 +182,7 @@ impl TerminalOutput {
                 // Feed each frame before the next append can evict it. Renderer
                 // state remains complete even if a slow viewer loses replay.
                 for chunk in bytes.chunks(self.maximum_frame) {
-                    self.tail.accept(&ControlEvent::Bytes(chunk.to_vec()))?;
-                    let frame = self.tail.frames().last().context("output frame absent")?;
-                    if let Some(renderer) = &mut self.renderer {
-                        if renderer.is_consistent() {
-                            if renderer
-                                .bytes(renderer.through_ordinal() + 1, frame)
-                                .is_err()
-                            {
-                                self.renderer_gap = Some(OutputGap {
-                                    terminal: frame.terminal.clone(),
-                                    first_missing: frame.sequence,
-                                    last_missing: frame.sequence,
-                                });
-                            }
-                        } else {
-                            let gap = self.renderer_gap.get_or_insert_with(|| OutputGap {
-                                terminal: frame.terminal.clone(),
-                                first_missing: frame.sequence,
-                                last_missing: frame.sequence,
-                            });
-                            gap.last_missing = frame.sequence;
-                        }
-                    }
+                    self.append_chunk(chunk)?;
                 }
             }
             ControlEvent::LayoutChanged => {
@@ -222,6 +198,27 @@ impl TerminalOutput {
                 self.tail.accept(event)?;
             }
             ControlEvent::Attached => self.tail.accept(event)?,
+        }
+        Ok(())
+    }
+    fn append_chunk(&mut self, chunk: &[u8]) -> Result<()> {
+        self.tail.accept(&ControlEvent::Bytes(chunk.to_vec()))?;
+        let frame = self.tail.frames().last().context("output frame absent")?;
+        let Some(renderer) = &mut self.renderer else {
+            return Ok(());
+        };
+        let missing = || OutputGap {
+            terminal: frame.terminal.clone(),
+            first_missing: frame.sequence,
+            last_missing: frame.sequence,
+        };
+        if !renderer.is_consistent() {
+            self.renderer_gap.get_or_insert_with(missing).last_missing = frame.sequence;
+        } else if renderer
+            .bytes(renderer.through_ordinal() + 1, frame)
+            .is_err()
+        {
+            self.renderer_gap = Some(missing());
         }
         Ok(())
     }
@@ -278,108 +275,6 @@ impl TerminalOutput {
         );
         Ok(renderer)
     }
-
-    pub(crate) fn prepare(
-        &self,
-        peer: &Peer,
-        through: u64,
-        fresh: bool,
-    ) -> Result<Option<OutputBatch>> {
-        let mut request = PeerUpload {
-            version: wire::VERSION,
-            capability: aq_session_protocol::Text::new(wire::CAPABILITY)?,
-            peer: peer.clone(),
-            exchange_id: Uuid::new_v4(),
-            cursor: 0,
-            receipts: vec![],
-            epoch_receipts: vec![],
-            resize_receipts: vec![],
-            fence_acks: vec![],
-            frames: vec![],
-            snapshots: vec![],
-            gaps: vec![],
-        };
-        let mut barrier = through;
-        let mut payload_bytes = 0;
-        if (fresh || self.gaps().any(|gap| gap.last_missing > through))
-            && let Ok(snapshot) = self.snapshot()
-        {
-            ensure!(snapshot.through_sequence >= through, "snapshot regressed");
-            barrier = snapshot.through_sequence;
-            payload_bytes = snapshot.state.len();
-            request.snapshots.push(snapshot);
-        }
-        let limit = if request.snapshots.is_empty() {
-            MAX_TAIL_UPLOAD
-        } else {
-            MAX_IMAGE_UPLOAD
-        };
-        let mut high = barrier;
-        // The peer applies every gap before every frame. Send only the next
-        // ordered prefix: leading gaps, followed by frames up to the next gap.
-        // In particular a renderer inconsistency can overlap retained raw bytes;
-        // those bytes cannot be replayed after declaring their sequence missing.
-        let first_frame = self
-            .frames()
-            .find(|frame| {
-                frame.sequence > barrier
-                    && !self.gaps().any(|gap| {
-                        gap.first_missing <= frame.sequence && frame.sequence <= gap.last_missing
-                    })
-            })
-            .map(|frame| frame.sequence);
-        for gap in self
-            .gaps()
-            .filter(|g| {
-                g.last_missing > barrier && first_frame.is_none_or(|first| g.last_missing < first)
-            })
-            .take(64)
-        {
-            let mut gap = gap.clone();
-            gap.first_missing = gap.first_missing.max(barrier + 1);
-            request.gaps.push(gap.clone());
-            if serde_json::to_vec(&request)?.len() > limit {
-                request.gaps.pop();
-                break;
-            }
-            high = high.max(gap.last_missing);
-        }
-        let frame_barrier = high;
-        let next_gap = self
-            .gaps()
-            .filter(|g| g.last_missing > frame_barrier)
-            .map(|g| g.first_missing.max(frame_barrier + 1))
-            .min()
-            .unwrap_or(u64::MAX);
-        for frame in self
-            .frames()
-            .filter(|f| f.sequence > frame_barrier && f.sequence < next_gap)
-            .take(64)
-        {
-            if payload_bytes + frame.bytes.len() > SESSION_BYTES_PER_SECOND {
-                break;
-            }
-            request.frames.push(frame.clone());
-            if serde_json::to_vec(&request)?.len() > limit {
-                request.frames.pop();
-                break;
-            }
-            payload_bytes += frame.bytes.len();
-            high = high.max(frame.sequence);
-        }
-        if request.frames.is_empty() && request.gaps.is_empty() && request.snapshots.is_empty() {
-            return Ok(None);
-        }
-        request.validate()?;
-        let bytes = serde_json::to_vec(&request)?;
-        ensure!(bytes.len() <= limit, "output upload byte bound");
-        Ok(Some(OutputBatch {
-            request,
-            digest: Digest::of(&bytes),
-            through: high,
-            payload_bytes,
-        }))
-    }
 }
 
 /// Reserve full replay capacity before attaching an observer; empty sessions
@@ -396,13 +291,17 @@ impl OutputStreams {
     }
     pub fn attach_blank(
         &mut self,
-        terminal: TerminalIdentity,
+        baseline: AssumedBlank,
         policy: &TerminalPolicy,
         artifact: ArtifactRef,
-        columns: u16,
-        rows: u16,
     ) -> Result<()> {
-        let output = TerminalOutput::from_blank(terminal.clone(), policy, artifact, columns, rows)?;
+        let terminal = baseline.terminal;
+        let output = TerminalOutput::from_blank(
+            terminal.clone(),
+            policy,
+            artifact,
+            (baseline.columns, baseline.rows),
+        )?;
         self.insert(terminal, policy, Some(output))
     }
     fn insert(
