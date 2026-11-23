@@ -36,21 +36,33 @@ pub(super) fn validate(a: &Attempt, revision: u64) -> Result<()> {
         &a.reservation.offer,
         record.delivery.delivery.nonce,
     )?;
+    validate_association(record, a, prepared, revision)?;
+    validate_clock(record, prepared)
+}
+fn validate_association(
+    record: &ReceivedInitialGrant,
+    a: &Attempt,
+    prepared: &PreparedIntent,
+    revision: u64,
+) -> Result<()> {
     ensure!(
         record.prepare_digest == prepared.request_digest
             && record.delivery_digest == canonical_digest(&record.delivery)?
             && same(&record.runtime, &a.reservation.runtime)?
             && !record.kernel_boot_id.is_nil()
             && record.clock_source == CLOCK
-            && record.record_revision
-                >= request
-                    .journal_revision
-                    .checked_add(2)
-                    .context("received grant revision overflow")?
-            && record.record_revision <= revision
+            && (prepared
+                .request
+                .journal_revision
+                .checked_add(2)
+                .context("received grant revision overflow")?..=revision)
+                .contains(&record.record_revision)
             && canonical_bytes(&record.delivery)?.len() <= aq_admission::control::MAX_REPLY_BYTES,
         "received grant history association/bound"
     );
+    Ok(())
+}
+fn validate_clock(record: &ReceivedInitialGrant, prepared: &PreparedIntent) -> Result<()> {
     let hard = record
         .delivery
         .execution_deadline_ms
@@ -70,11 +82,10 @@ pub(super) fn validate(a: &Attempt, revision: u64) -> Result<()> {
     )?;
     ensure!(
         record.sent_ns >= prepared.prepared_at_ns
-            && record.received_ns >= record.sent_ns
-            && record.received_ns < record.deadline_ns
+            && (record.sent_ns..record.deadline_ns.min(record.hard_deadline_ns))
+                .contains(&record.received_ns)
             && record.deadline_ns <= maximum
             && record.hard_deadline_ns <= hard
-            && record.received_ns < record.hard_deadline_ns
             && record.observed_before_write_ns >= record.received_ns,
         "received grant historical clocks"
     );
@@ -160,8 +171,7 @@ impl Journal {
         &self,
         id: Uuid,
         digest: &Digest,
-        deadline: u64,
-        hard: u64,
+        (deadline, hard): (u64, u64),
     ) -> Result<u64> {
         let now = self.live()?;
         let record = self
