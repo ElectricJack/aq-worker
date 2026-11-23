@@ -21,6 +21,14 @@ pub enum PollLoop<T> {
     Paused,
     Shutdown,
 }
+
+/// A dropped pause sender never pauses; leave the timer and shutdown watch active.
+async fn pause_changed(pause: &mut watch::Receiver<bool>) {
+    if pause.changed().await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
 /// Calls `poll(true)` until it yields `Some`, sleeping `interval` between calls. `pause` and
 /// `shutdown` are checked before every call and during the sleep; an `Err` ends the loop.
 ///
@@ -60,8 +68,7 @@ where
         tokio::select! {
             _ = tokio::time::sleep(wait) => {}
             changed = shutdown.changed() => if changed.is_err() { return Ok(PollLoop::Shutdown) },
-            // A dropped pause sender never pauses; the sleep still ends the wait.
-            _ = async { if pause.changed().await.is_err() { std::future::pending::<()>().await } } => {}
+            _ = pause_changed(pause) => {}
         }
     }
 }
@@ -132,6 +139,60 @@ mod tests {
         let (found, ()) = tokio::join!(looped, sender);
         assert!(matches!(found.unwrap(), PollLoop::Shutdown));
         assert_eq!(calls.get(), 1);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn dropped_pause_sender_keeps_idle_schedule() {
+        let calls = std::cell::Cell::new(0);
+        let (_s, mut shutdown) = watch::channel(false);
+        let (p, mut pause) = watch::channel(false);
+        drop(p);
+        let start = tokio::time::Instant::now();
+        let interval = std::time::Duration::from_secs(10);
+
+        let found = poll_until_offer(
+            |_| {
+                calls.set(calls.get() + 1);
+                async { Ok((calls.get() == 2).then_some(7)) }
+            },
+            interval,
+            std::time::Duration::ZERO,
+            &mut shutdown,
+            &mut pause,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(found, PollLoop::Offer(7)));
+        assert_eq!(calls.get(), 2);
+        assert_eq!(start.elapsed(), interval);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn dropped_pause_sender_does_not_block_shutdown_channel_closure() {
+        let calls = std::cell::Cell::new(0);
+        let (stop, mut shutdown) = watch::channel(false);
+        let (p, mut pause) = watch::channel(false);
+        drop(p);
+        let start = tokio::time::Instant::now();
+        let sender = async {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            drop(stop);
+        };
+        let looped = poll_until_offer(
+            |_| {
+                calls.set(calls.get() + 1);
+                async { Ok(None::<i32>) }
+            },
+            std::time::Duration::from_secs(10),
+            std::time::Duration::ZERO,
+            &mut shutdown,
+            &mut pause,
+        );
+
+        let (found, ()) = tokio::join!(looped, sender);
+
+        assert!(matches!(found.unwrap(), PollLoop::Shutdown));
+        assert_eq!(calls.get(), 1);
+        assert_eq!(start.elapsed(), std::time::Duration::from_secs(3));
     }
     #[tokio::test(start_paused = true)]
     async fn poll_until_offer_propagates_errors() {
