@@ -38,6 +38,11 @@ pub struct RelayHttp {
     control: Arc<Semaphore>,
     output: Arc<Semaphore>,
 }
+struct ResponseBounds {
+    limit: usize,
+    timeout: Duration,
+}
+
 impl RelayHttp {
     pub fn new(origin: &str, credential: &NodeCredential) -> Result<Self> {
         Self::build(origin, credential, false)
@@ -59,26 +64,7 @@ impl RelayHttp {
         Self::build(origin, credential, true)
     }
     fn build(origin: &str, credential: &NodeCredential, development: bool) -> Result<Self> {
-        let origin =
-            Url::parse(origin).map_err(|_| anyhow::anyhow!("invalid terminal relay origin"))?;
-        ensure!(
-            origin.host_str().is_some()
-                && origin.username().is_empty()
-                && origin.password().is_none()
-                && origin.path() == "/"
-                && origin.query().is_none()
-                && origin.fragment().is_none(),
-            "terminal relay requires credential-free origin"
-        );
-        ensure!(
-            origin.scheme() == "https"
-                || (development
-                    && origin.scheme() == "http"
-                    && origin.host_str().is_some_and(|h| h
-                        .parse::<std::net::IpAddr>()
-                        .is_ok_and(|ip| ip.is_loopback()))),
-            "terminal relay requires HTTPS; loopback fixture mode is explicit"
-        );
+        let origin = relay_origin(origin, development)?;
         let value = Zeroizing::new(format!("Bearer {}", &*credential.0));
         let mut authorization = header::HeaderValue::from_bytes(value.as_bytes())
             .map_err(|_| anyhow::anyhow!("invalid node authorization"))?;
@@ -136,35 +122,15 @@ impl RelayHttp {
             .post(
                 "/v1/terminal-relay/register",
                 request,
-                64 * 1024,
-                Duration::from_secs(4),
+                ResponseBounds {
+                    limit: 64 * 1024,
+                    timeout: Duration::from_secs(4),
+                },
             )
             .await?;
-        let reply: MutationReply = serde_json::from_slice(&bytes)
-            .map_err(|_| anyhow::anyhow!("invalid terminal registration reply"))?;
-        let MutationReply::Registered { operation_id, info } = reply else {
-            anyhow::bail!("unexpected terminal registration reply");
-        };
-        info.terminal.validate()?;
-        ensure!(
-            operation_id == request.operation_id
-                && info.terminal == request.terminal
-                && info.session_revision == request.expected_authority_revision
-                && info.input_mode == InputMode::FiniteV1
-                && info.terminal_policy == *expected_policy
-                && info.control.terminal == request.terminal
-                && info.control.session_revision == info.session_revision,
-            "terminal registration reply binding mismatch"
-        );
-        if let Some(lease) = &info.control.lease {
-            lease.validate()?;
-            ensure!(
-                lease.terminal == request.terminal && lease.generation == info.control.generation,
-                "terminal registration controller mismatch"
-            );
-        }
-        Ok(info)
+        registration_reply(&bytes, request, expected_policy)
     }
+
     pub async fn poll(&self, request: &RelayPoll) -> Result<Envelope> {
         request.validate()?;
         ensure!(
@@ -181,8 +147,10 @@ impl RelayHttp {
             .post(
                 "/v1/terminal-relay/poll",
                 request,
-                aq_session_protocol::MAX_BATCH_BYTES,
-                Duration::from_millis(request.hold_ms as u64 + 2000),
+                ResponseBounds {
+                    limit: aq_session_protocol::MAX_BATCH_BYTES,
+                    timeout: Duration::from_millis(request.hold_ms as u64 + 2000),
+                },
             )
             .await?;
         let reply = wire::decode(&bytes)?;
@@ -214,8 +182,10 @@ impl RelayHttp {
             .post(
                 "/v1/terminal-relay/output-poll",
                 request,
-                aq_session_protocol::MAX_BATCH_BYTES,
-                Duration::from_secs(2),
+                ResponseBounds {
+                    limit: aq_session_protocol::MAX_BATCH_BYTES,
+                    timeout: Duration::from_secs(2),
+                },
             )
             .await?;
         let reply = wire::decode(&bytes)?;
@@ -234,44 +204,14 @@ impl RelayHttp {
     pub async fn control_upload(&self, request: &PeerUpload) -> Result<UploadAck> {
         request.validate()?;
         ensure!(
-            matches!(request.peer, Peer::Remote { .. })
-                && request.capability.as_str() == wire::CAPABILITY
-                && request.frames.is_empty()
-                && request.snapshots.is_empty()
-                && request.gaps.is_empty()
-                && request.epoch_receipts.is_empty(),
+            upload_peer(request) && !has_output(request) && request.epoch_receipts.is_empty(),
             "stage1 control upload contains unsupported content"
         );
         ensure!(
             serde_json::to_vec(request)?.len() <= 256 * 1024,
             "terminal control upload bytes"
         );
-        let _slot = self
-            .control
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| anyhow::anyhow!("terminal relay control lane busy"))?;
-        let bytes = self
-            .post(
-                "/v1/terminal-relay/control-upload",
-                request,
-                256 * 1024,
-                Duration::from_secs(4),
-            )
-            .await?;
-        let reply: UploadAck = serde_json::from_slice(&bytes)
-            .map_err(|_| anyhow::anyhow!("invalid terminal upload reply"))?;
-        reply.validate()?;
-        ensure!(
-            reply.peer == request.peer
-                && reply.exchange_id == request.exchange_id
-                && reply.cursor == request.cursor
-                && reply.capability == request.capability
-                && reply.retirements.is_empty()
-                && reply.dropped_output.is_empty(),
-            "terminal upload reply binding mismatch"
-        );
-        Ok(reply)
+        self.upload(request, UploadLane::Control).await
     }
     /// Volatile output only, on its own lane. Snapshot producers must qualify
     /// their renderer/baseline; this transport validates only the opaque wire.
@@ -279,41 +219,10 @@ impl RelayHttp {
     pub async fn output_upload(&self, request: &PeerUpload) -> Result<UploadAck> {
         request.validate()?;
         ensure!(
-            matches!(request.peer, Peer::Remote { .. })
-                && request.capability.as_str() == wire::CAPABILITY
-                && request.receipts.is_empty()
-                && request.epoch_receipts.is_empty()
-                && request.resize_receipts.is_empty()
-                && request.fence_acks.is_empty()
-                && (!request.frames.is_empty()
-                    || !request.gaps.is_empty()
-                    || !request.snapshots.is_empty()),
+            upload_peer(request) && !has_receipts(request) && has_output(request),
             "tail upload contains unsupported content"
         );
-        let _slot = self
-            .output
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| anyhow::anyhow!("terminal relay output lane busy"))?;
-        let bytes = self
-            .post(
-                "/v1/terminal-relay/upload",
-                request,
-                256 * 1024,
-                Duration::from_secs(4),
-            )
-            .await?;
-        let reply: UploadAck = serde_json::from_slice(&bytes)
-            .map_err(|_| anyhow::anyhow!("invalid output upload reply"))?;
-        reply.validate()?;
-        ensure!(
-            reply.peer == request.peer
-                && reply.exchange_id == request.exchange_id
-                && reply.cursor == request.cursor
-                && reply.capability == request.capability
-                && reply.retirements.is_empty(),
-            "output upload reply binding mismatch"
-        );
+        let reply = self.upload(request, UploadLane::Output).await?;
         ensure!(
             reply.dropped_output.iter().all(|gap| request
                 .frames
@@ -323,13 +232,55 @@ impl RelayHttp {
         );
         Ok(reply)
     }
+    async fn upload(&self, request: &PeerUpload, lane: UploadLane) -> Result<UploadAck> {
+        let (slots, route, busy, invalid, mismatch) = match lane {
+            UploadLane::Control => (
+                &self.control,
+                "/v1/terminal-relay/control-upload",
+                "terminal relay control lane busy",
+                "invalid terminal upload reply",
+                "terminal upload reply binding mismatch",
+            ),
+            UploadLane::Output => (
+                &self.output,
+                "/v1/terminal-relay/upload",
+                "terminal relay output lane busy",
+                "invalid output upload reply",
+                "output upload reply binding mismatch",
+            ),
+        };
+        let _slot = slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| anyhow::anyhow!(busy))?;
+        let bytes = self
+            .post(
+                route,
+                request,
+                ResponseBounds {
+                    limit: 256 * 1024,
+                    timeout: Duration::from_secs(4),
+                },
+            )
+            .await?;
+        let reply: UploadAck =
+            serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!(invalid))?;
+        reply.validate()?;
+        ensure!(
+            ack_matches(&reply, request)
+                && (matches!(lane, UploadLane::Output) || reply.dropped_output.is_empty()),
+            mismatch
+        );
+        Ok(reply)
+    }
+
     async fn post(
         &self,
         path: &str,
         body: &impl Serialize,
-        limit: usize,
-        timeout: Duration,
+        bounds: ResponseBounds,
     ) -> Result<Vec<u8>> {
+        let ResponseBounds { limit, timeout } = bounds;
         let bytes = serde_json::to_vec(body)
             .map_err(|_| anyhow::anyhow!("invalid terminal request encoding"))?;
         ensure!(
@@ -386,4 +337,97 @@ impl RelayHttp {
         }
         Ok(bytes)
     }
+}
+
+fn relay_origin(origin: &str, development: bool) -> Result<Url> {
+    let origin =
+        Url::parse(origin).map_err(|_| anyhow::anyhow!("invalid terminal relay origin"))?;
+    ensure!(
+        origin.host_str().is_some()
+            && origin.username().is_empty()
+            && origin.password().is_none()
+            && origin.path() == "/"
+            && origin.query().is_none()
+            && origin.fragment().is_none(),
+        "terminal relay requires credential-free origin"
+    );
+    validate_transport(&origin, development)?;
+    Ok(origin)
+}
+
+fn registration_reply(
+    bytes: &[u8],
+    request: &Register,
+    expected_policy: &TerminalPolicy,
+) -> Result<TerminalInfo> {
+    let reply: MutationReply = serde_json::from_slice(bytes)
+        .map_err(|_| anyhow::anyhow!("invalid terminal registration reply"))?;
+    let MutationReply::Registered { operation_id, info } = reply else {
+        anyhow::bail!("unexpected terminal registration reply");
+    };
+    info.terminal.validate()?;
+    ensure!(
+        operation_id == request.operation_id
+            && info.terminal == request.terminal
+            && info.session_revision == request.expected_authority_revision
+            && info.input_mode == InputMode::FiniteV1
+            && info.terminal_policy == *expected_policy
+            && info.control.terminal == request.terminal
+            && info.control.session_revision == info.session_revision,
+        "terminal registration reply binding mismatch"
+    );
+    validate_registered_lease(&info, request)?;
+    Ok(info)
+}
+
+enum UploadLane {
+    Control,
+    Output,
+}
+
+fn ack_matches(reply: &UploadAck, request: &PeerUpload) -> bool {
+    reply.peer == request.peer
+        && reply.exchange_id == request.exchange_id
+        && reply.cursor == request.cursor
+        && reply.capability == request.capability
+        && reply.retirements.is_empty()
+}
+
+fn upload_peer(request: &PeerUpload) -> bool {
+    matches!(request.peer, Peer::Remote { .. }) && request.capability.as_str() == wire::CAPABILITY
+}
+
+fn has_output(request: &PeerUpload) -> bool {
+    !(request.frames.is_empty() && request.gaps.is_empty() && request.snapshots.is_empty())
+}
+
+fn has_receipts(request: &PeerUpload) -> bool {
+    !(request.receipts.is_empty()
+        && request.epoch_receipts.is_empty()
+        && request.resize_receipts.is_empty()
+        && request.fence_acks.is_empty())
+}
+
+fn validate_transport(origin: &Url, development: bool) -> Result<()> {
+    ensure!(
+        origin.scheme() == "https"
+            || (development
+                && origin.scheme() == "http"
+                && origin.host_str().is_some_and(|h| h
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback()))),
+        "terminal relay requires HTTPS; loopback fixture mode is explicit"
+    );
+    Ok(())
+}
+
+fn validate_registered_lease(info: &TerminalInfo, request: &Register) -> Result<()> {
+    if let Some(lease) = &info.control.lease {
+        lease.validate()?;
+        ensure!(
+            lease.terminal == request.terminal && lease.generation == info.control.generation,
+            "terminal registration controller mismatch"
+        );
+    }
+    Ok(())
 }
