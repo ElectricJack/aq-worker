@@ -58,18 +58,7 @@ pub enum ServiceCmd {
         profile: String,
     },
     /// Record a failed handoff from a specific retained Git commit when the sandbox is absent.
-    RecoverCheckout {
-        #[arg(long)]
-        profile: String,
-        #[arg(long)]
-        node: u32,
-        #[arg(long)]
-        slot: u32,
-        #[arg(long)]
-        attempt_id: Uuid,
-        #[arg(long)]
-        expected_head: String,
-    },
+    RecoverCheckout(recover_checkout::Checkout),
     /// Destroy the stopped sandbox an attempt of this slot preserved (its work was never
     /// copied back, so the service never destroys it). The reason is recorded as the destroy
     /// evidence.
@@ -127,13 +116,7 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
         ServiceCmd::Install { profile } => install(&profile),
         ServiceCmd::Uninstall { profile, purge } => uninstall(&profile, purge),
         ServiceCmd::Status { profile } => status(&profile),
-        ServiceCmd::RecoverCheckout {
-            profile,
-            node,
-            slot,
-            attempt_id,
-            expected_head,
-        } => recover_checkout::run(&profile, node, slot, attempt_id, &expected_head).await,
+        ServiceCmd::RecoverCheckout(checkout) => checkout.run().await,
         ServiceCmd::ReleaseSandbox {
             profile,
             node,
