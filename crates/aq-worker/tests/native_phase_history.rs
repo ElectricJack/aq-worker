@@ -1,4 +1,6 @@
 //! Loopback history transport only: no SQL/worker proof or live authority claim.
+#[path = "native_phase_history/refresh.rs"]
+mod refresh;
 use aq_phase_terminal_protocol as wire;
 use aq_worker::{
     config::WorkerConfig,

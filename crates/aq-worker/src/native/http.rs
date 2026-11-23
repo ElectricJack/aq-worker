@@ -132,25 +132,46 @@ pub(super) fn boot_ns() -> Result<u64> {
 
 pub(crate) use aq_node_service::native_transport::body;
 
+fn allows_coordinator_url(url: &reqwest::Url) -> bool {
+    // Resolve no names to grant the plaintext exception. A hostname may
+    // change addresses; only an explicitly numeric loopback is local.
+    let numeric_loopback = url.host_str().is_some_and(|host| {
+        host.trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+    });
+    (url.scheme() == "https" || (url.scheme() == "http" && numeric_loopback))
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+}
+
+async fn send_json(
+    builder: reqwest::RequestBuilder,
+    payload: &impl Serialize,
+    limit: usize,
+) -> Result<Response> {
+    let bytes = serde_json::to_vec(payload)?;
+    ensure!(bytes.len() <= limit, "native request size");
+    let response = builder
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|_| TransportFailed("native request transport failed; disposition unknown"))?;
+    if !response.status().is_success() {
+        return Err(refused(response).await);
+    }
+    Ok(response)
+}
 impl NativeClient {
     pub fn from_config(config: &WorkerConfig) -> Result<Self> {
         let url = reqwest::Url::parse(&config.server_url)
             .map_err(|_| anyhow::anyhow!("invalid native coordinator URL"))?;
-        // Resolve no names to grant the plaintext exception. A hostname may
-        // change addresses; only an explicitly numeric loopback is local.
-        let numeric_loopback = url.host_str().is_some_and(|host| {
-            host.trim_start_matches('[')
-                .trim_end_matches(']')
-                .parse::<std::net::IpAddr>()
-                .is_ok_and(|address| address.is_loopback())
-        });
         ensure!(
-            (url.scheme() == "https" || (url.scheme() == "http" && numeric_loopback))
-                && url.host_str().is_some()
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.query().is_none()
-                && url.fragment().is_none()
+            allows_coordinator_url(&url)
                 && !config.node_id.is_nil()
                 && !config.credential.is_empty()
                 && config.cf_client_id.is_some() == config.cf_client_secret.is_some(),
@@ -226,41 +247,12 @@ impl NativeClient {
         );
         Ok(())
     }
-    async fn post(
-        &self,
-        client: &reqwest::Client,
-        path: &str,
-        request: &impl Serialize,
-        limit: usize,
-    ) -> Result<Response> {
-        self.post_with(client, path, request, limit, vec![]).await
-    }
-    async fn post_with(
-        &self,
-        client: &reqwest::Client,
-        path: &str,
-        request: &impl Serialize,
-        limit: usize,
-        headers: Vec<(&'static str, String)>,
-    ) -> Result<Response> {
-        let bytes = serde_json::to_vec(request)?;
-        ensure!(bytes.len() <= limit, "native request size");
-        let mut request = client
+    fn profiled_post(&self, client: &reqwest::Client, path: &str) -> reqwest::RequestBuilder {
+        let request = client
             .post(format!("{}/v1/worker/profiled/{path}", self.base))
             .header(header::AUTHORIZATION, self.credential.clone())
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(bytes);
-        for (name, value) in headers {
-            request = request.header(name, value);
-        }
-        let response =
-            self.slot_headers(request, path).send().await.map_err(|_| {
-                TransportFailed("native request transport failed; disposition unknown")
-            })?;
-        if !response.status().is_success() {
-            return Err(refused(response).await);
-        }
-        Ok(response)
+            .header(header::CONTENT_TYPE, "application/json");
+        self.slot_headers(request, path)
     }
     pub async fn register(&self, request: &Register) -> Result<Register> {
         let document = TransportDocument::Register(request.clone());
@@ -268,7 +260,13 @@ impl NativeClient {
         ensure!(request.identity.node_id == self.node, "native node scope");
         let _slot = self.control_slots.try_acquire()?;
         // #121 answers lock timeouts with 503; the server replays a registration by operation id.
-        let send = || self.post(&self.control, "register", &document, 65_536);
+        let send = || {
+            send_json(
+                self.profiled_post(&self.control, "register"),
+                &document,
+                65_536,
+            )
+        };
         let response = fetch_retried(boot_ns()? + FETCH_SPAN.as_nanos() as u64, send).await?;
         let response = transport::decode_transport(&body(response, 65_536).await?)?;
         ensure!(
@@ -284,9 +282,12 @@ impl NativeClient {
         request.validate()?;
         self.scope(&request.binding)?;
         let _slot = self.control_slots.try_acquire()?;
-        let response = self
-            .post(&self.control, "started", request, started::MAX_BYTES)
-            .await?;
+        let response = send_json(
+            self.profiled_post(&self.control, "started"),
+            request,
+            started::MAX_BYTES,
+        )
+        .await?;
         Ok(started::decode_receipt(
             &body(response, started::MAX_BYTES).await?,
             request,
@@ -296,9 +297,12 @@ impl NativeClient {
         request.validate()?;
         self.scope(&request.evidence.binding)?;
         let _slot = self.control_slots.try_acquire()?;
-        let response = self
-            .post(&self.control, "stopped", request, stopped::MAX_BYTES)
-            .await?;
+        let response = send_json(
+            self.profiled_post(&self.control, "stopped"),
+            request,
+            stopped::MAX_BYTES,
+        )
+        .await?;
         Ok(stopped::decode_receipt(
             &body(response, stopped::MAX_BYTES).await?,
             request,
@@ -314,10 +318,11 @@ impl NativeClient {
         result_record::validate_report(request)?;
         self.scope(&request.binding)?;
         let _slot = self.bulk_slots.try_acquire()?;
-        let (limit, client) = (result_record::MAX_BYTES, &self.bulk);
-        let response = self
-            .post_with(client, "results", request, limit, headers)
-            .await?;
+        let mut builder = self.profiled_post(&self.bulk, "results");
+        for (name, value) in headers {
+            builder = builder.header(name, value);
+        }
+        let response = send_json(builder, request, result_record::MAX_BYTES).await?;
         let receipt = result_record::decode_receipt(
             &body(response, result_record::MAX_BYTES).await?,
             request,
@@ -343,7 +348,7 @@ impl NativeClient {
         );
         let _slot = self.bulk_slots.try_acquire()?;
         let response = fetch_retried(self.fetch_deadline_ns, || {
-            self.post(&self.bulk, "artifact", request, 16_384)
+            send_json(self.profiled_post(&self.bulk, "artifact"), request, 16_384)
         })
         .await?;
         body_type(&response)?;
@@ -398,7 +403,7 @@ impl NativeClient {
         let (sent, response) = fetch_retried(self.fetch_deadline_ns, || async move {
             Ok((
                 boot_ns()?,
-                self.post(&self.bulk, "material", request, 16_384).await?,
+                send_json(self.profiled_post(&self.bulk, "material"), request, 16_384).await?,
             ))
         })
         .await?;
@@ -424,9 +429,6 @@ impl NativeClient {
         })
     }
 }
-
-#[cfg(test)]
-mod refresh_terminal_tests;
 
 #[cfg(test)]
 mod node_slot_tests {
