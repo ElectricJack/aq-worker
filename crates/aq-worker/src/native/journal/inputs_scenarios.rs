@@ -20,6 +20,9 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU8, Ordering},
 };
+#[path = "inputs_scenarios/peer.rs"]
+mod peer;
+use peer::ReadPeer;
 const SECRET: &[u8] = b"synthetic private provider material, never journal";
 #[derive(Default)]
 struct Options {
@@ -40,8 +43,7 @@ struct Inputs {
     lease: Uuid,
     large: ArtifactRef,
     bytes: Vec<u8>,
-    calls: Arc<Mutex<Vec<serde_json::Value>>>,
-    mode: Arc<AtomicU8>,
+    reads: ReadPeer,
     task: tokio::task::JoinHandle<()>,
     _dir: tempfile::TempDir,
 }
@@ -54,6 +56,16 @@ impl Inputs {
     fn pipeline(&self) -> &Arc<InputPipeline> {
         self.pipeline.as_ref().unwrap()
     }
+    async fn fetch_artifact(&self) -> anyhow::Result<crate::native::VerifiedArtifact> {
+        self.pipeline()
+            .artifact(self.id, self.preparation.clone(), self.large.clone())
+            .await
+    }
+    async fn fetch_material(&self) -> anyhow::Result<aq_admission::MaterialReceipt> {
+        self.pipeline()
+            .material(self.id, self.preparation.clone(), self.lease)
+            .await
+    }
     async fn new(options: Options) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("journal");
@@ -61,30 +73,8 @@ impl Inputs {
         fs::create_dir(&materials).unwrap();
         fs::set_permissions(&materials, fs::Permissions::from_mode(0o700)).unwrap();
         let mut journal = create(&root);
-        let mut offered = offer();
-        offered.offered.reservation_ttl_ms = 5000;
-        let bytes = vec![b'x'; crate::native::MAX_CHUNK_BYTES + 13];
-        let large = ArtifactRef {
-            id: Text::new("synthetic.large-input").unwrap(),
-            version: Text::new("1").unwrap(),
-            digest: Digest::of(&bytes),
-        };
-        let mut descriptor = offered
-            .offered
-            .artifacts
-            .iter()
-            .find(|d| d.artifact == offered.startup.payload)
-            .unwrap()
-            .clone();
-        descriptor.artifact = large.clone();
-        descriptor.bytes = bytes.len() as u64;
-        descriptor.retention_receipt = ArtifactRef {
-            id: Text::new("synthetic.large-retention").unwrap(),
-            version: Text::new("1").unwrap(),
-            digest: Digest::of(b"synthetic retention only"),
-        };
-        offered.offered.artifacts.push(descriptor.clone());
-        offered.validate().unwrap();
+        let (offered, descriptor, bytes) = input_offer();
+        let large = descriptor.artifact.clone();
         let id = journal
             .reserve(
                 offered,
@@ -95,156 +85,10 @@ impl Inputs {
             .unwrap();
         let accept = journal.begin_accept(id, capabilities()).unwrap();
         let cap = journal.state().attempts[&id].reservation.deadline_ns;
-        let mut delivery: PreparationDelivery =
-            serde_json::from_value(fixture()["replies"][1]["body"].clone()).unwrap();
-        let expires = if options.short { 2100 } else { 5500 };
-        delivery.original.clock = DeliveryClock::new(1500, expires).unwrap();
-        delivery.delivery.clock = DeliveryClock::new(1600, expires).unwrap();
-        delivery.original.materials[0].expires_at_ms = 8000;
-        delivery.original.materials[0].material_bytes = SECRET.len() as u64;
-        delivery.original.materials[0].material_digest = Digest::of(SECRET);
-        let lease = delivery.original.materials[0].clone();
-        let lease_id = lease.lease_id;
-        let calls = Arc::new(Mutex::new(vec![]));
-        let mode = Arc::new(AtomicU8::new(0));
-        let artifact_calls = calls.clone();
-        let material_calls = calls.clone();
-        let artifact_mode = mode.clone();
-        let material_mode = mode.clone();
-        let artifact_root = root.clone();
-        let material_root = root.clone();
-        let body = bytes.clone();
-        let router = Router::new()
-            .route(
-                "/v1/worker/profiled/accept",
-                post(move |headers: HeaderMap, Json(request): Json<Accept>| {
-                    let mut d = delivery.clone();
-                    async move {
-                        d.delivery.nonce =
-                            Uuid::parse_str(headers["aq-delivery-nonce"].to_str().unwrap())
-                                .unwrap();
-                        d.original.operation_id = request.operation_id;
-                        d.original.reservation = request.reservation;
-                        d.original.guardian_id = request.guardian_id;
-                        d.original.launch_id = request.launch_id;
-                        Json(ControlReply::Preparation(d))
-                    }
-                }),
-            )
-            .route(
-                "/v1/worker/profiled/artifact",
-                post(
-                    move |headers: HeaderMap, Json(request): Json<ArtifactFetch>| {
-                        let root = artifact_root.clone();
-                        let calls = artifact_calls.clone();
-                        let descriptor = descriptor.clone();
-                        let bytes = body.clone();
-                        let mode = artifact_mode.clone();
-                        async move {
-                            assert_eq!(headers["authorization"], "Bearer synthetic-node-secret");
-                            let snapshot: Snapshot = serde_json::from_slice(
-                                &fs::read(root.join("journal.json")).unwrap(),
-                            )
-                            .unwrap();
-                            assert_eq!(snapshot.digest, canonical_digest(&snapshot.state).unwrap());
-                            assert!(
-                                snapshot.state.attempts[&request.binding.attempt_id]
-                                    .downloads
-                                    .values()
-                                    .any(|p| p.requests.iter().any(|r| same(r, &request).unwrap()))
-                            );
-                            calls
-                                .lock()
-                                .unwrap()
-                                .push(serde_json::to_value(&request).unwrap());
-                            if mode.load(Ordering::SeqCst) == 1 {
-                                return (
-                                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                                    "synthetic lost read",
-                                )
-                                    .into_response();
-                            }
-                            if mode.load(Ordering::SeqCst) == 2 {
-                                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-                            }
-                            let start = request.offset as usize;
-                            let end = start + request.length as usize;
-                            let mut response: Response = bytes[start..end].to_vec().into_response();
-                            response.headers_mut().insert(
-                                "content-type",
-                                "application/octet-stream".parse().unwrap(),
-                            );
-                            response
-                                .headers_mut()
-                                .insert("cache-control", "no-store".parse().unwrap());
-                            response.headers_mut().insert(
-                                "aq-artifact-retention",
-                                URL_SAFE_NO_PAD
-                                    .encode(serde_json::to_vec(&descriptor).unwrap())
-                                    .parse()
-                                    .unwrap(),
-                            );
-                            response.headers_mut().insert(
-                                "aq-artifact-offset",
-                                request.offset.to_string().parse().unwrap(),
-                            );
-                            response
-                        }
-                    },
-                ),
-            )
-            .route(
-                "/v1/worker/profiled/material",
-                post(
-                    move |headers: HeaderMap, Json(request): Json<MaterialFetch>| {
-                        let root = material_root.clone();
-                        let calls = material_calls.clone();
-                        let lease = lease.clone();
-                        let mode = material_mode.clone();
-                        async move {
-                            assert_eq!(headers["authorization"], "Bearer synthetic-node-secret");
-                            let snapshot: Snapshot = serde_json::from_slice(
-                                &fs::read(root.join("journal.json")).unwrap(),
-                            )
-                            .unwrap();
-                            let saved = &snapshot.state.attempts[&request.binding.attempt_id]
-                                .material_downloads[&request.lease_id];
-                            assert!(same(&saved.request, &request).unwrap());
-                            calls
-                                .lock()
-                                .unwrap()
-                                .push(serde_json::to_value(&request).unwrap());
-                            if mode.load(Ordering::SeqCst) == 1 {
-                                return (
-                                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                                    "synthetic lost read",
-                                )
-                                    .into_response();
-                            }
-                            let delivery = MaterialDelivery {
-                                clock: DeliveryClock::new(1600, lease.expires_at_ms).unwrap(),
-                                lease,
-                            };
-                            let mut response: Response = SECRET.to_vec().into_response();
-                            response.headers_mut().insert(
-                                "content-type",
-                                "application/octet-stream".parse().unwrap(),
-                            );
-                            response
-                                .headers_mut()
-                                .insert("cache-control", "no-store".parse().unwrap());
-                            response.headers_mut().insert(
-                                "aq-material-delivery",
-                                URL_SAFE_NO_PAD
-                                    .encode(serde_json::to_vec(&delivery).unwrap())
-                                    .parse()
-                                    .unwrap(),
-                            );
-                            response
-                        }
-                    },
-                ),
-            );
+        let delivery = input_delivery(options.short);
+        let lease_id = delivery.original.materials[0].lease_id;
+        let reads = ReadPeer::new(root.clone());
+        let router = reads.clone().router(delivery, descriptor, bytes.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -281,59 +125,78 @@ impl Inputs {
             lease: lease_id,
             large,
             bytes,
-            calls,
-            mode,
+            reads,
             task,
             _dir: dir,
         }
     }
 }
+fn input_offer() -> (NativeOffer, aq_admission::RetainedArtifact, Vec<u8>) {
+    let mut offered = offer();
+    offered.offered.reservation_ttl_ms = 5000;
+    let bytes = vec![b'x'; crate::native::MAX_CHUNK_BYTES + 13];
+    let large = ArtifactRef {
+        id: Text::new("synthetic.large-input").unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(&bytes),
+    };
+    let mut descriptor = offered
+        .offered
+        .artifacts
+        .iter()
+        .find(|d| d.artifact == offered.startup.payload)
+        .unwrap()
+        .clone();
+    descriptor.artifact = large.clone();
+    descriptor.bytes = bytes.len() as u64;
+    descriptor.retention_receipt = ArtifactRef {
+        id: Text::new("synthetic.large-retention").unwrap(),
+        version: Text::new("1").unwrap(),
+        digest: Digest::of(b"synthetic retention only"),
+    };
+    offered.offered.artifacts.push(descriptor.clone());
+    offered.validate().unwrap();
+    (offered, descriptor, bytes)
+}
+fn input_delivery(short: bool) -> PreparationDelivery {
+    let mut delivery: PreparationDelivery =
+        serde_json::from_value(fixture()["replies"][1]["body"].clone()).unwrap();
+    let expires = if short { 2100 } else { 5500 };
+    delivery.original.clock = DeliveryClock::new(1500, expires).unwrap();
+    delivery.delivery.clock = DeliveryClock::new(1600, expires).unwrap();
+    delivery.original.materials[0].expires_at_ms = 8000;
+    delivery.original.materials[0].material_bytes = SECRET.len() as u64;
+    delivery.original.materials[0].material_digest = Digest::of(SECRET);
+    delivery
+}
 #[tokio::test]
 async fn artifact_requests_are_durable_batched_exact_and_retry_keeps_ids() {
     let h = Inputs::new(Options::default()).await;
     let initial = h.pipeline().snapshot().await.unwrap().revision;
-    h.mode.store(1, Ordering::SeqCst);
-    assert!(
-        h.pipeline()
-            .artifact(h.id, h.preparation.clone(), h.large.clone())
-            .await
-            .is_err()
-    );
+    h.reads.mode.store(1, Ordering::SeqCst);
+    assert!(h.fetch_artifact().await.is_err());
     let pending = h.pipeline().snapshot().await.unwrap();
     let op = pending.attempts[&h.id].downloads.values().next().unwrap();
     assert_eq!(op.requests.len(), 2);
     assert!(op.receipt.is_none());
     assert_eq!(pending.revision, initial + 1);
-    h.mode.store(0, Ordering::SeqCst);
-    let verified = h
-        .pipeline()
-        .artifact(h.id, h.preparation.clone(), h.large.clone())
-        .await
-        .unwrap();
+    h.reads.mode.store(0, Ordering::SeqCst);
+    let verified = h.fetch_artifact().await.unwrap();
     assert_eq!(verified.bytes(), h.bytes);
     let complete = h.pipeline().snapshot().await.unwrap();
     assert_eq!(complete.revision, initial + 2);
     {
-        let calls = h.calls.lock().unwrap();
+        let calls = h.reads.calls.lock().unwrap();
         assert_eq!(calls.len(), 3);
         assert_eq!(calls[0], calls[1]);
     }
     drop(verified);
-    h.mode.store(1, Ordering::SeqCst);
-    assert!(
-        h.pipeline()
-            .artifact(h.id, h.preparation.clone(), h.large.clone())
-            .await
-            .is_err()
-    );
-    h.mode.store(0, Ordering::SeqCst);
-    let again = h
-        .pipeline()
-        .artifact(h.id, h.preparation.clone(), h.large.clone())
-        .await
-        .unwrap();
+    h.reads.mode.store(1, Ordering::SeqCst);
+    assert!(h.fetch_artifact().await.is_err());
+    h.reads.mode.store(0, Ordering::SeqCst);
+    let again = h.fetch_artifact().await.unwrap();
     assert_eq!(again.receipt().digest, h.large.digest);
-    assert_eq!(h.calls.lock().unwrap().len(), 6);
+    assert_eq!(h.reads.calls.lock().unwrap().len(), 6);
     assert_eq!(h.pipeline().snapshot().await.unwrap().revision, initial + 2);
 }
 #[tokio::test]
@@ -343,25 +206,16 @@ async fn installed_material_pin_is_independent_durable_and_has_no_plaintext() {
         ..Default::default()
     })
     .await;
-    assert!(
-        h.pipeline()
-            .material(h.id, h.preparation.clone(), h.lease)
-            .await
-            .is_err()
-    );
+    assert!(h.fetch_material().await.is_err());
     assert!(
         h.pipeline().snapshot().await.unwrap().attempts[&h.id].material_downloads[&h.lease]
             .receipt()
             .unwrap()
             .is_none()
     );
-    let receipt = h
-        .pipeline()
-        .material(h.id, h.preparation.clone(), h.lease)
-        .await
-        .unwrap();
+    let receipt = h.fetch_material().await.unwrap();
     {
-        let calls = h.calls.lock().unwrap();
+        let calls = h.reads.calls.lock().unwrap();
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0], calls[1]);
     }
@@ -407,13 +261,8 @@ async fn unknown_journal_write_prevents_http_and_reopen_never_reauthorizes() {
         ..Default::default()
     })
     .await;
-    assert!(
-        h.pipeline()
-            .artifact(h.id, h.preparation.clone(), h.large.clone())
-            .await
-            .is_err()
-    );
-    assert!(h.calls.lock().unwrap().is_empty());
+    assert!(h.fetch_artifact().await.is_err());
+    assert!(h.reads.calls.lock().unwrap().is_empty());
     drop(h.pipeline.take());
     let mut recovered = Journal::open(&h.root, identity().node_id, limits()).unwrap();
     assert!(recovered.recovery_required());
@@ -428,12 +277,7 @@ async fn postrename_pin_survives_but_is_historical_and_never_recreates_material(
         ..Default::default()
     })
     .await;
-    assert!(
-        h.pipeline()
-            .material(h.id, h.preparation.clone(), h.lease)
-            .await
-            .is_err()
-    );
+    assert!(h.fetch_material().await.is_err());
     drop(h.pipeline.take());
     let mut recovered = Journal::open(&h.root, identity().node_id, limits()).unwrap();
     assert!(recovered.recovery_required());
@@ -452,7 +296,7 @@ async fn postrename_pin_survives_but_is_historical_and_never_recreates_material(
             .as_slice(),
         SECRET
     );
-    assert_eq!(h.calls.lock().unwrap().len(), 1);
+    assert_eq!(h.reads.calls.lock().unwrap().len(), 1);
 }
 #[test]
 fn old_format_refusal_does_not_rewrite_or_discard_pending() {
@@ -481,10 +325,7 @@ fn old_format_refusal_does_not_rewrite_or_discard_pending() {
 #[tokio::test]
 async fn original_request_associations_and_metadata_bounds_are_rechecked() {
     let h = Inputs::new(Options::default()).await;
-    h.pipeline()
-        .artifact(h.id, h.preparation.clone(), h.large.clone())
-        .await
-        .unwrap();
+    h.fetch_artifact().await.unwrap();
     let original = h.pipeline().snapshot().await.unwrap();
     let key = original.attempts[&h.id]
         .downloads
@@ -495,28 +336,15 @@ async fn original_request_associations_and_metadata_bounds_are_rechecked() {
     for duplicate in [false, true] {
         let mut state = original.clone();
         let accept_id = state.attempts[&h.id].reservation.accept_operation_id;
-        let request = &mut state
-            .attempts
-            .get_mut(&h.id)
-            .unwrap()
-            .downloads
-            .get_mut(&key)
-            .unwrap()
-            .requests[0];
+        let attempt = state.attempts.get_mut(&h.id).unwrap();
+        let download = attempt.downloads.get_mut(&key).unwrap();
+        let request = &mut download.requests[0];
         if duplicate {
             request.operation_id = accept_id;
         } else {
             request.offset = 1;
         }
-        let digest = canonical_digest(request).unwrap();
-        state
-            .attempts
-            .get_mut(&h.id)
-            .unwrap()
-            .downloads
-            .get_mut(&key)
-            .unwrap()
-            .request_digests[0] = digest;
+        download.request_digests[0] = canonical_digest(request).unwrap();
         assert!(state.validate(&limits()).is_err());
     }
     let mut state = original.clone();
@@ -540,27 +368,22 @@ async fn original_request_associations_and_metadata_bounds_are_rechecked() {
 }
 #[tokio::test]
 async fn expired_download_stays_pending_and_bulk_does_not_occupy_control() {
+    let clock = crate::native::http::test_clock::TestClock::new();
     let h = Inputs::new(Options {
         short: true,
         ..Default::default()
     })
     .await;
-    h.mode.store(2, Ordering::SeqCst);
+    h.reads.mode.store(2, Ordering::SeqCst);
     let pipeline = h.pipeline().clone();
     let observed = h.preparation.clone();
     let id = h.id;
     let reference = h.large.clone();
     let running = tokio::spawn(async move { pipeline.artifact(id, observed, reference).await });
-    for _ in 0..100 {
-        if !h.calls.lock().unwrap().is_empty() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    assert!(!h.calls.lock().unwrap().is_empty());
+    h.reads.entered.notified().await;
+    assert!(!h.reads.calls.lock().unwrap().is_empty());
     assert!(
-        h.pipeline()
-            .material(h.id, h.preparation.clone(), h.lease)
+        h.fetch_material()
             .await
             .err()
             .unwrap()
@@ -571,15 +394,12 @@ async fn expired_download_stays_pending_and_bulk_does_not_occupy_control() {
         .accept(&h.accept, h.cap, Some(&h.preparation))
         .await
         .unwrap();
+    clock.advance_to(h.preparation.deadline_ns() + 1);
+    h.reads.release.notify_one();
     assert!(running.await.unwrap().is_err());
-    let before = h.calls.lock().unwrap().len();
-    assert!(
-        h.pipeline()
-            .artifact(h.id, h.preparation.clone(), h.large.clone())
-            .await
-            .is_err()
-    );
-    assert_eq!(h.calls.lock().unwrap().len(), before);
+    let before = h.reads.calls.lock().unwrap().len();
+    assert!(h.fetch_artifact().await.is_err());
+    assert_eq!(h.reads.calls.lock().unwrap().len(), before);
     let snapshot = h.pipeline().snapshot().await.unwrap();
     assert!(
         snapshot.attempts[&h.id]

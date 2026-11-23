@@ -34,32 +34,7 @@ async fn output_peer(
             post(move |Json(q): Json<Register>| {
                 let policy = policy.clone();
                 let registered = registered.clone();
-                async move {
-                    q.validate().unwrap();
-                    let now = crate::native::http::boot_ns().unwrap();
-                    registered.lock().unwrap().push(now);
-                    eprintln!("fixture terminal registration boot_ns={now}");
-                    Json(MutationReply::Registered {
-                        operation_id: q.operation_id,
-                        info: TerminalInfo {
-                            terminal: q.terminal.clone(),
-                            session_revision: q.expected_authority_revision,
-                            input_mode: InputMode::FiniteV1,
-                            terminal_policy: policy,
-                            control: ControlStatus {
-                                terminal: q.terminal,
-                                session_revision: q.expected_authority_revision,
-                                generation: 0,
-                                lease: None,
-                                fence_acknowledged: false,
-                                input_paused: false,
-                            },
-                            last_peer_observed_at_ms: 1,
-                            last_output_observed_at_ms: 0,
-                            disconnected: false,
-                        },
-                    })
-                }
+                async move { register(q, policy, &registered) }
             }),
         )
         .route(
@@ -103,6 +78,36 @@ async fn output_peer(
             task,
         },
     )
+}
+fn register(
+    q: Register,
+    policy: aq_session_protocol::TerminalPolicy,
+    registered: &Mutex<Vec<u64>>,
+) -> Json<MutationReply> {
+    q.validate().unwrap();
+    let now = crate::native::http::boot_ns().unwrap();
+    registered.lock().unwrap().push(now);
+    eprintln!("fixture terminal registration boot_ns={now}");
+    Json(MutationReply::Registered {
+        operation_id: q.operation_id,
+        info: TerminalInfo {
+            terminal: q.terminal.clone(),
+            session_revision: q.expected_authority_revision,
+            input_mode: InputMode::FiniteV1,
+            terminal_policy: policy,
+            control: ControlStatus {
+                terminal: q.terminal,
+                session_revision: q.expected_authority_revision,
+                generation: 0,
+                lease: None,
+                fence_acknowledged: false,
+                input_paused: false,
+            },
+            last_peer_observed_at_ms: 1,
+            last_output_observed_at_ms: 0,
+            disconnected: false,
+        },
+    })
 }
 async fn launched() -> (
     Inputs,
