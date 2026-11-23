@@ -38,7 +38,6 @@ pub(super) async fn record_report<O: StoppedOwner>(
             .get(&id)
             .context("result attempt absent")?;
         let h = a.result.as_ref().context("result history absent")?;
-        let c = h.scope.binding.clone();
         if h.report.is_some() {
             return Ok(());
         }
@@ -46,36 +45,7 @@ pub(super) async fn record_report<O: StoppedOwner>(
             h.digest()? == previous.digest()?,
             "result report CAS changed"
         );
-        let claim = h
-            .claim
-            .as_ref()
-            .context("explicit result claim required")?
-            .submission()?;
-        let receipts = h.source.receipt_ids()?;
-        let stop = h.stop.as_ref().context("actual result stop required")?;
-        let (evidence, _) = crate::native::journal::result_terminal_stop(a)?;
-        let aq_session_protocol::SessionIdentity::Remote {
-            node_id, boot_id, ..
-        } = c.launch.session
-        else {
-            anyhow::bail!("result worker identity absent")
-        };
-        let report = ResultReport {
-            schema_version: 1,
-            operation_id: c.operation_id,
-            identity: WorkerIdentity { node_id, boot_id },
-            binding: c.launch.clone(),
-            report_id: c.report_id,
-            supersedes: None,
-            outcome: stop.outcome,
-            stop: evidence,
-            source_receipt_ids: receipts,
-            // This producer owns no complete effect ledger. Empty is an
-            // honest known-ID claim, never proof of effect quiescence.
-            pending_effect_ids: vec![],
-            conclusion: Label::new(claim.conclusion.as_str())?,
-        };
-        result_record::validate_report(&report)?;
+        let report = build_report(a, h)?;
         let bytes = serde_json::to_vec(&report)?;
         ensure!(
             bytes.len() <= MAX_REPORT_BYTES,
@@ -97,6 +67,40 @@ pub(super) async fn record_report<O: StoppedOwner>(
     .await?;
     o.verify()?;
     replay_report(o, id, client).await
+}
+fn build_report(a: &crate::native::journal::Attempt, h: &ResultHistory) -> Result<ResultReport> {
+    let c = &h.scope.binding;
+    let claim = h
+        .claim
+        .as_ref()
+        .context("explicit result claim required")?
+        .submission()?;
+    let receipts = h.source.receipt_ids()?;
+    let stop = h.stop.as_ref().context("actual result stop required")?;
+    let (evidence, _) = crate::native::journal::result_terminal_stop(a)?;
+    let aq_session_protocol::SessionIdentity::Remote {
+        node_id, boot_id, ..
+    } = c.launch.session
+    else {
+        anyhow::bail!("result worker identity absent")
+    };
+    let report = ResultReport {
+        schema_version: 1,
+        operation_id: c.operation_id,
+        identity: WorkerIdentity { node_id, boot_id },
+        binding: c.launch.clone(),
+        report_id: c.report_id,
+        supersedes: None,
+        outcome: stop.outcome,
+        stop: evidence,
+        source_receipt_ids: receipts,
+        // This producer owns no complete effect ledger. Empty is an
+        // honest known-ID claim, never proof of effect quiescence.
+        pending_effect_ids: vec![],
+        conclusion: Label::new(claim.conclusion.as_str())?,
+    };
+    result_record::validate_report(&report)?;
+    Ok(report)
 }
 async fn replay_report<J: ResultJournal>(
     j: &J,

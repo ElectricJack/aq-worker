@@ -27,18 +27,11 @@ pub(crate) fn propose_upload(
             manifest: manifest.clone(),
         }
     } else if let Some(request) = &upload.pending {
-        let size = if request.file == TransferFile::Manifest {
-            manifest.manifest_bytes
-        } else {
-            manifest.bundle_bytes
-        };
         let bytes = read_range(
             root.context("source root missing")?,
-            manifest.artifact_id,
+            manifest,
             &request.file,
-            request.offset,
-            request.length as usize,
-            size,
+            (request.offset, request.length as usize),
         )?;
         ensure!(
             format!("{:x}", Sha256::digest(&bytes)) == request.digest,
@@ -49,30 +42,14 @@ pub(crate) fn propose_upload(
             bytes,
         }
     } else {
-        let remaining = if upload.manifest_offset < manifest.manifest_bytes {
-            Some((
-                TransferFile::Manifest,
-                upload.manifest_offset,
-                manifest.manifest_bytes,
-            ))
-        } else if upload.bundle_offset < manifest.bundle_bytes {
-            Some((
-                TransferFile::Bundle,
-                upload.bundle_offset,
-                manifest.bundle_bytes,
-            ))
-        } else {
-            None
-        };
-        if let Some((file, offset, size)) = remaining {
-            let length = (size - offset).min(MAX_CHUNK_BYTES as u64) as usize;
+        if let Some((file, offset, length)) =
+            next_chunk(manifest, upload.manifest_offset, upload.bundle_offset)
+        {
             let bytes = read_range(
                 root.context("source root missing")?,
-                manifest.artifact_id,
+                manifest,
                 &file,
-                offset,
-                length,
-                size,
+                (offset, length),
             )?;
             let request = TransferChunkRequest {
                 identity: upload.identity.clone(),
@@ -103,8 +80,7 @@ pub(crate) fn propose_upload(
 pub(crate) fn acknowledge_upload(
     upload: &UploadState,
     manifest: &TransferManifest,
-    action: &UploadAction,
-    status: TransferStatus,
+    (action, status): (&UploadAction, TransferStatus),
     node: Uuid,
 ) -> Result<UploadAcknowledgment> {
     status.validate()?;
@@ -133,54 +109,70 @@ pub(crate) fn acknowledge_upload(
             next.begun = true;
         }
         UploadAction::Chunk { request, bytes } => {
-            ensure!(
-                upload.pending.as_ref() == Some(request)
-                    && bytes.len() == request.length as usize
-                    && format!("{:x}", Sha256::digest(bytes)) == request.digest
-                    && status.receipt.is_none(),
-                "unexpected chunk receipt"
-            );
-            match request.file {
-                TransferFile::Manifest => next.manifest_offset += u64::from(request.length),
-                TransferFile::Bundle => next.bundle_offset += u64::from(request.length),
-            }
-            ensure!(
-                status.manifest_offset == next.manifest_offset
-                    && status.bundle_offset == next.bundle_offset,
-                "unexpected chunk progress"
-            );
-            next.pending = None;
+            acknowledge_chunk(&mut next, request, bytes, &status)?;
         }
         UploadAction::Finalize(request) => {
-            ensure!(
-                request.identity == upload.identity
-                    && request.operation_id == upload.finalize_operation
-                    && request.transfer_id == manifest.transfer_id
-                    && upload.begun
-                    && upload.pending.is_none()
-                    && upload.manifest_offset == manifest.manifest_bytes
-                    && upload.bundle_offset == manifest.bundle_bytes
-                    && status.manifest_offset == manifest.manifest_bytes
-                    && status.bundle_offset == manifest.bundle_bytes,
-                "unexpected finalize receipt"
-            );
-            return Ok(UploadAcknowledgment::RetentionClaim(
-                status.receipt.context("central retention unconfirmed")?,
-            ));
+            return finalize_claim(upload, manifest, request, status);
         }
     }
     next.validate(manifest, node)?;
     Ok(UploadAcknowledgment::Progress(next))
 }
 
+fn acknowledge_chunk(
+    next: &mut UploadState,
+    request: &TransferChunkRequest,
+    bytes: &[u8],
+    status: &TransferStatus,
+) -> Result<()> {
+    ensure!(
+        next.pending.as_ref() == Some(request)
+            && bytes.len() == request.length as usize
+            && format!("{:x}", Sha256::digest(bytes)) == request.digest
+            && status.receipt.is_none(),
+        "unexpected chunk receipt"
+    );
+    match request.file {
+        TransferFile::Manifest => next.manifest_offset += u64::from(request.length),
+        TransferFile::Bundle => next.bundle_offset += u64::from(request.length),
+    }
+    ensure!(
+        status.manifest_offset == next.manifest_offset
+            && status.bundle_offset == next.bundle_offset,
+        "unexpected chunk progress"
+    );
+    next.pending = None;
+    Ok(())
+}
+fn finalize_claim(
+    upload: &UploadState,
+    manifest: &TransferManifest,
+    request: &TransferStatusRequest,
+    status: TransferStatus,
+) -> Result<UploadAcknowledgment> {
+    ensure!(
+        request.identity == upload.identity
+            && request.operation_id == upload.finalize_operation
+            && request.transfer_id == manifest.transfer_id
+            && upload.begun
+            && upload.pending.is_none()
+            && (upload.manifest_offset, upload.bundle_offset)
+                == (manifest.manifest_bytes, manifest.bundle_bytes)
+            && (status.manifest_offset, status.bundle_offset)
+                == (manifest.manifest_bytes, manifest.bundle_bytes),
+        "unexpected finalize receipt"
+    );
+    Ok(UploadAcknowledgment::RetentionClaim(
+        status.receipt.context("central retention unconfirmed")?,
+    ))
+}
 /// Association validation only: the caller must own the authenticated central
 /// exchange and actual retained export. A deserialized receipt is not authority.
 pub(crate) fn validate_retention_claim(
     receipt: &CentralRetentionReceipt,
     transfer: &TransferManifest,
     native: &GitManifest,
-    binding: &SourceBinding,
-    checkpoint: &ObjectId,
+    (binding, checkpoint): (&SourceBinding, &ObjectId),
 ) -> Result<()> {
     receipt.validate()?;
     ensure!(
@@ -318,8 +310,7 @@ mod tests {
             acknowledge_upload(
                 &state,
                 &manifest,
-                &proposed.action,
-                status.clone(),
+                (&proposed.action, status.clone()),
                 state.identity.node_id
             )
             .unwrap(),
@@ -330,8 +321,7 @@ mod tests {
             acknowledge_upload(
                 &state,
                 &manifest,
-                &proposed.action,
-                status,
+                (&proposed.action, status),
                 state.identity.node_id
             )
             .is_err()
@@ -353,8 +343,7 @@ mod tests {
             acknowledge_upload(
                 &complete,
                 &manifest,
-                &final_step.action,
-                status,
+                (&final_step.action, status),
                 state.identity.node_id
             )
             .is_err()
@@ -377,8 +366,7 @@ mod tests {
             &receipt,
             &manifest,
             &native,
-            &manifest.source,
-            &native.source,
+            (&manifest.source, &native.source),
         )
         .unwrap();
         for mismatch in ["transfer", "artifact", "digest", "source"] {
@@ -394,8 +382,7 @@ mod tests {
                     &changed,
                     &manifest,
                     &native,
-                    &manifest.source,
-                    &native.source
+                    (&manifest.source, &native.source),
                 )
                 .is_err(),
                 "accepted changed {mismatch}"

@@ -314,8 +314,15 @@ impl GitClient {
 }
 
 #[cfg(feature = "synthetic-runtime")]
+impl crate::journal::State {
+    pub(crate) fn attempt_source_mut(&mut self, id: Uuid) -> &mut SourceState {
+        self.attempts.get_mut(&id).unwrap().source.as_mut().unwrap()
+    }
+}
+
+#[cfg(feature = "synthetic-runtime")]
 impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
-    fn source_attempt(&self, id: Uuid) -> Result<&crate::journal::AttemptRecord> {
+    pub(crate) fn source_attempt(&self, id: Uuid) -> Result<&crate::journal::AttemptRecord> {
         self.journal
             .state()
             .attempts
@@ -437,33 +444,21 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
                 "source operation journal bound reached"
             );
             self.journal.transaction(|s| {
-                s.attempts
-                    .get_mut(&id)
-                    .unwrap()
-                    .source
-                    .as_mut()
-                    .unwrap()
-                    .operations
-                    .insert(
-                        key.into(),
-                        PendingGitOperation {
-                            operation_id,
-                            request: request.clone(),
-                            result: None,
-                        },
-                    );
+                s.attempt_source_mut(id).operations.insert(
+                    key.into(),
+                    PendingGitOperation {
+                        operation_id,
+                        request: request.clone(),
+                        result: None,
+                    },
+                );
                 Ok(())
             })?;
         }
         // Any socket loss or malformed reply leaves the same durable operation pending.
         let result = git.exchange(&request)?;
         self.journal.transaction(|s| {
-            s.attempts
-                .get_mut(&id)
-                .unwrap()
-                .source
-                .as_mut()
-                .unwrap()
+            s.attempt_source_mut(id)
                 .operations
                 .get_mut(key)
                 .unwrap()
@@ -549,13 +544,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             .get("checkpoint")
             .map(|o| o.request["params"]["expected_head"].clone());
         self.journal.transaction(|s| {
-            s.attempts
-                .get_mut(&id)
-                .unwrap()
-                .source
-                .as_mut()
-                .unwrap()
-                .workspace_bytes = bytes;
+            s.attempt_source_mut(id).workspace_bytes = bytes;
             Ok(())
         })?;
         ensure!(
@@ -585,13 +574,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             "checkpoint response mismatch"
         );
         self.journal.transaction(|s| {
-            s.attempts
-                .get_mut(&id)
-                .unwrap()
-                .source
-                .as_mut()
-                .unwrap()
-                .checkpoint = Some(checkpoint.clone());
+            s.attempt_source_mut(id).checkpoint = Some(checkpoint.clone());
             Ok(())
         })?;
         Ok(checkpoint)
@@ -699,8 +682,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
                     .as_ref()
                     .context("transport association required")?,
                 &manifest,
-                &source.binding,
-                &c.source,
+                (&source.binding, &c.source),
             )?;
             if let Some(old) = &source.receipt {
                 ensure!(old == &receipt, "changed source receipt");
@@ -798,20 +780,8 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             git,
         )?;
         self.journal.transaction(|s| {
-            s.attempts
-                .get_mut(&id)
-                .unwrap()
-                .source
-                .as_mut()
-                .unwrap()
-                .retired = true;
-            s.attempts
-                .get_mut(&id)
-                .unwrap()
-                .source
-                .as_mut()
-                .unwrap()
-                .workspace_bytes = 0;
+            s.attempt_source_mut(id).retired = true;
+            s.attempt_source_mut(id).workspace_bytes = 0;
             Ok(())
         })
     }
@@ -890,12 +860,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             "base import lacks current matching retained source; provision a fresh transfer"
         );
         self.journal.transaction(|s| {
-            s.attempts
-                .get_mut(&id)
-                .unwrap()
-                .source
-                .as_mut()
-                .unwrap()
+            s.attempt_source_mut(id)
                 .imported_bases
                 .insert(artifact_handle);
             Ok(())

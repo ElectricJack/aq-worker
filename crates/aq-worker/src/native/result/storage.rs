@@ -32,6 +32,17 @@ pub(super) struct ChannelStorage {
     accepting: AtomicBool,
     pid: u32,
 }
+fn file_revision(metadata: &std::fs::Metadata) -> (u64, u64, u64, i64, i64, i64, i64) {
+    (
+        metadata.len(),
+        metadata.dev(),
+        metadata.ino(),
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+        metadata.ctime(),
+        metadata.ctime_nsec(),
+    )
+}
 fn directory(path: &Path) -> Result<File> {
     ensure!(
         path.is_absolute() && path.canonicalize()? == path,
@@ -249,14 +260,7 @@ impl ChannelStorage {
             .read_to_end(&mut bytes)?;
         let after = file.metadata()?;
         ensure!(
-            bytes.len() == before.len() as usize
-                && before.len() == after.len()
-                && before.dev() == after.dev()
-                && before.ino() == after.ino()
-                && before.mtime() == after.mtime()
-                && before.mtime_nsec() == after.mtime_nsec()
-                && before.ctime() == after.ctime()
-                && before.ctime_nsec() == after.ctime_nsec(),
+            bytes.len() == before.len() as usize && file_revision(&before) == file_revision(&after),
             "result submission changed during read"
         );
         Ok(Some(bytes))

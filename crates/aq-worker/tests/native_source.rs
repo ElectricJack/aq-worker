@@ -333,3 +333,6 @@ async fn chunk_metadata_offset_size_and_redirects_are_fail_closed() {
         );
     }
 }
+
+#[path = "native_source/result_history.rs"]
+mod result_history;
