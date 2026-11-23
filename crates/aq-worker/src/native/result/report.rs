@@ -32,11 +32,7 @@ pub(super) async fn record_report<O: StoppedOwner>(
     let id = o.attempt_id();
     let previous = snapshot(o).await?;
     o.journal(move |journal| {
-        let a = journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("result attempt absent")?;
+        let a = journal.state().result_attempt(id)?;
         let h = a.result.as_ref().context("result history absent")?;
         if h.report.is_some() {
             return Ok(());

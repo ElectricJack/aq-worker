@@ -324,8 +324,7 @@ impl Journal {
         self.check_native_execution(
             id,
             &intent.execution_digest,
-            intent.deadline_ns,
-            intent.hard_deadline_ns,
+            (intent.deadline_ns, intent.hard_deadline_ns),
         )?;
         ensure!(
             self.state

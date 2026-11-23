@@ -83,11 +83,7 @@ impl DurableStoppedResult {
         cause: ResultStopCause,
     ) -> Result<Option<ResultHistory>> {
         let id = self.attempt_id();
-        let a = journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("result attempt absent")?;
+        let a = journal.state().result_attempt(id)?;
         let old = a.result.as_ref().context("result history absent")?;
         if old.claim.is_none() {
             return Ok(None);
@@ -140,13 +136,7 @@ impl InputPipeline {
         id: Uuid,
         cause: ResultStopCause,
     ) -> Result<Option<DurableStoppedResult>> {
-        let custody = self
-            .results
-            .entries
-            .lock()
-            .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
-            .get(&id)
-            .cloned();
+        let custody = self.results.custody(id)?;
         let Some(custody) = custody else {
             return Ok(None);
         };
