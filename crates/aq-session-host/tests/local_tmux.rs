@@ -1598,7 +1598,8 @@ fn malformed_renewal_stops_and_wall_limit_cannot_be_extended() {
             c.manifest.resources.wall_time_ms = 600;
             c.manifest.resources.stop_grace_ms = 100;
         }
-        let mut h = c.launch(500).unwrap();
+        // Give the guardian time to consume the malformed request before independent expiry.
+        let mut h = c.launch(if malformed { 5000 } else { 500 }).unwrap();
         if malformed {
             std::fs::write(h.directory().join("renew.request"), b"{not a directive}").unwrap();
         } else {

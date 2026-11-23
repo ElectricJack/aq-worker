@@ -390,16 +390,15 @@ impl SessionHost {
                 && qualification.renderer == startup.spec.renderer,
             "observed installed qualification mismatch"
         );
-        let (handle, client) = Self::launch_inner(
+        let (handle, client) = LaunchRequest {
             root,
             launch_id,
-            StartupInput::Observed(startup),
+            startup: StartupInput::Observed(startup),
             permit,
             local,
-            Adapter::Task(adapter),
-            authority,
-            agent,
-        )?;
+            agent_identity: agent,
+        }
+        .start(Adapter::Task(adapter), authority)?;
         Ok(PendingObservedSession {
             handle,
             client: client.context("observed gate unavailable")?,

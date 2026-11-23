@@ -333,16 +333,15 @@ impl SessionHost {
         adapter: &impl HostAdapter,
         authority: &mut impl LaunchAuthority,
     ) -> Result<SessionHandle> {
-        Self::launch_inner(
+        LaunchRequest {
             root,
             launch_id,
-            StartupInput::Plan(plan, startup),
+            startup: StartupInput::Plan(plan, startup),
             permit,
             local,
-            Adapter::Plan(adapter),
-            authority,
-            None,
-        )
+            agent_identity: None,
+        }
+        .start(Adapter::Plan(adapter), authority)
         .map(|(h, _)| h)
     }
 }
