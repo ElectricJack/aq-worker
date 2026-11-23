@@ -148,25 +148,43 @@ static void trusted_setup(int control, const char *base, const char *self, int s
     char p[20], fd[20]; snprintf(p, sizeof(p), "%d", port); snprintf(fd, sizeof(fd), "%d", control);
     char *argv[] = {(char *)self, "--untrusted-canary", (char *)base, p, fd, NULL}; char *env[] = {"PATH=/usr/bin:/bin", NULL}; execve(self, argv, env); REQUIRE(0);
 }
+static int untrusted_canary(const char *base, int port, int control) {
+    REQUIRE(fcntl(control, F_GETFD) < 0 && errno == EBADF);
+    REQUIRE(socket(AF_UNIX, SOCK_STREAM, 0) < 0 && errno == EPERM);
+    REQUIRE(socket(AF_NETLINK, SOCK_RAW, 0) < 0 && errno == EPERM);
+    REQUIRE(socket(AF_INET, SOCK_PACKET, htons(ETH_P_ALL)) < 0 && errno == EPERM);
+    REQUIRE(socket(AF_INET, SOCK_RAW, IPPROTO_RAW) < 0 && errno == EPERM);
+    REQUIRE(socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP) < 0 && errno == EPERM);
+    int forbidden[2]; REQUIRE(socketpair(AF_UNIX, SOCK_DGRAM, 0, forbidden) < 0 && errno == EPERM);
+    REQUIRE(syscall(SYS_io_uring_setup, 1, NULL) < 0 && errno == EPERM);
+    pid_t descendant = fork(); REQUIRE(descendant >= 0);
+    if (!descendant) { REQUIRE(socket(AF_UNIX, SOCK_STREAM, 0) < 0 && errno == EPERM); REQUIRE(socketpair(AF_UNIX, SOCK_DGRAM, 0, forbidden) < 0 && errno == EPERM); _exit(0); }
+    int inherited; REQUIRE(waitpid(descendant, &inherited, 0) == descendant && WIFEXITED(inherited) && WEXITSTATUS(inherited) == 0);
+    int stream[2], seqpacket[2]; pair_cannot_retarget(base, "outer-stream.sock", SOCK_STREAM, stream); pair_cannot_retarget(base, "outer-seqpacket.sock", SOCK_SEQPACKET, seqpacket);
+    int tcp = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0); REQUIRE(tcp >= 0);
+    struct sockaddr_in a = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK), .sin_port = htons(port)};
+    REQUIRE(connect(tcp, (void *)&a, sizeof(a)) == 0 && write(tcp, "ready", 5) == 5); char reply; REQUIRE(read(tcp, &reply, 1) == 1 && reply == 'x');
+    puts("PASS inherited seccomp after clean exec denies new Unix/other socket families, datagram pairs and io_uring; anonymous stream/seqpacket pairs cannot retarget");
+    puts("PASS setup control FD closed before canary exec; trusted setup's transferred child-netns listener still serves TCP"); return 0;
+}
+static int receive_listener(int control, pid_t child) {
+    char ancillary[CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(struct ucred))] = {0}; int port;
+    struct iovec io = {&port, sizeof(port)}; struct msghdr msg = {.msg_iov = &io, .msg_iovlen = 1, .msg_control = ancillary, .msg_controllen = sizeof(ancillary)};
+    REQUIRE(recvmsg(control, &msg, MSG_CMSG_CLOEXEC) == sizeof(port) && !(msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC)));
+    int listener = -1, credential = 0;
+    for (struct cmsghdr *c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
+        REQUIRE(c->cmsg_level == SOL_SOCKET);
+        if (c->cmsg_type == SCM_RIGHTS) { REQUIRE(listener == -1 && c->cmsg_len == CMSG_LEN(sizeof(int))); memcpy(&listener, CMSG_DATA(c), sizeof(int)); }
+        else { REQUIRE(c->cmsg_type == SCM_CREDENTIALS && !credential && c->cmsg_len == CMSG_LEN(sizeof(struct ucred))); struct ucred value; memcpy(&value, CMSG_DATA(c), sizeof(value)); REQUIRE(value.pid == child && value.uid == getuid() && value.gid == getgid()); credential = 1; }
+    }
+    REQUIRE(listener >= 0 && credential); int type, accepting; socklen_t length = sizeof(type);
+    REQUIRE(getsockopt(listener, SOL_SOCKET, SO_TYPE, &type, &length) == 0 && type == SOCK_STREAM); length = sizeof(accepting); REQUIRE(getsockopt(listener, SOL_SOCKET, SO_ACCEPTCONN, &accepting, &length) == 0 && accepting);
+    struct sockaddr_in local; length = sizeof(local); REQUIRE(getsockname(listener, (void *)&local, &length) == 0 && local.sin_family == AF_INET && local.sin_addr.s_addr == htonl(INADDR_LOOPBACK) && ntohs(local.sin_port) == port);
+    return listener;
+}
 int main(int argc, char **argv) {
     if (argc == 5 && !strcmp(argv[1], "--untrusted-canary")) {
-        REQUIRE(fcntl(atoi(argv[4]), F_GETFD) < 0 && errno == EBADF);
-        REQUIRE(socket(AF_UNIX, SOCK_STREAM, 0) < 0 && errno == EPERM);
-        REQUIRE(socket(AF_NETLINK, SOCK_RAW, 0) < 0 && errno == EPERM);
-        REQUIRE(socket(AF_INET, SOCK_PACKET, htons(ETH_P_ALL)) < 0 && errno == EPERM);
-        REQUIRE(socket(AF_INET, SOCK_RAW, IPPROTO_RAW) < 0 && errno == EPERM);
-        REQUIRE(socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP) < 0 && errno == EPERM);
-        int forbidden[2]; REQUIRE(socketpair(AF_UNIX, SOCK_DGRAM, 0, forbidden) < 0 && errno == EPERM);
-        REQUIRE(syscall(SYS_io_uring_setup, 1, NULL) < 0 && errno == EPERM);
-        pid_t descendant = fork(); REQUIRE(descendant >= 0);
-        if (!descendant) { REQUIRE(socket(AF_UNIX, SOCK_STREAM, 0) < 0 && errno == EPERM); REQUIRE(socketpair(AF_UNIX, SOCK_DGRAM, 0, forbidden) < 0 && errno == EPERM); _exit(0); }
-        int inherited; REQUIRE(waitpid(descendant, &inherited, 0) == descendant && WIFEXITED(inherited) && WEXITSTATUS(inherited) == 0);
-        int stream[2], seqpacket[2]; pair_cannot_retarget(argv[2], "outer-stream.sock", SOCK_STREAM, stream); pair_cannot_retarget(argv[2], "outer-seqpacket.sock", SOCK_SEQPACKET, seqpacket);
-        int tcp = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0); REQUIRE(tcp >= 0);
-        struct sockaddr_in a = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK), .sin_port = htons(atoi(argv[3]))};
-        REQUIRE(connect(tcp, (void *)&a, sizeof(a)) == 0 && write(tcp, "ready", 5) == 5); char reply; REQUIRE(read(tcp, &reply, 1) == 1 && reply == 'x');
-        puts("PASS inherited seccomp after clean exec denies new Unix/other socket families, datagram pairs and io_uring; anonymous stream/seqpacket pairs cannot retarget");
-        puts("PASS setup control FD closed before canary exec; trusted setup's transferred child-netns listener still serves TCP"); return 0;
+        return untrusted_canary(argv[2], atoi(argv[3]), atoi(argv[4]));
     }
     REQUIRE(argc == 2 && getuid() != 0); alarm(10); const char *base = argv[1];
     int stream = unix_listener(base, "outer-stream.sock", SOCK_STREAM), seqpacket = unix_listener(base, "outer-seqpacket.sock", SOCK_SEQPACKET), datagram = unix_listener(base, "outer-dgram.sock", SOCK_DGRAM);
@@ -178,18 +196,8 @@ int main(int argc, char **argv) {
     char self[4096]; ssize_t n = readlink("/proc/self/exe", self, sizeof(self)-1); REQUIRE(n > 0); self[n] = 0;
     int parent = getpid(); pid_t child = fork(); REQUIRE(child >= 0);
     if (!child) { REQUIRE(prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) == 0 && getppid() == parent); close(control[0]); close(stream); close(seqpacket); close(datagram); trusted_setup(control[1], base, self, shm); _exit(112); }
-    close(control[1]); char ancillary[CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(struct ucred))] = {0}; int port;
-    struct iovec io = {&port, sizeof(port)}; struct msghdr msg = {.msg_iov = &io, .msg_iovlen = 1, .msg_control = ancillary, .msg_controllen = sizeof(ancillary)};
-    REQUIRE(recvmsg(control[0], &msg, MSG_CMSG_CLOEXEC) == sizeof(port) && !(msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC)));
-    int listener = -1, credential = 0;
-    for (struct cmsghdr *c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
-        REQUIRE(c->cmsg_level == SOL_SOCKET);
-        if (c->cmsg_type == SCM_RIGHTS) { REQUIRE(listener == -1 && c->cmsg_len == CMSG_LEN(sizeof(int))); memcpy(&listener, CMSG_DATA(c), sizeof(int)); }
-        else { REQUIRE(c->cmsg_type == SCM_CREDENTIALS && !credential && c->cmsg_len == CMSG_LEN(sizeof(struct ucred))); struct ucred value; memcpy(&value, CMSG_DATA(c), sizeof(value)); REQUIRE(value.pid == child && value.uid == getuid() && value.gid == getgid()); credential = 1; }
-    }
-    REQUIRE(listener >= 0 && credential); int type, accepting; socklen_t length = sizeof(type);
-    REQUIRE(getsockopt(listener, SOL_SOCKET, SO_TYPE, &type, &length) == 0 && type == SOCK_STREAM); length = sizeof(accepting); REQUIRE(getsockopt(listener, SOL_SOCKET, SO_ACCEPTCONN, &accepting, &length) == 0 && accepting);
-    struct sockaddr_in local; length = sizeof(local); REQUIRE(getsockname(listener, (void *)&local, &length) == 0 && local.sin_family == AF_INET && local.sin_addr.s_addr == htonl(INADDR_LOOPBACK) && ntohs(local.sin_port) == port);
+    close(control[1]);
+    int listener = receive_listener(control[0], child);
     int tcp = accept4(listener, NULL, NULL, SOCK_CLOEXEC); REQUIRE(tcp >= 0); char ready[5]; REQUIRE(read(tcp, ready, 5) == 5 && !memcmp(ready, "ready", 5));
     int baseline = accept4(stream, NULL, NULL, SOCK_CLOEXEC); REQUIRE(baseline >= 0); close(baseline);
     REQUIRE(accept4(stream, NULL, NULL, SOCK_CLOEXEC) < 0 && errno == EAGAIN);
