@@ -98,10 +98,10 @@ impl NodeClient {
         retry_one: bool,
     ) -> Result<Value> {
         binding.validate()?;
-        let schema = if retry_one {
-            "RecoveryRetry"
+        let (schema, path) = if retry_one {
+            ("RecoveryRetry", "/v2/worker/agent-operations/retry")
         } else {
-            "RecoveryRequest"
+            ("RecoveryRequest", "/v2/worker/agent-operations/query")
         };
         let attempt = json!({"attempt_id":binding.attempt_id,"session_id":binding.session_id,"generation":binding.generation});
         ensure!(
@@ -111,11 +111,6 @@ impl NodeClient {
                 && request["attempt"] == attempt,
             "node recovery scope/contract refused"
         );
-        let path = if retry_one {
-            "/v2/worker/agent-operations/retry"
-        } else {
-            "/v2/worker/agent-operations/query"
-        };
         let (status, response) = self
             .http
             .exchange(
@@ -134,49 +129,64 @@ impl NodeClient {
                 && response["attempt"] == attempt,
             "node recovery response unconfirmed"
         );
-        let operations = response["operations"].as_array().unwrap();
-        if request["mode"] == "lookup" {
-            ensure!(
-                response["next_cursor"].is_null(),
-                "lookup response cannot create a pagination scope"
-            );
-        } else {
-            ensure!(
-                operations.len() as u64 <= request["limit"].as_u64().unwrap(),
-                "node list response exceeded requested page bound"
-            );
-        }
-        ensure!(
-            response["next_cursor"].is_null() || response["coverage"]["status"] == "partial",
-            "continuation cursor cannot claim complete coverage"
-        );
-        let mut seen = std::collections::BTreeSet::new();
-        for operation in operations {
-            let operation_id: Uuid = operation["operation_id"].as_str().unwrap().parse()?;
-            ensure!(
-                seen.insert(operation_id),
-                "node recovery repeated an operation ID"
-            );
-            crate::journal::check_operation_response(
-                operation,
-                operation_id,
-                operation["payload_digest"].as_str().unwrap(),
-                binding,
-            )?;
-            ensure!(
-                operation["binding"] == serde_json::to_value(binding)?,
-                "node recovery returned another scope"
-            );
-            if request["mode"] == "lookup" {
-                ensure!(
-                    request["operation_ids"]
-                        .as_array()
-                        .unwrap()
-                        .contains(&operation["operation_id"]),
-                    "node lookup returned unrequested operation"
-                );
-            }
-        }
+        validate_recovery_page(&request, &response)?;
+        validate_recovered_operations(binding, &request, &response)?;
         Ok(response)
     }
+}
+
+fn validate_recovery_page(request: &Value, response: &Value) -> Result<()> {
+    let operations = response["operations"].as_array().unwrap();
+    if request["mode"] == "lookup" {
+        ensure!(
+            response["next_cursor"].is_null(),
+            "lookup response cannot create a pagination scope"
+        );
+    } else {
+        ensure!(
+            operations.len() as u64 <= request["limit"].as_u64().unwrap(),
+            "node list response exceeded requested page bound"
+        );
+    }
+    ensure!(
+        response["next_cursor"].is_null() || response["coverage"]["status"] == "partial",
+        "continuation cursor cannot claim complete coverage"
+    );
+    Ok(())
+}
+
+fn validate_recovered_operations(
+    binding: &Binding,
+    request: &Value,
+    response: &Value,
+) -> Result<()> {
+    let operations = response["operations"].as_array().unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for operation in operations {
+        let operation_id: Uuid = operation["operation_id"].as_str().unwrap().parse()?;
+        ensure!(
+            seen.insert(operation_id),
+            "node recovery repeated an operation ID"
+        );
+        crate::journal::check_operation_response(
+            operation,
+            operation_id,
+            operation["payload_digest"].as_str().unwrap(),
+            binding,
+        )?;
+        ensure!(
+            operation["binding"] == serde_json::to_value(binding)?,
+            "node recovery returned another scope"
+        );
+        if request["mode"] == "lookup" {
+            ensure!(
+                request["operation_ids"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&operation["operation_id"]),
+                "node lookup returned unrequested operation"
+            );
+        }
+    }
+    Ok(())
 }

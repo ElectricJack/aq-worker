@@ -196,24 +196,23 @@ enum Graph {
         request_file: Option<PathBuf>,
     },
 }
-fn input(path: Option<PathBuf>) -> Result<Value> {
-    let limit = aq_agent_client::contract::MAX_DOCUMENT_BYTES;
+fn read_input_bytes(path: Option<PathBuf>, limit: usize) -> Result<Vec<u8>> {
     let reader: Box<dyn Read> = match path {
         Some(path) => Box::new(std::fs::File::open(path)?),
         None => Box::new(std::io::stdin()),
     };
-    let mut bytes = vec![];
-    reader.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    let mut bytes = Vec::new();
+    reader.take(limit as u64).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn input(path: Option<PathBuf>) -> Result<Value> {
+    let bytes = read_input_bytes(path, aq_agent_client::contract::MAX_DOCUMENT_BYTES + 1)?;
     Ok(aq_agent_client::contract::parse(&bytes)?)
 }
+
 fn body_input(path: Option<PathBuf>) -> Result<String> {
-    let limit = aq_agent_client::mail::MAX_BODY_BYTES;
-    let reader: Box<dyn Read> = match path {
-        Some(path) => Box::new(std::fs::File::open(path)?),
-        None => Box::new(std::io::stdin()),
-    };
-    let mut bytes = vec![];
-    reader.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    let bytes = read_input_bytes(path, aq_agent_client::mail::MAX_BODY_BYTES + 1)?;
     Ok(String::from_utf8(bytes)?)
 }
 /// The comment body from the argument, a file or stdin. A trailing newline
@@ -223,12 +222,7 @@ fn comment_body(body: Option<String>, file: Option<PathBuf>) -> Result<String> {
         return Ok(body);
     }
     let limit = aq_agent_client::comments::MAX_BODY_BYTES;
-    let reader: Box<dyn Read> = match file {
-        Some(path) => Box::new(std::fs::File::open(path)?),
-        None => Box::new(std::io::stdin()),
-    };
-    let mut bytes = vec![];
-    reader.take(limit as u64 + 2).read_to_end(&mut bytes)?;
+    let bytes = read_input_bytes(file, limit + 2)?;
     let text = String::from_utf8(bytes)?;
     Ok(text.trim_end_matches(['\n', '\r']).to_owned())
 }
@@ -251,27 +245,9 @@ async fn run(cli: Cli) -> Result<Outcome> {
         token_file,
         command,
     } = cli;
-    let command = match command {
-        Command::Result { command } => {
-            ensure!(
-                token_file.is_none(),
-                "local result channel accepts no Graph token assertion"
-            );
-            let root = state_dir
-                .or_else(|| {
-                    std::env::var_os(aq_agent_result_local::RESULT_DIR_ENV).map(PathBuf::from)
-                })
-                .context("result runtime channel unavailable")?;
-            let client = aq_agent_client::completion::ResultClient::open(&root)?;
-            return match command {
-                ResultCommand::Submit { request_file } => {
-                    client.submit(aq_agent_client::completion::read_input(&request_file)?)
-                }
-                ResultCommand::Status => client.status(),
-            };
-        }
-        command => command,
-    };
+    if let Command::Result { command } = command {
+        return local_result(command, state_dir, token_file);
+    }
     let state_dir = state_dir.context("Graph state-dir required")?;
     if let Some(file) = token_file {
         ensure!(
@@ -317,18 +293,39 @@ async fn run(cli: Cli) -> Result<Outcome> {
             let outcome = client.comment_list(cursor.as_deref(), Some(limit)).await?;
             Ok(text(outcome, json, aq_agent_client::comments::render_page))
         }
-        Command::Graph {
-            command: Graph::Command { request_file },
-        } => client.command(input(request_file)?).await,
-        Command::Message {
-            command:
-                Message::Reply {
-                    message_id,
-                    task,
-                    body_file,
-                    operation_id,
-                    reply_id,
-                },
+        Command::Message { command } => run_message(&mut client, command).await,
+        Command::Graph { command } => run_graph(&mut client, command).await,
+    }
+}
+
+fn local_result(
+    command: ResultCommand,
+    state_dir: Option<PathBuf>,
+    token_file: Option<PathBuf>,
+) -> Result<Outcome> {
+    ensure!(
+        token_file.is_none(),
+        "local result channel accepts no Graph token assertion"
+    );
+    let root = state_dir
+        .or_else(|| std::env::var_os(aq_agent_result_local::RESULT_DIR_ENV).map(PathBuf::from))
+        .context("result runtime channel unavailable")?;
+    let client = aq_agent_client::completion::ResultClient::open(&root)?;
+    match command {
+        ResultCommand::Submit { request_file } => {
+            client.submit(aq_agent_client::completion::read_input(&request_file)?)
+        }
+        ResultCommand::Status => client.status(),
+    }
+}
+async fn run_message(client: &mut AgentClient, command: Message) -> Result<Outcome> {
+    match command {
+        Message::Reply {
+            message_id,
+            task,
+            body_file,
+            operation_id,
+            reply_id,
         } => {
             let body = body_input(body_file)?;
             let operation_id = operation_id.unwrap_or_else(Uuid::new_v4);
@@ -337,15 +334,12 @@ async fn run(cli: Cli) -> Result<Outcome> {
                 .reply(!task, message_id, body, operation_id, reply_id)
                 .await
         }
-        Command::Message {
-            command:
-                Message::Body {
-                    message_id: Some(message_id),
-                    task,
-                    ..
-                },
+        Message::Body {
+            message_id: Some(message_id),
+            task,
+            ..
         } => client.body(!task, message_id).await,
-        Command::Message { command } => {
+        command => {
             let (route, request) = match command {
                 Message::Inbox {
                     task,
@@ -363,86 +357,91 @@ async fn run(cli: Cli) -> Result<Outcome> {
             };
             client.message(route, request).await
         }
-        Command::Graph { command } => {
-            let query = match command {
-                Graph::Get { node_id } => json!({"kind":"get","node_id":node_id}),
-                Graph::Revision { node_id, revision } => {
-                    json!({"kind":"revision","node_id":node_id,"revision":revision})
-                }
-                Graph::History {
-                    node_id,
-                    limit,
-                    cursor,
-                } => json!({"kind":"history","node_id":node_id,"limit":limit,"cursor":cursor}),
-                Graph::Search {
-                    text,
-                    kind_filter,
-                    limit,
-                    cursor,
-                } => {
-                    json!({"kind":"search","text":text,"kind_filter":kind_filter,"limit":limit,"cursor":cursor})
-                }
-                Graph::Context {
-                    node_id,
-                    depth,
-                    direction,
-                    max_nodes,
-                    max_edges,
-                    max_bytes,
-                } => {
-                    json!({"kind":"context","node_id":node_id,"depth":depth,"direction":direction,"max_nodes":max_nodes,"max_edges":max_edges,"max_bytes":max_bytes})
-                }
-                Graph::Relationships {
-                    node_id,
-                    direction,
-                    edge_types,
-                    limit,
-                    cursor,
-                } => {
-                    json!({"kind":"relationships","node_id":node_id,"direction":direction,"edge_types":edge_types,"limit":limit,"cursor":cursor})
-                }
-                Graph::Command { .. } => unreachable!(),
-            };
-            client.query(query).await
-        }
     }
+}
+
+async fn run_graph(client: &mut AgentClient, command: Graph) -> Result<Outcome> {
+    let query = match command {
+        Graph::Get { node_id } => json!({"kind":"get","node_id":node_id}),
+        Graph::Revision { node_id, revision } => {
+            json!({"kind":"revision","node_id":node_id,"revision":revision})
+        }
+        Graph::History {
+            node_id,
+            limit,
+            cursor,
+        } => json!({"kind":"history","node_id":node_id,"limit":limit,"cursor":cursor}),
+        Graph::Search {
+            text,
+            kind_filter,
+            limit,
+            cursor,
+        } => {
+            json!({"kind":"search","text":text,"kind_filter":kind_filter,"limit":limit,"cursor":cursor})
+        }
+        Graph::Context {
+            node_id,
+            depth,
+            direction,
+            max_nodes,
+            max_edges,
+            max_bytes,
+        } => {
+            json!({"kind":"context","node_id":node_id,"depth":depth,"direction":direction,"max_nodes":max_nodes,"max_edges":max_edges,"max_bytes":max_bytes})
+        }
+        Graph::Relationships {
+            node_id,
+            direction,
+            edge_types,
+            limit,
+            cursor,
+        } => {
+            json!({"kind":"relationships","node_id":node_id,"direction":direction,"edge_types":edge_types,"limit":limit,"cursor":cursor})
+        }
+        Graph::Command { request_file } => return client.command(input(request_file)?).await,
+    };
+    client.query(query).await
 }
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     match run(cli).await {
-        Ok(outcome) => {
-            // Comment text output is a plain string; failures go to stderr.
-            if let Value::String(text) = &outcome.value {
-                if outcome.exit_code == 0 {
-                    println!("{text}");
-                } else {
-                    eprintln!("{text}");
-                }
-            } else if outcome.exit_code == 14 || outcome.exit_code == 15 {
-                eprintln!("{}", outcome.value);
-            } else {
-                println!("{}", outcome.value);
-            }
-            outcome.exit_code.into()
+        Ok(outcome) => print_outcome(outcome),
+        Err(error) => print_error(error),
+    }
+}
+
+fn print_outcome(outcome: Outcome) -> std::process::ExitCode {
+    // Comment text output is a plain string; failures go to stderr.
+    if let Value::String(text) = &outcome.value {
+        if outcome.exit_code == 0 {
+            println!("{text}");
+        } else {
+            eprintln!("{text}");
         }
-        Err(error) => {
-            // Never print raw parser, filesystem, credential, URL or response errors.
-            if let Some(failure) = error.downcast_ref::<Failure>() {
-                eprintln!("{}", serde_json::to_string(failure).unwrap());
-                match failure.code {
-                    "authentication_or_authority_refused" => 14,
-                    "invalid_comment_body" | "invalid_comment_page" => 15,
-                    _ => 13,
-                }
-                .into()
-            } else {
-                eprintln!(
-                    "{}",
-                    json!({"code":"invalid_contract_or_private_state","effect":"not_asserted","retryable":false})
-                );
-                15.into()
-            }
+    } else if outcome.exit_code == 14 || outcome.exit_code == 15 {
+        eprintln!("{}", outcome.value);
+    } else {
+        println!("{}", outcome.value);
+    }
+    outcome.exit_code.into()
+}
+
+fn print_error(error: anyhow::Error) -> std::process::ExitCode {
+    // Never print raw parser, filesystem, credential, URL or response errors.
+    if let Some(failure) = error.downcast_ref::<Failure>() {
+        eprintln!("{}", serde_json::to_string(failure).unwrap());
+        match failure.code {
+            "authentication_or_authority_refused" => 14,
+            "invalid_comment_body" | "invalid_comment_page" => 15,
+            _ => 13,
         }
+        .into()
+    } else {
+        eprintln!(
+            "{}",
+            json!({"code":"invalid_contract_or_private_state","effect":"not_asserted","retryable":false})
+        );
+        15.into()
     }
 }

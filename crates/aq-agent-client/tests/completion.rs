@@ -445,36 +445,8 @@ fn aq_agent_result_matches_the_aq_result_submit_golden() {
         for (file, bytes) in step["write"].as_object().unwrap() {
             write(file, bytes.as_str().unwrap().as_bytes());
         }
-        let mut c = Command::new(env!("CARGO_BIN_EXE_aq-agent"));
-        c.env_remove(wire::RESULT_DIR_ENV);
-        if step["name"] != "no_channel" {
-            c.env(wire::RESULT_DIR_ENV, dir.path());
-        }
-        for arg in step["args"].as_array().unwrap() {
-            c.arg(match arg.as_str().unwrap() {
-                "$REQUEST" => submissions.join("request.json"),
-                "$OTHER" => submissions.join("other.json"),
-                a => PathBuf::from(a),
-            });
-        }
-        let out = c.output().unwrap();
-        let name = &step["name"];
-        assert_eq!(
-            out.status.code(),
-            step["exit"].as_i64().map(|c| c as i32),
-            "{name}"
-        );
-        assert_eq!(
-            String::from_utf8(out.stdout).unwrap(),
-            step["stdout"],
-            "{name}"
-        );
-        assert_eq!(
-            String::from_utf8(out.stderr).unwrap(),
-            step["stderr"],
-            "{name}"
-        );
-        if name == "submit" {
+        check_cli_step(step, dir.path(), &submissions);
+        if step["name"] == "submit" {
             let published = submissions.join(wire::SUBMISSION_FILE);
             assert_eq!(std::fs::read(published).unwrap(), text("submission"));
         }
@@ -482,4 +454,36 @@ fn aq_agent_result_matches_the_aq_result_submit_golden() {
     }
     assert_eq!(checked, 7);
     drop(owner);
+}
+
+fn check_cli_step(step: &serde_json::Value, root: &std::path::Path, submissions: &std::path::Path) {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_aq-agent"));
+    c.env_remove(wire::RESULT_DIR_ENV);
+    if step["name"] != "no_channel" {
+        c.env(wire::RESULT_DIR_ENV, root);
+    }
+    for arg in step["args"].as_array().unwrap() {
+        c.arg(match arg.as_str().unwrap() {
+            "$REQUEST" => submissions.join("request.json"),
+            "$OTHER" => submissions.join("other.json"),
+            a => PathBuf::from(a),
+        });
+    }
+    let out = c.output().unwrap();
+    let name = &step["name"];
+    assert_eq!(
+        out.status.code(),
+        step["exit"].as_i64().map(|c| c as i32),
+        "{name}"
+    );
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        step["stdout"],
+        "{name}"
+    );
+    assert_eq!(
+        String::from_utf8(out.stderr).unwrap(),
+        step["stderr"],
+        "{name}"
+    );
 }

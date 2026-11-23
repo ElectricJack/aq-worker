@@ -92,9 +92,13 @@ pub fn added(binding: &Binding, request: &Value, response: &Value) -> bool {
         && c["comment_id"] == request["operation_id"]
         && c["task_id"] == json!(binding.task_id)
         && c["body"] == request["body"]
-        && c["author"]["kind"] == "agent"
-        && c["author"]["session_id"] == json!(binding.session_id)
-        && c["author"]["attempt_id"] == json!(binding.attempt_id)
+        && is_attempt_author(&c["author"], binding)
+}
+
+fn is_attempt_author(author: &Value, binding: &Binding) -> bool {
+    author["kind"] == "agent"
+        && author["session_id"] == json!(binding.session_id)
+        && author["attempt_id"] == json!(binding.attempt_id)
 }
 
 /// The list response is a page of this attempt's own task thread.
@@ -104,16 +108,20 @@ pub fn page(binding: &Binding, request: &Value, response: &Value) -> bool {
     response["api_version"] == 1
         && response.as_object().is_some_and(|o| o.len() == 4)
         && response["task_id"] == task
-        && (response["next_cursor"].is_null()
-            || response["next_cursor"]
-                .as_str()
-                .is_some_and(|c| !c.is_empty() && c.len() <= MAX_CURSOR_BYTES))
+        && valid_next_cursor(&response["next_cursor"])
         && response["items"].as_array().is_some_and(|items| {
             items.len() <= limit
                 && items
                     .iter()
                     .all(|c| valid_comment(c) && c["task_id"] == task)
         })
+}
+
+fn valid_next_cursor(cursor: &Value) -> bool {
+    cursor.is_null()
+        || cursor
+            .as_str()
+            .is_some_and(|c| !c.is_empty() && c.len() <= MAX_CURSOR_BYTES)
 }
 
 fn author(comment: &Value) -> String {
