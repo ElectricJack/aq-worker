@@ -1,6 +1,7 @@
 //! Disposable, read-only tmux PTY attachment. Bytes are tmux's real redraw,
 //! never a capture-text reconstruction, Snapshot or complete-history claim.
 use super::*;
+use reader_lease::ReaderHost;
 use std::os::{
     fd::{AsRawFd, FromRawFd},
     unix::process::CommandExt,
@@ -66,20 +67,13 @@ pub(crate) struct ViewerProcess {
     checked: Instant,
 }
 impl ViewerProcess {
-    pub(crate) fn tick(
-        &mut self,
-        dir: &Path,
-        config: &SealedLaunch,
-        host: &HostObservation,
-        deadline: u64,
-        pid: u32,
-    ) -> Result<()> {
+    pub(crate) fn tick(&mut self, target: &ReaderHost<'_>, pid: u32) -> Result<()> {
         if self.checked.elapsed() < Duration::from_millis(500) {
             return Ok(());
         }
-        let (session, columns, rows) = pane(dir, config, host, deadline)?;
+        let (session, columns, rows) = target.pane()?;
         ensure!(session == self.session, "PTY viewer session changed");
-        verify_client(dir, config, host, deadline, pid, &session)?;
+        target.verify_client(pid, &session)?;
         // Follow an already accepted pane Resize; this client has ignore-size
         // and cannot independently resize the harness or acquire control.
         if self.size != (columns, rows) {
@@ -93,104 +87,78 @@ impl ViewerProcess {
         Ok(())
     }
 }
-fn pane(
-    dir: &Path,
-    config: &SealedLaunch,
-    host: &HostObservation,
-    deadline: u64,
-) -> Result<(String, u16, u16)> {
-    let p = host.pane.as_ref().context("PTY viewer pane absent")?;
-    let value = terminal_io::guarded_tmux(
-        dir,
-        config,
-        host,
-        deadline,
-        host.permit_deadline_boot_ms,
-        &["display-message", "-p", "-t", &p.pane_id, PANE_METADATA],
-    )?;
-    let text = std::str::from_utf8(&value).context("PTY viewer identity encoding")?;
-    let fields: Vec<_> = text.trim_end_matches('\n').split('|').collect();
-    ensure!(
-        fields.len() == 6
-            && numeric_session(fields[0])
-            && fields[1] == p.session_name
-            && fields[2] == p.pane_id
-            && fields[3].parse::<u32>().ok() == Some(p.pane.pid),
-        "PTY viewer exact pane/session mismatch"
-    );
-    let columns = fields[4].parse::<u16>()?;
-    let rows = fields[5].parse::<u16>()?;
-    ensure!(
-        // Match ResizeCommand's accepted geometry (session protocol v1).
-        // The smaller observed-startup bounds constrain initial layout only;
-        // TerminalPolicy has no separate post-start dimension ceiling.
-        columns > 0 && rows > 0 && columns <= 1000 && rows <= 1000,
-        "PTY viewer dimensions unavailable"
-    );
-    Ok((fields[0].to_owned(), columns, rows))
+impl ReaderHost<'_> {
+    fn query(&self, args: &[&str]) -> Result<Vec<u8>> {
+        terminal_io::guarded_tmux(
+            self.dir,
+            self.config,
+            self.host,
+            self.deadline,
+            self.host.permit_deadline_boot_ms,
+            args,
+        )
+    }
+
+    fn pane(&self) -> Result<(String, u16, u16)> {
+        let p = self.host.pane.as_ref().context("PTY viewer pane absent")?;
+        let value = self.query(&["display-message", "-p", "-t", &p.pane_id, PANE_METADATA])?;
+        let text = std::str::from_utf8(&value).context("PTY viewer identity encoding")?;
+        let fields: Vec<_> = text.trim_end_matches('\n').split('|').collect();
+        ensure!(
+            fields.len() == 6
+                && numeric_session(fields[0])
+                && fields[1] == p.session_name
+                && fields[2] == p.pane_id
+                && fields[3].parse::<u32>().ok() == Some(p.pane.pid),
+            "PTY viewer exact pane/session mismatch"
+        );
+        let columns = fields[4].parse::<u16>()?;
+        let rows = fields[5].parse::<u16>()?;
+        ensure!(
+            // Match ResizeCommand's accepted geometry (session protocol v1).
+            // The smaller observed-startup bounds constrain initial layout only;
+            // TerminalPolicy has no separate post-start dimension ceiling.
+            columns > 0 && rows > 0 && columns <= 1000 && rows <= 1000,
+            "PTY viewer dimensions unavailable"
+        );
+        Ok((fields[0].to_owned(), columns, rows))
+    }
+    fn verify_client(&self, pid: u32, session: &str) -> Result<()> {
+        let policy = self.query(&["show-options", "-Av", "-t", session, "detach-on-destroy"])?;
+        ensure!(
+            policy == b"on\n",
+            "PTY viewer requires detach-on-destroy on"
+        );
+        let clients = self.query(&["list-clients", "-F", CLIENT_METADATA])?;
+        let expected = format!("{pid}|{session}");
+        ensure!(
+            std::str::from_utf8(&clients)?
+                .lines()
+                .any(|v| v == expected),
+            "PTY viewer client target changed"
+        );
+        Ok(())
+    }
 }
 fn numeric_session(s: &str) -> bool {
     s.strip_prefix('$')
         .is_some_and(|v| !v.is_empty() && v.len() <= 10 && v.bytes().all(|b| b.is_ascii_digit()))
 }
-fn verify_client(
-    dir: &Path,
-    config: &SealedLaunch,
-    host: &HostObservation,
-    deadline: u64,
-    pid: u32,
-    session: &str,
-) -> Result<()> {
-    let policy = terminal_io::guarded_tmux(
-        dir,
-        config,
-        host,
-        deadline,
-        host.permit_deadline_boot_ms,
-        &["show-options", "-Av", "-t", session, "detach-on-destroy"],
-    )?;
-    ensure!(
-        policy == b"on\n",
-        "PTY viewer requires detach-on-destroy on"
-    );
-    let clients = terminal_io::guarded_tmux(
-        dir,
-        config,
-        host,
-        deadline,
-        host.permit_deadline_boot_ms,
-        &["list-clients", "-F", CLIENT_METADATA],
-    )?;
-    let expected = format!("{pid}|{session}");
-    ensure!(
-        std::str::from_utf8(&clients)?
-            .lines()
-            .any(|v| v == expected),
-        "PTY viewer client target changed"
-    );
-    Ok(())
-}
-pub(crate) fn spawn(
-    dir: &Path,
-    config: &SealedLaunch,
-    host: &HostObservation,
-    deadline: u64,
-) -> Result<(Child, ViewerProcess, File)> {
-    let (session, columns, rows) = pane(dir, config, host, deadline)?;
+pub(crate) fn spawn(target: &ReaderHost<'_>) -> Result<(Child, ViewerProcess, File)> {
+    let (session, columns, rows) = target.pane()?;
     let (mut child, viewer, output) = spawn_attach(
-        &config.tmux,
-        &dir.join("tmux.sock"),
+        &target.config.tmux,
+        &target.dir.join("tmux.sock"),
         &session,
-        columns,
-        rows,
+        (columns, rows),
     )?;
     let ready: Result<()> = (|| {
         let end = Instant::now() + Duration::from_millis(250);
         loop {
-            if verify_client(dir, config, host, deadline, child.id(), &session).is_ok() {
+            if target.verify_client(child.id(), &session).is_ok() {
                 // Revalidate the actual pane after the attach became visible.
                 ensure!(
-                    pane(dir, config, host, deadline)? == (session.clone(), columns, rows),
+                    target.pane()? == (session.clone(), columns, rows),
                     "PTY viewer pane changed during attach"
                 );
                 return Ok(());
@@ -221,17 +189,7 @@ fn set_size(file: &File, columns: u16, rows: u16) -> Result<()> {
     );
     Ok(())
 }
-fn spawn_attach(
-    tmux: &Path,
-    socket: &Path,
-    session: &str,
-    columns: u16,
-    rows: u16,
-) -> Result<(Child, ViewerProcess, File)> {
-    ensure!(
-        numeric_session(session),
-        "PTY viewer numeric session required"
-    );
+fn viewer_pty(size: (u16, u16)) -> Result<(File, File)> {
     let mut master = -1;
     let mut slave = -1;
     ensure!(
@@ -255,7 +213,11 @@ fn spawn_attach(
             "PTY viewer descriptor protection unavailable"
         );
     }
-    set_size(&slave, columns, rows)?;
+    set_size(&slave, size.0, size.1)?;
+    Ok((master, slave))
+}
+
+fn attach_command(tmux: &Path, socket: &Path, session: &str, slave: File) -> Result<Command> {
     let mut command = Command::new(tmux);
     command
         .args(["-N", "-u", "-S"])
@@ -285,6 +247,21 @@ fn spawn_attach(
             Ok(())
         });
     }
+    Ok(command)
+}
+
+fn spawn_attach(
+    tmux: &Path,
+    socket: &Path,
+    session: &str,
+    size: (u16, u16),
+) -> Result<(Child, ViewerProcess, File)> {
+    ensure!(
+        numeric_session(session),
+        "PTY viewer numeric session required"
+    );
+    let (master, slave) = viewer_pty(size)?;
+    let mut command = attach_command(tmux, socket, session, slave)?;
     let output = master.try_clone()?;
     let child = command.spawn()?;
     Ok((
@@ -292,7 +269,7 @@ fn spawn_attach(
         ViewerProcess {
             master,
             session: session.to_owned(),
-            size: (columns, rows),
+            size,
             checked: Instant::now(),
         },
         output,
@@ -300,148 +277,4 @@ fn spawn_attach(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Real tmux/PTY regression for the V1 port. It exercises the read-only
-    // attach primitive, not a grant, baseline, provider or full-history claim.
-    #[test]
-    fn actual_readonly_pty_attach_redraws_idle_pane_and_detach_preserves_process() {
-        let temp = tempfile::tempdir().unwrap();
-        let socket = temp.path().join("tmux.sock");
-        let tmux = Path::new("/usr/bin/tmux");
-        struct Cleanup(PathBuf);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                let _ = Command::new("/usr/bin/tmux")
-                    .args(["-N", "-S"])
-                    .arg(&self.0)
-                    .arg("kill-server")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-            }
-        }
-        let _cleanup = Cleanup(socket.clone());
-        let start = Command::new(tmux)
-            .args(["-S"])
-            .arg(&socket)
-            .args([
-                "-f",
-                "/dev/null",
-                "new-session",
-                "-d",
-                "-x",
-                "80",
-                "-y",
-                "24",
-                "-s",
-                "viewer-proof",
-                r"printf '\033[2J\033[Hactual-pty-first-draw'; exec /bin/sleep 30",
-            ])
-            .output()
-            .unwrap();
-        assert!(start.status.success());
-        let query = |args: &[&str]| {
-            let value = Command::new(tmux)
-                .env_clear()
-                .env("PATH", "/usr/bin:/bin")
-                .args(["-N", "-S"])
-                .arg(&socket)
-                .args(args)
-                .output()
-                .unwrap();
-            assert!(value.status.success());
-            String::from_utf8(value.stdout).unwrap()
-        };
-        let session = query(&[
-            "display-message",
-            "-p",
-            "-t",
-            "viewer-proof:",
-            "#{session_id}",
-        ])
-        .trim()
-        .to_owned();
-        let pid: u32 = query(&["display-message", "-p", "-t", &session, "#{pane_pid}"])
-            .trim()
-            .parse()
-            .unwrap();
-        let pane = ownership::process_evidence(pid).unwrap();
-        let metadata = query(&["display-message", "-p", "-t", &session, PANE_METADATA]);
-        let fields: Vec<_> = metadata.trim_end_matches('\n').split('|').collect();
-        assert_eq!(fields.len(), 6);
-        assert_eq!(fields[0], session);
-        assert_eq!(fields[1], "viewer-proof");
-        assert_eq!(fields[3].parse::<u32>().unwrap(), pid);
-        assert_eq!(&fields[4..], ["80", "24"]);
-        let ready = Instant::now() + Duration::from_secs(2);
-        while !query(&["capture-pane", "-p", "-t", &session]).contains("actual-pty-first-draw") {
-            assert!(Instant::now() < ready);
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        // The pane is now idle: each attach must paint already existing text,
-        // rather than relying on a new future %output control event.
-        for _ in 0..2 {
-            let (mut child, viewer, mut output) =
-                spawn_attach(tmux, &socket, &session, 80, 24).unwrap();
-            let flags = unsafe { libc::fcntl(output.as_raw_fd(), libc::F_GETFL) };
-            assert_eq!(
-                unsafe { libc::fcntl(output.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
-                0
-            );
-            let end = Instant::now() + Duration::from_secs(2);
-            let mut received = Vec::new();
-            loop {
-                let mut bytes = [0u8; MAX_READ];
-                match output.read(&mut bytes) {
-                    Ok(n) if n > 0 => received.extend_from_slice(&bytes[..n]),
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                    _ => panic!("PTY viewer ended before redraw"),
-                }
-                if received
-                    .windows(b"actual-pty-first-draw".len())
-                    .any(|v| v == b"actual-pty-first-draw")
-                {
-                    break;
-                }
-                assert!(received.len() <= 65_536 && Instant::now() < end);
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            assert!(
-                query(&["list-clients", "-F", CLIENT_METADATA])
-                    .lines()
-                    .any(|line| line == format!("{}|{}", child.id(), session))
-            );
-            assert!(
-                query(&[
-                    "list-clients",
-                    "-F",
-                    "#{client_pid}|#{session_id}|#{client_flags}"
-                ])
-                .lines()
-                .any(|line| line.starts_with(&format!(
-                    "{}|{}|",
-                    child.id(),
-                    session
-                )) && line.contains("read-only")
-                    && line.contains("ignore-size"))
-            );
-            drop(output);
-            drop(viewer);
-            let end = Instant::now() + Duration::from_secs(1);
-            while child.try_wait().unwrap().is_none() && Instant::now() < end {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            if child.try_wait().unwrap().is_none() {
-                child.kill().unwrap();
-                child.wait().unwrap();
-            }
-            assert_eq!(ownership::process_evidence(pid).unwrap(), pane);
-            assert_eq!(
-                query(&["display-message", "-p", "-t", &session, "#{session_id}"]).trim(),
-                session
-            );
-        }
-    }
-}
+mod tests;

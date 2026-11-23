@@ -401,13 +401,16 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                 }
             }
         }
-        reader_owner.tick(
+        let reader_host = reader_lease::ReaderHost {
             dir,
-            &config,
-            &state,
-            wall_deadline,
-            &directory_guard,
+            config: &config,
+            host: &state,
+            deadline: wall_deadline,
+        };
+        reader_owner.tick(
+            &reader_host,
             reader_lease::Gate {
+                guard: &directory_guard,
                 highwater: &mut terminal_revision_highwater,
                 pending_observation: observed_owner
                     .as_ref()
@@ -416,12 +419,9 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
             },
         );
         viewer_owner.tick(
-            dir,
-            &config,
-            &state,
-            wall_deadline,
-            &directory_guard,
+            &reader_host,
             reader_lease::Gate {
+                guard: &directory_guard,
                 highwater: &mut viewer_revision_highwater,
                 pending_observation: false,
             },
